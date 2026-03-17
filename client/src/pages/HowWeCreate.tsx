@@ -35,7 +35,7 @@ const principles = [
   },
   {
     title: "Seasonal Rhythm",
-    description: "We operate in seasons, with festivals marking transitions. Each season brings new opportunities for roles and growth.",
+    description: "Every 3 months, the community decides together what kind of season comes next — not a fixed cycle, but a living response to what Amora needs most right now.",
     icon: Repeat,
   },
 ];
@@ -377,16 +377,36 @@ export default function HowWeCreate() {
               <h2 className="font-display text-3xl md:text-4xl font-semibold text-foreground mb-4">
                 Seasonal Rhythm
               </h2>
-              <p className="text-muted-foreground">
-                We operate in seasons, with festivals marking transitions and opportunities for renewal.
+              <p className="text-muted-foreground max-w-xl mx-auto">
+                Every 3 months, the community votes on what kind of season comes next — not a fixed cycle, but a collective response to what Amora needs most. Each season is its own chapter.
               </p>
             </motion.div>
             <div className="grid sm:grid-cols-2 gap-6">
               {[
-                { season: "Spring", color: "bg-green-100 text-green-700", desc: "New beginnings, role proposals, and planting intentions" },
-                { season: "Summer", color: "bg-yellow-100 text-yellow-700", desc: "Celebration, community building, and peak activity" },
-                { season: "Fall", color: "bg-orange-100 text-orange-700", desc: "Harvest, gratitude, and reflection on achievements" },
-                { season: "Winter", color: "bg-blue-100 text-blue-700", desc: "Rest, planning, and preparing for the new year" },
+                {
+                  season: "Spring",
+                  emoji: "🌱",
+                  color: "bg-green-100 text-green-700",
+                  desc: "Breaking ground. Starting new buildings, projects, and initiatives. The season for bold beginnings and planting what we want to grow.",
+                },
+                {
+                  season: "Summer",
+                  emoji: "☀️",
+                  color: "bg-yellow-100 text-yellow-700",
+                  desc: "Full momentum. Festivals, events, gatherings, and high community activity. The season to show up, celebrate, and build together at full energy.",
+                },
+                {
+                  season: "Fall",
+                  emoji: "🍂",
+                  color: "bg-orange-100 text-orange-700",
+                  desc: "Harvest time. Reflection, lessons learned, and appreciating the abundance we've created. The season to gather what we've grown and give thanks.",
+                },
+                {
+                  season: "Winter",
+                  emoji: "❄️",
+                  color: "bg-blue-100 text-blue-700",
+                  desc: "Deep design. Systems redesign, governance evolution, economic modelling, financial preparation, and investor relations. The season to think long.",
+                },
               ].map((item, index) => (
                 <motion.div
                   key={item.season}
@@ -395,13 +415,16 @@ export default function HowWeCreate() {
                   viewport={{ once: true }}
                   transition={{ delay: index * 0.1 }}
                   whileHover={{ scale: 1.03 }}
-                  className="bg-card p-6 rounded-xl shadow-sm text-center border border-border/50"
+                  className="bg-card p-6 rounded-xl shadow-sm border border-border/50"
                 >
-                  <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium mb-3 ${item.color}`}>
-                    {item.season}
-                  </span>
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-2xl">{item.emoji}</span>
+                    <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${item.color}`}>
+                      {item.season}
+                    </span>
+                  </div>
                   <h3 className="font-display text-xl font-semibold text-foreground mb-2">
-                    {item.season} Festival
+                    {item.season} Season
                   </h3>
                   <p className="text-sm text-muted-foreground">
                     {item.desc}
@@ -409,6 +432,20 @@ export default function HowWeCreate() {
                 </motion.div>
               ))}
             </div>
+            <motion.div
+              className="mt-8 p-5 bg-white/60 rounded-xl text-center border border-border/40"
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.4 }}
+            >
+              <p className="text-sm text-muted-foreground">
+                <strong>No fixed cycle.</strong> At the end of each season, the community comes together to vote on what's needed next.
+                A village that just built all summer might choose Winter to design what comes next.
+                A village deep in planning might choose Spring to break ground.
+                The seasons follow Amora's needs — not a calendar.
+              </p>
+            </motion.div>
           </div>
 
           {/* CTA */}

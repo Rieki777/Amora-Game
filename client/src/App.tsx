@@ -25,11 +25,13 @@ import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import GoodNeighbor from "./pages/GoodNeighbor";
+import JourneyToLaunch from "./pages/JourneyToLaunch";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/journey-to-launch" component={JourneyToLaunch} />
       <Route path="/investor" component={InvestorJourney} />
       <Route path="/steward" component={StewardJourney} />
       <Route path="/resident" component={ResidentJourney} />

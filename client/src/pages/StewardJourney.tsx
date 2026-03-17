@@ -539,9 +539,7 @@ export default function StewardJourney() {
               Seasonal Festivals
             </h2>
             <p className="text-muted-foreground mb-8">
-              Amora operates on a seasonal rhythm. Each season brings new opportunities 
-              to propose roles, celebrate achievements, and plan for the future. 
-              Participate in seasonal festivals to connect with the community.
+              Every 3 months, the community votes on what kind of season comes next. Seasons aren't on a fixed cycle — they're chosen based on what Amora needs. Spring for new builds, Summer for events and energy, Fall for harvest and reflection, Winter for systems design and planning. Each seasonal transition is marked by a festival.
             </p>
             <Link
               href="/how-we-create"
