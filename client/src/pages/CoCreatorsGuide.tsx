@@ -59,7 +59,7 @@ const heartsItems = {
     "Village dues & utilities",
     "Cafe & shop services",
     "Community offerings",
-    "Convert to cash (5% fee)",
+    "Future: convert to cash or equity as Amora matures",
   ],
 };
 
@@ -381,9 +381,9 @@ export default function CoCreatorsGuide() {
                 The Hearts Economy
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                Hearts are our community currency, representing trust, contribution, and
-                participation. They flow through the village, rewarding generosity and
-                enabling members to thrive together.
+                Hearts track the value you contribute to Amora. Right now, 1 Heart = $1 USD in
+                contributed value — work, time, and resources that we can't yet pay in cash.
+                As Amora matures, Hearts convert to cash or equity.
               </p>
             </div>
 
@@ -452,7 +452,7 @@ export default function CoCreatorsGuide() {
                   <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center">
                     <Zap className="w-6 h-6 text-amber" />
                   </div>
-                  <h3 className="font-bold text-xl text-foreground">Spend Hearts</h3>
+                  <h3 className="font-bold text-xl text-foreground">Use Hearts</h3>
                 </div>
                 <div className="space-y-3">
                   {heartsItems.spend.map((item, idx) => (

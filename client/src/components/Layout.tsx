@@ -1,15 +1,25 @@
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart, TreePine, Menu, X, User, LogOut } from "lucide-react";
-import { useState } from "react";
+import { Heart, TreePine, Menu, X, User, LogOut, ChevronDown, TrendingUp, Users, Home as HomeIcon, Sparkles } from "lucide-react";
+import { useState, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
+const paths = [
+  { href: "/investor", label: "Investor", subtitle: "Capital Contributor", icon: TrendingUp },
+  { href: "/steward", label: "Village Steward", subtitle: "Co-Creator", icon: Users },
+  { href: "/resident", label: "Resident", subtitle: "Co-Creator", icon: HomeIcon },
+  { href: "/prosperity", label: "Prosperity Creator", subtitle: "Business Builder", icon: Sparkles },
+];
+
 export default function Layout({ children }: LayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pathsOpen, setPathsOpen] = useState(false);
+  const [mobilePathsOpen, setMobilePathsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
 
   return (
@@ -31,6 +41,48 @@ export default function Layout({ children }: LayoutProps) {
             <Link href="/" className="text-white/70 hover:text-white transition-colors text-sm">
               Home
             </Link>
+
+            {/* Your Path Dropdown */}
+            <div
+              ref={dropdownRef}
+              className="relative"
+              onMouseEnter={() => setPathsOpen(true)}
+              onMouseLeave={() => setPathsOpen(false)}
+            >
+              <button className="flex items-center gap-1 text-white/70 hover:text-white transition-colors text-sm">
+                Your Path
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${pathsOpen ? "rotate-180" : ""}`} />
+              </button>
+              <AnimatePresence>
+                {pathsOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-56 bg-white rounded-xl shadow-xl overflow-hidden z-50"
+                  >
+                    {paths.map((path) => (
+                      <Link key={path.href} href={path.href}>
+                        <a
+                          className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group"
+                          onClick={() => setPathsOpen(false)}
+                        >
+                          <div className="mt-0.5 w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
+                            <path.icon className="w-3.5 h-3.5 text-primary" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-gray-900">{path.label}</div>
+                            <div className="text-xs text-gray-500">{path.subtitle}</div>
+                          </div>
+                        </a>
+                      </Link>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
             <Link href="/circles" className="text-white/70 hover:text-white transition-colors text-sm">
               Circles
             </Link>
@@ -95,16 +147,44 @@ export default function Layout({ children }: LayoutProps) {
               className="md:hidden bg-teal-deep/95 border-t border-white/10 overflow-hidden"
             >
               <div className="container py-4 space-y-3">
-                <Link href="/" className="block text-white/70 hover:text-white transition-colors text-sm py-2">
+                <Link href="/" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   Home
                 </Link>
-                <Link href="/circles" className="block text-white/70 hover:text-white transition-colors text-sm py-2">
+
+                {/* Mobile Paths Accordion */}
+                <div>
+                  <button
+                    onClick={() => setMobilePathsOpen(!mobilePathsOpen)}
+                    className="flex items-center justify-between w-full text-white/70 hover:text-white transition-colors text-sm py-2"
+                  >
+                    <span>Your Path</span>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${mobilePathsOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  <AnimatePresence>
+                    {mobilePathsOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden pl-3 border-l border-white/20 ml-1 space-y-1"
+                      >
+                        {paths.map((path) => (
+                          <Link key={path.href} href={path.href} className="block text-white/60 hover:text-white transition-colors text-sm py-1.5" onClick={() => { setMobileMenuOpen(false); setMobilePathsOpen(false); }}>
+                            {path.label}
+                          </Link>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                <Link href="/circles" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   Circles
                 </Link>
-                <Link href="/roles" className="block text-white/70 hover:text-white transition-colors text-sm py-2">
+                <Link href="/roles" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   Roles
                 </Link>
-                <Link href="/how-we-create" className="block text-white/70 hover:text-white transition-colors text-sm py-2">
+                <Link href="/how-we-create" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   How We Create
                 </Link>
                 {user ? (

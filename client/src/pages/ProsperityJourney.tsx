@@ -35,7 +35,7 @@ const journeySteps = [
     link: "https://amora.cr/event/discover-amora-webinar-qa/",
     linkText: "Join Community Call",
     external: true,
-    details: ["Understand our economic vision", "Learn about Hearts currency", "Meet other entrepreneurs", "Ask questions live"]
+    details: ["Understand our economic vision", "Learn how Hearts track contributions", "Meet other entrepreneurs", "Ask questions live"]
   },
   {
     id: "prosperity-packet",
@@ -86,12 +86,12 @@ const journeySteps = [
     id: "launch",
     stage: "Builder",
     title: "Launch Your Business",
-    description: "Integrate with the Hearts economy and begin serving the Amora community.",
+    description: "Integrate with the Hearts contribution system and begin serving the Amora community.",
     icon: PartyPopper,
     link: "#",
     linkText: "Launch Checklist",
     external: false,
-    details: ["Integrate Hearts payment system", "Set up community dashboard", "Train your team", "Celebrate your launch"]
+    details: ["Integrate Hearts tracking", "Set up community dashboard", "Train your team", "Celebrate your launch"]
   },
   {
     id: "impact",
@@ -217,8 +217,8 @@ export default function ProsperityJourney() {
               className="text-xl text-muted-foreground leading-relaxed mb-8"
             >
               Launch a business that serves the community and regenerates our ecosystem. 
-              Share in our collective success through the Hearts economy and advance your 
-              impact through our ARI tiers.
+              Every contribution is tracked in Hearts — our way of acknowledging value before
+              we can pay in cash. Advance your impact through our ARI tiers.
             </motion.p>
 
             <motion.div
@@ -267,8 +267,7 @@ export default function ProsperityJourney() {
                 Hearts Economy
               </h3>
               <p className="text-muted-foreground text-sm">
-                All businesses integrate with our regenerative economy. Revenue shares are paid in Hearts, 
-                our community currency pegged to Costa Rican colones, creating circular value exchange.
+                All businesses integrate with our contribution tracking system. Revenue shares are paid in Hearts — 1 Heart = $1 USD in value. As Amora matures, Hearts convert to cash or equity.
               </p>
             </motion.div>
 

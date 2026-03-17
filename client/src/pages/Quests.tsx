@@ -301,10 +301,10 @@ export default function Quests() {
               Community Quests
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-4">
-              Quests are how you contribute to the village and earn Hearts—the
-              living currency of Amora's gift economy. Every quest builds
-              relationships, regenerates the land, and grows the community's
-              collective score.
+              Quests are how you contribute to the village and earn Hearts — our
+              way of acknowledging every contribution. 1 Heart = $1 USD in value.
+              Every quest builds relationships, regenerates the land, and grows the
+              community's collective score.
             </p>
             <p className="text-sm text-muted-foreground">
               {quests.length} active quests &nbsp;·&nbsp; up to{" "}
@@ -490,8 +490,8 @@ export default function Quests() {
               What Are Hearts?
             </h2>
             <p className="text-muted-foreground text-center mb-10">
-              Hearts are Amora's internal currency — a recognition system that
-              tracks real contribution and unlocks real benefits.
+              Hearts are how Amora tracks contributions. Right now, 1 Heart = $1 USD in value
+              contributed. As Amora matures, Hearts convert to cash or equity.
             </p>
             <div className="grid sm:grid-cols-3 gap-6">
               {[
@@ -502,12 +502,12 @@ export default function Quests() {
                 },
                 {
                   title: "Hold",
-                  body: "Hearts accumulate in your Village Profile and reflect your contribution history. They're part of your identity here.",
+                  body: "Hearts accumulate in your Village Profile and reflect your full contribution history. They're a record of everything you've invested.",
                   icon: Star,
                 },
                 {
-                  title: "Spend",
-                  body: "Redeem Hearts for services, land access, retreat credits, governance weight, and recognition within the village economy.",
+                  title: "Convert",
+                  body: "As Amora grows financially, Hearts convert to cash or equity. This is how we honor contributions made before we could pay in cash.",
                   icon: Sprout,
                 },
               ].map((item) => (

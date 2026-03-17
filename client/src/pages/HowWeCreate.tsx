@@ -30,7 +30,7 @@ const principles = [
   },
   {
     title: "Hearts Economy",
-    description: "Our community currency creates a circular economy where prosperity flows back to those who contribute. Pegged to Costa Rican colones.",
+    description: "Our contribution tracking system acknowledges every dollar of value we create together. 1 Heart = $1 USD in value contributed — a record of what we're building collectively.",
     icon: Heart,
   },
   {
@@ -43,18 +43,18 @@ const principles = [
 const heartsInfo = [
   {
     title: "Earn Hearts",
-    description: "Complete quests, fulfill roles, or receive revenue shares from community and private businesses.",
-    icon: "₡",
+    description: "Complete quests, fulfill roles, or receive revenue shares from community and private businesses. Every contribution gets acknowledged.",
+    icon: "🤝",
   },
   {
-    title: "Spend Hearts",
-    description: "Pay for HOA, utilities, services, café, shop, and more within the village.",
-    icon: "🛒",
+    title: "Track Value",
+    description: "1 Heart = $1 USD in value contributed. Hearts are our honest record of the work, time, and resources everyone is pooling to make Amora real.",
+    icon: "📊",
   },
   {
-    title: "Convert to Colones",
-    description: "Convert Hearts to Costa Rican colones (₡) with a 5% fee, which supports community operations.",
-    icon: "💱",
+    title: "Future Conversion",
+    description: "As Amora matures, Hearts will convert to cash or equity. For now, they're how we honor contributions we can't yet pay in cash.",
+    icon: "🌱",
   },
 ];
 
@@ -175,11 +175,10 @@ export default function HowWeCreate() {
                 The Hearts Economy
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto mb-2">
-                Hearts is our community currency pegged to <strong>Costa Rican colones (₡)</strong>. 
-                All revenue shares from community and private businesses are paid in Hearts.
+                Hearts are how we track contributions. Right now, <strong>1 Heart = $1 USD</strong> in value contributed — work, time, resources, and expertise that we can't yet pay in cash.
               </p>
               <p className="text-sm text-muted-foreground">
-                1 Heart = 1 Colón (₡) | Current exchange: ~₡510 = $1 USD
+                Every Heart is a promise: as Amora grows, contributions convert to cash or equity.
               </p>
             </div>
 
@@ -211,7 +210,7 @@ export default function HowWeCreate() {
               ))}
             </div>
 
-            <motion.div 
+            <motion.div
               className="text-center mt-8 p-4 bg-white/50 rounded-xl max-w-2xl mx-auto"
               initial={{ opacity: 0 }}
               whileInView={{ opacity: 1 }}
@@ -219,9 +218,9 @@ export default function HowWeCreate() {
               transition={{ delay: 0.5 }}
             >
               <p className="text-muted-foreground">
-                The <strong>5% conversion fee</strong> encourages spending within the community, 
-                strengthening our local economy and creating shared prosperity. This fee supports 
-                community operations and the commons.
+                Hearts aren't a currency yet — they're a <strong>record of shared investment</strong>.
+                We're tracking the full value of what everyone is contributing so no one's effort
+                goes unacknowledged when Amora becomes financially whole.
               </p>
             </motion.div>
           </motion.div>
