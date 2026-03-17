@@ -1,0 +1,485 @@
+{
+  "investor": {
+    "journeySteps": [
+      {
+        "id": "discover",
+        "title": "Discover Amora",
+        "description": "Learn about our vision, values, and regenerative approach to community development.",
+        "action": "Join Community Call",
+        "link": "https://amora.cr/event/discover-amora-webinar-qa/",
+        "external": true,
+        "details": [
+          "Understand our mission and values",
+          "Learn about the land and location",
+          "Meet the founding team",
+          "Ask questions in a live Q&A"
+        ]
+      },
+      {
+        "id": "request",
+        "title": "Request Investor Pack",
+        "description": "Receive comprehensive investor materials including feasibility study, proformas, and development timeline.",
+        "action": "Request Pack",
+        "link": "mailto:invest@amora.cr?subject=Investor%20Pack%20Request",
+        "external": true,
+        "details": [
+          "15-year financial proformas",
+          "Feasibility study with market analysis",
+          "Development timeline and phases",
+          "Legal structure overview"
+        ]
+      },
+      {
+        "id": "call",
+        "title": "Schedule Investment Call",
+        "description": "Connect one-on-one with our team to discuss your investment goals and how they align with Amora.",
+        "action": "Schedule Call",
+        "link": "mailto:invest@amora.cr?subject=Investment%20Call%20Request",
+        "external": true,
+        "details": [
+          "Discuss investment options",
+          "Review financial projections",
+          "Understand debt vs equity structures",
+          "Explore your path to residency"
+        ]
+      },
+      {
+        "id": "commit",
+        "title": "Make Your Commitment",
+        "description": "Choose your investment vehicle and formalize your contribution to the Amora vision.",
+        "action": "Contact Team",
+        "link": "mailto:invest@amora.cr?subject=Investment%20Commitment",
+        "external": true,
+        "details": [
+          "Select investment structure",
+          "Review and sign agreements",
+          "Transfer funds securely",
+          "Receive investor updates"
+        ]
+      }
+    ]
+  },
+  "steward": {
+    "journeySteps": [
+      {
+        "id": "community-call",
+        "stage": "Visitor",
+        "title": "Attend Community Call",
+        "description": "Learn about the basics and ask any immediate questions about Amora.",
+        "action": "Join Community Call",
+        "link": "https://amora.cr/event/discover-amora-webinar-qa/",
+        "external": true,
+        "details": ["Meet the founding team", "Learn about our vision", "Ask questions live", "Connect with other visitors"]
+      },
+      {
+        "id": "events",
+        "stage": "Guest",
+        "title": "Participate in Events",
+        "description": "Join potlucks, events, workshops, and parties on our land to experience the community.",
+        "action": "View Events",
+        "link": "https://amora.cr/events/",
+        "external": true,
+        "details": ["Weekly potlucks", "Village weaving gatherings", "Land tours", "Workshops and retreats"]
+      },
+      {
+        "id": "training",
+        "stage": "Participant",
+        "title": "Community Training",
+        "description": "Complete training in NVC (Nonviolent Communication), authentic relating, and other community practices.",
+        "action": "Learn About Training",
+        "link": "/how-we-create",
+        "external": false,
+        "details": ["Nonviolent Communication basics", "Authentic relating practices", "Consent-based decision making", "Circle facilitation"]
+      },
+      {
+        "id": "love-letter",
+        "stage": "Member",
+        "title": "Become an Amorian",
+        "description": "Contemplate and sign our Love Letter, formally becoming a member of Amora 508c1a.",
+        "action": "Read the Love Letter",
+        "link": "/love-letter",
+        "external": false,
+        "details": ["Understand our values deeply", "Reflect on your commitment", "Sign the Love Letter", "Join the Amorian community"]
+      },
+      {
+        "id": "circle",
+        "stage": "Contributor",
+        "title": "Participate in a Circle",
+        "description": "Join one of our sociocratic circles to contribute to community decision-making.",
+        "action": "Explore Circles",
+        "link": "/circles",
+        "external": false,
+        "details": ["Choose a circle aligned with your gifts", "Attend circle meetings", "Participate in consent rounds", "Build relationships with circle members"]
+      },
+      {
+        "id": "quests",
+        "stage": "Quest Seeker",
+        "title": "Explore Quests",
+        "description": "Take on quests to contribute meaningfully to the village and demonstrate your commitment.",
+        "action": "View Quests",
+        "link": "/quests",
+        "external": false,
+        "details": ["Browse available quests", "Choose quests matching your skills", "Complete and document your work", "Earn Hearts for contributions"]
+      },
+      {
+        "id": "passage",
+        "stage": "Initiate",
+        "title": "Co-Creator Right of Passage",
+        "description": "Complete the right of passage with a vote from the Co-Creators circle to become a full member.",
+        "action": "Read Co-Creator Criteria",
+        "link": "/co-creators-guide",
+        "external": false,
+        "details": ["Demonstrate sustained commitment", "Present to the Co-Creators circle", "Receive consent from members", "Celebrate your passage"]
+      },
+      {
+        "id": "roles",
+        "stage": "Co-Creator",
+        "title": "Explore & Apply for Roles",
+        "description": "Find a role that aligns with your gifts and apply for the upcoming season.",
+        "action": "Explore Roles",
+        "link": "/roles",
+        "external": false,
+        "details": ["Review available roles", "Propose your role contribution", "Receive circle consent", "Begin your seasonal role"]
+      }
+    ]
+  },
+  "resident": {
+    "journeySteps": [
+      {
+        "id": "community-call",
+        "stage": "Visitor",
+        "title": "Attend Community Call",
+        "description": "Learn about the basics and ask any immediate questions about living at Amora.",
+        "action": "Join Community Call",
+        "link": "https://amora.cr/event/discover-amora-webinar-qa/",
+        "external": true,
+        "details": ["Meet the founding team", "Learn about our vision", "Ask questions live", "Connect with other visitors"]
+      },
+      {
+        "id": "events",
+        "stage": "Guest",
+        "title": "Participate in Events",
+        "description": "Join potlucks, events, workshops, and parties on our land to experience the community firsthand.",
+        "action": "View Events",
+        "link": "https://amora.cr/events/",
+        "external": true,
+        "details": ["Weekly potlucks", "Village weaving gatherings", "Land tours", "Workshops and retreats"]
+      },
+      {
+        "id": "housing",
+        "stage": "Explorer",
+        "title": "Explore Housing Options",
+        "description": "Browse available lots and housing options to find your perfect spot in the village.",
+        "action": "View Housing Options",
+        "link": "/housing",
+        "external": false,
+        "details": ["Browse available lots", "Review home design options", "Understand pricing tiers", "Explore financing options"]
+      },
+      {
+        "id": "love-letter",
+        "stage": "Member",
+        "title": "Become an Amorian",
+        "description": "Contemplate and sign our Love Letter, formally becoming a member of Amora 508c1a.",
+        "action": "Read the Love Letter",
+        "link": "/love-letter",
+        "external": false,
+        "details": ["Understand our values deeply", "Reflect on your commitment", "Sign the Love Letter", "Join the Amorian community"]
+      },
+      {
+        "id": "waitlist",
+        "stage": "Waitlist",
+        "title": "Join the Waitlist",
+        "description": "Get first right of refusal on land opportunities. Priority is first-come, first-served.",
+        "action": "Join Waitlist",
+        "link": "#",
+        "external": false,
+        "details": ["Secure your priority position", "First right of refusal", "Land opportunity notifications", "No obligation to purchase"]
+      },
+      {
+        "id": "passage",
+        "stage": "Initiate",
+        "title": "Resident Right of Passage",
+        "description": "Complete the passage with a vote from current residents. Review the Good Neighbor criteria.",
+        "action": "Good Neighbor Criteria",
+        "link": "/co-creators-guide",
+        "external": false,
+        "details": ["Demonstrate commitment", "Present to residents", "Receive community consent", "Celebrate your passage"]
+      },
+      {
+        "id": "land",
+        "stage": "Landowner",
+        "title": "Purchase Land Share Agreement",
+        "description": "Secure your land with a Land Share Agreement and required Land Credits.",
+        "action": "Learn About Land Shares",
+        "link": "#",
+        "external": false,
+        "details": ["Review agreement terms", "Secure financing if needed", "Complete land credits", "Sign your agreement"]
+      },
+      {
+        "id": "build",
+        "stage": "Builder",
+        "title": "Build Your Home",
+        "description": "Work with our approved builders or bring your own plans.",
+        "action": "Building Guidelines",
+        "link": "/housing",
+        "external": false,
+        "details": ["Choose your home design", "Select your builder", "Follow building guidelines", "Create your dream home"]
+      },
+      {
+        "id": "move-in",
+        "stage": "Resident",
+        "title": "Move In Celebration!",
+        "description": "Welcome home! Celebrate with the Amorians and begin your life in the village.",
+        "action": "Welcome Home",
+        "link": "#",
+        "external": false,
+        "details": ["Community welcome ceremony", "Meet your neighbors", "Begin village life", "Celebrate your new home"]
+      }
+    ]
+  },
+  "prosperity": {
+    "journeySteps": [
+      {
+        "id": "community-call",
+        "stage": "Explorer",
+        "title": "Attend Community Call",
+        "description": "Learn about business opportunities at Amora and ask questions about our economic model.",
+        "action": "Join Community Call",
+        "link": "https://amora.cr/event/discover-amora-webinar-qa/",
+        "external": true,
+        "details": ["Understand our economic vision", "Learn about Hearts currency", "Meet other entrepreneurs", "Ask questions live"]
+      },
+      {
+        "id": "opportunities",
+        "stage": "Researcher",
+        "title": "Explore Commercial Opportunities",
+        "description": "Review available business opportunities and find one that excites you.",
+        "action": "View Opportunities",
+        "link": "/opportunities",
+        "external": false,
+        "details": ["Browse available opportunities", "Review revenue share models", "Understand space requirements", "Identify your fit"]
+      },
+      {
+        "id": "love-letter",
+        "stage": "Member",
+        "title": "Become an Amorian",
+        "description": "Contemplate and sign our Love Letter to formally join the Amora community.",
+        "action": "Read the Love Letter",
+        "link": "/love-letter",
+        "external": false,
+        "details": ["Understand our values", "Reflect on alignment", "Sign the Love Letter", "Join the community"]
+      },
+      {
+        "id": "business-plan",
+        "stage": "Applicant",
+        "title": "Submit a Business Plan",
+        "description": "Present your business concept for community review and approval.",
+        "action": "Submit Plan",
+        "link": "mailto:business@amora.cr?subject=Business%20Plan%20Submission",
+        "external": true,
+        "details": ["Prepare your business plan", "Include revenue projections", "Describe community benefit", "Submit for review"]
+      },
+      {
+        "id": "approval",
+        "stage": "Candidate",
+        "title": "Community Approval",
+        "description": "Present your business to the Prosperity Circle for consent-based approval.",
+        "action": "Learn About Circles",
+        "link": "/circles",
+        "external": false,
+        "details": ["Present to Prosperity Circle", "Answer community questions", "Receive consent decision", "Integrate feedback"]
+      },
+      {
+        "id": "agreement",
+        "stage": "Partner",
+        "title": "Sign Business Agreement",
+        "description": "Formalize your business arrangement including revenue share and operational terms.",
+        "action": "Review Agreement Terms",
+        "link": "#",
+        "external": false,
+        "details": ["Review agreement terms", "Understand revenue share", "Clarify responsibilities", "Sign the agreement"]
+      },
+      {
+        "id": "launch",
+        "stage": "Operator",
+        "title": "Launch Your Business",
+        "description": "Open your doors and begin serving the Amora community and visitors!",
+        "action": "Launch Checklist",
+        "link": "#",
+        "external": false,
+        "details": ["Complete setup requirements", "Train your team", "Grand opening celebration", "Begin operations"]
+      }
+    ]
+  },
+  "circles": [
+    {
+      "name": "Permaculture Council",
+      "subtitle": "Land Stewardship & Food Systems",
+      "description": "Cares for the land through regenerative agriculture, landscaping, and ecological restoration.",
+      "domain": "Food systems, regenerative agriculture, landscaping, land stewardship",
+      "members": "Residents involved in farming, gardening, and land management",
+      "focus": ["Regenerative Agriculture", "Water & Energy Systems", "Wildlife & Ecosystem Care"]
+    },
+    {
+      "name": "Education Council",
+      "subtitle": "Learning & Development",
+      "description": "Supports children's education, adult learning, and knowledge sharing across the community.",
+      "domain": "Children's education, adult learning, knowledge sharing",
+      "members": "Parents, teachers, educational facilitators",
+      "focus": ["Children's School", "Adult Learning Programs", "Knowledge Sharing"]
+    },
+    {
+      "name": "Culture & Arts Council",
+      "subtitle": "Creative Expression",
+      "description": "Cultivates artistic expression, musical events, and cultural programming for the community.",
+      "domain": "Musical events, artistic expression, cultural programming",
+      "members": "Artists, musicians, event organizers, cultural enthusiasts",
+      "focus": ["Cultural Events", "Artistic Programs", "Music & Performance"]
+    },
+    {
+      "name": "Health & Healing Council",
+      "subtitle": "Wellness & Care",
+      "description": "Coordinates wellness services, healing modalities, and community health initiatives.",
+      "domain": "Wellness services, healing modalities, community health",
+      "members": "Health practitioners, wellness facilitators, fitness leaders",
+      "focus": ["Wellness Services", "Healing Modalities", "Community Health"]
+    },
+    {
+      "name": "Building & Village Council",
+      "subtitle": "Infrastructure & Maintenance",
+      "description": "Oversees construction, maintenance, infrastructure development, and architectural decisions.",
+      "domain": "Construction oversight, maintenance, infrastructure, architecture",
+      "members": "Construction-savvy residents, architects, designers, maintenance coordinators",
+      "focus": ["Construction Oversight", "Infrastructure", "Maintenance & Repairs"]
+    },
+    {
+      "name": "Business & Finance Council",
+      "subtitle": "Economic Sustainability",
+      "description": "Governs community financial decisions, business enterprises, and economic sustainability.",
+      "domain": "Community financial governance, enterprises, financial sustainability, local economy",
+      "members": "Entrepreneurs, business operators, financial managers",
+      "focus": ["Financial Governance", "Business Development", "Hearts Economy"]
+    },
+    {
+      "name": "Community Life Council",
+      "subtitle": "Social Connection",
+      "description": "Coordinates social events, conflict resolution, and community celebrations.",
+      "domain": "Social coordination, conflict resolution, celebrations",
+      "members": "Social coordinators, facilitators, community builders",
+      "focus": ["Social Coordination", "Conflict Resolution", "Celebrations & Events"]
+    },
+    {
+      "name": "Intergenerational Wisdom Council",
+      "subtitle": "Wisdom & Rights of Nature",
+      "description": "Bridges generations through elder care, children's advocacy, indigenous practices, and rights of nature.",
+      "domain": "Elder care, children's advocacy, indigenous practices, rights of nature",
+      "members": "Elders, parents, indigenous wisdom keepers, earth-centered practitioners",
+      "focus": ["Elder Care", "Children's Advocacy", "Indigenous Wisdom", "Rights of Nature"]
+    }
+  ],
+  "roles": [
+    {
+      "id": "board",
+      "name": "Development Board of Directors",
+      "purpose": "Strategic oversight and fiduciary responsibility for business, legal, and financial aspects of creating Amora",
+      "size": "5-7 expert members",
+      "terms": "3-year terms, renewable",
+      "compensation": "Equity participation in development profits and/or first right of refusal on premium lots",
+      "members": [
+        "Angel Investor (permanent seat)",
+        "CEO and Founder (Jess or designated representative)",
+        "Legal/Regulatory Expert (Costa Rican law specialist)",
+        "Real Estate Development Expert",
+        "Financial/Investment Expert",
+        "Community Development Specialist",
+        "Sustainability/Regenerative Systems Expert"
+      ],
+      "responsibilities": [
+        "Approve major financial decisions and budget allocations",
+        "Oversee legal entity structure and compliance",
+        "Review and approve development timeline milestones",
+        "Ensure investor protection and return strategies",
+        "Approve lot sales pricing and terms"
+      ],
+      "timeCommitment": [
+        "Monthly Board Meetings (1-2 hours via video conference)",
+        "Quarterly Strategic Sessions (2-3 hours)",
+        "Annual Strategic Planning Retreat (2-3 days)"
+      ]
+    },
+    {
+      "id": "advisory",
+      "name": "Community Advisory Council",
+      "purpose": "Strategic input on community culture, programming, partnerships, and local integration",
+      "size": "10-14 influential practitioners and thought leaders",
+      "terms": "Flexible, ongoing",
+      "compensation": "First Right of Refusal on lot purchases, 50% Retreat Discounts, Token Allocation",
+      "members": [
+        "Regenerative Agriculture/Permaculture Leaders",
+        "Wellness & Healing Arts Practitioners",
+        "Education & Child Development Experts",
+        "Arts & Culture Leaders",
+        "Local Community Representatives (2-3 from Dominicalito)"
+      ],
+      "responsibilities": [
+        "Advise on community programming and cultural development",
+        "Provide introductions to potential residents and partners",
+        "Serve as ambassadors for the Amora vision",
+        "Ensure positive integration with local Costa Rican communities"
+      ],
+      "timeCommitment": [
+        "Bi-Monthly Virtual Advisory Sessions (1.5-2 hours, 6 per year)",
+        "Annual Visioning Retreat (2-3 days, all expenses covered)"
+      ]
+    },
+    {
+      "id": "leadership",
+      "name": "Leadership Council",
+      "purpose": "Coordinate between Circles and represent community interests to Core Team and Board",
+      "size": "8 representatives (one from each Circle)",
+      "terms": "6-month terms for Representatives, 1-year for Facilitator",
+      "compensation": "Community recognition and leadership development opportunities",
+      "members": [
+        "One Representative from each active Circle",
+        "Facilitator (elected from among Representatives, 1-year term)",
+        "Core Team Liaison (non-voting participant)"
+      ],
+      "responsibilities": [
+        "Coordinate between Circles on overlapping issues",
+        "Represent community interests to Core Team and Board",
+        "Approve community-wide policies and guidelines",
+        "Facilitate communication between governance levels"
+      ],
+      "timeCommitment": [
+        "Weekly Leadership Meetings (1 hour, virtual)",
+        "Monthly Strategic Sessions (2-3 hours)",
+        "Annual Planning Retreat with Board and Advisory Council (2 days)"
+      ]
+    },
+    {
+      "id": "core",
+      "name": "Core Team",
+      "purpose": "Manages day-to-day project execution and serves as bridge between all governance levels",
+      "size": "5-7 members",
+      "terms": "Ongoing during development, evolving as community matures",
+      "compensation": "Salary, equity participation, and community benefits",
+      "members": [
+        "CEO and Founder (Jess)",
+        "Development Manager (Darren)",
+        "Finance Manager (Ky)",
+        "Strategic Systems Manager (Alex)"
+      ],
+      "responsibilities": [
+        "Day-to-day project execution and development coordination",
+        "Bridge between all governance levels",
+        "Implement Board decisions and Circle initiatives",
+        "Manage development timeline and milestones"
+      ],
+      "timeCommitment": [
+        "Full-time commitment during development phases",
+        "Weekly Core Team meetings",
+        "Monthly community forums (1-2 hours)"
+      ]
+    }
+  ]
+}

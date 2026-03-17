@@ -1,0 +1,468 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* 
+ * AMORA CO-CREATE DESIGN SYSTEM
+ * Based on Official Amora Brand Guidelines
+ * - Deep teal primary color palette
+ * - Serenity-style serif for headings (using Cormorant Garamond as substitute)
+ * - Clean sans-serif body (Montserrat)
+ * - Golden amber accents
+ * - Liquid backgrounds with iridescence
+ * - Heart-centered, feminine energy
+ */
+
+@theme inline {
+  /* Serenity is the official Amora brand font. Drop Serenity.ttf into
+     client/public/assets/fonts/ and it will activate automatically.
+     Raleway (Google Fonts) is the free alternative with the same clean elegance. */
+  --font-display: "Serenity", "Raleway", "Cormorant Garamond", Georgia, serif;
+  --font-body: "Montserrat", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-accent: "Kalam", cursive;
+  
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  
+  /* Amora Brand Colors - from Official Brand Guidelines */
+  --color-teal-deep: oklch(0.40 0.08 195);      /* #2D5A5A - Primary deep teal */
+  --color-teal: oklch(0.48 0.08 195);           /* #4A7C7C - Medium teal */
+  --color-teal-light: oklch(0.58 0.07 195);     /* #6A9A9A - Light teal */
+  --color-aqua: oklch(0.72 0.08 195);           /* #7FB5B5 - Aqua */
+  --color-aqua-light: oklch(0.82 0.05 195);     /* #B8D4D4 - Very light aqua */
+  --color-cream: oklch(0.97 0.005 90);          /* #F2F2F2 - Off-white/cream */
+  --color-amber: oklch(0.78 0.14 75);           /* #ECB163 - Golden amber accent */
+  --color-cyan: oklch(0.80 0.15 185);           /* #0FE8D7 - Bright cyan accent */
+  --color-sage: oklch(0.55 0.08 160);           /* Sage green */
+  --color-forest: oklch(0.35 0.08 160);         /* Deep forest */
+}
+
+:root {
+  /* Amora Brand Theme - Official Brand Guidelines */
+  --primary: oklch(0.40 0.08 195); /* Deep teal - primary brand color */
+  --primary-foreground: oklch(0.98 0.005 90); /* Cream white */
+  --sidebar-primary: oklch(0.35 0.08 195);
+  --sidebar-primary-foreground: oklch(0.98 0.005 90);
+  --chart-1: oklch(0.40 0.08 195); /* Deep teal */
+  --chart-2: oklch(0.48 0.08 195); /* Medium teal */
+  --chart-3: oklch(0.58 0.07 195); /* Light teal */
+  --chart-4: oklch(0.78 0.14 75);  /* Golden amber */
+  --chart-5: oklch(0.72 0.08 195); /* Aqua */
+  --radius: 0.5rem;
+  --background: oklch(0.98 0.005 90); /* Warm cream white */
+  --foreground: oklch(0.25 0.05 195); /* Deep teal-charcoal */
+  --card: oklch(1 0 0); /* Pure white cards */
+  --card-foreground: oklch(0.25 0.05 195);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.25 0.05 195);
+  --secondary: oklch(0.78 0.14 75); /* Golden amber */
+  --secondary-foreground: oklch(0.20 0.05 195);
+  --muted: oklch(0.95 0.01 195);
+  --muted-foreground: oklch(0.45 0.05 195);
+  --accent: oklch(0.80 0.15 185); /* Bright cyan */
+  --accent-foreground: oklch(0.20 0.05 195);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.90 0.02 195);
+  --input: oklch(0.95 0.01 195);
+  --ring: oklch(0.40 0.08 195);
+  --sidebar: oklch(0.97 0.01 195);
+  --sidebar-foreground: oklch(0.25 0.05 195);
+  --sidebar-accent: oklch(0.95 0.01 195);
+  --sidebar-accent-foreground: oklch(0.25 0.05 195);
+  --sidebar-border: oklch(0.90 0.02 195);
+  --sidebar-ring: oklch(0.40 0.08 195);
+}
+
+.dark {
+  --primary: oklch(0.58 0.08 195);
+  --primary-foreground: oklch(0.15 0.03 195);
+  --sidebar-primary: oklch(0.48 0.08 195);
+  --sidebar-primary-foreground: oklch(0.15 0.03 195);
+  --background: oklch(0.18 0.03 195);
+  --foreground: oklch(0.92 0.01 195);
+  --card: oklch(0.22 0.03 195);
+  --card-foreground: oklch(0.92 0.01 195);
+  --popover: oklch(0.22 0.03 195);
+  --popover-foreground: oklch(0.92 0.01 195);
+  --secondary: oklch(0.70 0.12 75);
+  --secondary-foreground: oklch(0.92 0.01 195);
+  --muted: oklch(0.28 0.03 195);
+  --muted-foreground: oklch(0.68 0.02 195);
+  --accent: oklch(0.70 0.12 185);
+  --accent-foreground: oklch(0.92 0.01 195);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.32 0.03 195);
+  --input: oklch(0.28 0.03 195);
+  --ring: oklch(0.58 0.08 195);
+  --chart-1: oklch(0.58 0.08 195);
+  --chart-2: oklch(0.48 0.08 195);
+  --chart-3: oklch(0.68 0.07 195);
+  --chart-4: oklch(0.75 0.12 75);
+  --chart-5: oklch(0.70 0.08 195);
+  --sidebar: oklch(0.22 0.03 195);
+  --sidebar-foreground: oklch(0.92 0.01 195);
+  --sidebar-accent: oklch(0.28 0.03 195);
+  --sidebar-accent-foreground: oklch(0.92 0.01 195);
+  --sidebar-border: oklch(0.32 0.03 195);
+  --sidebar-ring: oklch(0.58 0.08 195);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+    font-weight: 400;
+    letter-spacing: 0.01em;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  h1 {
+    font-weight: 600;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+@layer components {
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem;
+      padding-right: 2rem;
+      max-width: 1280px;
+    }
+  }
+  
+  /* Amora Custom Utilities - Brand Colors */
+  .font-display {
+    font-family: var(--font-display);
+  }
+  
+  .font-body {
+    font-family: var(--font-body);
+  }
+  
+  .font-accent {
+    font-family: var(--font-accent);
+  }
+  
+  /* Teal palette */
+  .bg-teal-deep {
+    background-color: var(--color-teal-deep);
+  }
+  
+  .bg-teal {
+    background-color: var(--color-teal);
+  }
+  
+  .bg-teal-light {
+    background-color: var(--color-teal-light);
+  }
+  
+  .bg-aqua {
+    background-color: var(--color-aqua);
+  }
+  
+  .bg-aqua-light {
+    background-color: var(--color-aqua-light);
+  }
+  
+  .bg-cream {
+    background-color: var(--color-cream);
+  }
+  
+  .bg-amber {
+    background-color: var(--color-amber);
+  }
+  
+  .bg-cyan-brand {
+    background-color: var(--color-cyan);
+  }
+  
+  .text-teal-deep {
+    color: var(--color-teal-deep);
+  }
+  
+  .text-teal {
+    color: var(--color-teal);
+  }
+  
+  .text-teal-light {
+    color: var(--color-teal-light);
+  }
+  
+  .text-aqua {
+    color: var(--color-aqua);
+  }
+  
+  .text-amber {
+    color: var(--color-amber);
+  }
+  
+  .text-cyan-brand {
+    color: var(--color-cyan);
+  }
+  
+  /* Legacy color aliases for backward compatibility */
+  .bg-coral {
+    background-color: var(--color-teal-deep);
+  }
+  
+  .bg-sage {
+    background-color: var(--color-sage);
+  }
+  
+  .bg-ocean {
+    background-color: var(--color-teal);
+  }
+  
+  .bg-forest {
+    background-color: var(--color-forest);
+  }
+  
+  .text-coral {
+    color: var(--color-teal-deep);
+  }
+  
+  .text-sage {
+    color: var(--color-sage);
+  }
+  
+  .text-forest {
+    color: var(--color-forest);
+  }
+  
+  .text-ocean {
+    color: var(--color-teal);
+  }
+  
+  .text-gold {
+    color: var(--color-amber);
+  }
+  
+  /* Amora button style - Brand teal */
+  .btn-amora {
+    @apply px-6 py-3 rounded-full font-medium uppercase tracking-wider text-sm;
+    background-color: var(--color-teal-deep);
+    color: white;
+    transition: all 0.3s ease;
+  }
+  
+  .btn-amora:hover {
+    background-color: var(--color-teal);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(45, 90, 90, 0.25);
+  }
+  
+  /* Secondary button - Golden amber */
+  .btn-amora-secondary {
+    @apply px-6 py-3 rounded-full font-medium uppercase tracking-wider text-sm;
+    background-color: var(--color-amber);
+    color: var(--color-teal-deep);
+    transition: all 0.3s ease;
+  }
+  
+  .btn-amora-secondary:hover {
+    background-color: oklch(0.72 0.14 75);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(236, 177, 99, 0.35);
+  }
+  
+  /* Organic card style */
+  .card-organic {
+    border-radius: 1rem;
+    box-shadow: 0 4px 20px -4px rgba(45, 90, 90, 0.12);
+  }
+  
+  /* Journey step animation */
+  .journey-step {
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .journey-step:hover {
+    transform: translateX(8px);
+  }
+  
+  .journey-step.completed {
+    opacity: 0.7;
+  }
+  
+  .journey-step.active {
+    border-left: 4px solid var(--color-teal-deep);
+    background: linear-gradient(90deg, rgba(45, 90, 90, 0.08) 0%, transparent 100%);
+  }
+  
+  /* Liquid/iridescent background effect */
+  .bg-liquid {
+    background: linear-gradient(135deg, 
+      var(--color-teal-deep) 0%, 
+      var(--color-teal) 25%, 
+      var(--color-aqua) 50%, 
+      var(--color-aqua-light) 75%, 
+      var(--color-cream) 100%
+    );
+  }
+  
+  .bg-liquid-subtle {
+    background: linear-gradient(135deg, 
+      var(--color-aqua-light) 0%, 
+      var(--color-cream) 50%, 
+      rgba(236, 177, 99, 0.1) 100%
+    );
+  }
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar - Teal theme */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-cream);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-teal);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-teal-deep);
+}
+
+/* Animation keyframes */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(45, 90, 90, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px 10px rgba(45, 90, 90, 0);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.4) 50%, 
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
