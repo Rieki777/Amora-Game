@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { TreePine, Menu, X, User, LogOut, ChevronDown, TrendingUp, Users, Home as HomeIcon, Sparkles } from "lucide-react";
 import { useState, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import AmoraLogo, { AmoraLogoIcon } from "./AmoraLogo";
+import AmoraLogo from "./AmoraLogo";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -31,9 +31,8 @@ export default function Layout({ children }: LayoutProps) {
           <Link href="/">
             <a className="flex items-center gap-2 hover:opacity-80 transition-opacity">
               <AmoraLogo
-                iconSize={32}
-                textClassName="text-2xl text-white"
-                className="text-white"
+                className="text-[#efe8d7]"
+                iconClassName="w-9 h-10"
               />
             </a>
           </Link>
@@ -236,9 +235,8 @@ export default function Layout({ children }: LayoutProps) {
             <div className="md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
                 <AmoraLogo
-                  iconSize={40}
-                  textClassName="text-2xl text-white"
-                  className="text-white"
+                  className="text-[#efe8d7]"
+                  iconClassName="w-12 h-14"
                 />
               </div>
               <p className="text-white/70 text-sm leading-relaxed">
