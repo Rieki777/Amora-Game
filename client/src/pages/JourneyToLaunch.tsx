@@ -138,6 +138,8 @@ const WEEKS: Week[] = [
       { id: "w4-10", text: "All internal hyperlinks audit — every bold link in all 4 journeys verified as working", status: "pending" },
       { id: "w1-4", text: "Roles section — role application workflow live", status: "pending", pageLink: "roles" },
       { id: "w4-12", text: "AMORA: Finalize Role descriptions and Season structure for publication", status: "amora" },
+      { id: "am-2", text: "AMORA: Complete the investor memo for Lawrence — terms, vision, and deal structure written and ready to share", status: "amora" },
+      { id: "am-3", text: "AMORA: Establish the ministry — 508(c)(1)(a) structure formalised and membership framework confirmed", status: "amora" },
     ],
   },
   {
@@ -161,6 +163,10 @@ const WEEKS: Week[] = [
       { id: "w3-4", text: "Prosperity Journey — business proposal submission flow live", status: "pending", pageLink: "prosperity" },
       { id: "w3-6", text: "AMORA: Confirm ARI tiers and Voice allocations for Prosperity journey", status: "amora" },
       { id: "w3-7", text: "AMORA: Confirm Investor Pack structure and financial projections", status: "amora" },
+      { id: "am-1", text: "AMORA: Complete token design — name, function, and economic rules for the community contribution token (currently 'Hearts') finalised", status: "amora" },
+      { id: "am-4", text: "AMORA: Secure the land + clear agreement with Lawrence — ownership or access terms signed and confirmed", status: "amora" },
+      { id: "am-5", text: "AMORA: Regen Development Fund path clear — funding vehicle, terms, and first close strategy confirmed", status: "amora" },
+      { id: "am-6", text: "AMORA: Business plan clear and complete — full plan covering operations, revenue model, and development phases ready to share", status: "amora" },
     ],
   },
   {
