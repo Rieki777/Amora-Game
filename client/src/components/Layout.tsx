@@ -93,7 +93,7 @@ export default function Layout({ children }: LayoutProps) {
               How We Create
             </Link>
             <Link href="/journey-to-launch" className="text-amber/80 hover:text-amber transition-colors text-sm font-medium">
-              🚀 Launch Plan
+              🌳 Launch Plan
             </Link>
 
             {user ? (

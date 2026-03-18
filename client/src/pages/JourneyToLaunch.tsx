@@ -16,7 +16,7 @@ import {
   Globe,
   BookOpen,
   Calendar,
-  Rocket,
+  TreePine,
   Lock,
   Edit2,
   Save,
@@ -104,19 +104,11 @@ const WEEKS: Week[] = [
       { id: "w2-1", text: "Village Steward Space - Rights and Responsibilities page linked and drafted", status: "pending" },
       { id: "w2-2", text: "Village Steward Journey - Community Connection Calls CTA live", status: "pending" },
       { id: "w2-3", text: "Village Steward Journey - Potluck, Events, Workshops, Village Weaving links live", status: "pending" },
-      { id: "w2-4", text: "Village Steward Journey - Village Weaving Immersion description and CTA live", status: "pending" },
-      { id: "w2-5", text: "Village Steward Journey - Love Letter membership page linked", status: "pending", pageLink: "love-letter" },
       { id: "w2-6", text: "Village Steward Journey - Explore Quests section linked", status: "pending", pageLink: "quests" },
       { id: "w2-7", text: "Village Steward Journey - Amora Game Guide linked (Roles, Co-Creator criteria)", status: "pending", pageLink: "roles" },
       { id: "w2-8", text: "Village Steward Journey - Role Application for Upcoming Season CTA live", status: "pending" },
       { id: "w2-9", text: "Resident Space - Rights and Responsibilities page linked and drafted", status: "pending" },
       { id: "w2-10", text: "Resident Journey - Community Call and Discovery Call CTA live", status: "pending" },
-      { id: "w2-11", text: "Resident Journey - Housing Options page linked", status: "pending", pageLink: "housing" },
-      { id: "w2-12", text: "Resident Journey - Love Letter membership page linked", status: "pending", pageLink: "love-letter" },
-      { id: "w2-13", text: "Resident Journey - Waitlist sign-up and $NNN/month fee placeholder live", status: "pending", pageLink: "resident" },
-      { id: "w2-14", text: "Resident Journey - Children's Play Day CTA live", status: "pending" },
-      { id: "w2-15", text: "Resident Journey - Good Neighbor criteria linked", status: "pending", pageLink: "good-neighbor" },
-      { id: "w2-16", text: "Resident Journey - Land Share Agreement page linked", status: "pending", pageLink: "resident" },
       { id: "w2-18", text: "Circles cards - all role titles, descriptions, and links accurate", status: "pending", pageLink: "circles" },
       { id: "wt-1", text: "Decision needed - name the community contribution token (currently 'Hearts'): tracks contributions to be resolved as debt, equity, or community currency, with a percentage split for early contributors", status: "amora" },
       { id: "w1-6", text: "AMORA: Provide brand kit assets (colors, fonts, logos)", status: "amora" },
@@ -134,12 +126,13 @@ const WEEKS: Week[] = [
       { id: "w4-3", text: "Investor Journey - Request Investor Pack drop-down and Pack created", status: "pending", pageLink: "investor" },
       { id: "w4-4", text: "Circles section - Explore Roles page complete", status: "pending", pageLink: "circles" },
       { id: "w4-5", text: "Co-Creator Right of Passage - description and process documented and live", status: "pending", pageLink: "co-creators-guide" },
-      { id: "w4-6", text: "Seasonal Festivals - description page live", status: "pending" },
+      { id: "w4-6", text: "Seasonal Festivals - description page live", status: "pending", pageLink: "seasonal-festivals" },
       { id: "w4-7", text: "Guide and Sage progression - criteria and Voice gains documented", status: "pending", pageLink: "co-creators-guide" },
       { id: "w4-8", text: "Resident progression stages - documented with year thresholds", status: "pending", pageLink: "resident" },
-      { id: "w4-9", text: "Background check payment flow - wired up with tax-deductible placeholder note", status: "pending" },
       { id: "w4-10", text: "All internal hyperlinks audit - every bold link in all 4 journeys verified as working", status: "pending" },
       { id: "w1-4", text: "Roles section - role application workflow live", status: "pending", pageLink: "roles" },
+      { id: "am-7", text: "Add Hypha page link to How We Create and Co-Creators Guide", status: "pending", pageLink: "how-we-create" },
+      { id: "am-8", text: "Launch all Hypha tools - governance platform live and linked from site", status: "pending" },
       { id: "w4-12", text: "Finalize Role descriptions and Season structure for publication", status: "collab" },
       { id: "am-2", text: "Complete the investor memo for Lawrence - terms, vision, and deal structure written and ready to share", status: "collab" },
       { id: "am-3", text: "Establish the ministry - 508(c)(1)(a) structure formalised and membership framework confirmed", status: "collab" },
@@ -148,10 +141,13 @@ const WEEKS: Week[] = [
   {
     id: "w3",
     label: "Week 3 | Mar 31 – Apr 6",
-    goal: "Deliver and wire the community identity pages - Love Letter, Co-Creators Guide, and Good Neighbor. Get all membership flows and CTAs live.",
+    goal: "Deliver and wire the community identity pages - Love Letter, Co-Creators Guide, Good Neighbor, and Seasonal Festivals. Get all membership flows and CTAs live.",
     deliverables: [
       { id: "w1-5", text: "Pages: Home, Love Letter, Co-Creators Guide, Good Neighbor - copy delivered (see page tabs)", status: "done", pageLink: "love-letter" },
       { id: "w1-3", text: "Investor Journey - Schedule a Call drop-down and CTA button wired up", status: "pending", pageLink: "investor" },
+      { id: "w2-4", text: "Village Steward Journey - Village Weaving Immersion description and CTA live", status: "pending" },
+      { id: "w2-12", text: "Love Letter membership page linked (Steward and Resident journeys)", status: "pending", pageLink: "love-letter" },
+      { id: "w2-15", text: "Resident Journey - Good Neighbor criteria linked", status: "pending", pageLink: "good-neighbor" },
     ],
   },
   {
@@ -178,6 +174,10 @@ const WEEKS: Week[] = [
     goal: "Polish all pages, complete event CTAs. If the retainer is confirmed, begin scoping the backend and CRM integration. Final content review with the Amora team.",
     deliverables: [
       { id: "w5-10", text: "Pages: Master Plan, Opportunities, Housing - copy delivered (see page tabs)", status: "done", pageLink: "master-plan" },
+      { id: "w2-11", text: "Resident Journey - Housing Options page linked", status: "pending", pageLink: "housing" },
+      { id: "w2-13", text: "Resident Journey - Waitlist sign-up and $NNN/month fee placeholder live", status: "pending", pageLink: "resident" },
+      { id: "w2-14", text: "Resident Journey - Children's Play Day CTA live", status: "pending" },
+      { id: "w2-16", text: "Resident Journey - Land Share Agreement page linked", status: "pending", pageLink: "resident" },
       { id: "w5-1", text: "Events section - Potluck, Village Weaving, Land Tour, Children's Play Day CTAs live", status: "pending" },
       { id: "w5-2", text: "Webinar section - slide show, email flow, recording share process documented", status: "pending" },
       { id: "w5-3", text: "Email nurture flow - basic flow outlined and handed off or implemented in CRM", status: "pending" },
@@ -574,6 +574,14 @@ Hold: Hearts accumulate in your Village Profile and reflect your full contributi
 Convert: As Amora grows financially, Hearts convert to cash or equity.`,
       },
       {
+        heading: "How to Claim Hearts",
+        content: `1. Connect with a member of the core team and let them know you're interested in a quest.
+2. Put up a proposal to the Amora Hypha page with your proposal to complete this quest.
+3. If your proposal passes, do the quest. When you're done, gather evidence of your completion and prepare any lessons learned, ideas to share, etc.
+4. Make another proposal claiming tokens for your completed quest.
+5. Celebrate and get started on your next quest!`,
+      },
+      {
         heading: "14 Quest Cards",
         content: `Welcome Ambassador | Community Life | 50-100 Hearts
 Food Forest Tender | Permaculture | 40-80 Hearts
@@ -589,6 +597,56 @@ Infrastructure Builder | Building and Village | 80-160 Hearts
 Arts and Mural Maker | Culture and Arts | 100-300 Hearts
 Community Music Circle Host | Culture and Arts | 50-100 Hearts
 Security and Night Watch | [CIRCLE TO CONFIRM] | 60-100 Hearts`,
+      },
+    ],
+  },
+  {
+    id: "seasonal-festivals",
+    emoji: "🎉",
+    title: "Seasonal Festivals",
+    url: "/seasonal-festivals",
+    week: "Week 3 | Mar 31 – Apr 6",
+    placeholders: ["Specific festival dates and themes to confirm with the Amora team", "Festival participation costs or contributions (if any)", "Registration or RSVP process for each festival"],
+    sections: [
+      {
+        heading: "Page Header",
+        content: `Tag: Community Celebrations
+Title: Seasonal Festivals at Amora
+Subtitle: We mark the rhythm of the year together - gathering to celebrate, reflect, and renew our commitment to this land and each other.`,
+      },
+      {
+        heading: "The Four Festivals",
+        content: `Spring Renewal (March/April): The land wakes up. We plant seeds - literally and metaphorically. Workshops on permaculture, ceremony for new beginnings, and a village potluck feast.
+
+Summer Solstice (June): Full energy. Music, art, dance, and celebration. The longest day of the year marks our season of abundance and community activity.
+
+Harvest Gathering (September/October): We harvest what we planted. Gratitude feast, reflection circle, and sharing the abundance of the season's work.
+
+Winter Solstice (December): The quieter turn. Storytelling, fire ceremony, and intentions for the year ahead. A time for rest, reflection, and renewal.`,
+      },
+      {
+        heading: "Who Can Attend",
+        content: `Members: All Amoracitas are welcome at every festival. Festivals are a key part of community life.
+
+Visitors and Guests: Friends, family, and prospective community members are welcome to join - festivals are one of the best ways to experience Amora.
+
+Quest Opportunity: Festivals are a rich source of quest opportunities. Co-creating, organizing, and hosting festival elements earns Hearts.`,
+      },
+      {
+        heading: "Festival Contributions",
+        content: `Every festival is co-created by the community. Ways to contribute:
+- Bring food to share at the community feast
+- Offer a workshop, performance, or skill
+- Help with setup, decoration, or hosting
+- Take on a festival quest (Hearts awarded for organizing roles)
+
+[PLACEHOLDER - Amora team to confirm any participation costs or contribution guidelines]`,
+      },
+      {
+        heading: "Registration and Logistics",
+        content: `[PLACEHOLDER - Amora team to add RSVP process, location details, and any logistics notes for each festival]
+
+For upcoming dates and to register for events, visit the Events page on amora.cr.`,
       },
     ],
   },
@@ -1216,7 +1274,7 @@ export default function JourneyToLaunch() {
       <div className="bg-teal-deep text-white py-8">
         <div className="container">
           <div className="flex items-center gap-3 mb-2">
-            <Rocket className="w-6 h-6 text-amber" />
+            <TreePine className="w-6 h-6 text-amber" />
             <span className="text-amber font-medium text-sm tracking-widest uppercase">Internal Tool</span>
           </div>
           <h1 className="font-display text-3xl md:text-4xl font-bold mb-2">
@@ -1255,7 +1313,7 @@ export default function JourneyToLaunch() {
             </div>
             <span className="text-amber text-sm font-semibold">{progressPct}%</span>
             <span className="text-white/50 text-xs">
-              {deliveredCount} delivered · {confirmedCount} confirmed
+              {deliveredCount} with Amora · {confirmedCount} confirmed
             </span>
           </div>
         </div>
@@ -1355,7 +1413,7 @@ export default function JourneyToLaunch() {
           {[
             { label: "Wk 1 - Journeys", pages: ["home", "steward", "resident", "how-we-create", "quests"] },
             { label: "Wk 2 - Structure", pages: ["roles", "circles", "team"] },
-            { label: "Wk 3 - Community", pages: ["love-letter", "co-creators-guide", "good-neighbor"] },
+            { label: "Wk 3 - Community", pages: ["love-letter", "co-creators-guide", "good-neighbor", "seasonal-festivals"] },
             { label: "Wk 4 - Prosperity", pages: ["investor", "prosperity"] },
             { label: "Wk 5 - Complete", pages: ["master-plan", "opportunities", "housing"] },
           ].map((group) => (
@@ -1403,7 +1461,7 @@ export default function JourneyToLaunch() {
                       <Square className="w-4 h-4 text-stone-300" /> Pending
                     </span>
                     <span className="flex items-center gap-1.5">
-                      <CheckSquare className="w-4 h-4 text-teal" /> ReGen Delivered
+                      <CheckSquare className="w-4 h-4 text-teal" /> ReGen Done (Amora's Turn)
                     </span>
                     <span className="flex items-center gap-1.5">
                       <XSquare className="w-4 h-4 text-emerald-600" /> Amora Confirmed
@@ -1438,7 +1496,7 @@ export default function JourneyToLaunch() {
                               <span className="text-teal-deep font-bold text-sm">{confirmedWeekCount}/{myItems.length}</span>
                               <p className="text-stone-400 text-xs">confirmed</p>
                               {deliveredWeekCount > 0 && (
-                                <p className="text-teal text-xs">{deliveredWeekCount} delivered</p>
+                                <p className="text-amber text-xs">{deliveredWeekCount} with Amora</p>
                               )}
                             </div>
                           </div>
@@ -1476,7 +1534,7 @@ export default function JourneyToLaunch() {
                                     className="mt-0.5 shrink-0"
                                     title={
                                       state === 0
-                                        ? "Click to mark ReGen Delivered"
+                                        ? "Click to mark ReGen done (Amora's turn)"
                                         : state === 1
                                         ? "Click to mark Amora Confirmed"
                                         : "Click to reset to Pending"
@@ -1518,8 +1576,8 @@ export default function JourneyToLaunch() {
                                     </span>
                                   )}
                                   {!isAmora && !isCollab && state === 1 && (
-                                    <span className="shrink-0 text-xs bg-teal-deep/10 text-teal-deep font-medium px-2 py-0.5 rounded">
-                                      Delivered
+                                    <span className="shrink-0 text-xs bg-amber text-teal-deep font-semibold px-2 py-0.5 rounded">
+                                      Amora
                                     </span>
                                   )}
                                   {!isAmora && !isCollab && state === 2 && (
