@@ -12,7 +12,9 @@ const DATA_DIR = path.resolve(__dirname, "..", "data");
 const SUBMISSIONS_FILE = path.join(DATA_DIR, "submissions.json");
 const CONTENT_FILE = path.join(DATA_DIR, "content.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
+const JOURNEY_FILE = path.join(DATA_DIR, "journey-state.json");
 const ADMIN_PASSWORD = "1love";
+const JOURNEY_PASSWORD = "1love";
 
 function hashPassword(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
@@ -39,6 +41,7 @@ function ensureDataFiles() {
     fs.writeFileSync(CONTENT_FILE, seed);
   }
   if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify({ users: [] }, null, 2));
+  if (!fs.existsSync(JOURNEY_FILE)) fs.writeFileSync(JOURNEY_FILE, JSON.stringify({ checkboxes: {}, copy: {} }, null, 2));
 }
 
 function readJson(filePath: string) {
@@ -67,6 +70,11 @@ async function startServer() {
     res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type");
     next();
+  });
+
+  // Health check
+  app.get("/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -361,6 +369,63 @@ async function startServer() {
     res.json({ success: true, contribution });
   });
 
+  // Journey State: Public Read
+  // GET /api/journey/state
+  app.get("/api/journey/state", (_req, res) => {
+    const state = readJson(JOURNEY_FILE) ?? { checkboxes: {}, copy: {} };
+    res.json(state);
+  });
+
+  // Journey State: Update Checkbox
+  // POST /api/journey/checkbox  { password, id, state: 0|1|2 }
+  app.post("/api/journey/checkbox", (req, res) => {
+    const { password, id, state } = req.body;
+    if (password !== JOURNEY_PASSWORD) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id || state === undefined || ![0, 1, 2].includes(state)) {
+      return res.status(400).json({ error: "Missing or invalid fields" });
+    }
+    const journey = readJson(JOURNEY_FILE) ?? { checkboxes: {}, copy: {} };
+    journey.checkboxes[id] = state;
+    writeJson(JOURNEY_FILE, journey);
+    res.json({ success: true });
+  });
+
+  // Journey State: Update Kanban Card
+  // POST /api/journey/kanban  { password, id, column, assignee }
+  app.post("/api/journey/kanban", (req, res) => {
+    const { password, id, column, assignee } = req.body;
+    if (password !== JOURNEY_PASSWORD) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const validColumns = ["assigned", "actioning", "needs-support", "completed"];
+    if (!id || !validColumns.includes(column)) {
+      return res.status(400).json({ error: "Missing or invalid fields" });
+    }
+    const journey = readJson(JOURNEY_FILE) ?? { checkboxes: {}, copy: {}, kanban: {} };
+    if (!journey.kanban) journey.kanban = {};
+    journey.kanban[id] = { column, assignee: assignee ?? "" };
+    writeJson(JOURNEY_FILE, journey);
+    res.json({ success: true });
+  });
+
+  // Journey State: Update Copy Section
+  // POST /api/journey/copy  { password, sectionId, content }
+  app.post("/api/journey/copy", (req, res) => {
+    const { password, sectionId, content } = req.body;
+    if (password !== JOURNEY_PASSWORD) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!sectionId || content === undefined) {
+      return res.status(400).json({ error: "Missing fields" });
+    }
+    const journey = readJson(JOURNEY_FILE) ?? { checkboxes: {}, copy: {} };
+    journey.copy[sectionId] = content;
+    writeJson(JOURNEY_FILE, journey);
+    res.json({ success: true });
+  });
+
   // Static Files + SPA Fallback
   const staticPath =
     process.env.NODE_ENV === "production"
@@ -369,13 +434,26 @@ async function startServer() {
 
   app.use(express.static(staticPath));
 
-  app.get("*", (_req, res) => {
-    res.sendFile(path.join(staticPath, "index.html"));
+  app.get("*", (_req, res, next) => {
+    const indexPath = path.join(staticPath, "index.html");
+    res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error(`[sendFile error] ${indexPath}:`, err.message);
+        res.status(500).send(`Server error: could not serve index.html from ${indexPath}`);
+      }
+    });
   });
 
   const port = parseInt(String(process.env.PORT || 3000), 10);
+  const staticExists = fs.existsSync(staticPath);
+  const indexExists = fs.existsSync(path.join(staticPath, "index.html"));
+  console.log(`[startup] NODE_ENV=${process.env.NODE_ENV}`);
+  console.log(`[startup] staticPath=${staticPath}`);
+  console.log(`[startup] staticPath exists=${staticExists}`);
+  console.log(`[startup] index.html exists=${indexExists}`);
+  console.log(`[startup] PORT=${port}`);
   server.listen(port, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${port}/`);
+    console.log(`[startup] Server listening on 0.0.0.0:${port}`);
   });
 }
 

@@ -1,13 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import Layout from "@/components/Layout";
 import {
   CheckSquare,
+  XSquare,
   Square,
   ExternalLink,
   AlertTriangle,
   CheckCircle2,
-  Clock,
   ChevronRight,
+  ChevronDown,
   Copy,
   Check,
   FileSpreadsheet,
@@ -16,13 +17,19 @@ import {
   BookOpen,
   Calendar,
   Rocket,
+  Lock,
+  Edit2,
+  Save,
+  LayoutGrid,
+  Link as LinkIcon,
+  StickyNote,
 } from "lucide-react";
 
 // ─── External Resource Links ─────────────────────────────────────────────────
 
 const RESOURCES = [
   {
-    label: "Live Site",
+    label: "Dev Site",
     href: "https://amora.regencivics.earth",
     icon: Globe,
     color: "bg-teal text-white",
@@ -55,6 +62,7 @@ interface Deliverable {
   id: string;
   text: string;
   status: DeliveryStatus;
+  pageLink?: string; // page id to jump to in Page Copy view
 }
 
 interface Week {
@@ -85,73 +93,74 @@ const WEEKS: Week[] = [
   {
     id: "w1",
     label: "Week 1 | Mar 17-23",
-    goal: "Get the landing page live with the main journey flows in place. Set the tone, copy, and navigation before adding interactive elements.",
+    goal: "Build the Village Steward and Resident co-creator journeys from end to end. Get all linked pages, CTAs, and interactive elements working.",
     deliverables: [
       { id: "w1-1", text: "Landing page — full copy and structure (welcome section, 5 journey paths)", status: "done" },
       { id: "w1-2", text: "Landing page — Attend, Experience, Co-Create, Integrate, Commit flow written and laid out", status: "done" },
-      { id: "w1-3", text: "Investor Journey — Schedule a Call drop-down and CTA button wired up", status: "pending" },
-      { id: "w1-4", text: "Roles section — role application workflow live", status: "pending" },
-      { id: "w1-5", text: "Pages: Home, Love Letter, Co-Creators Guide, Good Neighbor — copy delivered (see page tabs)", status: "done" },
+      { id: "w2-17", text: "Pages: Investor, Village Steward, Resident, How We Create, Quests — copy delivered (see page tabs)", status: "done", pageLink: "steward" },
+      { id: "w2-1", text: "Village Steward Space — Rights and Responsibilities page linked and drafted", status: "pending" },
+      { id: "w2-2", text: "Village Steward Journey — Community Connection Calls CTA live", status: "pending" },
+      { id: "w2-3", text: "Village Steward Journey — Potluck, Events, Workshops, Village Weaving links live", status: "pending" },
+      { id: "w2-4", text: "Village Steward Journey — Village Weaving Immersion description and CTA live", status: "pending" },
+      { id: "w2-5", text: "Village Steward Journey — Love Letter membership page linked", status: "pending", pageLink: "love-letter" },
+      { id: "w2-6", text: "Village Steward Journey — Explore Quests section linked", status: "pending", pageLink: "quests" },
+      { id: "w2-7", text: "Village Steward Journey — Amora Game Guide linked (Roles, Co-Creator criteria)", status: "pending", pageLink: "roles" },
+      { id: "w2-8", text: "Village Steward Journey — Role Application for Upcoming Season CTA live", status: "pending" },
+      { id: "w2-9", text: "Resident Space — Rights and Responsibilities page linked and drafted", status: "pending" },
+      { id: "w2-10", text: "Resident Journey — Community Call and Discovery Call CTA live", status: "pending" },
+      { id: "w2-11", text: "Resident Journey — Housing Options page linked", status: "pending", pageLink: "housing" },
+      { id: "w2-12", text: "Resident Journey — Love Letter membership page linked", status: "pending", pageLink: "love-letter" },
+      { id: "w2-13", text: "Resident Journey — Waitlist sign-up and $NNN/month fee placeholder live", status: "pending", pageLink: "resident" },
+      { id: "w2-14", text: "Resident Journey — Children's Play Day CTA live", status: "pending" },
+      { id: "w2-15", text: "Resident Journey — Good Neighbor criteria linked", status: "pending", pageLink: "good-neighbor" },
+      { id: "w2-16", text: "Resident Journey — Land Share Agreement page linked", status: "pending", pageLink: "resident" },
+      { id: "w2-18", text: "Circles cards — all role titles, descriptions, and links accurate", status: "pending", pageLink: "circles" },
+      { id: "wt-1", text: "Decision needed — name the community contribution token (currently 'Hearts'): tracks contributions to be resolved as debt, equity, or community currency, with a percentage split for early contributors", status: "amora" },
       { id: "w1-6", text: "AMORA: Provide brand kit assets (colors, fonts, logos)", status: "amora" },
+      { id: "w2-19", text: "AMORA: Deliver Investor Pack content (terms, structure, documents)", status: "amora" },
     ],
   },
   {
     id: "w2",
     label: "Week 2 | Mar 24-30",
-    goal: "Build the two most complex co-creator journeys with all linked pages and interactive elements working.",
+    goal: "Build the Roles and Circles infrastructure. Publish the Amora Game Guide as a navigable resource. Wire all governance links and role application flows.",
     deliverables: [
-      { id: "w2-1", text: "Village Steward Space — Rights and Responsibilities page linked and drafted", status: "pending" },
-      { id: "w2-2", text: "Village Steward Journey — Community Connection Calls CTA live", status: "pending" },
-      { id: "w2-3", text: "Village Steward Journey — Potluck, Events, Workshops, Village Weaving links live", status: "pending" },
-      { id: "w2-4", text: "Village Steward Journey — Village Weaving Immersion description and CTA live", status: "pending" },
-      { id: "w2-5", text: "Village Steward Journey — Love Letter membership page linked", status: "pending" },
-      { id: "w2-6", text: "Village Steward Journey — Explore Quests section linked", status: "pending" },
-      { id: "w2-7", text: "Village Steward Journey — Amora Game Guide linked (Roles, Co-Creator criteria)", status: "pending" },
-      { id: "w2-8", text: "Village Steward Journey — Role Application for Upcoming Season CTA live", status: "pending" },
-      { id: "w2-9", text: "Resident Space — Rights and Responsibilities page linked and drafted", status: "pending" },
-      { id: "w2-10", text: "Resident Journey — Community Call and Discovery Call CTA live", status: "pending" },
-      { id: "w2-11", text: "Resident Journey — Housing Options page linked", status: "pending" },
-      { id: "w2-12", text: "Resident Journey — Love Letter membership page linked", status: "pending" },
-      { id: "w2-13", text: "Resident Journey — Waitlist sign-up and $NNN/month fee placeholder live", status: "pending" },
-      { id: "w2-14", text: "Resident Journey — Children's Play Day CTA live", status: "pending" },
-      { id: "w2-15", text: "Resident Journey — Good Neighbor criteria linked", status: "pending" },
-      { id: "w2-16", text: "Resident Journey — Land Share Agreement page linked", status: "pending" },
-      { id: "w2-17", text: "Pages: Investor, Village Steward, Resident, How We Create, Quests — copy delivered (see page tabs)", status: "done" },
-      { id: "w2-18", text: "Circles cards — all role titles, descriptions, and links accurate", status: "pending" },
-      { id: "w2-19", text: "AMORA: Deliver Investor Pack content (terms, structure, documents)", status: "amora" },
+      { id: "w4-11", text: "Pages: Governance Roles, Circles, Team — copy delivered (see page tabs)", status: "done", pageLink: "roles" },
+      { id: "w4-1", text: "Amora Game Guide — published as linked resource with Co-Creator criteria section", status: "pending" },
+      { id: "w4-2", text: "Roles section — all initial roles documented (Community Engagement, Land Liaison, Marketing, Operations, Visionary, Financial Mgmt)", status: "pending", pageLink: "roles" },
+      { id: "w4-3", text: "Investor Journey — Request Investor Pack drop-down and Pack created", status: "pending", pageLink: "investor" },
+      { id: "w4-4", text: "Circles section — Explore Roles page complete", status: "pending", pageLink: "circles" },
+      { id: "w4-5", text: "Co-Creator Right of Passage — description and process documented and live", status: "pending", pageLink: "co-creators-guide" },
+      { id: "w4-6", text: "Seasonal Festivals — description page live", status: "pending" },
+      { id: "w4-7", text: "Guide and Sage progression — criteria and Voice gains documented", status: "pending", pageLink: "co-creators-guide" },
+      { id: "w4-8", text: "Resident progression stages — documented with year thresholds", status: "pending", pageLink: "resident" },
+      { id: "w4-9", text: "Background check payment flow — wired up with tax-deductible placeholder note", status: "pending" },
+      { id: "w4-10", text: "All internal hyperlinks audit — every bold link in all 4 journeys verified as working", status: "pending" },
+      { id: "w1-4", text: "Roles section — role application workflow live", status: "pending", pageLink: "roles" },
+      { id: "w4-12", text: "AMORA: Finalize Role descriptions and Season structure for publication", status: "amora" },
     ],
   },
   {
     id: "w3",
     label: "Week 3 | Mar 31 – Apr 6",
-    goal: "Complete the investor and prosperity creator journeys with all supporting content, interactive elements, and linked resources in place.",
+    goal: "Deliver and wire the community identity pages — Love Letter, Co-Creators Guide, and Good Neighbor. Get all membership flows and CTAs live.",
     deliverables: [
-      { id: "w3-1", text: "Investor Journey — full financial details and CTA flow complete", status: "pending" },
-      { id: "w3-2", text: "Investor Journey — Request Investor Pack drop-down and CTA wired up", status: "pending" },
-      { id: "w3-3", text: "Prosperity Journey — full ARI tier details and business paths documented", status: "pending" },
-      { id: "w3-4", text: "Prosperity Journey — business proposal submission flow live", status: "pending" },
-      { id: "w3-5", text: "Pages: Prosperity Journey — copy delivered (see page tab)", status: "done" },
-      { id: "w3-6", text: "AMORA: Confirm ARI tiers and Voice allocations for Prosperity journey", status: "amora" },
-      { id: "w3-7", text: "AMORA: Confirm Investor Pack structure and financial projections", status: "amora" },
+      { id: "w1-5", text: "Pages: Home, Love Letter, Co-Creators Guide, Good Neighbor — copy delivered (see page tabs)", status: "done", pageLink: "love-letter" },
+      { id: "w1-3", text: "Investor Journey — Schedule a Call drop-down and CTA button wired up", status: "pending", pageLink: "investor" },
     ],
   },
   {
     id: "w4",
     label: "Week 4 | Apr 7-13",
-    goal: "Build the Roles and Circles infrastructure and publish the Amora Game Guide as a navigable resource. Wire all internal links.",
+    goal: "Complete the Investor and Prosperity Creator journeys with all supporting content, interactive elements, and linked resources in place.",
     deliverables: [
-      { id: "w4-1", text: "Amora Game Guide — published as linked resource with Co-Creator criteria section", status: "pending" },
-      { id: "w4-2", text: "Roles section — all initial roles documented (Community Engagement, Land Liaison, Marketing, Operations, Visionary, Financial Mgmt)", status: "pending" },
-      { id: "w4-3", text: "Investor Journey — Request Investor Pack drop-down and Pack created", status: "pending" },
-      { id: "w4-4", text: "Circles section — Explore Roles page complete", status: "pending" },
-      { id: "w4-5", text: "Co-Creator Right of Passage — description and process documented and live", status: "pending" },
-      { id: "w4-6", text: "Seasonal Festivals — description page live", status: "pending" },
-      { id: "w4-7", text: "Guide and Sage progression — criteria and Voice gains documented", status: "pending" },
-      { id: "w4-8", text: "Resident progression stages — documented with year thresholds", status: "pending" },
-      { id: "w4-9", text: "Background check payment flow — wired up with tax-deductible placeholder note", status: "pending" },
-      { id: "w4-10", text: "All internal hyperlinks audit — every bold link in all 4 journeys verified as working", status: "pending" },
-      { id: "w4-11", text: "Pages: Governance Roles, Circles, Team — copy delivered (see page tabs)", status: "done" },
-      { id: "w4-12", text: "AMORA: Finalize Role descriptions and Season structure for publication", status: "amora" },
+      { id: "w3-5", text: "Pages: Prosperity Journey — copy delivered (see page tab)", status: "done", pageLink: "prosperity" },
+      { id: "w3-1", text: "Investor Journey — full financial details and CTA flow complete", status: "pending", pageLink: "investor" },
+      { id: "w3-2", text: "Investor Journey — Request Investor Pack drop-down and CTA wired up", status: "pending", pageLink: "investor" },
+      { id: "w3-3", text: "Prosperity Journey — full ARI tier details and business paths documented", status: "pending", pageLink: "prosperity" },
+      { id: "w3-4", text: "Prosperity Journey — business proposal submission flow live", status: "pending", pageLink: "prosperity" },
+      { id: "w3-6", text: "AMORA: Confirm ARI tiers and Voice allocations for Prosperity journey", status: "amora" },
+      { id: "w3-7", text: "AMORA: Confirm Investor Pack structure and financial projections", status: "amora" },
     ],
   },
   {
@@ -159,16 +168,16 @@ const WEEKS: Week[] = [
     label: "Week 5 | Apr 14-20",
     goal: "Polish all pages, complete event CTAs. If the retainer is confirmed, begin scoping the backend and CRM integration. Final content review with the Amora team.",
     deliverables: [
+      { id: "w5-10", text: "Pages: Master Plan, Opportunities, Housing — copy delivered (see page tabs)", status: "done", pageLink: "master-plan" },
       { id: "w5-1", text: "Events section — Potluck, Village Weaving, Land Tour, Children's Play Day CTAs live", status: "pending" },
       { id: "w5-2", text: "Webinar section — slide show, email flow, recording share process documented", status: "pending" },
       { id: "w5-3", text: "Email nurture flow — basic flow outlined and handed off or implemented in CRM", status: "pending" },
       { id: "w5-4", text: "Social media — post structure and follow-up structure documented", status: "pending" },
-      { id: "w5-5", text: "Love Letter page — final design and membership dues confirmed", status: "pending" },
+      { id: "w5-5", text: "Love Letter page — final design and membership dues confirmed", status: "pending", pageLink: "love-letter" },
       { id: "w5-6", text: "Waitlist page — final design and fee structure confirmed", status: "pending" },
       { id: "w5-7", text: "Mobile responsiveness — full site tested on mobile", status: "pending" },
       { id: "w5-8", text: "Content audit — all placeholder values resolved by Amora", status: "pending" },
       { id: "w5-9", text: "Backend and CRM scoping — if retainer confirmed, spec document drafted", status: "pending" },
-      { id: "w5-10", text: "Pages: Master Plan, Opportunities, Housing — copy delivered (see page tabs)", status: "done" },
       { id: "w5-11", text: "AMORA: Final content approval pass (all journeys, roles, game guide)", status: "amora" },
       { id: "w5-12", text: "AMORA: Confirm retainer decision for ongoing updates and CRM build", status: "amora" },
     ],
@@ -250,7 +259,7 @@ CTAs: Join Community Call | View All Events`,
     emoji: "💌",
     title: "Love Letter",
     url: "/love-letter",
-    week: "Week 1 | Mar 17-23",
+    week: "Week 3 | Mar 31 – Apr 6",
     placeholders: ["The full body text of the Love Letter needs to be written by the Amora team"],
     sections: [
       {
@@ -290,7 +299,7 @@ CTA: Return Home`,
     emoji: "📖",
     title: "Co-Creators Guide",
     url: "/co-creators-guide",
-    week: "Week 1 | Mar 17-23",
+    week: "Week 3 | Mar 31 – Apr 6",
     placeholders: [],
     sections: [
       {
@@ -343,7 +352,7 @@ Join Community Call — Meet us live and ask your questions`,
     emoji: "🤝",
     title: "Good Neighbor",
     url: "/good-neighbor",
-    week: "Week 1 | Mar 17-23",
+    week: "Week 3 | Mar 31 – Apr 6",
     placeholders: ["\"What Amora Commits to You\" section content needs team verification"],
     sections: [
       {
@@ -388,7 +397,7 @@ Regenerative Purpose: Your life here has meaning. You are aligning your unique g
     emoji: "💰",
     title: "Investor Journey",
     url: "/investor",
-    week: "Week 2 | Mar 24-30",
+    week: "Week 4 | Apr 7-13",
     placeholders: ["Projected IRR %", "Target Raise amount for Phase 1", "ROI timeline answer"],
     sections: [
       {
@@ -431,7 +440,7 @@ When is ROI expected? [PLACEHOLDER — answer to verify and add]`,
     emoji: "🌿",
     title: "Village Steward",
     url: "/steward",
-    week: "Week 2 | Mar 24-30",
+    week: "Week 1 | Mar 17-23",
     placeholders: ["Full page headline needs confirmation from Amora team"],
     sections: [
       {
@@ -474,7 +483,7 @@ CTA: Begin My Stewardship Journey`,
     emoji: "🏡",
     title: "Resident Journey",
     url: "/resident",
-    week: "Week 2 | Mar 24-30",
+    week: "Week 1 | Mar 17-23",
     placeholders: ["Village dues monthly amount ($NNN/month)", "Full page headline"],
     sections: [
       {
@@ -515,7 +524,7 @@ Community Owned: The land remains in community ownership, ensuring our values ar
     emoji: "⚙️",
     title: "How We Create",
     url: "/how-we-create",
-    week: "Week 2 | Mar 24-30",
+    week: "Week 1 | Mar 17-23",
     placeholders: ["Hypha tools supporting text to verify with team"],
     sections: [
       {
@@ -546,7 +555,7 @@ Note: No fixed cycle. The community votes every 3 months on what season comes ne
     emoji: "⚔️",
     title: "Community Quests",
     url: "/quests",
-    week: "Week 2 | Mar 24-30",
+    week: "Week 1 | Mar 17-23",
     placeholders: ["Circle assignments needed for: Circle Scribe, Retreat Center Host, Children's Play Day Facilitator, Tech and Platform Steward, Security and Night Watch"],
     sections: [
       {
@@ -579,7 +588,7 @@ Security and Night Watch | [CIRCLE TO CONFIRM] | 60-100 Hearts`,
     emoji: "🌱",
     title: "Prosperity Journey",
     url: "/prosperity",
-    week: "Week 3 | Mar 31–Apr 6",
+    week: "Week 4 | Apr 7-13",
     placeholders: ["ARI tier names and specific criteria/metrics for each tier", "Launch Checklist final contents"],
     sections: [
       {
@@ -612,7 +621,7 @@ Tier 4: Thriving, transformative impact
     emoji: "📋",
     title: "Governance Roles",
     url: "/roles",
-    week: "Week 4 | Apr 7-13",
+    week: "Week 2 | Mar 24-30",
     placeholders: [
       "Full details for each role: Purpose, Members, Key Responsibilities, Time Commitment, Terms, Compensation",
       "Specialist Role descriptions (Architect, Civil Engineer, Permaculture Designer, Community Organizer)",
@@ -652,7 +661,7 @@ CTA: Explore Our Circles`,
     emoji: "🔵",
     title: "Circles",
     url: "/circles",
-    week: "Week 4 | Apr 7-13",
+    week: "Week 2 | Mar 24-30",
     placeholders: ["\"Who Participates\" and \"Key Focus Areas\" for each circle card need confirmation"],
     sections: [
       {
@@ -677,7 +686,7 @@ Intergenerational Wisdom Council | Wisdom and Rights of Nature | Bridges generat
     emoji: "👥",
     title: "Team",
     url: "/team",
-    week: "Week 4 | Apr 7-13",
+    week: "Week 2 | Mar 24-30",
     placeholders: [
       "Individual bios for all Core Team members",
       "Advisory Council member names and bios",
@@ -794,34 +803,178 @@ Community Owned: The land remains in community ownership, ensuring our values ar
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-type ViewId = "timeline" | string; // string = page id
+type KanbanColumn = "assigned" | "actioning" | "needs-support" | "completed";
+
+interface KanbanEntry {
+  column: KanbanColumn;
+  assignee: string;
+}
+
+type ViewId = "timeline" | "kanban" | string; // string = page id
+
+const API_BASE = "";
+
+interface JourneyState {
+  checkboxes: Record<string, 0 | 1 | 2>;
+  copy: Record<string, string>;
+  kanban: Record<string, KanbanEntry>;
+}
+
+function getDefaultCheckboxState(d: Deliverable): 0 | 1 | 2 {
+  return d.status === "done" ? 1 : 0;
+}
+
+function getEffectiveState(
+  id: string,
+  d: Deliverable,
+  serverCheckboxes: Record<string, 0 | 1 | 2>
+): 0 | 1 | 2 {
+  return id in serverCheckboxes ? serverCheckboxes[id] : getDefaultCheckboxState(d);
+}
+
+// ─── Password Gate ────────────────────────────────────────────────────────────
+
+function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
+  const [input, setInput] = useState("");
+  const [error, setError] = useState(false);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (input === "1love") {
+      localStorage.setItem("amora-journey-auth", "1love");
+      onUnlock();
+    } else {
+      setError(true);
+      setInput("");
+      setTimeout(() => setError(false), 2000);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-teal-deep flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl p-8 shadow-2xl max-w-sm w-full mx-4">
+        <div className="flex flex-col items-center gap-4 mb-6">
+          <div className="w-12 h-12 bg-teal-deep/10 rounded-full flex items-center justify-center">
+            <Lock className="w-6 h-6 text-teal-deep" />
+          </div>
+          <div className="text-center">
+            <h2 className="font-display text-xl font-bold text-teal-deep">Journey to Launch</h2>
+            <p className="text-stone-500 text-sm mt-1">Internal use only — enter password to continue</p>
+          </div>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          <input
+            type="password"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Password"
+            autoFocus
+            className={`w-full px-4 py-3 border-2 rounded-xl text-sm outline-none transition-colors ${
+              error ? "border-red-400 bg-red-50" : "border-stone-200 focus:border-teal-deep"
+            }`}
+          />
+          {error && <p className="text-red-500 text-xs text-center">Incorrect password</p>}
+          <button
+            type="submit"
+            className="w-full bg-teal-deep text-white py-3 rounded-xl font-semibold text-sm hover:bg-teal transition-colors"
+          >
+            Enter
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function JourneyToLaunch() {
+  const [authenticated, setAuthenticated] = useState(false);
   const [activeView, setActiveView] = useState<ViewId>("timeline");
-  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [serverState, setServerState] = useState<JourneyState>({ checkboxes: {}, copy: {}, kanban: {} });
+  const [loadingState, setLoadingState] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [savingSection, setSavingSection] = useState<string | null>(null);
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
 
-  // Load checked state from localStorage on mount
+  // Check auth on mount
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("amora-journey-checked");
-      if (saved) setChecked(JSON.parse(saved));
-    } catch {
-      // ignore
-    }
+    const saved = localStorage.getItem("amora-journey-auth");
+    if (saved === "1love") setAuthenticated(true);
   }, []);
 
-  // Save checked state to localStorage on change
+  // Load server state on mount
   useEffect(() => {
-    try {
-      localStorage.setItem("amora-journey-checked", JSON.stringify(checked));
-    } catch {
-      // ignore
-    }
-  }, [checked]);
+    fetch(`${API_BASE}/api/journey/state`)
+      .then((r) => r.json())
+      .then((data: Partial<JourneyState>) => {
+        setServerState({
+          checkboxes: data.checkboxes ?? {},
+          copy: data.copy ?? {},
+          kanban: data.kanban ?? {},
+        });
+        setLoadingState(false);
+      })
+      .catch(() => setLoadingState(false));
+  }, []);
 
-  const toggleCheck = (id: string) => {
-    setChecked((prev) => ({ ...prev, [id]: !prev[id] }));
+  const cycleCheckbox = async (d: Deliverable) => {
+    const current = getEffectiveState(d.id, d, serverState.checkboxes);
+    const next: 0 | 1 | 2 = current === 0 ? 1 : current === 1 ? 2 : 0;
+    // Optimistic update
+    setServerState((prev) => ({
+      ...prev,
+      checkboxes: { ...prev.checkboxes, [d.id]: next },
+    }));
+    try {
+      await fetch(`${API_BASE}/api/journey/checkbox`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "1love", id: d.id, state: next }),
+      });
+    } catch {
+      // Rollback on failure
+      setServerState((prev) => ({
+        ...prev,
+        checkboxes: { ...prev.checkboxes, [d.id]: current },
+      }));
+    }
+  };
+
+  const startEdit = (sectionId: string, currentContent: string) => {
+    setEditingSection(sectionId);
+    setEditDraft(currentContent);
+  };
+
+  const cancelEdit = () => {
+    setEditingSection(null);
+    setEditDraft("");
+  };
+
+  const saveEdit = async (sectionId: string) => {
+    setSavingSection(sectionId);
+    const draft = editDraft;
+    // Optimistic update
+    setServerState((prev) => ({
+      ...prev,
+      copy: { ...prev.copy, [sectionId]: draft },
+    }));
+    setEditingSection(null);
+    try {
+      await fetch(`${API_BASE}/api/journey/copy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "1love", sectionId, content: draft }),
+      });
+    } catch {
+      // Best effort — optimistic update stays
+    } finally {
+      setSavingSection(null);
+    }
   };
 
   const copyToClipboard = async (text: string, id: string) => {
@@ -830,16 +983,94 @@ export default function JourneyToLaunch() {
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
-      // fallback: select text
+      // ignore
+    }
+  };
+
+  const toggleExpanded = (id: string) => {
+    setExpandedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const startEditNote = (id: string) => {
+    setNoteDraft(serverState.copy[`note-${id}`] ?? "");
+    setEditingNote(id);
+  };
+
+  const saveNote = async (deliverableId: string) => {
+    const sectionId = `note-${deliverableId}`;
+    const draft = noteDraft;
+    setServerState((prev) => ({
+      ...prev,
+      copy: { ...prev.copy, [sectionId]: draft },
+    }));
+    setEditingNote(null);
+    try {
+      await fetch(`${API_BASE}/api/journey/copy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "1love", sectionId, content: draft }),
+      });
+    } catch {
+      // best effort
+    }
+  };
+
+  const updateKanban = async (id: string, column: KanbanColumn, assignee: string) => {
+    // Optimistic update
+    setServerState((prev) => ({
+      ...prev,
+      kanban: { ...prev.kanban, [id]: { column, assignee } },
+    }));
+    // If moved to completed, also mark checkbox as state 2
+    if (column === "completed") {
+      const d = WEEKS.flatMap((w) => w.deliverables).find((x) => x.id === id);
+      if (d) {
+        setServerState((prev) => ({
+          ...prev,
+          checkboxes: { ...prev.checkboxes, [id]: 2 },
+        }));
+        fetch(`${API_BASE}/api/journey/checkbox`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: "1love", id, state: 2 }),
+        }).catch(() => {});
+      }
+    }
+    try {
+      await fetch(`${API_BASE}/api/journey/kanban`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "1love", id, column, assignee }),
+      });
+    } catch {
+      // best effort
     }
   };
 
   const activePage = PAGES.find((p) => p.id === activeView);
 
-  // Progress calculation
-  const totalDeliverables = WEEKS.flatMap((w) => w.deliverables).filter((d) => d.status !== "amora").length;
-  const checkedCount = Object.values(checked).filter(Boolean).length;
-  const progressPct = Math.round((checkedCount / totalDeliverables) * 100);
+  // Progress: weighted — ReGen Delivered (state 1) = 50%, Amora Confirmed (state 2) = 100%
+  const allDeliverables = WEEKS.flatMap((w) => w.deliverables);
+  const deliveryScore = allDeliverables.reduce((acc, d) => {
+    const state = getEffectiveState(d.id, d, serverState.checkboxes);
+    return acc + (state === 1 ? 0.5 : state === 2 ? 1 : 0);
+  }, 0);
+  const progressPct = Math.round((deliveryScore / allDeliverables.length) * 100);
+  const confirmedCount = allDeliverables.filter(
+    (d) => getEffectiveState(d.id, d, serverState.checkboxes) === 2
+  ).length;
+  const deliveredCount = allDeliverables.filter(
+    (d) => getEffectiveState(d.id, d, serverState.checkboxes) === 1
+  ).length;
+
+  if (!authenticated) {
+    return <PasswordGate onUnlock={() => setAuthenticated(true)} />;
+  }
 
   return (
     <Layout>
@@ -875,16 +1106,19 @@ export default function JourneyToLaunch() {
             ))}
           </div>
 
-          {/* Progress Bar */}
-          <div className="flex items-center gap-3">
-            <span className="text-white/60 text-xs">My delivery progress</span>
-            <div className="flex-1 max-w-xs bg-white/20 rounded-full h-2">
+          {/* Progress Bar — weighted: delivered=50%, confirmed=100% */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-white/60 text-xs">Launch progress</span>
+            <div className="flex-1 max-w-xs bg-white/20 rounded-full h-2 min-w-24">
               <div
                 className="bg-amber h-2 rounded-full transition-all duration-500"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
-            <span className="text-amber text-sm font-medium">{checkedCount} / {totalDeliverables}</span>
+            <span className="text-amber text-sm font-semibold">{progressPct}%</span>
+            <span className="text-white/50 text-xs">
+              {deliveredCount} delivered · {confirmedCount} confirmed
+            </span>
           </div>
         </div>
       </div>
@@ -895,7 +1129,7 @@ export default function JourneyToLaunch() {
         {/* ── Sidebar ───────────────────────────────────────────────────── */}
         <aside className="w-56 shrink-0 bg-white border-r border-stone-200 sticky top-0 h-screen overflow-y-auto">
           {/* Timeline nav */}
-          <div className="p-3">
+          <div className="p-3 space-y-1">
             <button
               onClick={() => setActiveView("timeline")}
               className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
@@ -908,6 +1142,18 @@ export default function JourneyToLaunch() {
               <span>Timeline</span>
               {activeView === "timeline" && <ChevronRight className="w-3 h-3 ml-auto" />}
             </button>
+            <button
+              onClick={() => setActiveView("kanban")}
+              className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+                activeView === "kanban"
+                  ? "bg-teal-deep text-white"
+                  : "text-stone-600 hover:bg-stone-100"
+              }`}
+            >
+              <LayoutGrid className="w-4 h-4 shrink-0" />
+              <span>Kanban</span>
+              {activeView === "kanban" && <ChevronRight className="w-3 h-3 ml-auto" />}
+            </button>
           </div>
 
           <div className="px-3 pb-1">
@@ -918,10 +1164,10 @@ export default function JourneyToLaunch() {
 
           {/* Week group labels + page tabs */}
           {[
-            { label: "Wk 1 — Foundation", pages: ["home", "love-letter", "co-creators-guide", "good-neighbor"] },
-            { label: "Wk 2 — Journeys", pages: ["investor", "steward", "resident", "how-we-create", "quests"] },
-            { label: "Wk 3 — Prosperity", pages: ["prosperity"] },
-            { label: "Wk 4 — Structure", pages: ["roles", "circles", "team"] },
+            { label: "Wk 1 — Journeys", pages: ["home", "steward", "resident", "how-we-create", "quests"] },
+            { label: "Wk 2 — Structure", pages: ["roles", "circles", "team"] },
+            { label: "Wk 3 — Community", pages: ["love-letter", "co-creators-guide", "good-neighbor"] },
+            { label: "Wk 4 — Prosperity", pages: ["investor", "prosperity"] },
             { label: "Wk 5 — Complete", pages: ["master-plan", "opportunities", "housing"] },
           ].map((group) => (
             <div key={group.label} className="px-3 mb-3">
@@ -953,267 +1199,498 @@ export default function JourneyToLaunch() {
 
         {/* ── Main Content ──────────────────────────────────────────────── */}
         <main className="flex-1 overflow-auto p-6 md:p-8">
+          {loadingState ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-stone-400 text-sm">Loading...</div>
+            </div>
+          ) : (
+            <>
+              {/* ── TIMELINE VIEW ───────────────────────────────────────── */}
+              {activeView === "timeline" && (
+                <div className="max-w-4xl mx-auto">
+                  {/* Legend */}
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-stone-500 mb-6">
+                    <span className="flex items-center gap-1.5">
+                      <Square className="w-4 h-4 text-stone-300" /> Pending
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <CheckSquare className="w-4 h-4 text-teal" /> ReGen Delivered
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <XSquare className="w-4 h-4 text-emerald-600" /> Amora Confirmed
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block w-3 h-3 rounded bg-amber-400" /> Amora's Item
+                    </span>
+                  </div>
 
-          {/* ── TIMELINE VIEW ─────────────────────────────────────────── */}
-          {activeView === "timeline" && (
-            <div className="max-w-4xl mx-auto">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="flex items-center gap-4 text-xs text-stone-500">
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block w-3 h-3 rounded bg-emerald-500" /> I Delivered
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block w-3 h-3 rounded bg-amber-400" /> Amora to Deliver
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block w-3 h-3 rounded bg-stone-300" /> Pending
-                  </span>
-                </div>
-              </div>
-
-              {WEEKS.map((week) => {
-                const myItems = week.deliverables.filter((d) => d.status !== "amora");
-                const amoraItems = week.deliverables.filter((d) => d.status === "amora");
-                const doneCount = myItems.filter((d) => checked[d.id] || d.status === "done").length;
-                return (
-                  <div key={week.id} className="mb-8 bg-white rounded-xl border border-stone-200 overflow-hidden shadow-sm">
-                    {/* Week header */}
-                    <div className="bg-teal-deep/5 border-b border-stone-200 px-5 py-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h2 className="font-display font-bold text-teal-deep text-lg">{week.label}</h2>
-                          <p className="text-stone-500 text-sm mt-0.5">{week.goal}</p>
+                  {WEEKS.map((week) => {
+                    const allWeekItems = week.deliverables;
+                    const myItems = allWeekItems.filter((d) => d.status !== "amora");
+                    const confirmedWeekCount = myItems.filter(
+                      (d) => getEffectiveState(d.id, d, serverState.checkboxes) === 2
+                    ).length;
+                    const deliveredWeekCount = myItems.filter(
+                      (d) => getEffectiveState(d.id, d, serverState.checkboxes) === 1
+                    ).length;
+                    return (
+                      <div key={week.id} className="mb-8 bg-white rounded-xl border border-stone-200 overflow-hidden shadow-sm">
+                        {/* Week header */}
+                        <div className="bg-teal-deep/5 border-b border-stone-200 px-5 py-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <h2 className="font-display font-bold text-teal-deep text-lg">{week.label}</h2>
+                              <p className="text-stone-500 text-sm mt-0.5">{week.goal}</p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <span className="text-teal-deep font-bold text-sm">{confirmedWeekCount}/{myItems.length}</span>
+                              <p className="text-stone-400 text-xs">confirmed</p>
+                              {deliveredWeekCount > 0 && (
+                                <p className="text-teal text-xs">{deliveredWeekCount} delivered</p>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div className="shrink-0 text-right">
-                          <span className="text-teal-deep font-bold text-sm">{doneCount}/{myItems.length}</span>
-                          <p className="text-stone-400 text-xs">my items</p>
+
+                        {/* Deliverables */}
+                        <div className="divide-y divide-stone-100">
+                          {week.deliverables.map((d) => {
+                            const isAmora = d.status === "amora";
+                            const state = getEffectiveState(d.id, d, serverState.checkboxes);
+                            const isExpanded = expandedItems.has(d.id);
+                            const isEditingThisNote = editingNote === d.id;
+                            const noteContent = serverState.copy[`note-${d.id}`];
+                            return (
+                              <div key={d.id}>
+                                {/* Main row */}
+                                <div
+                                  className={`flex items-start gap-3 px-5 py-3 transition-colors ${
+                                    isAmora
+                                      ? "bg-amber/5"
+                                      : state === 2
+                                      ? "bg-emerald-50/50"
+                                      : state === 1
+                                      ? "bg-teal-deep/5"
+                                      : "hover:bg-stone-50"
+                                  }`}
+                                >
+                                  {/* 3-state checkbox */}
+                                  <button
+                                    onClick={() => cycleCheckbox(d)}
+                                    className="mt-0.5 shrink-0"
+                                    title={
+                                      state === 0
+                                        ? "Click to mark ReGen Delivered"
+                                        : state === 1
+                                        ? "Click to mark Amora Confirmed"
+                                        : "Click to reset to Pending"
+                                    }
+                                  >
+                                    {state === 2 ? (
+                                      <XSquare className="w-5 h-5 text-emerald-600" />
+                                    ) : state === 1 ? (
+                                      <CheckSquare className="w-5 h-5 text-teal" />
+                                    ) : (
+                                      <Square className="w-5 h-5 text-stone-300 hover:text-teal transition-colors" />
+                                    )}
+                                  </button>
+
+                                  <span
+                                    className={`flex-1 text-sm leading-relaxed ${
+                                      isAmora
+                                        ? "text-amber-800 font-medium"
+                                        : state === 2
+                                        ? "text-stone-400 line-through"
+                                        : state === 1
+                                        ? "text-stone-600"
+                                        : "text-stone-700"
+                                    }`}
+                                  >
+                                    {d.text}
+                                  </span>
+
+                                  {isAmora && (
+                                    <span className="shrink-0 text-xs bg-amber text-teal-deep font-semibold px-2 py-0.5 rounded">
+                                      Amora
+                                    </span>
+                                  )}
+                                  {!isAmora && state === 1 && (
+                                    <span className="shrink-0 text-xs bg-teal-deep/10 text-teal-deep font-medium px-2 py-0.5 rounded">
+                                      Delivered
+                                    </span>
+                                  )}
+                                  {!isAmora && state === 2 && (
+                                    <span className="shrink-0 text-xs bg-emerald-100 text-emerald-700 font-medium px-2 py-0.5 rounded">
+                                      Confirmed
+                                    </span>
+                                  )}
+
+                                  {/* Expand toggle */}
+                                  <button
+                                    onClick={() => toggleExpanded(d.id)}
+                                    className="shrink-0 text-stone-300 hover:text-stone-500 transition-colors ml-1"
+                                    title={isExpanded ? "Collapse" : "Expand notes"}
+                                  >
+                                    <ChevronDown className={`w-4 h-4 transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`} />
+                                  </button>
+                                </div>
+
+                                {/* Expandable notes panel */}
+                                {isExpanded && (
+                                  <div className="px-5 py-3 bg-stone-50 border-t border-stone-100">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <StickyNote className="w-3.5 h-3.5 text-stone-400" />
+                                      <span className="text-xs font-semibold text-stone-400 uppercase tracking-wide">Notes</span>
+                                      {d.pageLink && (
+                                        <button
+                                          onClick={() => setActiveView(d.pageLink!)}
+                                          className="ml-auto flex items-center gap-1 text-xs text-teal hover:text-teal-deep transition-colors"
+                                        >
+                                          <LinkIcon className="w-3 h-3" />
+                                          View page copy
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    {isEditingThisNote ? (
+                                      <div className="space-y-2">
+                                        <textarea
+                                          value={noteDraft}
+                                          onChange={(e) => setNoteDraft(e.target.value)}
+                                          autoFocus
+                                          placeholder="Add notes, decisions, or context here..."
+                                          className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none resize-y min-h-20 focus:border-teal-deep font-sans"
+                                        />
+                                        <div className="flex gap-2">
+                                          <button
+                                            onClick={() => saveNote(d.id)}
+                                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-teal-deep text-white hover:bg-teal transition-colors"
+                                          >
+                                            <Save className="w-3 h-3" />
+                                            Save
+                                          </button>
+                                          <button
+                                            onClick={() => setEditingNote(null)}
+                                            className="text-xs px-3 py-1.5 rounded-lg bg-stone-200 text-stone-600 hover:bg-stone-300 transition-colors"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div>
+                                        <p className="text-sm text-stone-500 whitespace-pre-wrap leading-relaxed min-h-8">
+                                          {noteContent || <span className="italic text-stone-300">No notes yet.</span>}
+                                        </p>
+                                        <button
+                                          onClick={() => startEditNote(d.id)}
+                                          className="flex items-center gap-1.5 text-xs mt-2 px-2.5 py-1 rounded-md bg-stone-200 text-stone-600 hover:bg-stone-300 transition-colors"
+                                        >
+                                          <Edit2 className="w-3 h-3" />
+                                          {noteContent ? "Edit notes" : "Add notes"}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
+                    );
+                  })}
+
+                  <p className="text-stone-400 text-xs text-center mt-4">
+                    Checkboxes cycle: Pending → ReGen Delivered → Amora Confirmed → Pending. State is shared and synced to server.
+                  </p>
+                </div>
+              )}
+
+              {/* ── KANBAN VIEW ─────────────────────────────────────────── */}
+              {activeView === "kanban" && (() => {
+                const kanbanCols: { id: KanbanColumn; label: string; color: string; headerColor: string }[] = [
+                  { id: "assigned", label: "Assigned", color: "bg-stone-50", headerColor: "bg-stone-200 text-stone-700" },
+                  { id: "actioning", label: "Actioning", color: "bg-blue-50", headerColor: "bg-blue-200 text-blue-800" },
+                  { id: "needs-support", label: "Needs Support", color: "bg-red-50", headerColor: "bg-red-200 text-red-800" },
+                  { id: "completed", label: "Completed", color: "bg-emerald-50", headerColor: "bg-emerald-200 text-emerald-800" },
+                ];
+                return (
+                  <div className="max-w-full">
+                    <div className="mb-6">
+                      <h2 className="font-display text-2xl font-bold text-teal-deep">Kanban Board</h2>
+                      <p className="text-stone-500 text-sm mt-1">
+                        Assign tasks to team members and track progress. Moving a card to Completed auto-marks the timeline item as confirmed.
+                      </p>
                     </div>
-
-                    {/* Deliverables */}
-                    <div className="divide-y divide-stone-100">
-                      {week.deliverables.map((d) => {
-                        const isAmora = d.status === "amora";
-                        const isDone = isAmora ? false : (checked[d.id] || d.status === "done");
+                    <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+                      {kanbanCols.map((col) => {
+                        const colCards = WEEKS.flatMap((w) =>
+                          w.deliverables.map((d) => ({ ...d, weekLabel: w.label }))
+                        ).filter((d) => {
+                          const entry = serverState.kanban[d.id];
+                          return entry ? entry.column === col.id : col.id === "assigned";
+                        });
                         return (
-                          <div
-                            key={d.id}
-                            className={`flex items-start gap-3 px-5 py-3 transition-colors ${
-                              isAmora
-                                ? "bg-amber/5"
-                                : isDone
-                                ? "bg-emerald-50/50"
-                                : "hover:bg-stone-50"
-                            }`}
-                          >
-                            {/* Checkbox or indicator */}
-                            {isAmora ? (
-                              <span className="mt-0.5 shrink-0 w-5 h-5 rounded border-2 border-amber-400 bg-amber-50 flex items-center justify-center">
-                                <span className="w-2 h-2 rounded-sm bg-amber-400" />
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => !isAmora && d.status !== "done" && toggleCheck(d.id)}
-                                className="mt-0.5 shrink-0"
-                                disabled={d.status === "done"}
-                              >
-                                {isDone ? (
-                                  <CheckSquare className="w-5 h-5 text-emerald-500" />
-                                ) : (
-                                  <Square className="w-5 h-5 text-stone-300 hover:text-teal-deep transition-colors" />
-                                )}
-                              </button>
-                            )}
-
-                            <span
-                              className={`text-sm leading-relaxed ${
-                                isAmora
-                                  ? "text-amber-800 font-medium"
-                                  : isDone
-                                  ? "text-stone-400 line-through"
-                                  : "text-stone-700"
-                              }`}
-                            >
-                              {d.text}
-                            </span>
-
-                            {isAmora && (
-                              <span className="ml-auto shrink-0 text-xs bg-amber text-teal-deep font-semibold px-2 py-0.5 rounded">
-                                Amora
-                              </span>
-                            )}
+                          <div key={col.id} className={`rounded-xl border border-stone-200 ${col.color} flex flex-col`}>
+                            <div className={`flex items-center justify-between px-4 py-2.5 rounded-t-xl ${col.headerColor}`}>
+                              <span className="font-semibold text-sm">{col.label}</span>
+                              <span className="text-xs font-normal opacity-70">{colCards.length}</span>
+                            </div>
+                            <div className="p-3 space-y-2 flex-1 overflow-y-auto max-h-screen">
+                              {colCards.length === 0 && (
+                                <p className="text-center text-xs text-stone-400 py-4 italic">No tasks here</p>
+                              )}
+                              {colCards.map((d) => {
+                                const entry = serverState.kanban[d.id];
+                                const isAmora = d.status === "amora";
+                                return (
+                                  <div
+                                    key={d.id}
+                                    className={`bg-white rounded-lg border shadow-sm p-3 ${
+                                      isAmora ? "border-l-4 border-l-amber border-r border-t border-b border-stone-200" : "border-stone-200"
+                                    }`}
+                                  >
+                                    <p className="text-xs text-stone-700 leading-relaxed mb-2">{d.text}</p>
+                                    <div className="text-xs text-stone-400 mb-2">{d.weekLabel}</div>
+                                    {isAmora && (
+                                      <span className="inline-block text-xs bg-amber text-teal-deep font-semibold px-1.5 py-0.5 rounded mb-2">
+                                        Amora
+                                      </span>
+                                    )}
+                                    <div className="flex flex-col gap-1.5 mt-1">
+                                      <input
+                                        type="text"
+                                        placeholder="Assignee name"
+                                        value={entry?.assignee ?? ""}
+                                        onChange={(e) =>
+                                          updateKanban(d.id, entry?.column ?? "assigned", e.target.value)
+                                        }
+                                        className="text-xs px-2 py-1 border border-stone-200 rounded-md w-full outline-none focus:border-teal-deep"
+                                      />
+                                      <select
+                                        value={entry?.column ?? "assigned"}
+                                        onChange={(e) =>
+                                          updateKanban(d.id, e.target.value as KanbanColumn, entry?.assignee ?? "")
+                                        }
+                                        className="text-xs px-2 py-1 border border-stone-200 rounded-md w-full outline-none focus:border-teal-deep bg-white"
+                                      >
+                                        <option value="assigned">Assigned</option>
+                                        <option value="actioning">Actioning</option>
+                                        <option value="needs-support">Needs Support</option>
+                                        <option value="completed">Completed</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         );
                       })}
                     </div>
                   </div>
                 );
-              })}
+              })()}
 
-              {/* Footer note */}
-              <p className="text-stone-400 text-xs text-center mt-4">
-                Created March 17, 2026. Move deliverables between weeks as priorities shift. Checkboxes save automatically.
-              </p>
-            </div>
-          )}
-
-          {/* ── PAGE COPY VIEW ────────────────────────────────────────── */}
-          {activePage && (
-            <div className="max-w-3xl mx-auto">
-              {/* Page header */}
-              <div className="mb-6">
-                <div className="flex items-center gap-2 text-stone-400 text-sm mb-2">
-                  <span>{activePage.week}</span>
-                  <span>·</span>
-                  <a
-                    href={`https://amora.regencivics.earth${activePage.url}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-teal hover:underline flex items-center gap-1"
-                  >
-                    amora.regencivics.earth{activePage.url}
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-                <h2 className="font-display text-2xl font-bold text-teal-deep">
-                  {activePage.emoji} {activePage.title}
-                </h2>
-              </div>
-
-              {/* Placeholder warnings */}
-              {activePage.placeholders.length > 0 && (
-                <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-6">
-                  <div className="flex items-center gap-2 mb-3">
-                    <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0" />
-                    <span className="text-orange-800 font-semibold text-sm">
-                      ACTION NEEDED before launch
-                    </span>
-                  </div>
-                  <ul className="space-y-1.5">
-                    {activePage.placeholders.map((ph, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-orange-700">
-                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
-                        {ph}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* No placeholders badge */}
-              {activePage.placeholders.length === 0 && (
-                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 mb-6 text-sm font-medium">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Copy delivered — no placeholders on this page
-                </div>
-              )}
-
-              {/* Sections */}
-              {activePage.sections.map((section, idx) => {
-                const sectionId = `${activePage.id}-${idx}`;
-                const isCopied = copiedId === sectionId;
-                return (
-                  <div key={idx} className="bg-white border border-stone-200 rounded-xl mb-4 overflow-hidden shadow-sm">
-                    <div className="flex items-center justify-between px-5 py-3 border-b border-stone-100 bg-stone-50">
-                      <h3 className="font-semibold text-stone-800 text-sm">{section.heading}</h3>
-                      <button
-                        onClick={() => copyToClipboard(section.content, sectionId)}
-                        className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors ${
-                          isCopied
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-stone-200 text-stone-600 hover:bg-stone-300"
-                        }`}
+              {/* ── PAGE COPY VIEW ──────────────────────────────────────── */}
+              {activePage && (
+                <div className="max-w-3xl mx-auto">
+                  {/* Page header */}
+                  <div className="mb-6">
+                    <div className="flex items-center gap-2 text-stone-400 text-sm mb-2">
+                      <span>{activePage.week}</span>
+                      <span>·</span>
+                      <a
+                        href={`https://amora.regencivics.earth${activePage.url}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-teal hover:underline flex items-center gap-1"
                       >
-                        {isCopied ? (
-                          <>
-                            <Check className="w-3 h-3" />
-                            Copied
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            Copy
-                          </>
-                        )}
-                      </button>
+                        amora.regencivics.earth{activePage.url}
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
                     </div>
-                    <pre className="px-5 py-4 text-sm text-stone-700 whitespace-pre-wrap font-sans leading-relaxed">
-                      {section.content}
-                    </pre>
+                    <h2 className="font-display text-2xl font-bold text-teal-deep">
+                      {activePage.emoji} {activePage.title}
+                    </h2>
                   </div>
-                );
-              })}
 
-              {/* Notes footer */}
-              <div className="bg-stone-100 rounded-xl p-5 mt-6 border border-stone-200">
-                <p className="text-stone-500 text-xs font-semibold uppercase tracking-wide mb-2">
-                  Notes and Feedback
-                </p>
-                <p className="text-stone-400 text-sm">
-                  Amora team: add copy feedback, corrections, and approvals in the{" "}
-                  <a
-                    href="https://docs.google.com/document/d/1HySZYDf-QDRg_Srp_hUbUyI6TKHNIlLc/edit"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-teal hover:underline"
-                  >
-                    Decision Log
-                  </a>{" "}
-                  or directly in the{" "}
-                  <a
-                    href="https://docs.google.com/spreadsheets/d/1TRbaOTqGSEc_sLWLb2mDSb00HWgLRgNe/edit"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-teal hover:underline"
-                  >
-                    Variables Sheet
-                  </a>
-                  .
-                </p>
-              </div>
+                  {/* Placeholder warnings */}
+                  {activePage.placeholders.length > 0 && (
+                    <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-6">
+                      <div className="flex items-center gap-2 mb-3">
+                        <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0" />
+                        <span className="text-orange-800 font-semibold text-sm">
+                          ACTION NEEDED before launch
+                        </span>
+                      </div>
+                      <ul className="space-y-1.5">
+                        {activePage.placeholders.map((ph, i) => (
+                          <li key={i} className="flex items-start gap-2 text-sm text-orange-700">
+                            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
+                            {ph}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
-              {/* Prev / Next nav */}
-              <div className="flex items-center justify-between mt-8 pt-6 border-t border-stone-200">
-                {(() => {
-                  const idx = PAGES.findIndex((p) => p.id === activeView);
-                  const prev = PAGES[idx - 1];
-                  const next = PAGES[idx + 1];
-                  return (
-                    <>
-                      {prev ? (
-                        <button
-                          onClick={() => setActiveView(prev.id)}
-                          className="flex items-center gap-2 text-sm text-stone-500 hover:text-teal-deep transition-colors"
-                        >
-                          <ChevronRight className="w-4 h-4 rotate-180" />
-                          <span>{prev.emoji} {prev.title}</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => setActiveView("timeline")}
-                          className="flex items-center gap-2 text-sm text-stone-500 hover:text-teal-deep transition-colors"
-                        >
-                          <ChevronRight className="w-4 h-4 rotate-180" />
-                          Timeline
-                        </button>
-                      )}
-                      {next ? (
-                        <button
-                          onClick={() => setActiveView(next.id)}
-                          className="flex items-center gap-2 text-sm text-stone-500 hover:text-teal-deep transition-colors"
-                        >
-                          <span>{next.emoji} {next.title}</span>
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
-                      ) : (
-                        <span />
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
+                  {/* No placeholders badge */}
+                  {activePage.placeholders.length === 0 && (
+                    <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 mb-6 text-sm font-medium">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Copy delivered — no placeholders on this page
+                    </div>
+                  )}
+
+                  {/* Sections */}
+                  {activePage.sections.map((section, idx) => {
+                    const sectionId = `${activePage.id}-${idx}`;
+                    const isCopied = copiedId === sectionId;
+                    const isEditing = editingSection === sectionId;
+                    const isSaving = savingSection === sectionId;
+                    const currentContent = serverState.copy[sectionId] ?? section.content;
+                    const wasEdited = sectionId in serverState.copy;
+                    return (
+                      <div key={idx} className="bg-white border border-stone-200 rounded-xl mb-4 overflow-hidden shadow-sm">
+                        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-100 bg-stone-50">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold text-stone-800 text-sm">{section.heading}</h3>
+                            {wasEdited && (
+                              <span className="text-xs text-teal-deep/60 italic">edited</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isEditing ? (
+                              <>
+                                <button
+                                  onClick={cancelEdit}
+                                  className="text-xs px-2.5 py-1 rounded-md bg-stone-200 text-stone-600 hover:bg-stone-300 transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={() => saveEdit(sectionId)}
+                                  disabled={isSaving}
+                                  className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-teal-deep text-white hover:bg-teal transition-colors disabled:opacity-60"
+                                >
+                                  <Save className="w-3 h-3" />
+                                  {isSaving ? "Saving..." : "Save"}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => startEdit(sectionId, currentContent)}
+                                  className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-stone-200 text-stone-600 hover:bg-stone-300 transition-colors"
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => copyToClipboard(currentContent, sectionId)}
+                                  className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors ${
+                                    isCopied
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "bg-stone-200 text-stone-600 hover:bg-stone-300"
+                                  }`}
+                                >
+                                  {isCopied ? (
+                                    <>
+                                      <Check className="w-3 h-3" />
+                                      Copied
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3" />
+                                      Copy
+                                    </>
+                                  )}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        {isEditing ? (
+                          <textarea
+                            value={editDraft}
+                            onChange={(e) => setEditDraft(e.target.value)}
+                            autoFocus
+                            className="w-full px-5 py-4 text-sm text-stone-700 font-sans leading-relaxed outline-none resize-y min-h-32 bg-amber-50/40 border-none"
+                          />
+                        ) : (
+                          <pre className="px-5 py-4 text-sm text-stone-700 whitespace-pre-wrap font-sans leading-relaxed">
+                            {currentContent}
+                          </pre>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Notes footer */}
+                  <div className="bg-stone-100 rounded-xl p-5 mt-6 border border-stone-200">
+                    <p className="text-stone-500 text-xs font-semibold uppercase tracking-wide mb-2">
+                      Notes and Feedback
+                    </p>
+                    <p className="text-stone-400 text-sm">
+                      Click <strong>Edit</strong> on any section to update copy — edits are saved to the server and visible to everyone.
+                      For major decisions, also log them in the{" "}
+                      <a
+                        href="https://docs.google.com/document/d/1HySZYDf-QDRg_Srp_hUbUyI6TKHNIlLc/edit"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-teal hover:underline"
+                      >
+                        Decision Log
+                      </a>
+                      .
+                    </p>
+                  </div>
+
+                  {/* Prev / Next nav */}
+                  <div className="flex items-center justify-between mt-8 pt-6 border-t border-stone-200">
+                    {(() => {
+                      const idx = PAGES.findIndex((p) => p.id === activeView);
+                      const prev = PAGES[idx - 1];
+                      const next = PAGES[idx + 1];
+                      return (
+                        <>
+                          {prev ? (
+                            <button
+                              onClick={() => setActiveView(prev.id)}
+                              className="flex items-center gap-2 text-sm text-stone-500 hover:text-teal-deep transition-colors"
+                            >
+                              <ChevronRight className="w-4 h-4 rotate-180" />
+                              <span>{prev.emoji} {prev.title}</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setActiveView("timeline")}
+                              className="flex items-center gap-2 text-sm text-stone-500 hover:text-teal-deep transition-colors"
+                            >
+                              <ChevronRight className="w-4 h-4 rotate-180" />
+                              Timeline
+                            </button>
+                          )}
+                          {next ? (
+                            <button
+                              onClick={() => setActiveView(next.id)}
+                              className="flex items-center gap-2 text-sm text-stone-500 hover:text-teal-deep transition-colors"
+                            >
+                              <span>{next.emoji} {next.title}</span>
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <span />
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </main>
       </div>
