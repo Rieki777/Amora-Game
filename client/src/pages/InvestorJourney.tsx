@@ -166,7 +166,7 @@ const buyerPersonas = [
     title: "Digital Nomad Couple",
     subtitle: "Invest from anywhere, build your future haven",
     icon: MapPin,
-    color: "from-teal-deep to-teal-light"
+    color: "from-teal-deep to-[#1f7a78]"
   },
   {
     title: "Worldschooling Family",
@@ -178,7 +178,7 @@ const buyerPersonas = [
     title: "Retiree/Snowbird",
     subtitle: "Your Costa Rica sanctuary with community and returns",
     icon: Heart,
-    color: "from-sage to-teal-light"
+    color: "from-[#3d6e4a] to-teal-deep"
   },
   {
     title: "Longevity Seeker",
@@ -190,7 +190,7 @@ const buyerPersonas = [
     title: "Remote Exec/Founder",
     subtitle: "Build wealth while building a better world",
     icon: TrendingUp,
-    color: "from-teal-light to-sage"
+    color: "from-teal-deep to-[#3d6e4a]"
   },
   {
     title: "Costa Rican/LatAm Professional",
@@ -433,7 +433,7 @@ export default function InvestorJourney() {
                   <h3 className="font-display text-lg font-semibold text-foreground">
                     {metric.title}
                   </h3>
-                  <metric.icon className="w-6 h-6 opacity-60" />
+                  <metric.icon className="w-6 h-6 opacity-90" />
                 </div>
                 <div className="mb-2">
                   <div className="font-display text-4xl font-semibold text-foreground">

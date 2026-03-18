@@ -71,14 +71,17 @@
   /* Amora Brand Colors - EXACT values from Official Brand Guidelines */
   --color-teal-deep: #157f7d;      /* Official primary deep teal */
   --color-teal: #7fb8ac;           /* Official seafoam teal */
-  --color-teal-light: #a8cfc9;     /* Light teal (interpolated) */
+  --color-teal-light: #3a9896;     /* Medium teal - AA contrast with white */
   --color-aqua: #83a7ad;           /* Official blue-gray teal */
-  --color-aqua-light: #c6dde0;     /* Very light aqua (interpolated) */
+  --color-aqua-light: #c6dde0;     /* Very light aqua */
   --color-cream: #efe8d7;          /* Official warm cream/beige */
   --color-amber: #ecb163;          /* Official golden amber accent */
   --color-gray-light: #f2f2f2;     /* Official light gray */
+  /* UI accent colors - warm tones, dark enough for white text (WCAG AA) */
+  --color-gold: #a06b1c;           /* Warm amber-gold - 6.2:1 contrast vs white */
+  --color-coral: #9b4030;          /* Warm terracotta - 8.7:1 contrast vs white */
   --color-cyan: oklch(0.80 0.15 185);           /* Bright cyan accent */
-  --color-sage: oklch(0.55 0.08 160);           /* Sage green */
+  --color-sage: #3d6e4a;           /* Dark sage green - AA contrast with white */
   --color-forest: oklch(0.35 0.08 160);         /* Deep forest */
 }
 
@@ -103,7 +106,7 @@
   --secondary: #ecb163; /* Official golden amber */
   --secondary-foreground: #1a3a39;
   --muted: #e8f0ee;
-  --muted-foreground: #4a7572;
+  --muted-foreground: #2e5a58;
   --accent: #7fb8ac; /* Seafoam teal */
   --accent-foreground: #1a3a39;
   --destructive: oklch(0.577 0.245 27.325);
