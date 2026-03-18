@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { TreePine, Menu, X, User, LogOut, ChevronDown, TrendingUp, Users, Home as HomeIcon, Sparkles } from "lucide-react";
 import { useState, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import AmoraLogo from "./AmoraLogo";
+import AmoraLogo, { AmoraHeartLogo } from "./AmoraLogo";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -30,10 +30,7 @@ export default function Layout({ children }: LayoutProps) {
         <div className="container py-4 flex items-center justify-between">
           <Link href="/">
             <a className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-              <AmoraLogo
-                className="text-[#efe8d7]"
-                iconClassName="w-9 h-10"
-              />
+              <AmoraLogo variant="beige" height={64} />
             </a>
           </Link>
 
@@ -234,10 +231,7 @@ export default function Layout({ children }: LayoutProps) {
             {/* Brand */}
             <div className="md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
-                <AmoraLogo
-                  className="text-[#efe8d7]"
-                  iconClassName="w-12 h-14"
-                />
+                <AmoraHeartLogo variant="beige" height={90} />
               </div>
               <p className="text-white/70 text-sm leading-relaxed">
                 A regenerative village in Costa Rica where all beings belong and thrive.
