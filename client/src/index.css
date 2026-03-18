@@ -12,22 +12,22 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* 
+/*
  * AMORA CO-CREATE DESIGN SYSTEM
  * Based on Official Amora Brand Guidelines
- * - Deep teal primary color palette
- * - Serenity-style serif for headings (using Cormorant Garamond as substitute)
+ * - Deep teal primary color palette (#157f7d)
+ * - Serenity sans-serif for all headings (official brand font)
  * - Clean sans-serif body (Montserrat)
- * - Golden amber accents
- * - Liquid backgrounds with iridescence
- * - Heart-centered, feminine energy
+ * - Golden amber accents (#ecb163)
+ * - Warm cream backgrounds (#efe8d7)
+ * - Heart-centered, regenerative energy
  */
 
 @theme inline {
-  /* Serenity is the official Amora brand font. Drop Serenity.ttf into
+  /* Serenity is the official Amora brand font (sans-serif). Drop Serenity.ttf into
      client/public/assets/fonts/ and it will activate automatically.
      Raleway (Google Fonts) is the free alternative with the same clean elegance. */
-  --font-display: "Serenity", "Raleway", "Cormorant Garamond", Georgia, serif;
+  --font-display: "Serenity", "Raleway", system-ui, -apple-system, sans-serif;
   --font-body: "Montserrat", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-accent: "Kalam", cursive;
   
@@ -68,54 +68,55 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   
-  /* Amora Brand Colors - from Official Brand Guidelines */
-  --color-teal-deep: oklch(0.40 0.08 195);      /* #2D5A5A - Primary deep teal */
-  --color-teal: oklch(0.48 0.08 195);           /* #4A7C7C - Medium teal */
-  --color-teal-light: oklch(0.58 0.07 195);     /* #6A9A9A - Light teal */
-  --color-aqua: oklch(0.72 0.08 195);           /* #7FB5B5 - Aqua */
-  --color-aqua-light: oklch(0.82 0.05 195);     /* #B8D4D4 - Very light aqua */
-  --color-cream: oklch(0.97 0.005 90);          /* #F2F2F2 - Off-white/cream */
-  --color-amber: oklch(0.78 0.14 75);           /* #ECB163 - Golden amber accent */
-  --color-cyan: oklch(0.80 0.15 185);           /* #0FE8D7 - Bright cyan accent */
+  /* Amora Brand Colors - EXACT values from Official Brand Guidelines */
+  --color-teal-deep: #157f7d;      /* Official primary deep teal */
+  --color-teal: #7fb8ac;           /* Official seafoam teal */
+  --color-teal-light: #a8cfc9;     /* Light teal (interpolated) */
+  --color-aqua: #83a7ad;           /* Official blue-gray teal */
+  --color-aqua-light: #c6dde0;     /* Very light aqua (interpolated) */
+  --color-cream: #efe8d7;          /* Official warm cream/beige */
+  --color-amber: #ecb163;          /* Official golden amber accent */
+  --color-gray-light: #f2f2f2;     /* Official light gray */
+  --color-cyan: oklch(0.80 0.15 185);           /* Bright cyan accent */
   --color-sage: oklch(0.55 0.08 160);           /* Sage green */
   --color-forest: oklch(0.35 0.08 160);         /* Deep forest */
 }
 
 :root {
-  /* Amora Brand Theme - Official Brand Guidelines */
-  --primary: oklch(0.40 0.08 195); /* Deep teal - primary brand color */
-  --primary-foreground: oklch(0.98 0.005 90); /* Cream white */
-  --sidebar-primary: oklch(0.35 0.08 195);
-  --sidebar-primary-foreground: oklch(0.98 0.005 90);
-  --chart-1: oklch(0.40 0.08 195); /* Deep teal */
-  --chart-2: oklch(0.48 0.08 195); /* Medium teal */
-  --chart-3: oklch(0.58 0.07 195); /* Light teal */
-  --chart-4: oklch(0.78 0.14 75);  /* Golden amber */
-  --chart-5: oklch(0.72 0.08 195); /* Aqua */
+  /* Amora Brand Theme - Official Brand Guidelines hex values */
+  --primary: #157f7d; /* Official deep teal - primary brand color */
+  --primary-foreground: #ffffff;
+  --sidebar-primary: #157f7d;
+  --sidebar-primary-foreground: #ffffff;
+  --chart-1: #157f7d; /* Deep teal */
+  --chart-2: #7fb8ac; /* Seafoam teal */
+  --chart-3: #83a7ad; /* Blue-gray teal */
+  --chart-4: #ecb163; /* Golden amber */
+  --chart-5: #a8cfc9; /* Light teal */
   --radius: 0.5rem;
-  --background: oklch(0.98 0.005 90); /* Warm cream white */
-  --foreground: oklch(0.25 0.05 195); /* Deep teal-charcoal */
-  --card: oklch(1 0 0); /* Pure white cards */
-  --card-foreground: oklch(0.25 0.05 195);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.25 0.05 195);
-  --secondary: oklch(0.78 0.14 75); /* Golden amber */
-  --secondary-foreground: oklch(0.20 0.05 195);
-  --muted: oklch(0.95 0.01 195);
-  --muted-foreground: oklch(0.45 0.05 195);
-  --accent: oklch(0.80 0.15 185); /* Bright cyan */
-  --accent-foreground: oklch(0.20 0.05 195);
+  --background: #f2f2f2; /* Official light gray */
+  --foreground: #1a3a39; /* Dark teal-charcoal */
+  --card: #ffffff;
+  --card-foreground: #1a3a39;
+  --popover: #ffffff;
+  --popover-foreground: #1a3a39;
+  --secondary: #ecb163; /* Official golden amber */
+  --secondary-foreground: #1a3a39;
+  --muted: #e8f0ee;
+  --muted-foreground: #4a7572;
+  --accent: #7fb8ac; /* Seafoam teal */
+  --accent-foreground: #1a3a39;
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.90 0.02 195);
-  --input: oklch(0.95 0.01 195);
-  --ring: oklch(0.40 0.08 195);
-  --sidebar: oklch(0.97 0.01 195);
-  --sidebar-foreground: oklch(0.25 0.05 195);
-  --sidebar-accent: oklch(0.95 0.01 195);
-  --sidebar-accent-foreground: oklch(0.25 0.05 195);
-  --sidebar-border: oklch(0.90 0.02 195);
-  --sidebar-ring: oklch(0.40 0.08 195);
+  --border: #c5dbd8;
+  --input: #e8f0ee;
+  --ring: #157f7d;
+  --sidebar: #efe8d7;
+  --sidebar-foreground: #1a3a39;
+  --sidebar-accent: #e8f0ee;
+  --sidebar-accent-foreground: #1a3a39;
+  --sidebar-border: #c5dbd8;
+  --sidebar-ring: #157f7d;
 }
 
 .dark {

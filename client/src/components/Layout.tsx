@@ -1,8 +1,9 @@
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart, TreePine, Menu, X, User, LogOut, ChevronDown, TrendingUp, Users, Home as HomeIcon, Sparkles } from "lucide-react";
+import { TreePine, Menu, X, User, LogOut, ChevronDown, TrendingUp, Users, Home as HomeIcon, Sparkles } from "lucide-react";
 import { useState, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import AmoraLogo, { AmoraLogoIcon } from "./AmoraLogo";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -28,11 +29,12 @@ export default function Layout({ children }: LayoutProps) {
       <nav className="sticky top-0 z-50 bg-teal-deep text-white shadow-lg">
         <div className="container py-4 flex items-center justify-between">
           <Link href="/">
-            <a className="flex items-center gap-2 font-display text-2xl font-bold tracking-widest hover:opacity-80 transition-opacity">
-              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-                <Heart className="w-4 h-4" />
-              </div>
-              AM♡RA
+            <a className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+              <AmoraLogo
+                iconSize={32}
+                textClassName="text-2xl text-white"
+                className="text-white"
+              />
             </a>
           </Link>
 
@@ -233,10 +235,11 @@ export default function Layout({ children }: LayoutProps) {
             {/* Brand */}
             <div className="md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-                  <Heart className="w-5 h-5 text-white" />
-                </div>
-                <span className="font-display text-2xl font-bold tracking-widest">AM♡RA</span>
+                <AmoraLogo
+                  iconSize={40}
+                  textClassName="text-2xl text-white"
+                  className="text-white"
+                />
               </div>
               <p className="text-white/70 text-sm leading-relaxed">
                 A regenerative village in Costa Rica where all beings belong and thrive.
