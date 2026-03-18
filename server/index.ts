@@ -41,7 +41,7 @@ function ensureDataFiles() {
     fs.writeFileSync(CONTENT_FILE, seed);
   }
   if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify({ users: [] }, null, 2));
-  if (!fs.existsSync(JOURNEY_FILE)) fs.writeFileSync(JOURNEY_FILE, JSON.stringify({ checkboxes: {}, copy: {} }, null, 2));
+  if (!fs.existsSync(JOURNEY_FILE)) fs.writeFileSync(JOURNEY_FILE, JSON.stringify({ checkboxes: {}, copy: {}, kanban: {}, decisions: {} }, null, 2));
 }
 
 function readJson(filePath: string) {
@@ -422,6 +422,24 @@ async function startServer() {
     }
     const journey = readJson(JOURNEY_FILE) ?? { checkboxes: {}, copy: {} };
     journey.copy[sectionId] = content;
+    writeJson(JOURNEY_FILE, journey);
+    res.json({ success: true });
+  });
+
+  // Journey State: Update Decision
+  // POST /api/journey/decision  { password, id, status, chosen, notes }
+  app.post("/api/journey/decision", (req, res) => {
+    const { password, id, status, chosen, notes } = req.body;
+    if (password !== JOURNEY_PASSWORD) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const validStatuses = ["open", "decided"];
+    if (!id || !validStatuses.includes(status)) {
+      return res.status(400).json({ error: "Missing or invalid fields" });
+    }
+    const journey = readJson(JOURNEY_FILE) ?? { checkboxes: {}, copy: {}, kanban: {}, decisions: {} };
+    if (!journey.decisions) journey.decisions = {};
+    journey.decisions[id] = { status, chosen: chosen ?? "", notes: notes ?? "" };
     writeJson(JOURNEY_FILE, journey);
     res.json({ success: true });
   });

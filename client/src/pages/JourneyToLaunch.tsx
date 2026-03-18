@@ -23,6 +23,8 @@ import {
   LayoutGrid,
   Link as LinkIcon,
   StickyNote,
+  FileCheck,
+  ClipboardList,
 } from "lucide-react";
 
 // ─── External Resource Links ─────────────────────────────────────────────────
@@ -56,7 +58,8 @@ const RESOURCES = [
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type DeliveryStatus = "done" | "amora" | "pending";
+// "collab" = ReGen + Amora working on it together; "amora" = Amora-only action required
+type DeliveryStatus = "done" | "amora" | "collab" | "pending";
 
 interface Deliverable {
   id: string;
@@ -95,29 +98,29 @@ const WEEKS: Week[] = [
     label: "Week 1 | Mar 17-23",
     goal: "Build the Village Steward and Resident co-creator journeys from end to end. Get all linked pages, CTAs, and interactive elements working.",
     deliverables: [
-      { id: "w1-1", text: "Landing page — full copy and structure (welcome section, 5 journey paths)", status: "done" },
-      { id: "w1-2", text: "Landing page — Attend, Experience, Co-Create, Integrate, Commit flow written and laid out", status: "done" },
-      { id: "w2-17", text: "Pages: Investor, Village Steward, Resident, How We Create, Quests — copy delivered (see page tabs)", status: "done", pageLink: "steward" },
-      { id: "w2-1", text: "Village Steward Space — Rights and Responsibilities page linked and drafted", status: "pending" },
-      { id: "w2-2", text: "Village Steward Journey — Community Connection Calls CTA live", status: "pending" },
-      { id: "w2-3", text: "Village Steward Journey — Potluck, Events, Workshops, Village Weaving links live", status: "pending" },
-      { id: "w2-4", text: "Village Steward Journey — Village Weaving Immersion description and CTA live", status: "pending" },
-      { id: "w2-5", text: "Village Steward Journey — Love Letter membership page linked", status: "pending", pageLink: "love-letter" },
-      { id: "w2-6", text: "Village Steward Journey — Explore Quests section linked", status: "pending", pageLink: "quests" },
-      { id: "w2-7", text: "Village Steward Journey — Amora Game Guide linked (Roles, Co-Creator criteria)", status: "pending", pageLink: "roles" },
-      { id: "w2-8", text: "Village Steward Journey — Role Application for Upcoming Season CTA live", status: "pending" },
-      { id: "w2-9", text: "Resident Space — Rights and Responsibilities page linked and drafted", status: "pending" },
-      { id: "w2-10", text: "Resident Journey — Community Call and Discovery Call CTA live", status: "pending" },
-      { id: "w2-11", text: "Resident Journey — Housing Options page linked", status: "pending", pageLink: "housing" },
-      { id: "w2-12", text: "Resident Journey — Love Letter membership page linked", status: "pending", pageLink: "love-letter" },
-      { id: "w2-13", text: "Resident Journey — Waitlist sign-up and $NNN/month fee placeholder live", status: "pending", pageLink: "resident" },
-      { id: "w2-14", text: "Resident Journey — Children's Play Day CTA live", status: "pending" },
-      { id: "w2-15", text: "Resident Journey — Good Neighbor criteria linked", status: "pending", pageLink: "good-neighbor" },
-      { id: "w2-16", text: "Resident Journey — Land Share Agreement page linked", status: "pending", pageLink: "resident" },
-      { id: "w2-18", text: "Circles cards — all role titles, descriptions, and links accurate", status: "pending", pageLink: "circles" },
-      { id: "wt-1", text: "Decision needed — name the community contribution token (currently 'Hearts'): tracks contributions to be resolved as debt, equity, or community currency, with a percentage split for early contributors", status: "amora" },
+      { id: "w1-1", text: "Landing page - full copy and structure (welcome section, 5 journey paths)", status: "done" },
+      { id: "w1-2", text: "Landing page - Attend, Experience, Co-Create, Integrate, Commit flow written and laid out", status: "done" },
+      { id: "w2-17", text: "Pages: Investor, Village Steward, Resident, How We Create, Quests - copy delivered (see page tabs)", status: "done", pageLink: "steward" },
+      { id: "w2-1", text: "Village Steward Space - Rights and Responsibilities page linked and drafted", status: "pending" },
+      { id: "w2-2", text: "Village Steward Journey - Community Connection Calls CTA live", status: "pending" },
+      { id: "w2-3", text: "Village Steward Journey - Potluck, Events, Workshops, Village Weaving links live", status: "pending" },
+      { id: "w2-4", text: "Village Steward Journey - Village Weaving Immersion description and CTA live", status: "pending" },
+      { id: "w2-5", text: "Village Steward Journey - Love Letter membership page linked", status: "pending", pageLink: "love-letter" },
+      { id: "w2-6", text: "Village Steward Journey - Explore Quests section linked", status: "pending", pageLink: "quests" },
+      { id: "w2-7", text: "Village Steward Journey - Amora Game Guide linked (Roles, Co-Creator criteria)", status: "pending", pageLink: "roles" },
+      { id: "w2-8", text: "Village Steward Journey - Role Application for Upcoming Season CTA live", status: "pending" },
+      { id: "w2-9", text: "Resident Space - Rights and Responsibilities page linked and drafted", status: "pending" },
+      { id: "w2-10", text: "Resident Journey - Community Call and Discovery Call CTA live", status: "pending" },
+      { id: "w2-11", text: "Resident Journey - Housing Options page linked", status: "pending", pageLink: "housing" },
+      { id: "w2-12", text: "Resident Journey - Love Letter membership page linked", status: "pending", pageLink: "love-letter" },
+      { id: "w2-13", text: "Resident Journey - Waitlist sign-up and $NNN/month fee placeholder live", status: "pending", pageLink: "resident" },
+      { id: "w2-14", text: "Resident Journey - Children's Play Day CTA live", status: "pending" },
+      { id: "w2-15", text: "Resident Journey - Good Neighbor criteria linked", status: "pending", pageLink: "good-neighbor" },
+      { id: "w2-16", text: "Resident Journey - Land Share Agreement page linked", status: "pending", pageLink: "resident" },
+      { id: "w2-18", text: "Circles cards - all role titles, descriptions, and links accurate", status: "pending", pageLink: "circles" },
+      { id: "wt-1", text: "Decision needed - name the community contribution token (currently 'Hearts'): tracks contributions to be resolved as debt, equity, or community currency, with a percentage split for early contributors", status: "amora" },
       { id: "w1-6", text: "AMORA: Provide brand kit assets (colors, fonts, logos)", status: "amora" },
-      { id: "w2-19", text: "AMORA: Deliver Investor Pack content (terms, structure, documents)", status: "amora" },
+      { id: "w2-19", text: "Deliver Investor Pack content (terms, structure, documents)", status: "collab" },
     ],
   },
   {
@@ -125,30 +128,30 @@ const WEEKS: Week[] = [
     label: "Week 2 | Mar 24-30",
     goal: "Build the Roles and Circles infrastructure. Publish the Amora Game Guide as a navigable resource. Wire all governance links and role application flows.",
     deliverables: [
-      { id: "w4-11", text: "Pages: Governance Roles, Circles, Team — copy delivered (see page tabs)", status: "done", pageLink: "roles" },
-      { id: "w4-1", text: "Amora Game Guide — published as linked resource with Co-Creator criteria section", status: "pending" },
-      { id: "w4-2", text: "Roles section — all initial roles documented (Community Engagement, Land Liaison, Marketing, Operations, Visionary, Financial Mgmt)", status: "pending", pageLink: "roles" },
-      { id: "w4-3", text: "Investor Journey — Request Investor Pack drop-down and Pack created", status: "pending", pageLink: "investor" },
-      { id: "w4-4", text: "Circles section — Explore Roles page complete", status: "pending", pageLink: "circles" },
-      { id: "w4-5", text: "Co-Creator Right of Passage — description and process documented and live", status: "pending", pageLink: "co-creators-guide" },
-      { id: "w4-6", text: "Seasonal Festivals — description page live", status: "pending" },
-      { id: "w4-7", text: "Guide and Sage progression — criteria and Voice gains documented", status: "pending", pageLink: "co-creators-guide" },
-      { id: "w4-8", text: "Resident progression stages — documented with year thresholds", status: "pending", pageLink: "resident" },
-      { id: "w4-9", text: "Background check payment flow — wired up with tax-deductible placeholder note", status: "pending" },
-      { id: "w4-10", text: "All internal hyperlinks audit — every bold link in all 4 journeys verified as working", status: "pending" },
-      { id: "w1-4", text: "Roles section — role application workflow live", status: "pending", pageLink: "roles" },
-      { id: "w4-12", text: "AMORA: Finalize Role descriptions and Season structure for publication", status: "amora" },
-      { id: "am-2", text: "AMORA: Complete the investor memo for Lawrence — terms, vision, and deal structure written and ready to share", status: "amora" },
-      { id: "am-3", text: "AMORA: Establish the ministry — 508(c)(1)(a) structure formalised and membership framework confirmed", status: "amora" },
+      { id: "w4-11", text: "Pages: Governance Roles, Circles, Team - copy delivered (see page tabs)", status: "done", pageLink: "roles" },
+      { id: "w4-1", text: "Amora Game Guide - published as linked resource with Co-Creator criteria section", status: "pending" },
+      { id: "w4-2", text: "Roles section - all initial roles documented (Community Engagement, Land Liaison, Marketing, Operations, Visionary, Financial Mgmt)", status: "pending", pageLink: "roles" },
+      { id: "w4-3", text: "Investor Journey - Request Investor Pack drop-down and Pack created", status: "pending", pageLink: "investor" },
+      { id: "w4-4", text: "Circles section - Explore Roles page complete", status: "pending", pageLink: "circles" },
+      { id: "w4-5", text: "Co-Creator Right of Passage - description and process documented and live", status: "pending", pageLink: "co-creators-guide" },
+      { id: "w4-6", text: "Seasonal Festivals - description page live", status: "pending" },
+      { id: "w4-7", text: "Guide and Sage progression - criteria and Voice gains documented", status: "pending", pageLink: "co-creators-guide" },
+      { id: "w4-8", text: "Resident progression stages - documented with year thresholds", status: "pending", pageLink: "resident" },
+      { id: "w4-9", text: "Background check payment flow - wired up with tax-deductible placeholder note", status: "pending" },
+      { id: "w4-10", text: "All internal hyperlinks audit - every bold link in all 4 journeys verified as working", status: "pending" },
+      { id: "w1-4", text: "Roles section - role application workflow live", status: "pending", pageLink: "roles" },
+      { id: "w4-12", text: "Finalize Role descriptions and Season structure for publication", status: "collab" },
+      { id: "am-2", text: "Complete the investor memo for Lawrence - terms, vision, and deal structure written and ready to share", status: "collab" },
+      { id: "am-3", text: "Establish the ministry - 508(c)(1)(a) structure formalised and membership framework confirmed", status: "collab" },
     ],
   },
   {
     id: "w3",
     label: "Week 3 | Mar 31 – Apr 6",
-    goal: "Deliver and wire the community identity pages — Love Letter, Co-Creators Guide, and Good Neighbor. Get all membership flows and CTAs live.",
+    goal: "Deliver and wire the community identity pages - Love Letter, Co-Creators Guide, and Good Neighbor. Get all membership flows and CTAs live.",
     deliverables: [
-      { id: "w1-5", text: "Pages: Home, Love Letter, Co-Creators Guide, Good Neighbor — copy delivered (see page tabs)", status: "done", pageLink: "love-letter" },
-      { id: "w1-3", text: "Investor Journey — Schedule a Call drop-down and CTA button wired up", status: "pending", pageLink: "investor" },
+      { id: "w1-5", text: "Pages: Home, Love Letter, Co-Creators Guide, Good Neighbor - copy delivered (see page tabs)", status: "done", pageLink: "love-letter" },
+      { id: "w1-3", text: "Investor Journey - Schedule a Call drop-down and CTA button wired up", status: "pending", pageLink: "investor" },
     ],
   },
   {
@@ -156,17 +159,17 @@ const WEEKS: Week[] = [
     label: "Week 4 | Apr 7-13",
     goal: "Complete the Investor and Prosperity Creator journeys with all supporting content, interactive elements, and linked resources in place.",
     deliverables: [
-      { id: "w3-5", text: "Pages: Prosperity Journey — copy delivered (see page tab)", status: "done", pageLink: "prosperity" },
-      { id: "w3-1", text: "Investor Journey — full financial details and CTA flow complete", status: "pending", pageLink: "investor" },
-      { id: "w3-2", text: "Investor Journey — Request Investor Pack drop-down and CTA wired up", status: "pending", pageLink: "investor" },
-      { id: "w3-3", text: "Prosperity Journey — full ARI tier details and business paths documented", status: "pending", pageLink: "prosperity" },
-      { id: "w3-4", text: "Prosperity Journey — business proposal submission flow live", status: "pending", pageLink: "prosperity" },
-      { id: "w3-6", text: "AMORA: Confirm ARI tiers and Voice allocations for Prosperity journey", status: "amora" },
-      { id: "w3-7", text: "AMORA: Confirm Investor Pack structure and financial projections", status: "amora" },
-      { id: "am-1", text: "AMORA: Complete token design — name, function, and economic rules for the community contribution token (currently 'Hearts') finalised", status: "amora" },
-      { id: "am-4", text: "AMORA: Secure the land + clear agreement with Lawrence — ownership or access terms signed and confirmed", status: "amora" },
-      { id: "am-5", text: "AMORA: Regen Development Fund path clear — funding vehicle, terms, and first close strategy confirmed", status: "amora" },
-      { id: "am-6", text: "AMORA: Business plan clear and complete — full plan covering operations, revenue model, and development phases ready to share", status: "amora" },
+      { id: "w3-5", text: "Pages: Prosperity Journey - copy delivered (see page tab)", status: "done", pageLink: "prosperity" },
+      { id: "w3-1", text: "Investor Journey - full financial details and CTA flow complete", status: "pending", pageLink: "investor" },
+      { id: "w3-2", text: "Investor Journey - Request Investor Pack drop-down and CTA wired up", status: "pending", pageLink: "investor" },
+      { id: "w3-3", text: "Prosperity Journey - full ARI tier details and business paths documented", status: "pending", pageLink: "prosperity" },
+      { id: "w3-4", text: "Prosperity Journey - business proposal submission flow live", status: "pending", pageLink: "prosperity" },
+      { id: "w3-6", text: "Confirm ARI tiers and Voice allocations for Prosperity journey", status: "collab" },
+      { id: "w3-7", text: "Confirm Investor Pack structure and financial projections", status: "collab" },
+      { id: "am-1", text: "Complete token design - name, function, and economic rules for the community contribution token (currently 'Hearts') finalised", status: "collab" },
+      { id: "am-4", text: "Secure the land + clear agreement with Lawrence - ownership or access terms signed and confirmed", status: "collab" },
+      { id: "am-5", text: "Regen Development Fund path clear - funding vehicle, terms, and first close strategy confirmed", status: "collab" },
+      { id: "am-6", text: "Business plan clear and complete - full plan covering operations, revenue model, and development phases ready to share", status: "collab" },
     ],
   },
   {
@@ -174,16 +177,16 @@ const WEEKS: Week[] = [
     label: "Week 5 | Apr 14-20",
     goal: "Polish all pages, complete event CTAs. If the retainer is confirmed, begin scoping the backend and CRM integration. Final content review with the Amora team.",
     deliverables: [
-      { id: "w5-10", text: "Pages: Master Plan, Opportunities, Housing — copy delivered (see page tabs)", status: "done", pageLink: "master-plan" },
-      { id: "w5-1", text: "Events section — Potluck, Village Weaving, Land Tour, Children's Play Day CTAs live", status: "pending" },
-      { id: "w5-2", text: "Webinar section — slide show, email flow, recording share process documented", status: "pending" },
-      { id: "w5-3", text: "Email nurture flow — basic flow outlined and handed off or implemented in CRM", status: "pending" },
-      { id: "w5-4", text: "Social media — post structure and follow-up structure documented", status: "pending" },
-      { id: "w5-5", text: "Love Letter page — final design and membership dues confirmed", status: "pending", pageLink: "love-letter" },
-      { id: "w5-6", text: "Waitlist page — final design and fee structure confirmed", status: "pending" },
-      { id: "w5-7", text: "Mobile responsiveness — full site tested on mobile", status: "pending" },
-      { id: "w5-8", text: "Content audit — all placeholder values resolved by Amora", status: "pending" },
-      { id: "w5-9", text: "Backend and CRM scoping — if retainer confirmed, spec document drafted", status: "pending" },
+      { id: "w5-10", text: "Pages: Master Plan, Opportunities, Housing - copy delivered (see page tabs)", status: "done", pageLink: "master-plan" },
+      { id: "w5-1", text: "Events section - Potluck, Village Weaving, Land Tour, Children's Play Day CTAs live", status: "pending" },
+      { id: "w5-2", text: "Webinar section - slide show, email flow, recording share process documented", status: "pending" },
+      { id: "w5-3", text: "Email nurture flow - basic flow outlined and handed off or implemented in CRM", status: "pending" },
+      { id: "w5-4", text: "Social media - post structure and follow-up structure documented", status: "pending" },
+      { id: "w5-5", text: "Love Letter page - final design and membership dues confirmed", status: "pending", pageLink: "love-letter" },
+      { id: "w5-6", text: "Waitlist page - final design and fee structure confirmed", status: "pending" },
+      { id: "w5-7", text: "Mobile responsiveness - full site tested on mobile", status: "pending" },
+      { id: "w5-8", text: "Content audit - all placeholder values resolved by Amora", status: "pending" },
+      { id: "w5-9", text: "Backend and CRM scoping - if retainer confirmed, spec document drafted", status: "pending" },
       { id: "w5-11", text: "AMORA: Final content approval pass (all journeys, roles, game guide)", status: "amora" },
       { id: "w5-12", text: "AMORA: Confirm retainer decision for ongoing updates and CRM build", status: "amora" },
     ],
@@ -193,12 +196,12 @@ const WEEKS: Week[] = [
     label: "Week 6 | Apr 21-28",
     goal: "Complete final quality checks, fix any remaining issues, and deliver a fully functional site. If not on retainer, make sure Amora has full admin access before the engagement ends.",
     deliverables: [
-      { id: "w6-1", text: "Full site QA — all pages, links, forms, and drop-downs tested", status: "pending" },
-      { id: "w6-2", text: "Bug fixes — all outstanding visual and functional issues resolved", status: "pending" },
-      { id: "w6-3", text: "Cross-browser test — Chrome, Safari, Firefox verified", status: "pending" },
-      { id: "w6-4", text: "Amora admin access — site control transferred if not on retainer", status: "pending" },
-      { id: "w6-5", text: "Handoff documentation — editing guide delivered to Amora team", status: "pending" },
-      { id: "w6-6", text: "LAUNCH — site goes live for interested parties", status: "pending" },
+      { id: "w6-1", text: "Full site QA - all pages, links, forms, and drop-downs tested", status: "pending" },
+      { id: "w6-2", text: "Bug fixes - all outstanding visual and functional issues resolved", status: "pending" },
+      { id: "w6-3", text: "Cross-browser test - Chrome, Safari, Firefox verified", status: "pending" },
+      { id: "w6-4", text: "Amora admin access - site control transferred if not on retainer", status: "pending" },
+      { id: "w6-5", text: "Handoff documentation - editing guide delivered to Amora team", status: "pending" },
+      { id: "w6-6", text: "LAUNCH - site goes live for interested parties", status: "pending" },
       { id: "w6-7", text: "Post-launch check-in call scheduled", status: "pending" },
       { id: "w6-8", text: "Retainer and next-phase agreement signed (if continuing)", status: "pending" },
     ],
@@ -275,13 +278,13 @@ CTAs: Join Community Call | View All Events`,
       {
         heading: "The Letter",
         content: `Salutation: Dear Future Amoracita,
-Body: [PLACEHOLDER — Amora team to write the full letter body here]
+Body: [PLACEHOLDER - Amora team to write the full letter body here]
 Closing: With love and anticipation, The Amora Community`,
       },
       {
         heading: "Membership Commitments",
         content: `Heading: As a member of Amora 508(c)(1)(a), you commit to:
-[LIST OF COMMITMENTS — Amora team to verify these are current and complete]`,
+[LIST OF COMMITMENTS - Amora team to verify these are current and complete]`,
       },
       {
         heading: "Sign Your Membership Form",
@@ -329,17 +332,17 @@ Flow: Contribution > Hearts Earned > Community Spending > Regenerative Loop`,
       {
         heading: "Voice and Governance",
         content: `Heading: How Proposals Work
-1. Proposal — Anyone can raise a proposal. Presented clearly with context and goals.
-2. Clarification — The circle asks clarifying questions. Not debate, just understanding.
-3. Consent — No reasoned objections means we move forward.
+1. Proposal - Anyone can raise a proposal. Presented clearly with context and goals.
+2. Clarification - The circle asks clarifying questions. Not debate, just understanding.
+3. Consent - No reasoned objections means we move forward.
 Key Principles: Circles Hold Authority | Monthly All-Village Calls`,
       },
       {
         heading: "The Four Spaces",
-        content: `Village Steward Space — Coordinates overall village success, open to all path members
-Resident Space — Governs residential life and neighbor relations
-Prosperity Space — Manages business interests and Hearts economy
-Land Stewardship Space — Cares for land and ecosystem health`,
+        content: `Village Steward Space - Coordinates overall village success, open to all path members
+Resident Space - Governs residential life and neighbor relations
+Prosperity Space - Manages business interests and Hearts economy
+Land Stewardship Space - Cares for land and ecosystem health`,
       },
       {
         heading: "Path of Growth",
@@ -347,9 +350,9 @@ Land Stewardship Space — Cares for land and ecosystem health`,
       },
       {
         heading: "Bottom CTAs",
-        content: `The Love Letter — Read our community covenant and founding values
-Find Your Quest — Discover opportunities that match your gifts
-Join Community Call — Meet us live and ask your questions`,
+        content: `The Love Letter - Read our community covenant and founding values
+Find Your Quest - Discover opportunities that match your gifts
+Join Community Call - Meet us live and ask your questions`,
       },
     ],
   },
@@ -367,24 +370,24 @@ Join Community Call — Meet us live and ask your questions`,
       },
       {
         heading: "The 8 Criteria",
-        content: `1. Core Values Alignment — You Live the Vision
-2. Communication and Conflict Resolution — You Practice Authentic Relating (NVC)
-3. Financial Responsibility — You Can Meet Your Obligations
-4. Contribution to Community Life — You Show Up and Participate
-5. Respect for Land, Nature, and All Beings — You Are a Steward
-6. Cultural Openness and Intergenerational Respect — You Value Diversity
-7. Background Check Acknowledgment — Safety and Trust for Everyone
-8. Children's Play Day Participation — For Families`,
+        content: `1. Core Values Alignment - You Live the Vision
+2. Communication and Conflict Resolution - You Practice Authentic Relating (NVC)
+3. Financial Responsibility - You Can Meet Your Obligations
+4. Contribution to Community Life - You Show Up and Participate
+5. Respect for Land, Nature, and All Beings - You Are a Steward
+6. Cultural Openness and Intergenerational Respect - You Value Diversity
+7. Background Check Acknowledgment - Safety and Trust for Everyone
+8. Children's Play Day Participation - For Families`,
       },
       {
         heading: "The 7-Step Process",
-        content: `1. Initial Exploration — Learn about Amora through events, tours, and conversations.
-2. Community Engagement — Attend potlucks, workshops, and gatherings.
-3. Deep Conversation — Structured conversations with the Resident Circle about values, history, and commitment.
-4. Background Check — Standard background and reference check.
-5. Observation Period — A period of participation before full commitment.
-6. Resident Consent — Current residents give consent with no reasoned objections.
-7. Celebration — Welcome home.`,
+        content: `1. Initial Exploration - Learn about Amora through events, tours, and conversations.
+2. Community Engagement - Attend potlucks, workshops, and gatherings.
+3. Deep Conversation - Structured conversations with the Resident Circle about values, history, and commitment.
+4. Background Check - Standard background and reference check.
+5. Observation Period - A period of participation before full commitment.
+6. Resident Consent - Current residents give consent with no reasoned objections.
+7. Celebration - Welcome home.`,
       },
       {
         heading: "Core Values Pillars",
@@ -394,7 +397,7 @@ Regenerative Purpose: Your life here has meaning. You are aligning your unique g
       },
       {
         heading: "What Amora Commits to You",
-        content: "[PLACEHOLDER — Amora team to verify and fill in this section]\nCTAs: Sign the Membership Covenant | Attend a Community Call",
+        content: "[PLACEHOLDER - Amora team to verify and fill in this section]\nCTAs: Sign the Membership Covenant | Attend a Community Call",
       },
     ],
   },
@@ -414,8 +417,8 @@ Regenerative Purpose: Your life here has meaning. You are aligning your unique g
         heading: "Key Numbers",
         content: `Land Value: $16M+ (appraised January 2026)
 Property: 266 acres in Dominicalito, Costa Rica
-Projected IRR: [PLACEHOLDER — team to confirm]
-Target Raise: [PLACEHOLDER — Phase 1, Infrastructure and retreat center]`,
+Projected IRR: [PLACEHOLDER - team to confirm]
+Target Raise: [PLACEHOLDER - Phase 1, Infrastructure and retreat center]`,
       },
       {
         heading: "Investment Philosophy",
@@ -426,10 +429,10 @@ Community Ownership: Our goal is for all Amora homes, structures, and businesses
       },
       {
         heading: "Your Investment Journey",
-        content: `Curious: Discover Amora — Learn about our vision, values, and regenerative approach to community development.
-Interested: Request Investor Pack — Receive comprehensive investor materials including feasibility study, proformas, and development timeline.
-Exploring: Schedule Investment Call — Connect one-on-one with our team to discuss your investment goals.
-Committed: Make Your Commitment — Choose your investment vehicle and formalize your contribution.`,
+        content: `Curious: Discover Amora - Learn about our vision, values, and regenerative approach to community development.
+Interested: Request Investor Pack - Receive comprehensive investor materials including feasibility study, proformas, and development timeline.
+Exploring: Schedule Investment Call - Connect one-on-one with our team to discuss your investment goals.
+Committed: Make Your Commitment - Choose your investment vehicle and formalize your contribution.`,
       },
       {
         heading: "Investor FAQs",
@@ -437,7 +440,7 @@ Committed: Make Your Commitment — Choose your investment vehicle and formalize
 What are my exit options? Lot sale at appreciated value, business equity stake, or structured buy-back options.
 How does debt vs equity work? We prefer debt financing to keep community ownership intact. Investors lend to the project and receive interest plus priority on lot purchases.
 Can I build on my investment? Yes. Investors who become residents can build a home on their lot.
-When is ROI expected? [PLACEHOLDER — answer to verify and add]`,
+When is ROI expected? [PLACEHOLDER - answer to verify and add]`,
       },
     ],
   },
@@ -455,15 +458,15 @@ When is ROI expected? [PLACEHOLDER — answer to verify and add]`,
       },
       {
         heading: "Your Journey to Co-Creation (9 Stages)",
-        content: `Visitor: Attend Community Call — Learn about the basics and ask questions about Amora.
-Guest: Participate in Events — Join potlucks, events, workshops, and parties to experience the community.
-Immersant: Village Weaving Immersion — Spend immersive time in the village learning how it operates and discovering where your gifts are most needed.
-Participant: Community Training — Complete training in NVC, authentic relating, and other community practices.
-Member: Become an Amoracita — Sign our Love Letter and formally become a member of Amora 508c1a.
-Contributor: Participate in a Circle — Join a sociocratic circle to contribute to community decision-making.
-Quest Seeker: Explore Quests — Take on quests to contribute meaningfully and demonstrate your commitment.
-Initiate: Co-Creator Right of Passage — Complete the right of passage with a vote from the Co-Creators circle.
-Co-Creator: Explore and Apply for Roles — Find a role that aligns with your gifts and apply for the upcoming season.`,
+        content: `Visitor: Attend Community Call - Learn about the basics and ask questions about Amora.
+Guest: Participate in Events - Join potlucks, events, workshops, and parties to experience the community.
+Immersant: Village Weaving Immersion - Spend immersive time in the village learning how it operates and discovering where your gifts are most needed.
+Participant: Community Training - Complete training in NVC, authentic relating, and other community practices.
+Member: Become an Amoracita - Sign our Love Letter and formally become a member of Amora 508c1a.
+Contributor: Participate in a Circle - Join a sociocratic circle to contribute to community decision-making.
+Quest Seeker: Explore Quests - Take on quests to contribute meaningfully and demonstrate your commitment.
+Initiate: Co-Creator Right of Passage - Complete the right of passage with a vote from the Co-Creators circle.
+Co-Creator: Explore and Apply for Roles - Find a role that aligns with your gifts and apply for the upcoming season.`,
       },
       {
         heading: "Seasonal Rhythm",
@@ -504,7 +507,7 @@ Participant: Community Training
 Member: Sign the Love Letter / 508 Membership
 Explorer: Explore Housing Options
 Applicant: Background Check
-Waitlist: Join the Waitlist — first right of refusal on land opportunities
+Waitlist: Join the Waitlist - first right of refusal on land opportunities
 Family Day: Children's Play Day
 Initiate: Resident Right of Passage
 Landowner: Purchase Land Share Agreement
@@ -514,8 +517,8 @@ Resident: Move In Celebration!`,
       {
         heading: "Village Dues",
         content: `Heading: Village Dues
-[PLACEHOLDER — Amora team to confirm monthly dues amount ($NNN/month)]
-Note: Dues cover utilities, maintenance, and community services. These can be covered through Hearts — contributions that track real value (1 Heart = $1 USD).`,
+[PLACEHOLDER - Amora team to confirm monthly dues amount ($NNN/month)]
+Note: Dues cover utilities, maintenance, and community services. These can be covered through Hearts - contributions that track real value (1 Heart = $1 USD).`,
       },
       {
         heading: "Land Share Agreements",
@@ -603,22 +606,22 @@ Security and Night Watch | [CIRCLE TO CONFIRM] | 60-100 Hearts`,
       },
       {
         heading: "Your Path to Prosperity (7 Stages)",
-        content: `Researcher: Attend Community Call — Learn about business opportunities at Amora.
-Dreamer: Explore the Prosperity Packet — Download and review the comprehensive guide.
-Applicant: Submit Business Proposal — Present your vision and how it aligns with village needs.
-Member: Sign Love Letter / 508 Membership — Become an official member.
-Partner: Community Approval — Present your business to the Business and Finance Council.
-Builder: Launch Your Business — Integrate with the Hearts contribution system and begin serving the community.
-Prosperity Creator: Grow Your Impact — Advance through ARI tiers and scale your regenerative business.`,
+        content: `Researcher: Attend Community Call - Learn about business opportunities at Amora.
+Dreamer: Explore the Prosperity Packet - Download and review the comprehensive guide.
+Applicant: Submit Business Proposal - Present your vision and how it aligns with village needs.
+Member: Sign Love Letter / 508 Membership - Become an official member.
+Partner: Community Approval - Present your business to the Business and Finance Council.
+Builder: Launch Your Business - Integrate with the Hearts contribution system and begin serving the community.
+Prosperity Creator: Grow Your Impact - Advance through ARI tiers and scale your regenerative business.`,
       },
       {
         heading: "ARI Tiers",
-        content: `Heading: ARI Tiers — Amora Regenerative Impact
+        content: `Heading: ARI Tiers - Amora Regenerative Impact
 Tier 1: Early stage, establishing presence
 Tier 2: Growing, measurable contribution
 Tier 3: Established, regional impact
 Tier 4: Thriving, transformative impact
-[PLACEHOLDER — ARI tier names and metrics to be defined by Amora team]`,
+[PLACEHOLDER - ARI tier names and metrics to be defined by Amora team]`,
       },
     ],
   },
@@ -640,17 +643,17 @@ Tier 4: Thriving, transformative impact
       {
         heading: "Role Cards (4 Cards)",
         content: `1. Development Board of Directors
-[PLACEHOLDER — full details needed from Amora team]
+[PLACEHOLDER - full details needed from Amora team]
 
 2. Community Advisory Council
-[PLACEHOLDER — full details needed from Amora team]
+[PLACEHOLDER - full details needed from Amora team]
 Note: Advisors receive First Right of Refusal on lot purchases, retreat discounts, and recognition as Founding Advisors.
 
 3. Leadership Council
-[PLACEHOLDER — full details needed from Amora team]
+[PLACEHOLDER - full details needed from Amora team]
 
 4. Core Team
-[PLACEHOLDER — full details needed from Amora team]`,
+[PLACEHOLDER - full details needed from Amora team]`,
       },
       {
         heading: "How These Structures Work Together",
@@ -713,11 +716,11 @@ Adriana [last name missing] | Operations and Systems | [bio to verify]`,
       },
       {
         heading: "Community Advisory Council",
-        content: "Note: Advisors receive First Right of Refusal on lot purchases, retreat discounts, and recognition as Founding Advisors.\n[Advisor names and bios to verify — Amora team to provide]",
+        content: "Note: Advisors receive First Right of Refusal on lot purchases, retreat discounts, and recognition as Founding Advisors.\n[Advisor names and bios to verify - Amora team to provide]",
       },
       {
         heading: "Development Board of Directors",
-        content: "Expertise: Legal and Regulatory | Real Estate Development | Financial and Investment\nMeetings: Monthly Meetings | Quarterly Sessions | Annual Retreat\n[Board member names and bios to verify — Amora team to provide]",
+        content: "Expertise: Legal and Regulatory | Real Estate Development | Financial and Investment\nMeetings: Monthly Meetings | Quarterly Sessions | Annual Retreat\n[Board member names and bios to verify - Amora team to provide]",
       },
     ],
   },
@@ -731,9 +734,9 @@ Adriana [last name missing] | Operations and Systems | [bio to verify]`,
     sections: [
       {
         heading: "Key Stats",
-        content: `Total Acres: [PLACEHOLDER — verify]
-Planned Homes: [PLACEHOLDER — verify]
-Retreat Keys: [PLACEHOLDER — verify]
+        content: `Total Acres: [PLACEHOLDER - verify]
+Planned Homes: [PLACEHOLDER - verify]
+Retreat Keys: [PLACEHOLDER - verify]
 Appraised Value: $16M+`,
       },
       {
@@ -747,10 +750,10 @@ Commons and Conservation: Protected natural areas, trails, and shared spaces for
       {
         heading: "Development Phases",
         content: `Phase 1: Infrastructure and Community Center
-Phase 2: Show Homes [PLACEHOLDER — verify]
-Phase 3: Retreat Center [PLACEHOLDER — verify]
-Phase 4: Health Center [PLACEHOLDER — verify]
-Phase 5: Residential Phase 1 [PLACEHOLDER — verify]`,
+Phase 2: Show Homes [PLACEHOLDER - verify]
+Phase 3: Retreat Center [PLACEHOLDER - verify]
+Phase 4: Health Center [PLACEHOLDER - verify]
+Phase 5: Residential Phase 1 [PLACEHOLDER - verify]`,
       },
     ],
   },
@@ -807,6 +810,72 @@ Community Owned: The land remains in community ownership, ensuring our values ar
   },
 ];
 
+// ─── Decision Log Data ────────────────────────────────────────────────────────
+
+const DECISIONS: DecisionDef[] = [
+  {
+    id: "dec-token-name",
+    title: "Name the community contribution token",
+    description: "The token currently called 'Hearts' needs a final name. It tracks contributions that will later be resolved as debt, equity, or community currency, with a percentage split for early contributors.",
+    linkedItem: "wt-1",
+    suggestedOptions: ["Hearts", "Seeds", "Roots", "Sparks", "Threads", "Commons"],
+  },
+  {
+    id: "dec-token-design",
+    title: "Token economic design",
+    description: "Define the full economic rules: percentage splits for debt vs equity vs community currency, conversion ratios, and how tokens will be distributed to early contributors.",
+    linkedItem: "am-1",
+  },
+  {
+    id: "dec-ministry",
+    title: "Ministry structure and membership framework",
+    description: "Confirm the 508(c)(1)(a) structure details, membership tiers, and how the ministry framework integrates with village governance and the legal entity.",
+    linkedItem: "am-3",
+  },
+  {
+    id: "dec-investor-memo",
+    title: "Investor memo structure and terms",
+    description: "Finalize the investor memo for Lawrence: investment structure, debt vs equity ratios, interest rates, IRR projections, and Phase 1 raise target.",
+    linkedItem: "am-2",
+  },
+  {
+    id: "dec-lawrence",
+    title: "Lawrence land agreement",
+    description: "Confirm the ownership or access terms with Lawrence, including conditions, timelines, and contingencies that affect the development plan.",
+    linkedItem: "am-4",
+  },
+  {
+    id: "dec-regen-fund",
+    title: "Regen Development Fund vehicle",
+    description: "Confirm the legal vehicle, contribution terms, and first close strategy for the Regen Development Fund.",
+    linkedItem: "am-5",
+  },
+  {
+    id: "dec-ari-tiers",
+    title: "ARI tier names and criteria",
+    description: "Define the Amora Regenerative Impact tier system: names, specific metrics, Voice allocations, and how businesses progress through tiers.",
+    linkedItem: "w3-6",
+  },
+  {
+    id: "dec-roles",
+    title: "Role descriptions and Season structure",
+    description: "Finalize all initial role descriptions (Community Engagement, Land Liaison, Marketing, Operations, Visionary, Financial Management) and the Season structure.",
+    linkedItem: "w4-12",
+  },
+  {
+    id: "dec-resident-dues",
+    title: "Monthly resident dues amount",
+    description: "Confirm the monthly dues amount that covers HOA, utilities, maintenance, and community services (currently shown as $NNN/month on site).",
+    linkedItem: "w2-13",
+  },
+  {
+    id: "dec-retainer",
+    title: "Retainer and next-phase agreement",
+    description: "Decide whether to continue on retainer for ongoing updates and CRM build after the initial 6-week engagement.",
+    linkedItem: "w5-12",
+  },
+];
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 type KanbanColumn = "assigned" | "actioning" | "needs-support" | "completed";
@@ -816,7 +885,21 @@ interface KanbanEntry {
   assignee: string;
 }
 
-type ViewId = "timeline" | "kanban" | string; // string = page id
+interface DecisionEntry {
+  status: "open" | "decided";
+  chosen: string;
+  notes: string;
+}
+
+interface DecisionDef {
+  id: string;
+  title: string;
+  description: string;
+  linkedItem?: string; // timeline deliverable id
+  suggestedOptions?: string[];
+}
+
+type ViewId = "timeline" | "kanban" | "decisions" | "variables" | string;
 
 const API_BASE = "";
 
@@ -824,6 +907,7 @@ interface JourneyState {
   checkboxes: Record<string, 0 | 1 | 2>;
   copy: Record<string, string>;
   kanban: Record<string, KanbanEntry>;
+  decisions: Record<string, DecisionEntry>;
 }
 
 function getDefaultCheckboxState(d: Deliverable): 0 | 1 | 2 {
@@ -865,7 +949,7 @@ function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
           </div>
           <div className="text-center">
             <h2 className="font-display text-xl font-bold text-teal-deep">Journey to Launch</h2>
-            <p className="text-stone-500 text-sm mt-1">Internal use only — enter password to continue</p>
+            <p className="text-stone-500 text-sm mt-1">Internal use only - enter password to continue</p>
           </div>
         </div>
         <form onSubmit={submit} className="space-y-3">
@@ -897,7 +981,7 @@ function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
 export default function JourneyToLaunch() {
   const [authenticated, setAuthenticated] = useState(false);
   const [activeView, setActiveView] = useState<ViewId>("timeline");
-  const [serverState, setServerState] = useState<JourneyState>({ checkboxes: {}, copy: {}, kanban: {} });
+  const [serverState, setServerState] = useState<JourneyState>({ checkboxes: {}, copy: {}, kanban: {}, decisions: {} });
   const [loadingState, setLoadingState] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingSection, setEditingSection] = useState<string | null>(null);
@@ -906,6 +990,8 @@ export default function JourneyToLaunch() {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [editingDecision, setEditingDecision] = useState<string | null>(null);
+  const [decisionDraft, setDecisionDraft] = useState<{ chosen: string; notes: string }>({ chosen: "", notes: "" });
 
   // Check auth on mount
   useEffect(() => {
@@ -922,6 +1008,7 @@ export default function JourneyToLaunch() {
           checkboxes: data.checkboxes ?? {},
           copy: data.copy ?? {},
           kanban: data.kanban ?? {},
+          decisions: data.decisions ?? {},
         });
         setLoadingState(false);
       })
@@ -977,7 +1064,7 @@ export default function JourneyToLaunch() {
         body: JSON.stringify({ password: "1love", sectionId, content: draft }),
       });
     } catch {
-      // Best effort — optimistic update stays
+      // Best effort - optimistic update stays
     } finally {
       setSavingSection(null);
     }
@@ -1058,9 +1145,54 @@ export default function JourneyToLaunch() {
     }
   };
 
+  const updateDecision = async (id: string, status: "open" | "decided", chosen: string, notes: string) => {
+    setServerState((prev) => ({
+      ...prev,
+      decisions: { ...prev.decisions, [id]: { status, chosen, notes } },
+    }));
+    // If decided and has a linked timeline item, mark it as state 1 (delivered)
+    const def = DECISIONS.find((decDef) => decDef.id === id);
+    if (status === "decided" && def?.linkedItem) {
+      const linkedD = WEEKS.flatMap((w) => w.deliverables).find((x) => x.id === def.linkedItem);
+      if (linkedD) {
+        const current = getEffectiveState(linkedD.id, linkedD, serverState.checkboxes);
+        if (current === 0) {
+          setServerState((prev) => ({
+            ...prev,
+            checkboxes: { ...prev.checkboxes, [def.linkedItem!]: 1 },
+          }));
+          fetch(`${API_BASE}/api/journey/checkbox`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: "1love", id: def.linkedItem, state: 1 }),
+          }).catch(() => {});
+        }
+      }
+    }
+    try {
+      await fetch(`${API_BASE}/api/journey/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "1love", id, status, chosen, notes }),
+      });
+    } catch {
+      // best effort
+    }
+    setEditingDecision(null);
+  };
+
+  // Known assignees for auto-suggest
+  const knownAssignees = Array.from(
+    new Set(
+      Object.values(serverState.kanban)
+        .map((e) => e.assignee)
+        .filter(Boolean)
+    )
+  );
+
   const activePage = PAGES.find((p) => p.id === activeView);
 
-  // Progress: weighted — ReGen Delivered (state 1) = 50%, Amora Confirmed (state 2) = 100%
+  // Progress: weighted - ReGen Delivered (state 1) = 50%, Amora Confirmed (state 2) = 100%
   const allDeliverables = WEEKS.flatMap((w) => w.deliverables);
   const deliveryScore = allDeliverables.reduce((acc, d) => {
     const state = getEffectiveState(d.id, d, serverState.checkboxes);
@@ -1091,7 +1223,7 @@ export default function JourneyToLaunch() {
             Journey to Launch
           </h1>
           <p className="text-white/70 text-sm max-w-2xl mb-6">
-            The complete delivery roadmap for amora.regencivics.earth — Mar 17 to Apr 28, 2026.
+            The complete delivery roadmap for amora.regencivics.earth - Mar 17 to Apr 28, 2026.
             Use this page to track what I have delivered, what the Amora team needs to complete, and what copy goes on each page.
           </p>
 
@@ -1112,7 +1244,7 @@ export default function JourneyToLaunch() {
             ))}
           </div>
 
-          {/* Progress Bar — weighted: delivered=50%, confirmed=100% */}
+          {/* Progress Bar - weighted: delivered=50%, confirmed=100% */}
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-white/60 text-xs">Launch progress</span>
             <div className="flex-1 max-w-xs bg-white/20 rounded-full h-2 min-w-24">
@@ -1160,6 +1292,57 @@ export default function JourneyToLaunch() {
               <span>Kanban</span>
               {activeView === "kanban" && <ChevronRight className="w-3 h-3 ml-auto" />}
             </button>
+            <button
+              onClick={() => setActiveView("decisions")}
+              className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+                activeView === "decisions"
+                  ? "bg-teal-deep text-white"
+                  : "text-stone-600 hover:bg-stone-100"
+              }`}
+            >
+              <ClipboardList className="w-4 h-4 shrink-0" />
+              <span>Decisions</span>
+              {activeView === "decisions" ? (
+                <ChevronRight className="w-3 h-3 ml-auto" />
+              ) : (
+                (() => {
+                  const openCount = DECISIONS.filter(
+                    (dec) => !serverState.decisions[dec.id] || serverState.decisions[dec.id]?.status === "open"
+                  ).length;
+                  return openCount > 0 ? (
+                    <span className="ml-auto text-xs bg-amber-400 text-white font-bold px-1.5 py-0.5 rounded-full">
+                      {openCount}
+                    </span>
+                  ) : null;
+                })()
+              )}
+            </button>
+            <button
+              onClick={() => setActiveView("variables")}
+              className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+                activeView === "variables"
+                  ? "bg-teal-deep text-white"
+                  : "text-stone-600 hover:bg-stone-100"
+              }`}
+            >
+              <FileCheck className="w-4 h-4 shrink-0" />
+              <span>Variables</span>
+              {activeView === "variables" ? (
+                <ChevronRight className="w-3 h-3 ml-auto" />
+              ) : (
+                (() => {
+                  const allVars = PAGES.flatMap((p) => p.placeholders.map((_, i) => ({ pageId: p.id, i })));
+                  const pendingCount = allVars.filter(
+                    ({ pageId, i }) => !serverState.copy[`var-${pageId}-${i}`]?.trim()
+                  ).length;
+                  return pendingCount > 0 ? (
+                    <span className="ml-auto text-xs bg-orange-400 text-white font-bold px-1.5 py-0.5 rounded-full">
+                      {pendingCount}
+                    </span>
+                  ) : null;
+                })()
+              )}
+            </button>
           </div>
 
           <div className="px-3 pb-1">
@@ -1170,11 +1353,11 @@ export default function JourneyToLaunch() {
 
           {/* Week group labels + page tabs */}
           {[
-            { label: "Wk 1 — Journeys", pages: ["home", "steward", "resident", "how-we-create", "quests"] },
-            { label: "Wk 2 — Structure", pages: ["roles", "circles", "team"] },
-            { label: "Wk 3 — Community", pages: ["love-letter", "co-creators-guide", "good-neighbor"] },
-            { label: "Wk 4 — Prosperity", pages: ["investor", "prosperity"] },
-            { label: "Wk 5 — Complete", pages: ["master-plan", "opportunities", "housing"] },
+            { label: "Wk 1 - Journeys", pages: ["home", "steward", "resident", "how-we-create", "quests"] },
+            { label: "Wk 2 - Structure", pages: ["roles", "circles", "team"] },
+            { label: "Wk 3 - Community", pages: ["love-letter", "co-creators-guide", "good-neighbor"] },
+            { label: "Wk 4 - Prosperity", pages: ["investor", "prosperity"] },
+            { label: "Wk 5 - Complete", pages: ["master-plan", "opportunities", "housing"] },
           ].map((group) => (
             <div key={group.label} className="px-3 mb-3">
               <p className="text-xs text-stone-400 px-1 mb-1 font-medium">{group.label}</p>
@@ -1228,6 +1411,9 @@ export default function JourneyToLaunch() {
                     <span className="flex items-center gap-1.5">
                       <span className="inline-block w-3 h-3 rounded bg-amber-400" /> Amora's Item
                     </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block w-3 h-3 rounded bg-violet-400" /> Collab Item
+                    </span>
                   </div>
 
                   {WEEKS.map((week) => {
@@ -1262,10 +1448,12 @@ export default function JourneyToLaunch() {
                         <div className="divide-y divide-stone-100">
                           {week.deliverables.map((d) => {
                             const isAmora = d.status === "amora";
+                            const isCollab = d.status === "collab";
                             const state = getEffectiveState(d.id, d, serverState.checkboxes);
                             const isExpanded = expandedItems.has(d.id);
                             const isEditingThisNote = editingNote === d.id;
                             const noteContent = serverState.copy[`note-${d.id}`];
+                            const assigneeName = serverState.kanban[d.id]?.assignee;
                             return (
                               <div key={d.id}>
                                 {/* Main row */}
@@ -1273,6 +1461,8 @@ export default function JourneyToLaunch() {
                                   className={`flex items-start gap-3 px-5 py-3 transition-colors ${
                                     isAmora
                                       ? "bg-amber/5"
+                                      : isCollab
+                                      ? "bg-violet-50/30"
                                       : state === 2
                                       ? "bg-emerald-50/50"
                                       : state === 1
@@ -1305,6 +1495,8 @@ export default function JourneyToLaunch() {
                                     className={`flex-1 text-sm leading-relaxed ${
                                       isAmora
                                         ? "text-amber-800 font-medium"
+                                        : isCollab
+                                        ? "text-violet-800 font-medium"
                                         : state === 2
                                         ? "text-stone-400 line-through"
                                         : state === 1
@@ -1320,14 +1512,24 @@ export default function JourneyToLaunch() {
                                       Amora
                                     </span>
                                   )}
-                                  {!isAmora && state === 1 && (
+                                  {isCollab && (
+                                    <span className="shrink-0 text-xs bg-violet-100 text-violet-700 font-semibold px-2 py-0.5 rounded">
+                                      Collab
+                                    </span>
+                                  )}
+                                  {!isAmora && !isCollab && state === 1 && (
                                     <span className="shrink-0 text-xs bg-teal-deep/10 text-teal-deep font-medium px-2 py-0.5 rounded">
                                       Delivered
                                     </span>
                                   )}
-                                  {!isAmora && state === 2 && (
+                                  {!isAmora && !isCollab && state === 2 && (
                                     <span className="shrink-0 text-xs bg-emerald-100 text-emerald-700 font-medium px-2 py-0.5 rounded">
                                       Confirmed
+                                    </span>
+                                  )}
+                                  {assigneeName && (
+                                    <span className="shrink-0 text-xs bg-stone-100 text-stone-600 font-medium px-2 py-0.5 rounded-full border border-stone-200">
+                                      {assigneeName}
                                     </span>
                                   )}
 
@@ -1450,11 +1652,16 @@ export default function JourneyToLaunch() {
                               {colCards.map((d) => {
                                 const entry = serverState.kanban[d.id];
                                 const isAmora = d.status === "amora";
+                                const isCollab = d.status === "collab";
                                 return (
                                   <div
                                     key={d.id}
                                     className={`bg-white rounded-lg border shadow-sm p-3 ${
-                                      isAmora ? "border-l-4 border-l-amber border-r border-t border-b border-stone-200" : "border-stone-200"
+                                      isAmora
+                                        ? "border-l-4 border-l-amber border-r border-t border-b border-stone-200"
+                                        : isCollab
+                                        ? "border-l-4 border-l-violet-400 border-r border-t border-b border-stone-200"
+                                        : "border-stone-200"
                                     }`}
                                   >
                                     <p className="text-xs text-stone-700 leading-relaxed mb-2">{d.text}</p>
@@ -1464,9 +1671,15 @@ export default function JourneyToLaunch() {
                                         Amora
                                       </span>
                                     )}
+                                    {isCollab && (
+                                      <span className="inline-block text-xs bg-violet-100 text-violet-700 font-semibold px-1.5 py-0.5 rounded mb-2">
+                                        Collab
+                                      </span>
+                                    )}
                                     <div className="flex flex-col gap-1.5 mt-1">
                                       <input
                                         type="text"
+                                        list="assignee-suggestions"
                                         placeholder="Assignee name"
                                         value={entry?.assignee ?? ""}
                                         onChange={(e) =>
@@ -1495,9 +1708,332 @@ export default function JourneyToLaunch() {
                         );
                       })}
                     </div>
+                    {/* Datalist for assignee auto-suggest */}
+                    <datalist id="assignee-suggestions">
+                      {knownAssignees.map((name) => (
+                        <option key={name} value={name} />
+                      ))}
+                    </datalist>
                   </div>
                 );
               })()}
+
+              {/* ── DECISIONS VIEW ──────────────────────────────────────── */}
+              {activeView === "decisions" && (
+                <div className="max-w-3xl mx-auto">
+                  <div className="mb-6">
+                    <h2 className="font-display text-2xl font-bold text-teal-deep">Decision Log</h2>
+                    <p className="text-stone-500 text-sm mt-1">
+                      Track key decisions for the Amora launch. Marking a decision as decided will reflect on the timeline.
+                    </p>
+                  </div>
+
+                  {/* Summary stats */}
+                  <div className="flex gap-4 mb-6">
+                    <div className="bg-white border border-stone-200 rounded-xl px-5 py-4 flex-1 text-center shadow-sm">
+                      <p className="text-2xl font-bold text-teal-deep">
+                        {DECISIONS.filter((dec) => serverState.decisions[dec.id]?.status === "decided").length}
+                      </p>
+                      <p className="text-stone-400 text-xs mt-0.5">Decided</p>
+                    </div>
+                    <div className="bg-white border border-stone-200 rounded-xl px-5 py-4 flex-1 text-center shadow-sm">
+                      <p className="text-2xl font-bold text-amber-600">
+                        {DECISIONS.filter((dec) => !serverState.decisions[dec.id] || serverState.decisions[dec.id]?.status === "open").length}
+                      </p>
+                      <p className="text-stone-400 text-xs mt-0.5">Open</p>
+                    </div>
+                    <div className="bg-white border border-stone-200 rounded-xl px-5 py-4 flex-1 text-center shadow-sm">
+                      <p className="text-2xl font-bold text-stone-400">{DECISIONS.length}</p>
+                      <p className="text-stone-400 text-xs mt-0.5">Total</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {DECISIONS.map((dec) => {
+                      const entry = serverState.decisions[dec.id];
+                      const isDecided = entry?.status === "decided";
+                      const isEditing = editingDecision === dec.id;
+                      const linkedDeliverable = dec.linkedItem
+                        ? WEEKS.flatMap((w) => w.deliverables).find((x) => x.id === dec.linkedItem)
+                        : null;
+                      const linkedState = linkedDeliverable
+                        ? getEffectiveState(linkedDeliverable.id, linkedDeliverable, serverState.checkboxes)
+                        : null;
+
+                      return (
+                        <div
+                          key={dec.id}
+                          className={`bg-white border rounded-xl overflow-hidden shadow-sm ${
+                            isDecided ? "border-emerald-200" : "border-stone-200"
+                          }`}
+                        >
+                          <div className={`px-5 py-4 border-b ${isDecided ? "border-emerald-100 bg-emerald-50/50" : "border-stone-100 bg-stone-50"}`}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap mb-1">
+                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                                    isDecided
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "bg-amber-100 text-amber-700"
+                                  }`}>
+                                    {isDecided ? "Decided" : "Open"}
+                                  </span>
+                                  {linkedDeliverable && (
+                                    <span className={`text-xs px-2 py-0.5 rounded ${
+                                      linkedState === 2
+                                        ? "bg-emerald-100 text-emerald-600"
+                                        : linkedState === 1
+                                        ? "bg-teal-deep/10 text-teal-deep"
+                                        : "bg-stone-100 text-stone-500"
+                                    }`}>
+                                      Timeline: {linkedDeliverable.text.slice(0, 40)}{linkedDeliverable.text.length > 40 ? "..." : ""}
+                                    </span>
+                                  )}
+                                </div>
+                                <h3 className="font-semibold text-stone-800 text-sm">{dec.title}</h3>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  if (isEditing) {
+                                    setEditingDecision(null);
+                                  } else {
+                                    setEditingDecision(dec.id);
+                                    setDecisionDraft({
+                                      chosen: entry?.chosen ?? "",
+                                      notes: entry?.notes ?? "",
+                                    });
+                                  }
+                                }}
+                                className={`shrink-0 text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                                  isEditing
+                                    ? "bg-stone-200 text-stone-600 hover:bg-stone-300"
+                                    : "bg-teal-deep text-white hover:bg-teal"
+                                }`}
+                              >
+                                {isEditing ? "Cancel" : isDecided ? "Edit" : "Resolve"}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="px-5 py-4">
+                            <p className="text-stone-500 text-sm mb-3">{dec.description}</p>
+
+                            {dec.suggestedOptions && dec.suggestedOptions.length > 0 && (
+                              <div className="mb-3">
+                                <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1.5">Suggested options</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {dec.suggestedOptions.map((opt) => (
+                                    <button
+                                      key={opt}
+                                      onClick={() => {
+                                        if (!isEditing) {
+                                          setEditingDecision(dec.id);
+                                          setDecisionDraft({
+                                            chosen: opt,
+                                            notes: entry?.notes ?? "",
+                                          });
+                                        } else {
+                                          setDecisionDraft((prev) => ({ ...prev, chosen: opt }));
+                                        }
+                                      }}
+                                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                                        (isEditing ? decisionDraft.chosen : entry?.chosen) === opt
+                                          ? "bg-teal-deep text-white border-teal-deep"
+                                          : "border-stone-200 text-stone-600 hover:border-teal hover:text-teal"
+                                      }`}
+                                    >
+                                      {opt}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {isEditing ? (
+                              <div className="space-y-3">
+                                <div>
+                                  <label className="text-xs font-semibold text-stone-500 block mb-1">Decision chosen</label>
+                                  <input
+                                    type="text"
+                                    value={decisionDraft.chosen}
+                                    onChange={(e) => setDecisionDraft((prev) => ({ ...prev, chosen: e.target.value }))}
+                                    placeholder="What was decided?"
+                                    autoFocus
+                                    className="w-full text-sm px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-teal-deep"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs font-semibold text-stone-500 block mb-1">Notes / rationale</label>
+                                  <textarea
+                                    value={decisionDraft.notes}
+                                    onChange={(e) => setDecisionDraft((prev) => ({ ...prev, notes: e.target.value }))}
+                                    placeholder="Context, rationale, or next steps..."
+                                    className="w-full text-sm px-3 py-2 border border-stone-200 rounded-lg outline-none resize-y min-h-20 focus:border-teal-deep font-sans"
+                                  />
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => updateDecision(dec.id, "decided", decisionDraft.chosen, decisionDraft.notes)}
+                                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                                  >
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Mark as Decided
+                                  </button>
+                                  <button
+                                    onClick={() => updateDecision(dec.id, "open", decisionDraft.chosen, decisionDraft.notes)}
+                                    className="text-xs px-3 py-1.5 rounded-lg bg-stone-200 text-stone-600 hover:bg-stone-300 transition-colors"
+                                  >
+                                    Save as Open
+                                  </button>
+                                </div>
+                              </div>
+                            ) : isDecided ? (
+                              <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3">
+                                <p className="text-xs font-semibold text-emerald-700 mb-0.5">Decision</p>
+                                <p className="text-sm text-emerald-800 font-medium">{entry.chosen || "No decision text recorded"}</p>
+                                {entry.notes && (
+                                  <p className="text-xs text-emerald-600 mt-1.5 whitespace-pre-wrap">{entry.notes}</p>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── VARIABLES VIEW ──────────────────────────────────────── */}
+              {activeView === "variables" && (
+                <div className="max-w-3xl mx-auto">
+                  <div className="mb-6">
+                    <h2 className="font-display text-2xl font-bold text-teal-deep">Variables Sheet</h2>
+                    <p className="text-stone-500 text-sm mt-1">
+                      Fill in the values that need to be inserted into pages before launch. Resolved values are visible to the team.
+                    </p>
+                  </div>
+
+                  {/* Summary stats */}
+                  {(() => {
+                    const allVars = PAGES.flatMap((p) => p.placeholders.map((ph, i) => ({ pageId: p.id, ph, i })));
+                    const resolvedCount = allVars.filter(({ pageId, i }) => serverState.copy[`var-${pageId}-${i}`]?.trim()).length;
+                    return (
+                      <div className="flex gap-4 mb-6">
+                        <div className="bg-white border border-stone-200 rounded-xl px-5 py-4 flex-1 text-center shadow-sm">
+                          <p className="text-2xl font-bold text-emerald-600">{resolvedCount}</p>
+                          <p className="text-stone-400 text-xs mt-0.5">Resolved</p>
+                        </div>
+                        <div className="bg-white border border-stone-200 rounded-xl px-5 py-4 flex-1 text-center shadow-sm">
+                          <p className="text-2xl font-bold text-amber-600">{allVars.length - resolvedCount}</p>
+                          <p className="text-stone-400 text-xs mt-0.5">Pending</p>
+                        </div>
+                        <div className="bg-white border border-stone-200 rounded-xl px-5 py-4 flex-1 text-center shadow-sm">
+                          <p className="text-2xl font-bold text-stone-400">{allVars.length}</p>
+                          <p className="text-stone-400 text-xs mt-0.5">Total</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="space-y-4">
+                    {PAGES.filter((p) => p.placeholders.length > 0).map((p) => {
+                      const allResolved = p.placeholders.every((_, i) => serverState.copy[`var-${p.id}-${i}`]?.trim());
+                      return (
+                        <div key={p.id} className="bg-white border border-stone-200 rounded-xl overflow-hidden shadow-sm">
+                          <div className="flex items-center justify-between px-5 py-3.5 border-b border-stone-100 bg-stone-50">
+                            <div className="flex items-center gap-2">
+                              <span>{p.emoji}</span>
+                              <h3 className="font-semibold text-stone-800 text-sm">{p.title}</h3>
+                              <button
+                                onClick={() => setActiveView(p.id)}
+                                className="text-xs text-teal hover:text-teal-deep transition-colors flex items-center gap-0.5"
+                              >
+                                <LinkIcon className="w-3 h-3" />
+                                view copy
+                              </button>
+                            </div>
+                            {allResolved ? (
+                              <span className="text-xs bg-emerald-100 text-emerald-700 font-medium px-2 py-0.5 rounded">
+                                All resolved
+                              </span>
+                            ) : (
+                              <span className="text-xs bg-amber-100 text-amber-700 font-medium px-2 py-0.5 rounded">
+                                {p.placeholders.filter((_, i) => serverState.copy[`var-${p.id}-${i}`]?.trim()).length}/{p.placeholders.length} resolved
+                              </span>
+                            )}
+                          </div>
+                          <div className="divide-y divide-stone-100">
+                            {p.placeholders.map((ph, i) => {
+                              const varKey = `var-${p.id}-${i}`;
+                              const value = serverState.copy[varKey] ?? "";
+                              const isResolved = value.trim().length > 0;
+                              const isEditingVar = editingSection === varKey;
+                              return (
+                                <div key={i} className={`flex items-start gap-4 px-5 py-3.5 ${isResolved ? "bg-emerald-50/30" : ""}`}>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold text-stone-500 mb-1.5">{ph}</p>
+                                    {isEditingVar ? (
+                                      <div className="flex gap-2 items-center">
+                                        <input
+                                          type="text"
+                                          value={editDraft}
+                                          onChange={(e) => setEditDraft(e.target.value)}
+                                          autoFocus
+                                          placeholder="Enter the value..."
+                                          className="flex-1 text-sm px-3 py-1.5 border border-stone-200 rounded-lg outline-none focus:border-teal-deep"
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") saveEdit(varKey);
+                                            if (e.key === "Escape") cancelEdit();
+                                          }}
+                                        />
+                                        <button
+                                          onClick={() => saveEdit(varKey)}
+                                          className="shrink-0 text-xs px-2.5 py-1.5 bg-teal-deep text-white rounded-lg hover:bg-teal transition-colors"
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          onClick={cancelEdit}
+                                          className="shrink-0 text-xs px-2.5 py-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300 transition-colors"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-2">
+                                        {isResolved ? (
+                                          <span className="text-sm text-stone-700 font-medium">{value}</span>
+                                        ) : (
+                                          <span className="text-sm text-stone-300 italic">Not set yet</span>
+                                        )}
+                                        <button
+                                          onClick={() => startEdit(varKey, value)}
+                                          className="text-xs text-stone-400 hover:text-teal-deep transition-colors flex items-center gap-0.5"
+                                        >
+                                          <Edit2 className="w-3 h-3" />
+                                          {isResolved ? "Edit" : "Set value"}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="shrink-0 mt-1">
+                                    {isResolved ? (
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                                    ) : (
+                                      <AlertTriangle className="w-4 h-4 text-amber-400" />
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* ── PAGE COPY VIEW ──────────────────────────────────────── */}
               {activePage && (
@@ -1546,7 +2082,7 @@ export default function JourneyToLaunch() {
                   {activePage.placeholders.length === 0 && (
                     <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 mb-6 text-sm font-medium">
                       <CheckCircle2 className="w-4 h-4" />
-                      Copy delivered — no placeholders on this page
+                      Copy delivered - no placeholders on this page
                     </div>
                   )}
 
@@ -1640,16 +2176,21 @@ export default function JourneyToLaunch() {
                       Notes and Feedback
                     </p>
                     <p className="text-stone-400 text-sm">
-                      Click <strong>Edit</strong> on any section to update copy — edits are saved to the server and visible to everyone.
-                      For major decisions, also log them in the{" "}
-                      <a
-                        href="https://docs.google.com/document/d/1HySZYDf-QDRg_Srp_hUbUyI6TKHNIlLc/edit"
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      Click <strong>Edit</strong> on any section to update copy - edits are saved to the server and visible to everyone.
+                      For major decisions, use the{" "}
+                      <button
+                        onClick={() => setActiveView("decisions")}
                         className="text-teal hover:underline"
                       >
                         Decision Log
-                      </a>
+                      </button>
+                      {" "}in the sidebar. To fill in missing values, visit the{" "}
+                      <button
+                        onClick={() => setActiveView("variables")}
+                        className="text-teal hover:underline"
+                      >
+                        Variables Sheet
+                      </button>
                       .
                     </p>
                   </div>
