@@ -306,14 +306,14 @@ CTA: Return Home`,
   {
     id: "co-creators-guide",
     emoji: "📖",
-    title: "Co-Creators Guide",
+    title: "Amora Game Guide",
     url: "/co-creators-guide",
     week: "Week 3 | Mar 31 – Apr 6",
-    placeholders: [],
+    placeholders: ["Amora's specific Hypha DHO URL - replace [YOUR-DHO-SLUG] in CoCreatorsGuide.tsx once the Hypha space is live"],
     sections: [
       {
         heading: "Page Header",
-        content: "Title: The Co-Creators Guide\nNav Tabs: R-Ikigai | Hearts Economy | Voice and Governance | The Four Spaces | Path of Growth | Good Neighbor | Quests | Circle Roles",
+        content: "Title: The Amora Game Guide (also: The Co-Creators Guide)\nNav Tabs: R-Ikigai | Hearts Economy | Voice and Governance | Hypha Platform | The Four Spaces | Path of Growth | Good Neighbor",
       },
       {
         heading: "R-Ikigai",
@@ -336,6 +336,20 @@ Flow: Contribution > Hearts Earned > Community Spending > Regenerative Loop`,
 2. Clarification - The circle asks clarifying questions. Not debate, just understanding.
 3. Consent - No reasoned objections means we move forward.
 Key Principles: Circles Hold Authority | Monthly All-Village Calls`,
+      },
+      {
+        heading: "Hypha Platform",
+        content: `Heading: Hypha - Our Governance Platform
+Intro: Where governance happens in practice. Open-source, transparent, owned by its contributors. Value In = Value Out.
+[PLACEHOLDER - Amora: add your DHO link to CoCreatorsGuide.tsx when Hypha space is live]
+
+4 Action Cards:
+1. Start with an Agreement - Propose a new role, quest, or contribution type. Create Agreement link.
+2. Claim Your Hearts - After completing a task, pay period, or season, propose a Contribution. Claim link.
+3. Propose Expenses - Cover costs that benefit the community. Pay for Expenses link.
+4. Delegate Your Voice - Trust another member to vote on your behalf. Members page link.
+
+Sense > Propose > Create cycle displayed at bottom.`,
       },
       {
         heading: "The Four Spaces",

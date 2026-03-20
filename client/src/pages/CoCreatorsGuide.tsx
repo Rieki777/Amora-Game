@@ -26,6 +26,11 @@ import {
   HandshakeIcon,
   AlertCircle,
   GitBranch,
+  ExternalLink,
+  ClipboardList,
+  Receipt,
+  UserCheck,
+  Vote,
 } from "lucide-react";
 
 interface ScrollNavPill {
@@ -37,9 +42,67 @@ const navPills: ScrollNavPill[] = [
   { id: "r-ikigai", label: "R-Ikigai" },
   { id: "hearts", label: "Hearts Economy" },
   { id: "voice", label: "Voice & Governance" },
+  { id: "hypha", label: "Hypha Platform" },
   { id: "spaces", label: "The Four Spaces" },
   { id: "progression", label: "Path of Growth" },
   { id: "good-neighbor", label: "Good Neighbor" },
+];
+
+// ─── Hypha Action Cards ────────────────────────────────────────────────────────
+
+// AMORA: Replace [YOUR-DHO-SLUG] with your actual Hypha DHO slug
+// e.g. if your space is app.hypha.earth/en/dho/amora-village, use "amora-village"
+const HYPHA_BASE = "https://app.hypha.earth/en/dho/[YOUR-DHO-SLUG]";
+
+const hyphaActions = [
+  {
+    icon: ClipboardList,
+    title: "Start with an Agreement",
+    subtitle: "Proposing a role, quest, or new contribution",
+    description:
+      "Before you begin any new type of contribution — a seasonal role, a quest, or a new initiative — you open it to the community with an Agreement. Describe what you're bringing, what Amora receives, and what you're requesting in return. The community votes. Value in = value out.",
+    cta: "Create Agreement",
+    href: `${HYPHA_BASE}/agreements/create`,
+    color: "border-teal-deep/30 bg-teal-deep/5",
+    iconColor: "text-teal-deep",
+    iconBg: "bg-teal-deep/10",
+  },
+  {
+    icon: Receipt,
+    title: "Claim Your Hearts",
+    subtitle: "After completing a task, pay period, or season",
+    description:
+      "When you've done the work — completed a quest, finished a season as a role holder, or reached a milestone — you come back and propose a Contribution Claim. Detail what you delivered, what Amora gained, and claim your Hearts. This is how the value you create becomes visible and rewarded.",
+    cta: "Propose a Contribution",
+    href: `${HYPHA_BASE}/agreements/create/propose-contribution`,
+    color: "border-sage/30 bg-sage/5",
+    iconColor: "text-sage",
+    iconBg: "bg-sage/10",
+  },
+  {
+    icon: DollarSign,
+    title: "Propose Expenses",
+    subtitle: "When your work has real costs",
+    description:
+      "If your contribution requires purchasing materials, covering travel, or paying for services that benefit the community, you can propose those expenses for reimbursement. Be transparent and specific — the community is the budget committee here, and your integrity in how you handle shared resources is part of your contribution.",
+    cta: "Pay for Expenses",
+    href: `${HYPHA_BASE}/agreements/create/pay-for-expenses`,
+    color: "border-amber/30 bg-amber/5",
+    iconColor: "text-amber-700",
+    iconBg: "bg-amber/10",
+  },
+  {
+    icon: UserCheck,
+    title: "Delegate Your Voice",
+    subtitle: "Trust someone to vote on your behalf",
+    description:
+      "Your voice is your governance power — it grows as you contribute. If you trust another member to represent your perspective while you're away or unavailable, you can delegate your voice to them. Choose someone whose judgment aligns with yours and whose commitment to Amora you trust deeply.",
+    cta: "View Members",
+    href: `${HYPHA_BASE}/members`,
+    color: "border-coral/30 bg-coral/5",
+    iconColor: "text-coral",
+    iconBg: "bg-coral/10",
+  },
 ];
 
 const heartsItems = {
@@ -188,12 +251,13 @@ export default function CoCreatorsGuide() {
             >
               <BookOpen className="w-16 h-16 mx-auto mb-6 opacity-90" />
               <h1 className="font-display text-5xl md:text-6xl font-bold mb-6 leading-tight">
-                The Co-Creators Guide
+                The Amora Game Guide
               </h1>
               <p className="text-lg md:text-xl text-white/90 leading-relaxed max-w-2xl mx-auto">
-                Step into the infinite journey of co-creation. This guide illuminates the
-                pathways, structures, and principles that make Amora a regenerative village
-                where all beings belong.
+                Your complete guide to co-creating this village. How the economy works, how decisions get made, how to use our governance platform, and what the journey from visitor to Sage looks like.
+              </p>
+              <p className="text-sm text-white/60 mt-4">
+                Also called: The Co-Creators Guide
               </p>
             </motion.div>
           </div>
@@ -622,6 +686,120 @@ export default function CoCreatorsGuide() {
                   </p>
                 </div>
               </motion.div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* HYPHA PLATFORM SECTION */}
+      <section id="hypha" className="py-20 bg-cream">
+        <div className="container">
+          <motion.div
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+          >
+            <div className="mb-12 text-center max-w-3xl mx-auto">
+              <span className="text-sm font-medium uppercase tracking-wide text-teal-deep">
+                Our Governance Platform
+              </span>
+              <h2 className="font-display text-4xl md:text-5xl font-bold text-foreground mb-4 mt-2">
+                Hypha
+              </h2>
+              <p className="text-muted-foreground text-lg">
+                Hypha is where Amora's governance happens in practice. It's open-source,
+                transparent, and owned by its contributors — no CEO, no board doling out
+                budgets. Every proposal is the community asking: does this contribution serve
+                Amora equal to what's being requested?
+              </p>
+              <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
+                <a
+                  href="https://app.hypha.earth"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-teal-deep text-white text-sm font-medium hover:bg-teal-deep/90 transition-colors"
+                >
+                  Open Hypha Platform
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+                <p className="text-xs text-muted-foreground self-center italic">
+                  [AMORA: Add your specific DHO link once your Hypha space is live]
+                </p>
+              </div>
+            </div>
+
+            {/* Value philosophy */}
+            <div className="max-w-3xl mx-auto mb-12 rounded-2xl border border-teal/20 bg-white p-6 md:p-8">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-xl bg-teal-deep/10 flex items-center justify-center flex-shrink-0">
+                  <Vote className="w-5 h-5 text-teal-deep" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground text-lg mb-2">
+                    Value In = Value Out
+                  </h3>
+                  <p className="text-muted-foreground text-sm leading-relaxed">
+                    Every proposal asks the community one question: does this contribution serve
+                    Amora equal to the Hearts being requested? Not time spent — time is not a
+                    contribution. What matters is value created, clearly articulated, and honestly
+                    assessed. Your voice in those votes carries more weight the more you contribute.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 4 Action Cards */}
+            <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+              {hyphaActions.map((action, idx) => {
+                const Icon = action.icon;
+                return (
+                  <motion.div
+                    key={action.title}
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: idx * 0.08 }}
+                    className={`rounded-2xl border-2 p-6 ${action.color}`}
+                  >
+                    <div className="flex items-start gap-4 mb-4">
+                      <div className={`w-10 h-10 rounded-xl ${action.iconBg} flex items-center justify-center flex-shrink-0`}>
+                        <Icon className={`w-5 h-5 ${action.iconColor}`} />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-foreground">{action.title}</h3>
+                        <p className={`text-xs font-medium ${action.iconColor}`}>{action.subtitle}</p>
+                      </div>
+                    </div>
+                    <p className="text-muted-foreground text-sm leading-relaxed mb-5">
+                      {action.description}
+                    </p>
+                    <a
+                      href={action.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-sm font-medium text-foreground hover:underline"
+                    >
+                      {action.cta}
+                      <ExternalLink className="w-4 h-4 opacity-60" />
+                    </a>
+                  </motion.div>
+                );
+              })}
+            </div>
+
+            {/* Design principles */}
+            <div className="mt-12 max-w-3xl mx-auto grid sm:grid-cols-3 gap-4 text-center">
+              {[
+                { label: "Sense", description: "Find where your gifts are most needed right now" },
+                { label: "Propose", description: "Open your intention to the community for consent" },
+                { label: "Create", description: "Do the work. Document it. Claim what you're owed." },
+              ].map((step) => (
+                <div key={step.label} className="rounded-xl bg-white border border-border p-5">
+                  <div className="text-2xl font-display font-bold text-teal-deep mb-2">{step.label}</div>
+                  <p className="text-muted-foreground text-sm">{step.description}</p>
+                </div>
+              ))}
             </div>
           </motion.div>
         </div>
