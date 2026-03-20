@@ -101,18 +101,16 @@ const WEEKS: Week[] = [
       { id: "w1-1", text: "Landing page - full copy and structure (welcome section, 5 journey paths)", status: "done" },
       { id: "w1-2", text: "Landing page - Attend, Experience, Co-Create, Integrate, Commit flow written and laid out", status: "done" },
       { id: "w2-17", text: "Pages: Investor, Village Steward, Resident, How We Create, Quests - copy delivered (see page tabs)", status: "done", pageLink: "steward" },
-      { id: "w2-1", text: "Village Steward Space - Rights and Responsibilities page linked and drafted", status: "pending" },
+      { id: "w2-1", text: "Village Steward Space - Rights and Responsibilities page linked and drafted", status: "done", pageLink: "steward-rights" },
       { id: "w2-2", text: "Village Steward Journey - Community Connection Calls CTA live", status: "pending" },
       { id: "w2-3", text: "Village Steward Journey - Potluck, Events, Workshops, Village Weaving links live", status: "pending" },
       { id: "w2-6", text: "Village Steward Journey - Explore Quests section linked", status: "pending", pageLink: "quests" },
       { id: "w2-7", text: "Village Steward Journey - Amora Game Guide linked (Roles, Co-Creator criteria)", status: "pending", pageLink: "roles" },
       { id: "w2-8", text: "Village Steward Journey - Role Application for Upcoming Season CTA live", status: "pending" },
-      { id: "w2-9", text: "Resident Space - Rights and Responsibilities page linked and drafted", status: "pending" },
+      { id: "w2-9", text: "Resident Space - Rights and Responsibilities page linked and drafted", status: "done", pageLink: "resident-rights" },
       { id: "w2-10", text: "Resident Journey - Community Call and Discovery Call CTA live", status: "pending" },
-      { id: "w2-18", text: "Circles cards - all role titles, descriptions, and links accurate", status: "pending", pageLink: "circles" },
       { id: "wt-1", text: "Decision needed - name the community contribution token (currently 'Hearts'): tracks contributions to be resolved as debt, equity, or community currency, with a percentage split for early contributors", status: "amora" },
       { id: "w1-6", text: "AMORA: Provide brand kit assets (colors, fonts, logos)", status: "amora" },
-      { id: "w2-19", text: "Deliver Investor Pack content (terms, structure, documents)", status: "collab" },
     ],
   },
   {
@@ -125,6 +123,7 @@ const WEEKS: Week[] = [
       { id: "w4-2", text: "Roles section - all initial roles documented (Community Engagement, Land Liaison, Marketing, Operations, Visionary, Financial Mgmt)", status: "pending", pageLink: "roles" },
       { id: "w4-3", text: "Investor Journey - Request Investor Pack drop-down and Pack created", status: "pending", pageLink: "investor" },
       { id: "w4-4", text: "Circles section - Explore Roles page complete", status: "pending", pageLink: "circles" },
+      { id: "w2-18", text: "Circles cards - all role titles, descriptions, and links accurate", status: "pending", pageLink: "circles" },
       { id: "w4-5", text: "Co-Creator Right of Passage - description and process documented and live", status: "pending", pageLink: "co-creators-guide" },
       { id: "w4-6", text: "Seasonal Festivals - description page live", status: "pending", pageLink: "seasonal-festivals" },
       { id: "w4-7", text: "Guide and Sage progression - criteria and Voice gains documented", status: "pending", pageLink: "co-creators-guide" },
@@ -166,6 +165,7 @@ const WEEKS: Week[] = [
       { id: "am-4", text: "Secure the land + clear agreement with Lawrence - ownership or access terms signed and confirmed", status: "collab" },
       { id: "am-5", text: "Regen Development Fund path clear - funding vehicle, terms, and first close strategy confirmed", status: "collab" },
       { id: "am-6", text: "Business plan clear and complete - full plan covering operations, revenue model, and development phases ready to share", status: "collab" },
+      { id: "w2-19", text: "Deliver Investor Pack content (terms, structure, documents)", status: "collab" },
     ],
   },
   {
@@ -488,6 +488,51 @@ CTA: Begin My Stewardship Journey`,
     ],
   },
   {
+    id: "steward-rights",
+    emoji: "⚖️",
+    title: "Steward Rights & Responsibilities",
+    url: "/steward-rights",
+    week: "Week 1 | Mar 17-23",
+    placeholders: [],
+    sections: [
+      {
+        heading: "Page Header",
+        content: `Tag: Village Steward Space
+Title: Your Rights and Responsibilities
+Subtitle: This is not a legal document. It's a covenant between co-owners. Every Village Steward holds both — the rights that come from real ownership of this place, and the responsibilities that make those rights worth something.`,
+      },
+      {
+        heading: "Co-Ownership Framing",
+        content: `Heading: You Are a Co-Owner of This Village
+Text: Not in a passive sense. Not in a "you paid for something" sense. In the deepest sense — the land, the buildings, the culture, the economy, the future of this place are in your hands as much as anyone else's. Act from that space. Steward it as if you built it, because you are building it, right now.`,
+      },
+      {
+        heading: "Your Rights (6 Cards)",
+        content: `1. Voice in Governance - Participate in Circle consent rounds, vote on decisions in your domain, elect representatives to the Leadership Council.
+2. Earn Hearts for Your Contribution - Every role, quest, and meaningful act earns Hearts (1 Heart = $1 USD). Converts to cash or equity as Amora grows.
+3. Apply for Seasonal Roles - Once you pass your Co-Creator Right of Passage, propose yourself for any seasonal role that fits your gifts.
+4. Advance Along the Path - Progress from Co-Creator to Guide (after multiple seasons) to Sage (after seasons as Guide). Each level deepens your voice and compensation.
+5. Access to Shared Land and Commons - All trails, food forests, gathering spaces, and natural features of the 266 acres are yours to steward and enjoy.
+6. Retreat and Wellness Access - Access Amora's wellness offerings at community rates as a contributing steward.`,
+      },
+      {
+        heading: "Your Responsibilities (6 Cards)",
+        content: `1. Show Up for Your Circle - Attend meetings consistently, participate in consent rounds, communicate if you can't make it.
+2. Act as a Co-Owner - Approach every decision, every piece of land, every shared resource as if it belongs to you and to everyone here — because it does.
+3. Take On Quests - Actively complete quests that stretch your contribution. Your engagement keeps the community alive.
+4. Practice the Community Ways - NVC, authentic relating, consent-based decision-making. Not just knowing them — practicing them.
+5. Contribute to the Seasonal Rhythm - Attend seasonal transitions, participate in votes, help decide collectively what Amora focuses on next.
+6. Lift Others as You Rise - As you advance, carry responsibility for welcoming newcomers and mentoring those coming behind you.`,
+      },
+      {
+        heading: "Progression Path",
+        content: `Co-Creator: Full governance voice, seasonal role eligibility, Hearts economy access.
+Guide (after multiple seasons): Mentorship responsibilities, increased Hearts, voice in cross-circle decisions.
+Sage (after seasons as Guide): Highest governance voice, wisdom keeper, long-term strategic guidance for the village.`,
+      },
+    ],
+  },
+  {
     id: "resident",
     emoji: "🏡",
     title: "Resident Journey",
@@ -525,6 +570,60 @@ Note: Dues cover utilities, maintenance, and community services. These can be co
         content: `Renewable: Your agreement can be renewed, providing long-term security for your family.
 Transferable: Pass your land share to your children tax-free.
 Community Owned: The land remains in community ownership, ensuring our values are preserved.`,
+      },
+    ],
+  },
+  {
+    id: "resident-rights",
+    emoji: "🛡️",
+    title: "Resident Rights & Responsibilities",
+    url: "/resident-rights",
+    week: "Week 1 | Mar 17-23",
+    placeholders: ["Monthly village dues amount ($NNN/month)", "Exact year thresholds for governance milestone progression"],
+    sections: [
+      {
+        heading: "Page Header",
+        content: `Tag: Resident Space
+Title: Your Rights and Responsibilities
+Subtitle: Living at Amora means you are not a tenant. You are a co-owner of the whole village. These are the rights that protect you and the responsibilities that make this place worth protecting.`,
+      },
+      {
+        heading: "Co-Ownership Framing",
+        content: `Heading: You Live Here. This Is Yours.
+Text: The land at Amora is held collectively. Every resident is a steward of the whole 266 acres. Your home is your private space. The rest belongs to all of you. Approach every interaction with the land and the community from that place: this is mine, and it's also all of ours.`,
+      },
+      {
+        heading: "Your Rights (6 Cards)",
+        content: `1. Your Land Share is Yours - Long-term Land Share Agreement: renewable, transferable to your children tax-free, protected by collective ownership.
+2. Security Through Community Ownership - No single person can sell the land away. It's held in trust for the whole community, including your family and those that come after.
+3. Voice in Community Life - Full voice in Circles governing daily life. Governance rights deepen as you reach milestones and put down roots.
+4. Access to All Commons - Trails, food forests, gathering spaces, streams, ponds, seasonal festivals, events — all of it is yours.
+5. Community Services and Care - Access to wellness programs, education, healing arts, and services Amora develops together. Community businesses serve residents first.
+6. Dues Offset Through Hearts - Dues can be covered through Hearts (1 Heart = $1 USD of contribution). The vision: shared business profits make life here net-positive.`,
+      },
+      {
+        heading: "Your Responsibilities (7 Cards)",
+        content: `1. Care for Your Home and Its Surroundings - Maintain your home and immediate space to a standard that honors the land and the community around it.
+2. Act as a Co-Owner - You live here. Pick up what needs picking up. Notice what others miss. Bring a co-owner's eye to every interaction with the land and the community.
+3. Contribute to Maintenance - Every resident contributes time to shared spaces, infrastructure, and community assets. Details agreed during residency onboarding.
+4. Village Dues - [PLACEHOLDER - $NNN/month] - Covers utilities, shared infrastructure, and community services. Offset through Hearts; vision is full coverage through shared business profits.
+5. Participate in Community Processes - Show up to Circle meetings affecting your domain, conflict resolution processes, seasonal votes, and community governance.
+6. Honor the Good Neighbor Principles - Commit to and practice the Good Neighbor principles covering noise, shared resources, boundaries, children, and conflict.
+7. Raise the Next Generation Together - Children here are raised by the whole village. Contribute to a child-safe, child-enriching environment.`,
+      },
+      {
+        heading: "Maintenance and Fees Vision",
+        content: `Village dues exist to keep infrastructure running. The longer-term vision: as Amora's shared businesses mature — retreat center, cafe, wellness center, artisan market, education programs — revenue flows back into the community.
+
+The goal is a life here that is economically net-positive. Where Hearts earnings, business participation, or role contributions cover not just your dues, but give you back more than you put in.
+
+This is what "Wealth Through Contribution" actually means. Not a promise. A design intention we're building toward together.`,
+      },
+      {
+        heading: "Progression Over Time",
+        content: `Resident (Year 1+): Full commons access, housing rights, community participation.
+Established Resident (Year 3+): Deeper governance voice, eligible for Circle Representative roles. [PLACEHOLDER - confirm threshold]
+Long-Term Resident (Year 7+): Senior voice in community decisions, Sage eligibility, rights of nature representation. [PLACEHOLDER - confirm threshold]`,
       },
     ],
   },

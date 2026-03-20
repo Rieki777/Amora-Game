@@ -552,6 +552,32 @@ export default function StewardJourney() {
         </div>
       </section>
 
+      {/* Rights & Responsibilities */}
+      <section className="py-16 bg-background">
+        <div className="container">
+          <motion.div
+            className="max-w-3xl mx-auto text-center"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <h2 className="font-display text-2xl md:text-3xl font-semibold text-foreground mb-3">
+              Your Rights and Responsibilities
+            </h2>
+            <p className="text-muted-foreground mb-6">
+              As a Village Steward, you hold real ownership of this place — and real responsibility for it. Read the full covenant between co-owners.
+            </p>
+            <Link
+              href="/steward-rights"
+              className="btn-amora inline-flex items-center gap-2"
+            >
+              Read Rights and Responsibilities
+              <ArrowRight className="w-5 h-5" />
+            </Link>
+          </motion.div>
+        </div>
+      </section>
+
       {/* Your Next Step */}
       <section className="py-20 bg-sage/10">
         <div className="container">

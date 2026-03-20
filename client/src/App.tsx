@@ -26,6 +26,8 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import GoodNeighbor from "./pages/GoodNeighbor";
 import JourneyToLaunch from "./pages/JourneyToLaunch";
+import StewardRights from "./pages/StewardRights";
+import ResidentRights from "./pages/ResidentRights";
 
 function Router() {
   return (
@@ -51,6 +53,8 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/good-neighbor" component={GoodNeighbor} />
+      <Route path="/steward-rights" component={StewardRights} />
+      <Route path="/resident-rights" component={ResidentRights} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

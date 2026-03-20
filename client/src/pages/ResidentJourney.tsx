@@ -538,6 +538,32 @@ export default function ResidentJourney() {
         </div>
       </section>
 
+      {/* Rights & Responsibilities */}
+      <section className="py-16 bg-background">
+        <div className="container">
+          <motion.div
+            className="max-w-3xl mx-auto text-center"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <h2 className="font-display text-2xl md:text-3xl font-semibold text-foreground mb-3">
+              Your Rights and Responsibilities
+            </h2>
+            <p className="text-muted-foreground mb-6">
+              As a resident you are a co-owner of this village — not a tenant. Read the full covenant that protects you and defines what we're building together.
+            </p>
+            <Link
+              href="/resident-rights"
+              className="btn-amora inline-flex items-center gap-2"
+            >
+              Read Rights and Responsibilities
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </motion.div>
+        </div>
+      </section>
+
       {/* Your Next Step CTA */}
       <section className="py-20 bg-teal-deep/5">
         <div className="container">
