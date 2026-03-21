@@ -279,7 +279,7 @@ export default function Quests() {
     return circleMatch && diffMatch;
   });
 
-  const totalHearts = filtered.reduce((sum, q) => {
+  const totalGratitude = filtered.reduce((sum, q) => {
     const max = parseInt(q.hearts.split("–")[1]);
     return sum + max;
   }, 0);
@@ -301,8 +301,8 @@ export default function Quests() {
               Community Quests
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-4">
-              Quests are how you contribute to the village and earn Hearts — our
-              way of acknowledging every contribution. 1 Heart = $1 USD in value.
+              Quests are how you contribute to the village and earn Gratitude — our
+              way of acknowledging every contribution. 1 Gratitude = $1 USD in value.
               Every quest builds relationships, regenerates the land, and grows the
               community's collective score.
             </p>
@@ -311,7 +311,7 @@ export default function Quests() {
               {quests
                 .reduce((s, q) => s + parseInt(q.hearts.split("–")[1]), 0)
                 .toLocaleString()}{" "}
-              Hearts available
+              Gratitude available
             </p>
           </motion.div>
         </div>
@@ -432,7 +432,7 @@ export default function Quests() {
                 <div className="px-6 py-4 border-t border-border bg-muted/30 flex items-center justify-between">
                   <div className="flex items-center gap-1 text-primary font-semibold text-sm">
                     <Heart className="w-4 h-4" />
-                    <span>{quest.hearts} Hearts</span>
+                    <span>{quest.hearts} Gratitude</span>
                   </div>
                   <div className="flex items-center gap-1 text-muted-foreground text-xs">
                     <Clock className="w-3.5 h-3.5" />
@@ -482,32 +482,32 @@ export default function Quests() {
         </div>
       </section>
 
-      {/* Hearts Explainer */}
+      {/* Gratitude Explainer */}
       <section className="py-16 bg-primary/5">
         <div className="container">
           <div className="max-w-3xl mx-auto">
             <h2 className="font-display text-3xl font-bold text-foreground mb-4 text-center">
-              What Are Hearts?
+              What Is Gratitude?
             </h2>
             <p className="text-muted-foreground text-center mb-10">
-              Hearts are how Amora tracks contributions. Right now, 1 Heart = $1 USD in value
-              contributed. As Amora matures, Hearts convert to cash or equity.
+              Gratitude is how Amora tracks contributions. Right now, 1 Gratitude = $1 USD in value
+              contributed. As Amora matures, Gratitude converts to cash or equity.
             </p>
             <div className="grid sm:grid-cols-3 gap-6">
               {[
                 {
                   title: "Earn",
-                  body: "Complete quests, contribute to circles, steward the land, teach, build, host, create. Every meaningful act earns Hearts.",
+                  body: "Complete quests, contribute to circles, steward the land, teach, build, host, create. Every meaningful act earns Gratitude.",
                   icon: Heart,
                 },
                 {
                   title: "Hold",
-                  body: "Hearts accumulate in your Village Profile and reflect your full contribution history. They're a record of everything you've invested.",
+                  body: "Gratitude accumulates in your Village Profile and reflect your full contribution history. They're a record of everything you've invested.",
                   icon: Star,
                 },
                 {
                   title: "Convert",
-                  body: "As Amora grows financially, Hearts convert to cash or equity. This is how we honor contributions made before we could pay in cash.",
+                  body: "As Amora grows financially, Gratitude converts to cash or equity. This is how we honor contributions made before we could pay in cash.",
                   icon: Sprout,
                 },
               ].map((item) => (

@@ -35,7 +35,7 @@ const journeySteps = [
     link: "https://amora.cr/event/discover-amora-webinar-qa/",
     linkText: "Join Community Call",
     external: true,
-    details: ["Understand our economic vision", "Learn how Hearts track contributions", "Meet other entrepreneurs", "Ask questions live"]
+    details: ["Understand our economic vision", "Learn how Gratitude tracks contributions", "Meet other entrepreneurs", "Ask questions live"]
   },
   {
     id: "prosperity-packet",
@@ -86,12 +86,12 @@ const journeySteps = [
     id: "launch",
     stage: "Builder",
     title: "Launch Your Business",
-    description: "Integrate with the Hearts contribution system and begin serving the Amora community.",
+    description: "Integrate with the Gratitude contribution system and begin serving the Amora community.",
     icon: PartyPopper,
     link: "#",
     linkText: "Launch Checklist",
     external: false,
-    details: ["Integrate Hearts tracking", "Set up community dashboard", "Train your team", "Celebrate your launch"]
+    details: ["Integrate Gratitude tracksing", "Set up community dashboard", "Train your team", "Celebrate your launch"]
   },
   {
     id: "impact",
@@ -112,7 +112,7 @@ const ariTiers = [
     color: "bg-amber/10 text-amber border-amber/20",
     description: "Early stage, establishing presence",
     focus: "Primary village impact",
-    metrics: ["Families served", "Hearts generated per week", "Community meals contributed"]
+    metrics: ["Families served", "Gratitude generated per week", "Community meals contributed"]
   },
   {
     tier: "Sprout",
@@ -217,7 +217,7 @@ export default function ProsperityJourney() {
               className="text-xl text-muted-foreground leading-relaxed mb-8"
             >
               Launch a business that serves the community and regenerates our ecosystem. 
-              Every contribution is tracked in Hearts — our way of acknowledging value before
+              Every contribution is tracked in Gratitude — our way of acknowledging value before
               we can pay in cash. Advance your impact through our ARI tiers.
             </motion.p>
 
@@ -247,7 +247,7 @@ export default function ProsperityJourney() {
         </div>
       </section>
 
-      {/* Hearts & Co-Ownership Info */}
+      {/* Gratitude & Co-Ownership Info */}
       <section className="py-16 bg-gold/5">
         <div className="container">
           <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto">
@@ -264,10 +264,10 @@ export default function ProsperityJourney() {
                 <Heart className="w-12 h-12 text-gold mx-auto mb-4" />
               </motion.div>
               <h3 className="font-display text-xl font-semibold text-foreground mb-3">
-                Hearts Economy
+                Gratitude Economy
               </h3>
               <p className="text-muted-foreground text-sm">
-                All businesses integrate with our contribution tracking system. Revenue shares are paid in Hearts — 1 Heart = $1 USD in value. As Amora matures, Hearts convert to cash or equity.
+                All businesses integrate with our contribution tracking system. Revenue shares are paid in Gratitude — 1 Gratitude = $1 USD in value. As Amora matures, Gratitude converts to cash or equity.
               </p>
             </motion.div>
 

@@ -109,7 +109,7 @@ const WEEKS: Week[] = [
       { id: "w2-8", text: "Village Steward Journey - Role Application for Upcoming Season CTA live", status: "pending" },
       { id: "w2-9", text: "Resident Space - Rights and Responsibilities page linked and drafted", status: "done", pageLink: "resident-rights" },
       { id: "w2-10", text: "Resident Journey - Community Call and Discovery Call CTA live", status: "pending" },
-      { id: "wt-1", text: "Decision needed - name the community contribution token (currently 'Hearts'): tracks contributions to be resolved as debt, equity, or community currency, with a percentage split for early contributors", status: "amora" },
+      { id: "wt-1", text: "Decision needed - name the community contribution token (currently 'Gratitude'): tracks contributions to be resolved as debt, equity, or community currency, with a percentage split for early contributors", status: "amora" },
       { id: "w1-6", text: "AMORA: Provide brand kit assets (colors, fonts, logos)", status: "amora" },
     ],
   },
@@ -161,7 +161,7 @@ const WEEKS: Week[] = [
       { id: "w3-4", text: "Prosperity Journey - business proposal submission flow live", status: "pending", pageLink: "prosperity" },
       { id: "w3-6", text: "Confirm ARI tiers and Voice allocations for Prosperity journey", status: "collab" },
       { id: "w3-7", text: "Confirm Investor Pack structure and financial projections", status: "collab" },
-      { id: "am-1", text: "Complete token design - name, function, and economic rules for the community contribution token (currently 'Hearts') finalised", status: "collab" },
+      { id: "am-1", text: "Complete token design - name, function, and economic rules for the community contribution token (currently 'Gratitude') finalised", status: "collab" },
       { id: "am-4", text: "Secure the land + clear agreement with Lawrence - ownership or access terms signed and confirmed", status: "collab" },
       { id: "am-5", text: "Regen Development Fund path clear - funding vehicle, terms, and first close strategy confirmed", status: "collab" },
       { id: "am-6", text: "Business plan clear and complete - full plan covering operations, revenue model, and development phases ready to share", status: "collab" },
@@ -309,25 +309,30 @@ CTA: Return Home`,
     title: "Amora Game Guide",
     url: "/co-creators-guide",
     week: "Week 3 | Mar 31 – Apr 6",
-    placeholders: ["Your Hypha DHO URL (e.g. app.hypha.earth/en/dho/amora-village) - paste the full URL to your Amora Hypha space so the platform links on the Game Guide page can go live"],
+    placeholders: [
+      "Your Hypha DHO URL (e.g. app.hypha.earth/en/dho/amora-village) - paste the full URL to your Amora Hypha space so the platform links on the Game Guide page can go live",
+      "Page title - currently 'Amora Game Guide', confirm with the team (alternatives: 'The Co-Creators Guide', 'The Amora Playbook', or your own name)",
+      "Community currency name - currently 'Gratitude', will be replaced sitewide once finalised. Share the chosen name so we can update all pages at once.",
+      "Community currency value - currently shown as '1 Gratitude = $1 USD'. Confirm the conversion rate or change this to aspirational language if the rate isn't locked in yet.",
+    ],
     sections: [
       {
         heading: "Page Header",
-        content: "Title: The Amora Game Guide (also: The Co-Creators Guide)\nNav Tabs: R-Ikigai | Hearts Economy | Voice and Governance | Hypha Platform | The Four Spaces | Path of Growth | Good Neighbor",
+        content: "Title: The Amora Game Guide (also: The Co-Creators Guide)\nNav Tabs: R-Ikigai | Gratitude Economy | Voice and Governance | Hypha Platform | The Four Spaces | Path of Growth | Good Neighbor",
       },
       {
         heading: "R-Ikigai",
         content: `Heading: Your R-Ikigai
-Venn Diagram: What You LOVE (Passion) | What You are GOOD AT (Skills) | What AMORA NEEDS (Regeneration) | What Earns HEARTS (Compensation)
+Venn Diagram: What You LOVE (Passion) | What You are GOOD AT (Skills) | What AMORA NEEDS (Regeneration) | What Earns GRATITUDE (Compensation)
 Text: Roles, quests, and contributions that our community values and rewards.`,
       },
       {
-        heading: "Hearts Economy",
-        content: `Heading: The Hearts Economy
-Earn Hearts: Complete quests, fulfill roles, or receive revenue shares from community and private businesses. (Land Stewardship Shifts, Business Revenue Share, Quests)
-Hold Hearts: Hearts accumulate in your Village Profile and reflect your contribution history.
-Use Hearts: Pay for HOA, utilities, services, cafe, shop, and more within the village.
-Flow: Contribution > Hearts Earned > Community Spending > Regenerative Loop`,
+        heading: "Gratitude Economy",
+        content: `Heading: The Gratitude Economy
+Earn Gratitude: Complete quests, fulfill roles, or receive revenue shares from community and private businesses. (Land Stewardship Shifts, Business Revenue Share, Quests)
+Hold Gratitude: Gratitude accumulates in your Village Profile and reflect your contribution history.
+Use Gratitude: Pay for HOA, utilities, services, cafe, shop, and more within the village.
+Flow: Contribution > Gratitude Earned > Community Spending > Regenerative Loop`,
       },
       {
         heading: "Voice and Governance",
@@ -345,7 +350,7 @@ Intro: Where governance happens in practice. Open-source, transparent, owned by 
 
 4 Action Cards:
 1. Start with an Agreement - Propose a new role, quest, or contribution type. Create Agreement link.
-2. Claim Your Hearts - After completing a task, pay period, or season, propose a Contribution. Claim link.
+2. Claim Your Gratitude - After completing a task, pay period, or season, propose a Contribution. Claim link.
 3. Propose Expenses - Cover costs that benefit the community. Pay for Expenses link.
 4. Delegate Your Voice - Trust another member to vote on your behalf. Members page link.
 
@@ -355,7 +360,7 @@ Sense > Propose > Create cycle displayed at bottom.`,
         heading: "The Four Spaces",
         content: `Village Steward Space - Coordinates overall village success, open to all path members
 Resident Space - Governs residential life and neighbor relations
-Prosperity Space - Manages business interests and Hearts economy
+Prosperity Space - Manages business interests and Gratitude economy
 Land Stewardship Space - Cares for land and ecosystem health`,
       },
       {
@@ -523,7 +528,7 @@ Text: Not in a passive sense. Not in a "you paid for something" sense. In the de
       {
         heading: "Your Rights (6 Cards)",
         content: `1. Voice in Governance - Participate in Circle consent rounds, vote on decisions in your domain, elect representatives to the Leadership Council.
-2. Earn Hearts for Your Contribution - Every role, quest, and meaningful act earns Hearts (1 Heart = $1 USD). Converts to cash or equity as Amora grows.
+2. Earn Gratitude for Your Contribution - Every role, quest, and meaningful act earns Gratitude (1 Gratitude = $1 USD). Converts to cash or equity as Amora grows.
 3. Apply for Seasonal Roles - Once you pass your Co-Creator Right of Passage, propose yourself for any seasonal role that fits your gifts.
 4. Advance Along the Path - Progress from Co-Creator to Guide (after multiple seasons) to Sage (after seasons as Guide). Each level deepens your voice and compensation.
 5. Access to Shared Land and Commons - All trails, food forests, gathering spaces, and natural features of the 266 acres are yours to steward and enjoy.
@@ -540,8 +545,8 @@ Text: Not in a passive sense. Not in a "you paid for something" sense. In the de
       },
       {
         heading: "Progression Path",
-        content: `Co-Creator: Full governance voice, seasonal role eligibility, Hearts economy access.
-Guide (after multiple seasons): Mentorship responsibilities, increased Hearts, voice in cross-circle decisions.
+        content: `Co-Creator: Full governance voice, seasonal role eligibility, Gratitude economy access.
+Guide (after multiple seasons): Mentorship responsibilities, increased Gratitude, voice in cross-circle decisions.
 Sage (after seasons as Guide): Highest governance voice, wisdom keeper, long-term strategic guidance for the village.`,
       },
     ],
@@ -577,7 +582,7 @@ Resident: Move In Celebration!`,
         heading: "Village Dues",
         content: `Heading: Village Dues
 [PLACEHOLDER - Amora team to confirm monthly dues amount ($NNN/month)]
-Note: Dues cover utilities, maintenance, and community services. These can be covered through Hearts - contributions that track real value (1 Heart = $1 USD).`,
+Note: Dues cover utilities, maintenance, and community services. These can be covered through Gratitude - contributions that track real value (1 Gratitude = $1 USD).`,
       },
       {
         heading: "Land Share Agreements",
@@ -613,14 +618,14 @@ Text: The land at Amora is held collectively. Every resident is a steward of the
 3. Voice in Community Life - Full voice in Circles governing daily life. Governance rights deepen as you reach milestones and put down roots.
 4. Access to All Commons - Trails, food forests, gathering spaces, streams, ponds, seasonal festivals, events — all of it is yours.
 5. Community Services and Care - Access to wellness programs, education, healing arts, and services Amora develops together. Community businesses serve residents first.
-6. Dues Offset Through Hearts - Dues can be covered through Hearts (1 Heart = $1 USD of contribution). The vision: shared business profits make life here net-positive.`,
+6. Dues Offset Through Gratitude - Dues can be covered through Gratitude (1 Gratitude = $1 USD of contribution). The vision: shared business profits make life here net-positive.`,
       },
       {
         heading: "Your Responsibilities (7 Cards)",
         content: `1. Care for Your Home and Its Surroundings - Maintain your home and immediate space to a standard that honors the land and the community around it.
 2. Act as a Co-Owner - You live here. Pick up what needs picking up. Notice what others miss. Bring a co-owner's eye to every interaction with the land and the community.
 3. Contribute to Maintenance - Every resident contributes time to shared spaces, infrastructure, and community assets. Details agreed during residency onboarding.
-4. Village Dues - [PLACEHOLDER - $NNN/month] - Covers utilities, shared infrastructure, and community services. Offset through Hearts; vision is full coverage through shared business profits.
+4. Village Dues - [PLACEHOLDER - $NNN/month] - Covers utilities, shared infrastructure, and community services. Offset through Gratitude; vision is full coverage through shared business profits.
 5. Participate in Community Processes - Show up to Circle meetings affecting your domain, conflict resolution processes, seasonal votes, and community governance.
 6. Honor the Good Neighbor Principles - Commit to and practice the Good Neighbor principles covering noise, shared resources, boundaries, children, and conflict.
 7. Raise the Next Generation Together - Children here are raised by the whole village. Contribute to a child-safe, child-enriching environment.`,
@@ -629,7 +634,7 @@ Text: The land at Amora is held collectively. Every resident is a steward of the
         heading: "Maintenance and Fees Vision",
         content: `Village dues exist to keep infrastructure running. The longer-term vision: as Amora's shared businesses mature — retreat center, cafe, wellness center, artisan market, education programs — revenue flows back into the community.
 
-The goal is a life here that is economically net-positive. Where Hearts earnings, business participation, or role contributions cover not just your dues, but give you back more than you put in.
+The goal is a life here that is economically net-positive. Where Gratitude earnings, business participation, or role contributions cover not just your dues, but give you back more than you put in.
 
 This is what "Wealth Through Contribution" actually means. Not a promise. A design intention we're building toward together.`,
       },
@@ -653,14 +658,14 @@ Long-Term Resident (Year 7+): Senior voice in community decisions, Sage eligibil
         heading: "Four Pillars",
         content: `Sociocracy and Teal: We blend sociocratic governance with Teal organization principles. Self-management, wholeness, and evolutionary purpose guide our structure.
 Adaptive Governance: Using Hypha tools, each circle designs its own governance strategy, from consent to consensus, tailored to its unique culture and mission.
-Hearts Economy: Hearts track the value you contribute. 1 Heart = $1 USD in contributed value. As Amora matures, Hearts convert to cash or equity.
+Gratitude Economy: Gratitude tracks the value you contribute. 1 Gratitude = $1 USD in contributed value. As Amora matures, Gratitude converts to cash or equity.
 Seasonal Rhythm: Every 3 months, the community votes on what kind of season comes next. Not a fixed cycle.`,
       },
       {
-        heading: "The Hearts Economy",
-        content: `Earn Hearts: Complete quests, fulfill roles, or receive revenue shares from community and private businesses.
-Track Value: 1 Heart = $1 USD in value contributed. Hearts are an honest record of the work everyone is pooling to make Amora real.
-Future Conversion: As Amora matures, Hearts will convert to cash or equity.`,
+        heading: "The Gratitude Economy",
+        content: `Earn Gratitude: Complete quests, fulfill roles, or receive revenue shares from community and private businesses.
+Track Value: 1 Gratitude = $1 USD in value contributed. Gratitude is an honest record of the work everyone is pooling to make Amora real.
+Future Conversion: As Amora matures, Gratitude will convert to cash or equity.`,
       },
       {
         heading: "Seasonal Rhythm",
@@ -681,13 +686,13 @@ Note: No fixed cycle. The community votes every 3 months on what season comes ne
     placeholders: ["Circle assignments needed for: Circle Scribe, Retreat Center Host, Children's Play Day Facilitator, Tech and Platform Steward, Security and Night Watch"],
     sections: [
       {
-        heading: "What Are Hearts?",
-        content: `Earn: Complete quests, contribute to circles, steward the land, teach, build, host, create. Every meaningful act earns Hearts.
-Hold: Hearts accumulate in your Village Profile and reflect your full contribution history.
-Convert: As Amora grows financially, Hearts convert to cash or equity.`,
+        heading: "What Is Gratitude?",
+        content: `Earn: Complete quests, contribute to circles, steward the land, teach, build, host, create. Every meaningful act earns Gratitude.
+Hold: Gratitude accumulates in your Village Profile and reflect your full contribution history.
+Convert: As Amora grows financially, Gratitude converts to cash or equity.`,
       },
       {
-        heading: "How to Claim Hearts",
+        heading: "How to Claim Gratitude",
         content: `1. Connect with a member of the core team and let them know you're interested in a quest.
 2. Put up a proposal to the Amora Hypha page with your proposal to complete this quest.
 3. If your proposal passes, do the quest. When you're done, gather evidence of your completion and prepare any lessons learned, ideas to share, etc.
@@ -696,20 +701,20 @@ Convert: As Amora grows financially, Hearts convert to cash or equity.`,
       },
       {
         heading: "14 Quest Cards",
-        content: `Welcome Ambassador | Community Life | 50-100 Hearts
-Food Forest Tender | Permaculture | 40-80 Hearts
-Potluck and Celebration Organizer | Community Life | 100-200 Hearts
-Trail Builder and Maintainer | Building and Village | 60-120 Hearts
-Circle Scribe | [CIRCLE TO CONFIRM] | 40-80 Hearts
-Retreat Center Host | [CIRCLE TO CONFIRM] | 80-150 Hearts
-Village Photographer and Storyteller | Culture and Arts | 60-120 Hearts
-Children's Play Day Facilitator | [CIRCLE TO CONFIRM] | 70-130 Hearts
-Tech and Platform Steward | [CIRCLE TO CONFIRM] | 80-200 Hearts
-Healing Arts Practitioner | Health and Healing | 50-150 Hearts
-Infrastructure Builder | Building and Village | 80-160 Hearts
-Arts and Mural Maker | Culture and Arts | 100-300 Hearts
-Community Music Circle Host | Culture and Arts | 50-100 Hearts
-Security and Night Watch | [CIRCLE TO CONFIRM] | 60-100 Hearts`,
+        content: `Welcome Ambassador | Community Life | 50-100 Gratitude
+Food Forest Tender | Permaculture | 40-80 Gratitude
+Potluck and Celebration Organizer | Community Life | 100-200 Gratitude
+Trail Builder and Maintainer | Building and Village | 60-120 Gratitude
+Circle Scribe | [CIRCLE TO CONFIRM] | 40-80 Gratitude
+Retreat Center Host | [CIRCLE TO CONFIRM] | 80-150 Gratitude
+Village Photographer and Storyteller | Culture and Arts | 60-120 Gratitude
+Children's Play Day Facilitator | [CIRCLE TO CONFIRM] | 70-130 Gratitude
+Tech and Platform Steward | [CIRCLE TO CONFIRM] | 80-200 Gratitude
+Healing Arts Practitioner | Health and Healing | 50-150 Gratitude
+Infrastructure Builder | Building and Village | 80-160 Gratitude
+Arts and Mural Maker | Culture and Arts | 100-300 Gratitude
+Community Music Circle Host | Culture and Arts | 50-100 Gratitude
+Security and Night Watch | [CIRCLE TO CONFIRM] | 60-100 Gratitude`,
       },
     ],
   },
@@ -743,7 +748,7 @@ Winter Solstice (December): The quieter turn. Storytelling, fire ceremony, and i
 
 Visitors and Guests: Friends, family, and prospective community members are welcome to join - festivals are one of the best ways to experience Amora.
 
-Quest Opportunity: Festivals are a rich source of quest opportunities. Co-creating, organizing, and hosting festival elements earns Hearts.`,
+Quest Opportunity: Festivals are a rich source of quest opportunities. Co-creating, organizing, and hosting festival elements earns Gratitude.`,
       },
       {
         heading: "Festival Contributions",
@@ -751,7 +756,7 @@ Quest Opportunity: Festivals are a rich source of quest opportunities. Co-creati
 - Bring food to share at the community feast
 - Offer a workshop, performance, or skill
 - Help with setup, decoration, or hosting
-- Take on a festival quest (Hearts awarded for organizing roles)
+- Take on a festival quest (Gratitude awarded for organizing roles)
 
 [PLACEHOLDER - Amora team to confirm any participation costs or contribution guidelines]`,
       },
@@ -773,7 +778,7 @@ For upcoming dates and to register for events, visit the Events page on amora.cr
     sections: [
       {
         heading: "Page Header",
-        content: "Tag: Prosperity Creator Journey\nTitle: Launch Your Regenerative Business\nCTAs: Download Prosperity Packet | Hearts Economy | Co-Ownership Model",
+        content: "Tag: Prosperity Creator Journey\nTitle: Launch Your Regenerative Business\nCTAs: Download Prosperity Packet | Gratitude Economy | Co-Ownership Model",
       },
       {
         heading: "Your Path to Prosperity (7 Stages)",
@@ -782,7 +787,7 @@ Dreamer: Explore the Prosperity Packet - Download and review the comprehensive g
 Applicant: Submit Business Proposal - Present your vision and how it aligns with village needs.
 Member: Sign Love Letter / 508 Membership - Become an official member.
 Partner: Community Approval - Present your business to the Business and Finance Council.
-Builder: Launch Your Business - Integrate with the Hearts contribution system and begin serving the community.
+Builder: Launch Your Business - Integrate with the Gratitude contribution system and begin serving the community.
 Prosperity Creator: Grow Your Impact - Advance through ARI tiers and scale your regenerative business.`,
       },
       {
@@ -987,9 +992,9 @@ const DECISIONS: DecisionDef[] = [
   {
     id: "dec-token-name",
     title: "Name the community contribution token",
-    description: "The token currently called 'Hearts' needs a final name. It tracks contributions that will later be resolved as debt, equity, or community currency, with a percentage split for early contributors.",
+    description: "The token currently called 'Gratitude' needs a final name. It tracks contributions that will later be resolved as debt, equity, or community currency, with a percentage split for early contributors.",
     linkedItem: "wt-1",
-    suggestedOptions: ["Hearts", "Seeds", "Roots", "Sparks", "Threads", "Commons"],
+    suggestedOptions: ["Gratitude", "Seeds", "Roots", "Sparks", "Threads", "Commons"],
   },
   {
     id: "dec-token-design",

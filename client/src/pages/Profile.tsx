@@ -271,7 +271,7 @@ export default function Profile() {
                         <p className="text-2xl font-bold text-purple-600">Exploring</p>
                       </div>
                       <div className="bg-purple-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Hearts Generated</p>
+                        <p className="text-sm text-gray-600 mb-1">Gratitude Generated</p>
                         <p className="text-2xl font-bold text-purple-600">0</p>
                       </div>
                     </div>
@@ -327,7 +327,7 @@ export default function Profile() {
 
               {/* Sidebar */}
               <div className="space-y-8">
-                {/* Hearts Balance */}
+                {/* Gratitude Balance */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -337,7 +337,7 @@ export default function Profile() {
                   <div className="flex items-center justify-between mb-4">
                     <Heart className="w-8 h-8" />
                     <span className="text-xs font-semibold uppercase tracking-widest opacity-75">
-                      Hearts Balance
+                      Gratitude Balance
                     </span>
                   </div>
                   <div className="text-5xl font-display font-bold mb-2">{user.heartsBalance}</div>

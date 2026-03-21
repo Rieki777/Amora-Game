@@ -29,8 +29,8 @@ const principles = [
     icon: Settings,
   },
   {
-    title: "Hearts Economy",
-    description: "Our contribution tracking system acknowledges every dollar of value we create together. 1 Heart = $1 USD in value contributed — a record of what we're building collectively.",
+    title: "Gratitude Economy",
+    description: "Our contribution tracking system acknowledges every dollar of value we create together. 1 Gratitude = $1 USD in value contributed — a record of what we're building collectively.",
     icon: Heart,
   },
   {
@@ -42,18 +42,18 @@ const principles = [
 
 const heartsInfo = [
   {
-    title: "Earn Hearts",
+    title: "Earn Gratitude",
     description: "Complete quests, fulfill roles, or receive revenue shares from community and private businesses. Every contribution gets acknowledged.",
     icon: "🤝",
   },
   {
     title: "Track Value",
-    description: "1 Heart = $1 USD in value contributed. Hearts are our honest record of the work, time, and resources everyone is pooling to make Amora real.",
+    description: "1 Gratitude = $1 USD in value contributed. Gratitude is our honest record of the work, time, and resources everyone is pooling to make Amora real.",
     icon: "📊",
   },
   {
     title: "Future Conversion",
-    description: "As Amora matures, Hearts will convert to cash or equity. For now, they're how we honor contributions we can't yet pay in cash.",
+    description: "As Amora matures, Gratitude will convert to cash or equity. For now, they're how we honor contributions we can't yet pay in cash.",
     icon: "🌱",
   },
 ];
@@ -154,7 +154,7 @@ export default function HowWeCreate() {
             ))}
           </motion.div>
 
-          {/* Hearts Economy Section */}
+          {/* Gratitude Economy Section */}
           <motion.div 
             className="bg-gradient-to-br from-primary/5 to-primary/10 rounded-3xl p-8 md:p-12 mb-20"
             initial={{ opacity: 0, scale: 0.95 }}
@@ -172,10 +172,10 @@ export default function HowWeCreate() {
                 <Heart className="w-12 h-12 text-primary mx-auto mb-4" />
               </motion.div>
               <h2 className="font-display text-3xl md:text-4xl font-semibold text-foreground mb-4">
-                The Hearts Economy
+                The Gratitude Economy
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto mb-2">
-                Hearts are how we track contributions. Right now, <strong>1 Heart = $1 USD</strong> in value contributed — work, time, resources, and expertise that we can't yet pay in cash.
+                Gratitude is how we track contributions. Right now, <strong>1 Gratitude = $1 USD</strong> in value contributed — work, time, resources, and expertise that we can't yet pay in cash.
               </p>
               <p className="text-sm text-muted-foreground">
                 Every Heart is a promise: as Amora grows, contributions convert to cash or equity.
@@ -218,7 +218,7 @@ export default function HowWeCreate() {
               transition={{ delay: 0.5 }}
             >
               <p className="text-muted-foreground">
-                Hearts aren't a currency yet — they're a <strong>record of shared investment</strong>.
+                Gratitude isn't a currency yet — they're a <strong>record of shared investment</strong>.
                 We're tracking the full value of what everyone is contributing so no one's effort
                 goes unacknowledged when Amora becomes financially whole.
               </p>

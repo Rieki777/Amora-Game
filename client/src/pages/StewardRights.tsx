@@ -24,9 +24,9 @@ const RIGHTS = [
   },
   {
     icon: Heart,
-    title: "Earn Hearts for Your Contribution",
+    title: "Earn Gratitude for Your Contribution",
     description:
-      "Every role you hold, every quest you complete, and every meaningful act of stewardship earns you Hearts — a direct record of the value you bring. 1 Heart = $1 USD. As Amora grows, Hearts convert to cash, equity, or community currency. Your effort builds real wealth.",
+      "Every role you hold, every quest you complete, and every meaningful act of stewardship earns you Gratitude — a direct record of the value you bring. 1 Gratitude = $1 USD. As Amora grows, Gratitude converts to cash, equity, or community currency. Your effort builds real wealth.",
   },
   {
     icon: Star,
@@ -96,13 +96,13 @@ const RESPONSIBILITIES = [
 const PROGRESSION = [
   {
     level: "Co-Creator",
-    description: "Full governance voice, seasonal role eligibility, Hearts economy access",
+    description: "Full governance voice, seasonal role eligibility, Gratitude economy access",
     icon: Star,
     color: "bg-teal-deep",
   },
   {
     level: "Guide",
-    description: "Mentorship responsibilities, increased Hearts, voice in cross-circle decisions",
+    description: "Mentorship responsibilities, increased Gratitude, voice in cross-circle decisions",
     icon: Compass,
     color: "bg-sage",
   },

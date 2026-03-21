@@ -51,9 +51,9 @@ const RIGHTS = [
   },
   {
     icon: Coins,
-    title: "Dues Offset Through Hearts",
+    title: "Dues Offset Through Gratitude",
     description:
-      "Village dues can be covered through Hearts — contributions you make to the community that are tracked as real value (1 Heart = $1 USD). The more you contribute, the more your dues can be offset. The vision is a community where shared business profits make your life here net-positive.",
+      "Village dues can be covered through Gratitude — contributions you make to the community that are tracked as real value (1 Gratitude = $1 USD). The more you contribute, the more your dues can be offset. The vision is a community where shared business profits make your life here net-positive.",
   },
 ];
 
@@ -80,7 +80,7 @@ const RESPONSIBILITIES = [
     icon: Coins,
     title: "Village Dues",
     description:
-      "Monthly village dues cover utilities, shared infrastructure maintenance, and community services. The vision is for dues to be fully covered by profits from Amora's shared businesses — the retreat center, cafe, wellness offerings, and other enterprises — creating a net-positive financial life for all residents. Dues can also be offset through Hearts earned from community contributions. [PLACEHOLDER - Amora team to confirm monthly amount: $NNN/month]",
+      "Monthly village dues cover utilities, shared infrastructure maintenance, and community services. The vision is for dues to be fully covered by profits from Amora's shared businesses — the retreat center, cafe, wellness offerings, and other enterprises — creating a net-positive financial life for all residents. Dues can also be offset through Gratitude earned from community contributions. [PLACEHOLDER - Amora team to confirm monthly amount: $NNN/month]",
   },
   {
     icon: Users,
@@ -127,7 +127,7 @@ const FEES_VISION = {
   title: "The Vision for Your Finances Here",
   description: `Village dues exist to keep the infrastructure running — water, power, roads, shared maintenance. Right now, they're a cost. The longer-term vision is different: as Amora's shared businesses mature — the retreat center, the cafe, the wellness center, the artisan market, the education programs — the revenue they generate flows back into the community.
 
-The goal is a life here that is economically net-positive. Where your contribution to the village through your Hearts earnings, your business participation, or your role in community operations covers not just your dues, but gives you back more than you put in.
+The goal is a life here that is economically net-positive. Where your contribution to the village through your Gratitude earnings, your business participation, or your role in community operations covers not just your dues, but gives you back more than you put in.
 
 This is what "Wealth Through Contribution" actually means. Not a promise. A design intention we're building toward together.`,
 };

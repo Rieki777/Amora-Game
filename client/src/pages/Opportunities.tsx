@@ -145,7 +145,7 @@ export default function Opportunities() {
               </h1>
               <p className="text-xl text-white/80 leading-relaxed">
                 Join our thriving village economy. These opportunities align business 
-                success with community prosperity through our Hearts revenue sharing model.
+                success with community prosperity through our Gratitude revenue sharing model.
               </p>
             </motion.div>
           </div>
@@ -202,11 +202,11 @@ export default function Opportunities() {
         <div className="container">
           <div className="max-w-3xl mx-auto text-center">
             <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Hearts Revenue Sharing
+              Gratitude Revenue Sharing
             </h2>
             <p className="text-muted-foreground mb-8">
               All businesses at Amora share a percentage of revenue with the community, 
-              paid in Hearts. This creates alignment between business success and community 
+              paid in Gratitude. This creates alignment between business success and community 
               prosperity. The exact percentage is negotiated based on the business type 
               and community investment.
             </p>
@@ -214,7 +214,7 @@ export default function Opportunities() {
               href="/how-we-create"
               className="inline-flex items-center gap-2 text-teal-light font-medium hover:gap-3 transition-all"
             >
-              Learn About the Hearts Economy
+              Learn About the Gratitude Economy
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>

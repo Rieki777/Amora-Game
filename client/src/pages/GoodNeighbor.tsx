@@ -73,7 +73,7 @@ const criteria = [
       "You give your time, energy, or skills to the community in some way. You're not just a consumer of community benefits—you're a co-creator.",
     practices: [
       "You identify your Amora R-Ikigai: the intersection of what you love, what you're good at, and what Amora needs.",
-      "You propose contributions and earn Hearts through meaningful work.",
+      "You propose contributions and earn Gratitude through meaningful work.",
       "You participate in circles aligned with your interests and gifts.",
     ],
     note: "This is not about perfection. We all have seasons of high and lower capacity. What matters is consistent engagement and honesty.",

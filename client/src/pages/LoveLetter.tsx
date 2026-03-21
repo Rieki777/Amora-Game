@@ -202,7 +202,7 @@ export default function LoveLetter() {
 
             <p className="mb-6 text-muted-foreground">
               In return, you become a full member of Amora's 508(c)(1)(a) organization — gaining access
-              to community spaces, governance participation, Hearts economy, and the opportunity to
+              to community spaces, governance participation, Gratitude economy, and the opportunity to
               deepen your involvement through roles, residency, or business creation.
             </p>
 

@@ -97,7 +97,7 @@ const journeySteps = [
     link: "/quests",
     linkText: "View Quests",
     external: false,
-    details: ["Browse available quests", "Choose quests matching your skills", "Complete and document your work", "Earn Hearts for contributions"]
+    details: ["Browse available quests", "Choose quests matching your skills", "Complete and document your work", "Earn Gratitude for contributions"]
   },
   {
     id: "passage",
@@ -127,7 +127,7 @@ const advancementPath = [
   {
     level: "Role Holder",
     requirement: "Apply and be approved for a seasonal role",
-    benefits: "Compensation in Hearts, voice in your circle",
+    benefits: "Compensation in Gratitude, voice in your circle",
     icon: Star,
   },
   {

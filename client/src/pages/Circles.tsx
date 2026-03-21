@@ -87,7 +87,7 @@ const circles = [
     textDark: true,
     domain: "Community financial governance, enterprises, financial sustainability, local economy",
     members: "Entrepreneurs, business operators, financial managers, residents with financial expertise",
-    focus: ["Financial Governance", "Business Development", "Hearts Economy"]
+    focus: ["Financial Governance", "Business Development", "Gratitude Economy"]
   },
   {
     name: "Community Life Council",

@@ -269,7 +269,7 @@ const governanceStructure = [
       "Flexible availability for community events"
     ],
     terms: "Ongoing, renewable annually",
-    compensation: "Salary/stipend, Hearts currency allocation, and community benefits"
+    compensation: "Salary/stipend, Gratitude currency allocation, and community benefits"
   }
 ];
 

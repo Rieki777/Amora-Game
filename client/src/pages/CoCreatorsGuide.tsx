@@ -40,7 +40,7 @@ interface ScrollNavPill {
 
 const navPills: ScrollNavPill[] = [
   { id: "r-ikigai", label: "R-Ikigai" },
-  { id: "hearts", label: "Hearts Economy" },
+  { id: "hearts", label: "Gratitude Economy" },
   { id: "voice", label: "Voice & Governance" },
   { id: "hypha", label: "Hypha Platform" },
   { id: "spaces", label: "The Four Spaces" },
@@ -69,10 +69,10 @@ const hyphaActions = [
   },
   {
     icon: Receipt,
-    title: "Claim Your Hearts",
+    title: "Claim Your Gratitude",
     subtitle: "After completing a task, pay period, or season",
     description:
-      "When you've done the work — completed a quest, finished a season as a role holder, or reached a milestone — you come back and propose a Contribution Claim. Detail what you delivered, what Amora gained, and claim your Hearts. This is how the value you create becomes visible and rewarded.",
+      "When you've done the work — completed a quest, finished a season as a role holder, or reached a milestone — you come back and propose a Contribution Claim. Detail what you delivered, what Amora gained, and claim your Gratitude. This is how the value you create becomes visible and rewarded.",
     cta: "Propose a Contribution",
     href: `${HYPHA_BASE}/agreements/create/propose-contribution`,
     color: "border-sage/30 bg-sage/5",
@@ -107,7 +107,7 @@ const hyphaActions = [
 
 const heartsItems = {
   earn: [
-    { label: "Quests", range: "40-300 Hearts" },
+    { label: "Quests", range: "40-300 Gratitude" },
     { label: "Circle Roles", range: "200-500/month" },
     { label: "Land Stewardship Shifts", range: "60-120" },
     { label: "Business Revenue Share", range: "Variable" },
@@ -149,7 +149,7 @@ const spaces = [
     color: "bg-amber-light",
     textColor: "text-amber",
     icon: TrendingUp,
-    description: "Manages business interests and Hearts economy",
+    description: "Manages business interests and Gratitude economy",
   },
   {
     id: "land",
@@ -302,7 +302,7 @@ export default function CoCreatorsGuide() {
               </h2>
               <p className="text-muted-foreground text-lg">
                 The intersection of what you love, what you're good at, what Amora needs,
-                and what earns you Hearts.
+                and what earns you Gratitude.
               </p>
             </div>
 
@@ -337,7 +337,7 @@ export default function CoCreatorsGuide() {
                     stroke="rgba(142, 168, 156, 0.5)"
                     strokeWidth="2"
                   />
-                  {/* Left: Hearts */}
+                  {/* Left: Gratitude */}
                   <circle
                     cx="200"
                     cy="200"
@@ -358,7 +358,7 @@ export default function CoCreatorsGuide() {
                     What AMORA NEEDS
                   </text>
                   <text x="280" y="150" textAnchor="middle" className="text-sm font-bold fill-amber">
-                    What Earns HEARTS
+                    What Earns GRATITUDE
                   </text>
 
                   {/* Center */}
@@ -419,7 +419,7 @@ export default function CoCreatorsGuide() {
                 <div className="p-4 rounded-lg bg-amber/5 border-l-4 border-amber">
                   <h4 className="font-bold text-foreground mb-2 flex items-center gap-2">
                     <DollarSign className="w-5 h-5 text-amber" />
-                    What Earns HEARTS (Compensation)
+                    What Earns GRATITUDE (Compensation)
                   </h4>
                   <p className="text-sm text-muted-foreground">
                     Roles, quests, and contributions that our community values and rewards.
@@ -431,7 +431,7 @@ export default function CoCreatorsGuide() {
         </div>
       </section>
 
-      {/* HEARTS ECONOMY SECTION */}
+      {/* GRATITUDE ECONOMY SECTION */}
       <section id="hearts" className="py-20 bg-primary/5">
         <div className="container">
           <motion.div
@@ -442,12 +442,12 @@ export default function CoCreatorsGuide() {
           >
             <div className="mb-12 text-center">
               <h2 className="font-display text-4xl md:text-5xl font-bold text-foreground mb-3">
-                The Hearts Economy
+                The Gratitude Economy
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                Hearts track the value you contribute to Amora. Right now, 1 Heart = $1 USD in
+                Gratitude tracks the value you contribute to Amora. Right now, 1 Gratitude = $1 USD in
                 contributed value — work, time, and resources that we can't yet pay in cash.
-                As Amora matures, Hearts convert to cash or equity.
+                As Amora matures, Gratitude converts to cash or equity.
               </p>
             </div>
 
@@ -465,7 +465,7 @@ export default function CoCreatorsGuide() {
                   <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
                     <TrendingUp className="w-6 h-6 text-green-600" />
                   </div>
-                  <h3 className="font-bold text-xl text-foreground">Earn Hearts</h3>
+                  <h3 className="font-bold text-xl text-foreground">Earn Gratitude</h3>
                 </div>
                 <div className="space-y-3">
                   {heartsItems.earn.map((item, idx) => (
@@ -492,7 +492,7 @@ export default function CoCreatorsGuide() {
                   <div className="w-12 h-12 rounded-lg bg-teal-100 flex items-center justify-center">
                     <Heart className="w-6 h-6 text-teal-deep" />
                   </div>
-                  <h3 className="font-bold text-xl text-foreground">Hold Hearts</h3>
+                  <h3 className="font-bold text-xl text-foreground">Hold Gratitude</h3>
                 </div>
                 <div className="space-y-3">
                   {heartsItems.hold.map((item, idx) => (
@@ -516,7 +516,7 @@ export default function CoCreatorsGuide() {
                   <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center">
                     <Zap className="w-6 h-6 text-amber" />
                   </div>
-                  <h3 className="font-bold text-xl text-foreground">Use Hearts</h3>
+                  <h3 className="font-bold text-xl text-foreground">Use Gratitude</h3>
                 </div>
                 <div className="space-y-3">
                   {heartsItems.spend.map((item, idx) => (
@@ -529,10 +529,10 @@ export default function CoCreatorsGuide() {
               </motion.div>
             </div>
 
-            {/* HEARTS FLOW DIAGRAM */}
+            {/* GRATITUDE FLOW DIAGRAM */}
             <div className="bg-card rounded-xl p-8 border border-muted">
               <h3 className="font-bold text-lg text-foreground mb-6 text-center">
-                How Hearts Flow Through Amora
+                How Gratitude Flow Through Amora
               </h3>
               <div className="flex flex-col md:flex-row items-center justify-center gap-4 flex-wrap">
                 <div className="flex items-center gap-3">
@@ -543,7 +543,7 @@ export default function CoCreatorsGuide() {
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="px-4 py-2 bg-primary/10 rounded-lg text-sm font-medium text-primary">
-                    Hearts Earned
+                    Gratitude Earned
                   </div>
                   <ArrowRight className="w-5 h-5 text-muted-foreground" />
                 </div>
@@ -692,7 +692,7 @@ export default function CoCreatorsGuide() {
       </section>
 
       {/* HYPHA PLATFORM SECTION */}
-      <section id="hypha" className="py-20 bg-cream">
+      <section id="hypha" className="py-20 bg-teal-deep">
         <div className="container">
           <motion.div
             initial={{ opacity: 0 }}
@@ -701,49 +701,58 @@ export default function CoCreatorsGuide() {
             transition={{ duration: 0.6 }}
           >
             <div className="mb-12 text-center max-w-3xl mx-auto">
-              <span className="text-sm font-medium uppercase tracking-wide text-teal-deep">
-                Our Governance Platform
+              <span className="text-sm font-medium uppercase tracking-wide text-cream/60">
+                Where Governance Gets Real
               </span>
-              <h2 className="font-display text-4xl md:text-5xl font-bold text-foreground mb-4 mt-2">
-                Hypha
+              <h2 className="font-display text-4xl md:text-5xl font-bold text-cream mb-4 mt-2">
+                Meet Hypha
               </h2>
-              <p className="text-muted-foreground text-lg">
-                Hypha is where Amora's governance happens in practice. It's open-source,
-                transparent, and owned by its contributors — no CEO, no board doling out
-                budgets. Every proposal is the community asking: does this contribution serve
-                Amora equal to what's being requested?
+              <p className="text-cream/80 text-lg leading-relaxed">
+                Hypha is the platform where every Amora decision lives — recorded, verifiable,
+                and tamper-proof on a distributed ledger. This isn't a shared Google Doc or a
+                Discord vote that disappears. It's an{" "}
+                <strong className="text-cream">incredibly secure, globally trusted governance
+                system</strong>{" "}
+                used by communities around the world to hold their most important decisions.
+                Your voice here is permanent. Your contributions here are real.
               </p>
-              <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
+              <p className="text-cream/70 text-base mt-4 leading-relaxed">
+                No single person — not even the founders — can override a community consent
+                vote on Hypha. That's the point. When we say Amora is community-governed, this
+                is what makes it true.
+              </p>
+              <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
                 <a
                   href="https://app.hypha.earth"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-teal-deep text-white text-sm font-medium hover:bg-teal-deep/90 transition-colors"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cream text-teal-deep text-sm font-semibold hover:bg-cream/90 transition-colors"
                 >
                   Open Hypha Platform
                   <ExternalLink className="w-4 h-4" />
                 </a>
-                <p className="text-xs text-muted-foreground self-center italic">
-                  [AMORA: Add your specific DHO link once your Hypha space is live]
+                <p className="text-xs text-cream/50 self-center italic">
+                  [AMORA: Add your Hypha DHO link in the Variables panel to go live]
                 </p>
               </div>
             </div>
 
             {/* Value philosophy */}
-            <div className="max-w-3xl mx-auto mb-12 rounded-2xl border border-teal/20 bg-white p-6 md:p-8">
+            <div className="max-w-3xl mx-auto mb-12 rounded-2xl border border-white/20 bg-white/10 p-6 md:p-8">
               <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-xl bg-teal-deep/10 flex items-center justify-center flex-shrink-0">
-                  <Vote className="w-5 h-5 text-teal-deep" />
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+                  <Vote className="w-5 h-5 text-cream" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-foreground text-lg mb-2">
+                  <h3 className="font-semibold text-cream text-lg mb-2">
                     Value In = Value Out
                   </h3>
-                  <p className="text-muted-foreground text-sm leading-relaxed">
-                    Every proposal asks the community one question: does this contribution serve
-                    Amora equal to the Hearts being requested? Not time spent — time is not a
-                    contribution. What matters is value created, clearly articulated, and honestly
-                    assessed. Your voice in those votes carries more weight the more you contribute.
+                  <p className="text-cream/70 text-sm leading-relaxed">
+                    Every proposal puts one question to the community: does this contribution serve
+                    Amora at the level of Gratitude being requested? Not hours logged — hours are
+                    not a contribution. What matters is the actual value created, articulated
+                    clearly, and assessed honestly by your peers. The more you contribute, the more
+                    weight your voice carries in those votes.
                   </p>
                 </div>
               </div>
@@ -778,7 +787,7 @@ export default function CoCreatorsGuide() {
                       href={action.href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-sm font-medium text-foreground hover:underline"
+                      className="inline-flex items-center gap-2 text-sm font-semibold text-teal-deep hover:underline"
                     >
                       {action.cta}
                       <ExternalLink className="w-4 h-4 opacity-60" />
@@ -788,18 +797,24 @@ export default function CoCreatorsGuide() {
               })}
             </div>
 
-            {/* Design principles */}
-            <div className="mt-12 max-w-3xl mx-auto grid sm:grid-cols-3 gap-4 text-center">
-              {[
-                { label: "Sense", description: "Find where your gifts are most needed right now" },
-                { label: "Propose", description: "Open your intention to the community for consent" },
-                { label: "Create", description: "Do the work. Document it. Claim what you're owed." },
-              ].map((step) => (
-                <div key={step.label} className="rounded-xl bg-white border border-border p-5">
-                  <div className="text-2xl font-display font-bold text-teal-deep mb-2">{step.label}</div>
-                  <p className="text-muted-foreground text-sm">{step.description}</p>
-                </div>
-              ))}
+            {/* The loop */}
+            <div className="mt-14 max-w-3xl mx-auto">
+              <p className="text-center text-cream/60 text-xs uppercase tracking-widest font-medium mb-5">
+                The Amora Contribution Loop
+              </p>
+              <div className="grid sm:grid-cols-3 gap-4 text-center">
+                {[
+                  { label: "Sense", emoji: "🌀", description: "Find where your gifts are most needed. A quest waiting. A gap in the land. A conversation that sparks something." },
+                  { label: "Propose", emoji: "✍️", description: "Open your intention to the community in Hypha. Consent-based — not a vote of approval, but a check: does this serve us?" },
+                  { label: "Create", emoji: "🌱", description: "Do the work. Document it. Return and claim the Gratitude that reflects the value you actually created." },
+                ].map((step) => (
+                  <div key={step.label} className="rounded-xl bg-white/10 border border-white/20 p-5">
+                    <div className="text-2xl mb-2">{step.emoji}</div>
+                    <div className="text-lg font-display font-bold text-cream mb-2">{step.label}</div>
+                    <p className="text-cream/70 text-sm leading-relaxed">{step.description}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </motion.div>
         </div>

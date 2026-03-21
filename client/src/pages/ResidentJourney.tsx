@@ -523,15 +523,15 @@ export default function ResidentJourney() {
             </h2>
             <p className="text-muted-foreground mb-6">
               As a resident, you'll pay Village Dues that cover utilities, maintenance,
-              and community services. These can be covered through <strong>Hearts</strong> — contributions
-              that track real value (1 Heart = $1 USD). Together, we work to reduce costs and create
+              and community services. These can be covered through <strong>Gratitude</strong> — contributions
+              that track real value (1 Gratitude = $1 USD). Together, we work to reduce costs and create
               surplus that benefits everyone.
             </p>
             <Link
               href="/how-we-create"
               className="inline-flex items-center gap-2 text-teal-deep font-medium hover:gap-3 transition-all"
             >
-              Learn How Hearts Work
+              Learn How Gratitude Work
               <ArrowRight className="w-4 h-4" />
             </Link>
           </motion.div>
