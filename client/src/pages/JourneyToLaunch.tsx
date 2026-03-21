@@ -309,7 +309,7 @@ CTA: Return Home`,
     title: "Amora Game Guide",
     url: "/co-creators-guide",
     week: "Week 3 | Mar 31 – Apr 6",
-    placeholders: ["Amora's specific Hypha DHO URL - replace [YOUR-DHO-SLUG] in CoCreatorsGuide.tsx once the Hypha space is live"],
+    placeholders: ["Your Hypha DHO URL (e.g. app.hypha.earth/en/dho/amora-village) - paste the full URL to your Amora Hypha space so the platform links on the Game Guide page can go live"],
     sections: [
       {
         heading: "Page Header",
