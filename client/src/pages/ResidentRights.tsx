@@ -80,7 +80,7 @@ const RESPONSIBILITIES = [
     icon: Coins,
     title: "Village Dues",
     description:
-      "Monthly village dues cover utilities, shared infrastructure maintenance, and community services. The vision is for dues to be fully covered by profits from Amora's shared businesses, the retreat center, cafe, wellness offerings, and other enterprises, creating a net-positive financial life for all residents. Dues can also be offset through Gratitude earned from community contributions. [PLACEHOLDER - Amora team to confirm monthly amount: $NNN/month]",
+      "Monthly village dues cover utilities, shared infrastructure maintenance, and community services. The vision is for dues to be fully covered by profits from Amora's shared businesses, the retreat center, cafe, wellness offerings, and other enterprises, creating a net-positive financial life for all residents. Dues can also be offset through Gratitude earned from community contributions. Exact monthly amounts will be shared before signing your Land Share Agreement.",
   },
   {
     icon: Users,
@@ -357,7 +357,7 @@ export default function ResidentRights() {
             })}
           </div>
           <p className="text-xs text-muted-foreground text-center mt-4">
-            [PLACEHOLDER - Amora team to confirm exact year thresholds for governance milestones]
+            Year thresholds are approximate and will be confirmed in the Resident Agreement.
           </p>
         </div>
       </section>

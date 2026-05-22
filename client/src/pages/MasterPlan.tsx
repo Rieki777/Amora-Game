@@ -184,13 +184,15 @@ export default function MasterPlan() {
               significant asset base underlying the Amora project.
             </p>
             <a
-              href="https://amora.cr/wp-content/uploads/2025/11/Our-Intentional-Community-Amora-Background.jpg"
+              href="https://amora.cr"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 mt-6 px-6 py-3 bg-teal-deep text-white rounded-lg font-semibold hover:opacity-90 transition-opacity"
+              className="inline-flex items-center gap-2 mt-6 px-6 py-3 bg-teal-deep/30 text-teal-deep rounded-lg font-semibold cursor-not-allowed opacity-60"
+              onClick={e => e.preventDefault()}
+              title="Master Plan PDF coming soon"
             >
               <Map className="w-5 h-5" />
-              View Full Master Plan PDF
+              Master Plan PDF — Coming Soon
             </a>
           </div>
         </div>

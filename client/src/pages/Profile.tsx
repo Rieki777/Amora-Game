@@ -394,23 +394,18 @@ export default function Profile() {
                   {user.paths.length === 0 ? (
                     <p className="text-gray-600 text-sm">No paths selected yet</p>
                   ) : (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       {user.paths.map((path) => (
-                        <div key={path}>
-                          <p className="text-sm font-semibold text-gray-900 mb-2">
+                        <div key={path} className="flex items-center gap-3">
+                          <div className={`p-1.5 rounded-lg ${PATH_INFO[path]?.bgColor || "bg-gray-100"}`}>
+                            {PATH_INFO[path]?.icon}
+                          </div>
+                          <p className={`text-sm font-semibold ${PATH_INFO[path]?.color || "text-gray-700"}`}>
                             {PATH_INFO[path]?.label || path}
                           </p>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <motion.div
-                              initial={{ width: 0 }}
-                              animate={{ width: "45%" }}
-                              transition={{ duration: 1, delay: 0.3 }}
-                              className="bg-teal-deep h-2 rounded-full"
-                            />
-                          </div>
-                          <p className="text-xs text-gray-600 mt-1">45% Complete</p>
                         </div>
                       ))}
+                      <p className="text-xs text-gray-500 pt-1">Journey details tracked as you participate</p>
                     </div>
                   )}
                 </motion.div>

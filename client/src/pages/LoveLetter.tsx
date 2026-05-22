@@ -29,6 +29,7 @@ export default function LoveLetter() {
     paths: [] as string[],
     why: "",
     contribution: "",
+    customAmount: "",
     goodNeighbor: false,
     commitmentAck: false,
   });
@@ -55,6 +56,14 @@ export default function LoveLetter() {
       setError("Please select at least one path.");
       return;
     }
+    if (!form.contribution) {
+      setError("Please select a monthly contribution level.");
+      return;
+    }
+    if (form.contribution === "custom" && !form.customAmount.trim()) {
+      setError("Please describe your custom contribution amount.");
+      return;
+    }
     setError("");
     setSubmitting(true);
     try {
@@ -69,7 +78,7 @@ export default function LoveLetter() {
             phone: form.phone,
             paths: form.paths,
             why: form.why,
-            monthlyContribution: form.contribution,
+            monthlyContribution: form.contribution === "custom" ? `custom: ${form.customAmount}` : form.contribution,
             acknowledgedGoodNeighbor: form.goodNeighbor,
             acknowledgedCommitments: form.commitmentAck,
             signedAt: new Date().toISOString(),
@@ -325,6 +334,15 @@ export default function LoveLetter() {
                   <option value="108">$108/month, Forest level</option>
                   <option value="custom">I'd like to discuss a custom amount</option>
                 </select>
+                {form.contribution === "custom" && (
+                  <input
+                    type="text"
+                    placeholder="Tell us what works for you (e.g. $20/month, in-kind, barter)"
+                    value={form.customAmount}
+                    onChange={e => setForm(p => ({ ...p, customAmount: e.target.value }))}
+                    className="mt-3 w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                )}
               </div>
 
               {/* Why */}
