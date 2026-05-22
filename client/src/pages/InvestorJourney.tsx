@@ -366,9 +366,10 @@ export default function InvestorJourney() {
               transition={{ delay: 0.2 }}
               className="text-xl text-muted-foreground leading-relaxed mb-8"
             >
-              Capital Contributors offer financial resources, credit lines, investments, 
-              or other capital resources. We prioritize investors who want to live at Amora 
-              and prefer debt over equity to ensure community ownership.
+              Capital Contributors offer financial resources, credit lines, investments,
+              or other capital resources. We prioritize investors who share the vision —
+              capital structured to deliver real returns while keeping the village
+              in the hands of the people who call it home.
             </motion.p>
 
             <motion.div

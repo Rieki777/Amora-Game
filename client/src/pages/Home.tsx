@@ -29,7 +29,7 @@ const journeyCards = [
     id: "investor",
     title: "Investor",
     subtitle: "Capital Contributor",
-    description: "Support regenerative development through financial resources, credit lines, or material contributions. Join a community that prioritizes debt over equity.",
+    description: "Plant capital in a project built to last. Your investment grows the village while community ownership stays intact — returns and values that move in the same direction.",
     icon: TrendingUp,
     href: "/investor",
     color: "bg-amber",
