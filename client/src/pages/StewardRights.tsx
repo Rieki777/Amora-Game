@@ -26,19 +26,19 @@ const RIGHTS = [
     icon: Heart,
     title: "Earn Gratitude for Your Contribution",
     description:
-      "Every role you hold, every quest you complete, and every meaningful act of stewardship earns you Gratitude — a direct record of the value you bring. 1 Gratitude = $1 USD. As Amora grows, Gratitude converts to cash, equity, or community currency. Your effort builds real wealth.",
+      "Every role you hold, every quest you complete, and every meaningful act of stewardship earns you Gratitude, a direct record of the value you bring. 1 Gratitude = $1 USD. As Amora grows, Gratitude converts to cash, equity, or community currency. Your effort builds real wealth.",
   },
   {
     icon: Star,
     title: "Apply for Seasonal Roles",
     description:
-      "Once you complete your Co-Creator Right of Passage, you have the right to propose yourself for any seasonal role that fits your gifts — whether that's a Circle facilitation role, a land stewardship position, or a new role you help design. Roles are renewed by consent each season.",
+      "Once you complete your Co-Creator Right of Passage, you have the right to propose yourself for any seasonal role that fits your gifts, whether that's a Circle facilitation role, a land stewardship position, or a new role you help design. Roles are renewed by consent each season.",
   },
   {
     icon: Compass,
     title: "Advance Along the Path",
     description:
-      "After multiple seasons serving in a role, you earn the right to be recognized as a Guide — a mentor and anchor for those coming after you. After seasons as a Guide, you may become a Sage, holding the highest governance voice and long-term vision for the village.",
+      "After multiple seasons serving in a role, you earn the right to be recognized as a Guide, a mentor and anchor for those coming after you. After seasons as a Guide, you may become a Sage, holding the highest governance voice and long-term vision for the village.",
   },
   {
     icon: Leaf,
@@ -50,7 +50,7 @@ const RIGHTS = [
     icon: Shield,
     title: "Retreat and Wellness Access",
     description:
-      "As a contributing steward, you have access to Amora's wellness offerings at community rates. Retreat facilities, healing arts programs, and wellness services are part of what this community builds together — and you are part of what makes them possible.",
+      "As a contributing steward, you have access to Amora's wellness offerings at community rates. Retreat facilities, healing arts programs, and wellness services are part of what this community builds together, and you are part of what makes them possible.",
   },
 ];
 
@@ -65,19 +65,19 @@ const RESPONSIBILITIES = [
     icon: TreePine,
     title: "Act as a Co-Owner",
     description:
-      "Every steward is a co-owner of this village. Not in a legal technicality — in a lived reality. Approach every decision, every piece of land, every shared resource as if it belongs to you and to everyone here, because it does. Pick up what needs picking up. Fix what needs fixing. Notice what others might miss.",
+      "Every steward is a co-owner of this village. Not in a legal technicality, in a lived reality. Approach every decision, every piece of land, every shared resource as if it belongs to you and to everyone here, because it does. Pick up what needs picking up. Fix what needs fixing. Notice what others might miss.",
   },
   {
     icon: Compass,
     title: "Take On Quests",
     description:
-      "Quests are how the village grows. As a steward you commit to actively taking on quests that stretch your contribution — building, tending, hosting, documenting, organizing. Your engagement keeps the community alive.",
+      "Quests are how the village grows. As a steward you commit to actively taking on quests that stretch your contribution, building, tending, hosting, documenting, organizing. Your engagement keeps the community alive.",
   },
   {
     icon: Heart,
     title: "Practice the Community Ways",
     description:
-      "Amora runs on Nonviolent Communication, authentic relating, and consent-based decision-making. As a steward, you commit to practicing these tools — not just knowing them. When conflict arises, you bring it to the appropriate process rather than letting it fester.",
+      "Amora runs on Nonviolent Communication, authentic relating, and consent-based decision-making. As a steward, you commit to practicing these tools, not just knowing them. When conflict arises, you bring it to the appropriate process rather than letting it fester.",
   },
   {
     icon: Sparkles,
@@ -89,7 +89,7 @@ const RESPONSIBILITIES = [
     icon: Star,
     title: "Lift Others as You Rise",
     description:
-      "Your path from Visitor to Co-Creator to Guide to Sage is not a solo climb — it's a relay. As you advance, you carry responsibility for welcoming newcomers, mentoring Initiates, and making it easier for the next person to find their place here.",
+      "Your path from Visitor to Co-Creator to Guide to Sage is not a solo climb, it's a relay. As you advance, you carry responsibility for welcoming newcomers, mentoring Initiates, and making it easier for the next person to find their place here.",
   },
 ];
 
@@ -151,7 +151,7 @@ export default function StewardRights() {
             className="text-cream/80 text-lg leading-relaxed"
           >
             This is not a legal document. It's a covenant between co-owners. Every Village
-            Steward holds both — the rights that come from real ownership of this place, and the
+            Steward holds both, the rights that come from real ownership of this place, and the
             responsibilities that make those rights worth something.
           </motion.p>
         </div>
@@ -172,7 +172,7 @@ export default function StewardRights() {
             </h2>
             <p className="text-muted-foreground leading-relaxed max-w-xl mx-auto">
               Not in a passive sense. Not in a "you paid for something" sense. In the deepest
-              sense — the land, the buildings, the culture, the economy, the future of this place
+              sense, the land, the buildings, the culture, the economy, the future of this place
               are in your hands as much as anyone else's. Act from that space. Steward it as if
               you built it, because you are building it, right now.
             </p>
@@ -237,7 +237,7 @@ export default function StewardRights() {
             </h2>
             <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
               Rights and responsibilities are two sides of the same belonging. One without the
-              other isn't community — it's just a transaction.
+              other isn't community, it's just a transaction.
             </p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
@@ -282,7 +282,7 @@ export default function StewardRights() {
             </h2>
             <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
               Your rights and voice grow with your commitment. This is not a hierarchy of
-              worth — it's a recognition that those who have poured the most into this place
+              worth, it's a recognition that those who have poured the most into this place
               hold the most wisdom for its future.
             </p>
           </div>
@@ -322,7 +322,7 @@ export default function StewardRights() {
             Ready to Begin?
           </h2>
           <p className="text-muted-foreground mb-8">
-            The Steward journey starts with a single step — showing up to a Community Call and
+            The Steward journey starts with a single step, showing up to a Community Call and
             saying yes to what's calling you.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">

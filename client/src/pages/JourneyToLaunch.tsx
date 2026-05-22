@@ -518,12 +518,12 @@ CTA: Begin My Stewardship Journey`,
         heading: "Page Header",
         content: `Tag: Village Steward Space
 Title: Your Rights and Responsibilities
-Subtitle: This is not a legal document. It's a covenant between co-owners. Every Village Steward holds both — the rights that come from real ownership of this place, and the responsibilities that make those rights worth something.`,
+Subtitle: This is not a legal document. It's a covenant between co-owners. Every Village Steward holds both, the rights that come from real ownership of this place, and the responsibilities that make those rights worth something.`,
       },
       {
         heading: "Co-Ownership Framing",
         content: `Heading: You Are a Co-Owner of This Village
-Text: Not in a passive sense. Not in a "you paid for something" sense. In the deepest sense — the land, the buildings, the culture, the economy, the future of this place are in your hands as much as anyone else's. Act from that space. Steward it as if you built it, because you are building it, right now.`,
+Text: Not in a passive sense. Not in a "you paid for something" sense. In the deepest sense, the land, the buildings, the culture, the economy, the future of this place are in your hands as much as anyone else's. Act from that space. Steward it as if you built it, because you are building it, right now.`,
       },
       {
         heading: "Your Rights (6 Cards)",
@@ -537,9 +537,9 @@ Text: Not in a passive sense. Not in a "you paid for something" sense. In the de
       {
         heading: "Your Responsibilities (6 Cards)",
         content: `1. Show Up for Your Circle - Attend meetings consistently, participate in consent rounds, communicate if you can't make it.
-2. Act as a Co-Owner - Approach every decision, every piece of land, every shared resource as if it belongs to you and to everyone here — because it does.
+2. Act as a Co-Owner - Approach every decision, every piece of land, every shared resource as if it belongs to you and to everyone here, because it does.
 3. Take On Quests - Actively complete quests that stretch your contribution. Your engagement keeps the community alive.
-4. Practice the Community Ways - NVC, authentic relating, consent-based decision-making. Not just knowing them — practicing them.
+4. Practice the Community Ways - NVC, authentic relating, consent-based decision-making. Not just knowing them, practicing them.
 5. Contribute to the Seasonal Rhythm - Attend seasonal transitions, participate in votes, help decide collectively what Amora focuses on next.
 6. Lift Others as You Rise - As you advance, carry responsibility for welcoming newcomers and mentoring those coming behind you.`,
       },
@@ -616,7 +616,7 @@ Text: The land at Amora is held collectively. Every resident is a steward of the
         content: `1. Your Land Share is Yours - Long-term Land Share Agreement: renewable, transferable to your children tax-free, protected by collective ownership.
 2. Security Through Community Ownership - No single person can sell the land away. It's held in trust for the whole community, including your family and those that come after.
 3. Voice in Community Life - Full voice in Circles governing daily life. Governance rights deepen as you reach milestones and put down roots.
-4. Access to All Commons - Trails, food forests, gathering spaces, streams, ponds, seasonal festivals, events — all of it is yours.
+4. Access to All Commons - Trails, food forests, gathering spaces, streams, ponds, seasonal festivals, events, all of it is yours.
 5. Community Services and Care - Access to wellness programs, education, healing arts, and services Amora develops together. Community businesses serve residents first.
 6. Dues Offset Through Gratitude - Dues can be covered through Gratitude (1 Gratitude = $1 USD of contribution). The vision: shared business profits make life here net-positive.`,
       },
@@ -632,7 +632,7 @@ Text: The land at Amora is held collectively. Every resident is a steward of the
       },
       {
         heading: "Maintenance and Fees Vision",
-        content: `Village dues exist to keep infrastructure running. The longer-term vision: as Amora's shared businesses mature — retreat center, cafe, wellness center, artisan market, education programs — revenue flows back into the community.
+        content: `Village dues exist to keep infrastructure running. The longer-term vision: as Amora's shared businesses mature, retreat center, cafe, wellness center, artisan market, education programs, revenue flows back into the community.
 
 The goal is a life here that is economically net-positive. Where Gratitude earnings, business participation, or role contributions cover not just your dues, but give you back more than you put in.
 
@@ -1075,7 +1075,7 @@ interface DecisionDef {
   suggestedOptions?: string[];
 }
 
-type ViewId = "timeline" | "kanban" | "decisions" | "variables" | string;
+type ViewId = "timeline" | "kanban" | "decisions" | "variables" | "discussion" | string;
 
 const API_BASE = "";
 
@@ -1096,6 +1096,41 @@ function getEffectiveState(
   serverCheckboxes: Record<string, 0 | 1 | 2>
 ): 0 | 1 | 2 {
   return id in serverCheckboxes ? serverCheckboxes[id] : getDefaultCheckboxState(d);
+}
+
+type BucketId = "urgent" | "in-motion" | "completed" | "amora-call";
+
+function getEffectiveStatus(
+  d: Deliverable,
+  overrides: Record<string, DeliveryStatus>
+): DeliveryStatus {
+  return overrides[d.id] ?? d.status;
+}
+
+function getBucket(
+  d: Deliverable,
+  state: 0 | 1 | 2,
+  overrides: Record<string, DeliveryStatus>
+): BucketId {
+  if (state === 2) return "completed";
+  const s = getEffectiveStatus(d, overrides);
+  if (s === "amora" || s === "collab") return "amora-call";
+  if (s === "done" || state === 1) return "in-motion";
+  return "urgent";
+}
+
+const BUCKETS: { id: BucketId; emoji: string; label: string; goal: string; tone: string }[] = [
+  { id: "urgent", emoji: "🔴", label: "Urgent", goal: "Pending items that need attention now.", tone: "bg-red-50 border-red-200 text-red-700" },
+  { id: "in-motion", emoji: "🟡", label: "In Motion", goal: "Currently in progress — ReGen delivered, awaiting Amora.", tone: "bg-amber-50 border-amber-200 text-amber-800" },
+  { id: "completed", emoji: "🟢", label: "Completed", goal: "Done and confirmed by Amora.", tone: "bg-emerald-50 border-emerald-200 text-emerald-700" },
+  { id: "amora-call", emoji: "🔵", label: "Amora's Call", goal: "Decisions or actions for the Amora team to lead.", tone: "bg-violet-50 border-violet-200 text-violet-700" },
+];
+
+interface DiscussionTopic {
+  id: string;
+  text: string;
+  createdAt: string;
+  resolved: boolean;
 }
 
 // ─── Password Gate ────────────────────────────────────────────────────────────
@@ -1168,6 +1203,54 @@ export default function JourneyToLaunch() {
   const [noteDraft, setNoteDraft] = useState("");
   const [editingDecision, setEditingDecision] = useState<string | null>(null);
   const [decisionDraft, setDecisionDraft] = useState<{ chosen: string; notes: string }>({ chosen: "", notes: "" });
+
+  // Command Centre additions: status overrides and discussion topics (localStorage)
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, DeliveryStatus>>({});
+  const [discussions, setDiscussions] = useState<DiscussionTopic[]>([]);
+  const [newTopic, setNewTopic] = useState("");
+
+  useEffect(() => {
+    try {
+      const overridesRaw = localStorage.getItem("amora-timeline-overrides");
+      if (overridesRaw) setStatusOverrides(JSON.parse(overridesRaw));
+      const discRaw = localStorage.getItem("amora-discussions");
+      if (discRaw) setDiscussions(JSON.parse(discRaw));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const setItemStatus = (id: string, status: DeliveryStatus) => {
+    const next = { ...statusOverrides, [id]: status };
+    setStatusOverrides(next);
+    try { localStorage.setItem("amora-timeline-overrides", JSON.stringify(next)); } catch { /* ignore */ }
+  };
+
+  const saveDiscussions = (next: DiscussionTopic[]) => {
+    setDiscussions(next);
+    try { localStorage.setItem("amora-discussions", JSON.stringify(next)); } catch { /* ignore */ }
+  };
+
+  const addTopic = () => {
+    const text = newTopic.trim();
+    if (!text) return;
+    const entry: DiscussionTopic = {
+      id: `disc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      text,
+      createdAt: new Date().toISOString(),
+      resolved: false,
+    };
+    saveDiscussions([entry, ...discussions]);
+    setNewTopic("");
+  };
+
+  const toggleTopicResolved = (id: string) => {
+    saveDiscussions(discussions.map((t) => (t.id === id ? { ...t, resolved: !t.resolved } : t)));
+  };
+
+  const deleteTopic = (id: string) => {
+    saveDiscussions(discussions.filter((t) => t.id !== id));
+  };
 
   // Check auth on mount
   useEffect(() => {
@@ -1396,11 +1479,10 @@ export default function JourneyToLaunch() {
             <span className="text-amber font-medium text-sm tracking-widest uppercase">Internal Tool</span>
           </div>
           <h1 className="font-display text-3xl md:text-4xl font-bold mb-2">
-            Journey to Launch
+            Amora Command Centre
           </h1>
           <p className="text-white/70 text-sm max-w-2xl mb-6">
-            The complete delivery roadmap for amora.regencivics.earth - Mar 17 to Apr 28, 2026.
-            Use this page to track what I have delivered, what the Amora team needs to complete, and what copy goes on each page.
+            The living workspace for the team. Update the site, align on decisions, track what's in motion.
           </p>
 
           {/* Resource Links */}
@@ -1519,6 +1601,51 @@ export default function JourneyToLaunch() {
                 })()
               )}
             </button>
+            <button
+              onClick={() => setActiveView("discussion")}
+              className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+                activeView === "discussion"
+                  ? "bg-teal-deep text-white"
+                  : "text-stone-600 hover:bg-stone-100"
+              }`}
+            >
+              <StickyNote className="w-4 h-4 shrink-0" />
+              <span>Discussion</span>
+              {activeView === "discussion" ? (
+                <ChevronRight className="w-3 h-3 ml-auto" />
+              ) : (
+                (() => {
+                  const openCount = discussions.filter((t) => !t.resolved).length;
+                  return openCount > 0 ? (
+                    <span className="ml-auto text-xs bg-teal text-white font-bold px-1.5 py-0.5 rounded-full">
+                      {openCount}
+                    </span>
+                  ) : null;
+                })()
+              )}
+            </button>
+          </div>
+
+          {/* Quick Links to live pages */}
+          <div className="px-3 pb-1 mt-2">
+            <p className="text-xs font-semibold text-stone-400 uppercase tracking-widest px-1 mb-2">
+              Quick Links
+            </p>
+          </div>
+          <div className="px-3 mb-4 space-y-0.5">
+            {PAGES.map((p) => (
+              <a
+                key={`quicklink-${p.id}`}
+                href={p.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-stone-600 hover:bg-stone-100 transition-colors"
+              >
+                <span>{p.emoji}</span>
+                <span className="text-left leading-tight truncate flex-1">{p.title}</span>
+                <ExternalLink className="w-3 h-3 text-stone-300 shrink-0" />
+              </a>
+            ))}
           </div>
 
           <div className="px-3 pb-1">
@@ -1592,39 +1719,41 @@ export default function JourneyToLaunch() {
                     </span>
                   </div>
 
-                  {WEEKS.map((week) => {
-                    const allWeekItems = week.deliverables;
-                    const myItems = allWeekItems.filter((d) => d.status !== "amora");
-                    const confirmedWeekCount = myItems.filter(
-                      (d) => getEffectiveState(d.id, d, serverState.checkboxes) === 2
-                    ).length;
-                    const deliveredWeekCount = myItems.filter(
-                      (d) => getEffectiveState(d.id, d, serverState.checkboxes) === 1
-                    ).length;
-                    return (
-                      <div key={week.id} className="mb-8 bg-white rounded-xl border border-stone-200 overflow-hidden shadow-sm">
-                        {/* Week header */}
-                        <div className="bg-teal-deep/5 border-b border-stone-200 px-5 py-4">
+                  {(() => {
+                    const allItems = WEEKS.flatMap((w) => w.deliverables);
+                    return BUCKETS.map((bucket) => {
+                      const bucketItems = allItems.filter((d) => {
+                        const st = getEffectiveState(d.id, d, serverState.checkboxes);
+                        return getBucket(d, st, statusOverrides) === bucket.id;
+                      });
+                      return (
+                      <div key={bucket.id} className="mb-8 bg-white rounded-xl border border-stone-200 overflow-hidden shadow-sm">
+                        {/* Bucket header */}
+                        <div className={`border-b border-stone-200 px-5 py-4 ${bucket.tone}`}>
                           <div className="flex items-start justify-between gap-4">
-                            <div>
-                              <h2 className="font-display font-bold text-teal-deep text-lg">{week.label}</h2>
-                              <p className="text-stone-500 text-sm mt-0.5">{week.goal}</p>
+                            <div className="flex items-center gap-3">
+                              <span className="text-2xl leading-none">{bucket.emoji}</span>
+                              <div>
+                                <h2 className="font-display font-bold text-lg">{bucket.label}</h2>
+                                <p className="text-stone-600 text-sm mt-0.5">{bucket.goal}</p>
+                              </div>
                             </div>
                             <div className="shrink-0 text-right">
-                              <span className="text-teal-deep font-bold text-sm">{confirmedWeekCount}/{myItems.length}</span>
-                              <p className="text-stone-400 text-xs">confirmed</p>
-                              {deliveredWeekCount > 0 && (
-                                <p className="text-amber text-xs">{deliveredWeekCount} with Amora</p>
-                              )}
+                              <span className="text-stone-800 font-bold text-sm">{bucketItems.length}</span>
+                              <p className="text-stone-500 text-xs">items</p>
                             </div>
                           </div>
                         </div>
 
                         {/* Deliverables */}
                         <div className="divide-y divide-stone-100">
-                          {week.deliverables.map((d) => {
-                            const isAmora = d.status === "amora";
-                            const isCollab = d.status === "collab";
+                          {bucketItems.length === 0 && (
+                            <p className="text-center text-xs text-stone-400 py-6 italic">Nothing here right now.</p>
+                          )}
+                          {bucketItems.map((d) => {
+                            const effStatus = getEffectiveStatus(d, statusOverrides);
+                            const isAmora = effStatus === "amora";
+                            const isCollab = effStatus === "collab";
                             const state = getEffectiveState(d.id, d, serverState.checkboxes);
                             const isExpanded = expandedItems.has(d.id);
                             const isEditingThisNote = editingNote === d.id;
@@ -1683,21 +1812,26 @@ export default function JourneyToLaunch() {
                                     {d.text}
                                   </span>
 
-                                  {isAmora && (
-                                    <span className="shrink-0 text-xs bg-amber text-teal-deep font-semibold px-2 py-0.5 rounded">
-                                      Amora
-                                    </span>
-                                  )}
-                                  {isCollab && (
-                                    <span className="shrink-0 text-xs bg-violet-100 text-violet-700 font-semibold px-2 py-0.5 rounded">
-                                      Collab
-                                    </span>
-                                  )}
-                                  {!isAmora && !isCollab && state === 1 && (
-                                    <span className="shrink-0 text-xs bg-amber text-teal-deep font-semibold px-2 py-0.5 rounded">
-                                      Amora
-                                    </span>
-                                  )}
+                                  {/* Inline status dropdown — change effective status (saved to localStorage) */}
+                                  <select
+                                    value={effStatus}
+                                    onChange={(e) => setItemStatus(d.id, e.target.value as DeliveryStatus)}
+                                    title="Move this item to another bucket"
+                                    className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded border outline-none cursor-pointer ${
+                                      isAmora
+                                        ? "bg-amber text-teal-deep border-amber"
+                                        : isCollab
+                                        ? "bg-violet-100 text-violet-700 border-violet-200"
+                                        : effStatus === "done"
+                                        ? "bg-teal-deep/10 text-teal-deep border-teal-deep/20"
+                                        : "bg-stone-100 text-stone-600 border-stone-200"
+                                    }`}
+                                  >
+                                    <option value="pending">Pending</option>
+                                    <option value="done">Done (in motion)</option>
+                                    <option value="amora">Amora</option>
+                                    <option value="collab">Collab</option>
+                                  </select>
                                   {!isAmora && !isCollab && state === 2 && (
                                     <span className="shrink-0 text-xs bg-emerald-100 text-emerald-700 font-medium px-2 py-0.5 rounded">
                                       Confirmed
@@ -1782,11 +1916,12 @@ export default function JourneyToLaunch() {
                           })}
                         </div>
                       </div>
-                    );
-                  })}
+                      );
+                    });
+                  })()}
 
                   <p className="text-stone-400 text-xs text-center mt-4">
-                    Checkboxes cycle: Pending → ReGen Delivered → Amora Confirmed → Pending. State is shared and synced to server.
+                    Checkboxes cycle: Pending → ReGen Delivered → Amora Confirmed → Pending. Use the status dropdown to move items between buckets. State is shared and synced to server.
                   </p>
                 </div>
               )}
@@ -2208,6 +2343,104 @@ export default function JourneyToLaunch() {
                       );
                     })}
                   </div>
+                </div>
+              )}
+
+              {/* ── DISCUSSION VIEW ─────────────────────────────────────── */}
+              {activeView === "discussion" && (
+                <div className="max-w-3xl mx-auto">
+                  <div className="mb-6">
+                    <h2 className="font-display text-2xl font-bold text-teal-deep">Team Discussion</h2>
+                    <p className="text-stone-500 text-sm mt-1">
+                      Surface topics for the team to align on. Saved locally in your browser — share important threads in the Decision Log too.
+                    </p>
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-5 mb-6">
+                    <label className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2 block">Add a topic</label>
+                    <textarea
+                      value={newTopic}
+                      onChange={(e) => setNewTopic(e.target.value)}
+                      placeholder="What needs to be discussed?"
+                      rows={3}
+                      className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep resize-y"
+                    />
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        onClick={addTopic}
+                        disabled={!newTopic.trim()}
+                        className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal disabled:opacity-50 transition-colors"
+                      >
+                        Add Topic
+                      </button>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const open = discussions.filter((t) => !t.resolved);
+                    const resolved = discussions.filter((t) => t.resolved);
+                    return (
+                      <>
+                        <div className="space-y-2 mb-6">
+                          {open.length === 0 && (
+                            <p className="text-center text-sm text-stone-400 italic py-6">No open topics. Add one above.</p>
+                          )}
+                          {open.map((t) => (
+                            <div key={t.id} className="bg-white rounded-xl border border-stone-200 shadow-sm px-5 py-3 flex items-start gap-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-stone-700 whitespace-pre-wrap">{t.text}</p>
+                                <p className="text-xs text-stone-400 mt-1">{new Date(t.createdAt).toLocaleString()}</p>
+                              </div>
+                              <button
+                                onClick={() => toggleTopicResolved(t.id)}
+                                className="shrink-0 px-3 py-1.5 text-xs rounded-lg bg-teal-deep/10 text-teal-deep hover:bg-teal-deep hover:text-white transition-colors font-medium"
+                              >
+                                Resolve
+                              </button>
+                              <button
+                                onClick={() => deleteTopic(t.id)}
+                                className="shrink-0 text-stone-300 hover:text-red-500 transition-colors text-xs"
+                                title="Delete"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+
+                        {resolved.length > 0 && (
+                          <details className="bg-stone-50 rounded-xl border border-stone-200 px-5 py-3">
+                            <summary className="cursor-pointer text-sm font-semibold text-stone-500 select-none">
+                              Resolved ({resolved.length})
+                            </summary>
+                            <div className="space-y-2 mt-3">
+                              {resolved.map((t) => (
+                                <div key={t.id} className="flex items-start gap-3 py-1">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-stone-500 line-through whitespace-pre-wrap">{t.text}</p>
+                                    <p className="text-xs text-stone-400 mt-0.5">{new Date(t.createdAt).toLocaleString()}</p>
+                                  </div>
+                                  <button
+                                    onClick={() => toggleTopicResolved(t.id)}
+                                    className="shrink-0 text-xs text-stone-400 hover:text-teal-deep"
+                                  >
+                                    Reopen
+                                  </button>
+                                  <button
+                                    onClick={() => deleteTopic(t.id)}
+                                    className="shrink-0 text-stone-300 hover:text-red-500 transition-colors text-xs"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 

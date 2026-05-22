@@ -179,7 +179,7 @@ export default function Housing() {
               Land Share Agreements
             </h2>
             <p className="text-muted-foreground mb-6">
-              At Amora, you don't purchase land outright—you acquire a Land Share Agreement 
+              At Amora, you don't purchase land outright-you acquire a Land Share Agreement 
               that gives you long-term access to your lot. This unique structure:
             </p>
             <div className="grid sm:grid-cols-3 gap-6 text-left mb-8">

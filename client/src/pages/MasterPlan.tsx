@@ -121,7 +121,7 @@ export default function MasterPlan() {
               Our Vision
             </h2>
             <p className="text-muted-foreground text-lg leading-relaxed">
-              Amora is designed as a complete village ecosystem—a place where people live, 
+              Amora is designed as a complete village ecosystem-a place where people live, 
               work, learn, and thrive together. Our master plan balances development with 
               conservation, ensuring that the land regenerates even as we build upon it.
             </p>

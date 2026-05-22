@@ -383,7 +383,7 @@ export default function Layout({ children }: LayoutProps) {
             </p>
             <div className="flex items-center gap-2 text-white/50 text-sm">
               <TreePine className="w-4 h-4" />
-              <span>Built with Pura Vida in Costa Rica</span>
+              <span>Built with Pura Vida by ReGenCivics.Earth</span>
             </div>
           </div>
         </div>

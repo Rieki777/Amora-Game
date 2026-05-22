@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { Lock, Eye, EyeOff, Inbox, Edit3, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut } from "lucide-react";
+import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink } from "lucide-react";
+import { toast } from "sonner";
 
 const API_BASE = "/api";
 const FORM_TYPES = ["investor", "steward", "resident", "prosperity", "contact"] as const;
@@ -349,7 +350,7 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
             </div>
           )}
 
-          {/* Raw JSON editor — always shown, acts as ground truth */}
+          {/* Raw JSON editor, always shown, acts as ground truth */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
@@ -373,85 +374,95 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
   );
 }
 
-// ── Main Admin Page ───────────────────────────────────────────────────────────
+// ── Email Settings Tab ────────────────────────────────────────────────────────
 
-export default function Admin() {
-  const [password, setPassword] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<string>("submissions");
+interface EmailConfig {
+  investor: string;
+  steward: string;
+  resident: string;
+  prosperity: string;
+  resend_api_key: string;
+}
 
-  if (!password) {
-    return <PasswordGate onAuth={setPassword} />;
-  }
+function EmailSettingsTab({ password }: { password: string }) {
+  const [cfg, setCfg] = useState<EmailConfig>({
+    investor: "", steward: "", resident: "", prosperity: "", resend_api_key: "",
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showKey, setShowKey] = useState(false);
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-[#2D5A5A] text-white px-6 py-4 flex items-center justify-between shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-            <Lock className="w-4 h-4" />
-          </div>
-          <div>
-            <h1 className="font-semibold text-lg leading-tight">Amora Admin</h1>
-            <p className="text-xs text-white/60">game.amora.cr</p>
-          </div>
-        </div>
-        <button
-          onClick={() => setPassword(null)}
-          className="flex items-center gap-2 text-sm text-white/70 hover:text-white transition-colors"
-        >
-          <LogOut className="w-4 h-4" />
-          Sign Out
-        </button>
-      </header>
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/email-config?password=${password}`);
+      const data = await res.json();
+      setCfg({
+        investor: data.investor ?? "",
+        steward: data.steward ?? "",
+        resident: data.resident ?? "",
+        prosperity: data.prosperity ?? "",
+        resend_api_key: data.resend_api_key ?? "",
+      });
+    } catch {
+      toast.error("Failed to load email settings");
+    }
+    setLoading(false);
+  }, [password]);
 
-      <div className="flex">
-        {/* Sidebar */}
-        <nav className="w-56 min-h-[calc(100vh-60px)] bg-white border-r border-gray-200 py-6 flex-shrink-0">
-          <div className="px-4 mb-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Submissions</p>
-          </div>
-          <button
-            onClick={() => setActiveTab("submissions")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "submissions"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <Inbox className="w-4 h-4" />
-            All Forms
-          </button>
+  useEffect(() => { load(); }, [load]);
 
-          <div className="px-4 mt-6 mb-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Content</p>
-          </div>
-          {CONTENT_SECTIONS.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-                activeTab === key
-                  ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                  : "text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              {label}
-            </button>
-          ))}
-        </nav>
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/email-config?password=${password}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cfg),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      toast.success("Email settings saved");
+    } catch {
+      toast.error("Failed to save");
+    }
+    setSaving(false);
+  };
 
-        {/* Main Content */}
-        <main className="flex-1 p-8 max-w-4xl">
-          {activeTab === "submissions" && <SubmissionsTab password={password} />}
-          {CONTENT_SECTIONS.map(({ key, label }) =>
-            activeTab === key ? (
-              <ContentEditorTab key={key} password={password} sectionKey={key} sectionLabel={label} />
-            ) : null
-          )}
-        </main>
-      </div>
+  const Field = ({ label, value, onChange, hint, type = "email" }: {
+    label: string; value: string; onChange: (v: string) => void; hint: string; type?: string;
+  }) => (
+    <div>
+      <label className="text-sm font-medium text-gray-700 block mb-1">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+        placeholder={hint}
+      />
+      <p className="text-xs text-gray-400 mt-1">{hint}</p>
     </div>
   );
-}
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Email Settings</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Form submissions are routed to the matching inbox via Resend.
+          </p>
+        </div>
+        <button
+          onClick={save}
+          disabled={saving || loading}
+          className="flex items-center gap-2 px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-50 transition-colors"
+        >
+          <Save className="w-4 h-4" /> {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400">Loading...</div>
+      ) : (
+        <div className="space-y-5 max-w-xl

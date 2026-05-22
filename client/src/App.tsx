@@ -37,11 +37,14 @@ import GoodNeighbor from "./pages/GoodNeighbor";
 import JourneyToLaunch from "./pages/JourneyToLaunch";
 import StewardRights from "./pages/StewardRights";
 import ResidentRights from "./pages/ResidentRights";
+import Training from "./pages/Training";
 
 function Router() {
+  const [location] = useLocation();
   return (
     <>
     <ScrollToTop />
+    <ErrorBoundary key={location}>
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/journey-to-launch" component={JourneyToLaunch} />
@@ -66,25 +69,26 @@ function Router() {
       <Route path="/good-neighbor" component={GoodNeighbor} />
       <Route path="/steward-rights" component={StewardRights} />
       <Route path="/resident-rights" component={ResidentRights} />
+      <Route path="/training" component={Training} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
+    </ErrorBoundary>
     </>
   );
 }
 
 function App() {
   return (
-    <ErrorBoundary>
-      <ThemeProvider defaultTheme="light">
+    <ThemeProvider defaultTheme="light">
         <AuthProvider>
           <TooltipProvider>
             <Toaster />
             <Router />
           </TooltipProvider>
+ 
         </AuthProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
+    </ThemeProvider>
   );
 }
 

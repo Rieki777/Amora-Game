@@ -61,7 +61,7 @@ const journeySteps = [
     title: "Community Training",
     description: "Complete training in NVC (Nonviolent Communication), authentic relating, and other community practices.",
     icon: BookOpen,
-    link: "/how-we-create",
+    link: "/training",
     linkText: "Learn About Training",
     external: false,
     details: ["Nonviolent Communication basics", "Authentic relating practices", "Consent-based decision making", "Circle facilitation"]
@@ -539,7 +539,7 @@ export default function StewardJourney() {
               Seasonal Festivals
             </h2>
             <p className="text-muted-foreground mb-8">
-              Every 3 months, the community votes on what kind of season comes next. Seasons aren't on a fixed cycle — they're chosen based on what Amora needs. Spring for new builds, Summer for events and energy, Fall for harvest and reflection, Winter for systems design and planning. Each seasonal transition is marked by a festival.
+              Every 3 months, the community votes on what kind of season comes next. Seasons aren't on a fixed cycle, they're chosen based on what Amora needs. Spring for new builds, Summer for events and energy, Fall for harvest and reflection, Winter for systems design and planning. Each seasonal transition is marked by a festival.
             </p>
             <Link
               href="/how-we-create"
@@ -565,7 +565,7 @@ export default function StewardJourney() {
               Your Rights and Responsibilities
             </h2>
             <p className="text-muted-foreground mb-6">
-              As a Village Steward, you hold real ownership of this place — and real responsibility for it. Read the full covenant between co-owners.
+              As a Village Steward, you hold real ownership of this place, and real responsibility for it. Read the full covenant between co-owners.
             </p>
             <Link
               href="/steward-rights"

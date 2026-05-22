@@ -180,15 +180,15 @@ export default function Profile() {
                     <div className="grid md:grid-cols-3 gap-4">
                       <div className="bg-blue-50 p-4 rounded-lg">
                         <p className="text-sm text-gray-600 mb-1">Investment Tier</p>
-                        <p className="text-2xl font-bold text-blue-600">Founding Member</p>
+                        <p className="text-lg font-bold text-blue-400 italic">None yet</p>
                       </div>
                       <div className="bg-blue-50 p-4 rounded-lg">
                         <p className="text-sm text-gray-600 mb-1">Total Contributed</p>
-                        <p className="text-2xl font-bold text-blue-600">$50,000</p>
+                        <p className="text-lg font-bold text-blue-400 italic">None yet</p>
                       </div>
                       <div className="bg-blue-50 p-4 rounded-lg">
                         <p className="text-sm text-gray-600 mb-1">Expected ROI</p>
-                        <p className="text-2xl font-bold text-blue-600">12%</p>
+                        <p className="text-lg font-bold text-blue-400 italic">None yet</p>
                       </div>
                     </div>
                   </motion.div>
@@ -208,15 +208,15 @@ export default function Profile() {
                     <div className="grid md:grid-cols-3 gap-4">
                       <div className="bg-green-50 p-4 rounded-lg">
                         <p className="text-sm text-gray-600 mb-1">Current Circle</p>
-                        <p className="text-2xl font-bold text-green-600">Land Circle</p>
+                        <p className="text-lg font-bold text-green-400 italic">None yet</p>
                       </div>
                       <div className="bg-green-50 p-4 rounded-lg">
                         <p className="text-sm text-gray-600 mb-1">Current Role</p>
-                        <p className="text-2xl font-bold text-green-600">Facilitator</p>
+                        <p className="text-lg font-bold text-green-400 italic">None yet</p>
                       </div>
                       <div className="bg-green-50 p-4 rounded-lg">
                         <p className="text-sm text-gray-600 mb-1">Seasons Completed</p>
-                        <p className="text-2xl font-bold text-green-600">2</p>
+                        <p className="text-lg font-bold text-green-400 italic">0</p>
                       </div>
                     </div>
                   </motion.div>
@@ -236,15 +236,15 @@ export default function Profile() {
                     <div className="grid md:grid-cols-3 gap-4">
                       <div className="bg-amber-50 p-4 rounded-lg">
                         <p className="text-sm text-gray-600 mb-1">Move-In Status</p>
-                        <p className="text-2xl font-bold text-amber-600">2026</p>
+                        <p className="text-lg font-bold text-amber-400 italic">None yet</p>
                       </div>
                       <div className="bg-amber-50 p-4 rounded-lg">
                         <p className="text-sm text-gray-600 mb-1">Housing Type</p>
-                        <p className="text-2xl font-bold text-amber-600">Clustered Home</p>
+                        <p className="text-lg font-bold text-amber-400 italic">None yet</p>
                       </div>
                       <div className="bg-amber-50 p-4 rounded-lg">
                         <p className="text-sm text-gray-600 mb-1">Years Planned</p>
-                        <p className="text-2xl font-bold text-amber-600">10+</p>
+                        <p className="text-lg font-bold text-amber-400 italic">None yet</p>
                       </div>
                     </div>
                   </motion.div>
@@ -275,6 +275,42 @@ export default function Profile() {
                         <p className="text-2xl font-bold text-purple-600">0</p>
                       </div>
                     </div>
+                  </motion.div>
+                )}
+
+                {/* Monthly Contributions - shown when membership agreement is signed */}
+                {(user as any).membershipAgreementSigned && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.35 }}
+                    className="bg-white rounded-2xl shadow-lg p-8"
+                  >
+                    <h3 className="text-xl font-display font-bold text-teal-deep mb-6 flex items-center gap-2">
+                      <Calendar className="w-6 h-6" />
+                      Monthly Contributions
+                    </h3>
+                    {(user as any).monthlyContributions && (user as any).monthlyContributions.length > 0 ? (
+                      <div className="space-y-3">
+                        {(user as any).monthlyContributions.map((mc: { month: string; amount: number; status: string }, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between p-3 bg-teal-deep/5 rounded-lg">
+                            <span className="text-sm font-medium text-gray-700">{mc.month}</span>
+                            <div className="flex items-center gap-3">
+                              <span className="font-semibold text-teal-deep">${mc.amount}</span>
+                              <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                                mc.status === "paid"
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-amber-100 text-amber-700"
+                              }`}>
+                                {mc.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 italic">None yet</p>
+                    )}
                   </motion.div>
                 )}
 

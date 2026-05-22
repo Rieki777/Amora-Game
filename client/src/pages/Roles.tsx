@@ -180,7 +180,7 @@ const currentRoles: RoleEntry[] = [
       "Coordinates with whoever is staying on the land",
     ],
     evolutionaryPurpose:
-      "The land is the first resident. Every decision the team makes either deepens the relationship with the land or takes from it. This role is the one that keeps the team honest about that — and gets to spend the most time in the thing Amora is actually about.",
+      "The land is the first resident. Every decision the team makes either deepens the relationship with the land or takes from it. This role is the one that keeps the team honest about that, and gets to spend the most time in the thing Amora is actually about.",
     icon: Leaf,
     color: "bg-sage",
   },
@@ -264,7 +264,7 @@ const buildingRoles: RoleEntry[] = [
       "Brings proposals to the General Circle when decisions cross circles",
     ],
     evolutionaryPurpose:
-      "The physical form of Amora will either reinforce the values or contradict them. Hexagonal community structures, regenerative building materials, and landscape-responsive placement are not aesthetic choices — they shape how people live together. This role ensures the bones of the place match the soul.",
+      "The physical form of Amora will either reinforce the values or contradict them. Hexagonal community structures, regenerative building materials, and landscape-responsive placement are not aesthetic choices, they shape how people live together. This role ensures the bones of the place match the soul.",
     icon: Building2,
     color: "bg-teal-deep",
   },
@@ -343,7 +343,7 @@ const buildingRoles: RoleEntry[] = [
       "Supports the Prosperity Space as it populates",
     ],
     evolutionaryPurpose:
-      "Without this role, Amora risks becoming just a place people live instead of a place where regenerative livelihoods take root. The Prosperity Space says the village wants to be economically generative — this role is what makes that real.",
+      "Without this role, Amora risks becoming just a place people live instead of a place where regenerative livelihoods take root. The Prosperity Space says the village wants to be economically generative, this role is what makes that real.",
     icon: Briefcase,
     color: "bg-amber",
   },
@@ -568,7 +568,7 @@ export default function Roles() {
               Roles and Circles
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Amora organizes through sociocratic circles. Each role has an aim, a domain, and a set of accountabilities. Roles sit in the circle — not on the person.
+              Amora organizes through sociocratic circles. Each role has an aim, a domain, and a set of accountabilities. Roles sit in the circle, not on the person.
             </p>
           </motion.div>
 
@@ -581,7 +581,7 @@ export default function Roles() {
               className="mb-14 grid sm:grid-cols-3 gap-4"
             >
               {[
-                { label: "Spaces", description: "The biggest containers — Village Steward, Resident, Prosperity. Each has its own rhythms and decision-making authority." },
+                { label: "Spaces", description: "The biggest containers, Village Steward, Resident, Prosperity. Each has its own rhythms and decision-making authority." },
                 { label: "Circles", description: "Working groups inside a space. Each circle has an aim (what it works toward) and a domain (what it has authority to decide on)." },
                 { label: "Roles", description: "Specific responsibilities inside a circle. One person can hold many roles. If a person leaves, the role stays and gets reassigned." },
               ].map((item) => (
@@ -610,7 +610,7 @@ export default function Roles() {
 
             <RoleSection
               title="Roles Being Built"
-              subtitle="These roles are open or forming — the team is actively working to fill them. Each one unblocks a significant part of Amora's next phase."
+              subtitle="These roles are open or forming, the team is actively working to fill them. Each one unblocks a significant part of Amora's next phase."
               roles={buildingRoles}
               expandedRole={expandedRole}
               onToggle={toggle}
@@ -638,7 +638,7 @@ export default function Roles() {
                 A "tension" in sociocracy language is any felt gap between how things are and how they could be. Any team member who feels a tension brings it to their circle meeting. The circle holds space and decides together whether to adjust a role, create a new one, retire one, or send it up to the Leadership Circle.
               </p>
               <p className="text-muted-foreground">
-                Decisions are made by consent — not unanimous agreement, but no reasoned objection based on anyone's ability to do their work. The circle tries the change for an agreed period, then evaluates. Roles in Amora are invitations to a specific way of serving the living purpose, not fixed job descriptions.
+                Decisions are made by consent, not unanimous agreement, but no reasoned objection based on anyone's ability to do their work. The circle tries the change for an agreed period, then evaluates. Roles in Amora are invitations to a specific way of serving the living purpose, not fixed job descriptions.
               </p>
             </motion.div>
           </div>

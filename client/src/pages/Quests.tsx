@@ -124,7 +124,7 @@ const quests: Quest[] = [
     title: "Retreat Center Host",
     description:
       "Welcome and support guests at the Amora retreat center. Coordinate check-ins, facilitate space, and create a seamless guest experience that embodies Amora's values.",
-    impact: "Every retreat guest is a potential community member—or ambassador.",
+    impact: "Every retreat guest is a potential community member-or ambassador.",
     hearts: "80–150",
     duration: "Per retreat",
     difficulty: "Intermediate",
@@ -149,7 +149,7 @@ const quests: Quest[] = [
   {
     title: "Children's Play Day Facilitator",
     description:
-      "Co-design and run monthly Children's Play Days—wild games, nature crafts, story circles, and the kind of unstructured magic kids rarely get. A core ritual of village life.",
+      "Co-design and run monthly Children's Play Days-wild games, nature crafts, story circles, and the kind of unstructured magic kids rarely get. A core ritual of village life.",
     impact: "Children who grow up here will tend this land for generations.",
     hearts: "70–130",
     duration: "Half day (monthly)",
@@ -162,7 +162,7 @@ const quests: Quest[] = [
   {
     title: "Tech & Platform Steward",
     description:
-      "Help maintain and improve the Amora digital ecosystem—website, game platform, forms, community tools. Bug reports, UX improvements, documentation, and light development.",
+      "Help maintain and improve the Amora digital ecosystem-website, game platform, forms, community tools. Bug reports, UX improvements, documentation, and light development.",
     impact: "Scales the village's reach to people who haven't found us yet.",
     hearts: "80–200",
     duration: "Flexible / project-based",
@@ -175,7 +175,7 @@ const quests: Quest[] = [
   {
     title: "Healing Arts Practitioner",
     description:
-      "Offer wellness sessions to community members—yoga, meditation, somatic practices, plant medicine ceremonies, massage, or other healing modalities you're trained in.",
+      "Offer wellness sessions to community members-yoga, meditation, somatic practices, plant medicine ceremonies, massage, or other healing modalities you're trained in.",
     impact: "Wellbeing is regenerative. When people are well, the village thrives.",
     hearts: "50–150",
     duration: "Per session",
@@ -202,7 +202,7 @@ const quests: Quest[] = [
   {
     title: "Arts & Mural Maker",
     description:
-      "Create art that lives in the village—murals, sculptures, fiber works, installations. Bring beauty to shared spaces and express Amora's soul through your medium.",
+      "Create art that lives in the village-murals, sculptures, fiber works, installations. Bring beauty to shared spaces and express Amora's soul through your medium.",
     impact: "Beauty communicates what words can't. This is how the village speaks.",
     hearts: "100–300",
     duration: "Project-based",
@@ -228,7 +228,7 @@ const quests: Quest[] = [
   {
     title: "Security & Night Watch",
     description:
-      "Participate in the village safety rotation—nighttime presence, gate awareness, and care for the boundary between Amora and the wider world.",
+      "Participate in the village safety rotation-nighttime presence, gate awareness, and care for the boundary between Amora and the wider world.",
     impact: "Collective safety is how all other contributions stay protected.",
     hearts: "60–100",
     duration: "Night shift (6–8 hrs)",
@@ -301,7 +301,7 @@ export default function Quests() {
               Community Quests
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-4">
-              Quests are how you contribute to the village and earn Gratitude — our
+              Quests are how you contribute to the village and earn Gratitude, our
               way of acknowledging every contribution. 1 Gratitude = $1 USD in value.
               Every quest builds relationships, regenerates the land, and grows the
               community's collective score.

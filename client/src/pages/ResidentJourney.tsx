@@ -55,7 +55,7 @@ const journeySteps = [
     title: "Community Training",
     description: "Complete training in NVC (Nonviolent Communication), authentic relating, and other community practices.",
     icon: BookOpen,
-    link: "/how-we-create",
+    link: "/training",
     linkText: "Learn About Training",
     external: false,
     details: ["Nonviolent Communication basics", "Authentic relating practices", "Consent-based decision making", "Circle facilitation"]
@@ -162,7 +162,7 @@ const journeySteps = [
 ];
 
 const residentProgression = [
-  { level: "Resident", description: "Your arrival — you've made the village your home", icon: Home },
+  { level: "Resident", description: "Your arrival, you've made the village your home", icon: Home },
   { level: "Guardian", description: "Deep roots, steward of community traditions", icon: Shield, years: "7 years" },
   { level: "Elder", description: "Village wisdom keeper, mentor to new residents", icon: Users, years: "21 years" },
   { level: "Sage", description: "Intergenerational bridge, Rights of Nature voice", icon: Crown, years: "49 years" },
@@ -309,7 +309,7 @@ export default function ResidentJourney() {
               Your Path to Residency
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto mb-6">
-              Each step is designed for mutual assessment—ensuring you're the right fit 
+              Each step is designed for mutual assessment-ensuring you're the right fit 
               for Amora and Amora is the right fit for you.
             </p>
             
@@ -523,7 +523,7 @@ export default function ResidentJourney() {
             </h2>
             <p className="text-muted-foreground mb-6">
               As a resident, you'll pay Village Dues that cover utilities, maintenance,
-              and community services. These can be covered through <strong>Gratitude</strong> — contributions
+              and community services. These can be covered through <strong>Gratitude</strong>, contributions
               that track real value (1 Gratitude = $1 USD). Together, we work to reduce costs and create
               surplus that benefits everyone.
             </p>
@@ -551,7 +551,7 @@ export default function ResidentJourney() {
               Your Rights and Responsibilities
             </h2>
             <p className="text-muted-foreground mb-6">
-              As a resident you are a co-owner of this village — not a tenant. Read the full covenant that protects you and defines what we're building together.
+              As a resident you are a co-owner of this village, not a tenant. Read the full covenant that protects you and defines what we're building together.
             </p>
             <Link
               href="/resident-rights"

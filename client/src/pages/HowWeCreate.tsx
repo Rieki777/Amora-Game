@@ -25,17 +25,17 @@ const principles = [
   },
   {
     title: "Adaptive Governance",
-    description: "Using Hypha tools, each circle designs its own governance strategy—from consent to consensus—tailored to its unique culture, values, and mission.",
+    description: "Using Hypha tools, each circle designs its own governance strategy-from consent to consensus-tailored to its unique culture, values, and mission.",
     icon: Settings,
   },
   {
     title: "Gratitude Economy",
-    description: "Our contribution tracking system acknowledges every dollar of value we create together. 1 Gratitude = $1 USD in value contributed — a record of what we're building collectively.",
+    description: "Our contribution tracking system acknowledges every dollar of value we create together. 1 Gratitude = $1 USD in value contributed, a record of what we're building collectively.",
     icon: Heart,
   },
   {
     title: "Seasonal Rhythm",
-    description: "Every 3 months, the community decides together what kind of season comes next — not a fixed cycle, but a living response to what Amora needs most right now.",
+    description: "Every 3 months, the community decides together what kind of season comes next, not a fixed cycle, but a living response to what Amora needs most right now.",
     icon: Repeat,
   },
 ];
@@ -175,7 +175,7 @@ export default function HowWeCreate() {
                 The Gratitude Economy
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto mb-2">
-                Gratitude is how we track contributions. Right now, <strong>1 Gratitude = $1 USD</strong> in value contributed — work, time, resources, and expertise that we can't yet pay in cash.
+                Gratitude is how we track contributions. Right now, <strong>1 Gratitude = $1 USD</strong> in value contributed, work, time, resources, and expertise that we can't yet pay in cash.
               </p>
               <p className="text-sm text-muted-foreground">
                 Every Heart is a promise: as Amora grows, contributions convert to cash or equity.
@@ -218,7 +218,7 @@ export default function HowWeCreate() {
               transition={{ delay: 0.5 }}
             >
               <p className="text-muted-foreground">
-                Gratitude isn't a currency yet — they're a <strong>record of shared investment</strong>.
+                Gratitude isn't a currency yet, they're a <strong>record of shared investment</strong>.
                 We're tracking the full value of what everyone is contributing so no one's effort
                 goes unacknowledged when Amora becomes financially whole.
               </p>
@@ -301,7 +301,7 @@ export default function HowWeCreate() {
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
                 Inspired by Teal and sociocracy, we use <strong>Hypha.earth</strong> tools to let 
-                each circle design its own governance strategy. No one-size-fits-all—each space 
+                each circle design its own governance strategy. No one-size-fits-all-each space 
                 can tailor decision-making to its unique culture, values, and mission.
               </p>
             </motion.div>
@@ -378,7 +378,7 @@ export default function HowWeCreate() {
                 Seasonal Rhythm
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
-                Every 3 months, the community votes on what kind of season comes next — not a fixed cycle, but a collective response to what Amora needs most. Each season is its own chapter.
+                Every 3 months, the community votes on what kind of season comes next, not a fixed cycle, but a collective response to what Amora needs most. Each season is its own chapter.
               </p>
             </motion.div>
             <div className="grid sm:grid-cols-2 gap-6">
@@ -443,7 +443,7 @@ export default function HowWeCreate() {
                 <strong>No fixed cycle.</strong> At the end of each season, the community comes together to vote on what's needed next.
                 A village that just built all summer might choose Winter to design what comes next.
                 A village deep in planning might choose Spring to break ground.
-                The seasons follow Amora's needs — not a calendar.
+                The seasons follow Amora's needs, not a calendar.
               </p>
             </motion.div>
           </div>

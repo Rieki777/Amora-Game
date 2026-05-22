@@ -11,7 +11,7 @@ const commitments = [
   "Honor the values and agreements of the Amora community",
   "Practice Nonviolent Communication and authentic relating",
   "Meet financial obligations as agreed with the community",
-  "Show up for community life — circles, celebrations, and shared care",
+  "Show up for community life, circles, celebrations, and shared care",
 ];
 
 const pathOptions = [
@@ -162,7 +162,7 @@ export default function LoveLetter() {
               The Amora Love Letter
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Our founding covenant — and your official membership in Amora 508(c)(1)(a).
+              Our founding covenant, and your official membership in Amora 508(c)(1)(a).
               Read. Reflect. Sign.
             </p>
           </motion.div>
@@ -177,7 +177,7 @@ export default function LoveLetter() {
             <p className="mb-6 text-foreground">Dear Future Amoracita,</p>
 
             <p className="mb-6 text-muted-foreground">
-              Something in you called you here. Maybe it was the land — 266 acres of sacred Costa Rican
+              Something in you called you here. Maybe it was the land, 266 acres of sacred Costa Rican
               jungle, ocean-kissed and alive with possibility. Maybe it was the vision of a village where
               all beings belong and thrive. Maybe it was simply the feeling that the world you want to
               live in needs to be built.
@@ -186,7 +186,7 @@ export default function LoveLetter() {
             <p className="mb-6 text-muted-foreground">
               By signing this Love Letter, you are not just joining a community. You are becoming a
               co-creator of the most beautiful village we can imagine together. You are saying yes to
-              regeneration — of the land, of community, of yourself.
+              regeneration, of the land, of community, of yourself.
             </p>
 
             <p className="mb-4 text-foreground font-semibold">As a member of Amora 508(c)(1)(a), you commit to:</p>
@@ -201,7 +201,7 @@ export default function LoveLetter() {
             </ul>
 
             <p className="mb-6 text-muted-foreground">
-              In return, you become a full member of Amora's 508(c)(1)(a) organization — gaining access
+              In return, you become a full member of Amora's 508(c)(1)(a) organization, gaining access
               to community spaces, governance participation, Gratitude economy, and the opportunity to
               deepen your involvement through roles, residency, or business creation.
             </p>
@@ -282,7 +282,7 @@ export default function LoveLetter() {
                 <label className="block text-sm font-medium text-foreground mb-3">
                   Which path(s) are you on? <span className="text-destructive">*</span>
                 </label>
-                <p className="text-sm text-muted-foreground mb-4">Select all that apply — you can walk multiple paths.</p>
+                <p className="text-sm text-muted-foreground mb-4">Select all that apply, you can walk multiple paths.</p>
                 <div className="grid md:grid-cols-2 gap-3">
                   {pathOptions.map(path => (
                     <button
@@ -319,10 +319,10 @@ export default function LoveLetter() {
                   className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
                   <option value="">Select contribution level</option>
-                  <option value="33">$33/month — Seed level</option>
-                  <option value="55">$55/month — Sprout level</option>
-                  <option value="88">$88/month — Grove level</option>
-                  <option value="108">$108/month — Forest level</option>
+                  <option value="33">$33/month, Seed level</option>
+                  <option value="55">$55/month, Sprout level</option>
+                  <option value="88">$88/month, Grove level</option>
+                  <option value="108">$108/month, Forest level</option>
                   <option value="custom">I'd like to discuss a custom amount</option>
                 </select>
               </div>

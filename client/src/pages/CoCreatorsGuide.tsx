@@ -60,7 +60,7 @@ const hyphaActions = [
     title: "Start with an Agreement",
     subtitle: "Proposing a role, quest, or new contribution",
     description:
-      "Before you begin any new type of contribution — a seasonal role, a quest, or a new initiative — you open it to the community with an Agreement. Describe what you're bringing, what Amora receives, and what you're requesting in return. The community votes. Value in = value out.",
+      "Before you begin any new type of contribution, a seasonal role, a quest, or a new initiative, you open it to the community with an Agreement. Describe what you're bringing, what Amora receives, and what you're requesting in return. The community votes. Value in = value out.",
     cta: "Create Agreement",
     href: `${HYPHA_BASE}/agreements/create`,
     color: "border-teal-deep/30 bg-teal-deep/5",
@@ -72,7 +72,7 @@ const hyphaActions = [
     title: "Claim Your Gratitude",
     subtitle: "After completing a task, pay period, or season",
     description:
-      "When you've done the work — completed a quest, finished a season as a role holder, or reached a milestone — you come back and propose a Contribution Claim. Detail what you delivered, what Amora gained, and claim your Gratitude. This is how the value you create becomes visible and rewarded.",
+      "When you've done the work, completed a quest, finished a season as a role holder, or reached a milestone, you come back and propose a Contribution Claim. Detail what you delivered, what Amora gained, and claim your Gratitude. This is how the value you create becomes visible and rewarded.",
     cta: "Propose a Contribution",
     href: `${HYPHA_BASE}/agreements/create/propose-contribution`,
     color: "border-sage/30 bg-sage/5",
@@ -84,7 +84,7 @@ const hyphaActions = [
     title: "Propose Expenses",
     subtitle: "When your work has real costs",
     description:
-      "If your contribution requires purchasing materials, covering travel, or paying for services that benefit the community, you can propose those expenses for reimbursement. Be transparent and specific — the community is the budget committee here, and your integrity in how you handle shared resources is part of your contribution.",
+      "If your contribution requires purchasing materials, covering travel, or paying for services that benefit the community, you can propose those expenses for reimbursement. Be transparent and specific, the community is the budget committee here, and your integrity in how you handle shared resources is part of your contribution.",
     cta: "Pay for Expenses",
     href: `${HYPHA_BASE}/agreements/create/pay-for-expenses`,
     color: "border-amber/30 bg-amber/5",
@@ -96,7 +96,7 @@ const hyphaActions = [
     title: "Delegate Your Voice",
     subtitle: "Trust someone to vote on your behalf",
     description:
-      "Your voice is your governance power — it grows as you contribute. If you trust another member to represent your perspective while you're away or unavailable, you can delegate your voice to them. Choose someone whose judgment aligns with yours and whose commitment to Amora you trust deeply.",
+      "Your voice is your governance power, it grows as you contribute. If you trust another member to represent your perspective while you're away or unavailable, you can delegate your voice to them. Choose someone whose judgment aligns with yours and whose commitment to Amora you trust deeply.",
     cta: "View Members",
     href: `${HYPHA_BASE}/members`,
     color: "border-coral/30 bg-coral/5",
@@ -446,7 +446,7 @@ export default function CoCreatorsGuide() {
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
                 Gratitude tracks the value you contribute to Amora. Right now, 1 Gratitude = $1 USD in
-                contributed value — work, time, and resources that we can't yet pay in cash.
+                contributed value, work, time, and resources that we can't yet pay in cash.
                 As Amora matures, Gratitude converts to cash or equity.
               </p>
             </div>
@@ -708,7 +708,7 @@ export default function CoCreatorsGuide() {
                 Meet Hypha
               </h2>
               <p className="text-cream/80 text-lg leading-relaxed">
-                Hypha is the platform where every Amora decision lives — recorded, verifiable,
+                Hypha is the platform where every Amora decision lives, recorded, verifiable,
                 and tamper-proof on a distributed ledger. This isn't a shared Google Doc or a
                 Discord vote that disappears. It's an{" "}
                 <strong className="text-cream">incredibly secure, globally trusted governance
@@ -717,7 +717,7 @@ export default function CoCreatorsGuide() {
                 Your voice here is permanent. Your contributions here are real.
               </p>
               <p className="text-cream/70 text-base mt-4 leading-relaxed">
-                No single person — not even the founders — can override a community consent
+                No single person, not even the founders, can override a community consent
                 vote on Hypha. That's the point. When we say Amora is community-governed, this
                 is what makes it true.
               </p>
@@ -749,7 +749,7 @@ export default function CoCreatorsGuide() {
                   </h3>
                   <p className="text-cream/70 text-sm leading-relaxed">
                     Every proposal puts one question to the community: does this contribution serve
-                    Amora at the level of Gratitude being requested? Not hours logged — hours are
+                    Amora at the level of Gratitude being requested? Not hours logged, hours are
                     not a contribution. What matters is the actual value created, articulated
                     clearly, and assessed honestly by your peers. The more you contribute, the more
                     weight your voice carries in those votes.
@@ -805,7 +805,7 @@ export default function CoCreatorsGuide() {
               <div className="grid sm:grid-cols-3 gap-4 text-center">
                 {[
                   { label: "Sense", emoji: "🌀", description: "Find where your gifts are most needed. A quest waiting. A gap in the land. A conversation that sparks something." },
-                  { label: "Propose", emoji: "✍️", description: "Open your intention to the community in Hypha. Consent-based — not a vote of approval, but a check: does this serve us?" },
+                  { label: "Propose", emoji: "✍️", description: "Open your intention to the community in Hypha. Consent-based, not a vote of approval, but a check: does this serve us?" },
                   { label: "Create", emoji: "🌱", description: "Do the work. Document it. Return and claim the Gratitude that reflects the value you actually created." },
                 ].map((step) => (
                   <div key={step.label} className="rounded-xl bg-white/10 border border-white/20 p-5">

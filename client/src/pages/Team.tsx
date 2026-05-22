@@ -43,7 +43,7 @@ const coreTeam = [
     name: "Adriana",
     role: "Operations & Systems",
     circle: "Core Team",
-    bio: "Keeps the day-to-day flow of Amora running — from logistics to community support systems.",
+    bio: "Keeps the day-to-day flow of Amora running, from logistics to community support systems.",
     photo: "https://amora.cr/wp-content/uploads/2025/12/Adriana-1024x1024.png",
   },
 ];
@@ -74,7 +74,7 @@ export default function Team() {
               The Amora Team
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Women-led and heart-centered — the founding team bringing the Amora vision to life.
+              Women-led and heart-centered, the founding team bringing the Amora vision to life.
             </p>
           </motion.div>
 

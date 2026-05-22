@@ -241,7 +241,7 @@ export default function InvestorJourney() {
   const [activeHighlight, setActiveHighlight] = useState(0);
   const [showPackForm, setShowPackForm] = useState(false);
   const [showCallForm, setShowCallForm] = useState(false);
-  const [packFormData, setPackFormData] = useState({ name: "", email: "", investmentRange: "", message: "" });
+  const [packFormData, setPackFormData] = useState({ name: "", email: "", investmentRange: "", message: "", accredited: false });
   const [callFormData, setCallFormData] = useState({ name: "", email: "", preferredTime: "", message: "" });
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [expandedFaq, setExpandedFaq] = useState<string | null>(null);
@@ -267,23 +267,35 @@ export default function InvestorJourney() {
 
   const handlePackFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!packFormData.accredited) {
+      setFormSuccess("Please confirm you are an accredited investor.");
+      setTimeout(() => setFormSuccess(null), 4000);
+      return;
+    }
     try {
-      const response = await fetch("/api/forms/submit", {
+      const response = await fetch("/api/investor-docs/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          type: "investor-pack",
-          data: packFormData
-        })
+          name: packFormData.name,
+          email: packFormData.email,
+          accredited: packFormData.accredited,
+        }),
       });
       if (response.ok) {
-        setFormSuccess("Thank you! Jess will be in touch within 48 hours.");
+        const result = await response.json().catch(() => ({}));
+        setFormSuccess(result.message || "Check your email — we've sent you the full investor packet.");
         setShowPackForm(false);
-        setPackFormData({ name: "", email: "", investmentRange: "", message: "" });
+        setPackFormData({ name: "", email: "", investmentRange: "", message: "", accredited: false });
+        setTimeout(() => setFormSuccess(null), 6000);
+      } else {
+        setFormSuccess("Something went wrong. Please try again or email invest@amora.cr.");
         setTimeout(() => setFormSuccess(null), 5000);
       }
     } catch (error) {
       console.error("Form submission error:", error);
+      setFormSuccess("Something went wrong. Please try again or email invest@amora.cr.");
+      setTimeout(() => setFormSuccess(null), 5000);
     }
   };
 
@@ -367,7 +379,7 @@ export default function InvestorJourney() {
               className="text-xl text-muted-foreground leading-relaxed mb-8"
             >
               Capital Contributors offer financial resources, credit lines, investments,
-              or other capital resources. We prioritize investors who share the vision —
+              or other capital resources. We prioritize investors who share the vision -
               capital structured to deliver real returns while keeping the village
               in the hands of the people who call it home.
             </motion.p>
@@ -965,6 +977,17 @@ export default function InvestorJourney() {
                     className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep resize-none"
                   />
                 </div>
+                <label className="flex items-start gap-3 text-sm text-foreground bg-muted/40 rounded-lg p-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={packFormData.accredited}
+                    onChange={(e) => setPackFormData({ ...packFormData, accredited: e.target.checked })}
+                    className="mt-0.5 h-4 w-4 rounded border-muted text-teal-deep focus:ring-teal-deep"
+                  />
+                  <span className="leading-snug">
+                    I confirm I am an accredited investor.
+                  </span>
+                </label>
                 <button
                   type="submit"
                   className="w-full bg-teal-deep text-white py-2 rounded-lg font-medium hover:bg-teal-deep-dark transition-colors flex items-center justify-center gap-2"
@@ -1058,6 +1081,4 @@ export default function InvestorJourney() {
           </motion.div>
         )}
       </AnimatePresence>
-    </Layout>
-  );
-}
+  

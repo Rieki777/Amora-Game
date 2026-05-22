@@ -23,19 +23,19 @@ const RIGHTS = [
     icon: Home,
     title: "Your Land Share is Yours",
     description:
-      "Your Land Share Agreement gives you long-term security on your piece of this land — renewable, transferable to your children tax-free, and protected by community ownership structures that ensure the land itself can never be sold away from the community.",
+      "Your Land Share Agreement gives you long-term security on your piece of this land, renewable, transferable to your children tax-free, and protected by community ownership structures that ensure the land itself can never be sold away from the community.",
   },
   {
     icon: Shield,
     title: "Security Through Community Ownership",
     description:
-      "The land belongs to all of us collectively. That means no single person can take it away, sell it off, or change its use without community consent. Your home sits on ground that is held in trust for the whole — including your family, and the families that come after.",
+      "The land belongs to all of us collectively. That means no single person can take it away, sell it off, or change its use without community consent. Your home sits on ground that is held in trust for the whole, including your family, and the families that come after.",
   },
   {
     icon: Users,
     title: "Voice in Community Life",
     description:
-      "Residents hold full voice in the Circles that govern daily community life. As you grow into the community and reach the appropriate milestones, your governance rights deepen — from participating in decisions that affect your daily life to shaping the long-term direction of Amora.",
+      "Residents hold full voice in the Circles that govern daily community life. As you grow into the community and reach the appropriate milestones, your governance rights deepen, from participating in decisions that affect your daily life to shaping the long-term direction of Amora.",
   },
   {
     icon: Leaf,
@@ -53,7 +53,7 @@ const RIGHTS = [
     icon: Coins,
     title: "Dues Offset Through Gratitude",
     description:
-      "Village dues can be covered through Gratitude — contributions you make to the community that are tracked as real value (1 Gratitude = $1 USD). The more you contribute, the more your dues can be offset. The vision is a community where shared business profits make your life here net-positive.",
+      "Village dues can be covered through Gratitude, contributions you make to the community that are tracked as real value (1 Gratitude = $1 USD). The more you contribute, the more your dues can be offset. The vision is a community where shared business profits make your life here net-positive.",
   },
 ];
 
@@ -62,31 +62,31 @@ const RESPONSIBILITIES = [
     icon: Home,
     title: "Care for Your Home and Its Surroundings",
     description:
-      "Your home is your space and the community's landscape. Maintain your home to a standard that honors the land around it — keeping shared pathways clear, managing your immediate space with care, and contributing to the beauty of the village.",
+      "Your home is your space and the community's landscape. Maintain your home to a standard that honors the land around it, keeping shared pathways clear, managing your immediate space with care, and contributing to the beauty of the village.",
   },
   {
     icon: TreePine,
     title: "Act as a Co-Owner",
     description:
-      "You live here. This place is yours as much as it is anyone's. Pick up what needs picking up. Notice what others might miss. Bring a co-owner's eye to every interaction with the land, the buildings, and the community. Not because you have to — because this place is actually yours.",
+      "You live here. This place is yours as much as it is anyone's. Pick up what needs picking up. Notice what others might miss. Bring a co-owner's eye to every interaction with the land, the buildings, and the community. Not because you have to, because this place is actually yours.",
   },
   {
     icon: Wrench,
     title: "Contribute to Maintenance",
     description:
-      "The village runs on the shared effort of its residents. Every resident contributes time to the maintenance of shared spaces, infrastructure, and community assets. This isn't outsourced — it's how we stay alive. Details of your contribution commitment are agreed during your residency onboarding.",
+      "The village runs on the shared effort of its residents. Every resident contributes time to the maintenance of shared spaces, infrastructure, and community assets. This isn't outsourced, it's how we stay alive. Details of your contribution commitment are agreed during your residency onboarding.",
   },
   {
     icon: Coins,
     title: "Village Dues",
     description:
-      "Monthly village dues cover utilities, shared infrastructure maintenance, and community services. The vision is for dues to be fully covered by profits from Amora's shared businesses — the retreat center, cafe, wellness offerings, and other enterprises — creating a net-positive financial life for all residents. Dues can also be offset through Gratitude earned from community contributions. [PLACEHOLDER - Amora team to confirm monthly amount: $NNN/month]",
+      "Monthly village dues cover utilities, shared infrastructure maintenance, and community services. The vision is for dues to be fully covered by profits from Amora's shared businesses, the retreat center, cafe, wellness offerings, and other enterprises, creating a net-positive financial life for all residents. Dues can also be offset through Gratitude earned from community contributions. [PLACEHOLDER - Amora team to confirm monthly amount: $NNN/month]",
   },
   {
     icon: Users,
     title: "Participate in Community Processes",
     description:
-      "Living here means showing up — to Circle meetings that affect your domain, to conflict resolution processes when they arise, to seasonal votes, and to the community governance that keeps everything running. This is not optional — it's what makes self-governance real.",
+      "Living here means showing up, to Circle meetings that affect your domain, to conflict resolution processes when they arise, to seasonal votes, and to the community governance that keeps everything running. This is not optional, it's what makes self-governance real.",
   },
   {
     icon: Heart,
@@ -98,7 +98,7 @@ const RESPONSIBILITIES = [
     icon: Baby,
     title: "Raise the Next Generation Together",
     description:
-      "Children here are raised by the whole village, not just their parents. As a resident, you share responsibility for a child-safe, child-enriching environment — showing up for Children's Play Days, respecting family spaces, and contributing to the culture that children grow up in.",
+      "Children here are raised by the whole village, not just their parents. As a resident, you share responsibility for a child-safe, child-enriching environment, showing up for Children's Play Days, respecting family spaces, and contributing to the culture that children grow up in.",
   },
 ];
 
@@ -125,7 +125,7 @@ const PROGRESSION = [
 
 const FEES_VISION = {
   title: "The Vision for Your Finances Here",
-  description: `Village dues exist to keep the infrastructure running — water, power, roads, shared maintenance. Right now, they're a cost. The longer-term vision is different: as Amora's shared businesses mature — the retreat center, the cafe, the wellness center, the artisan market, the education programs — the revenue they generate flows back into the community.
+  description: `Village dues exist to keep the infrastructure running, water, power, roads, shared maintenance. Right now, they're a cost. The longer-term vision is different: as Amora's shared businesses mature, the retreat center, the cafe, the wellness center, the artisan market, the education programs, the revenue they generate flows back into the community.
 
 The goal is a life here that is economically net-positive. Where your contribution to the village through your Gratitude earnings, your business participation, or your role in community operations covers not just your dues, but gives you back more than you put in.
 
@@ -189,7 +189,7 @@ export default function ResidentRights() {
               You Live Here. This Is Yours.
             </h2>
             <p className="text-muted-foreground leading-relaxed max-w-xl mx-auto">
-              The land at Amora is held collectively — not by a landlord, not by a developer, not
+              The land at Amora is held collectively, not by a landlord, not by a developer, not
               by any single person. Every resident is a steward of the whole 266 acres. Your home
               is your private space. The rest belongs to all of you. Approach every interaction
               with the land and the community from that place: this is mine, and it's also all of
@@ -211,7 +211,7 @@ export default function ResidentRights() {
             </h2>
             <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
               These rights are protected by community governance structures and the Land Share
-              Agreement — not by goodwill alone.
+              Agreement, not by goodwill alone.
             </p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
@@ -255,7 +255,7 @@ export default function ResidentRights() {
               Your Responsibilities as a Resident
             </h2>
             <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
-              This is what it means to live here — not just the beautiful parts, but the full
+              This is what it means to live here, not just the beautiful parts, but the full
               weight of belonging to a place and the people in it.
             </p>
           </div>
