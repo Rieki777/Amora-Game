@@ -41,7 +41,7 @@ const journeySteps = [
     id: "prosperity-packet",
     stage: "Dreamer",
     title: "Explore the Prosperity Packet",
-    description: "Download and review the comprehensive guide to launching a business at Amora.",
+    description: "Download the full guide to launching a business at Amora.",
     icon: Download,
     link: "#prosperity-packet",
     linkText: "Download Packet",
@@ -91,7 +91,7 @@ const journeySteps = [
     link: "#",
     linkText: "Launch Checklist",
     external: false,
-    details: ["Integrate Gratitude tracksing", "Set up community dashboard", "Train your team", "Celebrate your launch"]
+    details: ["Integrate Gratitude tracking", "Set up community dashboard", "Train your team", "Celebrate your launch"]
   },
   {
     id: "impact",
@@ -131,7 +131,7 @@ const ariTiers = [
   {
     tier: "Forest",
     color: "bg-coral/10 text-coral border-coral/20",
-    description: "Thriving, transformative impact",
+    description: "Full impact. Global reach.",
     focus: "Global reach and legacy",
     metrics: ["Regenerative practices replicated", "Knowledge shared globally", "Legacy created"]
   },

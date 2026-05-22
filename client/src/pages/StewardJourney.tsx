@@ -271,8 +271,7 @@ export default function StewardJourney() {
               Your Journey to Co-Creation
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto mb-6">
-              Each step builds on the previous, creating opportunities for mutual assessment 
-              and deepening connection with the community.
+              Each step deepens your connection with the community and helps you find where your gifts fit.
             </p>
             
             {/* Progress Bar */}
@@ -485,8 +484,7 @@ export default function StewardJourney() {
               Long-Term Growth
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              Your journey as a steward continues to deepen over time, leading to elder wisdom 
-              and continued mentorship.
+              Your role deepens with each season.
             </p>
           </motion.div>
 

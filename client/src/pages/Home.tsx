@@ -59,7 +59,7 @@ const journeyCards = [
     id: "prosperity",
     title: "Prosperity Creator",
     subtitle: "Business Builder",
-    description: "Launch or grow your business within our thriving village economy. Align your enterprise with community values and share in collective prosperity.",
+    description: "Launch or grow your business inside the village. Your work aligns with community values, and you share in what you build.",
     icon: Sparkles,
     href: "/prosperity",
     color: "bg-teal-light",
@@ -172,7 +172,7 @@ export default function Home() {
               Our Journey Together
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              Each stage is designed to filter for cultural fit while providing opportunities for mutual assessment.
+              Each stage is a chance to get to know each other. You figure out if Amora fits your life; we figure out if you're a good fit for the village.
             </p>
           </div>
 

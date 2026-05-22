@@ -47,7 +47,7 @@ const journeySteps = [
     id: "request",
     stage: "Interested",
     title: "Request Investor Pack",
-    description: "Receive comprehensive investor materials including feasibility study, proformas, and development timeline.",
+    description: "Receive the full investor pack: feasibility study, proformas, and development timeline.",
     icon: FileText,
     action: "Request Pack",
     formType: "investor-pack",
@@ -284,7 +284,7 @@ export default function InvestorJourney() {
       });
       if (response.ok) {
         const result = await response.json().catch(() => ({}));
-        setFormSuccess(result.message || "Check your email — we've sent you the full investor packet.");
+        setFormSuccess(result.message || "Check your email - we've sent you the full investor packet.");
         setShowPackForm(false);
         setPackFormData({ name: "", email: "", investmentRange: "", message: "", accredited: false });
         setTimeout(() => setFormSuccess(null), 6000);
@@ -424,7 +424,7 @@ export default function InvestorJourney() {
               Key Numbers
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto mb-6">
-              Strong fundamentals backed by land appreciation and comprehensive financial projections.
+              Strong fundamentals: documented land appreciation and a full 15-year financial model.
             </p>
             <p className="text-xs text-muted-foreground italic max-w-2xl mx-auto">
               Past performance and projections are not guarantees of future results.
@@ -528,7 +528,7 @@ export default function InvestorJourney() {
               Who Invests in Amora?
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              People from all walks of life are building their future at Amora. See if your story is here.
+              People with different goals and backgrounds are building at Amora. See if your story is here.
             </p>
           </motion.div>
 
@@ -1082,3 +1082,6 @@ export default function InvestorJourney() {
         )}
       </AnimatePresence>
   
+    </Layout>
+  );
+}

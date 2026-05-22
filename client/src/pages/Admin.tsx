@@ -465,4 +465,573 @@ function EmailSettingsTab({ password }: { password: string }) {
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading...</div>
       ) : (
-        <div className="space-y-5 max-w-xl
+        <div className="space-y-5 max-w-xl">
+          <Field
+            label="Business Inquiries (Prosperity / Contact)"
+            value={cfg.prosperity}
+            onChange={(v) => setCfg({ ...cfg, prosperity: v })}
+            hint="Receives business and contact form submissions."
+          />
+          <Field
+            label="Investor"
+            value={cfg.investor}
+            onChange={(v) => setCfg({ ...cfg, investor: v })}
+            hint="Receives investor enquiries and document requests."
+          />
+          <Field
+            label="Core Team (Steward)"
+            value={cfg.steward}
+            onChange={(v) => setCfg({ ...cfg, steward: v })}
+            hint="Receives Village Steward applications."
+          />
+          <Field
+            label="Resident"
+            value={cfg.resident}
+            onChange={(v) => setCfg({ ...cfg, resident: v })}
+            hint="Receives Resident applications and waitlist signups."
+          />
+
+          <div className="border-t border-gray-100 pt-5">
+            <label className="text-sm font-medium text-gray-700 block mb-1">Resend API Key</label>
+            <div className="relative">
+              <input
+                type={showKey ? "text" : "password"}
+                value={cfg.resend_api_key}
+                onChange={(e) => setCfg({ ...cfg, resend_api_key: e.target.value })}
+                className="w-full px-3 py-2 pr-12 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 font-mono"
+                placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxx"
+              />
+              <button
+                type="button"
+                onClick={() => setShowKey(!showKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              Get a key at resend.com → API Keys. Once saved, emails will route automatically.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Investor Vault Tab ────────────────────────────────────────────────────────
+
+interface InvestorDoc {
+  id: string;
+  name: string;
+  filename: string;
+  pageLink: string | null;
+  uploadedAt: string;
+}
+
+function InvestorVaultTab({ password }: { password: string }) {
+  const [docs, setDocs] = useState<InvestorDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [name, setName] = useState("");
+  const [pageLink, setPageLink] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/investor-docs?password=${password}`);
+      const data = await res.json();
+      setDocs(Array.isArray(data) ? data : []);
+    } catch {
+      setDocs([]);
+    }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const upload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file) {
+      toast.error("Pick a file first");
+      return;
+    }
+    setUploading(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    if (name) fd.append("name", name);
+    if (pageLink) fd.append("pageLink", pageLink);
+    try {
+      const res = await fetch(`${API_BASE}/admin/investor-docs/upload?password=${password}`, {
+        method: "POST",
+        body: fd,
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      toast.success("Document uploaded");
+      setName(""); setPageLink(""); setFile(null);
+      const fileInput = document.getElementById("vault-file") as HTMLInputElement | null;
+      if (fileInput) fileInput.value = "";
+      load();
+    } catch {
+      toast.error("Upload failed");
+    }
+    setUploading(false);
+  };
+
+  const remove = async (id: string) => {
+    if (!confirm("Delete this document permanently?")) return;
+    try {
+      await fetch(`${API_BASE}/admin/investor-docs/${id}?password=${password}`, { method: "DELETE" });
+      toast.success("Deleted");
+      load();
+    } catch {
+      toast.error("Delete failed");
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Investor Vault</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Documents shared with investors after they request the packet.
+          </p>
+        </div>
+      </div>
+
+      <form onSubmit={upload} className="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-6 space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1">File</label>
+            <input
+              id="vault-file"
+              type="file"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="w-full text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1">Display Name (optional)</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Investor Memo"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-500 block mb-1">Site Page Link (optional)</label>
+          <input
+            type="text"
+            value={pageLink}
+            onChange={(e) => setPageLink(e.target.value)}
+            placeholder="/master-plan"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={uploading || !file}
+          className="flex items-center gap-2 px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-50 transition-colors"
+        >
+          <Upload className="w-4 h-4" /> {uploading ? "Uploading..." : "Upload"}
+        </button>
+      </form>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400">Loading...</div>
+      ) : docs.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+          <p>No documents in the vault yet.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {docs.map((d) => (
+            <div key={d.id} className="flex items-center justify-between border border-gray-200 rounded-xl px-5 py-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-3">
+                  <a
+                    href={`${API_BASE}/uploads/${d.filename}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-gray-900 hover:text-[#2D5A5A]"
+                  >
+                    {d.name}
+                  </a>
+                  {d.pageLink && (
+                    <a
+                      href={d.pageLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs bg-[#2D5A5A]/10 text-[#2D5A5A] px-2 py-0.5 rounded-full"
+                    >
+                      {d.pageLink} <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+                <div className="text-xs text-gray-400 mt-0.5 truncate">
+                  {d.filename} · {new Date(d.uploadedAt).toLocaleDateString()}
+                </div>
+              </div>
+              <button
+                onClick={() => remove(d.id)}
+                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Training Modules Tab ──────────────────────────────────────────────────────
+
+interface TrainingModule {
+  id: string;
+  title: string;
+  description: string;
+  type: string;
+  url: string;
+  order: number;
+}
+
+const TRAINING_TYPES = ["Video", "Article", "Practice", "Workshop", "Live Session"];
+
+function TrainingModulesTab({ password }: { password: string }) {
+  const [mods, setMods] = useState<TrainingModule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | "new" | null>(null);
+  const [draft, setDraft] = useState<Partial<TrainingModule>>({});
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/training-modules?password=${password}`);
+      const data = await res.json();
+      setMods(Array.isArray(data) ? data : []);
+    } catch {
+      setMods([]);
+    }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const startEdit = (m: TrainingModule) => {
+    setEditingId(m.id);
+    setDraft({ ...m });
+  };
+
+  const startNew = () => {
+    setEditingId("new");
+    setDraft({ title: "", description: "", type: "Video", url: "", order: mods.length + 1 });
+  };
+
+  const cancelEdit = () => { setEditingId(null); setDraft({}); };
+
+  const save = async () => {
+    if (!draft.title || !draft.type) {
+      toast.error("Title and type are required");
+      return;
+    }
+    try {
+      if (editingId === "new") {
+        const res = await fetch(`${API_BASE}/admin/training-modules?password=${password}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(draft),
+        });
+        if (!res.ok) throw new Error();
+      } else if (editingId) {
+        const res = await fetch(`${API_BASE}/admin/training-modules/${editingId}?password=${password}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(draft),
+        });
+        if (!res.ok) throw new Error();
+      }
+      toast.success("Saved");
+      cancelEdit();
+      load();
+    } catch {
+      toast.error("Save failed");
+    }
+  };
+
+  const remove = async (id: string) => {
+    if (!confirm("Delete this module?")) return;
+    try {
+      await fetch(`${API_BASE}/admin/training-modules/${id}?password=${password}`, { method: "DELETE" });
+      toast.success("Deleted");
+      load();
+    } catch {
+      toast.error("Delete failed");
+    }
+  };
+
+  const renderForm = () => (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-medium text-gray-500 block mb-1">Title</label>
+          <input
+            type="text"
+            value={draft.title ?? ""}
+            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-500 block mb-1">Type</label>
+          <select
+            value={draft.type ?? "Video"}
+            onChange={(e) => setDraft({ ...draft, type: e.target.value })}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+          >
+            {TRAINING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-medium text-gray-500 block mb-1">Description</label>
+        <textarea
+          value={draft.description ?? ""}
+          rows={2}
+          onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-none"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-medium text-gray-500 block mb-1">URL</label>
+          <input
+            type="text"
+            value={draft.url ?? ""}
+            onChange={(e) => setDraft({ ...draft, url: e.target.value })}
+            placeholder="https://..."
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-500 block mb-1">Order</label>
+          <input
+            type="number"
+            value={draft.order ?? 0}
+            onChange={(e) => setDraft({ ...draft, order: parseInt(e.target.value) || 0 })}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+          />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={save}
+          className="flex items-center gap-2 px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 transition-colors"
+        >
+          <Save className="w-4 h-4" /> Save
+        </button>
+        <button
+          onClick={cancelEdit}
+          className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Training Modules</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Manage what shows on the /training page.
+          </p>
+        </div>
+        {editingId === null && (
+          <button
+            onClick={startNew}
+            className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 transition-colors"
+          >
+            Add Module
+          </button>
+        )}
+      </div>
+
+      {editingId === "new" && <div className="mb-6">{renderForm()}</div>}
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400">Loading...</div>
+      ) : (
+        <div className="space-y-2">
+          {mods.map((m) => editingId === m.id ? (
+            <div key={m.id}>{renderForm()}</div>
+          ) : (
+            <div key={m.id} className="flex items-center justify-between border border-gray-200 rounded-xl px-5 py-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-bold text-gray-400 w-6">#{m.order}</span>
+                  <span className="font-medium text-gray-900 truncate">{m.title}</span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-[#2D5A5A]/10 text-[#2D5A5A]">
+                    {m.type}
+                  </span>
+                </div>
+                {m.url && <div className="text-xs text-gray-400 mt-0.5 truncate">{m.url}</div>}
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => startEdit(m)}
+                  className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => remove(m.id)}
+                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Admin Page ───────────────────────────────────────────────────────────
+
+export default function Admin() {
+  const [password, setPassword] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("submissions");
+
+  if (!password) {
+    return <PasswordGate onAuth={setPassword} />;
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-[#2D5A5A] text-white px-6 py-4 flex items-center justify-between shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
+            <Lock className="w-4 h-4" />
+          </div>
+          <div>
+            <h1 className="font-semibold text-lg leading-tight">Amora Admin</h1>
+            <p className="text-xs text-white/60">game.amora.cr</p>
+          </div>
+        </div>
+        <button
+          onClick={() => setPassword(null)}
+          className="flex items-center gap-2 text-sm text-white/70 hover:text-white transition-colors"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign Out
+        </button>
+      </header>
+
+      <div className="flex">
+        <nav className="w-56 min-h-[calc(100vh-60px)] bg-white border-r border-gray-200 py-6 flex-shrink-0">
+          <div className="px-4 mb-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Submissions</p>
+          </div>
+          <button
+            onClick={() => setActiveTab("submissions")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "submissions"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <Inbox className="w-4 h-4" />
+            All Forms
+          </button>
+
+          <div className="px-4 mt-6 mb-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Content</p>
+          </div>
+          {CONTENT_SECTIONS.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+                activeTab === key
+                  ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {label}
+            </button>
+          ))}
+
+          <div className="px-4 mt-6 mb-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Notifications</p>
+          </div>
+          <button
+            onClick={() => setActiveTab("email-settings")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "email-settings"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <Mail className="w-4 h-4" />
+            Email Settings
+          </button>
+
+          <div className="px-4 mt-6 mb-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Documents</p>
+          </div>
+          <button
+            onClick={() => setActiveTab("investor-vault")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "investor-vault"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            Investor Vault
+          </button>
+
+          <div className="px-4 mt-6 mb-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Training</p>
+          </div>
+          <button
+            onClick={() => setActiveTab("training-modules")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "training-modules"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <GraduationCap className="w-4 h-4" />
+            Modules
+          </button>
+        </nav>
+
+        <main className="flex-1 p-8 max-w-4xl">
+          {activeTab === "submissions" && <SubmissionsTab password={password} />}
+          {CONTENT_SECTIONS.map(({ key, label }) =>
+            activeTab === key ? (
+              <ContentEditorTab key={key} password={password} sectionKey={key} sectionLabel={label} />
+            ) : null
+          )}
+          {activeTab === "email-settings" && <EmailSettingsTab password={password} />}
+          {activeTab === "investor-vault" && <InvestorVaultTab password={password} />}
+          {activeTab === "training-modules" && <TrainingModulesTab password={password} />}
+        </main>
+      </div>
+    </div>
+  );
+}

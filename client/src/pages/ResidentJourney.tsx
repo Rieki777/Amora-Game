@@ -86,7 +86,7 @@ const journeySteps = [
     id: "background",
     stage: "Applicant",
     title: "Background Check",
-    description: "Complete a background check as part of our community safety commitment. Tax deductible.",
+    description: "Complete a background check. It's part of our commitment to community safety, and it's tax deductible.",
     icon: FileCheck,
     link: "#",
     linkText: "Coming Soon",
@@ -309,8 +309,7 @@ export default function ResidentJourney() {
               Your Path to Residency
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto mb-6">
-              Each step is designed for mutual assessment-ensuring you're the right fit 
-              for Amora and Amora is the right fit for you.
+              Each step helps both sides decide. You figure out if Amora is right for you; we figure out the same.
             </p>
             
             {/* Progress Bar */}
