@@ -38,6 +38,8 @@ import JourneyToLaunch from "./pages/JourneyToLaunch";
 import StewardRights from "./pages/StewardRights";
 import ResidentRights from "./pages/ResidentRights";
 import Training from "./pages/Training";
+import Governance from "./pages/Governance";
+import Visit from "./pages/Visit";
 
 function Router() {
   const [location] = useLocation();
@@ -70,6 +72,8 @@ function Router() {
       <Route path="/steward-rights" component={StewardRights} />
       <Route path="/resident-rights" component={ResidentRights} />
       <Route path="/training" component={Training} />
+      <Route path="/governance" component={Governance} />
+      <Route path="/visit" component={Visit} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

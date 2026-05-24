@@ -363,14 +363,12 @@ export default function LoveLetter() {
               {/* Acknowledgements */}
               <div className="space-y-4 pt-2">
                 <label className="flex items-start gap-3 cursor-pointer">
-                  <div
-                    onClick={() => setForm(p => ({ ...p, goodNeighbor: !p.goodNeighbor }))}
-                    className={`w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-colors cursor-pointer ${
-                      form.goodNeighbor ? "bg-primary border-primary" : "border-border"
-                    }`}
-                  >
-                    {form.goodNeighbor && <CheckCircle2 className="w-3.5 h-3.5 text-primary-foreground" />}
-                  </div>
+                  <input
+                    type="checkbox"
+                    checked={form.goodNeighbor}
+                    onChange={e => setForm(p => ({ ...p, goodNeighbor: e.target.checked }))}
+                    className="mt-1 h-4 w-4 flex-shrink-0 accent-teal-deep"
+                  />
                   <span className="text-sm text-muted-foreground">
                     I have read and agree to the{" "}
                     <a href="/good-neighbor" className="text-primary underline" target="_blank">
@@ -381,14 +379,12 @@ export default function LoveLetter() {
                 </label>
 
                 <label className="flex items-start gap-3 cursor-pointer">
-                  <div
-                    onClick={() => setForm(p => ({ ...p, commitmentAck: !p.commitmentAck }))}
-                    className={`w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-colors cursor-pointer ${
-                      form.commitmentAck ? "bg-primary border-primary" : "border-border"
-                    }`}
-                  >
-                    {form.commitmentAck && <CheckCircle2 className="w-3.5 h-3.5 text-primary-foreground" />}
-                  </div>
+                  <input
+                    type="checkbox"
+                    checked={form.commitmentAck}
+                    onChange={e => setForm(p => ({ ...p, commitmentAck: e.target.checked }))}
+                    className="mt-1 h-4 w-4 flex-shrink-0 accent-teal-deep"
+                  />
                   <span className="text-sm text-muted-foreground">
                     I have read the Love Letter above and commit to the values and agreements of the Amora community as a member of Amora 508(c)(1)(a). <span className="text-destructive">*</span>
                   </span>

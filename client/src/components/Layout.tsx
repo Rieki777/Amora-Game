@@ -267,6 +267,11 @@ export default function Layout({ children }: LayoutProps) {
                     Sign the Love Letter
                   </Link>
                 </li>
+                <li>
+                  <Link href="/visit" className="text-white/70 hover:text-amber transition-colors text-sm">
+                    Plan a Visit
+                  </Link>
+                </li>
               </ul>
             </div>
 
@@ -274,6 +279,11 @@ export default function Layout({ children }: LayoutProps) {
             <div>
               <h4 className="font-display text-lg font-semibold mb-4">Governance</h4>
               <ul className="space-y-2">
+                <li>
+                  <Link href="/governance" className="text-white/70 hover:text-amber transition-colors text-sm">
+                    Governance
+                  </Link>
+                </li>
                 <li>
                   <Link href="/circles" className="text-white/70 hover:text-amber transition-colors text-sm">
                     Circles

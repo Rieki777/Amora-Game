@@ -1,4 +1,7 @@
 import Layout from "@/components/Layout";
+import WhyCostaRica from "@/components/WhyCostaRica";
+import FaqSection from "@/components/FaqSection";
+import InvestorSummary from "@/components/InvestorSummary";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -465,6 +468,8 @@ export default function InvestorJourney() {
         </div>
       </section>
 
+      <InvestorSummary />
+
       {/* Investment Highlights - Animated Carousel */}
       <section className="py-16 bg-cream">
         <div className="container">
@@ -557,6 +562,8 @@ export default function InvestorJourney() {
           </div>
         </div>
       </section>
+
+      <WhyCostaRica />
 
       {/* Interactive Journey Steps */}
       <section className="py-20 bg-background">
@@ -853,6 +860,8 @@ export default function InvestorJourney() {
           </div>
         </div>
       </section>
+
+      <FaqSection pathway="investor" />
 
       {/* CTA */}
       <section className="py-20 bg-gradient-to-br from-gold/10 to-coral/10">

@@ -1,4 +1,6 @@
 import Layout from "@/components/Layout";
+import WhyCostaRica from "@/components/WhyCostaRica";
+import FaqSection from "@/components/FaqSection";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -455,6 +457,8 @@ export default function ResidentJourney() {
         </div>
       </section>
 
+      <WhyCostaRica />
+
       {/* Resident Progression */}
       <section className="py-20 bg-teal-deep text-white">
         <div className="container">
@@ -596,6 +600,8 @@ export default function ResidentJourney() {
           </motion.div>
         </div>
       </section>
+
+      <FaqSection pathway="resident" />
 
       {/* CTA */}
       <section className="py-20 bg-background">

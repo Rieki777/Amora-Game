@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import FaqSection from "@/components/FaqSection";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -599,6 +600,8 @@ export default function StewardJourney() {
           </motion.div>
         </div>
       </section>
+
+      <FaqSection pathway="steward" />
     </Layout>
   );
 }

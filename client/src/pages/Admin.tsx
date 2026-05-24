@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink } from "lucide-react";
+import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 const API_BASE = "/api";
@@ -913,6 +913,633 @@ function TrainingModulesTab({ password }: { password: string }) {
   );
 }
 
+// ── FAQ Admin Tab (NEW-1) ─────────────────────────────────────────────────────
+
+interface FaqItem { id: string; question: string; answer: string }
+const FAQ_PATHWAYS: { id: "investor" | "steward" | "resident" | "prosperity"; label: string }[] = [
+  { id: "investor", label: "Investor" },
+  { id: "steward", label: "Steward" },
+  { id: "resident", label: "Resident" },
+  { id: "prosperity", label: "Prosperity" },
+];
+
+function FaqAdminTab({ password }: { password: string }) {
+  const [pathway, setPathway] = useState<"investor" | "steward" | "resident" | "prosperity">("investor");
+  const [items, setItems] = useState<FaqItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newQ, setNewQ] = useState("");
+  const [newA, setNewA] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{ question: string; answer: string }>({ question: "", answer: "" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/faqs/${pathway}`);
+      const data = await res.json();
+      setItems(Array.isArray(data) ? data : []);
+    } catch { setItems([]); }
+    setLoading(false);
+  }, [pathway]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const persist = async (next: FaqItem[]) => {
+    setItems(next);
+    try {
+      await fetch(`${API_BASE}/admin/faqs/${pathway}`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(next),
+      });
+    } catch { toast.error("Save failed"); }
+  };
+
+  const add = async () => {
+    if (!newQ.trim()) { toast.error("Question required"); return; }
+    try {
+      const res = await fetch(`${API_BASE}/admin/faqs/${pathway}`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ question: newQ.trim(), answer: newA.trim() }),
+      });
+      if (!res.ok) throw new Error();
+      setNewQ(""); setNewA("");
+      toast.success("Added");
+      load();
+    } catch { toast.error("Add failed"); }
+  };
+
+  const remove = async (id: string) => {
+    if (!confirm("Delete this question?")) return;
+    try {
+      await fetch(`${API_BASE}/admin/faqs/${pathway}/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      toast.success("Deleted");
+      load();
+    } catch { toast.error("Delete failed"); }
+  };
+
+  const move = (idx: number, dir: -1 | 1) => {
+    const next = [...items];
+    const target = idx + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target], next[idx]];
+    persist(next);
+  };
+
+  const saveEdit = () => {
+    if (!editingId) return;
+    const next = items.map((it) => it.id === editingId ? { ...it, question: editDraft.question, answer: editDraft.answer } : it);
+    persist(next);
+    setEditingId(null);
+  };
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-1">FAQs</h2>
+        <p className="text-sm text-gray-500">Manage the Common Questions section shown on each journey page.</p>
+      </div>
+
+      <div className="flex items-center gap-2 mb-6 border-b border-gray-200">
+        {FAQ_PATHWAYS.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setPathway(p.id)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              pathway === p.id
+                ? "border-[#2D5A5A] text-[#2D5A5A]"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-6 space-y-3">
+        <input
+          type="text"
+          value={newQ}
+          onChange={(e) => setNewQ(e.target.value)}
+          placeholder="Question"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+        />
+        <textarea
+          value={newA}
+          onChange={(e) => setNewA(e.target.value)}
+          placeholder="Answer"
+          rows={3}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-y"
+        />
+        <button
+          onClick={add}
+          className="flex items-center gap-2 px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 transition-colors"
+        >
+          <Plus className="w-4 h-4" /> Add Question
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400">Loading...</div>
+      ) : items.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">No questions yet.</div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((item, idx) => (
+            <div key={item.id} className="border border-gray-200 rounded-xl px-5 py-4">
+              {editingId === item.id ? (
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    value={editDraft.question}
+                    onChange={(e) => setEditDraft({ ...editDraft, question: e.target.value })}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+                  />
+                  <textarea
+                    value={editDraft.answer}
+                    onChange={(e) => setEditDraft({ ...editDraft, answer: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-y"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={saveEdit} className="px-3 py-1.5 text-sm bg-[#2D5A5A] text-white rounded-lg">Save</button>
+                    <button onClick={() => setEditingId(null)} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <div className="flex flex-col gap-0.5 mt-1">
+                    <button onClick={() => move(idx, -1)} className="text-gray-300 hover:text-gray-600 disabled:opacity-30" disabled={idx === 0}>
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => move(idx, 1)} className="text-gray-300 hover:text-gray-600 disabled:opacity-30" disabled={idx === items.length - 1}>
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-gray-900 mb-1">{item.question}</div>
+                    <div className="text-sm text-gray-600 leading-relaxed">{item.answer}</div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => { setEditingId(item.id); setEditDraft({ question: item.question, answer: item.answer }); }}
+                      className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg"
+                    >
+                      Edit
+                    </button>
+                    <button onClick={() => remove(item.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Milestones Admin Tab (NEW-3) ──────────────────────────────────────────────
+
+interface Milestone {
+  id: string;
+  phase: string;
+  title: string;
+  description: string;
+  status: "complete" | "in-progress" | "upcoming" | "future";
+  completedDate: string | null;
+  updateNote: string;
+  order: number;
+}
+
+function MilestonesAdminTab({ password }: { password: string }) {
+  const [items, setItems] = useState<Milestone[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState<Partial<Milestone>>({ phase: "Phase 1", title: "", description: "", status: "upcoming" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/milestones`, { headers: authHeaders(password) });
+      const data = await res.json();
+      setItems(Array.isArray(data) ? data : []);
+    } catch { setItems([]); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const update = async (id: string, patch: Partial<Milestone>) => {
+    setItems((prev) => prev.map((m) => m.id === id ? { ...m, ...patch } : m));
+    try {
+      await fetch(`${API_BASE}/admin/milestones/${id}`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(patch),
+      });
+    } catch { toast.error("Save failed"); load(); }
+  };
+
+  const remove = async (id: string) => {
+    if (!confirm("Delete this milestone?")) return;
+    try {
+      await fetch(`${API_BASE}/admin/milestones/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      toast.success("Deleted");
+      load();
+    } catch { toast.error("Delete failed"); }
+  };
+
+  const add = async () => {
+    if (!draft.title || !draft.phase) { toast.error("Title and phase required"); return; }
+    try {
+      const res = await fetch(`${API_BASE}/admin/milestones`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(draft),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Added");
+      setAdding(false);
+      setDraft({ phase: "Phase 1", title: "", description: "", status: "upcoming" });
+      load();
+    } catch { toast.error("Add failed"); }
+  };
+
+  // Group by phase
+  const grouped = items.reduce<Record<string, Milestone[]>>((acc, m) => {
+    (acc[m.phase] ??= []).push(m);
+    return acc;
+  }, {});
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Milestones</h2>
+          <p className="text-sm text-gray-500 mt-1">Edit the Build Progress tracker shown on the homepage.</p>
+        </div>
+        {!adding && (
+          <button onClick={() => setAdding(true)} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90">
+            Add Milestone
+          </button>
+        )}
+      </div>
+
+      {adding && (
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-6 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="text"
+              value={draft.phase ?? ""}
+              onChange={(e) => setDraft({ ...draft, phase: e.target.value })}
+              placeholder="Phase (e.g. Phase 1)"
+              className="px-3 py-2 text-sm border border-gray-200 rounded-lg"
+            />
+            <input
+              type="text"
+              value={draft.title ?? ""}
+              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+              placeholder="Title"
+              className="px-3 py-2 text-sm border border-gray-200 rounded-lg"
+            />
+          </div>
+          <textarea
+            value={draft.description ?? ""}
+            onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+            placeholder="Description"
+            rows={2}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y"
+          />
+          <select
+            value={draft.status ?? "upcoming"}
+            onChange={(e) => setDraft({ ...draft, status: e.target.value as Milestone["status"] })}
+            className="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
+          >
+            <option value="complete">Complete</option>
+            <option value="in-progress">In Progress</option>
+            <option value="upcoming">Planned</option>
+            <option value="future">Future</option>
+          </select>
+          <div className="flex gap-2">
+            <button onClick={add} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm">Add</button>
+            <button onClick={() => setAdding(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400">Loading...</div>
+      ) : (
+        <div className="space-y-6">
+          {Object.entries(grouped).map(([phase, mils]) => (
+            <div key={phase}>
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">{phase}</h3>
+              <div className="space-y-2">
+                {mils.map((m) => (
+                  <div key={m.id} className="border border-gray-200 rounded-xl p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <input
+                          type="text"
+                          value={m.title}
+                          onChange={(e) => setItems((prev) => prev.map((x) => x.id === m.id ? { ...x, title: e.target.value } : x))}
+                          onBlur={(e) => update(m.id, { title: e.target.value })}
+                          className="w-full font-semibold text-gray-900 px-2 py-1 border border-transparent hover:border-gray-200 rounded focus:border-[#2D5A5A]/40 focus:outline-none"
+                        />
+                        <textarea
+                          value={m.description}
+                          onChange={(e) => setItems((prev) => prev.map((x) => x.id === m.id ? { ...x, description: e.target.value } : x))}
+                          onBlur={(e) => update(m.id, { description: e.target.value })}
+                          rows={2}
+                          className="w-full text-sm text-gray-600 px-2 py-1 border border-transparent hover:border-gray-200 rounded focus:border-[#2D5A5A]/40 focus:outline-none resize-y mt-1"
+                        />
+                      </div>
+                      <button onClick={() => remove(m.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg shrink-0">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <select
+                        value={m.status}
+                        onChange={(e) => update(m.id, { status: e.target.value as Milestone["status"] })}
+                        className="px-2 py-1 text-xs border border-gray-200 rounded bg-white"
+                      >
+                        <option value="complete">Complete</option>
+                        <option value="in-progress">In Progress</option>
+                        <option value="upcoming">Planned</option>
+                        <option value="future">Future</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={m.completedDate ?? ""}
+                        onChange={(e) => setItems((prev) => prev.map((x) => x.id === m.id ? { ...x, completedDate: e.target.value || null } : x))}
+                        onBlur={(e) => update(m.id, { completedDate: e.target.value || null })}
+                        placeholder="YYYY-MM (if complete)"
+                        className="px-2 py-1 text-xs border border-gray-200 rounded"
+                      />
+                      <input
+                        type="text"
+                        value={m.phase}
+                        onChange={(e) => setItems((prev) => prev.map((x) => x.id === m.id ? { ...x, phase: e.target.value } : x))}
+                        onBlur={(e) => update(m.id, { phase: e.target.value })}
+                        placeholder="Phase"
+                        className="px-2 py-1 text-xs border border-gray-200 rounded"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={m.updateNote}
+                      onChange={(e) => setItems((prev) => prev.map((x) => x.id === m.id ? { ...x, updateNote: e.target.value } : x))}
+                      onBlur={(e) => update(m.id, { updateNote: e.target.value })}
+                      placeholder="Status note (optional, shown on homepage)"
+                      className="w-full px-2 py-1 text-xs border border-gray-200 rounded"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Visit Program Admin Tab (NEW-5) ───────────────────────────────────────────
+
+interface VisitType {
+  id: string;
+  title: string;
+  duration: string;
+  format: string;
+  cost: string;
+  description: string;
+  cta_label: string;
+  cta_url: string;
+  order: number;
+}
+
+interface VisitConfig {
+  hero_subtitle: string;
+  visit_types: VisitType[];
+  logistics: { getting_there: string; accommodation: string; what_to_bring: string; contact_note: string };
+}
+
+function VisitAdminTab({ password }: { password: string }) {
+  const [cfg, setCfg] = useState<VisitConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/visit-config`, { headers: authHeaders(password) });
+      setCfg(await res.json());
+    } catch { toast.error("Failed to load"); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    if (!cfg) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/visit-config`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(cfg),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Saved");
+    } catch { toast.error("Save failed"); }
+    setSaving(false);
+  };
+
+  const updateVisitType = (idx: number, patch: Partial<VisitType>) => {
+    if (!cfg) return;
+    const next = { ...cfg, visit_types: cfg.visit_types.map((v, i) => i === idx ? { ...v, ...patch } : v) };
+    setCfg(next);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Visit Program</h2>
+          <p className="text-sm text-gray-500 mt-1">Controls the /visit page.</p>
+        </div>
+        <button onClick={save} disabled={saving || loading} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-50">
+          {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+      {loading || !cfg ? (
+        <div className="text-center py-12 text-gray-400">Loading...</div>
+      ) : (
+        <div className="space-y-6">
+          <div>
+            <label className="text-sm font-medium text-gray-700 block mb-1">Hero Subtitle</label>
+            <textarea
+              value={cfg.hero_subtitle}
+              onChange={(e) => setCfg({ ...cfg, hero_subtitle: e.target.value })}
+              rows={2}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y"
+            />
+          </div>
+
+          <div>
+            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-3">Visit Types</h3>
+            <div className="space-y-3">
+              {cfg.visit_types.map((v, idx) => (
+                <div key={v.id} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="text" value={v.title} onChange={(e) => updateVisitType(idx, { title: e.target.value })} placeholder="Title" className="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                    <input type="text" value={v.duration} onChange={(e) => updateVisitType(idx, { duration: e.target.value })} placeholder="Duration" className="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                    <input type="text" value={v.format} onChange={(e) => updateVisitType(idx, { format: e.target.value })} placeholder="Format" className="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                    <input type="text" value={v.cost} onChange={(e) => updateVisitType(idx, { cost: e.target.value })} placeholder="Cost" className="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                  </div>
+                  <textarea value={v.description} onChange={(e) => updateVisitType(idx, { description: e.target.value })} placeholder="Description" rows={2} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="text" value={v.cta_label} onChange={(e) => updateVisitType(idx, { cta_label: e.target.value })} placeholder="CTA Label" className="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                    <input type="text" value={v.cta_url} onChange={(e) => updateVisitType(idx, { cta_url: e.target.value })} placeholder="CTA URL (blank = contact form)" className="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-3">Logistics</h3>
+            <div className="space-y-3">
+              {(["getting_there", "accommodation", "what_to_bring", "contact_note"] as const).map((k) => (
+                <div key={k}>
+                  <label className="text-xs font-medium text-gray-500 block mb-1">{k.replace(/_/g, " ")}</label>
+                  <textarea
+                    value={cfg.logistics[k]}
+                    onChange={(e) => setCfg({ ...cfg, logistics: { ...cfg.logistics, [k]: e.target.value } })}
+                    rows={2}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Investor Summary Admin Tab (NEW-6) ────────────────────────────────────────
+
+interface SummaryDetail { id: string; label: string; value: string; note: string; icon: string }
+interface SummaryConfig {
+  headline: string;
+  intro: string;
+  details: SummaryDetail[];
+  disclaimer: string;
+  cta_label: string;
+  cta_url: string;
+}
+
+function InvestorSummaryAdminTab({ password }: { password: string }) {
+  const [cfg, setCfg] = useState<SummaryConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/investor-summary`, { headers: authHeaders(password) });
+      setCfg(await res.json());
+    } catch { toast.error("Failed to load"); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    if (!cfg) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/investor-summary`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(cfg),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Saved");
+    } catch { toast.error("Save failed"); }
+    setSaving(false);
+  };
+
+  const updateDetail = (idx: number, patch: Partial<SummaryDetail>) => {
+    if (!cfg) return;
+    setCfg({ ...cfg, details: cfg.details.map((d, i) => i === idx ? { ...d, ...patch } : d) });
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Investor Financial Summary</h2>
+          <p className="text-sm text-gray-500 mt-1">Plain-language summary shown on /investor.</p>
+        </div>
+        <button onClick={save} disabled={saving || loading} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-50">
+          {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+      {loading || !cfg ? (
+        <div className="text-center py-12 text-gray-400">Loading...</div>
+      ) : (
+        <div className="space-y-5">
+          <div>
+            <label className="text-sm font-medium text-gray-700 block mb-1">Headline</label>
+            <input type="text" value={cfg.headline} onChange={(e) => setCfg({ ...cfg, headline: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700 block mb-1">Intro</label>
+            <textarea value={cfg.intro} onChange={(e) => setCfg({ ...cfg, intro: e.target.value })} rows={2} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y" />
+          </div>
+
+          <div>
+            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-3">Details</h3>
+            <div className="space-y-3">
+              {cfg.details.map((d, idx) => (
+                <div key={d.id} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2">
+                  <div className="text-xs uppercase tracking-widest text-gray-400">{d.id}</div>
+                  <input type="text" value={d.label} onChange={(e) => updateDetail(idx, { label: e.target.value })} placeholder="Label" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                  <input type="text" value={d.value} onChange={(e) => updateDetail(idx, { value: e.target.value })} placeholder="Value (large text)" className="w-full px-3 py-2 text-sm font-semibold border border-gray-200 rounded-lg" />
+                  <textarea value={d.note} onChange={(e) => updateDetail(idx, { note: e.target.value })} placeholder="Explanation note" rows={2} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 block mb-1">Disclaimer</label>
+            <textarea value={cfg.disclaimer} onChange={(e) => setCfg({ ...cfg, disclaimer: e.target.value })} rows={3} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">CTA Label</label>
+              <input type="text" value={cfg.cta_label} onChange={(e) => setCfg({ ...cfg, cta_label: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">CTA URL</label>
+              <input type="text" value={cfg.cta_url} onChange={(e) => setCfg({ ...cfg, cta_url: e.target.value })} placeholder="leave blank to hide" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────────────────
 
 export default function Admin() {
@@ -1023,6 +1650,54 @@ export default function Admin() {
             <GraduationCap className="w-4 h-4" />
             Modules
           </button>
+
+          <div className="px-4 mt-6 mb-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Site Content</p>
+          </div>
+          <button
+            onClick={() => setActiveTab("faqs")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "faqs"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <HelpCircle className="w-4 h-4" />
+            FAQs
+          </button>
+          <button
+            onClick={() => setActiveTab("milestones")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "milestones"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            Build Progress
+          </button>
+          <button
+            onClick={() => setActiveTab("visit-config")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "visit-config"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            Visit Program
+          </button>
+          <button
+            onClick={() => setActiveTab("investor-summary")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "investor-summary"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            Investor Summary
+          </button>
         </nav>
 
         <main className="flex-1 p-8 max-w-4xl">
@@ -1035,6 +1710,10 @@ export default function Admin() {
           {activeTab === "email-settings" && <EmailSettingsTab password={password} />}
           {activeTab === "investor-vault" && <InvestorVaultTab password={password} />}
           {activeTab === "training-modules" && <TrainingModulesTab password={password} />}
+          {activeTab === "faqs" && <FaqAdminTab password={password} />}
+          {activeTab === "milestones" && <MilestonesAdminTab password={password} />}
+          {activeTab === "visit-config" && <VisitAdminTab password={password} />}
+          {activeTab === "investor-summary" && <InvestorSummaryAdminTab password={password} />}
         </main>
       </div>
     </div>

@@ -10,25 +10,25 @@ const PATHS = [
     id: "investor",
     label: "Investor",
     description: "Support Amora's vision through financial investment",
-    color: "bg-blue-50 border-blue-200",
+    color: "bg-amber/10 border-amber/30 text-amber hover:bg-amber/20",
   },
   {
     id: "steward",
     label: "Village Steward",
     description: "Help govern and guide our community's evolution",
-    color: "bg-green-50 border-green-200",
+    color: "bg-sage/10 border-sage/30 text-sage hover:bg-sage/20",
   },
   {
     id: "resident",
     label: "Resident",
     description: "Make Amora your home and live the village vision",
-    color: "bg-amber-50 border-amber-200",
+    color: "bg-teal/10 border-teal/30 text-teal hover:bg-teal/20",
   },
   {
     id: "prosperity-creator",
     label: "Prosperity Creator",
     description: "Build businesses and enterprises that thrive",
-    color: "bg-purple-50 border-purple-200",
+    color: "bg-teal-light/10 border-teal-light/30 text-teal-light hover:bg-teal-light/20",
   },
 ];
 

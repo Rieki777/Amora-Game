@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import BuildProgress from "@/components/BuildProgress";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -204,6 +205,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <BuildProgress />
 
       {/* Choose Your Path */}
       <section id="choose-path" className="py-24 bg-background">

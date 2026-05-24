@@ -20,6 +20,10 @@ const JOURNEY_FILE = path.join(DATA_DIR, "journey-state.json");
 const EMAIL_CONFIG_FILE = path.join(DATA_DIR, "email-config.json");
 const INVESTOR_DOCS_FILE = path.join(DATA_DIR, "investor-docs.json");
 const TRAINING_MODULES_FILE = path.join(DATA_DIR, "training-modules.json");
+const FAQS_FILE = path.join(DATA_DIR, "faqs.json");
+const MILESTONES_FILE = path.join(DATA_DIR, "milestones.json");
+const VISIT_CONFIG_FILE = path.join(DATA_DIR, "visit-config.json");
+const INVESTOR_SUMMARY_FILE = path.join(DATA_DIR, "investor-summary.json");
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me";
 const JOURNEY_PASSWORD = process.env.JOURNEY_PASSWORD || "change-me";
@@ -30,6 +34,75 @@ const DEFAULT_EMAIL_CONFIG = {
   resident: "",
   prosperity: "",
   resend_api_key: "",
+};
+
+const FAQ_PATHWAYS = ["investor", "steward", "resident", "prosperity"] as const;
+type FaqPathway = (typeof FAQ_PATHWAYS)[number];
+
+const DEFAULT_FAQS: Record<FaqPathway, { id: string; question: string; answer: string }[]> = {
+  investor: [
+    { id: "inv-1", question: "What if the project doesn't complete?", answer: "Investors hold debt secured against the land. In the unlikely event of project failure, debt holders have first claim on the 266-acre property which was appraised at $16M+ in January 2026." },
+    { id: "inv-2", question: "What is the minimum investment?", answer: "Minimum amounts vary by vehicle. Contact the team to discuss options that match your capacity." },
+    { id: "inv-3", question: "Can I live at Amora as an investor?", answer: "Yes. Investors who become residents get priority access to lots. Your investment can apply toward your Land Share Agreement." },
+  ],
+  steward: [
+    { id: "stw-1", question: "How are decisions made?", answer: "Through sociocratic circles using consent-based decision making. No single person, including the founders, can override a community consent vote." },
+    { id: "stw-2", question: "Do I get paid as a Village Steward?", answer: "Contributions are compensated in Gratitude (1 Gratitude = $1 USD in value). As Amora's shared businesses generate revenue, Gratitude converts to cash." },
+    { id: "stw-3", question: "How much time does stewardship require?", answer: "Roles are seasonal (3-month commitments). The time varies by role: some are a few hours per week, others are near full-time." },
+  ],
+  resident: [
+    { id: "res-1", question: "What internet is available?", answer: "Dominicalito has reliable fiber internet. The village will have dedicated high-speed connection for residents and home offices." },
+    { id: "res-2", question: "What schooling options exist for children?", answer: "Plans include an on-site learning center. Local bilingual schools are within 20 minutes. Many resident families are worldschoolers." },
+    { id: "res-3", question: "Can I own my home outright?", answer: "Land Share Agreements provide long-term secure access, renewable and inheritable by your children tax-free. The community co-owns the land, you own your structure." },
+  ],
+  prosperity: [
+    { id: "pro-1", question: "What businesses are needed?", answer: "The Prosperity Packet details all opportunities. High-priority needs include food production, wellness services, childcare, construction, and technology." },
+    { id: "pro-2", question: "How does revenue sharing work?", answer: "A percentage of revenue (exact structure in the Prosperity Packet) is distributed as Gratitude to the village community. You operate your business; the community benefits from your success." },
+    { id: "pro-3", question: "Do I need to live at Amora to run a business?", answer: "Some businesses require on-site presence. Others can be managed remotely. Discuss your model with the team during your Prosperity Call." },
+  ],
+};
+
+const DEFAULT_MILESTONES = [
+  { id: "land-acquired", phase: "Phase 0", title: "Land Acquired", description: "266 acres in Dominicalito, Costa Rica secured.", status: "complete", completedDate: "2024-06", updateNote: "", order: 1 },
+  { id: "appraisal-2026", phase: "Phase 0", title: "January 2026 Appraisal", description: "Independent appraisal values property at $16M+.", status: "complete", completedDate: "2026-01", updateNote: "", order: 2 },
+  { id: "founding-team", phase: "Phase 1", title: "Founding Team Assembled", description: "Core co-creators circle formed and active.", status: "complete", completedDate: "2025-09", updateNote: "", order: 3 },
+  { id: "site-planning", phase: "Phase 1", title: "Site Planning & Design", description: "Master plan, infrastructure layout, and first home designs.", status: "in-progress", completedDate: null, updateNote: "Master plan review in progress as of May 2026.", order: 4 },
+  { id: "retreat-center", phase: "Phase 2", title: "Retreat Center", description: "120-150 key eco-resort and retreat facility.", status: "upcoming", completedDate: null, updateNote: "", order: 5 },
+  { id: "show-homes", phase: "Phase 2", title: "First 10 Show Homes", description: "First residential structures built and move-in ready.", status: "upcoming", completedDate: null, updateNote: "", order: 6 },
+  { id: "health-center", phase: "Phase 3", title: "Health + Wellness Center", description: "On-site medical and holistic wellness facility.", status: "upcoming", completedDate: null, updateNote: "", order: 7 },
+  { id: "full-village", phase: "Phase 4", title: "Full Village (150+ homes)", description: "Complete residential buildout with all shared infrastructure.", status: "future", completedDate: null, updateNote: "", order: 8 },
+];
+
+const DEFAULT_VISIT_CONFIG = {
+  hero_subtitle: "Experience the land, meet the people, and decide if Amora is where you belong.",
+  visit_types: [
+    { id: "community-call", title: "Community Call", duration: "90 minutes", format: "Virtual (Zoom)", cost: "Free", description: "Meet the founding team and current members. Ask any question. Hear the vision directly. This is your first step.", cta_label: "Join the Next Call", cta_url: "https://amora.cr/event/discover-amora-webinar-qa/", order: 1 },
+    { id: "land-tour", title: "Land Tour Visit", duration: "1-3 days", format: "In Person, Dominicalito CR", cost: "Details TBD", description: "Walk the 266 acres with a founding team member. See the infrastructure underway. Stay nearby or camp on the land. Meals with the community included.", cta_label: "Request a Visit", cta_url: "", order: 2 },
+    { id: "immersion", title: "Village Weaving Immersion", duration: "2-4 weeks", format: "In Person, Dominicalito CR", cost: "Details TBD", description: "Live and work alongside the founding community. Shadow circle meetings, contribute to active projects, and discover where your gifts are most needed. This is the deepest way to know before you commit.", cta_label: "Apply for Immersion", cta_url: "", order: 3 },
+  ],
+  logistics: {
+    getting_there: "Dominicalito is on Costa Rica's Pacific coast. Nearest airport: Quepos (45 min) or San Jose (3.5 hours). Charter flights available to Quepos from the US west coast.",
+    accommodation: "Accommodation details will be provided when you book. Options range from nearby guesthouses to on-land camping.",
+    what_to_bring: "Comfortable outdoor clothes, sun protection, rain gear. The dry season runs December to April; green season May to November brings afternoon rain.",
+    contact_note: "Ready to visit? Fill in the form below or email the team directly.",
+  },
+};
+
+const DEFAULT_INVESTOR_SUMMARY = {
+  headline: "What Your Investment Looks Like",
+  intro: "We believe transparency converts. Here's the plain-language version of what investing in Amora means.",
+  details: [
+    { id: "min-investment", label: "Minimum Investment", value: "To be confirmed", note: "Contact the team to discuss options that match your capacity.", icon: "dollar" },
+    { id: "structure", label: "Investment Structure", value: "Debt (secured notes)", note: "We prioritize debt over equity so the community retains ownership. You lend to the project and receive interest plus priority on lot purchases.", icon: "shield" },
+    { id: "projected-irr", label: "Projected IRR", value: "19.6%", note: "15-year model based on phased development. Past performance and projections are not guarantees of future results.", icon: "trending-up" },
+    { id: "interest-rate", label: "Interest Rate", value: "To be confirmed", note: "Exploring a 1% regenerative development loan. Rates for early investors will be detailed in the Investor Pack.", icon: "percent" },
+    { id: "term", label: "Investment Term", value: "To be confirmed", note: "Multiple term options are available. Details in the Investor Pack.", icon: "calendar" },
+    { id: "exit", label: "Exit Options", value: "Lot sale, equity stake, or structured buyback", note: "We prioritize liquidity for investors who need it.", icon: "arrow-right" },
+    { id: "governance", label: "Governance Rights", value: "Voice in village decisions", note: "Resident investors participate in consent-based circle governance. The more you contribute over time, the more governance weight you earn.", icon: "users" },
+  ],
+  disclaimer: "Investment in Amora involves risk. All projections are forward-looking and not guaranteed. This is not a solicitation. Speak with your financial and legal advisors before making any investment decision.",
+  cta_label: "Request Full Investor Pack",
+  cta_url: "",
 };
 
 const DEFAULT_TRAINING_MODULES = [
@@ -146,6 +219,10 @@ function ensureDataFiles() {
   if (!fs.existsSync(EMAIL_CONFIG_FILE)) fs.writeFileSync(EMAIL_CONFIG_FILE, JSON.stringify(DEFAULT_EMAIL_CONFIG, null, 2));
   if (!fs.existsSync(INVESTOR_DOCS_FILE)) fs.writeFileSync(INVESTOR_DOCS_FILE, "[]");
   if (!fs.existsSync(TRAINING_MODULES_FILE)) fs.writeFileSync(TRAINING_MODULES_FILE, JSON.stringify(DEFAULT_TRAINING_MODULES, null, 2));
+  if (!fs.existsSync(FAQS_FILE)) fs.writeFileSync(FAQS_FILE, JSON.stringify(DEFAULT_FAQS, null, 2));
+  if (!fs.existsSync(MILESTONES_FILE)) fs.writeFileSync(MILESTONES_FILE, JSON.stringify(DEFAULT_MILESTONES, null, 2));
+  if (!fs.existsSync(VISIT_CONFIG_FILE)) fs.writeFileSync(VISIT_CONFIG_FILE, JSON.stringify(DEFAULT_VISIT_CONFIG, null, 2));
+  if (!fs.existsSync(INVESTOR_SUMMARY_FILE)) fs.writeFileSync(INVESTOR_SUMMARY_FILE, JSON.stringify(DEFAULT_INVESTOR_SUMMARY, null, 2));
 }
 
 function getEmailConfig() {
@@ -838,6 +915,156 @@ async function startServer() {
     const filtered = mods.filter((m) => m.id !== req.params.id);
     if (filtered.length === mods.length) return res.status(404).json({ error: "Not found" });
     writeJson(TRAINING_MODULES_FILE, filtered);
+    res.json({ success: true });
+  });
+
+  // ── FAQs (NEW-1) ──────────────────────────────────────────────────────────
+
+  app.get("/api/faqs/:pathway", (req, res) => {
+    const pathway = req.params.pathway;
+    if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
+    const all = readJson(FAQS_FILE) ?? {};
+    res.json(all[pathway] ?? []);
+  });
+
+  app.get("/api/admin/faqs", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    res.json(readJson(FAQS_FILE) ?? {});
+  });
+
+  app.put("/api/admin/faqs/:pathway", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const pathway = req.params.pathway;
+    if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
+    if (!Array.isArray(req.body)) return res.status(400).json({ error: "Body must be an array" });
+    const all = readJson(FAQS_FILE) ?? {};
+    all[pathway] = req.body.map((item: any) => ({
+      id: item.id || `${pathway.slice(0, 3)}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      question: String(item.question ?? "").trim(),
+      answer: String(item.answer ?? "").trim(),
+    }));
+    writeJson(FAQS_FILE, all);
+    res.json({ success: true, items: all[pathway] });
+  });
+
+  app.post("/api/admin/faqs/:pathway", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const pathway = req.params.pathway;
+    if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
+    const { question, answer } = req.body ?? {};
+    if (!question) return res.status(400).json({ error: "Missing question" });
+    const all = readJson(FAQS_FILE) ?? {};
+    if (!all[pathway]) all[pathway] = [];
+    const item = {
+      id: `${pathway.slice(0, 3)}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      question: String(question).trim(),
+      answer: String(answer ?? "").trim(),
+    };
+    all[pathway].push(item);
+    writeJson(FAQS_FILE, all);
+    res.json(item);
+  });
+
+  app.delete("/api/admin/faqs/:pathway/:id", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const { pathway, id } = req.params;
+    if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
+    const all = readJson(FAQS_FILE) ?? {};
+    const before = (all[pathway] ?? []).length;
+    all[pathway] = (all[pathway] ?? []).filter((f: any) => f.id !== id);
+    if (all[pathway].length === before) return res.status(404).json({ error: "Not found" });
+    writeJson(FAQS_FILE, all);
+    res.json({ success: true });
+  });
+
+  // ── Milestones (NEW-3) ────────────────────────────────────────────────────
+
+  app.get("/api/milestones", (_req, res) => {
+    const mils: any[] = readJson(MILESTONES_FILE) ?? [];
+    mils.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    res.json(mils);
+  });
+
+  app.get("/api/admin/milestones", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const mils: any[] = readJson(MILESTONES_FILE) ?? [];
+    mils.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    res.json(mils);
+  });
+
+  app.post("/api/admin/milestones", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const { phase, title, description, status, completedDate, updateNote, order } = req.body ?? {};
+    if (!title || !phase) return res.status(400).json({ error: "Missing title or phase" });
+    const mils: any[] = readJson(MILESTONES_FILE) ?? [];
+    const entry = {
+      id: `mil-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      phase,
+      title,
+      description: description ?? "",
+      status: status ?? "upcoming",
+      completedDate: completedDate ?? null,
+      updateNote: updateNote ?? "",
+      order: typeof order === "number" ? order : mils.length + 1,
+    };
+    mils.push(entry);
+    writeJson(MILESTONES_FILE, mils);
+    res.json(entry);
+  });
+
+  app.put("/api/admin/milestones/:id", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const mils: any[] = readJson(MILESTONES_FILE) ?? [];
+    const idx = mils.findIndex((m) => m.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    const allowed = ["phase", "title", "description", "status", "completedDate", "updateNote", "order"];
+    for (const k of allowed) if (req.body[k] !== undefined) mils[idx][k] = req.body[k];
+    writeJson(MILESTONES_FILE, mils);
+    res.json(mils[idx]);
+  });
+
+  app.delete("/api/admin/milestones/:id", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const mils: any[] = readJson(MILESTONES_FILE) ?? [];
+    const filtered = mils.filter((m) => m.id !== req.params.id);
+    if (filtered.length === mils.length) return res.status(404).json({ error: "Not found" });
+    writeJson(MILESTONES_FILE, filtered);
+    res.json({ success: true });
+  });
+
+  // ── Visit Config (NEW-5) ──────────────────────────────────────────────────
+
+  app.get("/api/visit-config", (_req, res) => {
+    res.json(readJson(VISIT_CONFIG_FILE) ?? DEFAULT_VISIT_CONFIG);
+  });
+
+  app.get("/api/admin/visit-config", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    res.json(readJson(VISIT_CONFIG_FILE) ?? DEFAULT_VISIT_CONFIG);
+  });
+
+  app.put("/api/admin/visit-config", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    writeJson(VISIT_CONFIG_FILE, req.body);
+    res.json({ success: true });
+  });
+
+  // ── Investor Summary (NEW-6) ──────────────────────────────────────────────
+
+  app.get("/api/investor-summary", (_req, res) => {
+    res.json(readJson(INVESTOR_SUMMARY_FILE) ?? DEFAULT_INVESTOR_SUMMARY);
+  });
+
+  app.get("/api/admin/investor-summary", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    res.json(readJson(INVESTOR_SUMMARY_FILE) ?? DEFAULT_INVESTOR_SUMMARY);
+  });
+
+  app.put("/api/admin/investor-summary", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    writeJson(INVESTOR_SUMMARY_FILE, req.body);
     res.json({ success: true });
   });
 
