@@ -1135,16 +1135,26 @@ interface DiscussionTopic {
 
 // ─── Password Gate ────────────────────────────────────────────────────────────
 
-function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
+function PasswordGate({ onUnlock }: { onUnlock: (pw: string) => void }) {
   const [input, setInput] = useState("");
   const [error, setError] = useState(false);
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (input === "1love") {
-      localStorage.setItem("amora-journey-auth", "1love");
-      onUnlock();
-    } else {
+    if (!input) return;
+    // Validate by hitting a protected endpoint
+    try {
+      // Probe: invalid state value triggers 400 if auth passes (no side effect),
+      // 401 if password is wrong.
+      const res = await fetch(`${API_BASE}/api/journey/checkbox`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${input}` },
+        body: JSON.stringify({ id: "probe", state: 99 }),
+      });
+      if (res.status === 401) throw new Error("unauthorized");
+      localStorage.setItem("amora-journey-auth", input);
+      onUnlock(input);
+    } catch {
       setError(true);
       setInput("");
       setTimeout(() => setError(false), 2000);
@@ -1191,6 +1201,12 @@ function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
 
 export default function JourneyToLaunch() {
   const [authenticated, setAuthenticated] = useState(false);
+  const [journeyPassword, setJourneyPassword] = useState<string>("");
+  const journeyHeaders = (extra: Record<string, string> = {}): Record<string, string> => ({
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${journeyPassword}`,
+    ...extra,
+  });
   const [activeView, setActiveView] = useState<ViewId>("timeline");
   const [serverState, setServerState] = useState<JourneyState>({ checkboxes: {}, copy: {}, kanban: {}, decisions: {} });
   const [loadingState, setLoadingState] = useState(true);
@@ -1255,7 +1271,10 @@ export default function JourneyToLaunch() {
   // Check auth on mount
   useEffect(() => {
     const saved = localStorage.getItem("amora-journey-auth");
-    if (saved === "1love") setAuthenticated(true);
+    if (saved) {
+      setJourneyPassword(saved);
+      setAuthenticated(true);
+    }
   }, []);
 
   // Load server state on mount
@@ -1285,8 +1304,8 @@ export default function JourneyToLaunch() {
     try {
       await fetch(`${API_BASE}/api/journey/checkbox`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: "1love", id: d.id, state: next }),
+        headers: journeyHeaders(),
+        body: JSON.stringify({ id: d.id, state: next }),
       });
     } catch {
       // Rollback on failure
@@ -1319,8 +1338,8 @@ export default function JourneyToLaunch() {
     try {
       await fetch(`${API_BASE}/api/journey/copy`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: "1love", sectionId, content: draft }),
+        headers: journeyHeaders(),
+        body: JSON.stringify({ sectionId, content: draft }),
       });
     } catch {
       // Best effort - optimistic update stays
@@ -1364,8 +1383,8 @@ export default function JourneyToLaunch() {
     try {
       await fetch(`${API_BASE}/api/journey/copy`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: "1love", sectionId, content: draft }),
+        headers: journeyHeaders(),
+        body: JSON.stringify({ sectionId, content: draft }),
       });
     } catch {
       // best effort
@@ -1388,16 +1407,16 @@ export default function JourneyToLaunch() {
         }));
         fetch(`${API_BASE}/api/journey/checkbox`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: "1love", id, state: 2 }),
+          headers: journeyHeaders(),
+          body: JSON.stringify({ id, state: 2 }),
         }).catch(() => {});
       }
     }
     try {
       await fetch(`${API_BASE}/api/journey/kanban`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: "1love", id, column, assignee }),
+        headers: journeyHeaders(),
+        body: JSON.stringify({ id, column, assignee }),
       });
     } catch {
       // best effort
@@ -1422,8 +1441,8 @@ export default function JourneyToLaunch() {
           }));
           fetch(`${API_BASE}/api/journey/checkbox`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ password: "1love", id: def.linkedItem, state: 1 }),
+            headers: journeyHeaders(),
+            body: JSON.stringify({ id: def.linkedItem, state: 1 }),
           }).catch(() => {});
         }
       }
@@ -1431,8 +1450,8 @@ export default function JourneyToLaunch() {
     try {
       await fetch(`${API_BASE}/api/journey/decision`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: "1love", id, status, chosen, notes }),
+        headers: journeyHeaders(),
+        body: JSON.stringify({ id, status, chosen, notes }),
       });
     } catch {
       // best effort
@@ -1466,7 +1485,7 @@ export default function JourneyToLaunch() {
   ).length;
 
   if (!authenticated) {
-    return <PasswordGate onUnlock={() => setAuthenticated(true)} />;
+    return <PasswordGate onUnlock={(pw) => { setJourneyPassword(pw); setAuthenticated(true); }} />;
   }
 
   return (

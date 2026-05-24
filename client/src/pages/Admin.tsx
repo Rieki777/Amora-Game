@@ -4,6 +4,10 @@ import { toast } from "sonner";
 
 const API_BASE = "/api";
 const FORM_TYPES = ["investor", "steward", "resident", "prosperity", "contact"] as const;
+
+function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
+  return { Authorization: `Bearer ${password}`, ...extra };
+}
 const CONTENT_SECTIONS = [
   { key: "investor", label: "Investor Journey", icon: TrendingUp },
   { key: "steward", label: "Steward Journey", icon: Users },
@@ -94,9 +98,9 @@ function SubmissionsTab({ password }: { password: string }) {
     setLoading(true);
     try {
       const url = filter === "all"
-        ? `${API_BASE}/admin/submissions?password=${password}`
-        : `${API_BASE}/admin/submissions?password=${password}&type=${filter}`;
-      const res = await fetch(url);
+        ? `${API_BASE}/admin/submissions`
+        : `${API_BASE}/admin/submissions?type=${filter}`;
+      const res = await fetch(url, { headers: authHeaders(password) });
       const data = await res.json();
       setSubmissions(Array.isArray(data) ? data : []);
     } catch {
@@ -109,7 +113,7 @@ function SubmissionsTab({ password }: { password: string }) {
 
   const deleteSubmission = async (id: string) => {
     if (!confirm("Delete this submission?")) return;
-    await fetch(`${API_BASE}/admin/submissions/${id}?password=${password}`, { method: "DELETE" });
+    await fetch(`${API_BASE}/admin/submissions/${id}`, { method: "DELETE", headers: authHeaders(password) });
     load();
   };
 
@@ -235,9 +239,9 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
     }
     setSaving(true);
     try {
-      await fetch(`${API_BASE}/admin/content/${sectionKey}?password=${password}`, {
+      await fetch(`${API_BASE}/admin/content/${sectionKey}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
         body: JSON.stringify(parsed),
       });
       setSaved(true);
@@ -395,7 +399,7 @@ function EmailSettingsTab({ password }: { password: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/email-config?password=${password}`);
+      const res = await fetch(`${API_BASE}/admin/email-config`, { headers: authHeaders(password) });
       const data = await res.json();
       setCfg({
         investor: data.investor ?? "",
@@ -415,9 +419,9 @@ function EmailSettingsTab({ password }: { password: string }) {
   const save = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/email-config?password=${password}`, {
+      const res = await fetch(`${API_BASE}/admin/email-config`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
         body: JSON.stringify(cfg),
       });
       if (!res.ok) throw new Error("Save failed");
@@ -540,7 +544,7 @@ function InvestorVaultTab({ password }: { password: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/investor-docs?password=${password}`);
+      const res = await fetch(`${API_BASE}/admin/investor-docs`, { headers: authHeaders(password) });
       const data = await res.json();
       setDocs(Array.isArray(data) ? data : []);
     } catch {
@@ -563,8 +567,9 @@ function InvestorVaultTab({ password }: { password: string }) {
     if (name) fd.append("name", name);
     if (pageLink) fd.append("pageLink", pageLink);
     try {
-      const res = await fetch(`${API_BASE}/admin/investor-docs/upload?password=${password}`, {
+      const res = await fetch(`${API_BASE}/admin/investor-docs/upload`, {
         method: "POST",
+        headers: authHeaders(password),
         body: fd,
       });
       if (!res.ok) throw new Error("Upload failed");
@@ -582,7 +587,7 @@ function InvestorVaultTab({ password }: { password: string }) {
   const remove = async (id: string) => {
     if (!confirm("Delete this document permanently?")) return;
     try {
-      await fetch(`${API_BASE}/admin/investor-docs/${id}?password=${password}`, { method: "DELETE" });
+      await fetch(`${API_BASE}/admin/investor-docs/${id}`, { method: "DELETE", headers: authHeaders(password) });
       toast.success("Deleted");
       load();
     } catch {
@@ -714,7 +719,7 @@ function TrainingModulesTab({ password }: { password: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/training-modules?password=${password}`);
+      const res = await fetch(`${API_BASE}/admin/training-modules`, { headers: authHeaders(password) });
       const data = await res.json();
       setMods(Array.isArray(data) ? data : []);
     } catch {
@@ -744,16 +749,16 @@ function TrainingModulesTab({ password }: { password: string }) {
     }
     try {
       if (editingId === "new") {
-        const res = await fetch(`${API_BASE}/admin/training-modules?password=${password}`, {
+        const res = await fetch(`${API_BASE}/admin/training-modules`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders(password, { "Content-Type": "application/json" }),
           body: JSON.stringify(draft),
         });
         if (!res.ok) throw new Error();
       } else if (editingId) {
-        const res = await fetch(`${API_BASE}/admin/training-modules/${editingId}?password=${password}`, {
+        const res = await fetch(`${API_BASE}/admin/training-modules/${editingId}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders(password, { "Content-Type": "application/json" }),
           body: JSON.stringify(draft),
         });
         if (!res.ok) throw new Error();
@@ -769,7 +774,7 @@ function TrainingModulesTab({ password }: { password: string }) {
   const remove = async (id: string) => {
     if (!confirm("Delete this module?")) return;
     try {
-      await fetch(`${API_BASE}/admin/training-modules/${id}?password=${password}`, { method: "DELETE" });
+      await fetch(`${API_BASE}/admin/training-modules/${id}`, { method: "DELETE", headers: authHeaders(password) });
       toast.success("Deleted");
       load();
     } catch {

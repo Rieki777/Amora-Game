@@ -5,6 +5,9 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
 import multer from "multer";
+import bcrypt from "bcrypt";
+
+const BCRYPT_SALT_ROUNDS = 10;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,8 +21,8 @@ const EMAIL_CONFIG_FILE = path.join(DATA_DIR, "email-config.json");
 const INVESTOR_DOCS_FILE = path.join(DATA_DIR, "investor-docs.json");
 const TRAINING_MODULES_FILE = path.join(DATA_DIR, "training-modules.json");
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
-const ADMIN_PASSWORD = "1love";
-const JOURNEY_PASSWORD = "1love";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me";
+const JOURNEY_PASSWORD = process.env.JOURNEY_PASSWORD || "change-me";
 
 const DEFAULT_EMAIL_CONFIG = {
   investor: "",
@@ -79,8 +82,39 @@ const FORM_TYPE_TO_PATHWAY: Record<string, "investor" | "steward" | "resident" |
   contact: "prosperity",
 };
 
-function hashPassword(password: string): string {
+function legacySha256(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
+}
+
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+}
+
+async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  // Accept legacy SHA256 hashes for existing users (transparent upgrade on next save)
+  if (storedHash === legacySha256(password)) return true;
+  try {
+    return await bcrypt.compare(password, storedHash);
+  } catch {
+    return false;
+  }
+}
+
+function authPassword(req: express.Request): string | undefined {
+  const header = req.headers.authorization;
+  if (header && header.startsWith("Bearer ")) return header.slice(7).trim();
+  // Back-compat: still accept query/body password during rollout
+  if (typeof req.query.password === "string") return req.query.password;
+  if (req.body && typeof req.body.password === "string") return req.body.password;
+  return undefined;
+}
+
+function requireAdmin(req: express.Request): boolean {
+  return authPassword(req) === ADMIN_PASSWORD;
+}
+
+function requireJourney(req: express.Request): boolean {
+  return authPassword(req) === JOURNEY_PASSWORD;
 }
 
 function encodeToken(userId: string, email: string): string {
@@ -89,7 +123,10 @@ function encodeToken(userId: string, email: string): string {
 
 function decodeToken(token: string): { userId: string; email: string; timestamp: number } | null {
   try {
-    return JSON.parse(atob(token));
+    const decoded = JSON.parse(atob(token));
+    if (!decoded.userId || !decoded.email || typeof decoded.timestamp !== "number") return null;
+    if (Date.now() - decoded.timestamp > 30 * 24 * 60 * 60 * 1000) return null;
+    return decoded;
   } catch {
     return null;
   }
@@ -209,11 +246,12 @@ async function startServer() {
 
   app.use(express.json({ limit: "1mb" }));
 
-  // CORS for dev
+  // CORS
+  const allowedOrigin = process.env.FRONTEND_URL || "https://amora.regencivics.earth";
   app.use((_req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Origin", allowedOrigin);
     res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type");
+    res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
     next();
   });
 
@@ -264,7 +302,7 @@ async function startServer() {
   // Admin: List Submissions
   // GET /api/admin/submissions?password=1love&type=investor
   app.get("/api/admin/submissions", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     let submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
@@ -279,7 +317,7 @@ async function startServer() {
 
   // Admin: Delete Submission
   app.delete("/api/admin/submissions/:id", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
@@ -294,7 +332,7 @@ async function startServer() {
   // Admin: Export Submissions as CSV
   // GET /api/admin/submissions/export?password=1love&type=optional
   app.get("/api/admin/submissions/export", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     let submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
@@ -353,7 +391,7 @@ async function startServer() {
 
   // Admin: Read All Content
   app.get("/api/admin/content", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     res.json(readJson(CONTENT_FILE) ?? {});
@@ -362,7 +400,7 @@ async function startServer() {
   // Admin: Update Content Section
   // PUT /api/admin/content/:section?password=1love
   app.put("/api/admin/content/:section", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const content = readJson(CONTENT_FILE) ?? {};
@@ -372,7 +410,7 @@ async function startServer() {
   });
 
   // Auth: Register
-  app.post("/api/auth/register", (req, res) => {
+  app.post("/api/auth/register", async (req, res) => {
     const { name, email, password, paths } = req.body;
     if (!name || !email || !password || !paths || !Array.isArray(paths)) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -386,7 +424,7 @@ async function startServer() {
       id: userId,
       name,
       email,
-      passwordHash: hashPassword(password),
+      passwordHash: await hashPassword(password),
       paths,
       contributions: [],
       quests: [],
@@ -402,15 +440,21 @@ async function startServer() {
   });
 
   // Auth: Login
-  app.post("/api/auth/login", (req, res) => {
+  app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: "Missing email or password" });
     }
     const users = readJson(USERS_FILE) ?? { users: [] };
-    const user = users.users.find((u: any) => u.email === email);
-    if (!user || user.passwordHash !== hashPassword(password)) {
+    const userIdx = users.users.findIndex((u: any) => u.email === email);
+    const user = userIdx === -1 ? null : users.users[userIdx];
+    if (!user || !(await verifyPassword(password, user.passwordHash))) {
       return res.status(401).json({ error: "Invalid credentials" });
+    }
+    // Transparent upgrade: if the user is still on a legacy SHA256 hash, re-hash with bcrypt
+    if (user.passwordHash === legacySha256(password)) {
+      users.users[userIdx].passwordHash = await hashPassword(password);
+      writeJson(USERS_FILE, users);
     }
     const token = encodeToken(user.id, email);
     res.json({ success: true, token, user: { id: user.id, name: user.name, email, paths: user.paths } });
@@ -504,7 +548,7 @@ async function startServer() {
   // POST /api/journey/checkbox  { password, id, state: 0|1|2 }
   app.post("/api/journey/checkbox", (req, res) => {
     const { password, id, state } = req.body;
-    if (password !== JOURNEY_PASSWORD) {
+    if (!requireJourney(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     if (!id || state === undefined || ![0, 1, 2].includes(state)) {
@@ -520,7 +564,7 @@ async function startServer() {
   // POST /api/journey/kanban  { password, id, column, assignee }
   app.post("/api/journey/kanban", (req, res) => {
     const { password, id, column, assignee } = req.body;
-    if (password !== JOURNEY_PASSWORD) {
+    if (!requireJourney(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const validColumns = ["assigned", "actioning", "needs-support", "completed"];
@@ -538,7 +582,7 @@ async function startServer() {
   // POST /api/journey/copy  { password, sectionId, content }
   app.post("/api/journey/copy", (req, res) => {
     const { password, sectionId, content } = req.body;
-    if (password !== JOURNEY_PASSWORD) {
+    if (!requireJourney(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     if (!sectionId || content === undefined) {
@@ -554,7 +598,7 @@ async function startServer() {
   // POST /api/journey/decision  { password, id, status, chosen, notes }
   app.post("/api/journey/decision", (req, res) => {
     const { password, id, status, chosen, notes } = req.body;
-    if (password !== JOURNEY_PASSWORD) {
+    if (!requireJourney(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const validStatuses = ["open", "decided"];
@@ -571,14 +615,14 @@ async function startServer() {
   // ── Email Config (Resend) ─────────────────────────────────────────────────
 
   app.get("/api/admin/email-config", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     res.json(getEmailConfig());
   });
 
   app.put("/api/admin/email-config", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const current = getEmailConfig();
@@ -617,14 +661,14 @@ async function startServer() {
   });
 
   app.get("/api/admin/investor-docs", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     res.json(readJson(INVESTOR_DOCS_FILE) ?? []);
   });
 
   app.post("/api/admin/investor-docs/upload", upload.single("file"), (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       if (req.file) fs.unlinkSync(path.join(UPLOADS_DIR, req.file.filename));
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -651,7 +695,7 @@ async function startServer() {
   });
 
   app.delete("/api/admin/investor-docs/:id", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const docs: any[] = readJson(INVESTOR_DOCS_FILE) ?? [];
@@ -743,7 +787,7 @@ async function startServer() {
   });
 
   app.get("/api/admin/training-modules", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const mods: any[] = readJson(TRAINING_MODULES_FILE) ?? [];
@@ -752,7 +796,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/training-modules", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const { title, description, type, url, order } = req.body ?? {};
@@ -772,7 +816,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/training-modules/:id", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const mods: any[] = readJson(TRAINING_MODULES_FILE) ?? [];
@@ -787,7 +831,7 @@ async function startServer() {
   });
 
   app.delete("/api/admin/training-modules/:id", (req, res) => {
-    if (req.query.password !== ADMIN_PASSWORD) {
+    if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const mods: any[] = readJson(TRAINING_MODULES_FILE) ?? [];
