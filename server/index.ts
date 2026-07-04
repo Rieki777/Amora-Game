@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import crypto from "crypto";
 import multer from "multer";
 import bcrypt from "bcrypt";
+import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 
 const BCRYPT_SALT_ROUNDS = 10;
 
@@ -21,6 +22,12 @@ const EMAIL_CONFIG_FILE = path.join(DATA_DIR, "email-config.json");
 const INVESTOR_DOCS_FILE = path.join(DATA_DIR, "investor-docs.json");
 const TRAINING_MODULES_FILE = path.join(DATA_DIR, "training-modules.json");
 const FAQS_FILE = path.join(DATA_DIR, "faqs.json");
+const QUESTS_FILE = path.join(DATA_DIR, "quests.json");
+const QUESTS_SEED_FILE = path.join(DATA_DIR, "quests-seed.json");
+const QUEST_CLAIMS_FILE = path.join(DATA_DIR, "quest-claims.json");
+const GRATITUDE_LOG_FILE = path.join(DATA_DIR, "gratitude-log.json");
+const ACTIVITY_FILE = path.join(DATA_DIR, "activity.json");
+const SEASON_FILE = path.join(DATA_DIR, "season.json");
 const MILESTONES_FILE = path.join(DATA_DIR, "milestones.json");
 const VISIT_CONFIG_FILE = path.join(DATA_DIR, "visit-config.json");
 const INVESTOR_SUMMARY_FILE = path.join(DATA_DIR, "investor-summary.json");
@@ -229,6 +236,108 @@ function ensureDataFiles() {
   if (!fs.existsSync(MILESTONES_FILE)) fs.writeFileSync(MILESTONES_FILE, JSON.stringify(DEFAULT_MILESTONES, null, 2));
   if (!fs.existsSync(VISIT_CONFIG_FILE)) fs.writeFileSync(VISIT_CONFIG_FILE, JSON.stringify(DEFAULT_VISIT_CONFIG, null, 2));
   if (!fs.existsSync(INVESTOR_SUMMARY_FILE)) fs.writeFileSync(INVESTOR_SUMMARY_FILE, JSON.stringify(DEFAULT_INVESTOR_SUMMARY, null, 2));
+  if (!fs.existsSync(QUESTS_FILE)) {
+    const seed = fs.existsSync(QUESTS_SEED_FILE) ? fs.readFileSync(QUESTS_SEED_FILE, "utf-8") : "[]";
+    fs.writeFileSync(QUESTS_FILE, seed);
+  }
+  if (!fs.existsSync(QUEST_CLAIMS_FILE)) fs.writeFileSync(QUEST_CLAIMS_FILE, "[]");
+  if (!fs.existsSync(GRATITUDE_LOG_FILE)) fs.writeFileSync(GRATITUDE_LOG_FILE, "[]");
+  if (!fs.existsSync(ACTIVITY_FILE)) fs.writeFileSync(ACTIVITY_FILE, "[]");
+  if (!fs.existsSync(SEASON_FILE)) fs.writeFileSync(SEASON_FILE, JSON.stringify(GAME_CONFIG.season, null, 2));
+}
+
+// ── Game engine helpers (platform-level; all project specifics live in gameConfig) ──
+
+function requireUser(req: express.Request): any | null {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) return null;
+  const decoded = decodeToken(header.slice(7));
+  if (!decoded) return null;
+  const users = readJson(USERS_FILE) ?? { users: [] };
+  return users.users.find((u: any) => u.id === decoded.userId) ?? null;
+}
+
+function addActivity(type: string, text: string) {
+  const log: any[] = readJson(ACTIVITY_FILE) ?? [];
+  log.push({ id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, text, at: new Date().toISOString() });
+  writeJson(ACTIVITY_FILE, log.slice(-500));
+}
+
+function currentCycleId(): string {
+  return new Date().toISOString().slice(0, 7); // calendar month, e.g. "2026-07"
+}
+
+function firstName(name: string): string {
+  return String(name ?? "").trim().split(/\s+/)[0] || "Someone";
+}
+
+function hasMembership(user: any): boolean {
+  if (user.membershipGranted) return true;
+  const submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
+  const email = String(user.email ?? "").toLowerCase();
+  return submissions.some(
+    (s) => s.type === "membership-508" && String(s.data?.email ?? "").toLowerCase() === email
+  );
+}
+
+function consentedQuestCount(userId: string): number {
+  const claims: any[] = readJson(QUEST_CLAIMS_FILE) ?? [];
+  return claims.filter((c) => c.userId === userId && c.status === "consented").length;
+}
+
+function trainingComplete(user: any): boolean {
+  const mods: any[] = readJson(TRAINING_MODULES_FILE) ?? [];
+  if (!mods.length) return false;
+  const done: string[] = user.journeys?.training ?? [];
+  return mods.every((m) => done.includes(m.id));
+}
+
+/** Compute the highest stage the player has earned, per gameConfig rules. */
+function computeStage(user: any): string {
+  let earned = GAME_CONFIG.stages[0].id;
+  const grantedIdx = user.stageGranted ? stageIndex(user.stageGranted) : -1;
+  for (const stage of GAME_CONFIG.stages) {
+    const idx = stageIndex(stage.id);
+    let ok = false;
+    switch (stage.rule.type) {
+      case "default": ok = true; break;
+      case "account": ok = true; break; // having a user record implies an account
+      case "training-complete": ok = trainingComplete(user); break;
+      case "membership": ok = hasMembership(user); break;
+      case "quests": ok = consentedQuestCount(user.id) >= stage.rule.min; break;
+      case "granted": ok = grantedIdx >= idx; break;
+    }
+    if (ok && idx > stageIndex(earned)) earned = stage.id;
+  }
+  if (grantedIdx > stageIndex(earned)) earned = user.stageGranted;
+  return earned;
+}
+
+function gratitudeBudget(user: any): { total: number; spent: number; remaining: number; cycleId: string } {
+  const stage = getStage(computeStage(user));
+  const total = Math.round(GAME_CONFIG.gratitude.monthlyBudget * stage.gratitudeMultiplier);
+  const cycleId = currentCycleId();
+  const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
+  const spent = log
+    .filter((g) => g.fromId === user.id && g.cycleId === cycleId)
+    .reduce((acc, g) => acc + (g.amount ?? 0), 0);
+  return { total, spent, remaining: Math.max(0, total - spent), cycleId };
+}
+
+function nextActionFor(user: any): { id: string; label: string; href: string } {
+  const claims: any[] = (readJson(QUEST_CLAIMS_FILE) ?? []).filter((c: any) => c.userId === user.id);
+  const budget = gratitudeBudget(user);
+  for (const rule of GAME_CONFIG.nextActions) {
+    switch (rule.when) {
+      case "no-training": if (!trainingComplete(user)) return rule; break;
+      case "no-membership": if (!hasMembership(user)) return rule; break;
+      case "no-quest-claimed": if (claims.length === 0) return rule; break;
+      case "quest-in-progress": if (claims.some((c) => c.status === "claimed" || c.status === "submitted")) return rule; break;
+      case "gratitude-unspent": if (budget.remaining > 0 && budget.total > 0) return rule; break;
+      case "always": return rule;
+    }
+  }
+  return GAME_CONFIG.nextActions[GAME_CONFIG.nextActions.length - 1];
 }
 
 function getEmailConfig() {
@@ -518,6 +627,7 @@ async function startServer() {
     };
     users.users.push(user);
     writeJson(USERS_FILE, users);
+    addActivity("join", `${firstName(name)} stepped into the village as a Guest`);
     const token = encodeToken(userId, email);
     res.json({ success: true, token, user: { id: user.id, name, email, paths } });
   });
@@ -1072,6 +1182,291 @@ async function startServer() {
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     writeJson(INVESTOR_SUMMARY_FILE, req.body);
     res.json({ success: true });
+  });
+
+  // ── Game Engine API (platform-level; project specifics come from gameConfig) ──
+
+  // Public game config (safe subset) + current season
+  app.get("/api/game/config", (_req, res) => {
+    res.json({
+      project: GAME_CONFIG.project,
+      currency: GAME_CONFIG.currency,
+      paths: GAME_CONFIG.paths,
+      stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
+      season: readJson(SEASON_FILE) ?? GAME_CONFIG.season,
+    });
+  });
+
+  app.get("/api/season", (_req, res) => {
+    res.json(readJson(SEASON_FILE) ?? GAME_CONFIG.season);
+  });
+
+  app.put("/api/admin/season", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    writeJson(SEASON_FILE, req.body);
+    if (req.body.name) addActivity("season", `The season has been set: ${req.body.name}`);
+    res.json({ success: true });
+  });
+
+  // Quests: public list
+  app.get("/api/quests", (_req, res) => {
+    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    quests.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    res.json(quests);
+  });
+
+  // Quests: admin CRUD
+  app.post("/api/admin/quests", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const { title } = req.body ?? {};
+    if (!title) return res.status(400).json({ error: "Missing title" });
+    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    const entry = {
+      id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      order: quests.length + 1,
+      icon: "Star",
+      status: "Open",
+      difficulty: "Beginner",
+      tags: [],
+      ...req.body,
+    };
+    quests.push(entry);
+    writeJson(QUESTS_FILE, quests);
+    res.json(entry);
+  });
+
+  app.put("/api/admin/quests/:id", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    const idx = quests.findIndex((q) => q.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    quests[idx] = { ...quests[idx], ...req.body, id: quests[idx].id };
+    writeJson(QUESTS_FILE, quests);
+    res.json(quests[idx]);
+  });
+
+  app.delete("/api/admin/quests/:id", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    const filtered = quests.filter((q) => q.id !== req.params.id);
+    if (filtered.length === quests.length) return res.status(404).json({ error: "Not found" });
+    writeJson(QUESTS_FILE, filtered);
+    res.json({ success: true });
+  });
+
+  // Quests: claim / submit (player)
+  app.post("/api/game/quests/:id/claim", (req, res) => {
+    const user = requireUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to claim quests" });
+    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    const quest = quests.find((q) => q.id === req.params.id);
+    if (!quest) return res.status(404).json({ error: "Quest not found" });
+    const claims: any[] = readJson(QUEST_CLAIMS_FILE) ?? [];
+    const existing = claims.find((c) => c.userId === user.id && c.questId === quest.id && c.status !== "declined");
+    if (existing) return res.status(409).json({ error: "Already claimed", claim: existing });
+    const claim = {
+      id: `claim-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      questId: quest.id,
+      questTitle: quest.title,
+      userId: user.id,
+      userName: user.name,
+      status: "claimed", // claimed -> submitted -> consented | declined
+      claimedAt: new Date().toISOString(),
+      artifactUrl: "",
+      note: "",
+    };
+    claims.push(claim);
+    writeJson(QUEST_CLAIMS_FILE, claims);
+    res.json(claim);
+  });
+
+  app.post("/api/game/quests/:id/submit", (req, res) => {
+    const user = requireUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const { artifactUrl, note } = req.body ?? {};
+    if (!artifactUrl && !note) return res.status(400).json({ error: "Share a link or a few words as evidence of your work" });
+    const claims: any[] = readJson(QUEST_CLAIMS_FILE) ?? [];
+    const idx = claims.findIndex((c) => c.userId === user.id && c.questId === req.params.id && (c.status === "claimed" || c.status === "submitted"));
+    if (idx === -1) return res.status(404).json({ error: "No active claim for this quest" });
+    claims[idx] = { ...claims[idx], status: "submitted", artifactUrl: artifactUrl ?? "", note: note ?? "", submittedAt: new Date().toISOString() };
+    writeJson(QUEST_CLAIMS_FILE, claims);
+    res.json(claims[idx]);
+  });
+
+  // Quests: team consent (value release is always human-gated)
+  app.get("/api/admin/quest-claims", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const claims: any[] = readJson(QUEST_CLAIMS_FILE) ?? [];
+    claims.sort((a, b) => new Date(b.claimedAt).getTime() - new Date(a.claimedAt).getTime());
+    res.json(claims);
+  });
+
+  app.post("/api/admin/quest-claims/:id/consent", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const { approve, amount } = req.body ?? {};
+    const claims: any[] = readJson(QUEST_CLAIMS_FILE) ?? [];
+    const idx = claims.findIndex((c) => c.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    if (approve === false) {
+      claims[idx] = { ...claims[idx], status: "declined", resolvedAt: new Date().toISOString() };
+      writeJson(QUEST_CLAIMS_FILE, claims);
+      return res.json(claims[idx]);
+    }
+    const granted = Math.max(0, Number(amount) || 0);
+    claims[idx] = { ...claims[idx], status: "consented", amount: granted, resolvedAt: new Date().toISOString() };
+    writeJson(QUEST_CLAIMS_FILE, claims);
+    // Credit the player's balance
+    const users = readJson(USERS_FILE) ?? { users: [] };
+    const uIdx = users.users.findIndex((u: any) => u.id === claims[idx].userId);
+    if (uIdx !== -1) {
+      users.users[uIdx].heartsBalance = (users.users[uIdx].heartsBalance ?? 0) + granted;
+      writeJson(USERS_FILE, users);
+      addActivity("quest", `${firstName(claims[idx].userName)} completed the quest "${claims[idx].questTitle}"`);
+    }
+    res.json(claims[idx]);
+  });
+
+  // Journey / training progress sync (server-side game state)
+  app.post("/api/game/journey/sync", (req, res) => {
+    const user = requireUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const { journeyId, steps } = req.body ?? {};
+    if (!journeyId || !Array.isArray(steps)) return res.status(400).json({ error: "Missing journeyId or steps" });
+    const users = readJson(USERS_FILE) ?? { users: [] };
+    const idx = users.users.findIndex((u: any) => u.id === user.id);
+    if (idx === -1) return res.status(404).json({ error: "User not found" });
+    if (!users.users[idx].journeys) users.users[idx].journeys = {};
+    users.users[idx].journeys[journeyId] = steps.map(String);
+    writeJson(USERS_FILE, users);
+    res.json({ success: true, journeys: users.users[idx].journeys });
+  });
+
+  // My game state
+  app.get("/api/game/me", (req, res) => {
+    const user = requireUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const stageId = computeStage(user);
+    const claims: any[] = (readJson(QUEST_CLAIMS_FILE) ?? []).filter((c: any) => c.userId === user.id);
+    res.json({
+      stage: getStage(stageId),
+      stageIndex: stageIndex(stageId),
+      stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
+      gratitude: { balance: user.heartsBalance ?? 0, budget: gratitudeBudget(user) },
+      quests: claims,
+      journeys: user.journeys ?? {},
+      membership: hasMembership(user),
+      trainingComplete: trainingComplete(user),
+      nextAction: nextActionFor(user),
+    });
+  });
+
+  // Gratitude: send an acknowledgment
+  app.post("/api/game/gratitude/send", (req, res) => {
+    const user = requireUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to send " + GAME_CONFIG.currency.nameLower });
+    const { toEmail, amount, message } = req.body ?? {};
+    const amt = Math.floor(Number(amount) || 0);
+    if (!toEmail || amt <= 0) return res.status(400).json({ error: "Recipient and a positive amount are required" });
+    if (GAME_CONFIG.gratitude.requireMessage && !String(message ?? "").trim()) {
+      return res.status(400).json({ error: "A few words of appreciation are required" });
+    }
+    const users = readJson(USERS_FILE) ?? { users: [] };
+    const toIdx = users.users.findIndex((u: any) => String(u.email).toLowerCase() === String(toEmail).toLowerCase());
+    if (toIdx === -1) return res.status(404).json({ error: "No member found with that email" });
+    const recipient = users.users[toIdx];
+    if (recipient.id === user.id) return res.status(400).json({ error: "Gratitude flows to others" });
+    const budget = gratitudeBudget(user);
+    if (budget.total <= 0) return res.status(403).json({ error: "Your sending budget unlocks as you progress on the path" });
+    if (amt > budget.remaining) return res.status(400).json({ error: `Only ${budget.remaining} left in your budget this cycle` });
+    const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
+    const already = log.filter((g) => g.fromId === user.id && g.toId === recipient.id && g.cycleId === budget.cycleId).length;
+    if (already >= GAME_CONFIG.gratitude.maxPerRecipientPerCycle) {
+      return res.status(409).json({ error: "You have already acknowledged them this cycle" });
+    }
+    const entry = {
+      id: `grat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      fromId: user.id,
+      fromName: user.name,
+      toId: recipient.id,
+      toName: recipient.name,
+      amount: amt,
+      message: String(message ?? "").trim(),
+      cycleId: budget.cycleId,
+      at: new Date().toISOString(),
+    };
+    log.push(entry);
+    writeJson(GRATITUDE_LOG_FILE, log);
+    users.users[toIdx].heartsBalance = (users.users[toIdx].heartsBalance ?? 0) + amt;
+    writeJson(USERS_FILE, users);
+    addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(recipient.name)}`);
+    res.json({ success: true, entry: { ...entry, amount: undefined }, budget: gratitudeBudget(user) });
+  });
+
+  // Gratitude: public wall (messages and names only; amounts stay private)
+  app.get("/api/game/gratitude/wall", (_req, res) => {
+    const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
+    const wall = log
+      .slice(-60)
+      .reverse()
+      .map((g) => ({ id: g.id, from: firstName(g.fromName), to: firstName(g.toName), message: g.message, at: g.at }));
+    res.json(wall);
+  });
+
+  // Gratitude: my journal (received + sent, with amounts)
+  app.get("/api/game/gratitude/me", (req, res) => {
+    const user = requireUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
+    res.json({
+      received: log.filter((g) => g.toId === user.id).reverse(),
+      sent: log.filter((g) => g.fromId === user.id).reverse(),
+      budget: gratitudeBudget(user),
+    });
+  });
+
+  // Village pulse: public activity feed
+  app.get("/api/game/pulse", (_req, res) => {
+    const log: any[] = readJson(ACTIVITY_FILE) ?? [];
+    res.json(log.slice(-30).reverse());
+  });
+
+  // Players admin: list + stage grants
+  app.get("/api/admin/players", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const users = readJson(USERS_FILE) ?? { users: [] };
+    res.json(
+      users.users.map((u: any) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        paths: u.paths ?? [],
+        joinedAt: u.joinedAt,
+        balance: u.heartsBalance ?? 0,
+        stageGranted: u.stageGranted ?? null,
+        stageComputed: computeStage(u),
+        membership: hasMembership(u),
+      }))
+    );
+  });
+
+  app.put("/api/admin/players/:id/stage", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const { stageId } = req.body ?? {};
+    if (stageId && !GAME_CONFIG.stages.some((s) => s.id === stageId)) {
+      return res.status(400).json({ error: "Unknown stage" });
+    }
+    const users = readJson(USERS_FILE) ?? { users: [] };
+    const idx = users.users.findIndex((u: any) => u.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    const before = computeStage(users.users[idx]);
+    users.users[idx].stageGranted = stageId ?? null;
+    writeJson(USERS_FILE, users);
+    const after = computeStage(users.users[idx]);
+    if (stageIndex(after) > stageIndex(before)) {
+      addActivity("stage", `${firstName(users.users[idx].name)} advanced to ${getStage(after).name}`);
+    }
+    res.json({ success: true, stageComputed: after });
   });
 
   // Static Files + SPA Fallback

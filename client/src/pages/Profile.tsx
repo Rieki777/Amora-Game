@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import GameDashboard from "@/components/GameDashboard";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -100,6 +101,11 @@ export default function Profile() {
                 <LogOut className="w-4 h-4" />
                 Sign Out
               </motion.button>
+            </div>
+
+            {/* Game state: path stage, next action, gratitude, quests */}
+            <div className="mb-8">
+              <GameDashboard />
             </div>
 
             <div className="grid lg:grid-cols-3 gap-8">

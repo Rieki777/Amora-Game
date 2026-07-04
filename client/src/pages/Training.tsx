@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { gameFetch } from "@/lib/gameApi";
 import { useState, useEffect, useCallback } from "react";
 import {
   BookOpen,
@@ -77,6 +78,11 @@ export default function Training() {
       : [...completed, id];
     setCompleted(next);
     saveCompleted(next);
+    // Mirror to the player's server-side game state (drives Path of Growth stage)
+    gameFetch("/api/game/journey/sync", {
+      method: "POST",
+      body: JSON.stringify({ journeyId: "training", steps: next }),
+    }).catch(() => { /* offline-tolerant; localStorage remains source for UI */ });
   };
 
   const total = modules.length;

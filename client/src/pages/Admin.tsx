@@ -1540,6 +1540,247 @@ function InvestorSummaryAdminTab({ password }: { password: string }) {
   );
 }
 
+// ── Game Admin: Quest Claims consent queue ────────────────────────────────────
+
+function QuestClaimsTab({ password }: { password: string }) {
+  const [claims, setClaims] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [amounts, setAmounts] = useState<Record<string, number>>({});
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/quest-claims`, { headers: authHeaders(password) });
+      const data = await res.json();
+      setClaims(Array.isArray(data) ? data : []);
+    } catch { setClaims([]); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const consent = async (id: string, approve: boolean) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/quest-claims/${id}/consent`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ approve, amount: amounts[id] ?? 50 }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success(approve ? "Consented and credited" : "Declined");
+      load();
+    } catch { toast.error("Action failed"); }
+  };
+
+  const pending = claims.filter((c) => c.status === "submitted");
+  const active = claims.filter((c) => c.status === "claimed");
+  const resolved = claims.filter((c) => c.status === "consented" || c.status === "declined");
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Quest Claims</h2>
+        <p className="text-sm text-gray-500 mt-1">Consent releases the reward. Value only moves with a human yes.</p>
+      </div>
+      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
+        <div className="space-y-8">
+          <div>
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Awaiting consent ({pending.length})</h3>
+            {pending.length === 0 && <p className="text-sm text-gray-400">Nothing waiting.</p>}
+            <div className="space-y-2">
+              {pending.map((c) => (
+                <div key={c.id} className="border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between gap-3 mb-1">
+                    <span className="font-medium text-gray-900">{c.userName}</span>
+                    <span className="text-xs text-gray-400">{new Date(c.submittedAt ?? c.claimedAt).toLocaleDateString()}</span>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-1">{c.questTitle}</p>
+                  {c.note && <p className="text-sm text-gray-500 italic mb-1">"{c.note}"</p>}
+                  {c.artifactUrl && (
+                    <a href={c.artifactUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-[#2D5A5A] underline break-all">
+                      {c.artifactUrl}
+                    </a>
+                  )}
+                  <div className="flex items-center gap-2 mt-3">
+                    <input
+                      type="number"
+                      min={0}
+                      value={amounts[c.id] ?? 50}
+                      onChange={(e) => setAmounts({ ...amounts, [c.id]: parseInt(e.target.value) || 0 })}
+                      className="w-24 px-2 py-1.5 text-sm border border-gray-200 rounded-lg"
+                    />
+                    <button onClick={() => consent(c.id, true)} className="px-3 py-1.5 text-sm bg-[#2D5A5A] text-white rounded-lg">
+                      Consent + credit
+                    </button>
+                    <button onClick={() => consent(c.id, false)} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">In progress ({active.length})</h3>
+            {active.map((c) => (
+              <p key={c.id} className="text-sm text-gray-600 py-1">{c.userName} · {c.questTitle}</p>
+            ))}
+          </div>
+          <div>
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Resolved ({resolved.length})</h3>
+            {resolved.slice(0, 10).map((c) => (
+              <p key={c.id} className="text-sm text-gray-400 py-1">
+                {c.userName} · {c.questTitle} · {c.status}{c.amount ? ` (+${c.amount})` : ""}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Game Admin: Players + stage grants ───────────────────────────────────────
+
+function PlayersTab({ password }: { password: string }) {
+  const [players, setPlayers] = useState<any[]>([]);
+  const [stages, setStages] = useState<{ id: string; name: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [pRes, cRes] = await Promise.all([
+        fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/game/config`),
+      ]);
+      const p = await pRes.json();
+      const c = await cRes.json();
+      setPlayers(Array.isArray(p) ? p : []);
+      setStages(c?.stages ?? []);
+    } catch { setPlayers([]); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const grant = async (id: string, stageId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/players/${id}/stage`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ stageId: stageId || null }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Stage updated");
+      load();
+    } catch { toast.error("Update failed"); }
+  };
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Players</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Stages compute automatically from real acts; grant the ceremony-based stages here.
+        </p>
+      </div>
+      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : players.length === 0 ? (
+        <p className="text-sm text-gray-400">No players yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {players.map((p) => (
+            <div key={p.id} className="border border-gray-200 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
+              <div className="flex-1 min-w-[180px]">
+                <div className="font-medium text-gray-900">{p.name}</div>
+                <div className="text-xs text-gray-400">{p.email} · joined {new Date(p.joinedAt).toLocaleDateString()}</div>
+              </div>
+              <span className="text-xs bg-[#2D5A5A]/10 text-[#2D5A5A] px-2 py-1 rounded-full font-medium">
+                {stages.find((s) => s.id === p.stageComputed)?.name ?? p.stageComputed}
+              </span>
+              <span className="text-xs text-gray-500">{p.balance} earned</span>
+              <select
+                value={p.stageGranted ?? ""}
+                onChange={(e) => grant(p.id, e.target.value)}
+                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+              >
+                <option value="">No grant</option>
+                {stages.map((s) => (
+                  <option key={s.id} value={s.id}>Grant: {s.name}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Game Admin: Season editor ─────────────────────────────────────────────────
+
+function SeasonTab({ password }: { password: string }) {
+  const [season, setSeason] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/season`).then((r) => r.json()).then(setSeason).catch(() => { /* silent */ });
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/season`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(season),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Season saved");
+    } catch { toast.error("Save failed"); }
+    setSaving(false);
+  };
+
+  if (!season) return <div className="text-center py-12 text-gray-400">Loading...</div>;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Current Season</h2>
+          <p className="text-sm text-gray-500 mt-1">Shown as the banner on the homepage. Give each season a name, a theme, and a closing date.</p>
+        </div>
+        <button onClick={save} disabled={saving} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+          {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+      <div className="space-y-4 max-w-xl">
+        {(["name", "theme", "focus"] as const).map((k) => (
+          <div key={k}>
+            <label className="text-sm font-medium text-gray-700 block mb-1 capitalize">{k}</label>
+            <input
+              type="text"
+              value={season[k] ?? ""}
+              onChange={(e) => setSeason({ ...season, [k]: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+            />
+          </div>
+        ))}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-sm font-medium text-gray-700 block mb-1">Starts (YYYY-MM-DD)</label>
+            <input type="text" value={season.startsOn ?? ""} onChange={(e) => setSeason({ ...season, startsOn: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700 block mb-1">Ends (YYYY-MM-DD)</label>
+            <input type="text" value={season.endsOn ?? ""} onChange={(e) => setSeason({ ...season, endsOn: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────────────────
 
 export default function Admin() {
@@ -1652,6 +1893,28 @@ export default function Admin() {
           </button>
 
           <div className="px-4 mt-6 mb-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">The Game</p>
+          </div>
+          {[
+            { key: "quest-claims", label: "Quest Claims", icon: Sparkles },
+            { key: "players", label: "Players", icon: Users },
+            { key: "season", label: "Season", icon: Circle },
+          ].map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+                activeTab === key
+                  ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {label}
+            </button>
+          ))}
+
+          <div className="px-4 mt-6 mb-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Site Content</p>
           </div>
           <button
@@ -1710,6 +1973,9 @@ export default function Admin() {
           {activeTab === "email-settings" && <EmailSettingsTab password={password} />}
           {activeTab === "investor-vault" && <InvestorVaultTab password={password} />}
           {activeTab === "training-modules" && <TrainingModulesTab password={password} />}
+          {activeTab === "quest-claims" && <QuestClaimsTab password={password} />}
+          {activeTab === "players" && <PlayersTab password={password} />}
+          {activeTab === "season" && <SeasonTab password={password} />}
           {activeTab === "faqs" && <FaqAdminTab password={password} />}
           {activeTab === "milestones" && <MilestonesAdminTab password={password} />}
           {activeTab === "visit-config" && <VisitAdminTab password={password} />}

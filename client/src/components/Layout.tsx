@@ -272,6 +272,11 @@ export default function Layout({ children }: LayoutProps) {
                     Plan a Visit
                   </Link>
                 </li>
+                <li>
+                  <Link href="/gratitude" className="text-white/70 hover:text-amber transition-colors text-sm">
+                    Gratitude Wall
+                  </Link>
+                </li>
               </ul>
             </div>
 

@@ -51,6 +51,7 @@ import ResidentRights from "./pages/ResidentRights";
 import Training from "./pages/Training";
 import Governance from "./pages/Governance";
 import Visit from "./pages/Visit";
+import GratitudeWall from "./pages/GratitudeWall";
 
 function Router() {
   const [location] = useLocation();
@@ -85,6 +86,7 @@ function Router() {
       <Route path="/training" component={Training} />
       <Route path="/governance" component={Governance} />
       <Route path="/visit" component={Visit} />
+      <Route path="/gratitude" component={GratitudeWall} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

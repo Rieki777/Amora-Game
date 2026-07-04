@@ -1,5 +1,7 @@
 import Layout from "@/components/Layout";
 import BuildProgress from "@/components/BuildProgress";
+import SeasonBanner from "@/components/SeasonBanner";
+import VillagePulse from "@/components/VillagePulse";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -206,7 +208,11 @@ export default function Home() {
         </div>
       </section>
 
+      <SeasonBanner />
+
       <BuildProgress />
+
+      <VillagePulse />
 
       {/* Choose Your Path */}
       <section id="choose-path" className="py-24 bg-background">

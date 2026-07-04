@@ -108,3 +108,4 @@ temp/
 # Amora runtime data (server state; only the seed file is versioned)
 data/*
 !data/content-seed.json
+!data/quests-seed.json

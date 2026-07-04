@@ -1,0 +1,256 @@
+[
+  {
+    "id": "q-welcome-ambassador",
+    "order": 1,
+    "title": "Welcome Ambassador",
+    "description": "Be the first warm face new visitors and guests encounter. Orient newcomers at community events, answer questions, and help them feel at home in the village.",
+    "impact": "Every visitor who feels welcomed is a potential Amoracita for life.",
+    "gratitude": "50–100",
+    "duration": "Per event (3–6 hrs)",
+    "difficulty": "Beginner",
+    "circle": "Community Development",
+    "status": "Open",
+    "icon": "Users",
+    "tags": [
+      "social",
+      "events",
+      "newcomers"
+    ]
+  },
+  {
+    "id": "q-food-forest-tender",
+    "order": 2,
+    "title": "Food Forest Tender",
+    "description": "Assist with planting, pruning, weeding, and harvesting in our food forests and community gardens. Learn regenerative growing practices hands-on.",
+    "impact": "Directly grows the food that feeds the village and builds our ARI score.",
+    "gratitude": "40–80",
+    "duration": "4–6 hours",
+    "difficulty": "Beginner",
+    "circle": "Regenerative Agriculture",
+    "status": "Open",
+    "icon": "Sprout",
+    "tags": [
+      "land",
+      "food",
+      "regenerative"
+    ]
+  },
+  {
+    "id": "q-potluck-celebration-organizer",
+    "order": 3,
+    "title": "Potluck & Celebration Organizer",
+    "description": "Plan, coordinate, and host monthly community potlucks and seasonal celebrations. Handle logistics, theme-setting, and the little touches that make gatherings memorable.",
+    "impact": "Community bonds form strongest over shared meals and joy.",
+    "gratitude": "100–200",
+    "duration": "Per event",
+    "difficulty": "Intermediate",
+    "circle": "Community Development",
+    "status": "Open",
+    "icon": "ChefHat",
+    "tags": [
+      "events",
+      "community",
+      "social"
+    ]
+  },
+  {
+    "id": "q-trail-builder-maintainer",
+    "order": 4,
+    "title": "Trail Builder & Maintainer",
+    "description": "Help create, mark, and maintain the walking trails connecting all areas of the 67-acre property. Includes clearing, signage, and stewardship.",
+    "impact": "Connects the land and makes it accessible for all beings.",
+    "gratitude": "60–120",
+    "duration": "Full day",
+    "difficulty": "Intermediate",
+    "circle": "Land Stewardship",
+    "status": "Seasonal",
+    "icon": "TreePine",
+    "tags": [
+      "land",
+      "physical",
+      "outdoors"
+    ]
+  },
+  {
+    "id": "q-circle-scribe",
+    "order": 5,
+    "title": "Circle Scribe",
+    "description": "Document circle meetings, proposals, decisions, and community knowledge. Maintain the living record of how Amora governs and creates together.",
+    "impact": "Institutional memory is what makes governance last across generations.",
+    "gratitude": "40–80",
+    "duration": "Per meeting (2–3 hrs)",
+    "difficulty": "Beginner",
+    "circle": "Governance",
+    "status": "Open",
+    "icon": "BookOpen",
+    "tags": [
+      "writing",
+      "governance",
+      "knowledge"
+    ]
+  },
+  {
+    "id": "q-retreat-center-host",
+    "order": 6,
+    "title": "Retreat Center Host",
+    "description": "Welcome and support guests at the Amora retreat center. Coordinate check-ins, facilitate space, and create a seamless guest experience that embodies Amora's values.",
+    "impact": "Every retreat guest is a potential community member-or ambassador.",
+    "gratitude": "80–150",
+    "duration": "Per retreat",
+    "difficulty": "Intermediate",
+    "circle": "Tourism & Retreat",
+    "status": "Open",
+    "icon": "Home",
+    "tags": [
+      "hospitality",
+      "guests",
+      "tourism"
+    ]
+  },
+  {
+    "id": "q-village-photographer-storyteller",
+    "order": 7,
+    "title": "Village Photographer & Storyteller",
+    "description": "Document life at Amora through photos, short videos, and written stories. Capture the real, daily magic of regenerative village life for the community archive and outreach.",
+    "impact": "Authentic stories are how Amora attracts aligned souls worldwide.",
+    "gratitude": "60–120",
+    "duration": "Flexible / ongoing",
+    "difficulty": "Intermediate",
+    "circle": "Arts & Culture",
+    "status": "Open",
+    "icon": "Camera",
+    "tags": [
+      "creative",
+      "media",
+      "storytelling"
+    ]
+  },
+  {
+    "id": "q-children-s-play-day-facilitator",
+    "order": 8,
+    "title": "Children's Play Day Facilitator",
+    "description": "Co-design and run monthly Children's Play Days-wild games, nature crafts, story circles, and the kind of unstructured magic kids rarely get. A core ritual of village life.",
+    "impact": "Children who grow up here will tend this land for generations.",
+    "gratitude": "70–130",
+    "duration": "Half day (monthly)",
+    "difficulty": "Beginner",
+    "circle": "Education",
+    "status": "Open",
+    "icon": "Baby",
+    "tags": [
+      "children",
+      "education",
+      "play"
+    ]
+  },
+  {
+    "id": "q-tech-platform-steward",
+    "order": 9,
+    "title": "Tech & Platform Steward",
+    "description": "Help maintain and improve the Amora digital ecosystem-website, game platform, forms, community tools. Bug reports, UX improvements, documentation, and light development.",
+    "impact": "Scales the village's reach to people who haven't found us yet.",
+    "gratitude": "80–200",
+    "duration": "Flexible / project-based",
+    "difficulty": "Advanced",
+    "circle": "Technology",
+    "status": "Open",
+    "icon": "Laptop",
+    "tags": [
+      "tech",
+      "digital",
+      "building"
+    ]
+  },
+  {
+    "id": "q-healing-arts-practitioner",
+    "order": 10,
+    "title": "Healing Arts Practitioner",
+    "description": "Offer wellness sessions to community members-yoga, meditation, somatic practices, plant medicine ceremonies, massage, or other healing modalities you're trained in.",
+    "impact": "Wellbeing is regenerative. When people are well, the village thrives.",
+    "gratitude": "50–150",
+    "duration": "Per session",
+    "difficulty": "Intermediate",
+    "circle": "Wellness",
+    "status": "Open",
+    "roleRequired": "Trained practitioner",
+    "icon": "Leaf",
+    "tags": [
+      "wellness",
+      "healing",
+      "body"
+    ]
+  },
+  {
+    "id": "q-infrastructure-builder",
+    "order": 11,
+    "title": "Infrastructure Builder",
+    "description": "Support construction, repair, and improvement of shared village infrastructure: composting systems, water catchment, communal kitchen, raised beds, fencing, and more.",
+    "impact": "Built systems are the skeleton the village lives inside.",
+    "gratitude": "80–160",
+    "duration": "Full day",
+    "difficulty": "Advanced",
+    "circle": "Land Stewardship",
+    "status": "Open",
+    "icon": "Hammer",
+    "tags": [
+      "building",
+      "physical",
+      "land"
+    ]
+  },
+  {
+    "id": "q-arts-mural-maker",
+    "order": 12,
+    "title": "Arts & Mural Maker",
+    "description": "Create art that lives in the village-murals, sculptures, fiber works, installations. Bring beauty to shared spaces and express Amora's soul through your medium.",
+    "impact": "Beauty communicates what words can't. This is how the village speaks.",
+    "gratitude": "100–300",
+    "duration": "Project-based",
+    "difficulty": "Intermediate",
+    "circle": "Arts & Culture",
+    "status": "Open",
+    "icon": "Brush",
+    "tags": [
+      "art",
+      "creative",
+      "place-making"
+    ]
+  },
+  {
+    "id": "q-community-music-circle-host",
+    "order": 13,
+    "title": "Community Music Circle Host",
+    "description": "Lead or organize regular music circles, drum jams, singing circles, or informal concerts. Music is how the village celebrates, grieves, and stays alive.",
+    "impact": "Rhythm holds community together in ways nothing else can.",
+    "gratitude": "50–100",
+    "duration": "Per session",
+    "difficulty": "Beginner",
+    "circle": "Arts & Culture",
+    "status": "Open",
+    "icon": "Music",
+    "tags": [
+      "music",
+      "ritual",
+      "community"
+    ]
+  },
+  {
+    "id": "q-security-night-watch",
+    "order": 14,
+    "title": "Security & Night Watch",
+    "description": "Participate in the village safety rotation-nighttime presence, gate awareness, and care for the boundary between Amora and the wider world.",
+    "impact": "Collective safety is how all other contributions stay protected.",
+    "gratitude": "60–100",
+    "duration": "Night shift (6–8 hrs)",
+    "difficulty": "Intermediate",
+    "circle": "Governance",
+    "status": "Open",
+    "roleRequired": "Resident or Immersant",
+    "icon": "ShieldCheck",
+    "tags": [
+      "safety",
+      "land",
+      "responsibility"
+    ]
+  }
+]

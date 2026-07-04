@@ -23,7 +23,10 @@ import {
   Leaf,
   Filter,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { fetchGameMe, QuestClaim } from "@/lib/gameApi";
+import QuestActions, { questIdFromTitle } from "@/components/QuestActions";
 
 type QuestStatus = "Open" | "In Progress" | "Seasonal";
 type Difficulty = "Beginner" | "Intermediate" | "Advanced";
@@ -271,6 +274,22 @@ export default function Quests() {
   const [activeDifficulty, setActiveDifficulty] = useState<Difficulty | "All">(
     "All"
   );
+  const { user } = useAuth();
+  const [claims, setClaims] = useState<Record<string, QuestClaim>>({});
+
+  const refreshClaims = () => {
+    fetchGameMe().then((me) => {
+      if (!me) return;
+      const map: Record<string, QuestClaim> = {};
+      for (const c of me.quests) {
+        // keep the most relevant claim per quest (active beats declined)
+        if (!map[c.questId] || map[c.questId].status === "declined") map[c.questId] = c;
+      }
+      setClaims(map);
+    });
+  };
+
+  useEffect(refreshClaims, []);
 
   const filtered = quests.filter((q) => {
     const circleMatch = activeCircle === "All" || q.circle === activeCircle;
@@ -439,6 +458,13 @@ export default function Quests() {
                     <span>{quest.duration}</span>
                   </div>
                 </div>
+
+                <QuestActions
+                  questId={questIdFromTitle(quest.title)}
+                  signedIn={!!user}
+                  claim={claims[questIdFromTitle(quest.title)]}
+                  onChanged={refreshClaims}
+                />
               </motion.div>
             ))}
           </div>
