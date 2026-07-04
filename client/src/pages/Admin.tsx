@@ -32,15 +32,29 @@ function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
   const [error, setError] = useState("");
+  const [checking, setChecking] = useState(false);
 
-  const submit = (e: React.FormEvent) => {
+  // Validate against the server (which reads ADMIN_PASSWORD from the environment)
+  // rather than a hardcoded value, so rotating the password never locks admin out.
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pw === "1love") {
-      onAuth(pw);
-    } else {
-      setError("Wrong password. Try again.");
-      setPw("");
+    if (!pw) return;
+    setChecking(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/admin/settings`, {
+        headers: { Authorization: `Bearer ${pw}` },
+      });
+      if (res.ok) {
+        onAuth(pw);
+      } else {
+        setError("Wrong password. Try again.");
+        setPw("");
+      }
+    } catch {
+      setError("Could not reach the server. Try again.");
     }
+    setChecking(false);
   };
 
   return (
@@ -76,9 +90,10 @@ function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
           {error && <p className="text-red-500 text-xs">{error}</p>}
           <button
             type="submit"
-            className="w-full py-3 bg-[#2D5A5A] text-white rounded-lg font-medium hover:bg-[#2D5A5A]/90 transition-colors"
+            disabled={checking}
+            className="w-full py-3 bg-[#2D5A5A] text-white rounded-lg font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-60 transition-colors"
           >
-            Enter
+            {checking ? "Checking..." : "Enter"}
           </button>
         </form>
       </div>
