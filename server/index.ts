@@ -14,8 +14,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DATA_DIR = path.resolve(__dirname, "..", "data");
+// Seed sources live OUTSIDE data/ on purpose: in production, data/ is a mounted
+// volume, and mounting a volume onto a path shadows whatever the Docker image had
+// there. Any seed file that lived inside data/ would silently vanish at runtime
+// the moment a volume is attached. Seeds must ship as part of the app image.
+const SEEDS_DIR = path.resolve(__dirname, "..", "server", "seeds");
 const SUBMISSIONS_FILE = path.join(DATA_DIR, "submissions.json");
 const CONTENT_FILE = path.join(DATA_DIR, "content.json");
+const CONTENT_SEED_FILE = path.join(SEEDS_DIR, "content-seed.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const JOURNEY_FILE = path.join(DATA_DIR, "journey-state.json");
 const EMAIL_CONFIG_FILE = path.join(DATA_DIR, "email-config.json");
@@ -23,7 +29,7 @@ const INVESTOR_DOCS_FILE = path.join(DATA_DIR, "investor-docs.json");
 const TRAINING_MODULES_FILE = path.join(DATA_DIR, "training-modules.json");
 const FAQS_FILE = path.join(DATA_DIR, "faqs.json");
 const QUESTS_FILE = path.join(DATA_DIR, "quests.json");
-const QUESTS_SEED_FILE = path.join(DATA_DIR, "quests-seed.json");
+const QUESTS_SEED_FILE = path.join(SEEDS_DIR, "quests-seed.json");
 const QUEST_CLAIMS_FILE = path.join(DATA_DIR, "quest-claims.json");
 const GRATITUDE_LOG_FILE = path.join(DATA_DIR, "gratitude-log.json");
 const ACTIVITY_FILE = path.join(DATA_DIR, "activity.json");
@@ -218,15 +224,33 @@ function decodeToken(token: string): { userId: string; email: string; timestamp:
   }
 }
 
+/**
+ * Seed a data file from a seed source, but also self-heal a known volume-mount
+ * failure mode: if a data volume gets attached to an already-deployed service
+ * (Railway and most PaaS volume mounts do this), the mount shadows whatever the
+ * Docker image had at that path — including any seed file that used to live
+ * inside data/. The very first boot after that mount then "succeeds" at writing
+ * only the trivial empty placeholder (`{}`/`[]`), because it read from a seed
+ * path that had just vanished underneath it. Seed sources now live outside the
+ * mounted directory (see SEEDS_DIR above) so this shouldn't recur, but this
+ * check repairs any data file stuck at that placeholder from before the fix.
+ */
+function seedIfMissingOrEmpty(dataFile: string, seedFile: string, emptyValue: string) {
+  const seedContent = fs.existsSync(seedFile) ? fs.readFileSync(seedFile, "utf-8") : null;
+  if (!fs.existsSync(dataFile)) {
+    fs.writeFileSync(dataFile, seedContent ?? emptyValue);
+    return;
+  }
+  if (seedContent && fs.readFileSync(dataFile, "utf-8").trim() === emptyValue) {
+    fs.writeFileSync(dataFile, seedContent);
+  }
+}
+
 function ensureDataFiles() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   if (!fs.existsSync(SUBMISSIONS_FILE)) fs.writeFileSync(SUBMISSIONS_FILE, "[]");
-  if (!fs.existsSync(CONTENT_FILE)) {
-    const seedFile = path.join(DATA_DIR, "content-seed.json");
-    const seed = fs.existsSync(seedFile) ? fs.readFileSync(seedFile, "utf-8") : "{}";
-    fs.writeFileSync(CONTENT_FILE, seed);
-  }
+  seedIfMissingOrEmpty(CONTENT_FILE, CONTENT_SEED_FILE, "{}");
   if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify({ users: [] }, null, 2));
   if (!fs.existsSync(JOURNEY_FILE)) fs.writeFileSync(JOURNEY_FILE, JSON.stringify({ checkboxes: {}, copy: {}, kanban: {}, decisions: {} }, null, 2));
   if (!fs.existsSync(EMAIL_CONFIG_FILE)) fs.writeFileSync(EMAIL_CONFIG_FILE, JSON.stringify(DEFAULT_EMAIL_CONFIG, null, 2));
@@ -236,10 +260,7 @@ function ensureDataFiles() {
   if (!fs.existsSync(MILESTONES_FILE)) fs.writeFileSync(MILESTONES_FILE, JSON.stringify(DEFAULT_MILESTONES, null, 2));
   if (!fs.existsSync(VISIT_CONFIG_FILE)) fs.writeFileSync(VISIT_CONFIG_FILE, JSON.stringify(DEFAULT_VISIT_CONFIG, null, 2));
   if (!fs.existsSync(INVESTOR_SUMMARY_FILE)) fs.writeFileSync(INVESTOR_SUMMARY_FILE, JSON.stringify(DEFAULT_INVESTOR_SUMMARY, null, 2));
-  if (!fs.existsSync(QUESTS_FILE)) {
-    const seed = fs.existsSync(QUESTS_SEED_FILE) ? fs.readFileSync(QUESTS_SEED_FILE, "utf-8") : "[]";
-    fs.writeFileSync(QUESTS_FILE, seed);
-  }
+  seedIfMissingOrEmpty(QUESTS_FILE, QUESTS_SEED_FILE, "[]");
   if (!fs.existsSync(QUEST_CLAIMS_FILE)) fs.writeFileSync(QUEST_CLAIMS_FILE, "[]");
   if (!fs.existsSync(GRATITUDE_LOG_FILE)) fs.writeFileSync(GRATITUDE_LOG_FILE, "[]");
   if (!fs.existsSync(ACTIVITY_FILE)) fs.writeFileSync(ACTIVITY_FILE, "[]");

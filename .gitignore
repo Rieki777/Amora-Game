@@ -105,7 +105,8 @@ temp/
 *.sqlite
 *.sqlite3
 
-# Amora runtime data (server state; only the seed file is versioned)
+# Amora runtime data (server state; volume-mounted in production).
+# Seed sources live in server/seeds/ instead, NOT here — a data volume mount
+# shadows anything the Docker image had at this path, so seeds must ship
+# outside it to survive.
 data/*
-!data/content-seed.json
-!data/quests-seed.json
