@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus } from "lucide-react";
+import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins } from "lucide-react";
 import { toast } from "sonner";
 
 const API_BASE = "/api";
@@ -1800,6 +1800,322 @@ function SeasonTab({ password }: { password: string }) {
   );
 }
 
+// ── Setup Wizard: the white-label front door — make this site your project's ───
+
+function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (tab: string) => void }) {
+  const [brand, setBrand] = useState<any>(null);
+  const [defaults, setDefaults] = useState<any>(null);
+  const [savingSection, setSavingSection] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/brand`, { headers: authHeaders(password) });
+      const data = await res.json();
+      setBrand(data.brand);
+      setDefaults(data.defaults);
+    } catch { toast.error("Failed to load setup"); }
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const saveBrand = async (section: string, partial: any) => {
+    setSavingSection(section);
+    try {
+      const res = await fetch(`${API_BASE}/admin/brand`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(partial),
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setBrand(data.brand);
+      toast.success("Saved");
+    } catch { toast.error("Save failed"); }
+    setSavingSection(null);
+  };
+
+  const setField = (group: "project" | "currency" | "images", key: string, value: string) =>
+    setBrand({ ...brand, [group]: { ...brand[group], [key]: value } });
+
+  const toggleStep = (key: string) => {
+    const next = { ...brand.setup, [key]: !brand.setup[key] };
+    setBrand({ ...brand, setup: next });
+    saveBrand("setup", { setup: next });
+  };
+
+  if (!brand || !defaults) return <div className="text-center py-12 text-gray-400">Loading...</div>;
+
+  const steps = [
+    { key: "identity", label: "Identity" },
+    { key: "images", label: "Pictures" },
+    { key: "numbers", label: "Numbers" },
+    { key: "content", label: "Content" },
+    { key: "technical", label: "Go live" },
+  ];
+  const doneCount = steps.filter((s) => brand.setup?.[s.key]).length;
+
+  const brandField = (group: "project" | "currency", key: string, label: string, defaultVal: string) => (
+    <div>
+      <label className="text-xs font-medium text-gray-500 block mb-1">{label}</label>
+      <input
+        type="text"
+        value={brand[group][key] ?? ""}
+        onChange={(e) => setField(group, key, e.target.value)}
+        placeholder={defaultVal}
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+      />
+      <p className="text-[11px] text-gray-400 mt-0.5">Amora's value: {defaultVal}</p>
+    </div>
+  );
+
+  const imageField = (key: string, label: string) => (
+    <div>
+      <label className="text-xs font-medium text-gray-500 block mb-1">{label}</label>
+      <input
+        type="url"
+        value={brand.images[key] ?? ""}
+        onChange={(e) => setField("images", key, e.target.value)}
+        placeholder={defaults.images[key]}
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+      />
+      <div className="mt-1.5 h-16 w-28 rounded-md bg-gray-100 overflow-hidden border border-gray-200">
+        <img src={brand.images[key] || defaults.images[key]} alt="" className="w-full h-full object-cover" />
+      </div>
+    </div>
+  );
+
+  const contentEditors = [
+    { tab: "investor", label: "Journey page copy", hint: "Hero text, steps, sections for each of the 4 pathways (use the Content editors)." },
+    { tab: "faqs", label: "FAQs", hint: "The Common Questions on each journey page." },
+    { tab: "milestones", label: "Build Progress", hint: "Your real build milestones shown on the homepage." },
+    { tab: "training-modules", label: "Training modules", hint: "Your community's onboarding/learning modules." },
+    { tab: "visit-config", label: "Visit program", hint: "Visit types, logistics, and booking copy." },
+    { tab: "investor-summary", label: "Investor summary", hint: "The plain-language money facts on the investor page." },
+    { tab: "season", label: "Season", hint: "The current season banner (name, theme, dates)." },
+    { tab: "quest-claims", label: "Quests", hint: "Your quest library is seeded; review and reward completions here." },
+  ];
+
+  const Section = ({ id, n, title, subtitle, children }: any) => (
+    <div className="border border-gray-200 rounded-xl overflow-hidden mb-4">
+      <div className="flex items-center justify-between gap-3 bg-gray-50 px-5 py-3 border-b border-gray-100">
+        <div className="flex items-center gap-3">
+          <span className="w-7 h-7 rounded-full bg-[#2D5A5A] text-white text-sm font-bold flex items-center justify-center">{n}</span>
+          <div>
+            <h3 className="font-semibold text-gray-900 leading-tight">{title}</h3>
+            <p className="text-xs text-gray-500">{subtitle}</p>
+          </div>
+        </div>
+        <label className="flex items-center gap-2 text-xs font-medium text-gray-600 shrink-0 cursor-pointer">
+          <input type="checkbox" checked={!!brand.setup?.[id]} onChange={() => toggleStep(id)} className="h-4 w-4 accent-[#2D5A5A]" />
+          Done
+        </label>
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Make This Site Yours</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Everything you need to turn this into your project's coordination game. Blank fields keep Amora's value as the suggestion.
+        </p>
+        <div className="flex items-center gap-3 mt-4">
+          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden max-w-xs">
+            <div className="h-2 bg-[#2D5A5A] rounded-full transition-all" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
+          </div>
+          <span className="text-sm text-gray-500">{doneCount} / {steps.length} steps</span>
+        </div>
+      </div>
+
+      <Section id="identity" n={1} title="Identity" subtitle="What your project is called.">
+        <div className="grid md:grid-cols-2 gap-4 mb-4">
+          {brandField("project", "name", "Project name", defaults.project.name)}
+          {brandField("project", "tagline", "Tagline", defaults.project.tagline)}
+          {brandField("project", "memberName", "What a member is called", defaults.project.memberName)}
+          {brandField("project", "location", "Location", defaults.project.location)}
+          {brandField("currency", "name", "Recognition currency name", defaults.currency.name)}
+          {brandField("currency", "nameLower", "Currency, lowercase (in a sentence)", defaults.currency.nameLower)}
+        </div>
+        <button onClick={() => saveBrand("identity", { project: brand.project, currency: brand.currency })} disabled={savingSection === "identity"} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+          {savingSection === "identity" ? "Saving..." : "Save identity"}
+        </button>
+        <p className="text-xs text-gray-400 mt-2">Instantly updates the game layer (profile, gratitude, season banner, pulse). Page marketing copy is edited under Content below.</p>
+      </Section>
+
+      <Section id="images" n={2} title="Pictures" subtitle="Hero images across the site. Paste an image URL; landscape works best.">
+        <div className="grid md:grid-cols-3 gap-4 mb-4">
+          {imageField("hero", "Homepage hero")}
+          {imageField("investorHero", "Investor hero")}
+          {imageField("residentHero", "Resident hero")}
+          {imageField("stewardHero", "Steward hero")}
+          {imageField("prosperityHero", "Prosperity hero")}
+          {imageField("masterPlanHero", "Master plan hero")}
+        </div>
+        <button onClick={() => saveBrand("images", { images: brand.images })} disabled={savingSection === "images"} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+          {savingSection === "images" ? "Saving..." : "Save pictures"}
+        </button>
+        <p className="text-xs text-gray-400 mt-2">The social-share image and browser favicon are set at build time in <code>client/index.html</code> (see Go live).</p>
+      </Section>
+
+      <Section id="numbers" n={3} title="Numbers" subtitle="The editable figures on your site.">
+        <p className="text-sm text-gray-600 mb-3">Village dues and other numbers live in the Settings tab.</p>
+        <button onClick={() => onOpenTab("settings")} className="px-4 py-2 bg-white border border-gray-200 text-[#2D5A5A] rounded-lg text-sm font-medium hover:bg-gray-50">
+          Open Settings →
+        </button>
+      </Section>
+
+      <Section id="content" n={4} title="Content" subtitle="Rewrite the words, questions, milestones, and quests for your project.">
+        <div className="space-y-2">
+          {contentEditors.map((c) => (
+            <div key={c.tab} className="flex items-center justify-between gap-3 border border-gray-100 rounded-lg px-4 py-2.5">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-gray-900">{c.label}</div>
+                <div className="text-xs text-gray-500 truncate">{c.hint}</div>
+              </div>
+              <button onClick={() => onOpenTab(c.tab)} className="shrink-0 px-3 py-1.5 text-xs font-medium text-[#2D5A5A] border border-gray-200 rounded-lg hover:bg-gray-50">
+                Open →
+              </button>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section id="technical" n={5} title="Go live" subtitle="One-time technical setup. Hand these to your developer or Claude Code.">
+        <ol className="space-y-4 text-sm text-gray-700">
+          <li>
+            <p className="font-medium text-gray-900">1. Deploy on Railway</p>
+            <p className="text-gray-500 mb-1">From the project folder, with the Railway CLI linked to your service:</p>
+            <pre className="bg-gray-900 text-green-300 text-xs rounded-lg p-3 overflow-x-auto">railway up --ci -m "Initial deploy"</pre>
+          </li>
+          <li>
+            <p className="font-medium text-gray-900">2. Add a persistent data volume</p>
+            <p className="text-gray-500 mb-1">All player and content data lives here. Without it, every deploy wipes it.</p>
+            <pre className="bg-gray-900 text-green-300 text-xs rounded-lg p-3 overflow-x-auto">railway volume add --mount-path /app/data</pre>
+          </li>
+          <li>
+            <p className="font-medium text-gray-900">3. Set environment variables</p>
+            <pre className="bg-gray-900 text-green-300 text-xs rounded-lg p-3 overflow-x-auto">{`railway variables \\
+  --set "ADMIN_PASSWORD=<pick-a-strong-one>" \\
+  --set "JOURNEY_PASSWORD=<pick-a-strong-one>" \\
+  --set "FRONTEND_URL=https://your-domain"`}</pre>
+            <p className="text-gray-500 mt-1">The Resend email API key is set later inside admin, under Notifications.</p>
+          </li>
+          <li>
+            <p className="font-medium text-gray-900">4. Point your domain</p>
+            <p className="text-gray-500">Railway dashboard → your service → Settings → Networking → add your custom domain, then add the CNAME it gives you at your DNS host.</p>
+          </li>
+          <li>
+            <p className="font-medium text-gray-900">5. Social image & favicon</p>
+            <p className="text-gray-500">Edit <code>client/index.html</code>: the <code>og:image</code>, <code>twitter:image</code>, and favicon links (these are build-time, not in this wizard).</p>
+          </li>
+          <li>
+            <p className="font-medium text-gray-900">6. Full reference</p>
+            <p className="text-gray-500">See <code>PLATFORM_FOUNDATION.md</code> in the repo for the complete white-label architecture and swap points.</p>
+          </li>
+        </ol>
+      </Section>
+    </div>
+  );
+}
+
+// ── Settings: editable project numbers (village dues, etc.) ───────────────────
+
+function SettingsTab({ password }: { password: string }) {
+  const [settings, setSettings] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/admin/settings`, { headers: authHeaders(password) })
+      .then((r) => r.json())
+      .then(setSettings)
+      .catch(() => toast.error("Failed to load settings"));
+  }, [password]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/settings`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(settings),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Settings saved");
+    } catch { toast.error("Save failed"); }
+    setSaving(false);
+  };
+
+  if (!settings) return <div className="text-center py-12 text-gray-400">Loading...</div>;
+
+  const dues = settings.villageDues ?? {};
+  const setDues = (patch: any) => setSettings({ ...settings, villageDues: { ...dues, ...patch } });
+  const preview = dues.amount ? `${dues.currency || "$"}${dues.amount} / ${dues.period || "month"}` : "— not shown until you set an amount —";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Settings</h2>
+          <p className="text-sm text-gray-500 mt-1">The plain numbers on the site you can change any time, no code needed.</p>
+        </div>
+        <button onClick={save} disabled={saving} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+          {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+
+      <div className="border border-gray-200 rounded-xl p-5 max-w-xl">
+        <h3 className="font-semibold text-gray-900 mb-1">Village Dues</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Shown on the Resident page. Leave the amount blank while it's still to be confirmed and no figure appears on the site.
+        </p>
+        <div className="grid grid-cols-[1fr_90px_90px] gap-3 mb-3">
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1">Amount</label>
+            <input
+              type="number"
+              min={0}
+              value={dues.amount ?? ""}
+              onChange={(e) => setDues({ amount: e.target.value })}
+              placeholder="e.g. 250"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1">Currency</label>
+            <input
+              type="text"
+              value={dues.currency ?? "$"}
+              onChange={(e) => setDues({ currency: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1">Per</label>
+            <input
+              type="text"
+              value={dues.period ?? "month"}
+              onChange={(e) => setDues({ period: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+            />
+          </div>
+        </div>
+        <label className="text-xs font-medium text-gray-500 block mb-1">Explanation note (shown under the figure)</label>
+        <textarea
+          value={dues.note ?? ""}
+          onChange={(e) => setDues({ note: e.target.value })}
+          rows={3}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y mb-3"
+        />
+        <div className="text-sm text-gray-500">
+          Preview on site: <span className="font-semibold text-[#2D5A5A]">{preview}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────────────────
 
 export default function Admin() {
@@ -1834,6 +2150,21 @@ export default function Admin() {
       <div className="flex">
         <nav className="w-56 min-h-[calc(100vh-60px)] bg-white border-r border-gray-200 py-6 flex-shrink-0">
           <div className="px-4 mb-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Start Here</p>
+          </div>
+          <button
+            onClick={() => setActiveTab("setup")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold transition-colors ${
+              activeTab === "setup"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-[#2D5A5A] hover:bg-gray-50"
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            Make This Yours
+          </button>
+
+          <div className="px-4 mt-6 mb-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Submissions</p>
           </div>
           <button
@@ -1937,6 +2268,17 @@ export default function Admin() {
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Site Content</p>
           </div>
           <button
+            onClick={() => setActiveTab("settings")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "settings"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <Coins className="w-4 h-4" />
+            Settings
+          </button>
+          <button
             onClick={() => setActiveTab("faqs")}
             className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
               activeTab === "faqs"
@@ -1983,6 +2325,7 @@ export default function Admin() {
         </nav>
 
         <main className="flex-1 p-8 max-w-4xl">
+          {activeTab === "setup" && <SetupWizard password={password} onOpenTab={setActiveTab} />}
           {activeTab === "submissions" && <SubmissionsTab password={password} />}
           {CONTENT_SECTIONS.map(({ key, label }) =>
             activeTab === key ? (
@@ -1995,6 +2338,7 @@ export default function Admin() {
           {activeTab === "quest-claims" && <QuestClaimsTab password={password} />}
           {activeTab === "players" && <PlayersTab password={password} />}
           {activeTab === "season" && <SeasonTab password={password} />}
+          {activeTab === "settings" && <SettingsTab password={password} />}
           {activeTab === "faqs" && <FaqAdminTab password={password} />}
           {activeTab === "milestones" && <MilestonesAdminTab password={password} />}
           {activeTab === "visit-config" && <VisitAdminTab password={password} />}

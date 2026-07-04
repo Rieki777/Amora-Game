@@ -37,6 +37,8 @@ const SEASON_FILE = path.join(DATA_DIR, "season.json");
 const MILESTONES_FILE = path.join(DATA_DIR, "milestones.json");
 const VISIT_CONFIG_FILE = path.join(DATA_DIR, "visit-config.json");
 const INVESTOR_SUMMARY_FILE = path.join(DATA_DIR, "investor-summary.json");
+const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
+const BRAND_FILE = path.join(DATA_DIR, "brand.json");
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me";
 const JOURNEY_PASSWORD = process.env.JOURNEY_PASSWORD || "change-me";
@@ -122,6 +124,30 @@ const DEFAULT_INVESTOR_SUMMARY = {
   disclaimer: "Investment in Amora involves risk. All projections are forward-looking and not guaranteed. This is not a solicitation. Speak with your financial and legal advisors before making any investment decision.",
   cta_label: "Request Full Investor Pack",
   cta_url: "",
+};
+
+// Brand overlay: the white-label layer the Setup Wizard writes to. Empty string
+// on any field means "use the gameConfig default", so a fresh project sees Amora's
+// values until they change them. This is what makes a new project live-editable
+// from the browser without a code deploy. Merged over GAME_CONFIG on read.
+const DEFAULT_BRAND = {
+  project: { name: "", tagline: "", memberName: "", location: "" },
+  currency: { name: "", nameLower: "" },
+  images: { hero: "", investorHero: "", residentHero: "", stewardHero: "", prosperityHero: "", masterPlanHero: "" },
+  // Setup Wizard progress — projects tick these off as they make the site theirs.
+  setup: { identity: false, images: false, numbers: false, content: false, technical: false },
+};
+
+// Project settings: the plain numbers a non-technical admin should be able to
+// edit without a deploy. Village dues is the first; add more fields here and a
+// matching input in the Admin "Settings" tab and they flow through the same way.
+const DEFAULT_SETTINGS = {
+  villageDues: {
+    amount: "", // e.g. "250" — blank means "to be confirmed" and no figure is shown on the site
+    period: "month",
+    currency: "$",
+    note: "Village Dues cover utilities, maintenance, and community services. They can be offset through Gratitude (1 Gratitude = $1 USD of contribution).",
+  },
 };
 
 const DEFAULT_TRAINING_MODULES = [
@@ -260,6 +286,8 @@ function ensureDataFiles() {
   if (!fs.existsSync(MILESTONES_FILE)) fs.writeFileSync(MILESTONES_FILE, JSON.stringify(DEFAULT_MILESTONES, null, 2));
   if (!fs.existsSync(VISIT_CONFIG_FILE)) fs.writeFileSync(VISIT_CONFIG_FILE, JSON.stringify(DEFAULT_VISIT_CONFIG, null, 2));
   if (!fs.existsSync(INVESTOR_SUMMARY_FILE)) fs.writeFileSync(INVESTOR_SUMMARY_FILE, JSON.stringify(DEFAULT_INVESTOR_SUMMARY, null, 2));
+  if (!fs.existsSync(SETTINGS_FILE)) fs.writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2));
+  if (!fs.existsSync(BRAND_FILE)) fs.writeFileSync(BRAND_FILE, JSON.stringify(DEFAULT_BRAND, null, 2));
   seedIfMissingOrEmpty(QUESTS_FILE, QUESTS_SEED_FILE, "[]");
   if (!fs.existsSync(QUEST_CLAIMS_FILE)) fs.writeFileSync(QUEST_CLAIMS_FILE, "[]");
   if (!fs.existsSync(GRATITUDE_LOG_FILE)) fs.writeFileSync(GRATITUDE_LOG_FILE, "[]");
@@ -276,6 +304,50 @@ function requireUser(req: express.Request): any | null {
   if (!decoded) return null;
   const users = readJson(USERS_FILE) ?? { users: [] };
   return users.users.find((u: any) => u.id === decoded.userId) ?? null;
+}
+
+function getBrand() {
+  const b = readJson(BRAND_FILE) ?? {};
+  return {
+    project: { ...DEFAULT_BRAND.project, ...(b.project ?? {}) },
+    currency: { ...DEFAULT_BRAND.currency, ...(b.currency ?? {}) },
+    images: { ...DEFAULT_BRAND.images, ...(b.images ?? {}) },
+    setup: { ...DEFAULT_BRAND.setup, ...(b.setup ?? {}) },
+  };
+}
+
+/** Overlay a non-empty brand value over a gameConfig default. */
+function pick<T>(override: T | "" | undefined | null, fallback: T): T {
+  return override === "" || override === undefined || override === null ? fallback : (override as T);
+}
+
+/** GAME_CONFIG merged with the brand overlay — the live, white-labeled config. */
+function mergedConfig() {
+  const brand = getBrand();
+  const p = GAME_CONFIG.project;
+  const c = GAME_CONFIG.currency;
+  const i = GAME_CONFIG.images;
+  return {
+    project: {
+      name: pick(brand.project.name, p.name),
+      tagline: pick(brand.project.tagline, p.tagline),
+      memberName: pick(brand.project.memberName, p.memberName),
+      location: pick(brand.project.location, p.location),
+      adminPath: p.adminPath,
+    },
+    currency: {
+      name: pick(brand.currency.name, c.name),
+      nameLower: pick(brand.currency.nameLower, c.nameLower),
+    },
+    images: {
+      hero: pick(brand.images.hero, i.hero),
+      investorHero: pick(brand.images.investorHero, i.investorHero),
+      residentHero: pick(brand.images.residentHero, i.residentHero),
+      stewardHero: pick(brand.images.stewardHero, i.stewardHero),
+      prosperityHero: pick(brand.images.prosperityHero, i.prosperityHero),
+      masterPlanHero: pick(brand.images.masterPlanHero, i.masterPlanHero),
+    },
+  };
 }
 
 function addActivity(type: string, text: string) {
@@ -1169,6 +1241,25 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // ── Project Settings (village dues + other editable numbers) ──────────────
+
+  app.get("/api/settings", (_req, res) => {
+    res.json({ ...DEFAULT_SETTINGS, ...(readJson(SETTINGS_FILE) ?? {}) });
+  });
+
+  app.get("/api/admin/settings", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    res.json({ ...DEFAULT_SETTINGS, ...(readJson(SETTINGS_FILE) ?? {}) });
+  });
+
+  app.put("/api/admin/settings", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    const current = { ...DEFAULT_SETTINGS, ...(readJson(SETTINGS_FILE) ?? {}) };
+    writeJson(SETTINGS_FILE, { ...current, ...req.body });
+    res.json({ success: true });
+  });
+
   // ── Visit Config (NEW-5) ──────────────────────────────────────────────────
 
   app.get("/api/visit-config", (_req, res) => {
@@ -1209,13 +1300,35 @@ async function startServer() {
 
   // Public game config (safe subset) + current season
   app.get("/api/game/config", (_req, res) => {
+    const m = mergedConfig();
     res.json({
-      project: GAME_CONFIG.project,
-      currency: GAME_CONFIG.currency,
+      project: m.project,
+      currency: m.currency,
+      images: m.images,
       paths: GAME_CONFIG.paths,
       stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
       season: readJson(SEASON_FILE) ?? GAME_CONFIG.season,
     });
+  });
+
+  // Brand overlay: the Setup Wizard reads/writes this to white-label the site live.
+  app.get("/api/admin/brand", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    res.json({ brand: getBrand(), defaults: { project: GAME_CONFIG.project, currency: GAME_CONFIG.currency, images: GAME_CONFIG.images } });
+  });
+
+  app.put("/api/admin/brand", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    const current = getBrand();
+    const next = {
+      project: { ...current.project, ...(req.body.project ?? {}) },
+      currency: { ...current.currency, ...(req.body.currency ?? {}) },
+      images: { ...current.images, ...(req.body.images ?? {}) },
+      setup: { ...current.setup, ...(req.body.setup ?? {}) },
+    };
+    writeJson(BRAND_FILE, next);
+    res.json({ success: true, brand: next });
   });
 
   app.get("/api/season", (_req, res) => {
@@ -1385,7 +1498,7 @@ async function startServer() {
   // Gratitude: send an acknowledgment
   app.post("/api/game/gratitude/send", (req, res) => {
     const user = requireUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to send " + GAME_CONFIG.currency.nameLower });
+    if (!user) return res.status(401).json({ error: "Sign in to send " + mergedConfig().currency.nameLower });
     const { toEmail, amount, message } = req.body ?? {};
     const amt = Math.floor(Number(amount) || 0);
     if (!toEmail || amt <= 0) return res.status(400).json({ error: "Recipient and a positive amount are required" });

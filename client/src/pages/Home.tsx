@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import BuildProgress from "@/components/BuildProgress";
 import SeasonBanner from "@/components/SeasonBanner";
 import VillagePulse from "@/components/VillagePulse";
+import { useBrandImages } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -79,6 +80,7 @@ const journeyStages = [
 ];
 
 export default function Home() {
+  const brand = useBrandImages();
   return (
     <Layout>
       {/* Hero Section */}
@@ -86,7 +88,7 @@ export default function Home() {
         {/* Background Image */}
         <div className="absolute inset-0 z-0">
           <img
-            src={HERO_IMAGE}
+            src={brand.hero || HERO_IMAGE}
             alt="Aerial view over Amora's jungle canopy to the Pacific coastline at Dominicalito"
             className="w-full h-full object-cover"
           />

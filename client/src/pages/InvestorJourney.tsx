@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useBrandImages } from "@/lib/gameApi";
 import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
 import InvestorSummary from "@/components/InvestorSummary";
@@ -180,6 +181,7 @@ const buyerPersonas = [
 
 
 export default function InvestorJourney() {
+  const brand = useBrandImages();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("discover");
   const [showPackForm, setShowPackForm] = useState(false);
@@ -269,7 +271,7 @@ export default function InvestorJourney() {
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
           <motion.img
-            src={INVESTOR_IMAGE}
+            src={brand.investorHero || INVESTOR_IMAGE}
             alt="Sustainable luxury development"
             className="w-full h-full object-cover"
             initial={{ scale: 1.1 }}

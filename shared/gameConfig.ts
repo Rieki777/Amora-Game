@@ -74,6 +74,16 @@ export interface GameConfig {
     /** Sentence-position variant, e.g. "gratitude" in "send gratitude". */
     nameLower: string;
   };
+  /** Hero images rendered by React pages. Runtime-swappable via the brand overlay
+   * (the Setup Wizard). og:image and favicon are build-time in index.html, not here. */
+  images: {
+    hero: string;
+    investorHero: string;
+    residentHero: string;
+    stewardHero: string;
+    prosperityHero: string;
+    masterPlanHero: string;
+  };
   paths: GamePath[];
   /** The progression ladder, in order. First stage is the default. */
   stages: GameStage[];
@@ -111,6 +121,15 @@ export const GAME_CONFIG: GameConfig = {
   currency: {
     name: "Gratitude",
     nameLower: "gratitude",
+  },
+
+  images: {
+    hero: "https://amora.cr/wp-content/uploads/2025/11/4.jpg",
+    investorHero: "https://amora.cr/wp-content/uploads/2025/11/Shared-Governance-1024x683.jpg",
+    residentHero: "https://amora.cr/wp-content/uploads/2026/02/Land-Tour-3-1024x724.jpg",
+    stewardHero: "https://amora.cr/wp-content/uploads/2025/11/Planting-Trees.jpg",
+    prosperityHero: "https://amora.cr/wp-content/uploads/2026/02/Holistic-Wellbeing-1024x1024.jpg",
+    masterPlanHero: "https://amora.cr/wp-content/uploads/2025/11/4.jpg",
   },
 
   paths: [

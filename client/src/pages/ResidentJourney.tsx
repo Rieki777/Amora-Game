@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useBrandImages } from "@/lib/gameApi";
 import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
 import { useState, useEffect } from "react";
@@ -170,15 +171,28 @@ const residentProgression = [
   { level: "Sage", description: "Intergenerational bridge, Rights of Nature voice", icon: Crown, years: "49 years" },
 ];
 
+interface VillageDues {
+  amount?: string;
+  period?: string;
+  currency?: string;
+  note?: string;
+}
+
 export default function ResidentJourney() {
+  const brand = useBrandImages();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("community-call");
+  const [dues, setDues] = useState<VillageDues | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("amora-resident-progress");
     if (saved) {
       setCompletedSteps(JSON.parse(saved));
     }
+    fetch("/api/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => setDues(s?.villageDues ?? null))
+      .catch(() => { /* leave dues null; prose still renders */ });
   }, []);
 
   const toggleStep = (stepId: string) => {
@@ -197,7 +211,7 @@ export default function ResidentJourney() {
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
           <motion.img
-            src={RESIDENT_IMAGE}
+            src={brand.residentHero || RESIDENT_IMAGE}
             alt="Amora home"
             className="w-full h-full object-cover"
             initial={{ scale: 1.1 }}
@@ -524,11 +538,18 @@ export default function ResidentJourney() {
             <h2 className="font-display text-3xl md:text-4xl font-semibold text-foreground mb-4">
               Village Dues
             </h2>
+            {dues?.amount && (
+              <div className="mb-6">
+                <span className="font-display text-5xl md:text-6xl font-bold text-teal-deep">
+                  {dues.currency || "$"}{dues.amount}
+                </span>
+                <span className="text-xl text-muted-foreground"> / {dues.period || "month"}</span>
+              </div>
+            )}
             <p className="text-muted-foreground mb-6">
-              As a resident, you'll pay Village Dues that cover utilities, maintenance,
-              and community services. These can be covered through <strong>Gratitude</strong>, contributions
-              that track real value (1 Gratitude = $1 USD). Together, we work to reduce costs and create
-              surplus that benefits everyone.
+              {dues?.note?.trim()
+                ? dues.note
+                : "As a resident, you'll pay Village Dues that cover utilities, maintenance, and community services. These can be covered through Gratitude, contributions that track real value (1 Gratitude = $1 USD). Together, we work to reduce costs and create surplus that benefits everyone."}
             </p>
             <Link
               href="/how-we-create"

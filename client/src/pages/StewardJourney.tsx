@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useBrandImages } from "@/lib/gameApi";
 import FaqSection from "@/components/FaqSection";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
@@ -159,6 +160,7 @@ const longTermArc = [
 ];
 
 export default function StewardJourney() {
+  const brand = useBrandImages();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("community-call");
 
@@ -185,7 +187,7 @@ export default function StewardJourney() {
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
           <motion.img
-            src={STEWARD_IMAGE}
+            src={brand.stewardHero || STEWARD_IMAGE}
             alt="Village stewards in circle"
             className="w-full h-full object-cover"
             initial={{ scale: 1.1 }}

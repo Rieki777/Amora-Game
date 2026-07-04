@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useBrandImages } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { 
@@ -57,13 +58,14 @@ const zones = [
 ];
 
 export default function MasterPlan() {
+  const brand = useBrandImages();
   return (
     <Layout>
       {/* Hero */}
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
           <img
-            src={HERO_IMAGE}
+            src={brand.masterPlanHero || HERO_IMAGE}
             alt="Amora Master Plan"
             className="w-full h-full object-cover"
           />

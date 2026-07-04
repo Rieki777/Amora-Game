@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useBrandImages } from "@/lib/gameApi";
 import FaqSection from "@/components/FaqSection";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
@@ -138,6 +139,7 @@ const ariTiers = [
 ];
 
 export default function ProsperityJourney() {
+  const brand = useBrandImages();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("community-call");
 
@@ -164,7 +166,7 @@ export default function ProsperityJourney() {
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
           <motion.img
-            src={PROSPERITY_IMAGE}
+            src={brand.prosperityHero || PROSPERITY_IMAGE}
             alt="Business prosperity"
             className="w-full h-full object-cover"
             initial={{ scale: 1.1 }}
