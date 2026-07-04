@@ -41,9 +41,15 @@ type FaqPathway = (typeof FAQ_PATHWAYS)[number];
 
 const DEFAULT_FAQS: Record<FaqPathway, { id: string; question: string; answer: string }[]> = {
   investor: [
-    { id: "inv-1", question: "What if the project doesn't complete?", answer: "Investors hold debt secured against the land. In the unlikely event of project failure, debt holders have first claim on the 266-acre property which was appraised at $16M+ in January 2026." },
-    { id: "inv-2", question: "What is the minimum investment?", answer: "Minimum amounts vary by vehicle. Contact the team to discuss options that match your capacity." },
-    { id: "inv-3", question: "Can I live at Amora as an investor?", answer: "Yes. Investors who become residents get priority access to lots. Your investment can apply toward your Land Share Agreement." },
+    { id: "inv-1", question: "What is the legal structure?", answer: "Amora uses a Horizontal Condominium under Costa Rican law, combined with a 508(c)(1)(a) community organization. Individual lot ownership with shared commons management." },
+    { id: "inv-2", question: "How does debt vs equity work?", answer: "We prefer debt financing to keep community ownership intact. Investors lend to the project and receive interest plus priority on lot purchases." },
+    { id: "inv-3", question: "What is the minimum investment?", answer: "Minimum amounts vary by vehicle. Contact the team to discuss options that match your capacity." },
+    { id: "inv-4", question: "What are my exit options?", answer: "Investors can exit through lot sale at appreciated value, business equity stake, or structured buy-back options. We prioritize liquidity for investors who need it." },
+    { id: "inv-5", question: "What if the project doesn't complete?", answer: "Investors hold debt secured against the land. In the unlikely event of project failure, debt holders have first claim on the 266-acre property which was appraised at $16M+ in January 2026." },
+    { id: "inv-6", question: "Can I live at Amora as an investor?", answer: "Yes. Investors who become residents get priority access to lots, and you can build a home on your lot. Your investment can apply toward your Land Share Agreement." },
+    { id: "inv-7", question: "What fees are involved?", answer: "Annual village contribution fee covers shared services, infrastructure maintenance, and circle operations. Exact amounts will be detailed in your investor pack." },
+    { id: "inv-8", question: "How does governance work?", answer: "Resident investors gain voice in village decisions through our consent-based circle system. The more you contribute over time, the more governance weight you earn." },
+    { id: "inv-9", question: "When is ROI expected?", answer: "The 15-year financial model projects returns from resort, retail, and residential components. Year-by-year projections are in the Investor Pack." },
   ],
   steward: [
     { id: "stw-1", question: "How are decisions made?", answer: "Through sociocratic circles using consent-based decision making. No single person, including the founders, can override a community consent vote." },
@@ -66,7 +72,7 @@ const DEFAULT_MILESTONES = [
   { id: "land-acquired", phase: "Phase 0", title: "Land Acquired", description: "266 acres in Dominicalito, Costa Rica secured.", status: "complete", completedDate: "2024-06", updateNote: "", order: 1 },
   { id: "appraisal-2026", phase: "Phase 0", title: "January 2026 Appraisal", description: "Independent appraisal values property at $16M+.", status: "complete", completedDate: "2026-01", updateNote: "", order: 2 },
   { id: "founding-team", phase: "Phase 1", title: "Founding Team Assembled", description: "Core co-creators circle formed and active.", status: "complete", completedDate: "2025-09", updateNote: "", order: 3 },
-  { id: "site-planning", phase: "Phase 1", title: "Site Planning & Design", description: "Master plan, infrastructure layout, and first home designs.", status: "in-progress", completedDate: null, updateNote: "Master plan review in progress as of May 2026.", order: 4 },
+  { id: "site-planning", phase: "Phase 1", title: "Site Planning & Design", description: "Master plan, infrastructure layout, and first home designs.", status: "in-progress", completedDate: null, updateNote: "Master plan review underway.", order: 4 },
   { id: "retreat-center", phase: "Phase 2", title: "Retreat Center", description: "120-150 key eco-resort and retreat facility.", status: "upcoming", completedDate: null, updateNote: "", order: 5 },
   { id: "show-homes", phase: "Phase 2", title: "First 10 Show Homes", description: "First residential structures built and move-in ready.", status: "upcoming", completedDate: null, updateNote: "", order: 6 },
   { id: "health-center", phase: "Phase 3", title: "Health + Wellness Center", description: "On-site medical and holistic wellness facility.", status: "upcoming", completedDate: null, updateNote: "", order: 7 },
@@ -128,7 +134,7 @@ const DEFAULT_TRAINING_MODULES = [
     id: "consent-decisions",
     title: "Consent-Based Decision Making",
     description:
-      "How Amora makes decisions together — the difference between consensus and consent, and why it matters.",
+      "How Amora makes decisions together: the difference between consensus and consent, and why it matters.",
     type: "Article",
     url: "",
     order: 3,
@@ -332,9 +338,9 @@ async function startServer() {
     next();
   });
 
-  // Health check
+  // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-04-audit", timestamp: new Date().toISOString() });
   });
 
   // Form Submission

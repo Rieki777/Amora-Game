@@ -3,6 +3,7 @@ import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
 import InvestorSummary from "@/components/InvestorSummary";
 import { useState, useEffect } from "react";
+import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   TrendingUp, 
@@ -94,32 +95,6 @@ const journeySteps = [
   },
 ];
 
-const investmentHighlights = [
-  {
-    title: "Debt Over Equity",
-    description: "We prioritize debt financing to ensure the community maintains ownership. Investors who want to live at Amora are given priority.",
-    icon: Heart,
-    color: "bg-teal-deep/10 text-teal-deep",
-  },
-  {
-    title: "$16M+ Appraisal",
-    description: "Recent January 2026 appraisal values the property at over $16 million, with additional commons land appraisal pending.",
-    icon: DollarSign,
-    color: "bg-gold/10 text-gold",
-  },
-  {
-    title: "1% Regenerative Loan",
-    description: "We're exploring a low-interest regenerative development loan that would accelerate multiple development phases simultaneously.",
-    icon: TrendingUp,
-    color: "bg-sage/10 text-sage",
-  },
-  {
-    title: "Community Ownership",
-    description: "Our goal is for all Amora homes, structures, and businesses to be owned by residents and co-creators.",
-    icon: Users,
-    color: "bg-teal-light/10 text-teal-light",
-  },
-];
 
 const developmentPhases = [
   { phase: "Resort & Retreat Center", units: "120-150 keys", status: "Planning", progress: 15 },
@@ -203,51 +178,15 @@ const buyerPersonas = [
   }
 ];
 
-const faqItems = [
-  {
-    question: "What is the legal structure?",
-    answer: "Amora uses a Horizontal Condominium under Costa Rican law, combined with a 508(c)(1)(a) community organization. Individual lot ownership with shared commons management."
-  },
-  {
-    question: "What are my exit options?",
-    answer: "Investors can exit through lot sale at appreciated value, business equity stake, or structured buy-back options. We prioritize liquidity for investors who need it."
-  },
-  {
-    question: "How does debt vs equity work?",
-    answer: "We prefer debt financing to keep community ownership intact. Investors lend to the project and receive interest plus priority on lot purchases."
-  },
-  {
-    question: "Can I build on my investment?",
-    answer: "Yes. Investors who become residents can build a home on their lot while contributing to the village vision."
-  },
-  {
-    question: "What fees are involved?",
-    answer: "Annual village contribution fee covers shared services, infrastructure maintenance, and circle operations. Exact amounts will be detailed in your investor pack."
-  },
-  {
-    question: "How does governance work?",
-    answer: "Resident investors gain voice in village decisions through our consent-based circle system. The more you contribute over time, the more governance weight you earn."
-  },
-  {
-    question: "What is the minimum investment?",
-    answer: "Minimum investment amounts vary by investment vehicle. Contact the team to discuss current options that match your capacity."
-  },
-  {
-    question: "When is ROI expected?",
-    answer: "The 15-year financial model projects significant returns from resort, retail, and residential components. Year-by-year projections are in the Investor Pack."
-  }
-];
 
 export default function InvestorJourney() {
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("discover");
-  const [activeHighlight, setActiveHighlight] = useState(0);
   const [showPackForm, setShowPackForm] = useState(false);
   const [showCallForm, setShowCallForm] = useState(false);
   const [packFormData, setPackFormData] = useState({ name: "", email: "", investmentRange: "", message: "", accredited: false });
   const [callFormData, setCallFormData] = useState({ name: "", email: "", preferredTime: "", message: "" });
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
-  const [expandedFaq, setExpandedFaq] = useState<string | null>(null);
 
   // Load progress from localStorage
   useEffect(() => {
@@ -323,14 +262,6 @@ export default function InvestorJourney() {
       console.error("Form submission error:", error);
     }
   };
-
-  // Auto-rotate highlights
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveHighlight(prev => (prev + 1) % investmentHighlights.length);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
 
   return (
     <Layout>
@@ -469,56 +400,6 @@ export default function InvestorJourney() {
       </section>
 
       <InvestorSummary />
-
-      {/* Investment Highlights - Animated Carousel */}
-      <section className="py-16 bg-cream">
-        <div className="container">
-          <motion.div 
-            className="text-center mb-12"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-          >
-            <h2 className="font-display text-3xl md:text-4xl font-semibold text-foreground mb-4">
-              Investment Philosophy
-            </h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto">
-              Our approach ensures community ownership while creating sustainable returns.
-            </p>
-          </motion.div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {investmentHighlights.map((item, index) => (
-              <motion.div
-                key={item.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.1 }}
-                whileHover={{ y: -8, scale: 1.02 }}
-                onHoverStart={() => setActiveHighlight(index)}
-                className={`bg-card p-6 rounded-xl shadow-sm cursor-pointer transition-all ${
-                  activeHighlight === index ? "ring-2 ring-coral shadow-lg" : ""
-                }`}
-              >
-                <motion.div 
-                  className={`w-12 h-12 rounded-lg ${item.color} flex items-center justify-center mb-4`}
-                  animate={activeHighlight === index ? { scale: [1, 1.1, 1] } : {}}
-                  transition={{ duration: 0.5 }}
-                >
-                  <item.icon className="w-6 h-6" />
-                </motion.div>
-                <h3 className="font-display text-lg font-semibold text-foreground mb-2">
-                  {item.title}
-                </h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  {item.description}
-                </p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
 
       {/* Who Invests in Amora Section */}
       <section className="py-20 bg-cream">
@@ -798,70 +679,7 @@ export default function InvestorJourney() {
         </div>
       </section>
 
-      {/* Investor FAQ */}
-      <section className="py-20 bg-background">
-        <div className="container">
-          <motion.div 
-            className="max-w-3xl mx-auto text-center mb-12"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-          >
-            <h2 className="font-display text-3xl md:text-4xl font-semibold text-foreground mb-4">
-              Investor FAQs
-            </h2>
-            <p className="text-muted-foreground">
-              Answers to common questions about investing in Amora.
-            </p>
-          </motion.div>
-
-          <div className="max-w-3xl mx-auto space-y-3">
-            {faqItems.map((item, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 10 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.05 }}
-                className="bg-card rounded-lg shadow-sm overflow-hidden"
-              >
-                <button
-                  onClick={() => setExpandedFaq(expandedFaq === index.toString() ? null : index.toString())}
-                  className="w-full p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors"
-                >
-                  <h3 className="font-display text-lg font-semibold text-foreground pr-4">
-                    {item.question}
-                  </h3>
-                  <motion.div
-                    animate={{ rotate: expandedFaq === index.toString() ? 180 : 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="flex-shrink-0"
-                  >
-                    <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                  </motion.div>
-                </button>
-                <AnimatePresence>
-                  {expandedFaq === index.toString() && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.3 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="px-6 pb-6 text-muted-foreground border-t border-muted pt-4">
-                        {item.answer}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <FaqSection pathway="investor" />
+      <FaqSection pathway="investor" heading="Investor FAQs" />
 
       {/* CTA */}
       <section className="py-20 bg-gradient-to-br from-gold/10 to-coral/10">
@@ -892,13 +710,13 @@ export default function InvestorJourney() {
                 Request Investor Pack
                 <ArrowRight className="w-5 h-5" />
               </button>
-              <a
-                href="#"
+              <Link
+                href="/master-plan"
                 className="px-6 py-3 bg-white/90 text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-white transition-all flex items-center gap-2"
               >
-                View Full Presentation
-                <ExternalLink className="w-5 h-5" />
-              </a>
+                View the Master Plan
+                <ArrowRight className="w-5 h-5" />
+              </Link>
             </div>
           </motion.div>
         </div>

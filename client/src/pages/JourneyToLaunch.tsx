@@ -1652,7 +1652,8 @@ export default function JourneyToLaunch() {
             </p>
           </div>
           <div className="px-3 mb-4 space-y-0.5">
-            {PAGES.map((p) => (
+            {/* seasonal-festivals has no registered route yet - exclude until the page exists */}
+            {PAGES.filter((p) => p.id !== "seasonal-festivals").map((p) => (
               <a
                 key={`quicklink-${p.id}`}
                 href={p.url}

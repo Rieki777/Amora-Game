@@ -17,9 +17,9 @@
     <meta property="og:url" content="https://play.amora.cr" />
     <meta property="og:title" content="Amora Co-Create | Regenerative Village in Costa Rica" />
     <meta property="og:description" content="Join a regenerative village in Costa Rica where all beings belong and thrive. Four paths to participation: Investor, Village Steward, Resident, and Prosperity Creator." />
-    <meta property="og:image" content="https://amora.cr/wp-content/uploads/2025/11/Our-Intentional-Community-Amora-Background.jpg" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
+    <meta property="og:image" content="https://amora.cr/wp-content/uploads/2025/11/4.jpg" />
+    <meta property="og:image:width" content="1920" />
+    <meta property="og:image:height" content="1080" />
     <meta property="og:site_name" content="Amora" />
     <meta property="og:locale" content="en_US" />
 
@@ -28,7 +28,7 @@
     <meta name="twitter:url" content="https://play.amora.cr" />
     <meta name="twitter:title" content="Amora Co-Create | Regenerative Village in Costa Rica" />
     <meta name="twitter:description" content="Join a regenerative village in Costa Rica where all beings belong and thrive. Four paths: Investor, Village Steward, Resident, Prosperity Creator." />
-    <meta name="twitter:image" content="https://amora.cr/wp-content/uploads/2025/11/Our-Intentional-Community-Amora-Background.jpg" />
+    <meta name="twitter:image" content="https://amora.cr/wp-content/uploads/2025/11/4.jpg" />
 
     <!-- Favicon (use amora.cr favicon) -->
     <link rel="icon" type="image/png" href="https://amora.cr/wp-content/uploads/2025/11/favicon.png" />
@@ -74,10 +74,20 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script
-      defer
-      src="%VITE_ANALYTICS_ENDPOINT%/umami"
-      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+    <script>
+      // Load analytics only when a real endpoint is configured at build time.
+      // Prevents a 404 + SyntaxError on every page when the env vars are blank.
+      (function () {
+        var endpoint = "%VITE_ANALYTICS_ENDPOINT%";
+        var websiteId = "%VITE_ANALYTICS_WEBSITE_ID%";
+        if (!endpoint || endpoint.indexOf("%") !== -1 || !websiteId || websiteId.indexOf("%") !== -1) return;
+        var s = document.createElement("script");
+        s.defer = true;
+        s.src = endpoint + "/umami";
+        s.setAttribute("data-website-id", websiteId);
+        document.body.appendChild(s);
+      })();
+    </script>
   </body>
 
 </html>

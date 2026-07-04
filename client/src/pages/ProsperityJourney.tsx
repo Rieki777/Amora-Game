@@ -42,12 +42,11 @@ const journeySteps = [
     id: "prosperity-packet",
     stage: "Dreamer",
     title: "Explore the Prosperity Packet",
-    description: "Download the full guide to launching a business at Amora.",
+    description: "Request the full guide to launching a business at Amora.",
     icon: Download,
-    link: "#prosperity-packet",
-    linkText: "Download Packet",
-    external: false,
-    action: "download-packet",
+    link: "mailto:business@amora.cr?subject=Prosperity%20Packet%20Request",
+    linkText: "Request Packet",
+    external: true,
     details: ["Business model overview", "Revenue share structure", "Integration requirements", "Success stories"]
   },
   {
@@ -89,8 +88,8 @@ const journeySteps = [
     title: "Launch Your Business",
     description: "Integrate with the Gratitude contribution system and begin serving the Amora community.",
     icon: PartyPopper,
-    link: "#",
-    linkText: "Launch Checklist",
+    link: "",
+    linkText: "",
     external: false,
     details: ["Integrate Gratitude tracking", "Set up community dashboard", "Train your team", "Celebrate your launch"]
   },
@@ -100,7 +99,7 @@ const journeySteps = [
     title: "Grow Your Impact",
     description: "Advance through ARI tiers and scale your regenerative business.",
     icon: TrendingUp,
-    link: "#",
+    link: "#ari-tiers",
     linkText: "View ARI Tiers",
     external: false,
     details: ["Track impact metrics", "Grow community contribution", "Mentor other creators", "Advance to next tier"]
@@ -155,15 +154,6 @@ export default function ProsperityJourney() {
       : [...completedSteps, stepId];
     setCompletedSteps(newCompleted);
     localStorage.setItem("amora-prosperity-progress", JSON.stringify(newCompleted));
-  };
-
-  const handleDownloadPacket = () => {
-    const formData = { type: "prosperity-packet" };
-    fetch("/api/forms/submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(formData),
-    }).catch(err => console.error("Form submission error:", err));
   };
 
   const progress = (completedSteps.length / journeySteps.length) * 100;
@@ -228,13 +218,13 @@ export default function ProsperityJourney() {
               transition={{ delay: 0.3 }}
               className="flex flex-wrap gap-4"
             >
-              <button
-                onClick={handleDownloadPacket}
+              <a
+                href="mailto:business@amora.cr?subject=Prosperity%20Packet%20Request"
                 className="btn-amora flex items-center gap-2"
               >
                 <Download className="w-5 h-5" />
-                Download Prosperity Packet
-              </button>
+                Request Prosperity Packet
+              </a>
               <a
                 href="https://amora.cr/event/discover-amora-webinar-qa/"
                 target="_blank"
@@ -424,14 +414,14 @@ export default function ProsperityJourney() {
                                 ))}
                               </ul>
                             </div>
-                            {step.action === "download-packet" ? (
-                              <button
-                                onClick={handleDownloadPacket}
+                            {!step.link ? null : step.link.startsWith("#") ? (
+                              <a
+                                href={step.link}
                                 className="inline-flex items-center gap-2 px-4 py-2 bg-gold text-white rounded-full text-sm font-medium hover:opacity-90 transition-opacity"
                               >
                                 {step.linkText}
-                                <Download className="w-4 h-4" />
-                              </button>
+                                <ArrowRight className="w-4 h-4" />
+                              </a>
                             ) : step.external ? (
                               <a
                                 href={step.link}
@@ -464,7 +454,7 @@ export default function ProsperityJourney() {
       </section>
 
       {/* ARI Tiers */}
-      <section className="py-20 bg-cream">
+      <section id="ari-tiers" className="py-20 bg-cream">
         <div className="container">
           <motion.div 
             className="text-center mb-12"
@@ -531,15 +521,15 @@ export default function ProsperityJourney() {
               Ready to Explore Opportunities?
             </h2>
             <p className="text-muted-foreground mb-8">
-              Download the Prosperity Packet to learn everything about launching a business at Amora.
+              Request the Prosperity Packet to learn everything about launching a business at Amora.
             </p>
-            <button
-              onClick={handleDownloadPacket}
+            <a
+              href="mailto:business@amora.cr?subject=Prosperity%20Packet%20Request"
               className="btn-amora inline-flex items-center gap-2"
             >
               <Download className="w-5 h-5" />
-              Download Prosperity Packet
-            </button>
+              Request Prosperity Packet
+            </a>
           </motion.div>
         </div>
       </section>
@@ -563,8 +553,8 @@ export default function ProsperityJourney() {
               Launch Your Regenerative Business
             </h2>
             <p className="text-muted-foreground mb-8">
-              Start with a community call to ask questions about the economic model, 
-              then download the Prosperity Packet and begin your journey.
+              Start with a community call to ask questions about the economic model,
+              then request the Prosperity Packet and begin your journey.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <a
@@ -576,13 +566,13 @@ export default function ProsperityJourney() {
                 <Calendar className="w-5 h-5" />
                 Join Community Call
               </a>
-              <button
-                onClick={handleDownloadPacket}
+              <a
+                href="mailto:business@amora.cr?subject=Prosperity%20Packet%20Request"
                 className="px-6 py-3 bg-white text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-white/90 transition-all border border-border inline-flex items-center gap-2"
               >
                 <Download className="w-5 h-5" />
-                Download Packet
-              </button>
+                Request Packet
+              </a>
             </div>
           </motion.div>
         </div>

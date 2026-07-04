@@ -22,7 +22,7 @@ import {
   Globe
 } from "lucide-react";
 
-const HERO_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/Our-Intentional-Community-Amora-Background.jpg";
+const HERO_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/4.jpg";
 
 
 const journeyCards = [
@@ -85,7 +85,7 @@ export default function Home() {
         <div className="absolute inset-0 z-0">
           <img
             src={HERO_IMAGE}
-            alt="Amora Village aerial view"
+            alt="Aerial view over Amora's jungle canopy to the Pacific coastline at Dominicalito"
             className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-transparent" />

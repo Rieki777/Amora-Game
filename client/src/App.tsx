@@ -10,6 +10,17 @@ import { AuthProvider } from "./contexts/AuthContext";
 function ScrollToTop() {
   const [location] = useLocation();
   useEffect(() => {
+    // If the URL carries an anchor (e.g. /#choose-path from another page),
+    // scroll to it once the new page has rendered instead of forcing the top.
+    const hash = window.location.hash;
+    if (hash) {
+      const t = setTimeout(() => {
+        const el = document.querySelector(hash);
+        if (el) el.scrollIntoView({ behavior: "smooth" });
+        else window.scrollTo({ top: 0, behavior: "instant" });
+      }, 100);
+      return () => clearTimeout(t);
+    }
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [location]);
   return null;

@@ -14,7 +14,7 @@ import {
   Building
 } from "lucide-react";
 
-const HERO_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/Our-Intentional-Community-Amora-Background.jpg";
+const HERO_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/4.jpg";
 
 const stats = [
   { label: "Total Acres", value: "300+", icon: Mountain },

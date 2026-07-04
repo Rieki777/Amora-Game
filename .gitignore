@@ -105,5 +105,6 @@ temp/
 *.sqlite
 *.sqlite3
 
-# Amora data (keep submissions.json and content.json, exclude user accounts)
-data/users.json
+# Amora runtime data (server state; only the seed file is versioned)
+data/*
+!data/content-seed.json

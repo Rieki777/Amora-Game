@@ -583,20 +583,10 @@ export default function ResidentJourney() {
               Schedule a village visit to experience Amora firsthand and ask any questions 
               about becoming a resident.
             </p>
-            <button
-              onClick={() => {
-                const formData = { type: "resident-visit" };
-                fetch("/api/forms/submit", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(formData),
-                }).catch(err => console.error("Form submission error:", err));
-              }}
-              className="btn-amora inline-flex items-center gap-2"
-            >
+            <Link href="/visit" className="btn-amora inline-flex items-center gap-2">
               <Calendar className="w-5 h-5" />
               Schedule a Village Visit
-            </button>
+            </Link>
           </motion.div>
         </div>
       </section>
