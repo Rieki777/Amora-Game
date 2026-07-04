@@ -1677,6 +1677,19 @@ function PlayersTab({ password }: { password: string }) {
     } catch { toast.error("Update failed"); }
   };
 
+  const remove = async (id: string, email: string) => {
+    if (!confirm(`Delete player ${email}? This removes their account. Historical quest claims and gratitude entries are kept.`)) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/players/${id}`, {
+        method: "DELETE",
+        headers: authHeaders(password),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Player deleted");
+      load();
+    } catch { toast.error("Delete failed"); }
+  };
+
   return (
     <div>
       <div className="mb-6">
@@ -1709,6 +1722,12 @@ function PlayersTab({ password }: { password: string }) {
                   <option key={s.id} value={s.id}>Grant: {s.name}</option>
                 ))}
               </select>
+              <button
+                onClick={() => remove(p.id, p.email)}
+                className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5 font-medium"
+              >
+                Delete
+              </button>
             </div>
           ))}
         </div>

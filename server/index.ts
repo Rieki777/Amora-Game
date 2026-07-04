@@ -1490,6 +1490,18 @@ async function startServer() {
     res.json({ success: true, stageComputed: after });
   });
 
+  app.delete("/api/admin/players/:id", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const users = readJson(USERS_FILE) ?? { users: [] };
+    const idx = users.users.findIndex((u: any) => u.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    const [removed] = users.users.splice(idx, 1);
+    writeJson(USERS_FILE, users);
+    // Note: historical quest claims and gratitude-log entries are intentionally
+    // left intact; they are a shared ledger, not owned by a single account.
+    res.json({ success: true, removed: { id: removed.id, email: removed.email } });
+  });
+
   // Static Files + SPA Fallback
   const staticPath =
     process.env.NODE_ENV === "production"
