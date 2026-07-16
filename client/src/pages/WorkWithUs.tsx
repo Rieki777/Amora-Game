@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import { useEffect, useRef, useState } from "react";
-import { fetchConfigCached } from "@/lib/gameApi";
+import { fetchConfigCached, authToken } from "@/lib/gameApi";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Handshake,
   MessageCircle,
@@ -10,6 +11,8 @@ import {
   CheckCircle2,
   ArrowRight,
   Loader2,
+  Paperclip,
+  X,
 } from "lucide-react";
 
 // ── Shared proposal shape ────────────────────────────────────────────────────
@@ -27,12 +30,23 @@ interface Proposal {
   maintenance: string;
   reciprocity: string[];
   reciprocityDetail: string;
+  attachment: string;
+  attachmentName: string;
+}
+
+interface ReciprocityOption { value: string; title: string; desc: string }
+interface WwuConfig {
+  intro: string;
+  assistantName: string;
+  assistantGreeting: string;
+  reciprocityOptions: ReciprocityOption[];
 }
 
 const EMPTY: Proposal = {
   name: "", email: "", phone: "", background: "",
   work: "", serves: "", materialsCost: "", timeToImplement: "",
   needsFromUs: "", maintenance: "", reciprocity: [], reciprocityDetail: "",
+  attachment: "", attachmentName: "",
 };
 
 const PROPOSAL_FIELDS: { key: keyof Proposal; label: string; hint: string; required: boolean; rows?: number }[] = [
@@ -44,19 +58,20 @@ const PROPOSAL_FIELDS: { key: keyof Proposal; label: string; hint: string; requi
   { key: "maintenance", label: "Maintenance & longevity", hint: "What keeps it alive and well? Ongoing care, who's responsible, cost over time, expected lifespan.", required: true, rows: 3 },
 ];
 
-const RECIPROCITY_OPTIONS = [
+const RECIPROCITY_FALLBACK: ReciprocityOption[] = [
   { value: "Financial - Cash", title: "Financial — Cash", desc: "A direct payment for your work, materials, or service — upfront, on milestones, or on completion." },
   { value: "Tokens", title: "Tokens", desc: "Value held within the community ecosystem — credit you can use at the café and across the village." },
-  { value: "Joint Venture", title: "Joint Venture", desc: "You operate autonomously, and the village holds a share — e.g. 10% of revenue in exchange for rent or water infrastructure." },
+  { value: "Joint Venture", title: "Joint Venture", desc: "You operate autonomously, and the community holds a share — e.g. 10% of revenue in exchange for rent or water infrastructure." },
   { value: "Memorandum of Understanding", title: "Memorandum of Understanding", desc: "A clear, living exchange of contribution — e.g. you grow vegetables, share some harvest, and add to the beauty of the land." },
 ];
 
-async function submitProposal(p: Proposal): Promise<boolean> {
+async function submitProposal(p: Proposal, hp = ""): Promise<boolean> {
   try {
+    const token = authToken();
     const res = await fetch("/api/forms/submit", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "work-with-us", data: p }),
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ type: "work-with-us", data: p, hp }),
     });
     return res.ok;
   } catch {
@@ -67,7 +82,9 @@ async function submitProposal(p: Proposal): Promise<boolean> {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function WorkWithUs() {
+  const { user } = useAuth();
   const [projectName, setProjectName] = useState("Amora");
+  const [wwu, setWwu] = useState<WwuConfig | null>(null);
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
   const [mode, setMode] = useState<"ai" | "form">("form");
   const [submitted, setSubmitted] = useState(false);
@@ -75,6 +92,7 @@ export default function WorkWithUs() {
 
   useEffect(() => {
     fetchConfigCached().then((c) => { if (c?.project?.name) setProjectName(c.project.name); });
+    fetch("/api/work-with-us-config").then((r) => r.json()).then(setWwu).catch(() => { /* fallback copy */ });
     fetch("/api/assistant/status")
       .then((r) => r.json())
       .then((d) => { setAiAvailable(!!d.available); setMode(d.available ? "ai" : "form"); })
@@ -85,6 +103,14 @@ export default function WorkWithUs() {
       if (saved) setForm({ ...EMPTY, ...JSON.parse(saved) });
     } catch { /* ignore */ }
   }, []);
+
+  // Prefill name/email for a signed-in member (only if they haven't typed yet).
+  useEffect(() => {
+    if (user) setForm((f) => ({ ...f, name: f.name || user.name || "", email: f.email || user.email || "" }));
+  }, [user]);
+
+  const reciprocityOptions = wwu?.reciprocityOptions?.length ? wwu.reciprocityOptions : RECIPROCITY_FALLBACK;
+  const assistantName = wwu?.assistantName || "Maia";
 
   const saveDraft = (next: Proposal) => {
     setForm(next);
@@ -125,9 +151,8 @@ export default function WorkWithUs() {
             Build and grow alongside {projectName}
           </h1>
           <p className="text-white/80 text-lg max-w-2xl leading-relaxed">
-            {projectName} grows through the people who bring their gifts to it. We welcome ideas, offerings,
-            and ventures — a garden, a piece of infrastructure, a service, a craft, a program, or something
-            we haven't yet imagined. Propose it here.
+            {wwu?.intro ??
+              `${projectName} grows through the people who bring their gifts to it. We welcome ideas, offerings, and ventures — a garden, a piece of infrastructure, a service, a craft, a program, or something we haven't yet imagined. Propose it here.`}
           </p>
         </div>
       </section>
@@ -142,7 +167,7 @@ export default function WorkWithUs() {
                 mode === "ai" ? "bg-teal-deep text-white" : "bg-white border border-stone-200 text-stone-600 hover:bg-stone-100"
               }`}
             >
-              <MessageCircle className="w-4 h-4" /> Talk it through with Maia
+              <MessageCircle className="w-4 h-4" /> Talk it through with {assistantName}
             </button>
           )}
           <button
@@ -161,12 +186,14 @@ export default function WorkWithUs() {
           {mode === "ai" && aiAvailable ? (
             <GuideChat
               projectName={projectName}
+              assistantName={assistantName}
+              greeting={wwu?.assistantGreeting}
               onSubmitted={onSubmitted}
               onFallback={() => { setAiAvailable(false); setMode("form"); }}
-              onRefineInForm={(p) => { saveDraft({ ...EMPTY, ...p }); setMode("form"); }}
+              onRefineInForm={(p) => { saveDraft({ ...EMPTY, ...form, ...p }); setMode("form"); }}
             />
           ) : (
-            <ProposalForm projectName={projectName} form={form} setForm={saveDraft} onSubmitted={onSubmitted} />
+            <ProposalForm projectName={projectName} reciprocityOptions={reciprocityOptions} form={form} setForm={saveDraft} onSubmitted={onSubmitted} />
           )}
         </div>
       </section>
@@ -184,9 +211,11 @@ export default function WorkWithUs() {
 interface ChatMsg { role: "user" | "assistant"; content: string }
 
 function GuideChat({
-  projectName, onSubmitted, onFallback, onRefineInForm,
+  projectName, assistantName, greeting, onSubmitted, onFallback, onRefineInForm,
 }: {
   projectName: string;
+  assistantName: string;
+  greeting?: string;
   onSubmitted: () => void;
   onFallback: () => void;
   onRefineInForm: (p: Partial<Proposal>) => void;
@@ -194,7 +223,8 @@ function GuideChat({
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
       role: "assistant",
-      content: `Hi, I'm Maia — I help people shape their offering to ${projectName}. There's no wrong way to start. What are you dreaming of bringing to the village?`,
+      content:
+        (greeting ? greeting.replace(/\{name\}/g, assistantName) : `Hi, I'm ${assistantName} — I help people shape their offering to ${projectName}. There's no wrong way to start. What are you dreaming of bringing?`),
     },
   ]);
   const [input, setInput] = useState("");
@@ -249,7 +279,7 @@ function GuideChat({
           <Sparkles className="w-4 h-4" />
         </div>
         <div>
-          <p className="font-semibold text-teal-deep leading-tight">Maia</p>
+          <p className="font-semibold text-teal-deep leading-tight">{assistantName}</p>
           <p className="text-xs text-stone-500">Your {projectName} guide</p>
         </div>
       </div>
@@ -267,7 +297,7 @@ function GuideChat({
         {thinking && (
           <div className="flex justify-start">
             <div className="bg-stone-100 text-stone-500 rounded-2xl px-4 py-2.5 text-sm flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> Maia is thinking…
+              <Loader2 className="w-4 h-4 animate-spin" /> {assistantName} is thinking…
             </div>
           </div>
         )}
@@ -278,7 +308,7 @@ function GuideChat({
               <CheckCircle2 className="w-4 h-4" /> Your proposal is ready
             </p>
             <p className="text-sm text-stone-600 mb-3">
-              Maia has captured everything. Review it, then send it to the {projectName} team.
+              {assistantName} has captured everything. Review it, then send it to the {projectName} team.
             </p>
             <div className="flex flex-wrap gap-2">
               <button onClick={submit} disabled={submitting} className="inline-flex items-center gap-2 bg-teal-deep text-white text-sm font-semibold px-4 py-2 rounded-xl hover:bg-teal disabled:opacity-50">
@@ -297,7 +327,7 @@ function GuideChat({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder="Tell Maia about your idea…"
+          placeholder={`Tell ${assistantName} about your idea…`}
           rows={1}
           className="flex-1 resize-none px-3 py-2 text-sm border border-stone-200 rounded-xl outline-none focus:border-teal-deep max-h-32"
         />
@@ -312,19 +342,39 @@ function GuideChat({
 // ── The structured form ──────────────────────────────────────────────────────
 
 function ProposalForm({
-  projectName, form, setForm, onSubmitted,
+  projectName, reciprocityOptions, form, setForm, onSubmitted,
 }: {
   projectName: string;
+  reciprocityOptions: ReciprocityOption[];
   form: Proposal;
   setForm: (p: Proposal) => void;
   onSubmitted: () => void;
 }) {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [hp, setHp] = useState(""); // honeypot: real people never fill this
+  const [uploading, setUploading] = useState(false);
 
   const set = (key: keyof Proposal, value: any) => setForm({ ...form, [key]: value });
   const toggleRecip = (v: string) =>
     set("reciprocity", form.reciprocity.includes(v) ? form.reciprocity.filter((x) => x !== v) : [...form.reciprocity, v]);
+
+  const uploadAttachment = async (file: File | null) => {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/work-with-us/attachment", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) setError(data.error || "Could not attach that file.");
+      else setForm({ ...form, attachment: data.filename, attachmentName: data.originalName || file.name });
+    } catch {
+      setError("Could not attach that file.");
+    }
+    setUploading(false);
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -333,7 +383,7 @@ function ProposalForm({
     if (form.reciprocity.length === 0) { setError("Choose at least one form of reciprocity that fits."); return; }
     setError("");
     setSubmitting(true);
-    const ok = await submitProposal(form);
+    const ok = await submitProposal(form, hp);
     setSubmitting(false);
     if (ok) onSubmitted(); else setError("Something went wrong sending your proposal. Please try again.");
   };
@@ -397,7 +447,7 @@ function ProposalForm({
           {projectName} is built on reciprocity — there's more than one way to be valued here. Select any that fit. <span className="text-red-500">*</span>
         </p>
         <div className="grid md:grid-cols-2 gap-3 mb-4">
-          {RECIPROCITY_OPTIONS.map((o) => {
+          {reciprocityOptions.map((o) => {
             const on = form.reciprocity.includes(o.value);
             return (
               <button
@@ -423,6 +473,36 @@ function ProposalForm({
         <p className="text-xs text-muted-foreground mb-2">Amounts, structure, percentages, or a blend — or something we haven't listed.</p>
         <textarea value={form.reciprocityDetail} onChange={(e) => set("reciprocityDetail", e.target.value)} rows={3} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep resize-y" />
       </div>
+
+      {/* Optional attachment */}
+      <div>
+        <h2 className="font-display text-xl font-bold text-teal-deep mb-1">Bring a picture (optional)</h2>
+        <p className="text-sm text-muted-foreground mb-3">A sketch, a photo, or a one-pager helps us see it. Image or PDF, up to 10MB.</p>
+        {form.attachment ? (
+          <div className="inline-flex items-center gap-2 bg-teal-deep/5 border border-teal-deep/20 rounded-lg px-3 py-2 text-sm text-teal-deep">
+            <Paperclip className="w-4 h-4" /> {form.attachmentName || "Attached"}
+            <button type="button" onClick={() => setForm({ ...form, attachment: "", attachmentName: "" })} className="text-stone-400 hover:text-red-500">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <label className="inline-flex items-center gap-2 cursor-pointer bg-white border border-stone-200 rounded-lg px-4 py-2 text-sm text-stone-600 hover:bg-stone-50">
+            <Paperclip className="w-4 h-4" /> {uploading ? "Attaching…" : "Attach a file"}
+            <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => uploadAttachment(e.target.files?.[0] ?? null)} />
+          </label>
+        )}
+      </div>
+
+      {/* Honeypot — hidden from people, tempting to bots */}
+      <input
+        type="text"
+        value={hp}
+        onChange={(e) => setHp(e.target.value)}
+        tabIndex={-1}
+        autoComplete="off"
+        aria-hidden="true"
+        className="hidden"
+      />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
       <button type="submit" disabled={submitting} className="w-full md:w-auto inline-flex items-center justify-center gap-2 bg-teal-deep text-white font-semibold px-8 py-3 rounded-xl hover:bg-teal disabled:opacity-50 transition-colors">

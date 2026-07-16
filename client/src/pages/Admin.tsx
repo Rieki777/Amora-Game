@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins } from "lucide-react";
+import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake } from "lucide-react";
 import { toast } from "sonner";
 
 const API_BASE = "/api";
@@ -22,8 +22,24 @@ const CONTENT_SECTIONS = [
 interface Submission {
   id: string;
   type: string;
-  data: Record<string, string>;
+  data: Record<string, any>;
   submittedAt: string;
+  status?: string;
+  userId?: string;
+  userName?: string;
+  rewarded?: boolean;
+}
+
+const SUBMISSION_STATUSES = ["new", "reviewing", "in-conversation", "accepted", "declined"];
+const STATUS_STYLE: Record<string, string> = {
+  new: "bg-blue-100 text-blue-700",
+  reviewing: "bg-amber-100 text-amber-800",
+  "in-conversation": "bg-violet-100 text-violet-700",
+  accepted: "bg-emerald-100 text-emerald-700",
+  declined: "bg-stone-100 text-stone-500",
+};
+function prettyType(t: string) {
+  return t.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // ── Password Gate ─────────────────────────────────────────────────────────────
@@ -132,6 +148,21 @@ function SubmissionsTab({ password }: { password: string }) {
     load();
   };
 
+  const setStatus = async (id: string, status: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/submissions/${id}/status`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error();
+      if (data.rewarded) toast.success("Accepted — the member was welcomed into the game.");
+      else toast.success("Status updated");
+      load();
+    } catch { toast.error("Could not update status"); }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -144,7 +175,7 @@ function SubmissionsTab({ password }: { password: string }) {
           >
             <option value="all">All types</option>
             {FORM_TYPES.map((t) => (
-              <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+              <option key={t} value={t}>{prettyType(t)}</option>
             ))}
           </select>
           <button onClick={load} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
@@ -168,13 +199,17 @@ function SubmissionsTab({ password }: { password: string }) {
                 onClick={() => setExpanded(expanded === s.id ? null : s.id)}
                 className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left"
               >
-                <div className="flex items-center gap-4">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#2D5A5A]/10 text-[#2D5A5A] capitalize">
-                    {s.type}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#2D5A5A]/10 text-[#2D5A5A]">
+                    {prettyType(s.type)}
+                  </span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[s.status ?? "new"] ?? STATUS_STYLE.new}`}>
+                    {prettyType(s.status ?? "new")}
                   </span>
                   <span className="text-sm font-medium text-gray-900">
                     {s.data.name || s.data.firstName || s.data.email || "Anonymous"}
                   </span>
+                  {s.userId && <span className="text-xs text-emerald-600" title="Submitted while signed in">● member</span>}
                   <span className="text-xs text-gray-400">
                     {new Date(s.submittedAt).toLocaleDateString("en-US", {
                       month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit"
@@ -194,14 +229,43 @@ function SubmissionsTab({ password }: { password: string }) {
 
               {expanded === s.id && (
                 <div className="px-5 py-4 border-t border-gray-100 bg-gray-50">
+                  <div className="flex flex-wrap items-center gap-3 mb-4">
+                    <label className="text-xs font-medium text-gray-500">Status</label>
+                    <select
+                      value={s.status ?? "new"}
+                      onChange={(e) => setStatus(s.id, e.target.value)}
+                      className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+                    >
+                      {SUBMISSION_STATUSES.map((st) => (
+                        <option key={st} value={st}>{prettyType(st)}</option>
+                      ))}
+                    </select>
+                    {s.userId && (
+                      <span className="text-xs text-emerald-600">
+                        Signed-in member{s.userName ? ` · ${s.userName}` : ""}{s.rewarded ? " · welcomed into the game ✓" : ""}
+                      </span>
+                    )}
+                  </div>
                   <table className="w-full text-sm">
                     <tbody>
-                      {Object.entries(s.data).map(([k, v]) => (
+                      {Object.entries(s.data)
+                        .filter(([k]) => k !== "attachmentName")
+                        .map(([k, v]) => (
                         <tr key={k} className="border-b border-gray-100 last:border-0">
-                          <td className="py-1.5 pr-4 font-medium text-gray-600 capitalize w-1/4">
+                          <td className="py-1.5 pr-4 font-medium text-gray-600 capitalize w-1/4 align-top">
                             {k.replace(/([A-Z])/g, " $1").trim()}
                           </td>
-                          <td className="py-1.5 text-gray-800 whitespace-pre-wrap">{v}</td>
+                          <td className="py-1.5 text-gray-800 whitespace-pre-wrap">
+                            {k === "attachment" && v ? (
+                              <a href={`${API_BASE}/uploads/${v}`} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] underline">
+                                {s.data.attachmentName || String(v)}
+                              </a>
+                            ) : Array.isArray(v) ? (
+                              v.join(", ")
+                            ) : (
+                              String(v ?? "")
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -2158,6 +2222,97 @@ function SettingsTab({ password }: { password: string }) {
   );
 }
 
+// ── Work With Us content tab (exchange types + Maia) ──────────────────────────
+
+function WorkWithUsTab({ password }: { password: string }) {
+  const [cfg, setCfg] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/admin/work-with-us-config`, { headers: authHeaders(password) })
+      .then((r) => r.json()).then(setCfg).catch(() => toast.error("Failed to load"));
+  }, [password]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/work-with-us-config`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(cfg),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Saved");
+    } catch { toast.error("Save failed"); }
+    setSaving(false);
+  };
+
+  if (!cfg) return <div className="text-center py-12 text-gray-400">Loading...</div>;
+
+  const opts = cfg.reciprocityOptions ?? [];
+  const setOpt = (i: number, patch: any) =>
+    setCfg({ ...cfg, reciprocityOptions: opts.map((o: any, j: number) => (j === i ? { ...o, ...patch } : o)) });
+  const addOpt = () => setCfg({ ...cfg, reciprocityOptions: [...opts, { value: "", title: "", desc: "" }] });
+  const removeOpt = (i: number) => setCfg({ ...cfg, reciprocityOptions: opts.filter((_: any, j: number) => j !== i) });
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Work With Us</h2>
+          <p className="text-sm text-gray-500 mt-1">The intro, the reciprocity (exchange) options, and your AI guide's name and greeting.</p>
+        </div>
+        <button onClick={save} disabled={saving} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+          {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+
+      <div className="space-y-5 max-w-2xl">
+        <div>
+          <label className="text-sm font-medium text-gray-700 block mb-1">Intro paragraph</label>
+          <textarea value={cfg.intro ?? ""} onChange={(e) => setCfg({ ...cfg, intro: e.target.value })} rows={3} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-sm font-medium text-gray-700 block mb-1">AI guide's name</label>
+            <input type="text" value={cfg.assistantName ?? ""} onChange={(e) => setCfg({ ...cfg, assistantName: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700 block mb-1">Gratitude on accepted proposal</label>
+            <input type="number" min={0} value={cfg.acceptGratitude ?? 0} onChange={(e) => setCfg({ ...cfg, acceptGratitude: parseInt(e.target.value) || 0 })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium text-gray-700 block mb-1">Guide's opening greeting</label>
+          <textarea value={cfg.assistantGreeting ?? ""} onChange={(e) => setCfg({ ...cfg, assistantGreeting: e.target.value })} rows={2} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y" />
+          <p className="text-[11px] text-gray-400 mt-0.5">Use {"{name}"} where the guide's name should appear.</p>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-gray-700">Reciprocity (exchange) options</label>
+            <button onClick={addOpt} className="text-xs text-[#2D5A5A] font-medium hover:underline">+ Add option</button>
+          </div>
+          <div className="space-y-3">
+            {opts.map((o: any, i: number) => (
+              <div key={i} className="border border-gray-200 rounded-xl p-3 space-y-2">
+                <div className="flex gap-2">
+                  <input type="text" value={o.title} onChange={(e) => setOpt(i, { title: e.target.value })} placeholder="Title (shown)" className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                  <input type="text" value={o.value} onChange={(e) => setOpt(i, { value: e.target.value })} placeholder="Value (stored)" className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                  <button onClick={() => removeOpt(i)} className="p-2 text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                </div>
+                <textarea value={o.desc} onChange={(e) => setOpt(i, { desc: e.target.value })} rows={2} placeholder="Description" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────────────────
 
 export default function Admin() {
@@ -2321,6 +2476,17 @@ export default function Admin() {
             Settings
           </button>
           <button
+            onClick={() => setActiveTab("work-with-us")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "work-with-us"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <Handshake className="w-4 h-4" />
+            Work With Us
+          </button>
+          <button
             onClick={() => setActiveTab("faqs")}
             className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
               activeTab === "faqs"
@@ -2381,6 +2547,7 @@ export default function Admin() {
           {activeTab === "players" && <PlayersTab password={password} />}
           {activeTab === "season" && <SeasonTab password={password} />}
           {activeTab === "settings" && <SettingsTab password={password} />}
+          {activeTab === "work-with-us" && <WorkWithUsTab password={password} />}
           {activeTab === "faqs" && <FaqAdminTab password={password} />}
           {activeTab === "milestones" && <MilestonesAdminTab password={password} />}
           {activeTab === "visit-config" && <VisitAdminTab password={password} />}

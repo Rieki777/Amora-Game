@@ -39,6 +39,7 @@ const VISIT_CONFIG_FILE = path.join(DATA_DIR, "visit-config.json");
 const INVESTOR_SUMMARY_FILE = path.join(DATA_DIR, "investor-summary.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const BRAND_FILE = path.join(DATA_DIR, "brand.json");
+const WORK_WITH_US_FILE = path.join(DATA_DIR, "work-with-us.json");
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me";
 const JOURNEY_PASSWORD = process.env.JOURNEY_PASSWORD || "change-me";
@@ -139,6 +140,24 @@ const DEFAULT_BRAND = {
   images: { hero: "", investorHero: "", residentHero: "", stewardHero: "", prosperityHero: "", masterPlanHero: "" },
   // Setup Wizard progress — projects tick these off as they make the site theirs.
   setup: { identity: false, images: false, numbers: false, content: false, technical: false },
+};
+
+// "Work With Us" content — editable per project so the exchange types, the intro,
+// and the AI guide's name/greeting aren't hardcoded to Amora.
+const DEFAULT_WORK_WITH_US = {
+  intro:
+    "We grow through the people who bring their gifts to us. We welcome ideas, offerings, and ventures — a garden, a piece of infrastructure, a service, a craft, a program, or something we haven't yet imagined. Propose it here.",
+  assistantName: "Maia",
+  assistantGreeting:
+    "Hi, I'm {name} — I help people shape their offering to the village. There's no wrong way to start. What are you dreaming of bringing?",
+  reciprocityOptions: [
+    { value: "Financial - Cash", title: "Financial — Cash", desc: "A direct payment for your work, materials, or service — upfront, on milestones, or on completion." },
+    { value: "Tokens", title: "Tokens", desc: "Value held within the community ecosystem — credit you can use at the café and across the village." },
+    { value: "Joint Venture", title: "Joint Venture", desc: "You operate autonomously, and the community holds a share — e.g. 10% of revenue in exchange for rent or water infrastructure." },
+    { value: "Memorandum of Understanding", title: "Memorandum of Understanding", desc: "A clear, living exchange of contribution — e.g. you grow vegetables, share some harvest, and add to the beauty of the land." },
+  ],
+  // Gratitude credited to a signed-in member when their proposal is accepted.
+  acceptGratitude: 100,
 };
 
 // Project settings: the plain numbers a non-technical admin should be able to
@@ -292,6 +311,7 @@ function ensureDataFiles() {
   if (!fs.existsSync(INVESTOR_SUMMARY_FILE)) fs.writeFileSync(INVESTOR_SUMMARY_FILE, JSON.stringify(DEFAULT_INVESTOR_SUMMARY, null, 2));
   if (!fs.existsSync(SETTINGS_FILE)) fs.writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2));
   if (!fs.existsSync(BRAND_FILE)) fs.writeFileSync(BRAND_FILE, JSON.stringify(DEFAULT_BRAND, null, 2));
+  if (!fs.existsSync(WORK_WITH_US_FILE)) fs.writeFileSync(WORK_WITH_US_FILE, JSON.stringify(DEFAULT_WORK_WITH_US, null, 2));
   seedIfMissingOrEmpty(QUESTS_FILE, QUESTS_SEED_FILE, "[]");
   if (!fs.existsSync(QUEST_CLAIMS_FILE)) fs.writeFileSync(QUEST_CLAIMS_FILE, "[]");
   if (!fs.existsSync(GRATITUDE_LOG_FILE)) fs.writeFileSync(GRATITUDE_LOG_FILE, "[]");
@@ -442,6 +462,37 @@ function getEmailConfig() {
   return { ...DEFAULT_EMAIL_CONFIG, ...(cfg ?? {}) };
 }
 
+function getWorkWithUs() {
+  const cfg = readJson(WORK_WITH_US_FILE);
+  return { ...DEFAULT_WORK_WITH_US, ...(cfg ?? {}) };
+}
+
+/** When a Work With Us proposal is accepted, fold it into the game for a matching
+ * member: a logged contribution, Gratitude credit, and a pulse. Idempotent. */
+function applyAcceptReward(entry: any): boolean {
+  if (entry.rewarded) return false;
+  const users = readJson(USERS_FILE) ?? { users: [] };
+  const email = String(entry.data?.email ?? "").toLowerCase();
+  const idx = users.users.findIndex(
+    (u: any) => (entry.userId && u.id === entry.userId) || (email && String(u.email).toLowerCase() === email)
+  );
+  if (idx === -1) return false; // not a registered member; nothing to fold in
+  const amount = Number(getWorkWithUs().acceptGratitude) || 0;
+  const u = users.users[idx];
+  u.contributions = u.contributions ?? [];
+  u.contributions.push({
+    id: `contrib-${Date.now()}`,
+    type: "proposal",
+    description: `Work With Us proposal accepted: ${String(entry.data?.work ?? "your offering").slice(0, 120)}`,
+    heartsEarned: amount,
+    date: new Date().toISOString(),
+  });
+  u.heartsBalance = (u.heartsBalance ?? 0) + amount;
+  writeJson(USERS_FILE, users);
+  addActivity("proposal", `${firstName(u.name)}'s proposal was welcomed into the village`);
+  return true;
+}
+
 function escapeHtml(s: string): string {
   return String(s)
     .replace(/&/g, "&amp;")
@@ -527,6 +578,33 @@ function writeJson(filePath: string, data: unknown) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
+// ── Abuse guards (in-memory; reset on redeploy, which is fine at this scale) ──
+
+const rateBuckets = new Map<string, number[]>();
+function rateLimited(key: string, max: number, windowMs: number): boolean {
+  const now = Date.now();
+  const arr = (rateBuckets.get(key) ?? []).filter((t) => now - t < windowMs);
+  if (arr.length >= max) { rateBuckets.set(key, arr); return true; }
+  arr.push(now);
+  rateBuckets.set(key, arr);
+  return false;
+}
+function clientIp(req: express.Request): string {
+  const fwd = req.headers["x-forwarded-for"];
+  if (typeof fwd === "string" && fwd) return fwd.split(",")[0].trim();
+  return req.socket.remoteAddress ?? "unknown";
+}
+// Global daily call cap for the AI assistant, so a key can't run away with cost.
+let assistantDay = "";
+let assistantCalls = 0;
+function assistantDailyCapReached(max: number): boolean {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== assistantDay) { assistantDay = today; assistantCalls = 0; }
+  if (assistantCalls >= max) return true;
+  assistantCalls++;
+  return false;
+}
+
 async function startServer() {
   ensureDataFiles();
 
@@ -550,42 +628,59 @@ async function startServer() {
   });
 
   // Form Submission
-  // POST /api/forms/submit  { type: string, data: object }
+  // POST /api/forms/submit  { type, data, hp? }   (hp = honeypot; must be empty)
   app.post("/api/forms/submit", (req, res) => {
-    const { type, data } = req.body;
+    const { type, data, hp } = req.body;
     if (!type || !data) {
       return res.status(400).json({ error: "Missing type or data" });
     }
-    const submissions: unknown[] = readJson(SUBMISSIONS_FILE) ?? [];
-    const entry = {
+    // Honeypot: a hidden field only bots fill. Pretend success, store nothing.
+    if (hp) return res.json({ success: true });
+    // Rate limit: modest cap per IP to blunt spam floods.
+    if (rateLimited(`submit:${clientIp(req)}`, 6, 10 * 60 * 1000)) {
+      return res.status(429).json({ error: "Too many submissions. Please try again shortly." });
+    }
+    // Attribution: if a valid member token is present, stamp who submitted.
+    const submitter = requireUser(req);
+    const submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
+    const entry: any = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       type,
       data,
+      status: "new",
       submittedAt: new Date().toISOString(),
     };
+    if (submitter) { entry.userId = submitter.id; entry.userName = submitter.name; }
     submissions.push(entry);
     writeJson(SUBMISSIONS_FILE, submissions);
 
-    // Fire-and-forget Resend notification
+    const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "amora.regencivics.earth";
+    const proto = req.headers["x-forwarded-proto"] ?? "https";
+    const origin = `${proto}://${host}`;
+    const applicantName = (data as any)?.name ?? (data as any)?.firstName ?? (data as any)?.email ?? "Anonymous";
+
+    // Fire-and-forget notifications
     (async () => {
+      // Notify the pathway inbox
       const recipients = recipientsForType(type);
-      if (!recipients.length) {
-        console.log(`[RESEND] No recipient configured for type "${type}", skipping`);
-        return;
+      if (recipients.length) {
+        await sendResendEmail({
+          to: recipients,
+          subject: `[Amora] New ${type} submission from ${applicantName}`,
+          html: buildSubmissionEmailHtml(type, data, `${origin}/admin`),
+        });
       }
-      const applicantName =
-        (data as any)?.name ?? (data as any)?.firstName ?? (data as any)?.email ?? "Anonymous";
-      const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "amora.regencivics.earth";
-      const proto = req.headers["x-forwarded-proto"] ?? "https";
-      const adminUrl = `${proto}://${host}/admin`;
-      await sendResendEmail({
-        to: recipients,
-        subject: `[Amora] New ${type} application from ${applicantName}`,
-        html: buildSubmissionEmailHtml(type, data, adminUrl),
-      });
+      // Acknowledge the submitter of a Work With Us proposal
+      if (type === "work-with-us" && (data as any)?.email) {
+        await sendResendEmail({
+          to: [(data as any).email],
+          subject: "We've received your proposal",
+          html: `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;background:#f9fafb;padding:24px;color:#1f2937"><div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb"><div style="background:#2D5A5A;color:#fff;padding:22px 24px"><div style="font-size:20px;font-weight:700">Your proposal is with us</div></div><div style="padding:22px 24px;line-height:1.6"><p>Hi ${escapeHtml(String(applicantName))},</p><p>Thank you for offering your gifts. We read every Work With Us proposal with care. Please allow up to a month for a thoughtful response, and room for conversation and revision.</p><p style="color:#6b7280;font-size:13px;margin-top:20px">— The team</p></div></div></body></html>`,
+        });
+      }
     })();
 
-    res.json({ success: true, id: (entry as any).id });
+    res.json({ success: true, id: entry.id });
   });
 
   // Admin: List Submissions
@@ -616,6 +711,27 @@ async function startServer() {
     }
     writeJson(SUBMISSIONS_FILE, filtered);
     res.json({ success: true });
+  });
+
+  // Admin: move a submission along its pipeline. Accepting a proposal folds it
+  // into the game for a matching member (contribution + Gratitude + pulse).
+  const SUBMISSION_STATUSES = ["new", "reviewing", "in-conversation", "accepted", "declined"];
+  app.put("/api/admin/submissions/:id/status", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const { status } = req.body ?? {};
+    if (!SUBMISSION_STATUSES.includes(status)) return res.status(400).json({ error: "Invalid status" });
+    const submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
+    const idx = submissions.findIndex((s) => s.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    const wasAccepted = submissions[idx].status === "accepted";
+    submissions[idx].status = status;
+    let rewarded = false;
+    if (status === "accepted" && !wasAccepted && submissions[idx].type === "work-with-us") {
+      rewarded = applyAcceptReward(submissions[idx]);
+      if (rewarded) submissions[idx].rewarded = true;
+    }
+    writeJson(SUBMISSIONS_FILE, submissions);
+    res.json({ success: true, rewarded });
   });
 
   // Admin: Export Submissions as CSV
@@ -940,6 +1056,14 @@ async function startServer() {
   app.post("/api/assistant/work-with-us", async (req, res) => {
     const cfg = getEmailConfig();
     if (!cfg.assistant_api_key) return res.status(503).json({ error: "assistant-unavailable" });
+    // Abuse/cost guards: per-IP burst limit + a global daily cap so a live key
+    // can never run away with spend.
+    if (rateLimited(`assist:${clientIp(req)}`, 30, 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Slow down a moment, then keep going." });
+    }
+    if (assistantDailyCapReached(600)) {
+      return res.status(503).json({ error: "assistant-unavailable" });
+    }
 
     const incoming = Array.isArray(req.body?.messages) ? req.body.messages : null;
     if (!incoming) return res.status(400).json({ error: "messages required" });
@@ -953,8 +1077,11 @@ async function startServer() {
     }
 
     const guideName = mergedConfig().project.name;
-    const memberName = mergedConfig().project.memberName;
-    const system = `You are Maia, a warm, grounded guide for ${guideName}, a regenerative village community. Your one job is to help a person write a "Work With Us" proposal — an offer to contribute something to the village (a garden, infrastructure, a service, a craft, a program, a venture).
+    const wcfg = getWorkWithUs();
+    const assistantName = wcfg.assistantName || "Maia";
+    const recipValues = (wcfg.reciprocityOptions ?? DEFAULT_WORK_WITH_US.reciprocityOptions)
+      .map((o: any) => `"${o.value}"`).join(", ");
+    const system = `You are ${assistantName}, a warm, grounded guide for ${guideName}, a regenerative village community. Your one job is to help a person write a "Work With Us" proposal — an offer to contribute something to the village (a garden, infrastructure, a service, a craft, a program, a venture).
 
 Voice: warm, encouraging, concrete, unhurried. Short replies (2-4 sentences). One question at a time. Reflect back what you heard before moving on. Never robotic, never salesy.
 
@@ -966,7 +1093,7 @@ You are gathering these fields:
 - timeToImplement (required): how long from approval to completion; phases, seasonality, dependencies
 - needsFromUs (required): information/access, decisions/approvals and by when, meeting time, site access/utilities/equipment/labor
 - maintenance (required): ongoing care, who's responsible, cost over time, expected lifespan and end-of-life
-- reciprocity (required, one or more of): "Financial - Cash", "Tokens", "Joint Venture", "Memorandum of Understanding"
+- reciprocity (required, one or more of these EXACT values): ${recipValues}
 - reciprocityDetail (optional): amounts, structure, percentages, or a blend they propose
 
 Rules:
@@ -1009,8 +1136,6 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       } catch {
         parsed = { reply: text || "Tell me a little about what you'd like to bring to the village.", complete: false, proposal: null };
       }
-      const memberLine = memberName; // reserved for future personalization
-      void memberLine;
       res.json({
         reply: typeof parsed.reply === "string" ? parsed.reply : "Go on — I'm listening.",
         complete: !!parsed.complete && parsed.proposal && typeof parsed.proposal === "object",
@@ -1020,6 +1145,54 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       console.error("[ASSISTANT] error", err);
       res.status(502).json({ error: "assistant-error" });
     }
+  });
+
+  // ── Work With Us: content config + proposal attachment ────────────────────
+
+  app.get("/api/work-with-us-config", (_req, res) => {
+    res.json(getWorkWithUs());
+  });
+
+  app.get("/api/admin/work-with-us-config", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    res.json(getWorkWithUs());
+  });
+
+  app.put("/api/admin/work-with-us-config", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    writeJson(WORK_WITH_US_FILE, { ...getWorkWithUs(), ...req.body });
+    res.json({ success: true });
+  });
+
+  // Public, tightly-limited attachment upload for a proposal (image or PDF).
+  const proposalUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => {
+        if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+        cb(null, UPLOADS_DIR);
+      },
+      filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, `proposal-${Date.now()}-${Math.random().toString(36).slice(2, 7)}${ext}`);
+      },
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const ok = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"].includes(file.mimetype);
+      if (ok) cb(null, true);
+      else cb(new Error("Only images or PDF are allowed"));
+    },
+  });
+  app.post("/api/work-with-us/attachment", (req, res) => {
+    if (rateLimited(`upload:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Too many uploads. Try again shortly." });
+    }
+    proposalUpload.single("file")(req, res, (err: any) => {
+      if (err) return res.status(400).json({ error: err.message || "Upload failed" });
+      if (!req.file) return res.status(400).json({ error: "Missing file" });
+      res.json({ filename: req.file.filename, originalName: req.file.originalname });
+    });
   });
 
   // ── Investor Document Vault ───────────────────────────────────────────────
