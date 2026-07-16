@@ -54,11 +54,11 @@ const journeySteps = [
     id: "business-proposal",
     stage: "Applicant",
     title: "Submit Business Proposal",
-    description: "Present your vision and how it aligns with village needs and our regenerative mission.",
+    description: "Present your vision and how it aligns with village needs and our regenerative mission. Maia, our guide, can help you shape it.",
     icon: FileText,
-    link: "mailto:business@amora.cr?subject=Business%20Proposal",
-    linkText: "Submit Proposal",
-    external: true,
+    link: "/work-with-us",
+    linkText: "Work With Us",
+    external: false,
     details: ["Describe your business vision", "Show village alignment", "Project community impact", "Include your timeline"]
   },
   {

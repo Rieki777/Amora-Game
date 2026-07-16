@@ -277,6 +277,11 @@ export default function Layout({ children }: LayoutProps) {
                     Gratitude Wall
                   </Link>
                 </li>
+                <li>
+                  <Link href="/work-with-us" className="text-white/70 hover:text-amber transition-colors text-sm">
+                    Work With Us
+                  </Link>
+                </li>
               </ul>
             </div>
 

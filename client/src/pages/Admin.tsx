@@ -3,7 +3,7 @@ import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Us
 import { toast } from "sonner";
 
 const API_BASE = "/api";
-const FORM_TYPES = ["investor", "steward", "resident", "prosperity", "contact"] as const;
+const FORM_TYPES = ["work-with-us", "investor", "steward", "resident", "prosperity", "contact"] as const;
 
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
   return { Authorization: `Bearer ${password}`, ...extra };
@@ -401,15 +401,17 @@ interface EmailConfig {
   resident: string;
   prosperity: string;
   resend_api_key: string;
+  assistant_api_key: string;
 }
 
 function EmailSettingsTab({ password }: { password: string }) {
   const [cfg, setCfg] = useState<EmailConfig>({
-    investor: "", steward: "", resident: "", prosperity: "", resend_api_key: "",
+    investor: "", steward: "", resident: "", prosperity: "", resend_api_key: "", assistant_api_key: "",
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [showAiKey, setShowAiKey] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -422,6 +424,7 @@ function EmailSettingsTab({ password }: { password: string }) {
         resident: data.resident ?? "",
         prosperity: data.prosperity ?? "",
         resend_api_key: data.resend_api_key ?? "",
+        assistant_api_key: data.assistant_api_key ?? "",
       });
     } catch {
       toast.error("Failed to load email settings");
@@ -530,6 +533,30 @@ function EmailSettingsTab({ password }: { password: string }) {
             </div>
             <p className="text-xs text-gray-400 mt-1">
               Get a key at resend.com → API Keys. Once saved, emails will route automatically.
+            </p>
+          </div>
+
+          <div className="border-t border-gray-100 pt-5">
+            <label className="text-sm font-medium text-gray-700 block mb-1">Work With Us — AI guide (Anthropic API key)</label>
+            <div className="relative">
+              <input
+                type={showAiKey ? "text" : "password"}
+                value={cfg.assistant_api_key}
+                onChange={(e) => setCfg({ ...cfg, assistant_api_key: e.target.value })}
+                className="w-full px-3 py-2 pr-12 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 font-mono"
+                placeholder="sk-ant-xxxxxxxxxxxxxxxxxxxx"
+              />
+              <button
+                type="button"
+                onClick={() => setShowAiKey(!showAiKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showAiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              Powers "Maia", the guide on the Work With Us page. Blank = the page shows the plain form only (no AI, no cost).
+              Get a key at console.anthropic.com. Proposals submit to the Prosperity inbox and appear under Submissions.
             </p>
           </div>
         </div>
