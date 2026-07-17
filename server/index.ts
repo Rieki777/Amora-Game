@@ -457,9 +457,32 @@ function nextActionFor(user: any): { id: string; label: string; href: string } {
   return GAME_CONFIG.nextActions[GAME_CONFIG.nextActions.length - 1];
 }
 
+/**
+ * Integration config. Keys resolve in this order:
+ *   1. What an admin typed in the UI (per-project override, stored on the volume)
+ *   2. The environment (RESEND_API_KEY / ANTHROPIC_API_KEY on the host)
+ * Env vars are the better home for a shared key — they're not sitting in a JSON
+ * file on a data volume, and one Railway service can run the integrations for a
+ * project hosted under it. The admin UI still wins if a project sets its own.
+ */
 function getEmailConfig() {
   const cfg = readJson(EMAIL_CONFIG_FILE);
-  return { ...DEFAULT_EMAIL_CONFIG, ...(cfg ?? {}) };
+  const merged = { ...DEFAULT_EMAIL_CONFIG, ...(cfg ?? {}) };
+  return {
+    ...merged,
+    resend_api_key: merged.resend_api_key || process.env.RESEND_API_KEY || "",
+    assistant_api_key: merged.assistant_api_key || process.env.ANTHROPIC_API_KEY || "",
+  };
+}
+
+/** True when a key is inherited from the host rather than typed into admin —
+ * lets the UI say "provided by the environment" instead of showing a blank box. */
+function keySources() {
+  const cfg = readJson(EMAIL_CONFIG_FILE) ?? {};
+  return {
+    resend_from_env: !cfg.resend_api_key && !!process.env.RESEND_API_KEY,
+    assistant_from_env: !cfg.assistant_api_key && !!process.env.ANTHROPIC_API_KEY,
+  };
 }
 
 function getWorkWithUs() {
@@ -1024,7 +1047,10 @@ async function startServer() {
     if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    res.json(getEmailConfig());
+    // Return only what's stored — never echo a key inherited from the host env
+    // back into the browser. `_sources` tells the UI which keys are env-provided.
+    const stored = { ...DEFAULT_EMAIL_CONFIG, ...(readJson(EMAIL_CONFIG_FILE) ?? {}) };
+    res.json({ ...stored, _sources: keySources() });
   });
 
   app.put("/api/admin/email-config", (req, res) => {

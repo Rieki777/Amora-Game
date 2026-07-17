@@ -476,12 +476,14 @@ function EmailSettingsTab({ password }: { password: string }) {
   const [saving, setSaving] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [showAiKey, setShowAiKey] = useState(false);
+  const [sources, setSources] = useState<{ resend_from_env?: boolean; assistant_from_env?: boolean }>({});
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/admin/email-config`, { headers: authHeaders(password) });
       const data = await res.json();
+      setSources(data._sources ?? {});
       setCfg({
         investor: data.investor ?? "",
         steward: data.steward ?? "",
@@ -596,7 +598,9 @@ function EmailSettingsTab({ password }: { password: string }) {
               </button>
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Get a key at resend.com → API Keys. Once saved, emails will route automatically.
+              {sources.resend_from_env
+                ? "✓ A Resend key is provided by the hosting environment — emails are already routing. Type one here only to override it for this project."
+                : "Get a key at resend.com → API Keys. Once saved, emails will route automatically."}
             </p>
           </div>
 
@@ -619,8 +623,9 @@ function EmailSettingsTab({ password }: { password: string }) {
               </button>
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Powers "Maia", the guide on the Work With Us page. Blank = the page shows the plain form only (no AI, no cost).
-              Get a key at console.anthropic.com. Proposals submit to the Prosperity inbox and appear under Submissions.
+              {sources.assistant_from_env
+                ? "✓ An Anthropic key is provided by the hosting environment — the guide is live. Type one here only to override it for this project."
+                : "Powers the guide on the Work With Us page. Blank = the page shows the plain form only (no AI, no cost). Get a key at console.anthropic.com."}
             </p>
           </div>
         </div>
