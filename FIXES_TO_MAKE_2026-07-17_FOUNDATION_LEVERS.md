@@ -99,8 +99,92 @@ export interface Currency {
   monthlyBudget?: number;
   maxPerRecipientPerCycle?: number;
   requireMessage: boolean;
+  /** Surface-token release (Rye, 2026-07-17): recognition carries NO peg and no
+   *  posted price, and it can still carry economic weight. Recognition is a
+   *  per-cycle allowance you SPEND, never a balance you hold. At cycle close each
+   *  RECIPIENT's share of total weight releases that share of a FIXED, GOVERNED
+   *  pool of another currency (the pool is a game variable, F8). So one thank-you
+   *  is worth wildly different amounts cycle to cycle: pool is fixed, total weight
+   *  is emergent. Nobody prices the thank-you at the moment of giving; senders are
+   *  never credited; the release math runs later against a pool the community
+   *  governs. This is how ReGen Civics runs Gratitude -> $ReGen, and custom games
+   *  mirror that deployment. Full mechanism + port order: §1.1a.
+   *  Unset (default on a fresh fork) = purely symbolic, releases nothing. */
+  releases?: {
+    targetCurrencyId: string;        // MUST reference kind:"compensation" (server-enforced)
+    budgetPerCycleVar: string;       // game-variable key, e.g. "gratitude.pool_per_cycle"
+    /** "weighted-pool" = the ReGen mechanism (§1.1a): each sender's per-cycle
+     *  allowance splits evenly across the distinct people they thanked; a
+     *  recipient's share of TOTAL weight takes that share of a FIXED pool, floored.
+     *  Credited to recipients only, at cycle close only. */
+    method: "weighted-pool";
+    cycle: "lunar" | "calendar-month";  // lunar mirrors ReGen; see shared/lunar.ts
+  };
 }
 ```
+
+**Release guards (same spirit as F4):** `releases.targetCurrencyId` must point at a
+`compensation` currency. Releasing into a `voice` currency is rejected at startup
+(recognition laundering into governance weight would defeat F4), and self-release is
+rejected. If the target is `fiatExchangeable: true` (it usually is), each cycle's
+budget value goes through the F9 ratification gate before the release executes, which
+falls out of the existing rule with nothing new to remember.
+
+#### 1.1a The reference mechanism — port ReGen Civics, don't reinvent it
+
+Rye (2026-07-17): *"How it's built in regen civics should mirror how we deploy this in
+our custom games."* ReGen already runs this and the details are load-bearing — the
+indeterminate conversion rate is exactly what keeps a price off the thank-you. Port
+the math rather than re-deriving it.
+
+**The correction that matters most:** recognition is **not a balance you hold**. It is
+a **per-cycle allowance you spend**, and it is **never credited to the sender**. Only
+recipients are credited, only at cycle close, out of a **fixed pool**. The doc's
+earlier "share of cycle issuance" phrasing is too loose — use the weight math below.
+
+- **Cycle = lunar, computed, not stored.** `shared/lunar.ts`:
+  `SYNODIC_MONTH_DAYS = 29.53058867`, `REFERENCE_NEW_MOON_MS = Date.UTC(2000,0,6,18,14,0)`,
+  `cycleNumber = floor((date − REF) / SYNODIC_MS)`. No ephemeris, no string cycle id —
+  `gratitude_cycles.cycleNumber` (INT, unique) is the natural key.
+- **Sending is free and unpriced.** Message required (3–500 chars), **no amount input**,
+  no self-sends, one ack per (sender, recipient, cycle) — `uniq_ack_per_cycle`.
+- **Budget:** `effectiveBudget = round(baseBudget × tierMultiplier × (1 + streakBonus))`,
+  snapshotted at first touch of the cycle. `streakBonus = min(streakCycles × 0.03, 0.30)`,
+  carried only if the prior cycle hit `full_power_threshold` (10) distinct recipients,
+  else 0.
+- **Distribution at close** (`closeDueCycles`):
+  1. `weight = effectiveBudget / COUNT(DISTINCT recipientId)` — the sender's whole
+     allowance splits evenly across everyone they thanked; stamp it on each log row.
+  2. `weightReceived = SUM(weight)` per recipient; `totalWeight = Σ weightReceived`.
+  3. `creditedAmount = Math.floor(weightReceived / totalWeight × poolPerCycle)`.
+     Remainders stay in the pool. `poolPerCycle` is snapshotted onto the cycle row at
+     open, so a mid-cycle budget edit can't retroactively reprice a cycle in flight.
+- **Why the value swings, by design:** the pool is fixed and `totalWeight` is emergent.
+  A quiet cycle (totalWeight 500, pool 10,000) makes one ack worth ~200; a busy cycle
+  (totalWeight 50,000) makes it worth ~2. **Never render a recognition figure as a
+  target-currency amount before close** — pre-close it is genuinely unknown, and that
+  unknowability is the anti-crowding-out property, not a UX gap to paper over.
+- **Game variables** (flat keys, F8): `gratitude.base_budget=100`,
+  `gratitude.pool_per_cycle=10000` (range 1000–100000), `gratitude.claim_threshold=1000`
+  (range 100–10000), `gratitude.full_power_threshold=10`,
+  `gratitude.streak_bonus_per_cycle=0.03`, `gratitude.streak_bonus_max=0.30`,
+  `gratitude.budget_multiplier.{explorer|co_creator|steward|sage} = {1|2|3|5}`.
+- **Two traps.** (1) `gratitude.multiplier.*` is a *different* system in ReGen (trust
+  graph) — the budget tiers are `gratitude.budget_multiplier.*`. (2) The seeded keys are
+  flat; there is no `gratitude.regen_distribution.*` namespace. (3) The claim threshold
+  is **1000**, not the 333 that appears in older specs; it must match the on-chain gate.
+- **Anti-reciprocity is a hard rule, not a nudge:** no send-backs, and exchange counts
+  never feed the weight. Messages public, totals private (F3).
+
+**Port order:** `computeEffectiveBudget`, `computePerPersonShare`, `computePoolShares`
+are pure and DB-free — lift those with `server/gratitudeCycles.test.ts` first and get
+them green before touching storage. Then `shared/lunar.ts`,
+`server/lib/gratitude-cycles.ts`, `server/routes/gratitude.ts`, and the migrations
+`0163_gratitude_cycles.sql` / `0173_gratitude_budget_vars.sql`.
+
+> **Note for the fork:** ReGen's ADR-30 removed an older flat "5 per send" faucet.
+> Don't reintroduce it. Crediting the *sender* per send is the exact failure mode this
+> whole design exists to avoid.
 
 **Amora's default set:**
 
@@ -109,12 +193,19 @@ currencies: [
   {
     id: "gratitude", name: "Gratitude", nameLower: "gratitude",
     kind: "recognition",
-    fiatExchangeable: false,   // <-- CHANGED. Symbolic. It buys nothing.
+    fiatExchangeable: false,   // <-- CHANGED. No peg, no posted price, ever.
     peerGivenOnly: true,       // <-- the system never auto-issues it
     grantsVoice: false,        // <-- invariant
     decay: { mode: "season" },
     publicTotals: false,
     monthlyBudget: 100, maxPerRecipientPerCycle: 1, requireMessage: true,
+    // releases: unset on a fresh fork (purely symbolic until the project wires
+    // one). Amora's wiring once the compensation currency is named:
+    // releases: { targetCurrencyId: "seeds",
+    //             budgetPerCycleVar: "gratitude.pool_per_cycle",
+    //             method: "weighted-pool", cycle: "lunar" }
+    // Reference deployment: ReGen Civics, where received Gratitude releases
+    // $ReGen from a fixed per-cycle governed pool. See §1.1a for the math.
   },
   {
     id: "seeds", name: "Seeds", nameLower: "seeds",
@@ -254,8 +345,14 @@ says the damage doesn't reverse when you remove the price.
 (Wall), a quest reward, a dues offset, and pegged 1:1 to USD. It's a wage wearing a
 thank-you costume.
 
-**Root cause:** Fungibility is what triggers crowding-out. Barnstars work because
-they buy nothing. The moment recognition converts to money, the full −0.40 applies.
+**Root cause:** A POSTED PRICE is what triggers crowding-out. The peg made every
+thank-you a $1 invoice. The fix keeps any price off the moment of recognition; it
+does NOT require recognition to be economically inert. Rye (2026-07-17): Gratitude
+has no peg and is a surface token that releases financial tokens from a per-cycle
+governed budget, so one Gratitude can be worth wildly different amounts cycle to
+cycle. The giver never sees a number; the community governs the budget; the value
+floats. ReGen Civics (Gratitude -> $ReGen) is the reference deployment and custom
+games mirror it. See `releases` in §1.1.
 
 **Fix:**
 - Implement the `currencies[]` array (§1.1). Replace every `GAME_CONFIG.currency.*`
@@ -265,6 +362,16 @@ they buy nothing. The moment recognition converts to money, the full −0.40 app
   "1 Gratitude = $1 USD" claim and the dues-offset language** from all copy
   (`CoCreatorsGuide.tsx`, `ResidentJourney.tsx` Village Dues section, `server`
   DEFAULT_WORK_WITH_US note). Dues offsets move to the compensation currency.
+- Implement the cycle-close release job (§1.1 `releases`) **using the ReGen weight math
+  in §1.1a — port it, don't re-derive it**: stamp `weight = effectiveBudget / distinct
+  recipients` on each ack row, then credit each *recipient*
+  `floor(weightReceived / totalWeight × poolPerCycle)` in the target currency, leaving
+  remainders in the pool. Senders are never credited. Snapshot `poolPerCycle` on the
+  cycle row at open. Emit a pulse entry plus a ledger line tagged `surface_release`.
+  If the budget variable is 0 or unset, the job is a no-op. Ratification (F9) gates
+  the run when the target is fiat-exchangeable.
+- The job must be **idempotent per cycle** (a re-run credits nothing twice) — reuse the
+  `applyAcceptReward()` pattern already in `server/index.ts`.
 - Admin: a **Currencies** editor (list, add, edit; kind/decay/budget/flags), under
   Site Content. Guard: setting `grantsVoice: true` on a `recognition` currency is
   rejected server-side with a clear error (F4).
@@ -280,6 +387,17 @@ they buy nothing. The moment recognition converts to money, the full −0.40 app
 - A project can define 1..N currencies; UI renders each by name.
 - Gratitude cannot be configured to grant voice (server rejects).
 - No "1 Gratitude = $1" copy remains.
+- **Worked example (must pass verbatim).** Pool = 1000. Sender A (effectiveBudget 100)
+  thanks R1 and R2 → weight 50 each. Sender B (effectiveBudget 100) thanks R1 only →
+  weight 100. So weightReceived: R1 = 150, R2 = 50; totalWeight = 200. At close R1 is
+  credited `floor(150/200 × 1000)` = **750** and R2 `floor(50/200 × 1000)` = **250**.
+  Senders A and B are credited **nothing** for sending.
+- The same two acks in a cycle where totalWeight is 10× higher credit ~10× less. This
+  is the design working, not a bug — assert it in a test so nobody "fixes" it later.
+- Nothing in the UI renders a target-currency amount for un-closed cycles.
+- Re-running the close job for an already-closed cycle credits nothing further.
+- A release targeting a `voice` currency, or the currency itself, refuses to boot.
+- With no `releases` configured, nothing is credited and nothing renders a price.
 
 ---
 
@@ -706,11 +824,11 @@ that change what the community *becomes*.
 
 | # | Task | Why only you | Command / Where |
 |---|------|-------------|-----------------|
-| 1 | Set `ANTHROPIC_API_KEY` + `RESEND_API_KEY` on the Amora service | Cross-project secret access is blocked for the agent; values live in the ReGen Civics project | `cd /c/Users/taren/Desktop/Amora/game-amora` then `railway variables --set "ANTHROPIC_API_KEY=<v>" --set "RESEND_API_KEY=<v>"` (auto-redeploys) |
-| 2 | Connect Railway → GitHub for auto-deploy | One-time OAuth in browser | Railway → Amora Game → Settings → Source → Connect Repo |
+| 1 | ~~Set `ANTHROPIC_API_KEY` + `RESEND_API_KEY` on the Amora service~~ **DONE 2026-07-17** — copied from ReGen Civics via browser; deployed and verified (`/api/assistant/status` → `{"available":true}`). Maia is live. | — | — |
+| 2 | **Grant the Railway GitHub App access to `Rieki777/Amora-Game`** — the *last* step for auto-deploy. The repo + branch are already connected (Settings → Source shows `Rieki777/Amora-Game` / `main`), but Railway reports **"Auto deploy unavailable — no project member has access to this GitHub repository."** | GitHub demanded sudo-mode **password re-auth**; agents must never enter passwords | github.com → Settings → Applications → **Railway App** → Configure → under *Repository access* add **Amora-Game** → Save. Then Railway → Amora Game → Settings → Source: the "Auto deploy unavailable" line should clear. Until then, deploys stay manual: `railway up --ci` |
 | 3 | Set the 4 pathway notification emails | Browser login to admin | `/admin` → Notifications → Email Settings |
 | 4 | Verify Resend sender domain `amora.cr` | DNS record on your host | resend.com → Domains |
-| 5 | **Decide: does Gratitude keep any fiat peg?** (F2) | Economic policy, not an engineering call | Tell the next session: symbolic-only (recommended) or keep a peg |
+| 5 | ~~Decide: does Gratitude keep any fiat peg?~~ **ANSWERED 2026-07-17: no peg.** Gratitude is a surface token releasing financial tokens from a fixed per-cycle governed pool — a spent allowance, not a held balance; recipients only, at close only. Mirrors ReGen Civics' Gratitude → $ReGen. **The exact mechanism to port is now specced in §1.1a.** | Done | Encoded in this spec (§1.1, §1.1a, F2) |
 | 6 | **Name the compensation currency** (F2) | Yours to name — spec assumes "Seeds" as a placeholder | Tell the next session |
 | 7 | **Provide the initial domains/circles** (F5) | The community's real structure — aims + constraints per circle | Tell the next session, or seed via `/admin` once built |
 | 8 | **Provide the exit policy terms** (F12) | Legal/community decision (valuation, notice, appeal) | Tell the next session |
@@ -721,7 +839,7 @@ that change what the community *becomes*.
 | # | Task | Status |
 |---|------|--------|
 | F1 | Un-price quests + pricing lever | SPEC — ready to build |
-| F2 | Multi-currency model + migration | SPEC — blocked on Rye #5/#6 for naming only; structure can land first |
+| F2 | Multi-currency model + migration + weighted-pool release | SPEC — blocked on Rye #6 for naming only; structure can land first. Mechanism fully specced (§1.1a) — **port ReGen's pure math + its test file first** |
 | F3 | Recognition decay + season archive | SPEC |
 | F4 | Invariant assertions + tests | SPEC — ready |
 | F5 | Domains + agreements model, endpoints, domain-map UI | SPEC — ready (aims/constraints seed needs Rye #7) |
@@ -741,8 +859,9 @@ that change what the community *becomes*.
 
 ### WAITING ON YOU before Claude Code can proceed
 
-- **F2 naming + peg decision** (Rye #5, #6) — the structure can be built first, but the
-  currency can't ship until named and the peg question is answered.
+- **F2 naming** (Rye #6) — the peg question is ANSWERED (no peg; surface-token release
+  model, §1.1). Structure and release job can be built now; only the compensation
+  currency's name is still Rye's, and it defaults to the "Seeds" placeholder until then.
 - **F5 domain seed** (Rye #7) — the model can ship with Amora's four existing circles as
   a placeholder; real aims/constraints need you.
 - **F12 exit terms** (Rye #8) — flow can ship; the actual terms are a community decision.
