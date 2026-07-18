@@ -331,7 +331,7 @@ function GuideChat({
           rows={1}
           className="flex-1 resize-none px-3 py-2 text-sm border border-stone-200 rounded-xl outline-none focus:border-teal-deep max-h-32"
         />
-        <button onClick={send} disabled={thinking || !input.trim()} className="shrink-0 w-10 h-10 rounded-xl bg-teal-deep text-white flex items-center justify-center hover:bg-teal disabled:opacity-50">
+        <button onClick={send} disabled={thinking || !input.trim()} className="shrink-0 w-10 h-10 rounded-xl bg-teal-deep text-white flex items-center justify-center hover:bg-teal disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:min-w-11">
           <Send className="w-4 h-4" />
         </button>
       </div>
@@ -481,7 +481,7 @@ function ProposalForm({
         {form.attachment ? (
           <div className="inline-flex items-center gap-2 bg-teal-deep/5 border border-teal-deep/20 rounded-lg px-3 py-2 text-sm text-teal-deep">
             <Paperclip className="w-4 h-4" /> {form.attachmentName || "Attached"}
-            <button type="button" onClick={() => setForm({ ...form, attachment: "", attachmentName: "" })} className="text-stone-400 hover:text-red-500">
+            <button type="button" onClick={() => setForm({ ...form, attachment: "", attachmentName: "" })} className="text-stone-400 hover:text-red-500 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:-m-3">
               <X className="w-4 h-4" />
             </button>
           </div>

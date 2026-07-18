@@ -20,13 +20,17 @@ const buttonVariants = cva(
           "hover:bg-accent dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
       },
+      /* pointer-coarse floors: 44px minimum touch targets (Apple HIG / WCAG 2.5.5)
+         on touch devices, sized by input capability so iPads at desktop widths
+         are covered too. Desktop pointer density is unchanged. min-h/min-w (never
+         h/w) so caller height overrides and multi-line content stay safe. */
       size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
-        icon: "size-9",
-        "icon-sm": "size-8",
-        "icon-lg": "size-10",
+        default: "h-9 px-4 py-2 has-[>svg]:px-3 pointer-coarse:min-h-11",
+        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5 pointer-coarse:min-h-11",
+        lg: "h-10 rounded-md px-6 has-[>svg]:px-4 pointer-coarse:min-h-12",
+        icon: "size-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
+        "icon-sm": "size-8 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
+        "icon-lg": "size-10 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
       },
     },
     defaultVariants: {

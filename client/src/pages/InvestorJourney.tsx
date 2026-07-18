@@ -761,7 +761,7 @@ export default function InvestorJourney() {
                 </h3>
                 <button
                   onClick={() => setShowPackForm(false)}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-muted-foreground hover:text-foreground transition-colors pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:-m-2"
                 >
                   <X className="w-6 h-6" />
                 </button>
@@ -819,7 +819,7 @@ export default function InvestorJourney() {
                 </label>
                 <button
                   type="submit"
-                  className="w-full bg-teal-deep text-white py-2 rounded-lg font-medium hover:bg-teal-deep-dark transition-colors flex items-center justify-center gap-2"
+                  className="w-full bg-teal-deep text-white py-2 rounded-lg font-medium hover:bg-teal-deep-dark transition-colors flex items-center justify-center gap-2 pointer-coarse:min-h-11"
                 >
                   <Send className="w-4 h-4" />
                   Send Request
@@ -853,7 +853,7 @@ export default function InvestorJourney() {
                 </h3>
                 <button
                   onClick={() => setShowCallForm(false)}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-muted-foreground hover:text-foreground transition-colors pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:-m-2"
                 >
                   <X className="w-6 h-6" />
                 </button>
@@ -900,7 +900,7 @@ export default function InvestorJourney() {
                 </div>
                 <button
                   type="submit"
-                  className="w-full bg-teal-deep text-white py-2 rounded-lg font-medium hover:bg-teal-deep-dark transition-colors flex items-center justify-center gap-2"
+                  className="w-full bg-teal-deep text-white py-2 rounded-lg font-medium hover:bg-teal-deep-dark transition-colors flex items-center justify-center gap-2 pointer-coarse:min-h-11"
                 >
                   <Send className="w-4 h-4" />
                   Request Call

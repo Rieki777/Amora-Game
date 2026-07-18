@@ -1181,10 +1181,10 @@ function FaqAdminTab({ password }: { password: string }) {
               ) : (
                 <div className="flex items-start gap-3">
                   <div className="flex flex-col gap-0.5 mt-1">
-                    <button onClick={() => move(idx, -1)} className="text-gray-300 hover:text-gray-600 disabled:opacity-30" disabled={idx === 0}>
+                    <button onClick={() => move(idx, -1)} className="text-gray-300 hover:text-gray-600 disabled:opacity-30 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center" disabled={idx === 0}>
                       <ArrowUp className="w-3.5 h-3.5" />
                     </button>
-                    <button onClick={() => move(idx, 1)} className="text-gray-300 hover:text-gray-600 disabled:opacity-30" disabled={idx === items.length - 1}>
+                    <button onClick={() => move(idx, 1)} className="text-gray-300 hover:text-gray-600 disabled:opacity-30 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center" disabled={idx === items.length - 1}>
                       <ArrowDown className="w-3.5 h-3.5" />
                     </button>
                   </div>

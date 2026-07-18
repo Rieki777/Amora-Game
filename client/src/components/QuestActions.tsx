@@ -80,7 +80,7 @@ export default function QuestActions({
         <button
           onClick={doClaim}
           disabled={busy}
-          className="inline-flex items-center gap-2 text-sm font-semibold bg-teal-deep text-white px-4 py-2 rounded-lg hover:bg-teal disabled:opacity-50 transition-colors"
+          className="inline-flex items-center gap-2 text-sm font-semibold bg-teal-deep text-white px-4 py-2 rounded-lg hover:bg-teal disabled:opacity-50 transition-colors pointer-coarse:min-h-11"
         >
           <Sparkles className="w-4 h-4" /> {busy ? "Claiming..." : "Claim this quest"}
         </button>
@@ -102,10 +102,10 @@ export default function QuestActions({
               className="w-full px-3 py-1.5 text-sm border border-border rounded-lg outline-none focus:border-teal-deep resize-y"
             />
             <div className="flex gap-2">
-              <button type="submit" disabled={busy} className="inline-flex items-center gap-1.5 text-sm font-semibold bg-teal-deep text-white px-3 py-1.5 rounded-lg hover:bg-teal disabled:opacity-50 transition-colors">
+              <button type="submit" disabled={busy} className="inline-flex items-center gap-1.5 text-sm font-semibold bg-teal-deep text-white px-3 py-1.5 rounded-lg hover:bg-teal disabled:opacity-50 transition-colors pointer-coarse:min-h-11">
                 <Send className="w-3.5 h-3.5" /> Submit
               </button>
-              <button type="button" onClick={() => setShowSubmit(false)} className="text-sm text-muted-foreground px-2">
+              <button type="button" onClick={() => setShowSubmit(false)} className="text-sm text-muted-foreground px-2 pointer-coarse:min-h-11 pointer-coarse:px-3">
                 Cancel
               </button>
             </div>
@@ -113,7 +113,7 @@ export default function QuestActions({
         ) : (
           <button
             onClick={() => setShowSubmit(true)}
-            className="inline-flex items-center gap-2 text-sm font-semibold bg-amber text-teal-deep px-4 py-2 rounded-lg hover:bg-amber/90 transition-colors"
+            className="inline-flex items-center gap-2 text-sm font-semibold bg-amber text-teal-deep px-4 py-2 rounded-lg hover:bg-amber/90 transition-colors pointer-coarse:min-h-11"
           >
             <Send className="w-4 h-4" /> Submit your work
           </button>

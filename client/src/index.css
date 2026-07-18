@@ -471,11 +471,73 @@ html {
 }
 
 .animate-shimmer {
-  background: linear-gradient(90deg, 
-    transparent 0%, 
-    rgba(255, 255, 255, 0.4) 50%, 
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
     transparent 100%
   );
   background-size: 200% 100%;
   animation: shimmer 2s infinite;
+}
+
+/*
+ * MOBILE TOUCH FOUNDATION
+ * Ported from the regen-civics mobile-first pass. The shadcn primitives
+ * (button.tsx and friends) carry their own pointer-coarse floors, so this
+ * block stays lean: tap polish, the iOS zoom guard, the coarse-pointer
+ * hit-area expander, and a safe-area utility. No blanket min-height rule.
+ */
+
+/* Tap polish: remove the gray tap flash and the 350ms double-tap zoom
+   delay on interactive controls. */
+button, a, [role="button"], input, textarea, select, summary {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* iOS Safari auto-zooms when a focused form control renders under 16px.
+   Force a 16px floor on mobile for text-entry controls so no form zooms
+   on focus; desktop keeps the compact size. Checkboxes, radios, ranges,
+   color pickers, and file inputs are excluded since font-size does not
+   apply to them. */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Touch target: ensure 44px minimum hit area on coarse-pointer devices.
+   Includes Radix checkbox/radio/switch, whose visuals stay small by design;
+   the ::after overlay gives them a full 44x44 tap zone without resizing them.
+   Add .no-touch-extend to opt an element out (e.g. tightly packed rows). */
+@media (pointer: coarse) {
+  button:not([disabled]):not(.no-touch-extend),
+  [role="button"]:not([aria-disabled="true"]):not(.no-touch-extend),
+  [role="checkbox"]:not([aria-disabled="true"]):not(.no-touch-extend),
+  [role="radio"]:not([aria-disabled="true"]):not(.no-touch-extend),
+  [role="switch"]:not([aria-disabled="true"]):not(.no-touch-extend) {
+    position: relative;
+  }
+  button:not([disabled]):not(.no-touch-extend)::after,
+  [role="button"]:not([aria-disabled="true"]):not(.no-touch-extend)::after,
+  [role="checkbox"]:not([aria-disabled="true"]):not(.no-touch-extend)::after,
+  [role="radio"]:not([aria-disabled="true"]):not(.no-touch-extend)::after,
+  [role="switch"]:not([aria-disabled="true"]):not(.no-touch-extend)::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    min-height: 44px;
+    min-width: 44px;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+  }
+}
+
+/* Bottom safe area (iPhone home indicator) utility. */
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom);
 }
