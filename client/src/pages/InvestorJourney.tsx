@@ -20,13 +20,19 @@ import {
   Sparkles,
   ChevronDown,
   ExternalLink,
-  X,
   Send,
   MapPin,
   Zap,
   BarChart3,
   MessageSquare
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
 
 // New investor-focused image showing sustainable luxury development
 const INVESTOR_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/Shared-Governance-1024x683.jpg";
@@ -739,177 +745,139 @@ export default function InvestorJourney() {
       </AnimatePresence>
 
       {/* Investor Pack Form Modal */}
-      <AnimatePresence>
-        {showPackForm && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-            onClick={() => setShowPackForm(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-card rounded-2xl p-8 max-w-md w-full shadow-xl"
+      <Dialog open={showPackForm} onOpenChange={(o) => { if (!o) setShowPackForm(false); }}>
+        <DialogContent className="bg-card rounded-2xl p-8 shadow-xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl font-semibold text-foreground">
+              Request Investor Pack
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Request the full investor pack with financials and development timeline.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handlePackFormSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Name</label>
+              <input
+                type="text"
+                value={packFormData.name}
+                onChange={(e) => setPackFormData({ ...packFormData, name: e.target.value })}
+                required
+                className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Email</label>
+              <input
+                type="email"
+                value={packFormData.email}
+                onChange={(e) => setPackFormData({ ...packFormData, email: e.target.value })}
+                required
+                className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Investment Range</label>
+              <input
+                type="text"
+                placeholder="e.g., $50K - $250K"
+                value={packFormData.investmentRange}
+                onChange={(e) => setPackFormData({ ...packFormData, investmentRange: e.target.value })}
+                className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Message (optional)</label>
+              <textarea
+                value={packFormData.message}
+                onChange={(e) => setPackFormData({ ...packFormData, message: e.target.value })}
+                rows={3}
+                className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep resize-none"
+              />
+            </div>
+            <label className="flex items-start gap-3 text-sm text-foreground bg-muted/40 rounded-lg p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={packFormData.accredited}
+                onChange={(e) => setPackFormData({ ...packFormData, accredited: e.target.checked })}
+                className="mt-0.5 h-4 w-4 rounded border-muted text-teal-deep focus:ring-teal-deep"
+              />
+              <span className="leading-snug">
+                I confirm I am an accredited investor.
+              </span>
+            </label>
+            <button
+              type="submit"
+              className="w-full bg-teal-deep text-white py-2 rounded-lg font-medium hover:bg-teal-deep-dark transition-colors flex items-center justify-center gap-2 pointer-coarse:min-h-11"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-display text-2xl font-semibold text-foreground">
-                  Request Investor Pack
-                </h3>
-                <button
-                  onClick={() => setShowPackForm(false)}
-                  className="text-muted-foreground hover:text-foreground transition-colors pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:-m-2"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-              <form onSubmit={handlePackFormSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Name</label>
-                  <input
-                    type="text"
-                    value={packFormData.name}
-                    onChange={(e) => setPackFormData({ ...packFormData, name: e.target.value })}
-                    required
-                    className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Email</label>
-                  <input
-                    type="email"
-                    value={packFormData.email}
-                    onChange={(e) => setPackFormData({ ...packFormData, email: e.target.value })}
-                    required
-                    className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Investment Range</label>
-                  <input
-                    type="text"
-                    placeholder="e.g., $50K - $250K"
-                    value={packFormData.investmentRange}
-                    onChange={(e) => setPackFormData({ ...packFormData, investmentRange: e.target.value })}
-                    className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Message (optional)</label>
-                  <textarea
-                    value={packFormData.message}
-                    onChange={(e) => setPackFormData({ ...packFormData, message: e.target.value })}
-                    rows={3}
-                    className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep resize-none"
-                  />
-                </div>
-                <label className="flex items-start gap-3 text-sm text-foreground bg-muted/40 rounded-lg p-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={packFormData.accredited}
-                    onChange={(e) => setPackFormData({ ...packFormData, accredited: e.target.checked })}
-                    className="mt-0.5 h-4 w-4 rounded border-muted text-teal-deep focus:ring-teal-deep"
-                  />
-                  <span className="leading-snug">
-                    I confirm I am an accredited investor.
-                  </span>
-                </label>
-                <button
-                  type="submit"
-                  className="w-full bg-teal-deep text-white py-2 rounded-lg font-medium hover:bg-teal-deep-dark transition-colors flex items-center justify-center gap-2 pointer-coarse:min-h-11"
-                >
-                  <Send className="w-4 h-4" />
-                  Send Request
-                </button>
-              </form>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              <Send className="w-4 h-4" />
+              Send Request
+            </button>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Schedule Call Form Modal */}
-      <AnimatePresence>
-        {showCallForm && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-            onClick={() => setShowCallForm(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-card rounded-2xl p-8 max-w-md w-full shadow-xl"
+      <Dialog open={showCallForm} onOpenChange={(o) => { if (!o) setShowCallForm(false); }}>
+        <DialogContent className="bg-card rounded-2xl p-8 shadow-xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl font-semibold text-foreground">
+              Schedule a Call
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Schedule a one-on-one investment call with our team.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCallFormSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Name</label>
+              <input
+                type="text"
+                value={callFormData.name}
+                onChange={(e) => setCallFormData({ ...callFormData, name: e.target.value })}
+                required
+                className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Email</label>
+              <input
+                type="email"
+                value={callFormData.email}
+                onChange={(e) => setCallFormData({ ...callFormData, email: e.target.value })}
+                required
+                className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Preferred Time</label>
+              <input
+                type="text"
+                placeholder="e.g., Tuesday 2pm EST"
+                value={callFormData.preferredTime}
+                onChange={(e) => setCallFormData({ ...callFormData, preferredTime: e.target.value })}
+                className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Message (optional)</label>
+              <textarea
+                value={callFormData.message}
+                onChange={(e) => setCallFormData({ ...callFormData, message: e.target.value })}
+                rows={3}
+                className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep resize-none"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-teal-deep text-white py-2 rounded-lg font-medium hover:bg-teal-deep-dark transition-colors flex items-center justify-center gap-2 pointer-coarse:min-h-11"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-display text-2xl font-semibold text-foreground">
-                  Schedule a Call
-                </h3>
-                <button
-                  onClick={() => setShowCallForm(false)}
-                  className="text-muted-foreground hover:text-foreground transition-colors pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:-m-2"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-              <form onSubmit={handleCallFormSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Name</label>
-                  <input
-                    type="text"
-                    value={callFormData.name}
-                    onChange={(e) => setCallFormData({ ...callFormData, name: e.target.value })}
-                    required
-                    className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Email</label>
-                  <input
-                    type="email"
-                    value={callFormData.email}
-                    onChange={(e) => setCallFormData({ ...callFormData, email: e.target.value })}
-                    required
-                    className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Preferred Time</label>
-                  <input
-                    type="text"
-                    placeholder="e.g., Tuesday 2pm EST"
-                    value={callFormData.preferredTime}
-                    onChange={(e) => setCallFormData({ ...callFormData, preferredTime: e.target.value })}
-                    className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Message (optional)</label>
-                  <textarea
-                    value={callFormData.message}
-                    onChange={(e) => setCallFormData({ ...callFormData, message: e.target.value })}
-                    rows={3}
-                    className="w-full px-4 py-2 bg-muted rounded-lg border border-muted text-foreground focus:outline-none focus:ring-2 focus:ring-teal-deep resize-none"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full bg-teal-deep text-white py-2 rounded-lg font-medium hover:bg-teal-deep-dark transition-colors flex items-center justify-center gap-2 pointer-coarse:min-h-11"
-                >
-                  <Send className="w-4 h-4" />
-                  Request Call
-                </button>
-              </form>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              <Send className="w-4 h-4" />
+              Request Call
+            </button>
+          </form>
+        </DialogContent>
+      </Dialog>
   
     </Layout>
   );
