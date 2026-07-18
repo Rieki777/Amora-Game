@@ -384,6 +384,24 @@ function currentCycleId(): string {
   return new Date().toISOString().slice(0, 7); // calendar month, e.g. "2026-07"
 }
 
+// Safe user shape for API responses: strips the password hash and fills every
+// field the client reads, so a fresh or legacy account never returns undefined
+// where a page expects an array or number (see Profile.tsx contributions crash).
+function publicUser(u: any) {
+  if (!u) return null;
+  const { passwordHash, ...rest } = u;
+  return {
+    ...rest,
+    paths: u.paths ?? [],
+    contributions: u.contributions ?? [],
+    quests: u.quests ?? [],
+    heartsBalance: u.heartsBalance ?? 0,
+    bio: u.bio ?? "",
+    avatar: u.avatar ?? null,
+    joinedAt: u.joinedAt ?? new Date().toISOString(),
+  };
+}
+
 function firstName(name: string): string {
   return String(name ?? "").trim().split(/\s+/)[0] || "Someone";
 }
@@ -865,7 +883,7 @@ async function startServer() {
     writeJson(USERS_FILE, users);
     addActivity("join", `${firstName(name)} stepped into the village as a Guest`);
     const token = encodeToken(userId, email);
-    res.json({ success: true, token, user: { id: user.id, name, email, paths } });
+    res.json({ success: true, token, user: publicUser(user) });
   });
 
   // Auth: Login
@@ -886,7 +904,7 @@ async function startServer() {
       writeJson(USERS_FILE, users);
     }
     const token = encodeToken(user.id, email);
-    res.json({ success: true, token, user: { id: user.id, name: user.name, email, paths: user.paths } });
+    res.json({ success: true, token, user: publicUser(users.users[userIdx]) });
   });
 
   // Auth: Get Profile
@@ -905,7 +923,7 @@ async function startServer() {
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
-    res.json(user);
+    res.json(publicUser(user));
   });
 
   // Auth: Update Profile
@@ -930,7 +948,7 @@ async function startServer() {
     if (avatar !== undefined) users.users[userIdx].avatar = avatar;
     if (paths) users.users[userIdx].paths = paths;
     writeJson(USERS_FILE, users);
-    res.json(users.users[userIdx]);
+    res.json(publicUser(users.users[userIdx]));
   });
 
   // Auth: Log Contribution
@@ -960,8 +978,9 @@ async function startServer() {
       heartsEarned,
       date: new Date().toISOString(),
     };
+    users.users[userIdx].contributions = users.users[userIdx].contributions ?? [];
     users.users[userIdx].contributions.push(contribution);
-    users.users[userIdx].heartsBalance += heartsEarned;
+    users.users[userIdx].heartsBalance = (users.users[userIdx].heartsBalance ?? 0) + heartsEarned;
     writeJson(USERS_FILE, users);
     res.json({ success: true, contribution });
   });
@@ -1910,6 +1929,18 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // Note: historical quest claims and gratitude-log entries are intentionally
     // left intact; they are a shared ledger, not owned by a single account.
     res.json({ success: true, removed: { id: removed.id, email: removed.email } });
+  });
+
+  // Activity admin: remove a single pulse entry (e.g. a test account's join line).
+  // Find the id via GET /api/game/pulse, then DELETE with the admin password.
+  app.delete("/api/admin/activity/:id", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const log: any[] = readJson(ACTIVITY_FILE) ?? [];
+    const idx = log.findIndex((a) => a.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    const [removed] = log.splice(idx, 1);
+    writeJson(ACTIVITY_FILE, log);
+    res.json({ success: true, removed });
   });
 
   // Static Files + SPA Fallback

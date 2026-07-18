@@ -77,7 +77,7 @@ export default function Profile() {
     year: "numeric",
   });
 
-  const recentContributions = user.contributions.slice(-5).reverse();
+  const recentContributions = (user.contributions ?? []).slice(-5).reverse();
 
   return (
     <Layout>
