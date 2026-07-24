@@ -110,3 +110,9 @@ temp/
 # shadows anything the Docker image had at this path, so seeds must ship
 # outside it to survive.
 data/*
+
+# local scratch/handoff artifacts
+atsc.txt
+do_commit.bat
+do_audit_commit.bat
+DEPLOY_HANDOFF_2026-07-04.md
