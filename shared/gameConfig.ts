@@ -63,7 +63,7 @@ export interface GameConfig {
   project: {
     name: string;
     tagline: string;
-    /** What a committed member is called (e.g. Amoracita, Citizen, Villager). */
+    /** What a committed member is called (e.g. Amora Family member, Citizen, Villager). */
     memberName: string;
     location: string;
     adminPath: string;
@@ -113,7 +113,7 @@ export const GAME_CONFIG: GameConfig = {
   project: {
     name: "Amora",
     tagline: "Co-Become the Most Beautiful Village",
-    memberName: "Amoracita",
+    memberName: "Amora Family member",
     location: "Dominicalito, Costa Rica",
     adminPath: "/admin",
   },
@@ -146,7 +146,7 @@ export const GAME_CONFIG: GameConfig = {
     { id: "guest", name: "Guest", description: "Created a profile and stepped inside.", rule: { type: "account" }, gratitudeMultiplier: 1 },
     { id: "immersant", name: "Immersant", description: "Spent immersive time with the community.", rule: { type: "granted" }, gratitudeMultiplier: 1 },
     { id: "participant", name: "Participant", description: "Completed community training.", rule: { type: "training-complete" }, gratitudeMultiplier: 1 },
-    { id: "member", name: "Member", description: "Signed the Love Letter and became an Amoracita.", rule: { type: "membership" }, gratitudeMultiplier: 2 },
+    { id: "member", name: "Member", description: "Signed the Love Letter and joined the Amora Family.", rule: { type: "membership" }, gratitudeMultiplier: 2 },
     { id: "contributor", name: "Contributor", description: "Completed a first quest for the village.", rule: { type: "quests", min: 1 }, gratitudeMultiplier: 2 },
     { id: "quest-seeker", name: "Quest Seeker", description: "Contributing steadily through quests.", rule: { type: "quests", min: 3 }, gratitudeMultiplier: 2 },
     { id: "initiate", name: "Initiate", description: "Walking the Co-Creator Right of Passage.", rule: { type: "granted" }, gratitudeMultiplier: 2 },

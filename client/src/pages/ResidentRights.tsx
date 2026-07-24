@@ -53,7 +53,7 @@ const RIGHTS = [
     icon: Coins,
     title: "Dues Offset Through Gratitude",
     description:
-      "Village dues can be covered through Gratitude, contributions you make to the community that are tracked as real value (1 Gratitude = $1 USD). The more you contribute, the more your dues can be offset. The vision is a community where shared business profits make your life here net-positive.",
+      "Village dues can be covered through Gratitude, contributions you make to the community that are tracked as real value rather than a fixed dollar amount. The more you contribute, the more your dues can be offset. The vision is a community where shared business profits make your life here net-positive.",
   },
 ];
 

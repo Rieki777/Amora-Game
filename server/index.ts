@@ -221,6 +221,7 @@ const FORM_TYPE_TO_PATHWAY: Record<string, "investor" | "steward" | "resident" |
   prosperity: "prosperity",
   contact: "prosperity",
   "work-with-us": "prosperity",
+  "quest-proposal": "steward",
 };
 
 function legacySha256(password: string): string {

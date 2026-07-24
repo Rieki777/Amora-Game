@@ -277,7 +277,7 @@ CTAs: Join Community Call | View All Events`,
       },
       {
         heading: "The Letter",
-        content: `Salutation: Dear Future Amoracita,
+        content: `Salutation: Dear Future Amora Family Member,
 Body: [PLACEHOLDER - Amora team to write the full letter body here]
 Closing: With love and anticipation, The Amora Community`,
       },
@@ -289,14 +289,14 @@ Closing: With love and anticipation, The Amora Community`,
       {
         heading: "Sign Your Membership Form",
         content: `Heading: Sign Your Membership
-Text: Fill in your details below to officially become an Amoracita.
+Text: Fill in your details below to officially join the Amora Family.
 Fields: Full Name | Email | Phone/WhatsApp (optional) | Which path(s) are you on? | Monthly Membership Contribution ($33/$55/$88/$108/custom) | What called you to Amora?
 Checkbox: I have read the Love Letter and commit to the values of the Amora community.
-CTA: Sign the Love Letter and Become an Amoracita`,
+CTA: Sign the Love Letter and Join the Amora Family`,
       },
       {
         heading: "Post-Submission",
-        content: `Heading: Welcome, Amoracita
+        content: `Heading: Welcome to the Amora Family
 Message: Your membership form has been received. You are now part of the Amora 508(c)(1)(a) community.
 Next steps: 1) Welcome email within 48 hours. 2) Personal welcome call scheduled. 3) Invited to first Community Circle.
 CTA: Return Home`,
@@ -313,7 +313,7 @@ CTA: Return Home`,
       "Your Hypha DHO URL (e.g. app.hypha.earth/en/dho/amora-village) - paste the full URL to your Amora Hypha space so the platform links on the Game Guide page can go live",
       "Page title - currently 'Amora Game Guide', confirm with the team (alternatives: 'The Co-Creators Guide', 'The Amora Playbook', or your own name)",
       "Community currency name - currently 'Gratitude', will be replaced sitewide once finalised. Share the chosen name so we can update all pages at once.",
-      "Community currency value - currently shown as '1 Gratitude = $1 USD'. Confirm the conversion rate or change this to aspirational language if the rate isn't locked in yet.",
+      "Community currency value - RESOLVED (2026-07): Gratitude has no fixed peg. It's a surface token that shares a per-cycle pool of value, so its worth floats cycle to cycle. All '1 Gratitude = $1 USD' copy has been removed sitewide.",
     ],
     sections: [
       {
@@ -365,7 +365,7 @@ Land Stewardship Space - Cares for land and ecosystem health`,
       },
       {
         heading: "Path of Growth",
-        content: "Stages: Visitor | Guest | Immersant | Participant | Member/Amoracita | Contributor | Quest Seeker | Initiate | Co-Creator | Role Holder | Guide (7+ years) | Sage (21+ years)",
+        content: "Stages: Visitor | Guest | Immersant | Participant | Member (Amora Family) | Contributor | Quest Seeker | Initiate | Co-Creator | Role Holder | Guide (7+ years) | Sage (21+ years)",
       },
       {
         heading: "Bottom CTAs",
@@ -481,7 +481,7 @@ When is ROI expected? [PLACEHOLDER - answer to verify and add]`,
 Guest: Participate in Events - Join potlucks, events, workshops, and parties to experience the community.
 Immersant: Village Weaving Immersion - Spend immersive time in the village learning how it operates and discovering where your gifts are most needed.
 Participant: Community Training - Complete training in NVC, authentic relating, and other community practices.
-Member: Become an Amoracita - Sign our Love Letter and formally become a member of Amora 508c1a.
+Member: Join the Amora Family - Sign our Love Letter and formally become a member of Amora 508c1a.
 Contributor: Participate in a Circle - Join a sociocratic circle to contribute to community decision-making.
 Quest Seeker: Explore Quests - Take on quests to contribute meaningfully and demonstrate your commitment.
 Initiate: Co-Creator Right of Passage - Complete the right of passage with a vote from the Co-Creators circle.
@@ -528,7 +528,7 @@ Text: Not in a passive sense. Not in a "you paid for something" sense. In the de
       {
         heading: "Your Rights (6 Cards)",
         content: `1. Voice in Governance - Participate in Circle consent rounds, vote on decisions in your domain, elect representatives to the Leadership Council.
-2. Earn Gratitude for Your Contribution - Every role, quest, and meaningful act earns Gratitude (1 Gratitude = $1 USD). Converts to cash or equity as Amora grows.
+2. Earn Gratitude for Your Contribution - Every role, quest, and meaningful act earns Gratitude, a living record of the value you bring (no fixed dollar peg). Can convert to cash, equity, or community currency as Amora grows.
 3. Apply for Seasonal Roles - Once you pass your Co-Creator Right of Passage, propose yourself for any seasonal role that fits your gifts.
 4. Advance Along the Path - Progress from Co-Creator to Guide (after multiple seasons) to Sage (after seasons as Guide). Each level deepens your voice and compensation.
 5. Access to Shared Land and Commons - All trails, food forests, gathering spaces, and natural features of the 266 acres are yours to steward and enjoy.
@@ -582,7 +582,7 @@ Resident: Move In Celebration!`,
         heading: "Village Dues",
         content: `Heading: Village Dues
 [PLACEHOLDER - Amora team to confirm monthly dues amount ($NNN/month)]
-Note: Dues cover utilities, maintenance, and community services. These can be covered through Gratitude - contributions that track real value (1 Gratitude = $1 USD).`,
+Note: Dues cover utilities, maintenance, and community services. These can be offset through Gratitude - a living record of the value you contribute, with no fixed dollar peg.`,
       },
       {
         heading: "Land Share Agreements",
@@ -618,7 +618,7 @@ Text: The land at Amora is held collectively. Every resident is a steward of the
 3. Voice in Community Life - Full voice in Circles governing daily life. Governance rights deepen as you reach milestones and put down roots.
 4. Access to All Commons - Trails, food forests, gathering spaces, streams, ponds, seasonal festivals, events, all of it is yours.
 5. Community Services and Care - Access to wellness programs, education, healing arts, and services Amora develops together. Community businesses serve residents first.
-6. Dues Offset Through Gratitude - Dues can be covered through Gratitude (1 Gratitude = $1 USD of contribution). The vision: shared business profits make life here net-positive.`,
+6. Dues Offset Through Gratitude - Dues can be offset through Gratitude, a living record of your contribution (no fixed dollar peg). The vision: shared business profits make life here net-positive.`,
       },
       {
         heading: "Your Responsibilities (7 Cards)",
@@ -658,13 +658,13 @@ Long-Term Resident (Year 7+): Senior voice in community decisions, Sage eligibil
         heading: "Four Pillars",
         content: `Sociocracy and Teal: We blend sociocratic governance with Teal organization principles. Self-management, wholeness, and evolutionary purpose guide our structure.
 Adaptive Governance: Using Hypha tools, each circle designs its own governance strategy, from consent to consensus, tailored to its unique culture and mission.
-Gratitude Economy: Gratitude tracks the value you contribute. 1 Gratitude = $1 USD in contributed value. As Amora matures, Gratitude converts to cash or equity.
+Gratitude Economy: Gratitude tracks the value you contribute — a living record, not a fixed dollar amount. Each cycle the community shares a real pool of value across everyone's Gratitude, and it can convert to cash, equity, or community currency as Amora matures.
 Seasonal Rhythm: Every 3 months, the community votes on what kind of season comes next. Not a fixed cycle.`,
       },
       {
         heading: "The Gratitude Economy",
         content: `Earn Gratitude: Complete quests, fulfill roles, or receive revenue shares from community and private businesses.
-Track Value: 1 Gratitude = $1 USD in value contributed. Gratitude is an honest record of the work everyone is pooling to make Amora real.
+Track Value: Gratitude is an honest record of the work everyone is pooling to make Amora real — a living measure of value, not a fixed dollar peg.
 Future Conversion: As Amora matures, Gratitude will convert to cash or equity.`,
       },
       {
@@ -744,7 +744,7 @@ Winter Solstice (December): The quieter turn. Storytelling, fire ceremony, and i
       },
       {
         heading: "Who Can Attend",
-        content: `Members: All Amoracitas are welcome at every festival. Festivals are a key part of community life.
+        content: `Members: All Amora Family members are welcome at every festival. Festivals are a key part of community life.
 
 Visitors and Guests: Friends, family, and prospective community members are welcome to join - festivals are one of the best ways to experience Amora.
 
@@ -1125,6 +1125,19 @@ const BUCKETS: { id: BucketId; emoji: string; label: string; goal: string; tone:
   { id: "completed", emoji: "🟢", label: "Completed", goal: "Done and confirmed by Amora.", tone: "bg-emerald-50 border-emerald-200 text-emerald-700" },
   { id: "amora-call", emoji: "🔵", label: "Amora's Call", goal: "Decisions or actions for the Amora team to lead.", tone: "bg-violet-50 border-violet-200 text-violet-700" },
 ];
+
+// Two axes, read at a glance: WHO owns an item (from the status dropdown) and
+// WHAT STAGE it's at (from the checkbox). The pills below derive from those.
+function ownerMeta(status: DeliveryStatus): { label: string; cls: string } {
+  if (status === "amora") return { label: "Amora", cls: "bg-amber/20 text-amber-800 border-amber/40" };
+  if (status === "collab") return { label: "Both", cls: "bg-violet-100 text-violet-700 border-violet-200" };
+  return { label: "ReGen", cls: "bg-teal-deep/10 text-teal-deep border-teal-deep/20" };
+}
+function stageMeta(state: 0 | 1 | 2, status: DeliveryStatus): { label: string; cls: string } {
+  if (state === 2) return { label: "Confirmed", cls: "bg-emerald-100 text-emerald-700 border-emerald-200" };
+  if (state === 1 || status === "done") return { label: "In progress", cls: "bg-teal/10 text-teal-700 border-teal/20" };
+  return { label: "To do", cls: "bg-stone-100 text-stone-500 border-stone-200" };
+}
 
 interface DiscussionTopic {
   id: string;
@@ -1720,23 +1733,28 @@ export default function JourneyToLaunch() {
               {/* ── TIMELINE VIEW ───────────────────────────────────────── */}
               {activeView === "timeline" && (
                 <div className="max-w-4xl mx-auto">
-                  {/* Legend */}
-                  <div className="flex flex-wrap items-center gap-4 text-xs text-stone-500 mb-6">
-                    <span className="flex items-center gap-1.5">
-                      <Square className="w-4 h-4 text-stone-300" /> Pending
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <CheckSquare className="w-4 h-4 text-teal" /> ReGen Done (Amora's Turn)
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <XSquare className="w-4 h-4 text-emerald-600" /> Amora Confirmed
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="inline-block w-3 h-3 rounded bg-amber-400" /> Amora's Item
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="inline-block w-3 h-3 rounded bg-violet-400" /> Collab Item
-                    </span>
+                  {/* Legend — two things to read on every row: who owns it, and what stage it's at */}
+                  <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-4 mb-6 text-xs text-stone-600">
+                    <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                      <div className="flex-1">
+                        <p className="font-semibold text-stone-500 uppercase tracking-wide mb-2">Who owns it</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="px-2 py-0.5 rounded-full border font-semibold bg-teal-deep/10 text-teal-deep border-teal-deep/20">ReGen</span>
+                          <span className="px-2 py-0.5 rounded-full border font-semibold bg-amber/20 text-amber-800 border-amber/40">Amora</span>
+                          <span className="px-2 py-0.5 rounded-full border font-semibold bg-violet-100 text-violet-700 border-violet-200">Both</span>
+                          <span className="text-stone-400">— set with the dropdown on each row.</span>
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-semibold text-stone-500 uppercase tracking-wide mb-2">What stage</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="px-2 py-0.5 rounded-full border font-semibold bg-stone-100 text-stone-500 border-stone-200">To do</span>
+                          <span className="px-2 py-0.5 rounded-full border font-semibold bg-teal/10 text-teal-700 border-teal/20">In progress</span>
+                          <span className="px-2 py-0.5 rounded-full border font-semibold bg-emerald-100 text-emerald-700 border-emerald-200">Confirmed</span>
+                          <span className="text-stone-400">— advance with the checkbox.</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {(() => {
@@ -1801,10 +1819,10 @@ export default function JourneyToLaunch() {
                                     className="mt-0.5 shrink-0"
                                     title={
                                       state === 0
-                                        ? "Click to mark ReGen done (Amora's turn)"
+                                        ? "Click to advance to In progress"
                                         : state === 1
-                                        ? "Click to mark Amora Confirmed"
-                                        : "Click to reset to Pending"
+                                        ? "Click to mark Confirmed"
+                                        : "Click to reset to To do"
                                     }
                                   >
                                     {state === 2 ? (
@@ -1832,11 +1850,27 @@ export default function JourneyToLaunch() {
                                     {d.text}
                                   </span>
 
-                                  {/* Inline status dropdown — change effective status (saved to localStorage) */}
+                                  {/* At-a-glance: who owns it + what stage it's at */}
+                                  {(() => {
+                                    const owner = ownerMeta(effStatus);
+                                    const stage = stageMeta(state, effStatus);
+                                    return (
+                                      <>
+                                        <span className={`shrink-0 hidden sm:inline-block text-xs font-semibold px-2 py-0.5 rounded-full border ${owner.cls}`} title="Who owns this item">
+                                          {owner.label}
+                                        </span>
+                                        <span className={`shrink-0 hidden sm:inline-block text-xs font-semibold px-2 py-0.5 rounded-full border ${stage.cls}`} title="What stage this item is at">
+                                          {stage.label}
+                                        </span>
+                                      </>
+                                    );
+                                  })()}
+
+                                  {/* Inline status dropdown — sets the owner / bucket (saved to server) */}
                                   <select
                                     value={effStatus}
                                     onChange={(e) => setItemStatus(d.id, e.target.value as DeliveryStatus)}
-                                    title="Move this item to another bucket"
+                                    title="Set who owns this item"
                                     className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded border outline-none cursor-pointer ${
                                       isAmora
                                         ? "bg-amber text-teal-deep border-amber"
@@ -1847,16 +1881,11 @@ export default function JourneyToLaunch() {
                                         : "bg-stone-100 text-stone-600 border-stone-200"
                                     }`}
                                   >
-                                    <option value="pending">Pending</option>
-                                    <option value="done">Done (in motion)</option>
-                                    <option value="amora">Amora</option>
-                                    <option value="collab">Collab</option>
+                                    <option value="pending">ReGen · to do</option>
+                                    <option value="done">ReGen · in motion</option>
+                                    <option value="amora">Amora's call</option>
+                                    <option value="collab">Collab (both)</option>
                                   </select>
-                                  {!isAmora && !isCollab && state === 2 && (
-                                    <span className="shrink-0 text-xs bg-emerald-100 text-emerald-700 font-medium px-2 py-0.5 rounded">
-                                      Confirmed
-                                    </span>
-                                  )}
                                   {assigneeName && (
                                     <span className="shrink-0 text-xs bg-stone-100 text-stone-600 font-medium px-2 py-0.5 rounded-full border border-stone-200">
                                       {assigneeName}
@@ -1941,7 +1970,7 @@ export default function JourneyToLaunch() {
                   })()}
 
                   <p className="text-stone-400 text-xs text-center mt-4">
-                    Checkboxes cycle: Pending → ReGen Delivered → Amora Confirmed → Pending. Use the status dropdown to move items between buckets. State is shared and synced to server.
+                    The <strong>checkbox</strong> advances the stage: To do → In progress → Confirmed → back to To do. The <strong>dropdown</strong> sets who owns it (ReGen, Amora, or both), which sorts it into the buckets above. Everything is shared and synced to the server.
                   </p>
                 </div>
               )}

@@ -33,6 +33,7 @@ import ProsperityJourney from "./pages/ProsperityJourney";
 import LoveLetter from "./pages/LoveLetter";
 import Circles from "./pages/Circles";
 import Quests from "./pages/Quests";
+import ProposeQuest from "./pages/ProposeQuest";
 import Roles from "./pages/Roles";
 import HowWeCreate from "./pages/HowWeCreate";
 import CoCreatorsGuide from "./pages/CoCreatorsGuide";
@@ -70,6 +71,7 @@ function Router() {
       <Route path="/love-letter" component={LoveLetter} />
       <Route path="/circles" component={Circles} />
       <Route path="/quests" component={Quests} />
+      <Route path="/propose-quest" component={ProposeQuest} />
       <Route path="/roles" component={Roles} />
       <Route path="/how-we-create" component={HowWeCreate} />
       <Route path="/co-creators-guide" component={CoCreatorsGuide} />

@@ -87,6 +87,9 @@ export default function Layout({ children }: LayoutProps) {
             <Link href="/roles" className="text-white/70 hover:text-white transition-colors text-sm">
               Roles
             </Link>
+            <Link href="/quests" className="text-white/70 hover:text-white transition-colors text-sm">
+              Quests
+            </Link>
             <Link href="/how-we-create" className="text-white/70 hover:text-white transition-colors text-sm">
               How We Create
             </Link>
@@ -184,6 +187,9 @@ export default function Layout({ children }: LayoutProps) {
                 </Link>
                 <Link href="/roles" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   Roles
+                </Link>
+                <Link href="/quests" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                  Quests
                 </Link>
                 <Link href="/how-we-create" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   How We Create

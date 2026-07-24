@@ -260,7 +260,7 @@ export default function ProsperityJourney() {
                 Gratitude Economy
               </h3>
               <p className="text-muted-foreground text-sm">
-                All businesses integrate with our contribution tracking system. Revenue shares are paid in Gratitude, 1 Gratitude = $1 USD in value. As Amora matures, Gratitude converts to cash or equity.
+                All businesses integrate with our contribution tracking system. Revenue shares are paid in Gratitude, a living record of the value you bring rather than a fixed dollar amount. As Amora matures, Gratitude can convert to cash, equity, or community currency.
               </p>
             </motion.div>
 

@@ -6,15 +6,14 @@ import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Home, 
-  ArrowRight, 
+  Home,
+  ArrowRight,
   CheckCircle2,
   Circle,
   Calendar,
   Heart,
   Users,
   FileCheck,
-  Clock,
   Baby,
   Award,
   Key,
@@ -24,7 +23,10 @@ import {
   ChevronDown,
   ExternalLink,
   Sparkles,
-  BookOpen
+  BookOpen,
+  Sprout,
+  Wallet,
+  Flame
 } from "lucide-react";
 
 const RESIDENT_IMAGE = "https://amora.cr/wp-content/uploads/2026/02/Land-Tour-3-1024x724.jpg";
@@ -53,15 +55,26 @@ const journeySteps = [
     details: ["Weekly potluck dinners", "Land tours with the founding team", "Community celebrations", "Children's events and family gatherings"]
   },
   {
+    id: "founding-seeder",
+    stage: "Founding Seeder",
+    title: "Become a Founding Seeder",
+    description: "Join the Founding Seeders — our waitlist of soul-aligned people securing first access to homes and land at Amora. This is how you raise your hand and say: I'm serious about this.",
+    icon: Sprout,
+    link: "https://amora.cr/founding-seeder/",
+    linkText: "Become a Founding Seeder",
+    external: true,
+    details: ["Join the Founding Seeders waitlist", "First access to homes and land", "Priority as lots are released", "No obligation to purchase"]
+  },
+  {
     id: "training",
     stage: "Participant",
     title: "Community Training",
-    description: "Complete training in NVC (Nonviolent Communication), authentic relating, and other community practices.",
+    description: "Either complete our training in NVC (Nonviolent Communication), authentic relating, and other community practices — or demonstrate you already know and live these essential practices.",
     icon: BookOpen,
     link: "/training",
     linkText: "Learn About Training",
     external: false,
-    details: ["Nonviolent Communication basics", "Authentic relating practices", "Consent-based decision making", "Circle facilitation"]
+    details: ["Do the training, or show you already live it", "Nonviolent Communication basics", "Authentic relating practices", "Consent-based decision making"]
   },
   {
     id: "love-letter",
@@ -86,26 +99,37 @@ const journeySteps = [
     details: ["Browse available lots", "Review home design options", "Understand pricing tiers", "Explore financing options"]
   },
   {
+    id: "deposit",
+    stage: "Deposit",
+    title: "Put Down a Deposit on Your Future Home",
+    description: "Secure your future home with a fully refundable deposit — from $5k to $20k+ depending on the home type you're reserving. This holds your place and starts the real conversation.",
+    icon: Wallet,
+    link: "#",
+    linkText: "Reserve With a Deposit",
+    external: false,
+    details: ["Fully refundable deposit", "$5k–$20k+ depending on home type", "Reserves your future home", "Priority on your chosen lot"]
+  },
+  {
     id: "background",
     stage: "Applicant",
     title: "Background Check",
-    description: "Complete a background check. It's part of our commitment to community safety, and it's tax deductible.",
+    description: "Once your deposit is down, we complete a background check together. It's part of our commitment to community safety, and it's tax deductible.",
     icon: FileCheck,
     link: "#",
     linkText: "Coming Soon",
     external: false,
-    details: ["Standard background verification", "Community safety commitment", "Tax deductible process", "Confidential handling"]
+    details: ["Follows your deposit", "Standard background verification", "Community safety commitment", "Confidential handling"]
   },
   {
-    id: "waitlist",
-    stage: "Waitlist",
-    title: "Join the Waitlist",
-    description: "Get first right of refusal on land opportunities. Priority is first-come, first-served.",
-    icon: Clock,
+    id: "fireside",
+    stage: "Fireside",
+    title: "Fireside Dinner With the Founding Team",
+    description: "You're invited to an intimate 1-on-1 fireside dinner with the founding team — in person in Costa Rica, or online if you can't make it. A casual, beautiful friendship ritual where both sides explore the commitment fully.",
+    icon: Flame,
     link: "#",
-    linkText: "Join Waitlist",
+    linkText: "By Invitation",
     external: false,
-    details: ["Secure your priority position", "First right of refusal", "Land opportunity notifications", "No obligation to purchase"]
+    details: ["Intimate 1-on-1 with the founders", "In person in Costa Rica or online", "A friendship ritual, not an interview", "Explore mutual fit and commitment"]
   },
   {
     id: "family",
@@ -155,7 +179,7 @@ const journeySteps = [
     id: "move-in",
     stage: "Resident",
     title: "Move In Celebration!",
-    description: "Welcome home! Celebrate with the Amoracitas and begin your life in the village.",
+    description: "Welcome home! Celebrate with the Amora Family and begin your life in the village.",
     icon: Heart,
     link: "#",
     linkText: "Welcome Home",
@@ -549,7 +573,7 @@ export default function ResidentJourney() {
             <p className="text-muted-foreground mb-6">
               {dues?.note?.trim()
                 ? dues.note
-                : "As a resident, you'll pay Village Dues that cover utilities, maintenance, and community services. These can be covered through Gratitude, contributions that track real value (1 Gratitude = $1 USD). Together, we work to reduce costs and create surplus that benefits everyone."}
+                : "As a resident, you'll pay Village Dues that cover utilities, maintenance, and community services. These can be offset through Gratitude — a living record of the value you contribute, not a fixed dollar amount. Together, we work to reduce costs and create surplus that benefits everyone."}
             </p>
             <Link
               href="/how-we-create"

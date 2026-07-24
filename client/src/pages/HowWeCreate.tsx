@@ -30,7 +30,7 @@ const principles = [
   },
   {
     title: "Gratitude Economy",
-    description: "Our contribution tracking system acknowledges every dollar of value we create together. 1 Gratitude = $1 USD in value contributed, a record of what we're building collectively.",
+    description: "Our contribution tracking system acknowledges every bit of value we create together. Gratitude isn't a fixed dollar amount, it's a living record of what we're building collectively, sharing in a real pool of value the community sets aside each cycle.",
     icon: Heart,
   },
   {
@@ -48,7 +48,7 @@ const heartsInfo = [
   },
   {
     title: "Track Value",
-    description: "1 Gratitude = $1 USD in value contributed. Gratitude is our honest record of the work, time, and resources everyone is pooling to make Amora real.",
+    description: "Rather than a fixed rate, each cycle the community shares a real pool of value across everyone's Gratitude. It's our honest record of the work, time, and resources everyone is pooling to make Amora real.",
     icon: "📊",
   },
   {
@@ -175,7 +175,7 @@ export default function HowWeCreate() {
                 The Gratitude Economy
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto mb-2">
-                Gratitude is how we track contributions. Right now, <strong>1 Gratitude = $1 USD</strong> in value contributed, work, time, resources, and expertise that we can't yet pay in cash.
+                Gratitude is how we track contributions, work, time, resources, and expertise that we can't yet pay in cash. Rather than a fixed dollar amount, <strong>each cycle the community shares a real pool of value across everyone's Gratitude</strong>, so its worth grows with the village.
               </p>
               <p className="text-sm text-muted-foreground">
                 Every Heart is a promise: as Amora grows, contributions convert to cash or equity.

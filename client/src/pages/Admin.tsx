@@ -3,7 +3,7 @@ import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Us
 import { toast } from "sonner";
 
 const API_BASE = "/api";
-const FORM_TYPES = ["work-with-us", "investor", "steward", "resident", "prosperity", "contact"] as const;
+const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
 
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
   return { Authorization: `Bearer ${password}`, ...extra };

@@ -49,35 +49,35 @@ const journeySteps = [
   {
     id: "immersion",
     stage: "Immersant",
-    title: "Village Weaving Immersion",
-    description: "Spend immersive time in the village learning how it operates, observing circles in action, and discovering where your gifts are most needed.",
+    title: "Village Weaving Immersion (Optional)",
+    description: "Optional: spend immersive time in the village learning how it operates, observing circles in action, and discovering where your gifts are most needed. A beautiful step, but not required.",
     icon: Users,
     link: "/circles",
     linkText: "Learn About Circles",
     external: false,
-    details: ["2-4 week immersion period", "Shadow existing circle members", "Identify your R-Ikigai fit", "Meet with the Co-Creators circle"]
+    details: ["Optional — join if it calls you", "2-4 week immersion period", "Shadow existing circle members", "Identify your R-Ikigai fit"]
   },
   {
     id: "training",
     stage: "Participant",
     title: "Community Training",
-    description: "Complete training in NVC (Nonviolent Communication), authentic relating, and other community practices.",
+    description: "Either complete our training in NVC (Nonviolent Communication), authentic relating, and other community practices — or demonstrate you already know and live these essential practices.",
     icon: BookOpen,
     link: "/training",
     linkText: "Learn About Training",
     external: false,
-    details: ["Nonviolent Communication basics", "Authentic relating practices", "Consent-based decision making", "Circle facilitation"]
+    details: ["Do the training, or show you already live it", "Nonviolent Communication basics", "Authentic relating practices", "Consent-based decision making"]
   },
   {
     id: "love-letter",
     stage: "Member",
-    title: "Become an Amoracita",
+    title: "Join the Amora Family",
     description: "Contemplate and sign our Love Letter, formally becoming a member of Amora 508c1a.",
     icon: Heart,
     link: "/love-letter",
     linkText: "Read the Love Letter",
     external: false,
-    details: ["Understand our values deeply", "Reflect on your commitment", "Sign the Love Letter", "Join the Amoracita community"]
+    details: ["Understand our values deeply", "Reflect on your commitment", "Sign the Love Letter", "Join the Amora Family"]
   },
   {
     id: "circle",
@@ -94,12 +94,12 @@ const journeySteps = [
     id: "quests",
     stage: "Quest Seeker",
     title: "Explore Quests",
-    description: "Take on quests to contribute meaningfully to the village and demonstrate your commitment.",
+    description: "Take on quests to contribute meaningfully to the village — or propose your own unique quest if you don't see your gift. A great way to demonstrate your commitment.",
     icon: Compass,
     link: "/quests",
     linkText: "View Quests",
     external: false,
-    details: ["Browse available quests", "Choose quests matching your skills", "Complete and document your work", "Earn Gratitude for contributions"]
+    details: ["Browse available quests", "Choose quests matching your skills", "Submit your own quest proposal", "Earn Gratitude for contributions"]
   },
   {
     id: "passage",

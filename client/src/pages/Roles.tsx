@@ -352,7 +352,7 @@ const buildingRoles: RoleEntry[] = [
     name: "Membership and Onboarding Steward",
     category: "Community Circle",
     status: "open",
-    aim: "Hold the journey a person walks from curious visitor to committed Amoracita. Make sure every step is coherent, welcoming, and honest.",
+    aim: "Hold the journey a person walks from curious visitor to committed member of the Amora Family. Make sure every step is coherent, welcoming, and honest.",
     domain: "The Love Letter (membership agreement). The waitlist for residents. The rites of passage: Co-Creator, Resident. Background checks. Application flows. The handoff between marketing (first contact) and community (deep relationship).",
     accountabilities: [
       "Maintains the Love Letter and the membership process",

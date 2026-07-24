@@ -114,7 +114,7 @@ export default function LoveLetter() {
                 <Heart className="w-12 h-12 text-primary" fill="currentColor" />
               </motion.div>
               <h1 className="font-display text-4xl md:text-5xl font-bold text-foreground mb-6">
-                Welcome, Amoracita
+                Welcome to the Amora Family
               </h1>
               <p className="text-xl text-muted-foreground leading-relaxed mb-8">
                 Your membership form has been received. You are now part of the Amora 508(c)(1)(a) community.
@@ -183,7 +183,7 @@ export default function LoveLetter() {
             transition={{ delay: 0.1 }}
             className="bg-card p-8 md:p-12 rounded-2xl shadow-lg font-accent text-lg leading-relaxed mb-10 border border-border"
           >
-            <p className="mb-6 text-foreground">Dear Future Amoracita,</p>
+            <p className="mb-6 text-foreground">Dear Future Amora Family Member,</p>
 
             <p className="mb-6 text-muted-foreground">
               Something in you called you here. Maybe it was the land, 266 acres of sacred Costa Rican
@@ -216,6 +216,13 @@ export default function LoveLetter() {
             </p>
 
             <p className="mb-6 text-muted-foreground">
+              How residents govern themselves — and how we steward this land together — will be
+              co-created by the first residents, not handed down. Once we've sold 33 lots, we'll
+              convene a governance council to structure this together. You're not joining a finished
+              system; you're helping write it.
+            </p>
+
+            <p className="mb-6 text-muted-foreground">
               Your monthly membership contribution supports our shared mission and is
               tax-deductible as a contribution to our 508(c)(1)(a) nonprofit.
             </p>
@@ -237,7 +244,7 @@ export default function LoveLetter() {
               Sign Your Membership
             </h2>
             <p className="text-muted-foreground mb-8">
-              Fill in your details below to officially become an Amoracita and member of Amora 508(c)(1)(a).
+              Fill in your details below to officially join the Amora Family and become a member of Amora 508(c)(1)(a).
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -423,7 +430,7 @@ export default function LoveLetter() {
                 ) : (
                   <>
                     <Send className="w-5 h-5" />
-                    Sign the Love Letter &amp; Become an Amoracita
+                    Sign the Love Letter &amp; Join the Amora Family
                   </>
                 )}
               </button>

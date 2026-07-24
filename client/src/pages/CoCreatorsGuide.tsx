@@ -166,7 +166,7 @@ const progressionStages = [
   { label: "Guest", phase: "early" },
   { label: "Immersant", phase: "early" },
   { label: "Participant", phase: "early" },
-  { label: "Member", phase: "member", subLabel: "(Amoracita)" },
+  { label: "Member", phase: "member", subLabel: "(Amora Family)" },
   { label: "Contributor", phase: "member" },
   { label: "Quest Seeker", phase: "member" },
   { label: "Initiate", phase: "cocreator" },
@@ -445,9 +445,10 @@ export default function CoCreatorsGuide() {
                 The Gratitude Economy
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                Gratitude tracks the value you contribute to Amora. Right now, 1 Gratitude = $1 USD in
-                contributed value, work, time, and resources that we can't yet pay in cash.
-                As Amora matures, Gratitude converts to cash or equity.
+                Gratitude tracks the value you contribute to Amora, work, time, and resources
+                that we can't yet pay in cash. Rather than a fixed rate, each cycle the community
+                shares a real pool of value across everyone's Gratitude. As Amora matures,
+                Gratitude can convert to cash, equity, or community currency.
               </p>
             </div>
 

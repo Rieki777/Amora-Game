@@ -26,7 +26,7 @@ const RIGHTS = [
     icon: Heart,
     title: "Earn Gratitude for Your Contribution",
     description:
-      "Every role you hold, every quest you complete, and every meaningful act of stewardship earns you Gratitude, a direct record of the value you bring. 1 Gratitude = $1 USD. As Amora grows, Gratitude converts to cash, equity, or community currency. Your effort builds real wealth.",
+      "Every role you hold, every quest you complete, and every meaningful act of stewardship earns you Gratitude, a direct record of the value you bring rather than a fixed dollar amount. Each cycle the community shares a real pool of value across everyone's Gratitude. As Amora grows, Gratitude converts to cash, equity, or community currency. Your effort builds real wealth.",
   },
   {
     icon: Star,

@@ -22,6 +22,8 @@ import {
   Baby,
   Leaf,
   Filter,
+  Lightbulb,
+  ArrowRight,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -61,7 +63,7 @@ const quests: Quest[] = [
     title: "Welcome Ambassador",
     description:
       "Be the first warm face new visitors and guests encounter. Orient newcomers at community events, answer questions, and help them feel at home in the village.",
-    impact: "Every visitor who feels welcomed is a potential Amoracita for life.",
+    impact: "Every visitor who feels welcomed is a potential member of the Amora Family for life.",
     gratitude: "50–100",
     duration: "Per event (3–6 hrs)",
     difficulty: "Beginner",
@@ -321,17 +323,39 @@ export default function Quests() {
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-4">
               Quests are how you contribute to the village and earn Gratitude, our
-              way of acknowledging every contribution. 1 Gratitude = $1 USD in value.
-              Every quest builds relationships, regenerates the land, and grows the
-              community's collective score.
+              way of acknowledging every contribution. Every quest builds
+              relationships, regenerates the land, and grows the community's
+              collective score.
             </p>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground mb-8">
               {quests.length} active quests &nbsp;·&nbsp; up to{" "}
               {quests
                 .reduce((s, q) => s + parseInt(q.gratitude.split("–")[1]), 0)
                 .toLocaleString()}{" "}
               Gratitude available
             </p>
+
+            {/* Propose-your-own CTA — right alongside the hero */}
+            <div className="max-w-2xl mx-auto bg-card border border-teal/20 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row items-center gap-4 text-left">
+              <div className="w-12 h-12 rounded-xl bg-amber/15 flex items-center justify-center shrink-0">
+                <Lightbulb className="w-6 h-6 text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <h2 className="font-display text-lg font-bold text-foreground">
+                  Don't see your gift here?
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Anyone with an idea to add value can propose their own unique quest —
+                  tell us what you want to bring and what you'd need to make it real.
+                </p>
+              </div>
+              <Link href="/propose-quest">
+                <a className="shrink-0 inline-flex items-center gap-2 px-5 py-3 bg-primary text-primary-foreground rounded-lg font-semibold hover:opacity-90 transition-opacity">
+                  Propose a Quest
+                  <ArrowRight className="w-4 h-4" />
+                </a>
+              </Link>
+            </div>
           </motion.div>
         </div>
       </section>
@@ -516,8 +540,10 @@ export default function Quests() {
               What Is Gratitude?
             </h2>
             <p className="text-muted-foreground text-center mb-10">
-              Gratitude is how Amora tracks contributions. Right now, 1 Gratitude = $1 USD in value
-              contributed. As Amora matures, Gratitude converts to cash or equity.
+              Gratitude is how Amora acknowledges contributions — a living record of the
+              value you bring, not a fixed dollar amount. Each cycle the community shares a
+              real pool of value across everyone's Gratitude, so what it's worth grows with
+              the village.
             </p>
             <div className="grid sm:grid-cols-3 gap-6">
               {[
@@ -532,8 +558,8 @@ export default function Quests() {
                   icon: Star,
                 },
                 {
-                  title: "Convert",
-                  body: "As Amora grows financially, Gratitude converts to cash or equity. This is how we honor contributions made before we could pay in cash.",
+                  title: "Share",
+                  body: "Each cycle, the community sets aside a real pool of value and everyone's Gratitude shares in it — and as Amora grows, Gratitude can convert to cash, equity, or community currency. This is how we honor contributions made before we could pay in cash.",
                   icon: Sprout,
                 },
               ].map((item) => (
