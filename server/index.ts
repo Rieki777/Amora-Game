@@ -666,7 +666,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-04-audit", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-24-autodeploy", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
