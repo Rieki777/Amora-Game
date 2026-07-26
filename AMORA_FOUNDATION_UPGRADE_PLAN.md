@@ -58,9 +58,9 @@ Loop first, then the surfaces that make it legible:
 
 1. Test harness + **the loop test** as the acceptance criterion. **DONE** (`8c7a42f`).
 2. Repository layer, per-domain cutover from JSON to MySQL, splitting `server/index.ts` as it goes.
-3. **Roles as data**, then gate three real capabilities on stage and role.
+3. **Roles as data + real gates. DONE** (`8b98151`, live). Four seeded roles with capability grants and stage floors; quest claims gate on minStage/requiresRole; shared/capabilities.ts is the single gate mechanism (stage unlock OR role grant); appointments respect the ladder.
 4. Full member profiles: progression, contributions, Gratitude flows, token balances.
-5. **Lunar cycles and cycle close**, the heartbeat that makes Gratitude an economy rather than a scoreboard.
+5. **Lunar cycles and cycle close. DONE** (`8b98151`, live: cycle 328 serving). shared/lunar.ts is a verbatim regen-civics port with a pinned tripwire test; budgets reset at each new moon; admin-triggered idempotent close settles per-recipient totals at /api/game/cycle/distributions — the report founders carry to Hypha. Close records and resets, never mints: real value stays on Hypha per decision 5, which also dissolves the double-pay collision the research critic ranked highest-risk. Note for production: the two gated seed quests (q-circle-scribe, q-retreat-center-host) only carry their gates in fresh data dirs; the live volume's quests.json predates them, so an admin edit or data fixup applies them to prod when wanted.
 6. Full forum with the decision primitive.
 7. Economics section reading Base for Amora and Voice.
 8. Founder and investor command centre.
