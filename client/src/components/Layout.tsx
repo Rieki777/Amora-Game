@@ -1,9 +1,11 @@
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { TreePine, Menu, X, User, LogOut, ChevronDown, TrendingUp, Users, Home as HomeIcon, Sparkles } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import AmoraLogo, { AmoraHeartLogo } from "./AmoraLogo";
+import MobileTabBar from "./mobile/MobileTabBar";
+import MobileFab from "./mobile/MobileFab";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -22,6 +24,17 @@ export default function Layout({ children }: LayoutProps) {
   const [mobilePathsOpen, setMobilePathsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
+
+  // The bottom tab bar's "More" slot opens this same drawer rather than being a
+  // second, separately-maintained menu. No scrolling: the header is sticky, so
+  // the drawer is already in view wherever the person is on the page. An earlier
+  // version scrolled to the top first and the smooth scroll fought the drawer's
+  // height animation, jumping the page a few hundred pixels down instead.
+  useEffect(() => {
+    const openMenu = () => setMobileMenuOpen(true);
+    window.addEventListener("open-mobile-menu", openMenu);
+    return () => window.removeEventListener("open-mobile-menu", openMenu);
+  }, []);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -420,6 +433,16 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </div>
       </footer>
+
+      {/* Clearance so the fixed tab bar never covers the end of the footer. */}
+      <div
+        aria-hidden="true"
+        className="md:hidden"
+        style={{ height: "calc(env(safe-area-inset-bottom, 0px) + 4rem)" }}
+      />
+
+      <MobileTabBar />
+      <MobileFab />
     </div>
   );
 }
