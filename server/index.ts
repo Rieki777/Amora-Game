@@ -9,6 +9,8 @@ import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { hasCapability, type Capability } from "../shared/capabilities";
+import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/variables";
+import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
   cycleIdFor,
   currentCycle,
@@ -58,6 +60,8 @@ const ROLES_SEED_FILE = path.join(SEEDS_DIR, "roles-seed.json");
 const ROLE_HOLDERS_FILE = path.join(DATA_DIR, "role-holders.json");
 const CYCLES_FILE = path.join(DATA_DIR, "gratitude-cycles.json");
 const DISTRIBUTIONS_FILE = path.join(DATA_DIR, "gratitude-distributions.json");
+const VARIABLES_FILE = path.join(DATA_DIR, "game-variables.json");
+const STAGE_EVENTS_FILE = path.join(DATA_DIR, "stage-events.json");
 const MILESTONES_FILE = path.join(DATA_DIR, "milestones.json");
 /** Ledger of one-shot data fixes already applied to this deployment's volume. */
 const MIGRATIONS_FILE = path.join(DATA_DIR, "migrations.json");
@@ -399,6 +403,9 @@ function ensureDataFiles() {
   if (!fs.existsSync(ROLE_HOLDERS_FILE)) fs.writeFileSync(ROLE_HOLDERS_FILE, "[]");
   if (!fs.existsSync(CYCLES_FILE)) fs.writeFileSync(CYCLES_FILE, "[]");
   if (!fs.existsSync(DISTRIBUTIONS_FILE)) fs.writeFileSync(DISTRIBUTIONS_FILE, "[]");
+  // Only CHANGED variables are stored, so new platform defaults are inherited.
+  if (!fs.existsSync(VARIABLES_FILE)) fs.writeFileSync(VARIABLES_FILE, "{}");
+  if (!fs.existsSync(STAGE_EVENTS_FILE)) fs.writeFileSync(STAGE_EVENTS_FILE, "[]");
   runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
   runOnce("founding-team-in-progress", markFoundingTeamInProgress);
 }
@@ -541,6 +548,10 @@ function addActivity(type: string, text: string) {
  * clean reset at changeover instead of double-counting a partial month.
  */
 function currentCycleId(): string {
+  // The rhythm is a village choice (Admin > Gratitude > Cycle rhythm).
+  if (stringVar(VARIABLES_FILE, "gratitude.cycle_mode") === "month") {
+    return new Date().toISOString().slice(0, 7);
+  }
   return cycleIdFor(new Date());
 }
 
@@ -586,6 +597,42 @@ function roleCapabilitiesFor(userId: string): string[] {
  * The single gate every capability check goes through: stage ladder OR role
  * grant, per shared/capabilities.ts. Admin (password auth) always passes.
  */
+/**
+ * Item 8: stage advancement had no record, so "you advanced and something
+ * unlocked" was invisible on a profile and unassertable in a test. Every
+ * advance now leaves an event, including which capabilities it opened.
+ */
+function recordStageEvent(user: any, from: string, to: string, reason: string) {
+  if (stageIndex(to) <= stageIndex(from)) return;
+  const events: any[] = readJson(STAGE_EVENTS_FILE) ?? [];
+  const before = new Set(
+    ALL_CAPABILITIES.filter((c) => hasCapability(c, {
+      stageIndex: stageIndex(from), stageIndexOf: stageIndex, roleCapabilities: roleCapabilitiesFor(user.id),
+    })),
+  );
+  const unlocked = ALL_CAPABILITIES.filter(
+    (c) => !before.has(c) && hasCapability(c, {
+      stageIndex: stageIndex(to), stageIndexOf: stageIndex, roleCapabilities: roleCapabilitiesFor(user.id),
+    }),
+  );
+  events.push({
+    id: `stage-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    userId: user.id,
+    fromStage: from,
+    toStage: to,
+    unlocked,
+    reason,
+    at: new Date().toISOString(),
+  });
+  writeJson(STAGE_EVENTS_FILE, events.slice(-2000));
+  addActivity("stage", `${firstName(user.name)} advanced to ${getStage(to).name}`);
+}
+
+/** Every capability the platform knows about, for gates and unlock diffs. */
+const ALL_CAPABILITIES: Capability[] = [
+  "quest.propose", "quest.consent", "forum.post", "forum.moderate", "proposal.open", "proposal.decide",
+];
+
 function userCan(user: any, cap: Capability): boolean {
   return hasCapability(cap, {
     stageIndex: stageIndex(computeStage(user)),
@@ -782,7 +829,9 @@ function computeStage(user: any): string {
 
 function gratitudeBudget(user: any): { total: number; spent: number; remaining: number; cycleId: string } {
   const stage = getStage(computeStage(user));
-  const total = Math.round(GAME_CONFIG.gratitude.monthlyBudget * stage.gratitudeMultiplier);
+  // Base budget is a live variable now, editable in Admin, not a build-time
+  // constant. The stage multiplier still shapes it.
+  const total = Math.round(numberVar(VARIABLES_FILE, "gratitude.base_budget") * stage.gratitudeMultiplier);
   const cycleId = currentCycleId();
   const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
   const spent = log
@@ -2267,22 +2316,62 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // done, which quietly breaks the one promise the recognition economy makes:
     // that credit lands after the work was shown and consented to. Declining
     // stays legal from any state, since a stale claim needs clearing.
-    if (claims[idx].status !== "submitted") {
+    if (boolVar(VARIABLES_FILE, "quest.require_submission_before_consent") && claims[idx].status !== "submitted") {
       return res.status(409).json({
         error: `Cannot consent a claim with status "${claims[idx].status}". The member has to submit their work first.`,
         status: claims[idx].status,
       });
     }
-    const granted = Math.max(0, Number(amount) || 0);
+    // Item 7: the award was unbounded and never compared to the posted amount,
+    // so the quest board was not a contract. The ceiling is a village choice.
+    const requested = Math.max(0, Number(amount) || 0);
+    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    // Quests advertise a RANGE ("50-100"), not a number: the same work done
+    // thoroughly is worth more than done adequately, and the consenting admin
+    // decides where in the range it landed. parseRewardRange is the one place
+    // that knows the format.
+    const range = parseRewardRange(quests.find((q) => q.id === claims[idx].questId)?.gratitude);
+    const capMode = stringVar(VARIABLES_FILE, "quest.consent_cap_mode");
+    const granted = requested;
+    if (capMode === "posted") {
+      if (!range.valid) {
+        return res.status(409).json({
+          error: "This quest does not advertise a readable amount, so it cannot be consented while the cap is set to the posted range.",
+        });
+      }
+      if (requested < range.min || requested > range.max) {
+        return res.status(409).json({
+          error: `${requested} is outside what this quest advertises (${describeRange(range)}). The board is the contract.`,
+          min: range.min,
+          max: range.max,
+        });
+      }
+    } else if (capMode === "capped") {
+      const ceiling = Math.round(range.max * numberVar(VARIABLES_FILE, "quest.consent_cap_multiplier"));
+      if (requested > ceiling) {
+        return res.status(409).json({
+          error: `${requested} is above the ceiling for this quest. It advertises ${describeRange(range)} and the bonus ceiling is ${ceiling}.`,
+          max: range.max,
+          ceiling,
+        });
+      }
+    }
+    // Stage depends on consented-quest count, so the snapshot must be taken
+    // BEFORE the claim flips to consented; taking it after would always compare
+    // equal and the advancement event would never fire.
+    const users = readJson(USERS_FILE) ?? { users: [] };
+    const uIdx = users.users.findIndex((u: any) => u.id === claims[idx].userId);
+    const stageBefore = uIdx !== -1 ? computeStage(users.users[uIdx]) : null;
+
     claims[idx] = { ...claims[idx], status: "consented", amount: granted, resolvedAt: new Date().toISOString() };
     writeJson(QUEST_CLAIMS_FILE, claims);
     // Credit the player's balance
-    const users = readJson(USERS_FILE) ?? { users: [] };
-    const uIdx = users.users.findIndex((u: any) => u.id === claims[idx].userId);
     if (uIdx !== -1) {
       users.users[uIdx].heartsBalance = (users.users[uIdx].heartsBalance ?? 0) + granted;
       writeJson(USERS_FILE, users);
       addActivity("quest", `${firstName(claims[idx].userName)} completed the quest "${claims[idx].questTitle}"`);
+      const stageAfter = computeStage(users.users[uIdx]);
+      if (stageBefore) recordStageEvent(users.users[uIdx], stageBefore, stageAfter, `quest consented: ${claims[idx].questTitle}`);
     }
     res.json(claims[idx]);
   });
@@ -2321,8 +2410,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       // Revision 2: progression is no longer decoration. The client renders
       // what you can DO, so the gates are legible instead of mysterious.
       roles: roleIdsFor(user.id),
-      capabilities: (["quest.propose", "quest.consent", "forum.post", "forum.moderate", "proposal.open", "proposal.decide"] as Capability[])
-        .filter((c) => userCan(user, c)),
+      capabilities: ALL_CAPABILITIES.filter((c) => userCan(user, c)),
       cycle: {
         ...currentCycle(),
         daysRemaining: daysRemainingInCycle(new Date()),
@@ -2338,7 +2426,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const { toEmail, amount, message } = req.body ?? {};
     const amt = Math.floor(Number(amount) || 0);
     if (!toEmail || amt <= 0) return res.status(400).json({ error: "Recipient and a positive amount are required" });
-    if (GAME_CONFIG.gratitude.requireMessage && !String(message ?? "").trim()) {
+    if (boolVar(VARIABLES_FILE, "gratitude.require_message") && !String(message ?? "").trim()) {
       return res.status(400).json({ error: "A few words of appreciation are required" });
     }
     const users = readJson(USERS_FILE) ?? { users: [] };
@@ -2351,7 +2439,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (amt > budget.remaining) return res.status(400).json({ error: `Only ${budget.remaining} left in your budget this cycle` });
     const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
     const already = log.filter((g) => g.fromId === user.id && g.toId === recipient.id && g.cycleId === budget.cycleId).length;
-    if (already >= GAME_CONFIG.gratitude.maxPerRecipientPerCycle) {
+    if (already >= numberVar(VARIABLES_FILE, "gratitude.max_per_recipient_per_cycle")) {
       return res.status(409).json({ error: "You have already acknowledged them this cycle" });
     }
     const entry = {
@@ -2482,6 +2570,118 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ closed: closed.length, cycles: closed });
   });
 
+  /**
+   * The member's own progression history: every stage they crossed and what it
+   * unlocked. Revision 2, step 4 (profiles) reads this, and it is what makes
+   * "you advanced and something opened" visible rather than mysterious.
+   */
+  app.get("/api/game/progression", (req, res) => {
+    const user = requireUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const events: any[] = readJson(STAGE_EVENTS_FILE) ?? [];
+    const stageId = computeStage(user);
+    res.json({
+      stage: getStage(stageId),
+      stageIndex: stageIndex(stageId),
+      capabilities: ALL_CAPABILITIES.filter((c) => userCan(user, c)),
+      roles: roleIdsFor(user.id),
+      history: events
+        .filter((e) => e.userId === user.id)
+        .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+        .map((e) => ({ fromStage: e.fromStage, toStage: e.toStage, unlocked: e.unlocked, reason: e.reason, at: e.at })),
+    });
+  });
+
+  /**
+   * A member's Gratitude flows: what they gave, what they received, and how each
+   * closed lunation settled for them. The profile's economics tab reads this.
+   */
+  app.get("/api/game/gratitude/flows", (req, res) => {
+    const user = requireUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
+    const dists: DistributionRecord[] = readJson(DISTRIBUTIONS_FILE) ?? [];
+    const mine = dists.filter((d) => d.userId === user.id);
+    res.json({
+      balance: user.heartsBalance ?? 0,
+      budget: gratitudeBudget(user),
+      totals: {
+        received: log.filter((g) => g.toId === user.id).reduce((n, g) => n + (Number(g.amount) || 0), 0),
+        sent: log.filter((g) => g.fromId === user.id).reduce((n, g) => n + (Number(g.amount) || 0), 0),
+        distinctAcknowledgers: new Set(log.filter((g) => g.toId === user.id).map((g) => g.fromId)).size,
+      },
+      byCycle: mine
+        .sort((a, b) => String(b.cycleId).localeCompare(String(a.cycleId)))
+        .map((d) => ({ cycleId: d.cycleId, received: d.received, distinctSenders: d.distinctSenders })),
+    });
+  });
+
+  // ── Game variables: the customization layer (Admin > Settings) ─────────────
+
+  /**
+   * Every variable with its definition, current value and whether it is still
+   * the default. Admin-only: some values (RPC endpoints) are operational.
+   */
+  app.get("/api/admin/variables", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const all = allVariables(VARIABLES_FILE);
+    const categories: Record<string, typeof all> = {};
+    for (const v of all) (categories[v.category] ??= []).push(v);
+    res.json({
+      categories: Object.entries(categories).map(([name, variables]) => ({ name, variables })),
+      customized: all.filter((v) => !v.isDefault).length,
+      total: all.length,
+    });
+  });
+
+  /**
+   * Change one variable. Validation and the human-readable refusal both come
+   * from the shared registry, so Admin and server never disagree about what is
+   * allowed. Setting a value back to its default clears the override, which is
+   * how a village keeps inheriting future platform defaults.
+   */
+  app.put("/api/admin/variables/:key", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const raw = req.body?.value;
+    if (raw === undefined || raw === null) return res.status(400).json({ error: "A value is required" });
+    const result = setVariable(VARIABLES_FILE, req.params.key, String(raw));
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    if (result.previous !== result.value) {
+      addActivity("settings", `A game rule changed: ${req.params.key} is now ${result.value}`);
+    }
+    res.json(result);
+  });
+
+  /**
+   * The subset of variables the CLIENT is allowed to know, so the UI can render
+   * the game's actual rules rather than hardcoded copy. Deliberately a
+   * whitelist: RPC endpoints and operational values stay server-side.
+   */
+  app.get("/api/game/rules", (_req, res) => {
+    res.json({
+      gratitude: {
+        baseBudget: numberVar(VARIABLES_FILE, "gratitude.base_budget"),
+        maxPerRecipientPerCycle: numberVar(VARIABLES_FILE, "gratitude.max_per_recipient_per_cycle"),
+        requireMessage: boolVar(VARIABLES_FILE, "gratitude.require_message"),
+        cycleMode: stringVar(VARIABLES_FILE, "gratitude.cycle_mode"),
+      },
+      governance: {
+        voiceWeighting: stringVar(VARIABLES_FILE, "governance.voice_weighting"),
+        hyphaThreshold: numberVar(VARIABLES_FILE, "governance.hypha_threshold"),
+        sensingDays: numberVar(VARIABLES_FILE, "governance.sensing_days"),
+      },
+      quests: {
+        consentCapMode: stringVar(VARIABLES_FILE, "quest.consent_cap_mode"),
+      },
+      tokens: {
+        // Addresses are public on-chain data; the RPC endpoint is not exposed.
+        equity: { ...GAME_CONFIG.currency.equity, address: stringVar(VARIABLES_FILE, "tokens.equity_address") },
+        voice: { ...GAME_CONFIG.currency.voice, address: stringVar(VARIABLES_FILE, "tokens.voice_address") },
+        showEconomics: boolVar(VARIABLES_FILE, "tokens.show_economics_section"),
+      },
+    });
+  });
+
   // Roles, public: who holds what, so the village can see its own shape.
   app.get("/api/roles", (_req, res) => {
     const users = readJson(USERS_FILE) ?? { users: [] };
@@ -2583,9 +2783,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     users.users[idx].stageGranted = stageId ?? null;
     writeJson(USERS_FILE, users);
     const after = computeStage(users.users[idx]);
-    if (stageIndex(after) > stageIndex(before)) {
-      addActivity("stage", `${firstName(users.users[idx].name)} advanced to ${getStage(after).name}`);
-    }
+    recordStageEvent(users.users[idx], before, after, stageId ? "granted by an admin" : "grant removed");
     res.json({ success: true, stageComputed: after });
   });
 

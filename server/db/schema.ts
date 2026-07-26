@@ -56,6 +56,13 @@ export const users = mysqlTable("users", {
   /** Manual admin override of the computed stage. */
   stageGranted: varchar("stage_granted", { length: 64 }),
   trainingComplete: boolean("training_complete").default(false).notNull(),
+  /** Admins are real users (decision 2), so audit rows have someone to name. */
+  role: varchar("role", { length: 32 }).default("member").notNull(),
+  /** Public identifier for @mentions; without it mentions leak email addresses. */
+  handle: varchar("handle", { length: 40 }).unique(),
+  /** On-chain identity. Only trusted once control is proven by signature. */
+  walletAddress: varchar("wallet_address", { length: 42 }).unique(),
+  walletVerifiedAt: timestamp("wallet_verified_at"),
   joinedAt: timestamp("joined_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });
@@ -77,7 +84,12 @@ export const quests = mysqlTable("quests", {
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
   impact: text("impact"),
-  gratitude: int("gratitude").default(0).notNull(),
+  /** The advertised range EXACTLY as the village wrote it, e.g. "50-100".
+   *  0001 declared this an int because of the name; it never was one. */
+  gratitude: varchar("gratitude", { length: 64 }).default("").notNull(),
+  /** Parsed bounds, for validation and sums. See shared/questRewards.ts. */
+  gratitudeMin: int("gratitude_min").default(0).notNull(),
+  gratitudeMax: int("gratitude_max").default(0).notNull(),
   duration: varchar("duration", { length: 64 }),
   difficulty: varchar("difficulty", { length: 32 }),
   circle: varchar("circle", { length: 64 }),
@@ -262,6 +274,32 @@ export const gratitudeDistributions = mysqlTable("gratitude_distributions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+/**
+ * The customization foundation. Only values a village has CHANGED live here; an
+ * absent row means "use the platform default", so upgrades are inherited rather
+ * than frozen at launch. See shared/gameVariables.ts for the registry.
+ */
+export const gameVariables = mysqlTable("game_variables", {
+  key: varchar("config_key", { length: 100 }).primaryKey(),
+  value: varchar("value", { length: 255 }).notNull(),
+  valueType: mysqlEnum("value_type", ["integer", "decimal", "percentage", "boolean", "choice", "text"]).notNull(),
+  updatedBy: varchar("updated_by", { length: 64 }),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+/** One row per stage crossing, with the capabilities it opened. */
+export const stageEvents = mysqlTable("stage_events", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 64 }).notNull(),
+  fromStage: varchar("from_stage", { length: 64 }).notNull(),
+  toStage: varchar("to_stage", { length: 64 }).notNull(),
+  unlocked: json("unlocked"),
+  reason: varchar("reason", { length: 255 }),
+  at: timestamp("at").defaultNow().notNull(),
+});
+
+export type GameVariable = typeof gameVariables.$inferSelect;
+export type StageEvent = typeof stageEvents.$inferSelect;
 export type Role = typeof roles.$inferSelect;
 export type RoleHolder = typeof roleHolders.$inferSelect;
 export type GratitudeCycle = typeof gratitudeCycles.$inferSelect;

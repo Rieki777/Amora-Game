@@ -166,7 +166,12 @@ describe("the coordination loop, end to end", () => {
     const quests = await api("GET", "/api/quests");
     const open = quests.json.find((q: any) => q.status !== "closed") ?? quests.json[0];
     questId = open.id;
-    questReward = Number(open.gratitude) || 0;
+    // The reward is an advertised RANGE ("50-100"), so take its ceiling: that is
+    // a legitimate award and what the consent cap will accept. `Number()` on a
+    // range is NaN, which silently became 0 and made every later assertion vacuous.
+    const rewardBounds = String(open.gratitude).split(/[^0-9]+/).filter(Boolean).map(Number);
+    questReward = rewardBounds.length ? Math.max(...rewardBounds) : 0;
+    expect(questReward).toBeGreaterThan(0);
     expect(questId).toBeTruthy();
 
     const claim = await api("POST", `/api/game/quests/${questId}/claim`, {}, doerToken);
@@ -408,6 +413,138 @@ describe("the coordination loop, end to end", () => {
     // And the wall still works: the backdated entry never broke the live feed.
     const wall = await api("GET", "/api/game/gratitude/wall");
     expect(wall.status).toBe(200);
+  });
+
+  it("caps consent at the posted amount: the quest board is a contract", async () => {
+    // Item 7. Default cap mode is "posted": whatever an admin types, the award
+    // is exactly what the board advertised. A fresh member runs one quest.
+    const worker = { email: `worker-${PORT}@example.test`, password: "LoopTest123!", name: "Honest Worker" };
+    const reg = await api("POST", "/api/auth/register", { ...worker, paths: ["resident"] });
+    const workerToken = reg.json.token;
+
+    const quests = await api("GET", "/api/quests");
+    // Quests advertise a RANGE like "50-100", never a bare number. An earlier
+    // version of this test filtered on Number(q.gratitude) > 0, which is NaN for
+    // every quest in the seed and matched nothing.
+    const open = quests.json.find(
+      (q: any) => !q.minStage && !q.requiresRole && q.id !== questId && /\d/.test(String(q.gratitude ?? "")),
+    );
+    expect(open).toBeTruthy();
+    const bounds = String(open.gratitude).split(/[^0-9]+/).filter(Boolean).map(Number);
+    const lo = Math.min(...bounds);
+    const hi = Math.max(...bounds);
+    expect(hi).toBeGreaterThan(0);
+
+    const claim = await api("POST", `/api/game/quests/${open.id}/claim`, {}, workerToken);
+    expect(claim.status).toBe(200);
+    await api("POST", `/api/game/quests/${open.id}/submit`, { note: "done" }, workerToken);
+
+    // Above the advertised ceiling: refused, because the board is the contract.
+    const tooMuch = await api(
+      "POST",
+      `/api/admin/quest-claims/${claim.json.id}/consent`,
+      { approve: true, amount: 999999 },
+      ADMIN,
+    );
+    expect(tooMuch.status).toBe(409);
+    expect(tooMuch.json.max).toBe(hi);
+
+    // Below the advertised floor is refused too, so nobody is quietly underpaid.
+    if (lo > 0) {
+      const tooLittle = await api(
+        "POST",
+        `/api/admin/quest-claims/${claim.json.id}/consent`,
+        { approve: true, amount: lo - 1 },
+        ADMIN,
+      );
+      expect(tooLittle.status).toBe(409);
+    }
+
+    // Inside the range lands exactly as asked.
+    const consent = await api(
+      "POST",
+      `/api/admin/quest-claims/${claim.json.id}/consent`,
+      { approve: true, amount: hi },
+      ADMIN,
+    );
+    expect(consent.status).toBe(200);
+    expect(consent.json.amount).toBe(hi);
+
+    const profile = await api("GET", "/api/profile", undefined, workerToken);
+    expect(profile.json.heartsBalance).toBe(hi);
+  });
+
+  it("exposes the rules publicly, and Admin edits a variable with validation", async () => {
+    const rules = await api("GET", "/api/game/rules");
+    expect(rules.status).toBe(200);
+    expect(rules.json.gratitude.baseBudget).toBe(100);
+    expect(rules.json.gratitude.cycleMode).toBe("lunar");
+    expect(rules.json.governance.voiceWeighting).toBe("equal");
+    // Operational values are NOT exposed to the public surface.
+    expect(JSON.stringify(rules.json)).not.toContain("base_rpc_url");
+
+    // Admin sees the full registry, grouped, with nothing customized yet.
+    const listing = await api("GET", "/api/admin/variables", undefined, ADMIN);
+    expect(listing.status).toBe(200);
+    expect(listing.json.customized).toBe(0);
+    expect(listing.json.total).toBeGreaterThanOrEqual(15);
+
+    // Validation refuses garbage with a human-readable reason.
+    const bad = await api("PUT", "/api/admin/variables/gratitude.base_budget", { value: "not-a-number" }, ADMIN);
+    expect(bad.status).toBe(400);
+    const badChoice = await api("PUT", "/api/admin/variables/governance.voice_weighting", { value: "plutocracy" }, ADMIN);
+    expect(badChoice.status).toBe(400);
+    const badAddress = await api("PUT", "/api/admin/variables/tokens.equity_address", { value: "0x123" }, ADMIN);
+    expect(badAddress.status).toBe(400);
+    const unknown = await api("PUT", "/api/admin/variables/not.a.real.key", { value: "1" }, ADMIN);
+    expect(unknown.status).toBe(400);
+    const anon = await api("PUT", "/api/admin/variables/gratitude.base_budget", { value: "50" });
+    expect(anon.status).toBe(401);
+
+    // A real change lands, is visible in the public rules, and CHANGES BEHAVIOUR:
+    // with the voice weighting flipped to hypha-mirror the rules endpoint says so.
+    const set = await api("PUT", "/api/admin/variables/governance.voice_weighting", { value: "hypha-mirror" }, ADMIN);
+    expect(set.status).toBe(200);
+    const after = await api("GET", "/api/game/rules");
+    expect(after.json.governance.voiceWeighting).toBe("hypha-mirror");
+
+    // Setting back to the default clears the override entirely.
+    const reset = await api("PUT", "/api/admin/variables/governance.voice_weighting", { value: "equal" }, ADMIN);
+    expect(reset.status).toBe(200);
+    const listing2 = await api("GET", "/api/admin/variables", undefined, ADMIN);
+    expect(listing2.json.customized).toBe(0);
+  });
+
+  it("records progression history and reports gratitude flows", async () => {
+    // Item 8: the doer consented a quest earlier; their progression endpoint
+    // shows stage, capabilities and an event history (possibly empty if no
+    // threshold was crossed, but always present and well-formed).
+    const prog = await api("GET", "/api/game/progression", undefined, doerToken);
+    expect(prog.status).toBe(200);
+    expect(prog.json.stage).toBeTruthy();
+    expect(Array.isArray(prog.json.capabilities)).toBe(true);
+    expect(Array.isArray(prog.json.history)).toBe(true);
+    for (const e of prog.json.history) {
+      expect(e.toStage).toBeTruthy();
+      expect(Array.isArray(e.unlocked)).toBe(true);
+    }
+
+    // Flows: the doer earned questReward from consent and sent 5 to the peer.
+    const flows = await api("GET", "/api/game/gratitude/flows", undefined, doerToken);
+    expect(flows.status).toBe(200);
+    // Lifetime totals: 5 sent to the peer in this cycle, plus the 8 the cycle
+    // close test backdated into the previous lunation.
+    expect(flows.json.totals.sent).toBe(13);
+    // Sending spends from the cycle BUDGET (a giving allowance), not from the
+    // earned balance, so the balance still holds what consent released. The
+    // backdated 8 sits in a closed cycle and does not touch this cycle's spend.
+    expect(flows.json.balance).toBe(questReward);
+    expect(flows.json.budget.spent).toBe(5);
+    expect(flows.json.byCycle.length).toBeGreaterThanOrEqual(0);
+
+    const peerFlows = await api("GET", "/api/game/gratitude/flows", undefined, peerToken);
+    expect(peerFlows.json.totals.received).toBeGreaterThanOrEqual(5);
+    expect(peerFlows.json.totals.distinctAcknowledgers).toBeGreaterThanOrEqual(1);
   });
 
   it("holds the economy's guard rails: no self-send, one per peer per cycle, message required", async () => {

@@ -22,6 +22,7 @@ import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import mysql from "mysql2/promise";
+import { parseRewardRange } from "../shared/questRewards";
 
 const argv = process.argv.slice(2);
 const VERIFY_ONLY = argv.includes("--verify");
@@ -118,14 +119,17 @@ async function main() {
 
     for (const q of read("quests.json") ?? []) {
       await conn.query(
-        "INSERT INTO `quests` (id, title, description, impact, gratitude, duration, difficulty, circle, status, icon, role_required, tags, sort_order) " +
-          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) " +
+        "INSERT INTO `quests` (id, title, description, impact, gratitude, gratitude_min, gratitude_max, duration, difficulty, circle, status, icon, role_required, tags, sort_order) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
           "ON DUPLICATE KEY UPDATE title=VALUES(title), description=VALUES(description), impact=VALUES(impact), " +
-          "gratitude=VALUES(gratitude), duration=VALUES(duration), difficulty=VALUES(difficulty), circle=VALUES(circle), " +
+          "gratitude=VALUES(gratitude), gratitude_min=VALUES(gratitude_min), gratitude_max=VALUES(gratitude_max), " +
+          "duration=VALUES(duration), difficulty=VALUES(difficulty), circle=VALUES(circle), " +
           "status=VALUES(status), icon=VALUES(icon), role_required=VALUES(role_required), tags=VALUES(tags), sort_order=VALUES(sort_order)",
         [
           str(q.id, 64), str(q.title, 255), q.description ?? null, q.impact ?? null,
-          num(q.gratitude, 0), str(q.duration, 64), str(q.difficulty, 32), str(q.circle, 64),
+          // The label is preserved verbatim; the bounds are derived from it.
+          str(q.gratitude, 64) ?? "", parseRewardRange(q.gratitude).min, parseRewardRange(q.gratitude).max,
+          str(q.duration, 64), str(q.difficulty, 32), str(q.circle, 64),
           str(q.status, 32) ?? "open", str(q.icon, 64), str(q.roleRequired, 64),
           JSON.stringify(q.tags ?? []), num(q.order, 0),
         ],
@@ -231,6 +235,28 @@ async function main() {
       );
     }
 
+    for (const e of read("stage-events.json") ?? []) {
+      await conn.query(
+        "INSERT INTO `stage_events` (id, user_id, from_stage, to_stage, unlocked, reason, at) VALUES (?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
+          "ON DUPLICATE KEY UPDATE reason=VALUES(reason)",
+        [str(e.id, 64), str(e.userId, 64), str(e.fromStage, 64) ?? "", str(e.toStage, 64) ?? "", JSON.stringify(e.unlocked ?? []), str(e.reason, 255), ts(e.at)],
+      );
+    }
+
+    // game-variables.json stores ONLY overrides ({key: value}); mirror that.
+    {
+      const overrides = read("game-variables.json");
+      if (overrides && typeof overrides === "object" && !Array.isArray(overrides)) {
+        for (const [key, value] of Object.entries(overrides)) {
+          await conn.query(
+            "INSERT INTO `game_variables` (config_key, value, value_type) VALUES (?,?,?) " +
+              "ON DUPLICATE KEY UPDATE value=VALUES(value), value_type=VALUES(value_type)",
+            [str(key, 100), str(value, 255) ?? "", "text"],
+          );
+        }
+      }
+    }
+
     for (const key of CONFIG_FILES) {
       const doc = read(`${key}.json`);
       if (doc === null) {
@@ -264,6 +290,77 @@ async function main() {
   };
 
   let bad = 0;
+
+  /**
+   * COLUMN fidelity, not just row counts.
+   *
+   * The first version of this script verified only counts, and passed while
+   * every one of the fourteen quests had its reward silently stored as 0:
+   * `quests.gratitude` is a range string like "50-100" and the column was
+   * declared int. Counting rows proves the right NUMBER of records arrived and
+   * nothing whatsoever about whether they arrived intact. These checks compare
+   * actual values for the fields most likely to be silently coerced.
+   */
+  const fieldChecks: Array<{
+    table: string;
+    file: string;
+    idField: string;
+    columns: Array<{ col: string; from: (rec: any) => unknown; label: string }>;
+  }> = [
+    {
+      table: "quests",
+      file: "quests.json",
+      idField: "id",
+      columns: [
+        { col: "gratitude", from: (q) => String(q.gratitude ?? ""), label: "advertised range" },
+        { col: "gratitude_min", from: (q) => parseRewardRange(q.gratitude).min, label: "range floor" },
+        { col: "gratitude_max", from: (q) => parseRewardRange(q.gratitude).max, label: "range ceiling" },
+        { col: "title", from: (q) => String(q.title ?? ""), label: "title" },
+      ],
+    },
+    {
+      table: "milestones",
+      file: "milestones.json",
+      idField: "id",
+      columns: [{ col: "title", from: (m) => String(m.title ?? ""), label: "title" }],
+    },
+    {
+      table: "training_modules",
+      file: "training-modules.json",
+      idField: "id",
+      columns: [{ col: "title", from: (m) => String(m.title ?? ""), label: "title" }],
+    },
+  ];
+
+  for (const check of fieldChecks) {
+    const records: any[] = read(check.file) ?? [];
+    if (records.length === 0) continue;
+    for (const rec of records) {
+      const id = rec[check.idField];
+      if (!id) continue;
+      const cols = check.columns.map((c) => `\`${c.col}\``).join(", ");
+      const [rows] = await conn.query<any[]>(
+        `SELECT ${cols} FROM \`${check.table}\` WHERE id = ? LIMIT 1`,
+        [id],
+      );
+      if (rows.length === 0) {
+        console.log(`field ${check.table}/${id}: MISSING ROW`);
+        bad++;
+        continue;
+      }
+      for (const c of check.columns) {
+        const want = c.from(rec);
+        const got = rows[0][c.col];
+        // Compare as strings so 50 and "50" agree, but "50-100" and 0 do not.
+        if (String(want) !== String(got)) {
+          console.log(`field ${check.table}/${id}.${c.col} (${c.label}): json=${JSON.stringify(want)} mysql=${JSON.stringify(got)}  MISMATCH`);
+          bad++;
+        }
+      }
+    }
+  }
+  console.log(bad === 0 ? "column fidelity   ok (values match, not just counts)" : `column fidelity   ${bad} MISMATCH(ES)`);
+
   console.log("table                 json    mysql");
   for (const [table, want] of Object.entries(expected)) {
     const [r] = await conn.query<any[]>(`SELECT COUNT(*) n FROM \`${table}\``);

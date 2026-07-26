@@ -29,6 +29,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchGameMe, QuestClaim } from "@/lib/gameApi";
 import QuestActions, { questIdFromTitle } from "@/components/QuestActions";
+import { rewardCeiling } from "@shared/questRewards";
 
 type QuestStatus = "Open" | "In Progress" | "Seasonal";
 type Difficulty = "Beginner" | "Intermediate" | "Advanced";
@@ -300,10 +301,9 @@ export default function Quests() {
     return circleMatch && diffMatch;
   });
 
-  const totalGratitude = filtered.reduce((sum, q) => {
-    const max = parseInt(q.gratitude.split("–")[1]);
-    return sum + max;
-  }, 0);
+  // Was `parseInt(q.gratitude.split("–")[1])`, which split on an en dash
+  // specifically and produced NaN for a plain hyphen or a single number.
+  const totalGratitude = filtered.reduce((sum, q) => sum + rewardCeiling(q.gratitude), 0);
 
   return (
     <Layout>
@@ -330,7 +330,7 @@ export default function Quests() {
             <p className="text-sm text-muted-foreground mb-8">
               {quests.length} active quests &nbsp;·&nbsp; up to{" "}
               {quests
-                .reduce((s, q) => s + parseInt(q.gratitude.split("–")[1]), 0)
+                .reduce((s, q) => s + rewardCeiling(q.gratitude), 0)
                 .toLocaleString()}{" "}
               Gratitude available
             </p>
