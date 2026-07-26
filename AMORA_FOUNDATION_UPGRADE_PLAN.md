@@ -109,10 +109,18 @@ same number and no audit trail. Order:
 1. Storage layer and repository split. **Set `timezone: 'Z'` on the MySQL pool.**
    `GAME_CONFIG.season.timezone` is `America/Costa_Rica` (UTC-6) and someone will
    helpfully point the pool at it, shifting every lunar boundary six hours.
-2. **The ledger**, with `tokenType enum('gratitude','amora','voice')` correct on
-   day one, because altering a live MySQL enum later is the migration regen
-   refused to do. One opening `migrated_from_hearts` row per member, after which
+2. **The ledger.** One opening `migrated_from_hearts` row per member, after which
    `hearts_balance` is a recomputed cache and never `+=` again.
+   > **Superseded (Rye directive, 2026-07-26): `token_type` is `varchar(32)` backed
+   > by a `tokens` registry table, NOT an enum.** The village module layer (internal
+   > exchange, material library credits, stay credits, access tokens — see the
+   > modules master plan) creates tokens at runtime, so a closed enum guarantees
+   > the exact widening migration the enum was meant to avoid, once per module.
+   > Applied as `drizzle/0006_token_registry.sql` (converted on the live DB while
+   > `token_ledger` was still unwritten), `tokens` table in `server/db/schema.ts`,
+   > and a fail-loud registry guard in `server/lib/ledger.ts` (unknown slug =
+   > error, never a silent 'gratitude'; `governance='hypha'` = read-only, same
+   > decision-5 guard as before, now data-driven). Do not "fix" this back.
 3. Rewire quest consent through the ledger. The loop test is the regression gate.
 4. Roles as data, one capability helper, `quests.roleRequired` validated against
    `roles.slug` on write (today it is an unvalidated pointer).
