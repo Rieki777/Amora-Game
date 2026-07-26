@@ -132,9 +132,13 @@ Once the above is proven live in Amora. Mostly mechanical if decision 2 held: co
 | Phase 0: sign tokens, header-only admin auth | CLAUDE CODE | SHIPPED, live. Verified on production: an unsigned token for a real existing user id is rejected, a token signed with the wrong secret is rejected, one signed correctly is accepted (the control), and `?password=` no longer authenticates. `AUTH_TOKEN_SECRET` is set on the Railway service. |
 | Phase 2: mobile FAB + bottom tab bar | CLAUDE CODE | SHIPPED, live (`1352025`). Config-driven via `client/src/config/mobileNav.ts`. Verified at 390px on production. The trigger glyph is intentionally a plain icon: the brand PNGs carry the AMORA wordmark and are illegible at 32px, so `FabTriggerIcon` in the config is the swap point if a square brand glyph is ever cut. |
 | Rotate `ADMIN_PASSWORD` + `JOURNEY_PASSWORD` | RYE | DECLINED, deliberate. Rye's call 2026-07-18: they are placeholders and meaningless until a real project takes over and sets its own. Revisit before any real membership exists. |
-| Back up the production `data/` volume before Phase 1 | RYE (or Claude with explicit go-ahead) | PENDING |
-| Choose Postgres vs MySQL for Amora | RYE | PENDING, MySQL matches regen-civics and maximizes portability |
-| Phase 1: DB + migrations + repository layer + split `server/index.ts` | CLAUDE CODE | BLOCKED on the two rows above |
+| Back up the production `data/` volume | CLAUDE CODE | DONE. `Desktop/Amora/backups/amora-data-2026-07-26_000010.tar.gz`, pulled over `railway ssh`, all 20 JSON files, archive verified to decompress to real content. Uploads was empty, so 116K is the whole dataset. |
+| Choose Postgres vs MySQL | RYE | DONE, MySQL. Service provisioned and `DATABASE_URL` on the app service references it over the private network (`railway.internal`, no egress). |
+| Delete two orphaned MySQL volumes | RYE | PENDING. `mysql-volume-PSJY` and `mysql-volume-Jin7`, 0MB, attached to nothing, left over from duplicate services created by retrying `railway add`. The CLI reports "deleted" and they persist, which is the `--2fa-code` gate in non-interactive mode, so this needs a dashboard click. |
+| Phase 1a: schema, migration runner, verified JSON import | CLAUDE CODE | SHIPPED (`2a0e9e0`). 11 tables live, all 9 collection counts match the JSON, all 10 config documents structurally identical, import idempotent. **Nothing reads from the DB yet**; the app still reads JSON and `data/` stays mounted and authoritative. |
+| Phase 1b: repository layer, then cut over one domain at a time | CLAUDE CODE | NEXT. ~78 route handlers still read JSON directly. Each domain moves behind a repository and is verified against the shadow copy before the next one starts. |
+| Phase 1c: split `server/index.ts` (1,977 lines, 80 routes) | CLAUDE CODE | do it during 1b, not after |
+| Test harness (vitest is installed and unused, zero tests exist) | CLAUDE CODE | do it at the start of 1b, it is the safety net the cutover needs |
 | Phase 3: notification spine + scheduler | CLAUDE CODE | after Phase 1 |
 | Roles as data (role holders, assignment, gating) | CLAUDE CODE | prerequisite for Phase 5 |
 | Phase 4: minimal forum | CLAUDE CODE | after Phase 3 |
