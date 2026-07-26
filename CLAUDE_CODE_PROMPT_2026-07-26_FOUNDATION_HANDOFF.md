@@ -256,16 +256,41 @@ Production: healthy, cycle 328, 14 quests, zero test data left behind. Backup of
 live volume at `Desktop/Amora/backups/amora-data-2026-07-26_000010.tar.gz`, and
 `scripts/import-json-to-mysql.ts --dir <path>` can replay from it.
 
-**Still needs a human:** two orphaned MySQL volumes, `mysql-volume-PSJY` and
-`mysql-volume-Jin7`, left over from my error retrying `railway add`. They are
-**924MB each** (roughly 1.85GB of billed storage between them; an earlier note in
-this document said 0MB, which was true only before their MySQL services had
-initialised). They do **not** appear on the Railway canvas, because it only renders
-volumes with an attached service, so `railway volume list` is the only way to see
-them. `railway volume delete -v <name> -y` prints `Volume "..." deleted` and exits
-0 **without deleting anything**, verified four times across two sessions. Delete
-them from project Settings in the dashboard, and do not trust that CLI command
-anywhere else either.
+**Still needs a human:** two orphaned MySQL volumes, left over from my error retrying
+`railway add`. **924MB each, roughly 1.85GB of billed storage between them.**
+
+```
+mysql-volume-PSJY   76ddbb9a-b771-437b-a9f1-25012b822348
+mysql-volume-Jin7   c02d4ced-281f-46ac-9aa6-b62162728cad
+```
+
+**Why they are invisible, diagnosed.** `railway volume list --json` shows
+`serviceName: null` for exactly these two, and non-null for the two live volumes. The
+Railway dashboard canvas and Railway's own AI agent both enumerate volumes by walking
+SERVICES, so a volume whose service was deleted is unreachable through that path: it
+does not render on the canvas, and the agent searching by name reports "I don't see
+mysql-volume-PSJY". It is not a caching bug and they are not in another environment.
+Proof: the agent found `mysql-volume` with id `0b2bb3ae-2963-402e-aace-12aba26a1381`,
+which matches the CLI exactly, so both tools are looking at the same project and
+environment. The CLI queries volumes at the project level, which is why only it sees
+all four.
+
+**Do not trust `railway volume delete`.** It prints `Volume "..." deleted` and exits 0
+while deleting nothing, verified four times across two sessions.
+
+**How to actually remove them,** cheapest first:
+
+1. Give Railway's own agent the volume IDs above rather than the names. It failed only
+   because name search walks services; acting on an id should bypass that.
+2. `railway volume attach -v 76ddbb9a-... ` to bind an orphan to a service so it becomes
+   visible, then delete it from that service's UI. **Never attach one to MySQL or Amora
+   Game**: their mount paths (`/var/lib/mysql`, `/app/data`) would collide with live
+   data. Use a throwaway service.
+3. The GraphQL API (`backboard.railway.com/graphql/v2`) with a real Railway API token.
+   The CLI's stored `user.token` is NOT one; every auth variant returns 403.
+
+Low urgency: they are inert and cost a few dollars a month. Worth clearing because they
+exist only as an artifact of my mistake.
 
 ---
 
