@@ -157,13 +157,17 @@ async function main() {
     }
 
     for (const g of read("gratitude-log.json") ?? []) {
+      // S8 columns: kind defaults to a plain send; cycle_number is derived
+      // from the lunar cycle id so settlement math never re-parses strings.
+      const cycleNum = /^lunar-(\d+)$/.exec(String(g.cycleId ?? ""));
       await conn.query(
-        "INSERT INTO `gratitude_log` (id, from_id, from_name, to_id, to_name, amount, message, cycle_id, at) " +
-          "VALUES (?,?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
-          "ON DUPLICATE KEY UPDATE amount=VALUES(amount), message=VALUES(message), cycle_id=VALUES(cycle_id)",
+        "INSERT INTO `gratitude_log` (id, kind, from_id, from_name, to_id, to_name, amount, message, context_type, context_ref, cycle_id, cycle_number, at) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
+          "ON DUPLICATE KEY UPDATE amount=VALUES(amount), message=VALUES(message), cycle_id=VALUES(cycle_id), cycle_number=VALUES(cycle_number)",
         [
-          str(g.id, 64), str(g.fromId, 64), str(g.fromName, 255), str(g.toId, 64), str(g.toName, 255),
-          num(g.amount, 0), g.message ?? null, str(g.cycleId, 16) ?? "", ts(g.at),
+          str(g.id, 64), str(g.kind, 24) ?? "gratitude", str(g.fromId, 64), str(g.fromName, 255), str(g.toId, 64), str(g.toName, 255),
+          num(g.amount, 0), g.message ?? null, str(g.contextType, 32), str(g.contextRef, 120),
+          str(g.cycleId, 16) ?? "", cycleNum ? Number(cycleNum[1]) : null, ts(g.at),
         ],
       );
     }
@@ -235,9 +239,9 @@ async function main() {
 
     for (const d of read("gratitude-distributions.json") ?? []) {
       await conn.query(
-        "INSERT INTO `gratitude_distributions` (id, cycle_id, user_id, received, distinct_senders, created_at) VALUES (?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
-          "ON DUPLICATE KEY UPDATE received=VALUES(received), distinct_senders=VALUES(distinct_senders)",
-        [str(d.id, 64), str(d.cycleId, 64), str(d.userId, 64), num(d.received, 0), num(d.distinctSenders, 0), ts(d.createdAt)],
+        "INSERT INTO `gratitude_distributions` (id, cycle_id, user_id, received, distinct_senders, credited, pool_token, created_at) VALUES (?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
+          "ON DUPLICATE KEY UPDATE received=VALUES(received), distinct_senders=VALUES(distinct_senders), credited=VALUES(credited), pool_token=VALUES(pool_token)",
+        [str(d.id, 64), str(d.cycleId, 64), str(d.userId, 64), num(d.received, 0), num(d.distinctSenders, 0), num(d.credited, 0), str(d.poolToken, 32), ts(d.createdAt)],
       );
     }
 

@@ -90,6 +90,18 @@ export const VARIABLES: VariableDef[] = [
     default: "credits",
   },
   {
+    key: "ledger.admin_mint_cycle_cap",
+    category: "Ledger",
+    label: "Admin mint cap per lunar cycle",
+    description:
+      "The most any admins can mint by hand, in total, per token, per lunar cycle (S9's mint endpoint enforces it as an aggregate, not per call). A cap on manual issuance is what makes 'the numbers mean something' a property of the system instead of a promise from whoever holds admin. 0 disables manual minting entirely.",
+    type: "integer",
+    default: "10000",
+    min: 0,
+    max: 10000000,
+    unit: "tokens",
+  },
+  {
     key: "gratitude.max_per_recipient_per_cycle",
     category: "Gratitude",
     label: "Maximum sends to the same person per cycle",

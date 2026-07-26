@@ -27,6 +27,8 @@ import {
   tokenDef,
 } from "./lib/ledger";
 import { usersRepo } from "./repos/users";
+import { gratitudeCyclesRepo, gratitudeDistributionsRepo, gratitudeLogRepo } from "./repos/gratitude";
+import { budgetFor, sendGratitude, type GratitudeDeps } from "./lib/gratitude";
 import { getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
 import { collectionRepo, documentRepo } from "./repos/store";
@@ -71,14 +73,13 @@ const FAQS_FILE = path.join(DATA_DIR, "faqs.json");
 const QUESTS_FILE = path.join(DATA_DIR, "quests.json");
 const QUESTS_SEED_FILE = path.join(SEEDS_DIR, "quests-seed.json");
 const QUEST_CLAIMS_FILE = path.join(DATA_DIR, "quest-claims.json");
-const GRATITUDE_LOG_FILE = path.join(DATA_DIR, "gratitude-log.json");
+// gratitude-log.json retired in S8 — the domain lives in MySQL (server/repos/gratitude.ts).
 const ACTIVITY_FILE = path.join(DATA_DIR, "activity.json");
 const SEASON_FILE = path.join(DATA_DIR, "season.json");
 const ROLES_FILE = path.join(DATA_DIR, "roles.json");
 const ROLES_SEED_FILE = path.join(SEEDS_DIR, "roles-seed.json");
 const ROLE_HOLDERS_FILE = path.join(DATA_DIR, "role-holders.json");
-const CYCLES_FILE = path.join(DATA_DIR, "gratitude-cycles.json");
-const DISTRIBUTIONS_FILE = path.join(DATA_DIR, "gratitude-distributions.json");
+// gratitude-cycles.json / gratitude-distributions.json retired in S8 (MySQL).
 const VARIABLES_FILE = path.join(DATA_DIR, "game-variables.json");
 // token-ledger.json retired in S7 — the ledger lives in MySQL (server/lib/ledger.ts).
 
@@ -311,13 +312,13 @@ const members = usersRepo();
 const submissionsRepo = collectionRepo(SUBMISSIONS_FILE);
 const claimsRepo = collectionRepo(QUEST_CLAIMS_FILE);
 const questsRepo = collectionRepo(QUESTS_FILE);
-const gratitudeRepo = collectionRepo(GRATITUDE_LOG_FILE);
+const gratitudeRepo = gratitudeLogRepo(getPool());
 const activityRepo = collectionRepo(ACTIVITY_FILE);
 const milestonesRepo = collectionRepo(MILESTONES_FILE);
 const trainingRepo = collectionRepo(TRAINING_MODULES_FILE);
 const investorDocsRepo = collectionRepo(INVESTOR_DOCS_FILE);
-const distributionsRepo = collectionRepo<DistributionRecord>(DISTRIBUTIONS_FILE);
-const cyclesRepo = collectionRepo<CycleRecord>(CYCLES_FILE);
+const distributionsRepo = gratitudeDistributionsRepo(getPool());
+const cyclesRepo = gratitudeCyclesRepo(getPool());
 const stageEventsRepo = collectionRepo(STAGE_EVENTS_FILE);
 // S1: who did what, as admin — the substrate S11's recordEvent() later subsumes.
 const adminAuditRepo = collectionRepo(ADMIN_AUDIT_FILE);
@@ -553,13 +554,10 @@ async function ensureDataFiles() {
   if (!fs.existsSync(WORK_WITH_US_FILE)) fs.writeFileSync(WORK_WITH_US_FILE, JSON.stringify(DEFAULT_WORK_WITH_US, null, 2));
   seedIfMissingOrEmpty(QUESTS_FILE, QUESTS_SEED_FILE, "[]");
   if (!fs.existsSync(QUEST_CLAIMS_FILE)) fs.writeFileSync(QUEST_CLAIMS_FILE, "[]");
-  if (!fs.existsSync(GRATITUDE_LOG_FILE)) fs.writeFileSync(GRATITUDE_LOG_FILE, "[]");
   if (!fs.existsSync(ACTIVITY_FILE)) fs.writeFileSync(ACTIVITY_FILE, "[]");
   if (!fs.existsSync(SEASON_FILE)) fs.writeFileSync(SEASON_FILE, JSON.stringify(GAME_CONFIG.season, null, 2));
   seedIfMissingOrEmpty(ROLES_FILE, ROLES_SEED_FILE, "[]");
   if (!fs.existsSync(ROLE_HOLDERS_FILE)) fs.writeFileSync(ROLE_HOLDERS_FILE, "[]");
-  if (!fs.existsSync(CYCLES_FILE)) fs.writeFileSync(CYCLES_FILE, "[]");
-  if (!fs.existsSync(DISTRIBUTIONS_FILE)) fs.writeFileSync(DISTRIBUTIONS_FILE, "[]");
   // Only CHANGED variables are stored, so new platform defaults are inherited.
   if (!fs.existsSync(VARIABLES_FILE)) fs.writeFileSync(VARIABLES_FILE, "{}");
   if (!fs.existsSync(STAGE_EVENTS_FILE)) fs.writeFileSync(STAGE_EVENTS_FILE, "[]");
@@ -1012,22 +1010,26 @@ function computeStage(user: any): string {
   return earned;
 }
 
-function gratitudeBudget(user: any): { total: number; spent: number; remaining: number; cycleId: string } {
-  const stage = getStage(computeStage(user));
-  // Base budget is a live variable now, editable in Admin, not a build-time
-  // constant. The stage multiplier still shapes it.
-  const total = Math.round(numberVar(VARIABLES_FILE, "gratitude.base_budget") * stage.gratitudeMultiplier);
-  const cycleId = currentCycleId();
-  const log: any[] = gratitudeRepo.all();
-  const spent = log
-    .filter((g) => g.fromId === user.id && g.cycleId === cycleId)
-    .reduce((acc, g) => acc + (g.amount ?? 0), 0);
-  return { total, spent, remaining: Math.max(0, total - spent), cycleId };
+/**
+ * S8: budget math and the send path live in server/lib/gratitude.ts so future
+ * modules (D5 forum hearts) share one set of guards. The host wires its
+ * dependencies here; stage rules stay in this file.
+ */
+const gratitudeDeps: GratitudeDeps = {
+  get pool() { return getPool(); },
+  variablesFile: VARIABLES_FILE,
+  log: gratitudeRepo,
+  members,
+  stageMultiplierFor: (user: any) => getStage(computeStage(user)).gratitudeMultiplier,
+};
+
+function gratitudeBudget(user: any) {
+  return budgetFor(gratitudeDeps, user);
 }
 
-function nextActionFor(user: any): { id: string; label: string; href: string } {
+async function nextActionFor(user: any): Promise<{ id: string; label: string; href: string }> {
   const claims: any[] = (claimsRepo.all()).filter((c: any) => c.userId === user.id);
-  const budget = gratitudeBudget(user);
+  const budget = await gratitudeBudget(user);
   for (const rule of GAME_CONFIG.nextActions) {
     switch (rule.when) {
       case "no-training": if (!trainingComplete(user)) return rule; break;
@@ -1314,7 +1316,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", async (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-s7-ledger-keystone", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-26-s8-gratitude-mysql", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -2843,12 +2845,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       stage: getStage(stageId),
       stageIndex: stageIndex(stageId),
       stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
-      gratitude: { balance: user.recognitionBalance ?? 0, budget: gratitudeBudget(user) },
+      gratitude: { balance: user.recognitionBalance ?? 0, budget: await gratitudeBudget(user) },
       quests: claims,
       journeys: user.journeys ?? {},
       membership: hasMembership(user),
       trainingComplete: trainingComplete(user),
-      nextAction: nextActionFor(user),
+      nextAction: await nextActionFor(user),
       // Revision 2: progression is no longer decoration. The client renders
       // what you can DO, so the gates are legible instead of mysterious.
       roles: roleIdsFor(user.id),
@@ -2861,62 +2863,22 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     });
   });
 
-  // Gratitude: send an acknowledgment
+  // Gratitude: send an acknowledgment. The rules live in the service (S8) —
+  // Amora pays at SEND (revision 3: never add pool minting on top of this),
+  // through the ledger, idempotently, from the recognition faucet.
   app.post("/api/game/gratitude/send", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to send " + mergedConfig().currency.nameLower });
     const { toEmail, amount, message } = req.body ?? {};
-    const amt = Math.floor(Number(amount) || 0);
-    if (!toEmail || amt <= 0) return res.status(400).json({ error: "Recipient and a positive amount are required" });
-    if (boolVar(VARIABLES_FILE, "gratitude.require_message") && !String(message ?? "").trim()) {
-      return res.status(400).json({ error: "A few words of appreciation are required" });
-    }
-    const recipient = await members.byEmail(String(toEmail));
-    if (!recipient) return res.status(404).json({ error: "No member found with that email" });
-    if (recipient.id === user.id) return res.status(400).json({ error: "Gratitude flows to others" });
-    const budget = gratitudeBudget(user);
-    if (budget.total <= 0) return res.status(403).json({ error: "Your sending budget unlocks as you progress on the path" });
-    if (amt > budget.remaining) return res.status(400).json({ error: `Only ${budget.remaining} left in your budget this cycle` });
-    const log: any[] = gratitudeRepo.all();
-    const already = log.filter((g) => g.fromId === user.id && g.toId === recipient.id && g.cycleId === budget.cycleId).length;
-    if (already >= numberVar(VARIABLES_FILE, "gratitude.max_per_recipient_per_cycle")) {
-      return res.status(409).json({ error: "You have already acknowledged them this cycle" });
-    }
-    const entry = {
-      id: `grat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      fromId: user.id,
-      fromName: user.name,
-      toId: recipient.id,
-      toName: recipient.name,
-      amount: amt,
-      message: String(message ?? "").trim(),
-      cycleId: budget.cycleId,
-      at: new Date().toISOString(),
-    };
-    log.push(entry);
-    gratitudeRepo.saveAll(log);
-    // Amora pays at SEND (see revision 3: never add pool minting on top of this).
-    // Routed through the ledger so the movement is recorded and the balance is a
-    // recomputed cache. Keyed on the acknowledgment id, so a retry credits once.
-    // Recognition ISSUES at send (the sender spends budget, not balance), so
-    // the transfer comes from the recognition faucet, not the sender's account.
-    const sendCredit = await postTransfer(getPool(), {
-      from: RECOGNITION_FAUCET,
-      to: memberAccount(recipient.id),
-      amount: amt,
-      source: "gratitude_received",
-      sourceRef: entry.id,
-      description: `Gratitude from ${firstName(user.name)}`,
-      idempotencyKey: `gratitude_received:${entry.id}`,
-    });
-    await members.update(recipient.id, (u: any) => { u.recognitionBalance = sendCredit.toBalance; });
-    addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(recipient.name)}`);
-    res.json({ success: true, entry: { ...entry, amount: undefined }, budget: gratitudeBudget(user) });
+    const outcome = await sendGratitude(gratitudeDeps, { fromUser: user, toEmail, amount, message });
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(outcome.recipient.name)}`);
+    res.json({ success: true, entry: { ...outcome.entry, amount: undefined }, budget: outcome.budget });
   });
 
   // Gratitude: public wall (messages and names only; amounts stay private)
   app.get("/api/game/gratitude/wall", async (_req, res) => {
-    const log: any[] = gratitudeRepo.all();
+    const log = await gratitudeRepo.all();
     const wall = log
       .slice(-60)
       .reverse()
@@ -2928,11 +2890,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/game/gratitude/me", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const log: any[] = gratitudeRepo.all();
+    const log = await gratitudeRepo.all();
     res.json({
       received: log.filter((g) => g.toId === user.id).reverse(),
       sent: log.filter((g) => g.fromId === user.id).reverse(),
-      budget: gratitudeBudget(user),
+      budget: await gratitudeBudget(user),
     });
   });
 
@@ -2948,7 +2910,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       daysRemaining: daysRemainingInCycle(now),
       moonPhase: moonPhase(now),
       moonPhaseName: moonPhaseName(moonPhase(now)),
-      budget: user ? gratitudeBudget(user) : null,
+      budget: user ? await gratitudeBudget(user) : null,
     });
   });
 
@@ -2956,8 +2918,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // the report the founders carry to Hypha, where Amora and Voice distribution
   // is actually governed. Names only, no emails.
   app.get("/api/game/cycle/distributions", async (_req, res) => {
-    const cycles: CycleRecord[] = cyclesRepo.all();
-    const dists: DistributionRecord[] = distributionsRepo.all();
+    const cycles: CycleRecord[] = await cyclesRepo.all();
+    const dists: DistributionRecord[] = await distributionsRepo.all();
     const allMembers = await members.all();
     const nameOf = (id: string) => firstName(allMembers.find((u: any) => u.id === id)?.name ?? "Member");
     res.json(
@@ -3021,11 +2983,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       }
     }
 
-    const cycles: CycleRecord[] = cyclesRepo.all();
-    const entries: any[] = gratitudeRepo.all();
+    const cycles: CycleRecord[] = await cyclesRepo.all();
+    const entries: any[] = await gratitudeRepo.all();
     const due = dueCycles(cycles, entries, new Date());
 
-    const dists: DistributionRecord[] = distributionsRepo.all();
     const closed: CycleRecord[] = [];
     let totalCredited = 0;
     for (const cycle of due) {
@@ -3057,7 +3018,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
             if (!r.duplicate) { totalCredited += credited; cycleCredited += credited; }
           }
         }
-        dists.push({
+        // Idempotent on (cycleId, userId): a re-run updates, never doubles.
+        await distributionsRepo.add({
           id: `dist-${cycle.cycleNumber}-${t.userId}`,
           cycleId: cycle.id,
           userId: t.userId,
@@ -3069,9 +3031,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         } as DistributionRecord);
       }
       const record: CycleRecord = { ...cycle, status: "closed", closedAt: new Date().toISOString() };
-      const existingIdx = cycles.findIndex((c) => c.cycleNumber === cycle.cycleNumber);
-      if (existingIdx >= 0) cycles[existingIdx] = record;
-      else cycles.push(record);
+      await cyclesRepo.upsert(record);
       closed.push(record);
       if (totals.length > 0) {
         const poolNote = cycleCredited > 0
@@ -3082,10 +3042,6 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           `A lunar cycle closed: ${totals.length} ${totals.length === 1 ? "member was" : "members were"} acknowledged with ${GAME_CONFIG.currency.nameLower}${poolNote}`,
         );
       }
-    }
-    if (closed.length > 0) {
-      cyclesRepo.saveAll(cycles);
-      distributionsRepo.saveAll(dists);
     }
     res.json({ closed: closed.length, cycles: closed, poolCredited: totalCredited });
   });
@@ -3119,12 +3075,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/game/gratitude/flows", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const log: any[] = gratitudeRepo.all();
-    const dists: DistributionRecord[] = distributionsRepo.all();
+    const log = await gratitudeRepo.all();
+    const dists: DistributionRecord[] = await distributionsRepo.all();
     const mine = dists.filter((d) => d.userId === user.id);
     res.json({
       balance: user.recognitionBalance ?? 0,
-      budget: gratitudeBudget(user),
+      budget: await gratitudeBudget(user),
       totals: {
         received: log.filter((g) => g.toId === user.id).reduce((n, g) => n + (Number(g.amount) || 0), 0),
         sent: log.filter((g) => g.fromId === user.id).reduce((n, g) => n + (Number(g.amount) || 0), 0),

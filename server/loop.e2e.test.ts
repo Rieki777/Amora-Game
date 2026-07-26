@@ -414,26 +414,30 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
   it("closes a finished lunar cycle exactly once, and records the settlement", async () => {
     // Revision 2, step 5: the heartbeat. Current-cycle activity cannot be
     // settled (the lunation has not ended), so plant an acknowledgment in the
-    // PREVIOUS lunation by writing the data file directly; the data dir is a
-    // throwaway created by this test, so reaching into it is legitimate here.
-    const cyclePath = path.join(dataDir, "gratitude-log.json");
-    const log = JSON.parse(fs.readFileSync(cyclePath, "utf-8"));
+    // PREVIOUS lunation by inserting into the scratch database directly (S8:
+    // the gratitude log lives in MySQL); the schema is a throwaway this test
+    // provisioned, so reaching into it is legitimate here.
     const current = await api("GET", "/api/game/cycle");
     expect(current.status).toBe(200);
     const prevNumber = current.json.cycleNumber - 1;
     const prevId = `lunar-${String(prevNumber).padStart(6, "0")}`;
-    log.push({
-      id: "grat-loop-prev-cycle",
-      fromId: doerId,
-      fromName: "Willing Doer",
-      toId: peerId,
-      toName: "Grateful Peer",
-      amount: 8,
-      message: "Backdated acknowledgment for the close test.",
-      cycleId: prevId,
-      at: new Date(Date.parse(current.json.startsAt) - 1000 * 60 * 60 * 24).toISOString(),
-    });
-    fs.writeFileSync(cyclePath, JSON.stringify(log, null, 2));
+    await testDb.conn.query(
+      "INSERT INTO gratitude_log (id, kind, from_id, from_name, to_id, to_name, amount, message, cycle_id, cycle_number, at) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      [
+        "grat-loop-prev-cycle",
+        "gratitude",
+        doerId,
+        "Willing Doer",
+        peerId,
+        "Grateful Peer",
+        8,
+        "Backdated acknowledgment for the close test.",
+        prevId,
+        prevNumber,
+        new Date(Date.parse(current.json.startsAt) - 1000 * 60 * 60 * 24),
+      ],
+    );
 
     // Anonymous close is refused; the founder's close settles it.
     const anon = await api("POST", "/api/admin/cycles/close", {});
