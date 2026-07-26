@@ -116,6 +116,26 @@ export const MODULES: ModuleDef[] = [
   // ── Optional modules. Everything ships OFF; enabling is a deliberate,
   //    per-deployment admin act. ──────────────────────────────────────────────
   {
+    id: "map",
+    name: "Village Map",
+    description:
+      "The living org chart: circles, the roles that orbit them, who holds each seat, which seats are open calls — plus a concierge that routes 'I want to help with X' to the right person.",
+    requires: [],
+    recommends: [],
+    capabilities: ["map.viewPeople", "map.contact"],
+    variableKeys: [
+      "map.public_structure",
+      "map.concierge_enabled",
+      "map.contact_daily_cap",
+      "map.contact_recipient_daily_cap",
+      "map.show_quests",
+      "map.vacant_highlight",
+      "map.contact_retention_days",
+    ],
+    apiPrefixes: ["/api/map", "/api/circles"],
+    defaultConfig: { circlesSource: "platform" },
+  },
+  {
     id: "tools",
     name: "Tools Hub",
     description:

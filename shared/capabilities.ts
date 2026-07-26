@@ -24,7 +24,9 @@ export type Capability =
   | "forum.post" // start a thread
   | "forum.moderate" // hide, resolve reports, act on the community's behalf
   | "proposal.open" // open a governance decision
-  | "proposal.decide"; // record a decision's outcome
+  | "proposal.decide" // record a decision's outcome
+  | "map.viewPeople" // see WHO holds seats on the village map (not just counts)
+  | "map.contact"; // reach a role holder through the contact relay
 
 /**
  * Stage that unlocks each capability by progression alone, referencing the
@@ -36,6 +38,8 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   "forum.post": "member", // you can talk once you have joined
   "quest.propose": "contributor", // propose work once you have done some
   "proposal.open": "co-creator", // open a decision once you are co-creating
+  "map.viewPeople": "guest", // any account sees who holds the village's seats
+  "map.contact": "member", // reaching people through the relay starts at member
 };
 
 /**

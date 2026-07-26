@@ -1145,4 +1145,81 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const founderSelf = await api("DELETE", `/api/admin/players/${founderId}`, undefined, founderToken);
     expect(founderSelf.status).toBe(409);
   });
+
+  it("S19-S23: the village map — circles, tiers, relay, concierge", async () => {
+    // Off = the whole surface is the framework 404.
+    expect((await api("GET", "/api/map")).status).toBe(404);
+    await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "public" }, founderToken);
+
+    // Circles seeded from the file on the empty table; aliases resolve quests.
+    const circles = await api("GET", "/api/circles");
+    expect(circles.status).toBe(200);
+    expect(circles.json.length).toBeGreaterThanOrEqual(8);
+    const perma = circles.json.find((c: any) => c.id === "permaculture-council");
+    expect(perma.aliases).toContain("Regenerative Agriculture");
+
+    // Alias collisions are refused: one alias, one circle, forever.
+    const clash = await api(
+      "PUT",
+      "/api/admin/circles/education-council",
+      { aliases: ["Education", "Regenerative Agriculture"] },
+      founderToken,
+    );
+    expect(clash.status).toBe(409);
+
+    // Assign a role to a circle with seats; the map derives vacancy.
+    const assign = await api("PUT", "/api/admin/roles/founders-circle", { circleId: "community-life-council", seats: 3 }, founderToken);
+    expect(assign.status).toBe(200);
+
+    // Tier check: anonymous sees structure (counts), never names; a member
+    // with map.viewPeople sees holders.
+    const anonMap = await api("GET", "/api/map");
+    expect(anonMap.status).toBe(200);
+    const anonRole = anonMap.json.roles.find((r: any) => r.id === "founders-circle");
+    expect(anonRole.holderCount).toBeGreaterThan(0);
+    expect(anonRole.holders).toEqual([]);
+    expect(anonRole.circleId).toBe("community-life-council");
+    expect(anonRole.vacant).toBe(true); // 3 seats, fewer holders
+    const memberMap = await api("GET", "/api/map", undefined, doerToken);
+    const memberRole = memberMap.json.roles.find((r: any) => r.id === "founders-circle");
+    expect(memberRole.holders.length).toBeGreaterThan(0);
+    // Quests resolve to circles through aliases.
+    expect(anonMap.json.quests.some((q: any) => q.circleId === "permaculture-council")).toBe(true);
+
+    // Raise a hand on the vacant seat → the existing submissions inbox.
+    const hand = await api("POST", "/api/map/roles/founders-circle/raise-hand", { note: "I hold the long view." }, doerToken);
+    expect(hand.status).toBe(200);
+    const subs = await api("GET", "/api/admin/submissions?type=role-application", undefined, founderToken);
+    expect(subs.json.some((s: any) => s.data?.roleId === "founders-circle")).toBe(true);
+
+    // The contact relay: opt-out is server-enforced, then a real relay lands
+    // a notification (email is fire-and-forget without a key).
+    const peerNow = await api("GET", "/api/admin/players", undefined, founderToken);
+    const peerRow = peerNow.json.find((p: any) => p.id === peerId);
+    expect(peerRow).toBeTruthy();
+    await api("PUT", "/api/game/preferences", { contactable: false }, peerToken);
+    const refused = await api("POST", "/api/map/contact", { toUserId: peerId, message: "hello" }, doerToken);
+    expect(refused.status).toBe(403);
+    await api("PUT", "/api/game/preferences", { contactable: true }, peerToken);
+    const sent = await api("POST", "/api/map/contact", { toUserId: peerId, roleId: "founders-circle", message: "Can I help with welcome duty?" }, doerToken);
+    expect(sent.status).toBe(200);
+    // Same message twice = the idempotency key absorbs it.
+    const dup = await api("POST", "/api/map/contact", { toUserId: peerId, roleId: "founders-circle", message: "Can I help with welcome duty?" }, doerToken);
+    expect(dup.json.duplicate).toBe(true);
+    const peerBell = await api("GET", "/api/notifications", undefined, peerToken);
+    expect(peerBell.json.notifications.some((n: any) => n.type === "contact_request")).toBe(true);
+
+    // The concierge: deterministic-first (no API key in tests), every query
+    // logged, unmatched asks become the demand signal.
+    const matched = await api("POST", "/api/assistant/coordinate", { query: "I want to help with permaculture and gardens" }, doerToken);
+    expect(matched.status).toBe(200);
+    expect(matched.json.match?.id).toBe("permaculture-council");
+    expect(matched.json.method).toBe("deterministic");
+    const unmatched = await api("POST", "/api/assistant/coordinate", { query: "underwater basket weaving championships" }, doerToken);
+    expect(unmatched.json.match).toBeNull();
+    const signal = await api("GET", "/api/admin/map/concierge-log?unmatched=1", undefined, founderToken);
+    expect(signal.json.some((q: any) => String(q.query).includes("underwater"))).toBe(true);
+
+    await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "off" }, founderToken);
+  });
 });

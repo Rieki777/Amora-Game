@@ -342,6 +342,77 @@ export const VARIABLES: VariableDef[] = [
     unit: "days",
   },
 
+  // ── Village map (S19-S23; visible in Admin only while the module is non-off) ──
+  {
+    key: "map.public_structure",
+    category: "Village map",
+    label: "Show the map's structure to visitors",
+    description:
+      "When the map module is public, anonymous visitors see circles, role titles and seat counts — never names or faces. Off hides the map from visitors entirely, even at public lifecycle.",
+    type: "boolean",
+    default: "true",
+  },
+  {
+    key: "map.concierge_enabled",
+    category: "Village map",
+    label: "Show the coordination concierge",
+    description:
+      "The 'what do you want to do?' bar that routes a member to the right circle, role or quest. Deterministic matching always runs first; the assistant is only consulted for ambiguous asks, and only when an API key is configured.",
+    type: "boolean",
+    default: "true",
+  },
+  {
+    key: "map.contact_daily_cap",
+    category: "Village map",
+    label: "Contact requests a member may send per day",
+    description: "The relay's outbound brake. 0 disables the contact relay entirely.",
+    type: "integer",
+    default: "5",
+    min: 0,
+    max: 50,
+    unit: "messages",
+  },
+  {
+    key: "map.contact_recipient_daily_cap",
+    category: "Village map",
+    label: "Contact requests one person receives per day",
+    description:
+      "Protects busy role holders. Once someone's day is full, would-be senders are pointed at the circle's open quests instead.",
+    type: "integer",
+    default: "3",
+    min: 1,
+    max: 20,
+    unit: "messages",
+  },
+  {
+    key: "map.show_quests",
+    category: "Village map",
+    label: "Show open quests on the map",
+    description: "Open quests orbit their circle as small satellites, capped for legibility.",
+    type: "boolean",
+    default: "true",
+  },
+  {
+    key: "map.vacant_highlight",
+    category: "Village map",
+    label: "Highlight vacant seats",
+    description: "Vacant roles pulse gently as an open call. Off renders them as plain grey rings.",
+    type: "boolean",
+    default: "true",
+  },
+  {
+    key: "map.contact_retention_days",
+    category: "Village map",
+    label: "Keep contact message bodies for",
+    description:
+      "Relay message bodies are personal correspondence: the daily sweep clears bodies older than this while keeping the contact event itself (who reached whom, when). 0 keeps bodies forever.",
+    type: "integer",
+    default: "180",
+    min: 0,
+    max: 3650,
+    unit: "days",
+  },
+
   // ── Village rhythm ────────────────────────────────────────────────────────
   {
     key: "village.pulse_max_entries",

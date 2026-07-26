@@ -32,6 +32,7 @@ const LABELS: Record<string, string> = {
 
 export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void }) {
   const [prefs, setPrefs] = useState<any>(null);
+  const [contactable, setContactable] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [password, setPassword] = useState("");
@@ -44,7 +45,20 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setPrefs(d?.notify ?? null))
       .catch(() => {});
+    fetch("/api/profile", { headers: headers() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setContactable(d.contactable !== false); })
+      .catch(() => {});
   }, []);
+
+  const saveContactable = (next: boolean) => {
+    setContactable(next);
+    fetch("/api/game/preferences", {
+      method: "PUT",
+      headers: headers(),
+      body: JSON.stringify({ contactable: next }),
+    }).catch(() => {});
+  };
 
   const save = (patch: Record<string, any>) => {
     setSaving(true);
@@ -109,6 +123,14 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
             </div>
           ))}
         </div>
+      )}
+
+      {contactable !== null && (
+        <label className="flex items-center gap-2 text-sm text-gray-700 mb-4">
+          <input type="checkbox" checked={contactable} onChange={(e) => saveContactable(e.target.checked)} />
+          Contactable through the Village Map
+          <span className="text-xs text-gray-400">(role holders only; senders see a relay, never your email)</span>
+        </label>
       )}
 
       <div className="border-t border-gray-100 pt-4 space-y-3">

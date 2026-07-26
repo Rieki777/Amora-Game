@@ -2275,6 +2275,188 @@ function ModulesTab({ password }: { password: string }) {
   );
 }
 
+// ── Circles & Map admin (S19-S23) ────────────────────────────────────────────
+
+function CirclesMapTab({ password }: { password: string }) {
+  const [off, setOff] = useState(false);
+  const [circles, setCircles] = useState<any[]>([]);
+  const [roles, setRoles] = useState<any[]>([]);
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [unmatched, setUnmatched] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newCircle, setNewCircle] = useState({ name: "", purpose: "" });
+  const [aliasDrafts, setAliasDrafts] = useState<Record<string, string>>({});
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const cRes = await fetch(`${API_BASE}/circles`, { headers: authHeaders(password) });
+      if (cRes.status === 404) { setOff(true); setLoading(false); return; }
+      setOff(false);
+      setCircles(await cRes.json());
+      const [rRes, ctRes, uRes] = await Promise.all([
+        fetch(`${API_BASE}/roles`),
+        fetch(`${API_BASE}/admin/map/contact-log`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/admin/map/concierge-log?unmatched=1`, { headers: authHeaders(password) }),
+      ]);
+      setRoles(await rRes.json());
+      setContacts(ctRes.ok ? await ctRes.json() : []);
+      setUnmatched(uRes.ok ? await uRes.json() : []);
+    } catch { /* leave whatever loaded */ }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const createCircle = async () => {
+    const res = await fetch(`${API_BASE}/admin/circles`, {
+      method: "POST",
+      headers: authHeaders(password, { "Content-Type": "application/json" }),
+      body: JSON.stringify(newCircle),
+    });
+    const d = await res.json();
+    if (!res.ok) return toast.error(d.error || "Create failed");
+    toast.success("Circle created");
+    setNewCircle({ name: "", purpose: "" });
+    load();
+  };
+
+  const addAlias = async (circle: any) => {
+    const alias = (aliasDrafts[circle.id] ?? "").trim();
+    if (!alias) return;
+    const res = await fetch(`${API_BASE}/admin/circles/${circle.id}`, {
+      method: "PUT",
+      headers: authHeaders(password, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ aliases: [...(circle.aliases ?? []), alias] }),
+    });
+    const d = await res.json();
+    if (!res.ok) return toast.error(d.error || "Alias refused");
+    toast.success(`"${alias}" now resolves to ${circle.name}`);
+    setAliasDrafts((p) => ({ ...p, [circle.id]: "" }));
+    load();
+  };
+
+  const assignRole = async (roleId: string, circleId: string) => {
+    const res = await fetch(`${API_BASE}/admin/roles/${roleId}`, {
+      method: "PUT",
+      headers: authHeaders(password, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ circleId }),
+    });
+    if (!res.ok) return toast.error("Assignment failed");
+    load();
+  };
+
+  if (off) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Circles &amp; Map</h2>
+        <p className="text-sm text-gray-500">The Village Map module is off. Enable it in the Modules tab first.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Circles &amp; Map</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          The village's shape: circles, which roles orbit them, and what the
+          concierge couldn't route (your role-creation demand signal).
+        </p>
+      </div>
+      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
+        <div className="space-y-6">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+            Pre-scale requirement: a per-member block list for the contact relay is
+            not built yet — watch the contact log below for misuse until it is.
+          </div>
+
+          <div className="space-y-3">
+            {circles.map((c) => (
+              <div key={c.id} className="border border-gray-200 rounded-xl p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h3 className="font-semibold text-gray-900 text-sm">{c.name} <span className="text-xs text-gray-400 font-mono">{c.id}</span></h3>
+                    <p className="text-xs text-gray-500">{c.purpose}</p>
+                  </div>
+                  <span className="text-[10px] uppercase tracking-wide text-gray-400">{c.status}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  {(c.aliases ?? []).map((a: string) => (
+                    <span key={a} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">≈ {a}</span>
+                  ))}
+                  <input
+                    value={aliasDrafts[c.id] ?? ""}
+                    onChange={(e) => setAliasDrafts((p) => ({ ...p, [c.id]: e.target.value }))}
+                    placeholder="add alias…"
+                    className="text-[11px] border border-gray-200 rounded px-1.5 py-0.5 w-28"
+                  />
+                  <button onClick={() => addAlias(c)} className="text-[11px] text-[#2D5A5A] font-medium">add</button>
+                </div>
+              </div>
+            ))}
+            <div className="border border-dashed border-gray-300 rounded-xl p-4 flex flex-wrap gap-2 items-center">
+              <input value={newCircle.name} onChange={(e) => setNewCircle({ ...newCircle, name: e.target.value })}
+                placeholder="New circle name" className="text-sm border border-gray-200 rounded-lg px-3 py-1.5" />
+              <input value={newCircle.purpose} onChange={(e) => setNewCircle({ ...newCircle, purpose: e.target.value })}
+                placeholder="Purpose" className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 flex-1 min-w-40" />
+              <button onClick={createCircle} disabled={!newCircle.name}
+                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40">Create</button>
+            </div>
+          </div>
+
+          <div className="border border-gray-200 rounded-xl p-4">
+            <h3 className="font-semibold text-gray-900 text-sm mb-2">Role → circle assignment</h3>
+            <div className="space-y-1.5">
+              {roles.map((r: any) => (
+                <div key={r.id} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="text-gray-700">{r.name}</span>
+                  <select
+                    defaultValue={(r as any).circleId ?? ""}
+                    onChange={(e) => assignRole(r.id, e.target.value)}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white"
+                  >
+                    <option value="">unassigned</option>
+                    {circles.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="border border-gray-200 rounded-xl p-4">
+              <h3 className="font-semibold text-gray-900 text-sm mb-2">Unrouted concierge asks</h3>
+              {unmatched.length === 0 ? <p className="text-xs text-gray-400">None — the map covers what people ask for.</p> : (
+                <ul className="space-y-1 text-xs text-gray-600">
+                  {unmatched.slice(0, 12).map((q: any) => (
+                    <li key={q.id}>"{q.query}" <span className="text-gray-300">· {new Date(q.created_at).toLocaleDateString()}</span></li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="border border-gray-200 rounded-xl p-4">
+              <h3 className="font-semibold text-gray-900 text-sm mb-2">Contact relay log</h3>
+              {contacts.length === 0 ? <p className="text-xs text-gray-400">No introductions yet.</p> : (
+                <ul className="space-y-1 text-xs text-gray-600">
+                  {contacts.slice(0, 12).map((ct: any) => (
+                    <li key={ct.id}>
+                      {ct.from_user_id.slice(-6)} → {ct.to_user_id.slice(-6)}
+                      <span className={`ml-2 ${ct.email_status === "sent" ? "text-emerald-600" : ct.email_status === "failed" ? "text-red-500" : "text-gray-400"}`}>
+                        {ct.email_status}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Tools hub admin (S15): CRUD, audience, click counts, link checks ─────────
 
 const EMPTY_TOOL = {
@@ -3796,6 +3978,7 @@ export default function Admin() {
             { key: "players", label: "Players", icon: Users },
             { key: "game-roles", label: "Game Roles", icon: Users2 },
             { key: "modules", label: "Modules", icon: Sparkles },
+            { key: "circles-map", label: "Circles & Map", icon: Circle },
             { key: "tools-admin", label: "Tools", icon: Handshake },
             { key: "tokens", label: "Tokens", icon: Coins },
             { key: "ledger", label: "Ledger", icon: BarChart3 },
@@ -3921,6 +4104,7 @@ export default function Admin() {
           {activeTab === "players" && <PlayersTab password={password} />}
           {activeTab === "game-roles" && <GameRolesTab password={password} />}
           {activeTab === "modules" && <ModulesTab password={password} />}
+          {activeTab === "circles-map" && <CirclesMapTab password={password} />}
           {activeTab === "tools-admin" && <ToolsAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
