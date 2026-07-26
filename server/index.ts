@@ -1629,7 +1629,12 @@ async function startServer() {
       targetId: user.id,
     });
     addActivity("admin", `A founder account was established`);
-    res.json({ success: true, userId: user.id, emailed, ...(emailed ? {} : claimUrl ? { claimUrl } : {}) });
+    // The claim link is ALWAYS returned to the operator when one was minted:
+    // the caller already holds the bootstrap credential, so the link is not an
+    // escalation — and email providers accept sends they never deliver
+    // (unverified sender domains fail silently AFTER a 200). A fork must be
+    // bootstrappable with zero working email.
+    res.json({ success: true, userId: user.id, emailed, ...(claimUrl ? { claimUrl } : {}) });
   });
 
   /** Claim a created account (or later: reset) by setting a password. */
