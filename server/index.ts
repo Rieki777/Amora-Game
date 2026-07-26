@@ -1292,7 +1292,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-s3-founder-selfservice", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-26-s4-profile-journey", timestamp: new Date().toISOString() });
   });
 
   // Form Submission

@@ -1,5 +1,6 @@
 import Layout from "@/components/Layout";
 import GameDashboard from "@/components/GameDashboard";
+import ProfileJourney from "@/components/ProfileJourney";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -106,6 +107,11 @@ export default function Profile() {
             {/* Game state: path stage, next action, gratitude, quests */}
             <div className="mb-8">
               <GameDashboard />
+            </div>
+
+            {/* S4: the journey in numbers — progression history, flows, ledger */}
+            <div className="mb-8">
+              <ProfileJourney />
             </div>
 
             <div className="grid lg:grid-cols-3 gap-8">
