@@ -12,6 +12,9 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    // S5: load .env so TEST_DATABASE_URL reaches the DB-backed suites locally
+    // (CI sets it as a job env var; both paths land in process.env).
+    setupFiles: ["dotenv/config"],
     include: ["server/**/*.test.ts", "shared/**/*.test.ts"],
     // The end-to-end loop test builds and boots the server, so it needs room.
     testTimeout: 120_000,

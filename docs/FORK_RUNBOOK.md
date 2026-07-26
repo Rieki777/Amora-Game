@@ -25,6 +25,7 @@ what, where, what breaks without it.
 | `ANTHROPIC_API_KEY` | Maia guided proposals (`/api/assistant/*`) | Assistant hides; forms still work |
 | `RESEND_API_KEY` | Transactional email | Emails silently skipped (logged) |
 | `FRONTEND_URL` | CORS origin | Cross-origin API calls fail |
+| `TEST_DATABASE_URL` | (dev/CI only, local .env) scratch-schema MySQL for DB-backed tests — the harness DROPs/CREATEs `amora_test`; never point it at the app schema | DB suites skip loudly |
 
 ## Seeds & per-deployment data
 

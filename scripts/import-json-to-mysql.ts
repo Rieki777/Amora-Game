@@ -85,7 +85,7 @@ async function main() {
     process.exit(1);
   }
   console.log(`Source: ${DATA_DIR}`);
-  const conn = await mysql.createConnection({ uri: url });
+  const conn = await mysql.createConnection({ uri: url , timezone: "Z" });
 
   // ── Import ────────────────────────────────────────────────────────────────
   if (!VERIFY_ONLY) {

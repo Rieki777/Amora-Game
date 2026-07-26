@@ -14,6 +14,21 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      # S5: the DB-backed suites (server/db/*.test.ts) run against a real MySQL.
+      # The harness provisions its own scratch schema and applies every
+      # migration through the same engine production uses.
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: ci-test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -pci-test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: mysql://root:ci-test@127.0.0.1:3306/mysql
     steps:
       - uses: actions/checkout@v4
 
