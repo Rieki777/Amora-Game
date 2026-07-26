@@ -40,7 +40,7 @@ interface ScrollNavPill {
 
 const navPills: ScrollNavPill[] = [
   { id: "r-ikigai", label: "R-Ikigai" },
-  { id: "hearts", label: "Gratitude Economy" },
+  { id: "recognition", label: "Gratitude Economy" },
   { id: "voice", label: "Voice & Governance" },
   { id: "hypha", label: "Hypha Platform" },
   { id: "spaces", label: "The Four Spaces" },
@@ -105,7 +105,7 @@ const hyphaActions = [
   },
 ];
 
-const heartsItems = {
+const recognitionItems = {
   earn: [
     { label: "Quests", range: "40-300 Gratitude" },
     { label: "Circle Roles", range: "200-500/month" },
@@ -432,7 +432,7 @@ export default function CoCreatorsGuide() {
       </section>
 
       {/* GRATITUDE ECONOMY SECTION */}
-      <section id="hearts" className="py-20 bg-primary/5">
+      <section id="recognition" className="py-20 bg-primary/5">
         <div className="container">
           <motion.div
             initial={{ opacity: 0 }}
@@ -469,7 +469,7 @@ export default function CoCreatorsGuide() {
                   <h3 className="font-bold text-xl text-foreground">Earn Gratitude</h3>
                 </div>
                 <div className="space-y-3">
-                  {heartsItems.earn.map((item, idx) => (
+                  {recognitionItems.earn.map((item, idx) => (
                     <div key={idx} className="flex items-start gap-3 pb-3 border-b border-muted last:border-0">
                       <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
                       <div>
@@ -496,7 +496,7 @@ export default function CoCreatorsGuide() {
                   <h3 className="font-bold text-xl text-foreground">Hold Gratitude</h3>
                 </div>
                 <div className="space-y-3">
-                  {heartsItems.hold.map((item, idx) => (
+                  {recognitionItems.hold.map((item, idx) => (
                     <div key={idx} className="flex items-start gap-3 pb-3 border-b border-muted last:border-0">
                       <Star className="w-5 h-5 text-teal-deep mt-0.5 flex-shrink-0" />
                       <p className="text-sm text-foreground">{item}</p>
@@ -520,7 +520,7 @@ export default function CoCreatorsGuide() {
                   <h3 className="font-bold text-xl text-foreground">Use Gratitude</h3>
                 </div>
                 <div className="space-y-3">
-                  {heartsItems.spend.map((item, idx) => (
+                  {recognitionItems.spend.map((item, idx) => (
                     <div key={idx} className="flex items-start gap-3 pb-3 border-b border-muted last:border-0">
                       <ArrowRight className="w-5 h-5 text-amber mt-0.5 flex-shrink-0" />
                       <p className="text-sm text-foreground">{item}</p>

@@ -93,15 +93,15 @@ async function main() {
     const users: any[] = Array.isArray(usersDoc) ? usersDoc : (usersDoc?.users ?? []);
     for (const u of users) {
       await conn.query(
-        "INSERT INTO `users` (id, name, email, password_hash, paths, hearts_balance, contributions, quests, bio, avatar, stage_granted, training_complete, joined_at) " +
+        "INSERT INTO `users` (id, name, email, password_hash, paths, recognition_balance, contributions, quests, bio, avatar, stage_granted, training_complete, joined_at) " +
           "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
           "ON DUPLICATE KEY UPDATE name=VALUES(name), email=VALUES(email), password_hash=VALUES(password_hash), " +
-          "paths=VALUES(paths), hearts_balance=VALUES(hearts_balance), contributions=VALUES(contributions), " +
+          "paths=VALUES(paths), recognition_balance=VALUES(recognition_balance), contributions=VALUES(contributions), " +
           "quests=VALUES(quests), bio=VALUES(bio), avatar=VALUES(avatar), stage_granted=VALUES(stage_granted), " +
           "training_complete=VALUES(training_complete)",
         [
           str(u.id, 64), str(u.name, 255), str(u.email, 255), str(u.passwordHash, 255),
-          JSON.stringify(u.paths ?? []), num(u.heartsBalance, 0),
+          JSON.stringify(u.paths ?? []), num(u.recognitionBalance, 0),
           JSON.stringify(u.contributions ?? []), JSON.stringify(u.quests ?? []),
           u.bio ?? null, str(u.avatar, 500), str(u.stageGranted, 64),
           u.trainingComplete ? 1 : 0, ts(u.joinedAt),
@@ -235,6 +235,21 @@ async function main() {
       );
     }
 
+    for (const e of read("token-ledger.json") ?? []) {
+      await conn.query(
+        "INSERT INTO `token_ledger` (id, user_id, token_type, amount, source, source_ref, description, idempotency_key, at) " +
+          "VALUES (?,?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
+          // The UNIQUE on idempotency_key is the dedupe; re-importing is a no-op.
+          "ON DUPLICATE KEY UPDATE amount=VALUES(amount), source=VALUES(source)",
+        [
+          str(e.id, 64), str(e.userId, 64),
+          ["gratitude", "amora", "voice"].includes(e.tokenType) ? e.tokenType : "gratitude",
+          num(e.amount, 0), str(e.source, 64) ?? "", str(e.sourceRef, 120),
+          str(e.description, 500), str(e.idempotencyKey, 160) ?? "", ts(e.at),
+        ],
+      );
+    }
+
     for (const e of read("stage-events.json") ?? []) {
       await conn.query(
         "INSERT INTO `stage_events` (id, user_id, from_stage, to_stage, unlocked, reason, at) VALUES (?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
@@ -360,6 +375,22 @@ async function main() {
     }
   }
   console.log(bad === 0 ? "column fidelity   ok (values match, not just counts)" : `column fidelity   ${bad} MISMATCH(ES)`);
+
+  // The balance column is a CACHE of the ledger, so prove they agree in MySQL
+  // too. A drift here means the cutover would carry a wrong number forward.
+  {
+    const [rows] = await conn.query<any[]>(
+      "SELECT u.id, u.recognition_balance AS cached, " +
+        "COALESCE((SELECT SUM(amount) FROM token_ledger l WHERE l.user_id = u.id AND l.token_type='gratitude'), 0) AS summed " +
+        "FROM users u",
+    );
+    const drift = rows.filter((r) => Number(r.cached) !== Number(r.summed));
+    for (const d of drift) {
+      console.log(`balance drift ${d.id}: cached=${d.cached} ledger=${d.summed}  MISMATCH`);
+      bad++;
+    }
+    console.log(`balance vs ledger ${drift.length === 0 ? "ok" : `${drift.length} DRIFTED`} (${rows.length} member(s))`);
+  }
 
   console.log("table                 json    mysql");
   for (const [table, want] of Object.entries(expected)) {

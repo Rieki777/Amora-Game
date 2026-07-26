@@ -151,7 +151,7 @@ describe("the coordination loop, end to end", () => {
     // crashed Profile.tsx on `.slice`.
     expect(reg.json.user.contributions).toEqual([]);
     expect(reg.json.user.quests).toEqual([]);
-    expect(reg.json.user.heartsBalance).toBe(0);
+    expect(reg.json.user.recognitionBalance).toBe(0);
     expect(reg.json.user.paths).toContain("resident");
     // And it must never carry the password hash.
     expect(JSON.stringify(reg.json)).not.toContain("passwordHash");
@@ -198,7 +198,7 @@ describe("the coordination loop, end to end", () => {
 
     // The whole point of the consent gate: submitting is not earning.
     const profile = await api("GET", "/api/profile", undefined, doerToken);
-    expect(profile.json.heartsBalance).toBe(0);
+    expect(profile.json.recognitionBalance).toBe(0);
   });
 
   it("refuses to consent work that was never submitted", async () => {
@@ -228,7 +228,7 @@ describe("the coordination loop, end to end", () => {
 
     // And nothing was credited.
     const profile = await api("GET", "/api/profile", undefined, idlerToken);
-    expect(profile.json.heartsBalance).toBe(0);
+    expect(profile.json.recognitionBalance).toBe(0);
 
     // Declining is still allowed from any state, so stale claims can be cleared.
     const declined = await api(
@@ -255,7 +255,7 @@ describe("the coordination loop, end to end", () => {
 
     // Still nothing released.
     const profile = await api("GET", "/api/profile", undefined, doerToken);
-    expect(profile.json.heartsBalance).toBe(0);
+    expect(profile.json.recognitionBalance).toBe(0);
   });
 
   it("releases Gratitude on consent, and records it in the Village Pulse", async () => {
@@ -270,7 +270,7 @@ describe("the coordination loop, end to end", () => {
     expect(consent.json.amount).toBe(questReward);
 
     const profile = await api("GET", "/api/profile", undefined, doerToken);
-    expect(profile.json.heartsBalance).toBe(questReward);
+    expect(profile.json.recognitionBalance).toBe(questReward);
 
     const pulse = await api("GET", "/api/game/pulse");
     expect(pulse.status).toBe(200);
@@ -312,7 +312,7 @@ describe("the coordination loop, end to end", () => {
     expect(JSON.stringify(wall.json)).toContain("seedlings");
 
     const peerProfile = await api("GET", "/api/profile", undefined, peerToken);
-    expect(peerProfile.json.heartsBalance).toBeGreaterThanOrEqual(5);
+    expect(peerProfile.json.recognitionBalance).toBeGreaterThanOrEqual(5);
   });
 
   it("gates quests on stage and role, and an appointment unlocks the role gate", async () => {
@@ -471,7 +471,7 @@ describe("the coordination loop, end to end", () => {
     expect(consent.json.amount).toBe(hi);
 
     const profile = await api("GET", "/api/profile", undefined, workerToken);
-    expect(profile.json.heartsBalance).toBe(hi);
+    expect(profile.json.recognitionBalance).toBe(hi);
   });
 
   it("exposes the rules publicly, and Admin edits a variable with validation", async () => {
@@ -545,6 +545,85 @@ describe("the coordination loop, end to end", () => {
     const peerFlows = await api("GET", "/api/game/gratitude/flows", undefined, peerToken);
     expect(peerFlows.json.totals.received).toBeGreaterThanOrEqual(5);
     expect(peerFlows.json.totals.distinctAcknowledgers).toBeGreaterThanOrEqual(1);
+  });
+
+  it("records every movement in the ledger, and the balance is a derived cache", async () => {
+    // The ledger is the source of truth; users.recognitionBalance is a cache of
+    // SUM(entries). Before this, the balance was one mutable number incremented
+    // in two places across two non-atomic file writes, with no record of why.
+    const ledger = await api("GET", "/api/game/ledger", undefined, doerToken);
+    expect(ledger.status).toBe(200);
+    expect(ledger.json.inSync).toBe(true);
+    expect(ledger.json.balance).toBe(questReward);
+    expect(ledger.json.cachedBalance).toBe(questReward);
+    expect(ledger.json.currency).toBe("Gratitude");
+
+    // The consent that released value is explained, not just totalled.
+    const consentEntry = ledger.json.entries.find((e: any) => e.source === "quest_consent");
+    expect(consentEntry).toBeTruthy();
+    expect(consentEntry.amount).toBe(questReward);
+    expect(consentEntry.sourceRef).toBe(claimId);
+
+    // The peer's side: their balance is entirely explained by gratitude received.
+    const peerLedger = await api("GET", "/api/game/ledger", undefined, peerToken);
+    expect(peerLedger.json.inSync).toBe(true);
+    const received = peerLedger.json.entries.filter((e: any) => e.source === "gratitude_received");
+    expect(received.length).toBeGreaterThanOrEqual(1);
+    expect(peerLedger.json.balance).toBe(
+      peerLedger.json.entries.reduce((n: number, e: any) => n + e.amount, 0),
+    );
+
+    // Anonymous callers cannot read anyone's ledger.
+    const anon = await api("GET", "/api/game/ledger");
+    expect(anon.status).toBe(401);
+  });
+
+  it("refuses a second consent on the same claim, so value is released once", async () => {
+    // NOTE ON WHAT THIS PROVES. The second consent is refused by the STATUS guard
+    // (a consented claim is no longer "submitted"), so it never reaches the
+    // ledger. That is defence in depth and worth asserting, but it is NOT proof of
+    // idempotency: the ledger's unique-key behaviour is tested directly in
+    // server/ledger.test.ts, where the same key really is used twice.
+    // The property that actually breaks in production. A double-clicked button or
+    // a retried request must not pay twice, and the guard is a unique key on the
+    // write rather than a status flag that can be lost while the money stays.
+    const twice = { email: `twice-${PORT}@example.test`, password: "LoopTest123!", name: "Retry Case" };
+    const reg = await api("POST", "/api/auth/register", { ...twice, paths: ["resident"] });
+    const token = reg.json.token;
+
+    const quests = await api("GET", "/api/quests");
+    const open = quests.json.find(
+      (q: any) => !q.minStage && !q.requiresRole && /\d/.test(String(q.gratitude ?? "")),
+    );
+    const bounds = String(open.gratitude).split(/[^0-9]+/).filter(Boolean).map(Number);
+    const award = Math.max(...bounds);
+
+    const claim = await api("POST", `/api/game/quests/${open.id}/claim`, {}, token);
+    await api("POST", `/api/game/quests/${open.id}/submit`, { note: "done" }, token);
+    const first = await api(
+      "POST",
+      `/api/admin/quest-claims/${claim.json.id}/consent`,
+      { approve: true, amount: award },
+      ADMIN,
+    );
+    expect(first.status).toBe(200);
+
+    const afterFirst = await api("GET", "/api/game/ledger", undefined, token);
+    const entriesAfterFirst = afterFirst.json.entries.length;
+    expect(afterFirst.json.balance).toBe(award);
+
+    // Consent again on the same claim. Whatever the route decides to answer, the
+    // ledger must not gain an entry and the balance must not move.
+    await api(
+      "POST",
+      `/api/admin/quest-claims/${claim.json.id}/consent`,
+      { approve: true, amount: award },
+      ADMIN,
+    );
+    const afterSecond = await api("GET", "/api/game/ledger", undefined, token);
+    expect(afterSecond.json.entries.length).toBe(entriesAfterFirst);
+    expect(afterSecond.json.balance).toBe(award);
+    expect(afterSecond.json.inSync).toBe(true);
   });
 
   it("holds the economy's guard rails: no self-send, one per peer per cycle, message required", async () => {

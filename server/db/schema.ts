@@ -47,8 +47,13 @@ export const users = mysqlTable("users", {
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   /** Self-selected journeys: investor / steward / resident / prosperity-creator. */
   paths: json("paths"),
-  /** Legacy field name, kept: the client reads it as gratitude.balance. */
-  heartsBalance: int("hearts_balance").default(0).notNull(),
+  /**
+   * A CACHE of SUM(token_ledger.amount) for this member's recognition currency,
+   * never incremented. Named for the KIND of currency, not any village's brand:
+   * "hearts" was Amora's early word for it, and a platform column must not carry
+   * one project's naming. The display name lives in shared/gameConfig.ts.
+   */
+  recognitionBalance: int("recognition_balance").default(0).notNull(),
   contributions: json("contributions"),
   quests: json("quests"),
   bio: text("bio"),
@@ -298,6 +303,26 @@ export const stageEvents = mysqlTable("stage_events", {
   at: timestamp("at").defaultNow().notNull(),
 });
 
+/**
+ * Append-only record of every movement of value. The balance column on `users` is
+ * a derived cache of SUM(amount); this is the truth. Only `gratitude` is written
+ * by this platform: amora and voice live on Base under Hypha and are read-only.
+ */
+export const tokenLedger = mysqlTable("token_ledger", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 64 }).notNull(),
+  tokenType: mysqlEnum("token_type", ["gratitude", "amora", "voice"]).default("gratitude").notNull(),
+  /** Signed: negative entries are legitimate corrections and reversals. */
+  amount: int("amount").notNull(),
+  source: varchar("source", { length: 64 }).notNull(),
+  sourceRef: varchar("source_ref", { length: 120 }),
+  description: varchar("description", { length: 500 }),
+  /** 160, not 128: user ids are varchar strings here, so composite keys run long. */
+  idempotencyKey: varchar("idempotency_key", { length: 160 }).notNull().unique(),
+  at: timestamp("at").defaultNow().notNull(),
+});
+
+export type LedgerEntry = typeof tokenLedger.$inferSelect;
 export type GameVariable = typeof gameVariables.$inferSelect;
 export type StageEvent = typeof stageEvents.$inferSelect;
 export type Role = typeof roles.$inferSelect;

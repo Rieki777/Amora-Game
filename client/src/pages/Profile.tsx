@@ -353,7 +353,7 @@ export default function Profile() {
                             <div className="flex-shrink-0 text-right">
                               <p className="font-semibold text-amber text-lg flex items-center gap-1">
                                 <Heart className="w-4 h-4" />
-                                +{contrib.heartsEarned}
+                                +{contrib.recognitionEarned}
                               </p>
                               <p className="text-xs text-gray-600">
                                 {new Date(contrib.date).toLocaleDateString()}
@@ -382,7 +382,7 @@ export default function Profile() {
                       Gratitude Balance
                     </span>
                   </div>
-                  <div className="text-5xl font-display font-bold mb-2">{user.heartsBalance}</div>
+                  <div className="text-5xl font-display font-bold mb-2">{user.recognitionBalance}</div>
                   <p className="text-amber-100 text-sm">Total earned across all contributions</p>
                 </motion.div>
 

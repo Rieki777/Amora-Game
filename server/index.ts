@@ -11,6 +11,7 @@ import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar"
 import { hasCapability, type Capability } from "../shared/capabilities";
 import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/variables";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
+import { backfillOpeningBalances, balanceOf, creditTokens, entriesFor } from "./lib/ledger";
 import {
   cycleIdFor,
   currentCycle,
@@ -61,6 +62,7 @@ const ROLE_HOLDERS_FILE = path.join(DATA_DIR, "role-holders.json");
 const CYCLES_FILE = path.join(DATA_DIR, "gratitude-cycles.json");
 const DISTRIBUTIONS_FILE = path.join(DATA_DIR, "gratitude-distributions.json");
 const VARIABLES_FILE = path.join(DATA_DIR, "game-variables.json");
+const LEDGER_FILE = path.join(DATA_DIR, "token-ledger.json");
 const STAGE_EVENTS_FILE = path.join(DATA_DIR, "stage-events.json");
 const MILESTONES_FILE = path.join(DATA_DIR, "milestones.json");
 /** Ledger of one-shot data fixes already applied to this deployment's volume. */
@@ -406,8 +408,57 @@ function ensureDataFiles() {
   // Only CHANGED variables are stored, so new platform defaults are inherited.
   if (!fs.existsSync(VARIABLES_FILE)) fs.writeFileSync(VARIABLES_FILE, "{}");
   if (!fs.existsSync(STAGE_EVENTS_FILE)) fs.writeFileSync(STAGE_EVENTS_FILE, "[]");
+  if (!fs.existsSync(LEDGER_FILE)) fs.writeFileSync(LEDGER_FILE, "[]");
+  runOnce("rename-hearts-to-recognition", renameHeartsBalanceField);
+  runOnce("ledger-opening-balances", seedLedgerOpeningBalances);
   runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
   runOnce("founding-team-in-progress", markFoundingTeamInProgress);
+}
+
+/**
+ * "hearts" was this project's early word for its in-site currency, and it leaked
+ * into the platform as `heartsBalance`. A foundation other villages inherit must
+ * not carry one project's brand, so the field is now `recognitionBalance`, naming
+ * the KIND of currency rather than anyone's name for it. Existing records on the
+ * mounted volume still say `heartsBalance`, and reading the new name off them
+ * would silently zero every balance, so copy it across once.
+ */
+function renameHeartsBalanceField() {
+  const users = readJson(USERS_FILE) ?? { users: [] };
+  if (!Array.isArray(users.users)) return;
+  let moved = 0;
+  for (const u of users.users) {
+    if (u.recognitionBalance === undefined && u.heartsBalance !== undefined) {
+      u.recognitionBalance = u.heartsBalance;
+      delete u.heartsBalance;
+      moved++;
+    }
+    if (Array.isArray(u.contributions)) {
+      for (const c of u.contributions) {
+        if (c && c.recognitionEarned === undefined && c.heartsEarned !== undefined) {
+          c.recognitionEarned = c.heartsEarned;
+          delete c.heartsEarned;
+        }
+      }
+    }
+  }
+  if (moved > 0) writeJson(USERS_FILE, users);
+  console.log(`[migration] renamed heartsBalance on ${moved} member(s)`);
+}
+
+/**
+ * The ledger is the source of truth for balances, so it has to explain the whole
+ * of a member's balance, not just what happened after it was introduced. Give
+ * everyone carrying a balance one opening entry.
+ */
+function seedLedgerOpeningBalances() {
+  const users = readJson(USERS_FILE) ?? { users: [] };
+  if (!Array.isArray(users.users)) return;
+  const { created } = backfillOpeningBalances(
+    LEDGER_FILE,
+    users.users.map((u: any) => ({ id: u.id, balance: Number(u.recognitionBalance) || 0 })),
+  );
+  console.log(`[migration] wrote ${created} opening ledger balance(s)`);
 }
 
 /**
@@ -774,7 +825,7 @@ function publicUser(u: any) {
     paths: u.paths ?? [],
     contributions: u.contributions ?? [],
     quests: u.quests ?? [],
-    heartsBalance: u.heartsBalance ?? 0,
+    recognitionBalance: u.recognitionBalance ?? 0,
     bio: u.bio ?? "",
     avatar: u.avatar ?? null,
     joinedAt: u.joinedAt ?? new Date().toISOString(),
@@ -906,10 +957,10 @@ function applyAcceptReward(entry: any): boolean {
     id: `contrib-${Date.now()}`,
     type: "proposal",
     description: `Work With Us proposal accepted: ${String(entry.data?.work ?? "your offering").slice(0, 120)}`,
-    heartsEarned: amount,
+    recognitionEarned: amount,
     date: new Date().toISOString(),
   });
-  u.heartsBalance = (u.heartsBalance ?? 0) + amount;
+  u.recognitionBalance = (u.recognitionBalance ?? 0) + amount;
   writeJson(USERS_FILE, users);
   addActivity("proposal", `${firstName(u.name)}'s proposal was welcomed into the village`);
   return true;
@@ -1255,7 +1306,7 @@ async function startServer() {
       paths,
       contributions: [],
       quests: [],
-      heartsBalance: 0,
+      recognitionBalance: 0,
       joinedAt: new Date().toISOString(),
       bio: "",
       avatar: null,
@@ -1343,8 +1394,8 @@ async function startServer() {
     if (!decoded) {
       return res.status(401).json({ error: "Invalid token" });
     }
-    const { type, description, heartsEarned } = req.body;
-    if (!type || !description || heartsEarned === undefined) {
+    const { type, description, recognitionEarned } = req.body;
+    if (!type || !description || recognitionEarned === undefined) {
       return res.status(400).json({ error: "Missing required fields" });
     }
     const users = readJson(USERS_FILE) ?? { users: [] };
@@ -1356,12 +1407,12 @@ async function startServer() {
       id: `contrib-${Date.now()}`,
       type,
       description,
-      heartsEarned,
+      recognitionEarned,
       date: new Date().toISOString(),
     };
     users.users[userIdx].contributions = users.users[userIdx].contributions ?? [];
     users.users[userIdx].contributions.push(contribution);
-    users.users[userIdx].heartsBalance = (users.users[userIdx].heartsBalance ?? 0) + heartsEarned;
+    users.users[userIdx].recognitionBalance = (users.users[userIdx].recognitionBalance ?? 0) + recognitionEarned;
     writeJson(USERS_FILE, users);
     res.json({ success: true, contribution });
   });
@@ -2367,7 +2418,18 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     writeJson(QUEST_CLAIMS_FILE, claims);
     // Credit the player's balance
     if (uIdx !== -1) {
-      users.users[uIdx].heartsBalance = (users.users[uIdx].heartsBalance ?? 0) + granted;
+      // Through the ledger, not `+=`. The idempotency key is the claim, so a
+      // retried or double-clicked consent credits exactly once, and the balance
+      // column is RECOMPUTED from the ledger rather than incremented.
+      const credit = creditTokens(LEDGER_FILE, {
+        userId: claims[idx].userId,
+        amount: granted,
+        source: "quest_consent",
+        sourceRef: claims[idx].id,
+        description: `Quest consented: ${claims[idx].questTitle}`,
+        idempotencyKey: `quest_consent:${claims[idx].id}`,
+      });
+      users.users[uIdx].recognitionBalance = credit.balance;
       writeJson(USERS_FILE, users);
       addActivity("quest", `${firstName(claims[idx].userName)} completed the quest "${claims[idx].questTitle}"`);
       const stageAfter = computeStage(users.users[uIdx]);
@@ -2401,7 +2463,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       stage: getStage(stageId),
       stageIndex: stageIndex(stageId),
       stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
-      gratitude: { balance: user.heartsBalance ?? 0, budget: gratitudeBudget(user) },
+      gratitude: { balance: user.recognitionBalance ?? 0, budget: gratitudeBudget(user) },
       quests: claims,
       journeys: user.journeys ?? {},
       membership: hasMembership(user),
@@ -2455,7 +2517,18 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     };
     log.push(entry);
     writeJson(GRATITUDE_LOG_FILE, log);
-    users.users[toIdx].heartsBalance = (users.users[toIdx].heartsBalance ?? 0) + amt;
+    // Amora pays at SEND (see revision 3: never add pool minting on top of this).
+    // Routed through the ledger so the movement is recorded and the balance is a
+    // recomputed cache. Keyed on the acknowledgment id, so a retry credits once.
+    const sendCredit = creditTokens(LEDGER_FILE, {
+      userId: recipient.id,
+      amount: amt,
+      source: "gratitude_received",
+      sourceRef: entry.id,
+      description: `Gratitude from ${firstName(user.name)}`,
+      idempotencyKey: `gratitude_received:${entry.id}`,
+    });
+    users.users[toIdx].recognitionBalance = sendCredit.balance;
     writeJson(USERS_FILE, users);
     addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(recipient.name)}`);
     res.json({ success: true, entry: { ...entry, amount: undefined }, budget: gratitudeBudget(user) });
@@ -2603,7 +2676,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const dists: DistributionRecord[] = readJson(DISTRIBUTIONS_FILE) ?? [];
     const mine = dists.filter((d) => d.userId === user.id);
     res.json({
-      balance: user.heartsBalance ?? 0,
+      balance: user.recognitionBalance ?? 0,
       budget: gratitudeBudget(user),
       totals: {
         received: log.filter((g) => g.toId === user.id).reduce((n, g) => n + (Number(g.amount) || 0), 0),
@@ -2613,6 +2686,33 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       byCycle: mine
         .sort((a, b) => String(b.cycleId).localeCompare(String(a.cycleId)))
         .map((d) => ({ cycleId: d.cycleId, received: d.received, distinctSenders: d.distinctSenders })),
+    });
+  });
+
+  /**
+   * A member's own ledger: every movement of their recognition currency, with the
+   * reason. This is what makes a balance explainable instead of a bare number, and
+   * it is the same data the founder command centre will read for reconciliation.
+   */
+  app.get("/api/game/ledger", (req, res) => {
+    const user = requireUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const entries = entriesFor(LEDGER_FILE, user.id, "gratitude");
+    const summed = balanceOf(LEDGER_FILE, user.id, "gratitude");
+    res.json({
+      // The column is a cache of the ledger. If these ever disagree the ledger
+      // wins, and saying so here makes a drift visible rather than mysterious.
+      balance: summed,
+      cachedBalance: user.recognitionBalance ?? 0,
+      inSync: summed === (user.recognitionBalance ?? 0),
+      currency: GAME_CONFIG.currency.name,
+      entries: entries.map((e) => ({
+        amount: e.amount,
+        source: e.source,
+        sourceRef: e.sourceRef,
+        description: e.description,
+        at: e.at,
+      })),
     });
   });
 
@@ -2762,7 +2862,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         email: u.email,
         paths: u.paths ?? [],
         joinedAt: u.joinedAt,
-        balance: u.heartsBalance ?? 0,
+        balance: u.recognitionBalance ?? 0,
         stageGranted: u.stageGranted ?? null,
         stageComputed: computeStage(u),
         membership: hasMembership(u),

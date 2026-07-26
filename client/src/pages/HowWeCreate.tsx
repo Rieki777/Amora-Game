@@ -40,7 +40,7 @@ const principles = [
   },
 ];
 
-const heartsInfo = [
+const recognitionInfo = [
   {
     title: "Earn Gratitude",
     description: "Complete quests, fulfill roles, or receive revenue shares from community and private businesses. Every contribution gets acknowledged.",
@@ -183,7 +183,7 @@ export default function HowWeCreate() {
             </div>
 
             <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-              {heartsInfo.map((item, index) => (
+              {recognitionInfo.map((item, index) => (
                 <motion.div
                   key={item.title}
                   initial={{ opacity: 0, y: 20 }}

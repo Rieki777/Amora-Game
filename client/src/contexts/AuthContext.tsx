@@ -9,11 +9,11 @@ export interface User {
     id: string;
     type: string;
     description: string;
-    heartsEarned: number;
+    recognitionEarned: number;
     date: string;
   }>;
   quests: any[];
-  heartsBalance: number;
+  recognitionBalance: number;
   joinedAt: string;
   bio: string;
   avatar: string | null;
