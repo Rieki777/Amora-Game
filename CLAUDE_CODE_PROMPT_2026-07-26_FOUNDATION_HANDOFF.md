@@ -256,9 +256,16 @@ Production: healthy, cycle 328, 14 quests, zero test data left behind. Backup of
 live volume at `Desktop/Amora/backups/amora-data-2026-07-26_000010.tar.gz`, and
 `scripts/import-json-to-mysql.ts --dir <path>` can replay from it.
 
-**Still needs a human:** two orphaned MySQL volumes (`mysql-volume-PSJY`,
-`mysql-volume-Jin7`, 0MB, my error from retrying `railway add`) need deleting in the
-dashboard, because the CLI reports success and does nothing without a 2FA code.
+**Still needs a human:** two orphaned MySQL volumes, `mysql-volume-PSJY` and
+`mysql-volume-Jin7`, left over from my error retrying `railway add`. They are
+**924MB each** (roughly 1.85GB of billed storage between them; an earlier note in
+this document said 0MB, which was true only before their MySQL services had
+initialised). They do **not** appear on the Railway canvas, because it only renders
+volumes with an attached service, so `railway volume list` is the only way to see
+them. `railway volume delete -v <name> -y` prints `Volume "..." deleted` and exits
+0 **without deleting anything**, verified four times across two sessions. Delete
+them from project Settings in the dashboard, and do not trust that CLI command
+anywhere else either.
 
 ---
 
