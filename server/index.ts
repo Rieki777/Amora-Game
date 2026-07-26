@@ -88,7 +88,6 @@ const BRAND_FILE = path.join(DATA_DIR, "brand.json");
 const WORK_WITH_US_FILE = path.join(DATA_DIR, "work-with-us.json");
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me";
-const JOURNEY_PASSWORD = process.env.JOURNEY_PASSWORD || "change-me";
 /**
  * Signing secret for member auth tokens. Tokens used to be unsigned base64 JSON,
  * which meant anyone could mint one for any user id (see encodeToken below).
@@ -395,9 +394,43 @@ function adminActor(req: express.Request): { id: string; name?: string } | null 
   return u ? { id: u.id, name: u.name } : null;
 }
 
+/**
+ * S2: the Command Centre is a founder surface, gated by the same admin
+ * identities as everything else. The second shared password is retired —
+ * two shared secrets was one more than zero too many.
+ */
 function requireJourney(req: express.Request): boolean {
-  return secretEquals(authPassword(req), JOURNEY_PASSWORD);
+  return requireAdmin(req);
 }
+
+/**
+ * Handles (S2): the public name-tag @mentions and audit views show, so member
+ * email addresses never leak. Derived from the display name at registration,
+ * unique per deployment, member-editable within the same rules.
+ */
+function slugifyHandle(name: string): string {
+  return (
+    String(name ?? "")
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24) || "member"
+  );
+}
+function uniqueHandle(base: string, ownId?: string): string {
+  const all = members.readDoc();
+  const taken = (h: string) =>
+    all.some((u: any) => u.id !== ownId && String(u.handle ?? "").toLowerCase() === h);
+  if (!taken(base)) return base;
+  for (let n = 2; n < 10000; n++) {
+    const candidate = `${base}-${n}`;
+    if (!taken(candidate)) return candidate;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+const HANDLE_RE = /^[a-z0-9][a-z0-9-_]{2,29}$/;
 
 function signTokenPayload(payload: string): string {
   return crypto.createHmac("sha256", AUTH_TOKEN_SECRET).update(payload).digest("base64url");
@@ -527,6 +560,7 @@ function ensureDataFiles() {
   runOnce("ledger-opening-balances", seedLedgerOpeningBalances);
   runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
   runOnce("founding-team-in-progress", markFoundingTeamInProgress);
+  runOnce("backfill-member-handles", backfillMemberHandles);
 }
 
 /**
@@ -591,6 +625,21 @@ function runOnce(id: string, fn: () => void) {
   } catch (e) {
     console.error(`[MIGRATION] ${id} failed (continuing)`, e);
   }
+}
+
+/** S2: every pre-existing member gets a handle, once. New members get one at
+ *  registration; this covers everyone who joined before handles existed. */
+function backfillMemberHandles() {
+  const all = members.readDoc();
+  let changed = 0;
+  for (const u of all as any[]) {
+    if (!u.handle) {
+      u.handle = uniqueHandle(slugifyHandle(u.name || "member"), u.id);
+      changed++;
+    }
+  }
+  if (changed > 0) members.saveDoc(all);
+  console.log(`[MIGRATION] handles backfilled for ${changed} member(s)`);
 }
 
 /** The founding circle is still forming, so the public tracker shouldn't call it
@@ -1241,7 +1290,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-s1-admin-identities", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-26-s2-handles-founders", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -1447,6 +1496,7 @@ async function startServer() {
       name,
       email,
       passwordHash: await hashPassword(password),
+      handle: uniqueHandle(slugifyHandle(name)),
       paths,
       contributions: [],
       quests: [],
@@ -1546,6 +1596,7 @@ async function startServer() {
         email: normEmail,
         // No password yet: login is impossible until the claim link sets one.
         passwordHash: "",
+        handle: uniqueHandle(slugifyHandle(String(name || "founder"))),
         role: "founder",
         tokenVersion: 0,
         paths: [],
@@ -1610,6 +1661,44 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  /**
+   * Role management (S2). Admins run the village; founders run the admins:
+   * only a founder may change roles, a founder can only be demoted by a
+   * founder (structurally: by the actor rule), and the LAST founder cannot be
+   * demoted at all — a deployment must never strand itself without a master
+   * admin, because bootstrap is spent.
+   */
+  app.put("/api/admin/users/:id/role", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const actor = (req as any).adminUser;
+    if (actor.role !== "founder") {
+      return res.status(403).json({ error: "Only a founder can change roles" });
+    }
+    const { role } = req.body ?? {};
+    if (!["member", "admin", "founder"].includes(role)) {
+      return res.status(400).json({ error: "role must be member, admin, or founder" });
+    }
+    const target = members.byId(req.params.id);
+    if (!target) return res.status(404).json({ error: "Not found" });
+    const fromRole = target.role ?? "member";
+    if (fromRole === "founder" && role !== "founder") {
+      const founders = members.readDoc().filter((u: any) => u.role === "founder");
+      if (founders.length <= 1) {
+        return res.status(409).json({ error: "The last founder cannot be demoted" });
+      }
+    }
+    members.update(target.id, (u: any) => { u.role = role; });
+    adminAuditRepo.add({
+      id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      at: new Date().toISOString(),
+      actorUserId: actor.id,
+      action: `role:${fromRole}->${role}`,
+      targetType: "user",
+      targetId: target.id,
+    });
+    res.json({ success: true, user: publicUser(members.byId(target.id)) });
+  });
+
   /** The audit trail, newest first. Every admin mutation lands here. */
   app.get("/api/admin/audit", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
@@ -1635,11 +1724,22 @@ async function startServer() {
     if (userIdx === -1) {
       return res.status(404).json({ error: "User not found" });
     }
-    const { name, bio, avatar, paths } = req.body;
+    const { name, bio, avatar, paths, handle } = req.body;
     if (name) users.users[userIdx].name = name;
     if (bio !== undefined) users.users[userIdx].bio = bio;
     if (avatar !== undefined) users.users[userIdx].avatar = avatar;
     if (paths) users.users[userIdx].paths = paths;
+    if (handle !== undefined) {
+      const wanted = String(handle).toLowerCase().trim();
+      if (!HANDLE_RE.test(wanted)) {
+        return res.status(400).json({ error: "Handles are 3-30 characters: letters, numbers, dashes" });
+      }
+      const clash = users.users.some(
+        (u: any) => u.id !== authed.id && String(u.handle ?? "").toLowerCase() === wanted,
+      );
+      if (clash) return res.status(409).json({ error: "That handle is taken" });
+      users.users[userIdx].handle = wanted;
+    }
     members.saveDoc(users.users);
     res.json(publicUser(users.users[userIdx]));
   });
@@ -1674,7 +1774,11 @@ async function startServer() {
 
   // Journey State: Public Read
   // GET /api/journey/state
-  app.get("/api/journey/state", (_req, res) => {
+  app.get("/api/journey/state", (req, res) => {
+    // S2: reads are gated like writes. This is the founding team's internal
+    // tracker — notes, decisions, kanban — and it was publicly readable while
+    // only mutations checked auth.
+    if (!requireJourney(req)) return res.status(401).json({ error: "Unauthorized" });
     const state = journeyRepo.get();
     res.json(state);
   });
@@ -3115,6 +3219,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         id: u.id,
         name: u.name,
         email: u.email,
+        handle: u.handle ?? null,
+        role: u.role ?? "member",
         paths: u.paths ?? [],
         joinedAt: u.joinedAt,
         balance: u.recognitionBalance ?? 0,

@@ -19,7 +19,7 @@ what, where, what breaks without it.
 | Var | Purpose | Without it |
 |---|---|---|
 | `AUTH_TOKEN_SECRET` | Signs member tokens | **Silently degrades to per-process sessions** — logins die on every restart |
-| `ADMIN_PASSWORD` | Bootstrap only after v3 S1: elevates the first admin via `POST /api/admin/bootstrap`, then **delete it from Railway** | No first admin can be created |
+| `ADMIN_PASSWORD` | Bootstrap-only (S1): each fork sets its own value and uses it once to create its founder via `POST /api/admin/bootstrap`. Inert after bootstrap — keeping it set is fine (foundation policy, Rye 2026-07-26); deleting it is optional hygiene. | No founder can be created |
 | `JOURNEY_PASSWORD` | Legacy Command Centre gate — retired at v3 S2 | — |
 | `BREAK_GLASS_ADMIN_EMAIL` | (from S1) may re-elevate exactly that account | No recovery if all admins are demoted |
 | `ANTHROPIC_API_KEY` | Maia guided proposals (`/api/assistant/*`) | Assistant hides; forms still work |

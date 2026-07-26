@@ -90,7 +90,7 @@ export default function Profile() {
                 <h1 className="text-5xl font-display font-bold text-teal-deep mb-2">
                   {user.name}
                 </h1>
-                <p className="text-gray-600">Member since {memberSince}</p>
+                <p className="text-gray-600">{user.handle ? `@${user.handle} · ` : ""}Member since {memberSince}</p>
               </div>
               <motion.button
                 whileHover={{ scale: 1.05 }}

@@ -6,6 +6,8 @@ export interface User {
   email: string;
   /** member (default) | admin | founder — founder is the master-admin tier. */
   role?: "member" | "admin" | "founder";
+  /** Public name-tag for @mentions and audit views; emails never leak. */
+  handle?: string;
   paths: string[];
   contributions: Array<{
     id: string;

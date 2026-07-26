@@ -1,3 +1,5 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { authToken } from "@/lib/gameApi";
 import { useState, useEffect, FormEvent } from "react";
 import Layout from "@/components/Layout";
 import {
@@ -1148,31 +1150,21 @@ interface DiscussionTopic {
 
 // ─── Password Gate ────────────────────────────────────────────────────────────
 
+/**
+ * S2: the Command Centre rides the same admin identities as /admin. The second
+ * shared password is retired; this gate auto-unlocks for a signed-in admin or
+ * founder, and points everyone else at the admin sign-in.
+ */
 function PasswordGate({ onUnlock }: { onUnlock: (pw: string) => void }) {
-  const [input, setInput] = useState("");
-  const [error, setError] = useState(false);
+  const { user, loading } = useAuth();
+  const isAdmin = !!user && (user.role === "admin" || user.role === "founder");
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!input) return;
-    // Validate by hitting a protected endpoint
-    try {
-      // Probe: invalid state value triggers 400 if auth passes (no side effect),
-      // 401 if password is wrong.
-      const res = await fetch(`${API_BASE}/api/journey/checkbox`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${input}` },
-        body: JSON.stringify({ id: "probe", state: 99 }),
-      });
-      if (res.status === 401) throw new Error("unauthorized");
-      localStorage.setItem("amora-journey-auth", input);
-      onUnlock(input);
-    } catch {
-      setError(true);
-      setInput("");
-      setTimeout(() => setError(false), 2000);
+  useEffect(() => {
+    if (isAdmin) {
+      const token = authToken();
+      if (token) onUnlock(token);
     }
-  };
+  }, [isAdmin, onUnlock]);
 
   return (
     <div className="fixed inset-0 bg-teal-deep flex items-center justify-center z-50">
@@ -1183,28 +1175,23 @@ function PasswordGate({ onUnlock }: { onUnlock: (pw: string) => void }) {
           </div>
           <div className="text-center">
             <h2 className="font-display text-xl font-bold text-teal-deep">Journey to Launch</h2>
-            <p className="text-stone-500 text-sm mt-1">Internal use only - enter password to continue</p>
+            <p className="text-stone-500 text-sm mt-1">
+              {loading || isAdmin
+                ? "Checking your access…"
+                : user
+                ? `Signed in as ${user.name}, but this area is for the founding team.`
+                : "The Command Centre is for the founding team."}
+            </p>
           </div>
         </div>
-        <form onSubmit={submit} className="space-y-3">
-          <input
-            type="password"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Password"
-            autoFocus
-            className={`w-full px-4 py-3 border-2 rounded-xl text-sm outline-none transition-colors ${
-              error ? "border-red-400 bg-red-50" : "border-stone-200 focus:border-teal-deep"
-            }`}
-          />
-          {error && <p className="text-red-500 text-xs text-center">Incorrect password</p>}
-          <button
-            type="submit"
-            className="w-full bg-teal-deep text-white py-3 rounded-xl font-semibold text-sm hover:bg-teal transition-colors"
+        {!loading && !isAdmin && (
+          <a
+            href="/admin"
+            className="block w-full bg-teal-deep text-white py-3 rounded-xl font-semibold text-sm hover:bg-teal transition-colors text-center"
           >
-            Enter
-          </button>
-        </form>
+            Sign in with an admin account
+          </a>
+        )}
       </div>
     </div>
   );
@@ -1281,18 +1268,13 @@ export default function JourneyToLaunch() {
     saveDiscussions(discussions.filter((t) => t.id !== id));
   };
 
-  // Check auth on mount
-  useEffect(() => {
-    const saved = localStorage.getItem("amora-journey-auth");
-    if (saved) {
-      setJourneyPassword(saved);
-      setAuthenticated(true);
-    }
-  }, []);
+  // S2: no stored secret to restore — the gate auto-unlocks for admins.
 
-  // Load server state on mount
+  // Load server state once the gate opens (S2: reads are auth-gated now too —
+  // the tracker was publicly readable while only writes checked auth).
   useEffect(() => {
-    fetch(`${API_BASE}/api/journey/state`)
+    if (!authenticated) return;
+    fetch(`${API_BASE}/api/journey/state`, { headers: journeyHeaders() })
       .then((r) => r.json())
       .then((data: Partial<JourneyState>) => {
         setServerState({
@@ -1304,7 +1286,9 @@ export default function JourneyToLaunch() {
         setLoadingState(false);
       })
       .catch(() => setLoadingState(false));
-  }, []);
+    // journeyPassword is set together with `authenticated`, so this re-fires
+    // exactly once, when the gate opens.
+  }, [authenticated]);
 
   const cycleCheckbox = async (d: Deliverable) => {
     const current = getEffectiveState(d.id, d, serverState.checkboxes);

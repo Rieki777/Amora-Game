@@ -737,4 +737,73 @@ describe("the coordination loop, end to end", () => {
     const recovered = await api("GET", "/api/profile", undefined, peerToken);
     expect(recovered.status).toBe(200);
   });
+
+  it("S2: handles exist, are member-editable, and cannot collide", async () => {
+    // Everyone registered in this run got a handle at creation.
+    const me = await api("GET", "/api/profile", undefined, doerToken);
+    expect(me.json.handle).toBeTruthy();
+
+    // A member can change their own handle within the rules…
+    const change = await api("PUT", "/api/profile", { handle: "the-willing-doer" }, doerToken);
+    expect(change.status).toBe(200);
+    expect(change.json.handle).toBe("the-willing-doer");
+
+    // …but not onto someone else's (control refusal names the right guard).
+    const clash = await api("PUT", "/api/profile", { handle: "the-willing-doer" }, peerToken);
+    expect(clash.status).toBe(409);
+
+    // And garbage is rejected by shape, not by collision.
+    const bad = await api("PUT", "/api/profile", { handle: "no spaces!" }, peerToken);
+    expect(bad.status).toBe(400);
+  });
+
+  it("S2: founders run the admins — role changes, their guards, and the last-founder rule", async () => {
+    // The founder promotes peer to admin…
+    const promote = await api("PUT", `/api/admin/users/${peerId}/role`, { role: "admin" }, founderToken);
+    expect(promote.status).toBe(200);
+
+    // …and peer's EXISTING token now opens admin surfaces (role is read live).
+    const peerAdmin = await api("GET", "/api/admin/players", undefined, peerToken);
+    expect(peerAdmin.status).toBe(200);
+
+    // An admin who is not a founder cannot change roles (which guard: 403, not 401).
+    const coup = await api("PUT", `/api/admin/users/${doerId}/role`, { role: "admin" }, peerToken);
+    expect(coup.status).toBe(403);
+    expect(String(coup.json.error)).toContain("founder");
+
+    // The last founder cannot be demoted — a fork must never strand itself.
+    const strand = await api("PUT", `/api/admin/users/${founderId}/role`, { role: "member" }, founderToken);
+    expect(strand.status).toBe(409);
+    expect(String(strand.json.error)).toContain("last founder");
+
+    // Demote peer back to member; their admin access dies with the role.
+    const demote = await api("PUT", `/api/admin/users/${peerId}/role`, { role: "member" }, founderToken);
+    expect(demote.status).toBe(200);
+    const closed = await api("GET", "/api/admin/players", undefined, peerToken);
+    expect(closed.status).toBe(401);
+  });
+
+  it("S2: the Command Centre rides admin identities; the second password is retired", async () => {
+    // Trap 3.2 said no test covered the journey endpoints. Now one does.
+    // A plain member is refused…
+    const asMember = await api("POST", "/api/journey/checkbox", { id: "probe", state: 99 }, doerToken);
+    expect(asMember.status).toBe(401);
+
+    // …the retired JOURNEY_PASSWORD is refused…
+    const asOldPassword = await api("POST", "/api/journey/checkbox", { id: "probe", state: 99 }, "loop-test-journey");
+    expect(asOldPassword.status).toBe(401);
+
+    // …and the founder passes auth, hitting the DELIBERATE 400 probe (state 99
+    // is invalid by design — trap 3.8: this 400 means the gate opened).
+    const asFounder = await api("POST", "/api/journey/checkbox", { id: "probe", state: 99 }, founderToken);
+    expect(asFounder.status).toBe(400);
+
+    // Reads are gated too — the tracker was publicly readable before S2.
+    const anon = await api("GET", "/api/journey/state");
+    expect(anon.status).toBe(401);
+
+    const state = await api("GET", "/api/journey/state", undefined, founderToken);
+    expect(state.status).toBe(200);
+    expect(state.json).toHaveProperty("checkboxes");
+  });
 });
