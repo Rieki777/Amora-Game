@@ -15,6 +15,66 @@ That sets the quality bar. A forum that silently drops posts under concurrency i
 2. **Build in `game-amora`, extract `Custom-Game-Foundation` after.** One repo to debug, Amora gets value immediately, extraction becomes a mostly mechanical pass once the systems are proven in production. Consequence: build every system config-driven from the start. No hardcoded Amora copy, names, or categories in platform files.
 3. **Minimal forum.** In: categories, threads, replies, @mentions, thread-follow, notification bell, basic moderation. Out: AI elders, governance stages, nine capitals, straw polls, thread chains. Elders stay on the shelf as a documented Phase 7 option; the research says they separate cleanly once posts and replies exist.
 
+## Revision 2 (Rye, 2026-07-26): loop first, and the token model settled
+
+The first version of this plan was a systems checklist sequenced by technical
+dependency. That was the wrong axis. The product is a **loop** (someone arrives,
+finds a path, does something useful, it gets seen, recognition carries real value,
+they do more) and sequencing by "what is upstream in the stack" builds a forum
+before the loop closes.
+
+The leverage: **Amora already has most of a coordination game built and inert.**
+Quests with a consent gate, Gratitude with cycle budgets, twelve stages, four
+paths. Making those live is cheaper than building anything new and delivers more.
+
+**The finding that forced the revision.** Amora already *describes* the systems the
+Custom Games page sells, in content, while implementing only recognition:
+
+- `server/index.ts:105` promises revenue "is distributed as Gratitude to the village community". There is no distribution mechanism.
+- `data/content.json:398` gives a role the job of approving "major financial decisions and budget allocations". There is no proposal object and no budget object.
+- `server/index.ts:215` has "Consent-Based Decision Making" as a **training module**, not as a decision.
+- Stages are computed and displayed but **nothing is gated on them**; they only scale a Gratitude budget.
+
+So the sales page leads with "who decides, where the money goes, how contribution
+gets seen" and Amora genuinely does the third. The first two are copy. That is a
+promise published ahead of its mechanism, which is more urgent than a roadmap gap.
+
+### Decisions locked
+
+1. **Three distinct currencies, and the naming is settled.** Amora wanted its equity token called Gratitude, which collides with the in-site mechanic. Resolved:
+   - **Gratitude**: in-site recognition. Earned from consented quests, sent peer to peer. Distributed on **lunar cycles**, copying regen-civics so both products compute identical cycle boundaries. Platform-governed.
+   - **Amora**: the land project's **equity** token. Lives on Base, governed by **Hypha**. The platform never mints, moves or prices it; it reads and displays balances.
+   - **Voice**: governance weight. Also on Base, also Hypha-governed.
+2. **Stages gate real capabilities**, which requires full member profiles that track progression.
+3. **Roles as data**, supporting gating and role-targeted messaging.
+4. **Full forum** from regen-civics, scoped to a single land project, **keeping the decision primitive**. This supersedes decision 3 of revision 1 ("minimal forum"), which would have left governance undemonstrable.
+5. **Money transparency lives on Hypha.** The platform builds an economics section that reads Base for Amora and Voice balances and shows Gratitude flows, mirroring the regen-civics profile section. No competing ledger of record inside the platform.
+6. **A founder-and-investor command centre** in the admin, as the coordination surface the buyer actually sits in daily.
+7. **Second instance deferred** until Amora itself is the standard, then extract `Custom-Game-Foundation`.
+
+### Build order
+
+Loop first, then the surfaces that make it legible:
+
+1. Test harness + **the loop test** as the acceptance criterion. **DONE** (`8c7a42f`).
+2. Repository layer, per-domain cutover from JSON to MySQL, splitting `server/index.ts` as it goes.
+3. **Roles as data**, then gate three real capabilities on stage and role.
+4. Full member profiles: progression, contributions, Gratitude flows, token balances.
+5. **Lunar cycles and cycle close**, the heartbeat that makes Gratitude an economy rather than a scoreboard.
+6. Full forum with the decision primitive.
+7. Economics section reading Base for Amora and Voice.
+8. Founder and investor command centre.
+9. Automation: recordings to forum to role-targeted work. Reframed, correctly, as **"your weekly call becomes assigned work"** rather than content distribution.
+10. Extract `Custom-Game-Foundation`.
+
+### The acceptance criterion
+
+Not coverage. One end-to-end run: register, declare a path, claim, submit, consent,
+Gratitude lands, send to a peer, cycle closes, a release lands, a stage advances and
+unlocks something. `server/loop.e2e.test.ts` walks all of that except cycle close and
+the unlock, which are steps 3 and 5 above. Those two assertions are the definition of
+done for this whole revision.
+
 ## What already exists, do not rebuild
 
 Verified by reading the code and probing production, not assumed.
