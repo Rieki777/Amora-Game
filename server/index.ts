@@ -3207,6 +3207,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         maxPerRecipientPerCycle: numberVar(VARIABLES_FILE, "gratitude.max_per_recipient_per_cycle"),
         requireMessage: boolVar(VARIABLES_FILE, "gratitude.require_message"),
         cycleMode: stringVar(VARIABLES_FILE, "gratitude.cycle_mode"),
+        // The ReGen pool model: the community can always see how big the pool
+        // is and what it pays — but a member's SHARE is unknowable before
+        // close, and that indeterminacy is the design, not a gap.
+        poolPerCycle: numberVar(VARIABLES_FILE, "gratitude.pool_per_cycle"),
+        poolToken: (() => {
+          const slug = String(stringVar(VARIABLES_FILE, "gratitude.pool_token"));
+          return { slug, name: tokenDef(slug)?.name ?? slug };
+        })(),
       },
       governance: {
         voiceWeighting: stringVar(VARIABLES_FILE, "governance.voice_weighting"),
