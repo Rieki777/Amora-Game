@@ -2117,6 +2117,294 @@ function GameRolesTab({ password }: { password: string }) {
   );
 }
 
+// ── Token registry + capped mint (S9, Gate D: admins name their tokens) ──────
+
+function TokensTab({ password }: { password: string }) {
+  const [tokens, setTokens] = useState<any[]>([]);
+  const [mintCap, setMintCap] = useState<number>(0);
+  const [players, setPlayers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ slug: "", name: "", kind: "credit", transferable: false });
+  const [mint, setMint] = useState({ slug: "", toUserId: "", amount: "", reason: "" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [tRes, pRes] = await Promise.all([
+        fetch(`${API_BASE}/admin/tokens`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
+      ]);
+      const t = await tRes.json();
+      const p = await pRes.json();
+      setTokens(Array.isArray(t.tokens) ? t.tokens : []);
+      setMintCap(Number(t.mintCapPerCycle) || 0);
+      setPlayers(Array.isArray(p) ? p : []);
+    } catch { setTokens([]); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const create = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/tokens`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "failed");
+      toast.success(`Token "${data.token?.name}" created`);
+      setForm({ slug: "", name: "", kind: "credit", transferable: false });
+      load();
+    } catch (e: any) { toast.error(e?.message || "Create failed"); }
+  };
+
+  const doMint = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/tokens/${mint.slug}/mint`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ toUserId: mint.toUserId, amount: Number(mint.amount), reason: mint.reason }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "failed");
+      toast.success(`Minted — ${data.remaining} left under this cycle's cap`);
+      setMint({ slug: "", toUserId: "", amount: "", reason: "" });
+      load();
+    } catch (e: any) { toast.error(e?.message || "Mint failed"); }
+  };
+
+  const platformTokens = tokens.filter((t) => t.governance === "platform");
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Tokens</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          The registry every module draws from. Platform tokens are yours to name and
+          issue; Hypha-governed tokens (equity, voice) live on Base and are read-only
+          mirrors here — this platform can never mint them.
+        </p>
+      </div>
+      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
+        <div className="space-y-6">
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
+                <tr>
+                  <th className="px-4 py-2.5">Token</th>
+                  <th className="px-4 py-2.5">Kind</th>
+                  <th className="px-4 py-2.5">Governance</th>
+                  <th className="px-4 py-2.5">Peer transfers</th>
+                  <th className="px-4 py-2.5">Issued to date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tokens.map((t) => (
+                  <tr key={t.slug} className="border-t border-gray-100">
+                    <td className="px-4 py-2.5">
+                      <span className="font-medium text-gray-900">{t.name}</span>{" "}
+                      <span className="text-xs text-gray-400 font-mono">{t.slug}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-600">{t.kind}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        t.governance === "platform"
+                          ? "bg-[#2D5A5A]/10 text-[#2D5A5A]"
+                          : "bg-purple-50 text-purple-700 border border-purple-200"
+                      }`}>
+                        {t.governance === "platform" ? "platform" : "Hypha (read-only)"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-600">{t.transferable ? "yes" : "no"}</td>
+                    <td className="px-4 py-2.5 text-gray-600">
+                      {Object.entries(t.issuedBy ?? {}).length === 0
+                        ? <span className="text-gray-300">—</span>
+                        : Object.entries(t.issuedBy).map(([acct, n]) => (
+                            <div key={acct} className="text-xs">
+                              <span className="font-mono text-gray-400">{acct.replace("sys:", "")}</span>: {String(n)}
+                            </div>
+                          ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="border border-gray-200 rounded-xl p-5">
+            <h3 className="font-semibold text-gray-900 mb-1">Create a platform token</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Name tokens as you enable modules — stay credits, library credits, event
+              tickets. The slug is permanent: history is never re-denominated.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                placeholder="slug (e.g. stay-credits)" className="text-sm border border-gray-200 rounded-lg px-3 py-2 font-mono w-48" />
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Display name" className="text-sm border border-gray-200 rounded-lg px-3 py-2 w-48" />
+              <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}
+                className="text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white">
+                <option value="credit">credit</option>
+                <option value="recognition">recognition</option>
+              </select>
+              <label className="text-xs text-gray-600 flex items-center gap-1.5">
+                <input type="checkbox" checked={form.transferable}
+                  onChange={(e) => setForm({ ...form, transferable: e.target.checked })} />
+                members may send it
+              </label>
+              <button onClick={create} disabled={!form.slug || !form.name}
+                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                Create
+              </button>
+            </div>
+          </div>
+
+          <div className="border border-gray-200 rounded-xl p-5">
+            <h3 className="font-semibold text-gray-900 mb-1">Mint by hand</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Issues from the dedicated mint faucet, with a reason, audited. All admins
+              together can mint at most {mintCap.toLocaleString()} per token per lunar
+              cycle (ledger.admin_mint_cycle_cap).
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={mint.slug} onChange={(e) => setMint({ ...mint, slug: e.target.value })}
+                className="text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white">
+                <option value="">Token…</option>
+                {platformTokens.map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
+              </select>
+              <select value={mint.toUserId} onChange={(e) => setMint({ ...mint, toUserId: e.target.value })}
+                className="text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white">
+                <option value="">Member…</option>
+                {players.map((p) => <option key={p.id} value={p.id}>{p.name}{p.handle ? ` (@${p.handle})` : ""}</option>)}
+              </select>
+              <input value={mint.amount} onChange={(e) => setMint({ ...mint, amount: e.target.value })}
+                placeholder="Amount" type="number" min="1" className="text-sm border border-gray-200 rounded-lg px-3 py-2 w-28" />
+              <input value={mint.reason} onChange={(e) => setMint({ ...mint, reason: e.target.value })}
+                placeholder="Reason (required)" className="text-sm border border-gray-200 rounded-lg px-3 py-2 flex-1 min-w-48" />
+              <button onClick={doMint} disabled={!mint.slug || !mint.toUserId || !mint.amount || !mint.reason.trim()}
+                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                Mint
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Ledger reconciliation (S9): the invariants, on demand ────────────────────
+
+function LedgerTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/ledger/reconciliation`, { headers: authHeaders(password) });
+      setData(await res.json());
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Ledger</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            The same checks the server proves before every boot, on demand. Faucet
+            accounts run negative by design — their negative balance is what they
+            have issued, which is why everything still sums to zero.
+          </p>
+        </div>
+        <button onClick={load} className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 text-gray-600 hover:bg-gray-50">
+          Re-check
+        </button>
+      </div>
+      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : !data ? (
+        <p className="text-sm text-red-600">Could not load reconciliation.</p>
+      ) : (
+        <div className="space-y-6">
+          {data.invariants?.ok ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              All invariants hold: per-token conservation ≡ 0, the balance cache matches
+              the transfers, no Hypha token has ledger rows, and nothing but faucets is negative.
+            </div>
+          ) : (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              <p className="font-semibold mb-1">Invariant violations — the server will refuse to boot like this:</p>
+              <ul className="list-disc ml-5 space-y-0.5">
+                {(data.invariants?.problems ?? []).map((p: string, i: number) => <li key={i}>{p}</li>)}
+              </ul>
+            </div>
+          )}
+
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-2.5 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">Tokens in motion</div>
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs text-gray-500">
+                <tr className="border-t border-gray-100">
+                  <th className="px-4 py-2">Token</th>
+                  <th className="px-4 py-2">Transfers</th>
+                  <th className="px-4 py-2">Volume</th>
+                  <th className="px-4 py-2">Held by members</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.tokens ?? []).map((t: any) => (
+                  <tr key={t.tokenType} className="border-t border-gray-100">
+                    <td className="px-4 py-2 font-medium text-gray-900">{t.name} <span className="text-xs text-gray-400 font-mono">{t.tokenType}</span></td>
+                    <td className="px-4 py-2 text-gray-600">{t.transfers}</td>
+                    <td className="px-4 py-2 text-gray-600">{t.volume}</td>
+                    <td className="px-4 py-2 text-gray-600">{t.heldByMembers}</td>
+                  </tr>
+                ))}
+                {(data.tokens ?? []).length === 0 && (
+                  <tr><td colSpan={4} className="px-4 py-4 text-center text-gray-400 text-xs">No transfers yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-2.5 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">System accounts</div>
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs text-gray-500">
+                <tr className="border-t border-gray-100">
+                  <th className="px-4 py-2">Account</th>
+                  <th className="px-4 py-2">Token</th>
+                  <th className="px-4 py-2">Balance</th>
+                  <th className="px-4 py-2">Issued to date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.systemAccounts ?? []).map((s: any, i: number) => (
+                  <tr key={`${s.id}-${s.tokenType ?? i}`} className="border-t border-gray-100">
+                    <td className="px-4 py-2">
+                      <span className="font-mono text-xs text-gray-700">{s.id}</span>
+                      {s.faucet && <span className="ml-2 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full">faucet</span>}
+                      <div className="text-xs text-gray-400">{s.label}</div>
+                    </td>
+                    <td className="px-4 py-2 text-gray-600 font-mono text-xs">{s.tokenType ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-600">{s.balance ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-600">{s.issuedToDate ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Game Admin: the game-variables editor (S3 — built from scratch; the one
 //    the plan's hardening pass proved was a phantom) ──────────────────────────
 
@@ -3127,6 +3415,8 @@ export default function Admin() {
             { key: "quest-claims", label: "Quest Claims", icon: Sparkles },
             { key: "players", label: "Players", icon: Users },
             { key: "game-roles", label: "Game Roles", icon: Users2 },
+            { key: "tokens", label: "Tokens", icon: Coins },
+            { key: "ledger", label: "Ledger", icon: BarChart3 },
             { key: "variables", label: "Game Mechanics", icon: Activity },
             { key: "season", label: "Season", icon: Circle },
           ].map(({ key, label, icon: Icon }) => (
@@ -3248,6 +3538,8 @@ export default function Admin() {
           {activeTab === "quest-claims" && <QuestClaimsTab password={password} />}
           {activeTab === "players" && <PlayersTab password={password} />}
           {activeTab === "game-roles" && <GameRolesTab password={password} />}
+          {activeTab === "tokens" && <TokensTab password={password} />}
+          {activeTab === "ledger" && <LedgerTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}
           {activeTab === "season" && <SeasonTab password={password} />}
           {activeTab === "settings" && <SettingsTab password={password} />}

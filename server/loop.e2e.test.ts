@@ -856,4 +856,91 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(state.status).toBe(200);
     expect(state.json).toHaveProperty("checkboxes");
   });
+
+  it("S9: admins name tokens (Gate D), and the registry refuses re-denomination", async () => {
+    const anon = await api("GET", "/api/admin/tokens");
+    expect(anon.status).toBe(401);
+
+    const list = await api("GET", "/api/admin/tokens", undefined, founderToken);
+    expect(list.status).toBe(200);
+    expect(list.json.tokens.map((t: any) => t.slug)).toEqual(
+      expect.arrayContaining(["gratitude", "amora", "voice", "credits"]),
+    );
+    // Recognition issuance is visible per faucet channel.
+    const gratitude = list.json.tokens.find((t: any) => t.slug === "gratitude");
+    expect(gratitude.issuedBy["sys:gratitude-pool"]).toBeGreaterThan(0);
+
+    const bad = await api("POST", "/api/admin/tokens", { slug: "Bad Slug!", name: "X" }, founderToken);
+    expect(bad.status).toBe(400);
+    const dup = await api("POST", "/api/admin/tokens", { slug: "credits", name: "Counterfeit" }, founderToken);
+    expect(dup.status).toBe(409);
+
+    const created = await api(
+      "POST",
+      "/api/admin/tokens",
+      { slug: "stay-credits", name: "Stay Credits", kind: "credit", transferable: false },
+      founderToken,
+    );
+    expect(created.status).toBe(200);
+    expect(created.json.token).toMatchObject({ slug: "stay-credits", governance: "platform" });
+  });
+
+  it("S9: manual minting requires a reason and honors the per-cycle aggregate cap", async () => {
+    // Guards, in order: hypha refusal, missing reason, then the cap as an
+    // AGGREGATE — two mints that individually fit but jointly exceed it are
+    // refused on the second call.
+    const hypha = await api("POST", "/api/admin/tokens/amora/mint", { toUserId: peerId, amount: 5, reason: "nope" }, founderToken);
+    expect(hypha.status).toBe(400);
+    const noReason = await api("POST", "/api/admin/tokens/stay-credits/mint", { toUserId: peerId, amount: 5 }, founderToken);
+    expect(noReason.status).toBe(400);
+
+    // Cap is 10000 by default; take most of it, then overflow.
+    const first = await api(
+      "POST",
+      "/api/admin/tokens/stay-credits/mint",
+      { toUserId: peerId, amount: 9000, reason: "Founding stay allocation" },
+      founderToken,
+    );
+    expect(first.status).toBe(200);
+    expect(first.json.toBalance).toBe(9000);
+    expect(first.json.remaining).toBe(1000);
+
+    const overflow = await api(
+      "POST",
+      "/api/admin/tokens/stay-credits/mint",
+      { toUserId: peerId, amount: 1001, reason: "One too many" },
+      founderToken,
+    );
+    expect(overflow.status).toBe(409);
+    expect(overflow.json.remaining).toBe(1000);
+
+    // The mint landed in the member's own ledger view, in the new token.
+    const ledger = await api("GET", "/api/game/ledger", undefined, peerToken);
+    expect(ledger.json.balances["stay-credits"]?.balance).toBe(9000);
+
+    // And the audit trail names the mint.
+    const audit = await api("GET", "/api/admin/audit", undefined, founderToken);
+    expect(audit.json.some((r: any) => String(r.action) === "mint:9000:stay-credits")).toBe(true);
+  });
+
+  it("S9 + Gate A, the closing assertion: the economy still conserves", async () => {
+    // After everything this suite did — consents, sends, a settled cycle,
+    // hand-mints — the reconciliation panel must report a clean economy:
+    // per token, all balances sum to zero, the cache agrees with the
+    // transfers, and nothing but faucets is negative.
+    const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec.status).toBe(200);
+    expect(rec.json.invariants.problems).toEqual([]);
+    expect(rec.json.invariants.ok).toBe(true);
+
+    // Faucet negatives are labeled as what they are: issuance to date.
+    const mintRow = rec.json.systemAccounts.find(
+      (s: any) => s.id === "sys:mint" && s.tokenType === "stay-credits",
+    );
+    expect(mintRow?.issuedToDate).toBe(9000);
+    const poolRow = rec.json.systemAccounts.find(
+      (s: any) => s.id === "sys:cycle-pool" && s.tokenType === "credits",
+    );
+    expect(poolRow?.issuedToDate).toBe(1000);
+  });
 });

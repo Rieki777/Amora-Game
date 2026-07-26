@@ -15,6 +15,8 @@ import { hasCapability, type Capability } from "../shared/capabilities";
 import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/variables";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
+  allTokens,
+  RECOGNITION_FAUCET,
   balanceOf,
   balancesFor,
   checkLedgerInvariants,
@@ -23,7 +25,7 @@ import {
   loadTokenRegistry,
   memberAccount,
   postTransfer,
-  RECOGNITION_FAUCET,
+  registerToken,
   tokenDef,
 } from "./lib/ledger";
 import { usersRepo } from "./repos/users";
@@ -1316,7 +1318,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", async (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-s8-gratitude-mysql", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-26-s9-tokens-ledger-admin", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -1732,6 +1734,162 @@ async function startServer() {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const rows = adminAuditRepo.all().sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)));
     res.json(rows.slice(0, 200));
+  });
+
+  // ── S9: the token registry and ledger as admin surfaces ───────────────────
+
+  /** The registry, with each token's issuance-to-date per faucet channel. */
+  app.get("/api/admin/tokens", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [issuance] = await getPool().query<any[]>(
+      "SELECT tb.token_type, tb.account_id, -tb.balance AS issued FROM token_balances tb " +
+        "JOIN ledger_accounts a ON a.id = tb.account_id WHERE a.faucet = 1 AND tb.balance < 0",
+    );
+    const byToken: Record<string, Record<string, number>> = {};
+    for (const r of issuance) {
+      (byToken[r.token_type] ??= {})[r.account_id] = Number(r.issued);
+    }
+    res.json({
+      tokens: allTokens().map((t) => ({ ...t, issuedBy: byToken[t.slug] ?? {} })),
+      mintCapPerCycle: numberVar(VARIABLES_FILE, "ledger.admin_mint_cycle_cap"),
+    });
+  });
+
+  /**
+   * Create a platform token (Gate D: admins name their tokens as they enable
+   * modules — this is the naming surface). Governance is forced to
+   * 'platform': hypha mirrors are seeded facts about the outside world, not
+   * something an admin invents here.
+   */
+  app.post("/api/admin/tokens", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { slug, name, kind, transferable } = req.body ?? {};
+    const cleanSlug = String(slug ?? "").toLowerCase().trim();
+    if (!/^[a-z0-9][a-z0-9-]{1,30}$/.test(cleanSlug)) {
+      return res.status(400).json({ error: "Slug is 2-31 characters: lowercase letters, numbers, dashes" });
+    }
+    if (!String(name ?? "").trim()) return res.status(400).json({ error: "A display name is required" });
+    if (tokenDef(cleanSlug)) {
+      return res.status(409).json({ error: `"${cleanSlug}" already exists — token history must never be silently re-denominated` });
+    }
+    await registerToken(getPool(), {
+      slug: cleanSlug,
+      name: String(name).trim().slice(0, 120),
+      kind: ["recognition", "equity", "voice", "credit"].includes(kind) ? kind : "credit",
+      governance: "platform",
+      transferable: !!transferable,
+    });
+    res.json({ success: true, token: tokenDef(cleanSlug) });
+  });
+
+  /**
+   * Manual mint: an admin issues a platform token to a member, with a reason,
+   * from the dedicated sys:mint faucet — its negative balance is exactly
+   * "what admins have minted by hand", per token, forever.
+   *
+   * The cap is an AGGREGATE per lunar cycle (ledger.admin_mint_cycle_cap),
+   * not per call: a per-call cap alone is bypassed by calling twice. 0
+   * disables manual minting entirely.
+   */
+  app.post("/api/admin/tokens/:slug/mint", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const slug = String(req.params.slug);
+    const { toUserId, amount, reason } = req.body ?? {};
+    const amt = Math.trunc(Number(amount) || 0);
+    const def = tokenDef(slug);
+    if (!def) return res.status(404).json({ error: `unknown token "${slug}"` });
+    if (def.governance !== "platform") {
+      return res.status(400).json({ error: `${slug} is issued on Hypha and cannot be minted here` });
+    }
+    if (!toUserId || amt <= 0) return res.status(400).json({ error: "toUserId and a positive amount are required" });
+    if (!String(reason ?? "").trim()) {
+      return res.status(400).json({ error: "A reason is required — every hand-mint must explain itself" });
+    }
+    const target = await members.byId(String(toUserId));
+    if (!target) return res.status(404).json({ error: "Member not found" });
+
+    const cap = numberVar(VARIABLES_FILE, "ledger.admin_mint_cycle_cap");
+    if (cap <= 0) return res.status(403).json({ error: "Manual minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
+    const cycle = currentCycle();
+    const [[mintedRow]] = await getPool().query<any[]>(
+      "SELECT COALESCE(SUM(amount), 0) AS minted FROM token_ledger " +
+        "WHERE from_account = 'sys:mint' AND token_type = ? AND at >= ?",
+      [slug, new Date(cycle.startsAt)],
+    );
+    const minted = Number(mintedRow?.minted ?? 0);
+    if (minted + amt > cap) {
+      return res.status(409).json({
+        error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`,
+        minted,
+        cap,
+        remaining: Math.max(0, cap - minted),
+      });
+    }
+
+    const r = await postTransfer(getPool(), {
+      from: "sys:mint",
+      to: memberAccount(target.id),
+      tokenType: slug,
+      amount: amt,
+      source: "admin_mint",
+      sourceRef: adminActor(req)?.id,
+      description: String(reason).trim().slice(0, 500),
+      idempotencyKey: `admin_mint:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    });
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    // Recognition minted by hand still updates the profile's cached balance.
+    if (slug === "gratitude") {
+      await members.update(target.id, (u: any) => { u.recognitionBalance = r.toBalance; });
+    }
+    adminAuditRepo.add({
+      id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      at: new Date().toISOString(),
+      actorUserId: adminActor(req)?.id ?? null,
+      action: `mint:${amt}:${slug}`,
+      targetType: "user",
+      targetId: target.id,
+    });
+    res.json({ success: true, toBalance: r.toBalance, minted: minted + amt, cap, remaining: cap - minted - amt });
+  });
+
+  /**
+   * The reconciliation panel: the same invariants the boot check enforces,
+   * on demand, plus the balances that explain them. Faucet negatives are
+   * reported as "issued to date" — that is what they are.
+   */
+  app.get("/api/admin/ledger/reconciliation", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const invariants = await checkLedgerInvariants(getPool());
+    const [systems] = await getPool().query<any[]>(
+      "SELECT a.id, a.label, a.faucet, tb.token_type, tb.balance FROM ledger_accounts a " +
+        "LEFT JOIN token_balances tb ON tb.account_id = a.id WHERE a.kind = 'system' ORDER BY a.id, tb.token_type",
+    );
+    const [perToken] = await getPool().query<any[]>(
+      "SELECT token_type, COUNT(*) AS transfers, SUM(amount) AS volume FROM token_ledger GROUP BY token_type",
+    );
+    const [memberTotals] = await getPool().query<any[]>(
+      "SELECT tb.token_type, SUM(tb.balance) AS held FROM token_balances tb " +
+        "JOIN ledger_accounts a ON a.id = tb.account_id WHERE a.kind = 'member' GROUP BY tb.token_type",
+    );
+    res.json({
+      invariants,
+      systemAccounts: systems.map((s) => ({
+        id: s.id,
+        label: s.label,
+        faucet: !!s.faucet,
+        tokenType: s.token_type,
+        balance: s.token_type == null ? null : Number(s.balance),
+        // A faucet's negative balance IS its issuance; say so plainly.
+        issuedToDate: s.faucet && s.token_type != null && Number(s.balance) < 0 ? -Number(s.balance) : undefined,
+      })),
+      tokens: perToken.map((t) => ({
+        tokenType: t.token_type,
+        transfers: Number(t.transfers),
+        volume: Number(t.volume),
+        heldByMembers: Number(memberTotals.find((m) => m.token_type === t.token_type)?.held ?? 0),
+        name: tokenDef(t.token_type)?.name ?? t.token_type,
+      })),
+    });
   });
 
   // Auth: Get Profile
