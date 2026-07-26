@@ -58,6 +58,7 @@ import GratitudeWall from "./pages/GratitudeWall";
 import WorkWithUs from "./pages/WorkWithUs";
 import ToolsHub from "./pages/ToolsHub";
 import VillageMap from "./pages/VillageMap";
+import Forum from "./pages/Forum";
 
 function Router() {
   const [location] = useLocation();
@@ -77,6 +78,8 @@ function Router() {
       <Route path="/quests" component={Quests} />
       <Route path="/tools" component={ToolsHub} />
       <Route path="/map" component={VillageMap} />
+      <Route path="/forum" component={Forum} />
+      <Route path="/forum/:id" component={Forum} />
       <Route path="/propose-quest" component={ProposeQuest} />
       <Route path="/roles" component={Roles} />
       <Route path="/how-we-create" component={HowWeCreate} />

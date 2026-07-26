@@ -1,0 +1,294 @@
+/**
+ * The Forum (S24-S26): threads by category, @mentions on handles, thread
+ * follows, community reporting, and the decision primitive. Bodies render as
+ * TEXT (React escapes) — there is no HTML pipeline to sanitize.
+ */
+import Layout from "@/components/Layout";
+import NotFound from "@/pages/NotFound";
+import { useEffect, useState } from "react";
+import { Link, useRoute } from "wouter";
+import { useModule, useModules } from "@/modules/ModuleProvider";
+import { useAuth } from "@/contexts/AuthContext";
+import { authToken } from "@/lib/gameApi";
+import { Flag, Gavel, Lock, MessageCircle, Pin, Plus, Bell } from "lucide-react";
+
+const headers = (): Record<string, string> => {
+  const t = authToken();
+  return t ? { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+};
+
+const KIND_BADGE: Record<string, string> = {
+  decision: "bg-purple-50 text-purple-700 border border-purple-200",
+  event: "bg-sky-50 text-sky-700 border border-sky-200",
+  announcement: "bg-amber/20 text-amber-700",
+};
+
+export default function Forum() {
+  const [, params] = useRoute("/forum/:id");
+  const modules = useModules();
+  const forumModule = useModule("forum");
+  if (modules.loaded && !forumModule) return <NotFound />;
+  return params?.id ? <ThreadView id={params.id} /> : <ThreadList />;
+}
+
+function ThreadList() {
+  const { user } = useAuth();
+  const [categories, setCategories] = useState<any[]>([]);
+  const [threads, setThreads] = useState<any[]>([]);
+  const [category, setCategory] = useState("");
+  const [composing, setComposing] = useState(false);
+  const [draft, setDraft] = useState({ title: "", body: "", category: "", kind: "discussion" });
+  const [error, setError] = useState("");
+
+  const load = () => {
+    const qs = category ? `?category=${category}` : "";
+    fetch(`/api/forum/threads${qs}`, { headers: headers() })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setThreads(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetch("/api/forum/categories", { headers: headers() })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setCategories(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
+  useEffect(load, [category]);
+
+  const post = () => {
+    setError("");
+    fetch("/api/forum/threads", { method: "POST", headers: headers(), body: JSON.stringify(draft) })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Could not post");
+        setComposing(false);
+        setDraft({ title: "", body: "", category: "", kind: "discussion" });
+        load();
+      })
+      .catch((e) => setError(e.message));
+  };
+
+  return (
+    <Layout>
+      <section className="py-12 bg-gradient-to-b from-teal-deep/5 to-background">
+        <div className="container text-center">
+          <h1 className="font-display text-4xl font-bold text-foreground mb-3">Village Forum</h1>
+          <p className="text-muted-foreground">Conversations, questions, and the decisions we make together.</p>
+        </div>
+      </section>
+      <section className="py-8 bg-background">
+        <div className="container max-w-3xl space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => setCategory("")}
+              className={`text-xs px-3 py-1.5 rounded-full ${!category ? "bg-teal-deep text-white" : "bg-muted text-muted-foreground"}`}>
+              All
+            </button>
+            {categories.map((c) => (
+              <button key={c.id} onClick={() => setCategory(c.id)}
+                className={`text-xs px-3 py-1.5 rounded-full ${category === c.id ? "bg-teal-deep text-white" : "bg-muted text-muted-foreground"}`}>
+                {c.label}
+              </button>
+            ))}
+            {user && (
+              <button onClick={() => setComposing(!composing)}
+                className="ml-auto inline-flex items-center gap-1.5 text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium">
+                <Plus className="w-4 h-4" /> New thread
+              </button>
+            )}
+          </div>
+
+          {composing && (
+            <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+              <div className="flex gap-2">
+                <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+                  className="text-sm border border-border rounded-lg px-2 py-2 bg-white">
+                  <option value="">Category…</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+                <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
+                  className="text-sm border border-border rounded-lg px-2 py-2 bg-white">
+                  <option value="discussion">Discussion</option>
+                  <option value="decision">Decision (proposal)</option>
+                  <option value="event">Event</option>
+                  <option value="announcement">Announcement</option>
+                </select>
+              </div>
+              <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                placeholder="Title" className="w-full text-sm border border-border rounded-lg px-3 py-2" />
+              <textarea value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} rows={4}
+                placeholder="Say it. Mention people with @handle."
+                className="w-full text-sm border border-border rounded-lg px-3 py-2" />
+              {error && <p className="text-xs text-red-600">{error}</p>}
+              <button onClick={post} disabled={!draft.body.trim() || !draft.category}
+                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                Post
+              </button>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            {threads.map((t) => (
+              <Link key={t.id} href={`/forum/${t.id}`}
+                className={`block bg-card border border-border rounded-xl px-4 py-3 hover:border-teal/40 transition-colors ${t.hidden ? "opacity-50" : ""}`}>
+                <div className="flex items-center gap-2">
+                  {t.pinned && <Pin className="w-3.5 h-3.5 text-amber-600" />}
+                  {t.locked && <Lock className="w-3.5 h-3.5 text-gray-400" />}
+                  <span className="font-semibold text-foreground text-sm">{t.title}</span>
+                  {KIND_BADGE[t.kind] && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${KIND_BADGE[t.kind]}`}>{t.kind}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                  <span>{t.author.name}</span>
+                  <span className="inline-flex items-center gap-1"><MessageCircle className="w-3 h-3" />{t.replyCount}</span>
+                  <span>{new Date(t.lastActivityAt).toLocaleDateString()}</span>
+                </div>
+              </Link>
+            ))}
+            {threads.length === 0 && (
+              <p className="text-center text-sm text-muted-foreground py-12">No threads yet — start the first one.</p>
+            )}
+          </div>
+        </div>
+      </section>
+    </Layout>
+  );
+}
+
+function ThreadView({ id }: { id: string }) {
+  const { user } = useAuth();
+  const [thread, setThread] = useState<any>(null);
+  const [gone, setGone] = useState(false);
+  const [reply, setReply] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [status, setStatus] = useState("");
+
+  const load = () => {
+    fetch(`/api/forum/threads/${id}`, { headers: headers() })
+      .then(async (r) => {
+        if (r.status === 410) { setGone(true); return null; }
+        return r.ok ? r.json() : null;
+      })
+      .then((d) => d && setThread(d))
+      .catch(() => {});
+  };
+  useEffect(load, [id]);
+
+  const act = (path: string, body: any) => {
+    setStatus("");
+    fetch(path, { method: "POST", headers: headers(), body: JSON.stringify(body) })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Failed");
+        setStatus("Done.");
+        setReply("");
+        setOutcome("");
+        load();
+      })
+      .catch((e) => setStatus(e.message));
+  };
+
+  if (gone) {
+    return (
+      <Layout>
+        <div className="container max-w-2xl py-24 text-center text-muted-foreground">
+          This thread was hidden by moderation.
+          <div className="mt-4"><Link href="/forum" className="text-teal-deep font-medium">← Back to the forum</Link></div>
+        </div>
+      </Layout>
+    );
+  }
+  if (!thread) return <Layout><div className="container py-24 text-center text-muted-foreground">Loading…</div></Layout>;
+
+  const decided = thread.kind === "decision" && thread.meta?.status === "decided";
+
+  return (
+    <Layout>
+      <section className="py-10 bg-background">
+        <div className="container max-w-3xl space-y-5">
+          <Link href="/forum" className="text-xs text-muted-foreground hover:text-foreground">← All threads</Link>
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-1">
+              {thread.pinnedAt && <Pin className="w-4 h-4 text-amber-600" />}
+              {thread.lockedAt && <Lock className="w-4 h-4 text-gray-400" />}
+              <h1 className="font-display text-xl font-bold text-foreground">{thread.title ?? "Post"}</h1>
+              {KIND_BADGE[thread.kind] && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${KIND_BADGE[thread.kind]}`}>{thread.kind}</span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              {thread.author.name}{thread.author.handle ? ` (@${thread.author.handle})` : ""} · {new Date(thread.createdAt).toLocaleString()}
+            </p>
+            {thread.imageUrl && <img src={thread.imageUrl} alt="" className="rounded-xl mb-4 max-h-80 object-cover" />}
+            <p className="text-sm text-foreground whitespace-pre-wrap">{thread.body}</p>
+            {(thread.tags ?? []).length > 0 && (
+              <div className="flex gap-1.5 mt-3">
+                {thread.tags.map((t: string) => (
+                  <span key={t} className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">#{t}</span>
+                ))}
+              </div>
+            )}
+            {decided && (
+              <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50 p-4">
+                <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-1">Decision recorded</p>
+                <p className="text-sm text-purple-900 whitespace-pre-wrap">{thread.meta.outcome}</p>
+              </div>
+            )}
+            {user && (
+              <div className="flex gap-3 mt-4 text-xs">
+                <button onClick={() => act(`/api/forum/threads/${id}/subscribe`, {})} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+                  <Bell className="w-3.5 h-3.5" /> Follow
+                </button>
+                <button onClick={() => act(`/api/forum/threads/${id}/report`, { severity: "soft" })} className="inline-flex items-center gap-1 text-muted-foreground hover:text-red-500">
+                  <Flag className="w-3.5 h-3.5" /> Report
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            {thread.replies.map((r: any) => (
+              <div key={r.id} className={`bg-card border border-border rounded-xl px-4 py-3 ${r.hidden ? "opacity-50" : ""}`}>
+                <p className="text-xs text-muted-foreground mb-1">
+                  {r.author.name}{r.author.handle ? ` (@${r.author.handle})` : ""} · {new Date(r.createdAt).toLocaleString()}
+                </p>
+                <p className="text-sm text-foreground whitespace-pre-wrap">{r.body}</p>
+              </div>
+            ))}
+          </div>
+
+          {user && !thread.lockedAt && (
+            <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+              <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3}
+                placeholder="Reply… mention people with @handle."
+                className="w-full text-sm border border-border rounded-lg px-3 py-2" />
+              <button onClick={() => act(`/api/forum/threads/${id}/replies`, { body: reply })} disabled={!reply.trim()}
+                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                Reply
+              </button>
+            </div>
+          )}
+          {thread.lockedAt && !decided && (
+            <p className="text-center text-xs text-muted-foreground">This thread is locked.</p>
+          )}
+
+          {user && thread.kind === "decision" && !decided && (
+            <div className="bg-card border border-purple-200 rounded-xl p-4 space-y-2">
+              <p className="text-xs font-semibold text-purple-700 flex items-center gap-1.5"><Gavel className="w-3.5 h-3.5" /> Record the outcome</p>
+              <textarea value={outcome} onChange={(e) => setOutcome(e.target.value)} rows={2}
+                placeholder="What was decided, and by what process?"
+                className="w-full text-sm border border-border rounded-lg px-3 py-2" />
+              <button onClick={() => act(`/api/forum/threads/${id}/decide`, { outcome })} disabled={!outcome.trim()}
+                className="text-sm bg-purple-700 text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                Record decision
+              </button>
+            </div>
+          )}
+
+          {status && <p className="text-xs text-teal-deep">{status}</p>}
+        </div>
+      </section>
+    </Layout>
+  );
+}

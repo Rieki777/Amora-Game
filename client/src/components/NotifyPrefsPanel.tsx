@@ -22,12 +22,24 @@ const CADENCES: Record<string, Array<{ v: string; label: string }>> = {
     { v: "daily", label: "Daily digest" },
     { v: "off", label: "In-app only" },
   ],
+  mentionsEmail: [
+    { v: "immediate", label: "Right away" },
+    { v: "daily", label: "Daily digest" },
+    { v: "off", label: "In-app only" },
+  ],
+  repliesEmail: [
+    { v: "immediate", label: "Right away" },
+    { v: "daily", label: "Daily digest" },
+    { v: "off", label: "In-app only" },
+  ],
 };
 
 const LABELS: Record<string, string> = {
   questsEmail: "Quest decisions",
   rolesEmail: "Role appointments",
   gratitudeEmail: "Appreciation received",
+  mentionsEmail: "Someone mentions you",
+  repliesEmail: "Replies to your threads",
 };
 
 export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void }) {

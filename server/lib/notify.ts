@@ -45,6 +45,9 @@ export interface NotifyPrefs {
   gratitudeEmail: "daily" | "off";
   questsEmail: "immediate" | "daily" | "off";
   rolesEmail: "immediate" | "daily" | "off";
+  /** Forum (S24): the regen defaults — mentions and replies immediate. */
+  mentionsEmail: "immediate" | "daily" | "off";
+  repliesEmail: "immediate" | "daily" | "off";
 }
 
 /** Junk-tolerant, field-by-field: a malformed blob degrades to defaults. */
@@ -57,6 +60,8 @@ export function resolveNotifyPrefs(prefs: any): NotifyPrefs {
     gratitudeEmail: pick(n.gratitudeEmail, ["daily", "off"], "daily"),
     questsEmail: pick(n.questsEmail, ["immediate", "daily", "off"], "immediate"),
     rolesEmail: pick(n.rolesEmail, ["immediate", "daily", "off"], "immediate"),
+    mentionsEmail: pick(n.mentionsEmail, ["immediate", "daily", "off"], "immediate"),
+    repliesEmail: pick(n.repliesEmail, ["immediate", "daily", "off"], "immediate"),
   };
 }
 
@@ -71,6 +76,14 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
       return p.questsEmail;
     case "role_appointed":
       return p.rolesEmail;
+    case "mention":
+      return p.mentionsEmail;
+    case "forum_reply":
+      return p.repliesEmail;
+    case "thread_activity":
+      return "off"; // in-app only by design — follows are ambient, never urgent
+    case "contact_request":
+      return "off"; // the relay already sent its own email with Reply-To
     case "stage_advanced":
       return "daily"; // fixed: celebratory, never urgent
     default:

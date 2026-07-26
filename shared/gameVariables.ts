@@ -413,6 +413,20 @@ export const VARIABLES: VariableDef[] = [
     unit: "days",
   },
 
+  // ── Forum (S24-S26; visible in Admin only while the module is non-off) ────
+  {
+    key: "forum.report_hide_threshold",
+    category: "Forum",
+    label: "Soft reports that auto-hide a post",
+    description:
+      "When this many DIFFERENT members soft-report the same thread or reply, it hides automatically pending moderation — the community can act before a moderator wakes up. Hard reports always go straight to the queue without hiding.",
+    type: "integer",
+    default: "3",
+    min: 2,
+    max: 10,
+    unit: "reports",
+  },
+
   // ── Village rhythm ────────────────────────────────────────────────────────
   {
     key: "village.pulse_max_entries",

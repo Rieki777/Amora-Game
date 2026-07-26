@@ -44,6 +44,7 @@ import {
   type NotifyDeps,
 } from "./lib/notify";
 import { registerJob, startScheduler } from "./lib/scheduler";
+import { onReplyCreated, onThreadCreated, subscribe } from "./lib/forum";
 import {
   conciergeLog,
   contactCountsToday,
@@ -91,7 +92,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s23-village-map";
+const BUILD_MARKER = "2026-07-26-s26-forum";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2271,6 +2272,341 @@ async function startServer() {
     const result = await setModuleConfig(req.params.id, req.body?.config, adminActor(req)?.id ?? null);
     if (!result.ok) return res.status(result.status).json({ error: result.error });
     res.json({ success: true, config: moduleConfig(req.params.id) });
+  });
+
+  // ── S24-S26: the forum + decision primitive ────────────────────────────────
+  app.use("/api/forum", requireModule("forum"));
+  app.use("/api/admin/forum", requireModule("forum"));
+
+  const forumDeps = {
+    ...notifyDeps,
+    memberByHandle: async (handle: string) => {
+      const all = await members.all();
+      return all.find((u: any) => String(u.handle ?? "").toLowerCase() === handle) ?? null;
+    },
+  };
+  const forumCategories = () =>
+    (moduleConfig<any>("forum") ?? MODULES_BY_ID["forum"].defaultConfig)?.categories ?? [];
+
+  async function forumThreadById(id: string): Promise<any | null> {
+    const [rows] = await getPool().query<any[]>(
+      "SELECT id, category, author_id, title, body, kind, meta, image_url, heart_count, reply_count, " +
+        "last_reply_at, pinned_at, locked_at, hidden_at, hidden_by, hidden_reason, created_at " +
+        "FROM forum_threads WHERE id = ?",
+      [id],
+    );
+    if (!rows[0]) return null;
+    const r = rows[0];
+    let meta = r.meta;
+    if (typeof meta === "string") { try { meta = JSON.parse(meta); } catch { meta = null; } }
+    return {
+      id: r.id, category: r.category, authorId: r.author_id, title: r.title, body: r.body,
+      kind: r.kind, meta, imageUrl: r.image_url, heartCount: Number(r.heart_count),
+      replyCount: Number(r.reply_count),
+      lastReplyAt: r.last_reply_at ? new Date(r.last_reply_at).toISOString() : null,
+      pinnedAt: r.pinned_at ? new Date(r.pinned_at).toISOString() : null,
+      lockedAt: r.locked_at ? new Date(r.locked_at).toISOString() : null,
+      hiddenAt: r.hidden_at ? new Date(r.hidden_at).toISOString() : null,
+      createdAt: new Date(r.created_at).toISOString(),
+    };
+  }
+
+  async function canModerateForum(req: express.Request, user: any): Promise<boolean> {
+    if (await isAdmin(req)) return true;
+    const ctx = await capabilityCtx(user);
+    return hasCapability("forum.moderate", ctx);
+  }
+
+  app.get("/api/forum/categories", async (_req, res) => {
+    res.json(forumCategories());
+  });
+
+  /** Thread list: pinned first, then latest activity. Hidden rows only for moderators. */
+  app.get("/api/forum/threads", async (req, res) => {
+    const user = await authedUser(req);
+    const mod = user ? await canModerateForum(req, user) : false;
+    const params: any[] = [];
+    // Every predicate prefixed with t. — the users join makes bare column
+    // names ambiguous, and MySQL's error for that is a silent 500.
+    let where = mod ? "1=1" : "t.hidden_at IS NULL";
+    if (req.query.category) { where += " AND t.category = ?"; params.push(String(req.query.category)); }
+    if (req.query.kind) { where += " AND t.kind = ?"; params.push(String(req.query.kind)); }
+    if (req.query.tag) {
+      where += " AND t.id IN (SELECT thread_id FROM forum_thread_tags WHERE tag = ?)";
+      params.push(String(req.query.tag).toLowerCase());
+    }
+    if (req.query.before) { where += " AND t.created_at < ?"; params.push(new Date(String(req.query.before))); }
+    const [rows] = await getPool().query<any[]>(
+      `SELECT t.id, t.category, t.author_id, t.title, t.body, t.kind, t.image_url, t.heart_count, t.reply_count, ` +
+        `t.last_reply_at, t.pinned_at, t.locked_at, t.hidden_at, t.created_at, u.name AS author_name, u.handle AS author_handle ` +
+        `FROM forum_threads t LEFT JOIN users u ON u.id = t.author_id WHERE ${where} ` +
+        `ORDER BY (t.pinned_at IS NULL), t.pinned_at DESC, COALESCE(t.last_reply_at, t.created_at) DESC LIMIT 20`,
+      params,
+    );
+    res.json(
+      rows.map((r) => ({
+        id: r.id, category: r.category, kind: r.kind,
+        title: r.title ?? String(r.body).slice(0, 80),
+        preview: String(r.body).slice(0, 160),
+        imageUrl: r.image_url, heartCount: Number(r.heart_count), replyCount: Number(r.reply_count),
+        author: { id: r.author_id, name: firstName(r.author_name ?? "Member"), handle: r.author_handle },
+        pinned: !!r.pinned_at, locked: !!r.locked_at, hidden: !!r.hidden_at,
+        lastActivityAt: new Date(r.last_reply_at ?? r.created_at).toISOString(),
+        createdAt: new Date(r.created_at).toISOString(),
+      })),
+    );
+  });
+
+  app.post("/api/forum/threads", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to post" });
+    const ctx = await capabilityCtx(user);
+    if (!hasCapability("forum.post", ctx)) {
+      return res.status(403).json({ error: "Posting opens at the member stage" });
+    }
+    if (await overLimit(`forum-post:${user.id}`, 5, 10 * 60 * 1000)) {
+      return res.status(429).json({ error: "Slow down — five threads in ten minutes is plenty" });
+    }
+    const { category, title, body, kind, meta, imageUrl, tags } = req.body ?? {};
+    if (!String(body ?? "").trim()) return res.status(400).json({ error: "Say something" });
+    if (!forumCategories().some((c: any) => c.id === category)) {
+      return res.status(400).json({ error: `Unknown category "${String(category)}"` });
+    }
+    const threadKind = ["discussion", "decision", "post", "event", "announcement"].includes(kind) ? kind : "discussion";
+    if (threadKind !== "post" && !String(title ?? "").trim()) {
+      return res.status(400).json({ error: "A title is required (microposts excepted)" });
+    }
+    if (threadKind === "decision" && !hasCapability("proposal.open", ctx)) {
+      return res.status(403).json({ error: "Opening a decision requires the co-creator stage or a role that grants it" });
+    }
+    if (imageUrl && !String(imageUrl).startsWith("/api/uploads/")) {
+      return res.status(400).json({ error: "Images must come through the village's own upload" });
+    }
+    const cleanTags = Array.from(
+      new Set((Array.isArray(tags) ? tags : []).map((t: any) => String(t).toLowerCase().trim()).filter((t: string) => /^[a-z0-9][a-z0-9-]{0,40}$/.test(t))),
+    ).slice(0, 5);
+
+    const thread = {
+      id: `thr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      category,
+      authorId: user.id,
+      title: threadKind === "post" ? null : String(title).trim().slice(0, 255),
+      body: String(body).slice(0, 20000),
+      kind: threadKind,
+      meta: threadKind === "decision" ? { status: "open", ...(meta ?? {}) } : meta ?? null,
+      imageUrl: imageUrl ?? null,
+    };
+    await getPool().query(
+      "INSERT INTO forum_threads (id, category, author_id, title, body, kind, meta, image_url) VALUES (?,?,?,?,?,?,?,?)",
+      [thread.id, thread.category, thread.authorId, thread.title, thread.body, thread.kind, JSON.stringify(thread.meta), thread.imageUrl],
+    );
+    for (const tag of cleanTags) {
+      await getPool().query("INSERT IGNORE INTO forum_thread_tags (thread_id, tag) VALUES (?,?)", [thread.id, tag]);
+    }
+    await onThreadCreated(forumDeps, thread, user);
+    await moduleActivity("forum", "forum", `${firstName(user.name)} started "${(thread.title ?? thread.body).slice(0, 60)}"`, {
+      actorUserId: user.id,
+      entityType: "thread",
+      entityRef: thread.id,
+    });
+    res.json({ ...thread, tags: cleanTags });
+  });
+
+  app.get("/api/forum/threads/:id", async (req, res) => {
+    const thread = await forumThreadById(req.params.id);
+    if (!thread) return res.status(404).json({ error: "Not found" });
+    const user = await authedUser(req);
+    const mod = user ? await canModerateForum(req, user) : false;
+    // Hidden threads answer 410 for everyone but moderators: it existed, it
+    // is gone, and the difference matters to whoever bookmarked it.
+    if (thread.hiddenAt && !mod) return res.status(410).json({ error: "This thread was hidden by moderation" });
+    const [replyRows] = await getPool().query<any[]>(
+      "SELECT r.id, r.author_id, r.parent_reply_id, r.body, r.hidden_at, r.created_at, u.name AS author_name, u.handle AS author_handle " +
+        "FROM forum_replies r LEFT JOIN users u ON u.id = r.author_id WHERE r.thread_id = ? ORDER BY r.created_at, r.id",
+      [req.params.id],
+    );
+    const [tagRows] = await getPool().query<any[]>("SELECT tag FROM forum_thread_tags WHERE thread_id = ?", [req.params.id]);
+    const [authorRow] = await getPool().query<any[]>("SELECT name, handle FROM users WHERE id = ?", [thread.authorId]);
+    res.json({
+      ...thread,
+      author: { id: thread.authorId, name: firstName(authorRow[0]?.name ?? "Member"), handle: authorRow[0]?.handle ?? null },
+      tags: tagRows.map((t) => t.tag),
+      replies: replyRows
+        .filter((r) => !r.hidden_at || mod)
+        .map((r) => ({
+          id: r.id,
+          parentReplyId: r.parent_reply_id,
+          body: r.hidden_at ? "[hidden by moderation]" : r.body,
+          hidden: !!r.hidden_at,
+          author: { id: r.author_id, name: firstName(r.author_name ?? "Member"), handle: r.author_handle },
+          createdAt: new Date(r.created_at).toISOString(),
+        })),
+    });
+  });
+
+  app.post("/api/forum/threads/:id/replies", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to reply" });
+    const ctx = await capabilityCtx(user);
+    if (!hasCapability("forum.post", ctx)) {
+      return res.status(403).json({ error: "Replying opens at the member stage" });
+    }
+    if (await overLimit(`forum-reply:${user.id}`, 10, 10 * 60 * 1000)) {
+      return res.status(429).json({ error: "Slow down a little" });
+    }
+    const thread = await forumThreadById(req.params.id);
+    if (!thread || thread.hiddenAt) return res.status(404).json({ error: "Thread not found" });
+    // Locks are ENFORCED here — a lock that only lives in the UI is theater.
+    if (thread.lockedAt) return res.status(423).json({ error: "This thread is locked" });
+    const body = String(req.body?.body ?? "").trim();
+    if (!body) return res.status(400).json({ error: "Say something" });
+    const parentReplyId = req.body?.parentReplyId ? String(req.body.parentReplyId) : null;
+    let parentAuthorId: string | null = null;
+    if (parentReplyId) {
+      const [p] = await getPool().query<any[]>("SELECT author_id FROM forum_replies WHERE id = ? AND thread_id = ?", [parentReplyId, thread.id]);
+      if (!p[0]) return res.status(400).json({ error: "That reply is not in this thread" });
+      parentAuthorId = String(p[0].author_id);
+    }
+    const reply = {
+      id: `rpl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      threadId: thread.id,
+      authorId: user.id,
+      parentReplyId,
+      body: body.slice(0, 10000),
+    };
+    await getPool().query(
+      "INSERT INTO forum_replies (id, thread_id, author_id, parent_reply_id, body) VALUES (?,?,?,?,?)",
+      [reply.id, reply.threadId, reply.authorId, reply.parentReplyId, reply.body],
+    );
+    await getPool().query(
+      "UPDATE forum_threads SET reply_count = reply_count + 1, last_reply_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [thread.id],
+    );
+    await onReplyCreated(forumDeps, thread, reply, user, parentAuthorId);
+    res.json(reply);
+  });
+
+  app.post("/api/forum/threads/:id/subscribe", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const thread = await forumThreadById(req.params.id);
+    if (!thread) return res.status(404).json({ error: "Not found" });
+    await subscribe(getPool(), user.id, thread.id, "manual", req.body?.muted === true);
+    res.json({ success: true });
+  });
+
+  /** Report a thread or reply: once per person; soft reports can auto-hide. */
+  app.post("/api/forum/threads/:id/report", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to report" });
+    const thread = await forumThreadById(req.params.id);
+    if (!thread) return res.status(404).json({ error: "Not found" });
+    const replyId = req.body?.replyId ? String(req.body.replyId) : "";
+    const severity = req.body?.severity === "hard" ? "hard" : "soft";
+    try {
+      await getPool().query(
+        "INSERT INTO forum_reports (id, thread_id, reply_id, reporter_id, severity, reason) VALUES (?,?,?,?,?,?)",
+        [`rep-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, thread.id, replyId, user.id, severity, String(req.body?.reason ?? "").slice(0, 500)],
+      );
+    } catch (e: any) {
+      if (e?.code === "ER_DUP_ENTRY") return res.status(409).json({ error: "You already reported this" });
+      throw e;
+    }
+    // Community auto-hide: N distinct soft reporters hide it pending review.
+    if (severity === "soft") {
+      const [[cnt]] = await getPool().query<any[]>(
+        "SELECT COUNT(DISTINCT reporter_id) AS n FROM forum_reports WHERE thread_id = ? AND reply_id = ? AND severity = 'soft' AND status = 'open'",
+        [thread.id, replyId],
+      );
+      if (Number(cnt?.n ?? 0) >= numberVar("forum.report_hide_threshold")) {
+        if (replyId) {
+          await getPool().query("UPDATE forum_replies SET hidden_at = CURRENT_TIMESTAMP, hidden_by = 'community' WHERE id = ? AND hidden_at IS NULL", [replyId]);
+        } else {
+          await getPool().query(
+            "UPDATE forum_threads SET hidden_at = CURRENT_TIMESTAMP, hidden_by = 'community', hidden_reason = 'auto-hidden by community reports' WHERE id = ? AND hidden_at IS NULL",
+            [thread.id],
+          );
+        }
+      }
+    }
+    res.json({ success: true });
+  });
+
+  /** Moderation: hide/restore/pin/unpin/lock/unlock — capability or admin. */
+  app.post("/api/forum/threads/:id/moderate", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await canModerateForum(req, user))) {
+      return res.status(403).json({ error: "Moderation requires the forum.moderate capability" });
+    }
+    const thread = await forumThreadById(req.params.id);
+    if (!thread) return res.status(404).json({ error: "Not found" });
+    const action = String(req.body?.action ?? "");
+    const sql: Record<string, string> = {
+      hide: "UPDATE forum_threads SET hidden_at = CURRENT_TIMESTAMP, hidden_by = ?, hidden_reason = ? WHERE id = ?",
+      restore: "UPDATE forum_threads SET hidden_at = NULL, hidden_by = NULL, hidden_reason = NULL WHERE id = ?",
+      pin: "UPDATE forum_threads SET pinned_at = CURRENT_TIMESTAMP WHERE id = ?",
+      unpin: "UPDATE forum_threads SET pinned_at = NULL WHERE id = ?",
+      lock: "UPDATE forum_threads SET locked_at = CURRENT_TIMESTAMP WHERE id = ?",
+      unlock: "UPDATE forum_threads SET locked_at = NULL WHERE id = ?",
+    };
+    if (!sql[action]) return res.status(400).json({ error: "action must be hide, restore, pin, unpin, lock or unlock" });
+    const params = action === "hide" ? [user.id, String(req.body?.reason ?? "").slice(0, 255), thread.id] : [thread.id];
+    await getPool().query(sql[action], params);
+    await recordEvent(getPool(), {
+      kind: "audit",
+      text: `forum:${action}`,
+      actorUserId: user.id,
+      entityType: "thread",
+      entityRef: thread.id,
+      audience: "admin",
+    });
+    res.json({ success: true });
+  });
+
+  /** The decision primitive: record the outcome, lock the thread. */
+  app.post("/api/forum/threads/:id/decide", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const ctx = await capabilityCtx(user);
+    if (!hasCapability("proposal.decide", ctx)) {
+      return res.status(403).json({ error: "Recording a decision requires the proposal.decide capability" });
+    }
+    const thread = await forumThreadById(req.params.id);
+    if (!thread || thread.kind !== "decision") return res.status(404).json({ error: "That is not an open decision" });
+    if (thread.meta?.status === "decided") return res.status(409).json({ error: "This decision was already recorded" });
+    const outcome = String(req.body?.outcome ?? "").trim();
+    if (!outcome) return res.status(400).json({ error: "Say what was decided" });
+    const meta = { ...(thread.meta ?? {}), status: "decided", outcome: outcome.slice(0, 2000), decidedBy: user.id, decidedAt: new Date().toISOString() };
+    await getPool().query("UPDATE forum_threads SET meta = ?, locked_at = CURRENT_TIMESTAMP WHERE id = ?", [JSON.stringify(meta), thread.id]);
+    await moduleActivity("forum", "decision", `A decision was recorded: ${(thread.title ?? "").slice(0, 80)}`, {
+      actorUserId: user.id,
+      entityType: "thread",
+      entityRef: thread.id,
+    });
+    res.json({ success: true, meta });
+  });
+
+  app.get("/api/admin/forum/reports", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const status = ["open", "resolved", "dismissed"].includes(String(req.query.status)) ? String(req.query.status) : "open";
+    const [rows] = await getPool().query<any[]>(
+      "SELECT id, thread_id, reply_id, reporter_id, severity, reason, status, created_at FROM forum_reports WHERE status = ? ORDER BY created_at DESC LIMIT 200",
+      [status],
+    );
+    res.json(rows);
+  });
+
+  app.put("/api/admin/forum/reports/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const status = String(req.body?.status ?? "");
+    if (!["resolved", "dismissed"].includes(status)) return res.status(400).json({ error: "status must be resolved or dismissed" });
+    const [r]: any = await getPool().query(
+      "UPDATE forum_reports SET status = ?, resolved_by = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'",
+      [status, adminActor(req)?.id ?? null, req.params.id],
+    );
+    if (!r.affectedRows) return res.status(404).json({ error: "No open report with that id" });
+    res.json({ success: true });
   });
 
   // ── S19-S23: the village map ───────────────────────────────────────────────

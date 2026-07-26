@@ -136,6 +136,39 @@ export const MODULES: ModuleDef[] = [
     defaultConfig: { circlesSource: "platform" },
   },
   {
+    id: "forum",
+    name: "Forum & Decisions",
+    description:
+      "Village conversations: threads by circle-of-life category, @mentions, thread follows, community moderation — and the decision primitive, where proposals are opened and outcomes recorded.",
+    requires: [],
+    recommends: ["map"],
+    capabilities: ["forum.post", "forum.moderate"],
+    variableKeys: ["forum.report_hide_threshold"],
+    apiPrefixes: ["/api/forum"],
+    defaultConfig: {
+      categories: [
+        { id: "village-life", label: "Village Life", sortOrder: 1 },
+        { id: "projects", label: "Projects & Work", sortOrder: 2 },
+        { id: "governance", label: "Governance", sortOrder: 3 },
+        { id: "questions", label: "Questions & Help", sortOrder: 4 },
+      ],
+    },
+    validateConfig: (c: any) => {
+      if (!c || typeof c !== "object" || !Array.isArray(c.categories)) {
+        return "config must be { categories: [{id, label, sortOrder}] }";
+      }
+      for (const cat of c.categories) {
+        if (!cat?.id || !/^[a-z0-9][a-z0-9-]{0,40}$/.test(String(cat.id))) {
+          return `category id "${String(cat?.id)}" must be a lowercase slug`;
+        }
+        if (!cat?.label) return `category "${cat.id}" needs a label`;
+      }
+      const ids = c.categories.map((x: any) => x.id);
+      if (new Set(ids).size !== ids.length) return "category ids must be unique";
+      return null;
+    },
+  },
+  {
     id: "tools",
     name: "Tools Hub",
     description:

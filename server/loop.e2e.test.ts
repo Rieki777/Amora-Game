@@ -1222,4 +1222,111 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
     await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "off" }, founderToken);
   });
+
+  it("S24-S26: the forum — precedence, locks, community hide, decisions", async () => {
+    expect((await api("GET", "/api/forum/threads")).status).toBe(404);
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "public" }, founderToken);
+
+    const cats = await api("GET", "/api/forum/categories");
+    expect(cats.json.map((c: any) => c.id)).toContain("village-life");
+
+    // forum.post gates at member stage: a fresh guest (no roles, no stage)
+    // is refused; the doer needs co-creator to OPEN a decision.
+    const guest = await api("POST", "/api/auth/register", {
+      email: `forum-guest-${PORT}@example.test`, password: "LoopTest123!", name: "Fresh Guest", paths: ["resident"],
+    });
+    const tooEarly = await api("POST", "/api/forum/threads", { category: "village-life", title: "hi", body: "hello" }, guest.json.token);
+    expect(tooEarly.status).toBe(403);
+    await api("PUT", `/api/admin/players/${peerId}/stage`, { stageId: "member" }, founderToken);
+    await api("PUT", `/api/admin/players/${doerId}/stage`, { stageId: "co-creator" }, founderToken);
+    // The doer also takes the founders-circle seat: proposal.decide and
+    // forum.moderate arrive by ROLE GRANT, not admin status — the one gate.
+    await api("POST", "/api/admin/roles/founders-circle/holders", { userId: doerId, action: "add" }, founderToken);
+
+    // A decision thread, mentioning the peer by handle.
+    const created = await api(
+      "POST",
+      "/api/forum/threads",
+      {
+        category: "governance",
+        kind: "decision",
+        title: "Adopt the shared meal rhythm?",
+        body: "Proposal: weekly shared meals. @grateful-peer you hosted the last one — thoughts?",
+        tags: ["Meals", "rhythm"],
+      },
+      doerToken,
+    );
+    expect(created.status).toBe(200);
+    const threadId = created.json.id;
+
+    // The mention landed exactly once, on the spine.
+    const peerBell1 = await api("GET", "/api/notifications", undefined, peerToken);
+    const mention = peerBell1.json.notifications.find((n: any) => n.type === "mention" && n.link === `/forum/${threadId}`);
+    expect(mention).toBeTruthy();
+
+    // Peer replies → the thread author gets forum_reply.
+    const reply1 = await api("POST", `/api/forum/threads/${threadId}/replies`, { body: "Happy to host again." }, peerToken);
+    expect(reply1.status).toBe(200);
+    const doerBell = await api("GET", "/api/notifications", undefined, doerToken);
+    expect(doerBell.json.notifications.some((n: any) => n.type === "forum_reply" && n.link === `/forum/${threadId}`)).toBe(true);
+
+    // PRECEDENCE: the doer replies to the peer's reply AND mentions them —
+    // one person, one notification: the mention wins, no duplicate reply row.
+    const beforeReplies = (await api("GET", "/api/notifications", undefined, peerToken)).json.notifications.filter(
+      (n: any) => n.type === "forum_reply",
+    ).length;
+    const reply2 = await api(
+      "POST",
+      `/api/forum/threads/${threadId}/replies`,
+      { body: "Wonderful @grateful-peer — same time then.", parentReplyId: reply1.json.id },
+      doerToken,
+    );
+    expect(reply2.status).toBe(200);
+    const peerBell2 = await api("GET", "/api/notifications", undefined, peerToken);
+    // Two mentions total now (the thread's and the reply's)…
+    expect(peerBell2.json.notifications.filter((n: any) => n.type === "mention" && n.link === `/forum/${threadId}`).length).toBe(2);
+    // …and precedence held: the same reply produced NO direct-reply duplicate.
+    const afterReplies = peerBell2.json.notifications.filter((n: any) => n.type === "forum_reply").length;
+    expect(afterReplies).toBe(beforeReplies);
+
+    // A follower (the founder, manually subscribed) gets thread_activity on
+    // the next reply — and nobody already reached gets doubled.
+    await api("POST", `/api/forum/threads/${threadId}/subscribe`, {}, founderToken);
+    await api("POST", `/api/forum/threads/${threadId}/replies`, { body: "Settled, see everyone Sunday." }, doerToken);
+    const founderBell = await api("GET", "/api/notifications", undefined, founderToken);
+    expect(founderBell.json.notifications.some((n: any) => n.type === "thread_activity" && n.link === `/forum/${threadId}`)).toBe(true);
+
+    // Locks are enforced SERVER-side: the doer (forum.moderate via role) locks.
+    const lock = await api("POST", `/api/forum/threads/${threadId}/moderate`, { action: "lock" }, doerToken);
+    expect(lock.status).toBe(200);
+    expect((await api("POST", `/api/forum/threads/${threadId}/replies`, { body: "one more" }, peerToken)).status).toBe(423);
+    await api("POST", `/api/forum/threads/${threadId}/moderate`, { action: "unlock" }, doerToken);
+
+    // Community auto-hide: two distinct soft reporters at threshold 2.
+    await api("PUT", "/api/admin/variables/forum.report_hide_threshold", { value: "2" }, founderToken);
+    await api("POST", `/api/forum/threads/${threadId}/report`, { severity: "soft", reason: "test" }, peerToken);
+    expect((await api("POST", `/api/forum/threads/${threadId}/report`, { severity: "soft" }, peerToken)).status).toBe(409); // once per person
+    await api("POST", `/api/forum/threads/${threadId}/report`, { severity: "soft", reason: "test2" }, founderToken);
+    expect((await api("GET", `/api/forum/threads/${threadId}`)).status).toBe(410); // hidden: gone, not never-existed
+    const modView = await api("GET", `/api/forum/threads/${threadId}`, undefined, doerToken);
+    expect(modView.status).toBe(200); // moderators still see it
+    await api("POST", `/api/forum/threads/${threadId}/moderate`, { action: "restore" }, doerToken);
+    await api("PUT", "/api/admin/variables/forum.report_hide_threshold", { value: "3" }, founderToken);
+
+    // The decision primitive: the doer records the outcome; it locks; twice is 409.
+    const decide = await api("POST", `/api/forum/threads/${threadId}/decide`, { outcome: "Adopted by consent. Sundays, sunset." }, doerToken);
+    expect(decide.status).toBe(200);
+    expect(decide.json.meta.status).toBe("decided");
+    expect((await api("POST", `/api/forum/threads/${threadId}/decide`, { outcome: "again" }, doerToken)).status).toBe(409);
+    const decided = await api("GET", `/api/forum/threads/${threadId}`);
+    expect(decided.json.meta.outcome).toContain("Adopted by consent");
+    expect(decided.json.lockedAt).toBeTruthy();
+
+    // Tags landed in the junction, lowercased; the tag filter finds the thread.
+    const tagged = await api("GET", "/api/forum/threads?tag=meals");
+    expect(tagged.json.some((t: any) => t.id === threadId)).toBe(true);
+
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
+    expect((await api("GET", "/api/forum/threads")).status).toBe(404);
+  });
 });
