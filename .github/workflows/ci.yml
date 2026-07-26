@@ -1,0 +1,52 @@
+# CI gate for a repo where pushing `main` deploys production (Railway).
+# Keep this fast and boring: the same three commands every session runs locally
+# (MODULES_MASTER_PLAN.md Part 2.3), plus an advisory audit and a bundle report.
+#
+# Order matters: build BEFORE test — server/loop.e2e.test.ts boots dist/index.js.
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # version comes from package.json "packageManager" — one source of truth
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm check
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Bundle report
+        # Advisory: watch the SPA bundle as 11 modules land (plan rule 2.5).
+        run: |
+          echo "## Bundle sizes" >> "$GITHUB_STEP_SUMMARY"
+          ls -la dist/public/assets/ | awk '{print $5, $9}' | while read size name; do
+            [ -n "$name" ] && echo "- $name: $((size/1024)) KB" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Dependency audit (advisory)
+        # Non-blocking on purpose: an upstream advisory must not freeze deploys;
+        # it must be VISIBLE. Revisit blocking-level before Block 6 (fiat).
+        continue-on-error: true
+        run: pnpm audit --prod --audit-level high

@@ -22,5 +22,14 @@ export default defineConfig({
     port: 3000,
     strictPort: false,
     host: true,
+    // Dev API proxy (plan hazard table, dies at S0): `pnpm dev` used to serve
+    // the SPA with no backend at all — and the API server ALSO defaulted to
+    // port 3000, so the two collided before a proxy could even exist. Run
+    // `pnpm dev:server` (API on 3001 via .env PORT) beside `pnpm dev` and the
+    // SPA talks to a real backend.
+    proxy: {
+      "/api": { target: process.env.API_PROXY_TARGET || "http://localhost:3001", changeOrigin: true },
+      "/health": { target: process.env.API_PROXY_TARGET || "http://localhost:3001", changeOrigin: true },
+    },
   },
 });

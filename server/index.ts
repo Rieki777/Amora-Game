@@ -1,3 +1,6 @@
+// Local dev reads .env (PORT=3001 so the API doesn't collide with Vite's 3000);
+// on Railway the real environment always wins over the file.
+import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import path from "path";
