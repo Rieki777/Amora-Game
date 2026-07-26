@@ -247,6 +247,51 @@ export const VARIABLES: VariableDef[] = [
     default: "https://mainnet.base.org",
   },
 
+  // ── Hypha (S13): the SINGLE home for the DHO URL. Everything share-like —
+  //    governance, voting, equity — happens on Hypha; the platform deep-links
+  //    and never rebuilds it. Blank = every Hypha surface hides. ─────────────
+  {
+    key: "hypha.org_url",
+    category: "Hypha",
+    label: "Your Hypha DHO address",
+    description:
+      "The one place this platform sends people for governance, proposals, treasury and membership on Hypha. Every module derives its deep links from this single value; leaving it blank hides every Hypha button rather than showing a dead link.",
+    type: "text",
+    default: "",
+  },
+  {
+    key: "hypha.link_governance",
+    category: "Hypha",
+    label: "Override: governance link",
+    description: "Only if your DHO's governance page is not at the org root. Blank derives from the DHO address.",
+    type: "text",
+    default: "",
+  },
+  {
+    key: "hypha.link_proposals",
+    category: "Hypha",
+    label: "Override: proposals link",
+    description: "Only if your DHO's proposals page is not at /agreements. Blank derives from the DHO address.",
+    type: "text",
+    default: "",
+  },
+  {
+    key: "hypha.link_treasury",
+    category: "Hypha",
+    label: "Override: treasury link",
+    description: "Only if your DHO's treasury page is not at /treasury. Blank derives from the DHO address.",
+    type: "text",
+    default: "",
+  },
+  {
+    key: "hypha.link_members",
+    category: "Hypha",
+    label: "Override: members link",
+    description: "Only if your DHO's members page is not at /members. Blank derives from the DHO address.",
+    type: "text",
+    default: "",
+  },
+
   // ── Village rhythm ────────────────────────────────────────────────────────
   {
     key: "village.pulse_max_entries",

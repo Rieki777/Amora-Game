@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
+import { ModuleProvider } from "./modules/ModuleProvider";
 
 function ScrollToTop() {
   const [location] = useLocation();
@@ -105,11 +106,13 @@ function App() {
   return (
     <ThemeProvider defaultTheme="light">
         <AuthProvider>
+        <ModuleProvider>
           <TooltipProvider>
             <Toaster />
             <Router />
           </TooltipProvider>
  
+        </ModuleProvider>
         </AuthProvider>
     </ThemeProvider>
   );

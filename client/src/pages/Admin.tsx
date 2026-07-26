@@ -2117,6 +2117,164 @@ function GameRolesTab({ password }: { password: string }) {
   );
 }
 
+// ── Modules (S13): the catalog, lifecycles, and the Hypha integration card ───
+
+const LIFECYCLES = ["off", "preview", "members", "public"] as const;
+const LIFECYCLE_HINT: Record<string, string> = {
+  off: "Routes 404, no nav, no admin surface.",
+  preview: "Admins only — invisible to everyone else.",
+  members: "Signed-in members only.",
+  public: "Everyone. Capability gates still apply.",
+};
+
+function ModulesTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string>("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/modules`, { headers: authHeaders(password) });
+      setData(await res.json());
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const setLifecycle = async (mod: any, lifecycle: string) => {
+    if (mod.legalReview && mod.lifecycle === "off" && lifecycle !== "off") {
+      const sure = window.confirm(
+        `${mod.name} touches funds. Before enabling: credits are non-withdrawable and non-refundable to fiat; ` +
+          "tested backups, per-admin identities, and legal review are preconditions. Continue?",
+      );
+      if (!sure) return;
+    }
+    setBusy(mod.id);
+    try {
+      const res = await fetch(`${API_BASE}/admin/modules/${mod.id}/lifecycle`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ lifecycle }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        if (d.missing?.length) toast.error(`${d.error}. Enable ${d.missing.join(", ")} first.`);
+        else if (d.dependents?.length) toast.error(d.error);
+        else toast.error(d.error || "Change refused");
+      } else {
+        toast.success(`${mod.name} is now ${lifecycle}`);
+      }
+      load();
+    } catch { toast.error("Change failed"); }
+    setBusy("");
+  };
+
+  const demoted = (data?.modules ?? []).filter((m: any) => m.demotedBecause?.length);
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Modules</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          What this village runs. Everything ships off; each step up widens who can
+          see it. Off modules contribute nothing — no routes, no nav, no settings.
+        </p>
+      </div>
+      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : !data ? (
+        <p className="text-sm text-red-600">Could not load modules.</p>
+      ) : (
+        <div className="space-y-5">
+          {(demoted.length > 0 || (data.orphans ?? []).length > 0) && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              {demoted.map((m: any) => (
+                <p key={m.id}>
+                  <strong>{m.name}</strong> is configured {m.lifecycle} but requires{" "}
+                  {m.demotedBecause.join(", ")} — it is being served as OFF until that is resolved.
+                </p>
+              ))}
+              {(data.orphans ?? []).length > 0 && (
+                <p>Stored settings reference unknown module id(s): {data.orphans.join(", ")} (ignored).</p>
+              )}
+            </div>
+          )}
+
+          <div className="border border-[#2D5A5A]/30 bg-[#2D5A5A]/5 rounded-xl p-5">
+            <h3 className="font-semibold text-gray-900 mb-1">Hypha integration</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              All governance, voting, and equity live on your Hypha DHO; modules link
+              out and never rebuild it. Set the address in Game Mechanics → Hypha
+              (hypha.org_url). Blank hides every Hypha button.
+            </p>
+            {data.hypha?.configured ? (
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(data.hypha.links).map(([name, url]) => (
+                  <a key={name} href={String(url)} target="_blank" rel="noopener noreferrer"
+                    className="text-xs bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-[#2D5A5A] font-medium hover:bg-gray-50">
+                    {name} ↗
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block">
+                Not connected yet — every Hypha surface is hidden.
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-4">
+            {data.modules.map((m: any) => (
+              <div key={m.id} className="border border-gray-200 rounded-xl p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="max-w-xl">
+                    <h3 className="font-semibold text-gray-900">
+                      {m.name}
+                      {m.core && <span className="ml-2 text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Core</span>}
+                      {m.legalReview && <span className="ml-2 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full">legal review</span>}
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-0.5">{m.description}</p>
+                    {m.requires.length > 0 && (
+                      <p className="text-xs text-gray-400 mt-1.5">requires: {m.requires.join(", ")}</p>
+                    )}
+                  </div>
+                  {m.core ? (
+                    <span className="text-xs text-gray-400 italic pt-1">always on</span>
+                  ) : (
+                    <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                      {LIFECYCLES.map((lc) => (
+                        <button
+                          key={lc}
+                          disabled={busy === m.id}
+                          onClick={() => setLifecycle(m, lc)}
+                          title={LIFECYCLE_HINT[lc]}
+                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                            m.lifecycle === lc
+                              ? "bg-[#2D5A5A] text-white"
+                              : "bg-white text-gray-600 hover:bg-gray-50"
+                          } ${lc !== "off" ? "border-l border-gray-200" : ""}`}
+                        >
+                          {lc}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {!m.core && m.lifecycle !== "off" && (
+                  <p className="text-xs text-gray-400 mt-3">
+                    {LIFECYCLE_HINT[m.lifecycle]}
+                    {m.variableKeys.length > 0 && ` Tunables now visible in Game Mechanics: ${m.variableKeys.join(", ")}.`}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Token registry + capped mint (S9, Gate D: admins name their tokens) ──────
 
 function TokensTab({ password }: { password: string }) {
@@ -3415,6 +3573,7 @@ export default function Admin() {
             { key: "quest-claims", label: "Quest Claims", icon: Sparkles },
             { key: "players", label: "Players", icon: Users },
             { key: "game-roles", label: "Game Roles", icon: Users2 },
+            { key: "modules", label: "Modules", icon: Sparkles },
             { key: "tokens", label: "Tokens", icon: Coins },
             { key: "ledger", label: "Ledger", icon: BarChart3 },
             { key: "variables", label: "Game Mechanics", icon: Activity },
@@ -3538,6 +3697,7 @@ export default function Admin() {
           {activeTab === "quest-claims" && <QuestClaimsTab password={password} />}
           {activeTab === "players" && <PlayersTab password={password} />}
           {activeTab === "game-roles" && <GameRolesTab password={password} />}
+          {activeTab === "modules" && <ModulesTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}

@@ -33,6 +33,22 @@ import { gratitudeCyclesRepo, gratitudeDistributionsRepo, gratitudeLogRepo } fro
 import { claimsRepo as claimsRepoFactory, questsRepo as questsRepoFactory } from "./repos/quests";
 import { budgetFor, sendGratitude, type GratitudeDeps } from "./lib/gratitude";
 import { deleteEvent, recentEvents, recordEvent } from "./lib/events";
+import {
+  assertModuleGraph,
+  effectiveLifecycle,
+  loadModuleSettings,
+  moduleConfig,
+  moduleDemotions,
+  moduleOrphans,
+  requireModule,
+  setModuleConfig,
+  setModuleLifecycle,
+  settleHandlerFor,
+  storedLifecycle,
+  wireModuleAuth,
+} from "./lib/modules";
+import { LIFECYCLE_RANK, MODULES, MODULES_BY_ID, type ModuleLifecycle } from "../shared/modules";
+import { resolveHyphaLinks } from "../shared/hypha";
 import { getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
 import { dbCollection, dbDocument } from "./repos/store-db";
@@ -48,6 +64,9 @@ import {
 } from "./lib/gratitude-cycles";
 
 const BCRYPT_SALT_ROUNDS = 10;
+
+/** Bumped per shipped session; /health and /api/modules both report it. */
+const BUILD_MARKER = "2026-07-26-s13-module-framework";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1376,6 +1395,16 @@ async function startServer() {
   // S12: fill every store cache before a single route can read one.
   await initStores();
 
+  // S13: the module framework — load lifecycle state, reconcile the
+  // dependency graph loudly (demotions serve as OFF, never brick), and
+  // assert the one-selling-module-per-token invariant.
+  await loadModuleSettings(getPool());
+  assertModuleGraph();
+  wireModuleAuth({
+    isAdmin: (req) => isAdmin(req as any),
+    isAuthed: async (req) => !!(await authedUser(req as any)),
+  });
+
   // S10: the quest library seeds into MySQL on an EMPTY table only — the seed
   // file stays the fork-onboarding source, and a village that deleted quests
   // on purpose never has them resurrected (INSERT IGNORE + the empty check).
@@ -1426,6 +1455,32 @@ async function startServer() {
       );
   }
 
+  /**
+   * S13, the framework-owned settlement seam (economy invariant #10): ONE
+   * raw-body Stripe webhook, mounted BEFORE express.json(), dispatching on
+   * event metadata {module, orderId} to per-module registered settle
+   * handlers. Deliberately NEVER behind requireModule — in-flight orders
+   * must settle even when their module was just disabled (#13). Signature
+   * verification and the full payments.ts arrive with the first fiat module
+   * (S32); until a handler registers, this answers 501, loudly.
+   */
+  app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const event = JSON.parse(String(req.body ?? "{}"));
+      const meta = event?.data?.object?.metadata ?? {};
+      const moduleId = String(meta.module ?? "");
+      const handler = moduleId ? settleHandlerFor(moduleId) : undefined;
+      if (!handler) {
+        return res.status(501).json({ error: "no settlement handler registered", module: moduleId || null });
+      }
+      await handler(String(meta.orderId ?? ""), event);
+      res.json({ received: true });
+    } catch (e) {
+      console.error("[webhooks] stripe dispatch failed", e);
+      res.status(400).json({ error: "unprocessable webhook" });
+    }
+  });
+
   app.use(express.json({ limit: "1mb" }));
 
   /**
@@ -1464,7 +1519,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", async (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-s12-authority-flip", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: BUILD_MARKER, timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -1884,6 +1939,96 @@ async function startServer() {
       id: r.id, at: r.at, actorUserId: r.actorUserId,
       action: r.text, targetType: r.entityType, targetId: r.entityRef,
     })));
+  });
+
+  // ── S13: the module framework's surfaces ──────────────────────────────────
+
+  /**
+   * The viewer-scoped platform manifest (interop rule 2.1 #8): which modules
+   * exist FOR THIS VIEWER, plus the resolved Hypha links. The client boots
+   * nav and routes from this one call. Preview modules are only present for
+   * admins — the catalog of what a village is trying out never leaks.
+   */
+  app.get("/api/modules", async (req, res) => {
+    const admin = await isAdmin(req);
+    const authed = admin || !!(await authedUser(req));
+    const visible = MODULES.filter((m) => {
+      const lc = effectiveLifecycle(m.id);
+      if (m.core) return true;
+      if (lc === "public") return true;
+      if (lc === "members") return authed;
+      if (lc === "preview") return admin;
+      return false;
+    }).map((m) => ({
+      id: m.id,
+      name: m.name,
+      description: m.description,
+      core: !!m.core,
+      lifecycle: effectiveLifecycle(m.id),
+      hyphaLinks: m.hyphaLinks ?? [],
+    }));
+    res.json({
+      platform: {
+        name: mergedConfig().project.name,
+        build: BUILD_MARKER,
+      },
+      modules: visible,
+      hypha: resolveHyphaLinks(stringVar),
+    });
+  });
+
+  /** The full truth for the admin panel: every module, dependency status, orphans. */
+  app.get("/api/admin/modules", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const demotions = new Map(moduleDemotions().map((d) => [d.id, d.missing]));
+    res.json({
+      modules: MODULES.map((m) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description,
+        core: !!m.core,
+        lifecycle: storedLifecycle(m.id),
+        served: effectiveLifecycle(m.id),
+        demotedBecause: demotions.get(m.id) ?? null,
+        requires: m.requires,
+        recommends: m.recommends,
+        legalReview: !!m.legalReview,
+        hyphaOnly: !!m.hyphaOnly,
+        variableKeys: m.variableKeys,
+        capabilities: m.capabilities,
+        config: moduleConfig(m.id) ?? m.defaultConfig ?? null,
+      })),
+      orphans: moduleOrphans(),
+      hypha: resolveHyphaLinks(stringVar),
+    });
+  });
+
+  app.put("/api/admin/modules/:id/lifecycle", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { lifecycle } = req.body ?? {};
+    // Funds-bearing modules refuse to enable while no per-admin identity with
+    // a real credential exists (invariants #11-#12).
+    const adminsWithPasswords = (await members.all()).filter(
+      (u: any) => (u.role === "admin" || u.role === "founder") && u.passwordHash,
+    );
+    const result = await setModuleLifecycle(
+      req.params.id,
+      String(lifecycle) as ModuleLifecycle,
+      adminActor(req)?.id ?? null,
+      { sharedPasswordPosture: () => adminsWithPasswords.length === 0 },
+    );
+    if (!result.ok) {
+      const { status, ...body } = result as any;
+      return res.status(status).json(body);
+    }
+    res.json({ success: true, lifecycle: result.lifecycle, served: effectiveLifecycle(req.params.id) });
+  });
+
+  app.put("/api/admin/modules/:id/config", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const result = await setModuleConfig(req.params.id, req.body?.config, adminActor(req)?.id ?? null);
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    res.json({ success: true, config: moduleConfig(req.params.id) });
   });
 
   // ── S9: the token registry and ledger as admin surfaces ───────────────────
@@ -3449,7 +3594,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.get("/api/admin/variables", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const all = allVariables();
+    // S13: a module's tunables only appear while the module is non-off — an
+    // off module contributes zero admin surface, variables included.
+    const hiddenKeys = new Set(
+      MODULES.filter((m) => !m.core && effectiveLifecycle(m.id) === "off").flatMap((m) => m.variableKeys),
+    );
+    const all = allVariables().filter((v) => !hiddenKeys.has(v.key));
     const categories: Record<string, typeof all> = {};
     for (const v of all) (categories[v.category] ??= []).push(v);
     res.json({

@@ -28,15 +28,16 @@ export function discoverMigrations(dir: string = MIGRATIONS_DIR): string[] {
  * first version of the runner had, which silently skipped statements).
  */
 export function splitStatements(sql: string): string[] {
-  return sql
+  // Strip comment lines BEFORE splitting on statement-final semicolons: a
+  // comment that happens to end in ';' must never cut a statement in half
+  // (0015 learned this the hard way — "…live in game_variables;\n").
+  const withoutComments = sql
+    .split("\n")
+    .filter((line) => !/^\s*--/.test(line))
+    .join("\n");
+  return withoutComments
     .split(/;\s*$/m)
-    .map((chunk) =>
-      chunk
-        .split("\n")
-        .filter((line) => !/^\s*--/.test(line))
-        .join("\n")
-        .trim(),
-    )
+    .map((chunk) => chunk.trim())
     .filter((s) => s.length > 0);
 }
 

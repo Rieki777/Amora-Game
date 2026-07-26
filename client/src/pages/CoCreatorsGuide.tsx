@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useHypha } from "@/modules/ModuleProvider";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -50,9 +51,9 @@ const navPills: ScrollNavPill[] = [
 
 // ─── Hypha Action Cards ────────────────────────────────────────────────────────
 
-// AMORA: Replace [YOUR-DHO-SLUG] with your actual Hypha DHO slug
-// e.g. if your space is app.hypha.earth/en/dho/amora-village, use "amora-village"
-const HYPHA_BASE = "https://app.hypha.earth/en/dho/[YOUR-DHO-SLUG]";
+// S14: the DHO address is DATA (the hypha.org_url variable, resolved by the
+// server and read through useHypha) — the live [YOUR-DHO-SLUG] placeholder
+// this file used to ship is gone. Cards carry suffixes; the render resolves.
 
 const hyphaActions = [
   {
@@ -62,7 +63,7 @@ const hyphaActions = [
     description:
       "Before you begin any new type of contribution, a seasonal role, a quest, or a new initiative, you open it to the community with an Agreement. Describe what you're bringing, what Amora receives, and what you're requesting in return. The community votes. Value in = value out.",
     cta: "Create Agreement",
-    href: `${HYPHA_BASE}/agreements/create`,
+    suffix: "/agreements/create",
     color: "border-teal-deep/30 bg-teal-deep/5",
     iconColor: "text-teal-deep",
     iconBg: "bg-teal-deep/10",
@@ -74,7 +75,7 @@ const hyphaActions = [
     description:
       "When you've done the work, completed a quest, finished a season as a role holder, or reached a milestone, you come back and propose a Contribution Claim. Detail what you delivered, what Amora gained, and claim your Gratitude. This is how the value you create becomes visible and rewarded.",
     cta: "Propose a Contribution",
-    href: `${HYPHA_BASE}/agreements/create/propose-contribution`,
+    suffix: "/agreements/create/propose-contribution",
     color: "border-sage/30 bg-sage/5",
     iconColor: "text-sage",
     iconBg: "bg-sage/10",
@@ -86,7 +87,7 @@ const hyphaActions = [
     description:
       "If your contribution requires purchasing materials, covering travel, or paying for services that benefit the community, you can propose those expenses for reimbursement. Be transparent and specific, the community is the budget committee here, and your integrity in how you handle shared resources is part of your contribution.",
     cta: "Pay for Expenses",
-    href: `${HYPHA_BASE}/agreements/create/pay-for-expenses`,
+    suffix: "/agreements/create/pay-for-expenses",
     color: "border-amber/30 bg-amber/5",
     iconColor: "text-amber-700",
     iconBg: "bg-amber/10",
@@ -98,7 +99,7 @@ const hyphaActions = [
     description:
       "Your voice is your governance power, it grows as you contribute. If you trust another member to represent your perspective while you're away or unavailable, you can delegate your voice to them. Choose someone whose judgment aligns with yours and whose commitment to Amora you trust deeply.",
     cta: "View Members",
-    href: `${HYPHA_BASE}/members`,
+    suffix: "/members",
     color: "border-coral/30 bg-coral/5",
     iconColor: "text-coral",
     iconBg: "bg-coral/10",
@@ -227,6 +228,7 @@ const ctaCards = [
 ];
 
 export default function CoCreatorsGuide() {
+  const hypha = useHypha();
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
     if (element) {
@@ -763,6 +765,7 @@ export default function CoCreatorsGuide() {
             <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
               {hyphaActions.map((action, idx) => {
                 const Icon = action.icon;
+                const href = hypha.configured ? hypha.orgUrl + action.suffix : "";
                 return (
                   <motion.div
                     key={action.title}
@@ -784,8 +787,9 @@ export default function CoCreatorsGuide() {
                     <p className="text-muted-foreground text-sm leading-relaxed mb-5">
                       {action.description}
                     </p>
+                    {href ? (
                     <a
-                      href={action.href}
+                      href={href}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 text-sm font-semibold text-teal-deep hover:underline"
@@ -793,6 +797,11 @@ export default function CoCreatorsGuide() {
                       {action.cta}
                       <ExternalLink className="w-4 h-4 opacity-60" />
                     </a>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">
+                        Available once your village's Hypha space is connected.
+                      </p>
+                    )}
                   </motion.div>
                 );
               })}

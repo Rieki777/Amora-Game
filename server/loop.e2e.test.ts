@@ -943,4 +943,54 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     );
     expect(poolRow?.issuedToDate).toBe(1000);
   });
+
+  it("S13: modules ship OFF, lifecycle guards hold, and preview never leaks", async () => {
+    // Delta-off default: an empty module_settings table means the anonymous
+    // manifest carries ONLY core modules — the site is byte-identical to
+    // the pre-framework era.
+    const anon = await api("GET", "/api/modules");
+    expect(anon.status).toBe(200);
+    const anonIds = anon.json.modules.map((m: any) => m.id);
+    expect(anonIds).toContain("quests");
+    expect(anonIds).not.toContain("tools");
+    expect(anon.json.hypha.configured).toBe(false);
+
+    // Unknown ids and core modules are refused on write.
+    const unknown = await api("PUT", "/api/admin/modules/nope/lifecycle", { lifecycle: "public" }, founderToken);
+    expect(unknown.status).toBe(400);
+    const core = await api("PUT", "/api/admin/modules/quests/lifecycle", { lifecycle: "off" }, founderToken);
+    expect(core.status).toBe(400);
+
+    // Preview is admin-only: a signed-in member's manifest still hides it —
+    // the catalog of what a village is trying out never leaks.
+    const toPreview = await api("PUT", "/api/admin/modules/tools/lifecycle", { lifecycle: "preview" }, founderToken);
+    expect(toPreview.status).toBe(200);
+    const asMember = await api("GET", "/api/modules", undefined, doerToken);
+    expect(asMember.json.modules.map((m: any) => m.id)).not.toContain("tools");
+    const asAdmin = await api("GET", "/api/modules", undefined, founderToken);
+    expect(asAdmin.json.modules.find((m: any) => m.id === "tools")?.lifecycle).toBe("preview");
+
+    // The single Hypha home: setting hypha.org_url resolves the four named
+    // links by convention, and blanking it hides everything again.
+    const setUrl = await api(
+      "PUT",
+      "/api/admin/variables/hypha.org_url",
+      { value: "https://app.hypha.earth/en/dho/test-village" },
+      founderToken,
+    );
+    expect(setUrl.status).toBe(200);
+    const withHypha = await api("GET", "/api/modules");
+    expect(withHypha.json.hypha.configured).toBe(true);
+    expect(withHypha.json.hypha.links.proposals).toBe("https://app.hypha.earth/en/dho/test-village/agreements");
+    expect(withHypha.json.hypha.links.governance).toBe("https://app.hypha.earth/en/dho/test-village");
+    const clearUrl = await api("PUT", "/api/admin/variables/hypha.org_url", { value: "" }, founderToken);
+    expect(clearUrl.status).toBe(200);
+
+    // Off again; the admin panel reports the stored truth throughout.
+    const off = await api("PUT", "/api/admin/modules/tools/lifecycle", { lifecycle: "off" }, founderToken);
+    expect(off.status).toBe(200);
+    const adminView = await api("GET", "/api/admin/modules", undefined, founderToken);
+    expect(adminView.json.modules.find((m: any) => m.id === "tools").lifecycle).toBe("off");
+    expect(adminView.json.orphans).toEqual([]);
+  });
 });
