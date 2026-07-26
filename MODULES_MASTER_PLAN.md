@@ -121,8 +121,21 @@ session's acceptance includes it** — standing rules with no home get skipped.
    (S1 explicitly does); what may never regress is the loop itself.
 2. **No village's brand in platform code.** Identity in `shared/gameConfig.ts`,
    behaviour in `shared/gameVariables.ts`, per-deployment data in DB rows/seeds.
-3. **Cycle close is a settlement audit and credits nobody.** Amora pays at SEND.
-   Never add pool minting (trap 3.1 — the double-pay collision).
+3. **Gratitude economics follow the ReGen Civics model (Rye directive,
+   2026-07-26 — supersedes revision 3's settlement-audit-only close and this
+   rule's earlier wording).** Recognition is the SIGNAL: sends stay budgeted,
+   message-required, capped per recipient, and recognition points move at send
+   exactly as before — but recognition is never the value. VALUE arrives at
+   cycle close: an admin-sized pool (`gratitude.pool_per_cycle`) of a separate,
+   admin-named platform token (`gratitude.pool_token`, per-module tokens per
+   Gate D; default "Village Credits") distributes to recipients ∝ recognition
+   received that lunation, floored, idempotent per (cycle, member). Admins set
+   the pool size and the sending budget ("full value sends" =
+   `gratitude.base_budget` × stage multiplier). The double-pay trap (3.1) is
+   restated, not retired: **value pays exactly once, in exactly one token, at
+   exactly one moment (close); the pool token can never be the recognition
+   token (fail-loud at close); recognition stays unbuyable and unsellable.**
+   Mechanics reference: `FIXES_TO_MAKE_2026-07-17_FOUNDATION_LEVERS.md` §1.1a.
 4. **The ledger recomputes, never increments; every write carries an idempotency
    key;** hypha-governed tokens are un-mintable; unknown token slugs fail loud.
 5. **One gate** (`shared/capabilities.ts`): stage unlock OR role grant; badges add

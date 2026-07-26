@@ -432,19 +432,48 @@ describe("the coordination loop, end to end", () => {
     const closedNumbers = close.json.cycles.map((c: any) => c.cycleNumber);
     expect(closedNumbers).toContain(prevNumber);
 
-    // The settlement is public and carries the totals.
+    // The settlement is public and carries the totals — AND the pool release
+    // (ReGen model, Rye 2026-07-26): peer received ALL the recognition that
+    // lunation (8 of 8), so the whole default pool (1000 Village Credits)
+    // lands on them. Value pays once, in a separate token, at close.
     const dists = await api("GET", "/api/game/cycle/distributions");
     expect(dists.status).toBe(200);
     const prev = dists.json.find((c: any) => c.cycleNumber === prevNumber);
     expect(prev).toBeTruthy();
     expect(prev.totals).toEqual([
-      { name: "Grateful", received: 8, distinctSenders: 1 },
+      { name: "Grateful", received: 8, distinctSenders: 1, credited: 1000, poolToken: "credits" },
     ]);
+    expect(close.json.poolCredited).toBe(1000);
 
-    // Idempotent: closing again settles nothing further.
+    // The value is real: it sits in the member's ledger, in the pool token,
+    // and the recognition (signal) balance did NOT change at close.
+    const peerLedger = await api("GET", "/api/game/ledger", undefined, peerToken);
+    expect(peerLedger.status).toBe(200);
+    expect(peerLedger.json.balances.credits?.balance).toBe(1000);
+    const poolEntry = peerLedger.json.entries.find((e: any) => e.source === "gratitude_pool");
+    expect(poolEntry).toBeTruthy();
+    expect(poolEntry.tokenType).toBe("credits");
+    expect(poolEntry.amount).toBe(1000);
+
+    // Idempotent: closing again settles nothing further AND credits nothing
+    // further — the pool cannot double-pay.
     const again = await api("POST", "/api/admin/cycles/close", {}, founderToken);
     expect(again.status).toBe(200);
     expect(again.json.cycles.map((c: any) => c.cycleNumber)).not.toContain(prevNumber);
+    expect(again.json.poolCredited).toBe(0);
+    const peerAfter = await api("GET", "/api/game/ledger", undefined, peerToken);
+    expect(peerAfter.json.balances.credits?.balance).toBe(1000);
+
+    // Fail-loud misconfiguration guard: pointing the pool at the recognition
+    // token itself is refused BEFORE anything settles (signal must never be
+    // the value), and the variable is then restored.
+    const badToken = await api("PUT", "/api/admin/variables/gratitude.pool_token", { value: "gratitude" }, founderToken);
+    expect(badToken.status).toBe(200); // the variable itself is legal text…
+    const refuse = await api("POST", "/api/admin/cycles/close", {}, founderToken);
+    expect(refuse.status).toBe(400); // …but the close names the misconfiguration
+    expect(String(refuse.json.error)).toContain("signal");
+    const restore = await api("PUT", "/api/admin/variables/gratitude.pool_token", { value: "credits" }, founderToken);
+    expect(restore.status).toBe(200);
 
     // And the wall still works: the backdated entry never broke the live feed.
     const wall = await api("GET", "/api/game/gratitude/wall");
@@ -605,8 +634,12 @@ describe("the coordination loop, end to end", () => {
     expect(peerLedger.json.inSync).toBe(true);
     const received = peerLedger.json.entries.filter((e: any) => e.source === "gratitude_received");
     expect(received.length).toBeGreaterThanOrEqual(1);
+    // `balance` is the RECOGNITION balance; entries now span every token
+    // (the cycle pool pays value in a separate one), so sum per token.
     expect(peerLedger.json.balance).toBe(
-      peerLedger.json.entries.reduce((n: number, e: any) => n + e.amount, 0),
+      peerLedger.json.entries
+        .filter((e: any) => e.tokenType === "gratitude")
+        .reduce((n: number, e: any) => n + e.amount, 0),
     );
 
     // Anonymous callers cannot read anyone's ledger.

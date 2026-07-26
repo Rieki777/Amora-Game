@@ -52,6 +52,14 @@ export interface DistributionRecord {
   userId: string;
   received: number;
   distinctSenders: number;
+  /**
+   * The ReGen pool model (Rye, 2026-07-26): how much of the cycle's value pool
+   * this member was credited, and in which token. Recognition is the signal;
+   * this is the value it released. Absent/0 on cycles closed before the pool
+   * existed or when the pool is off.
+   */
+  credited?: number;
+  poolToken?: string | null;
   createdAt: string;
 }
 

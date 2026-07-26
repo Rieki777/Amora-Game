@@ -69,6 +69,27 @@ export const VARIABLES: VariableDef[] = [
     unit: "Gratitude",
   },
   {
+    key: "gratitude.pool_per_cycle",
+    category: "Gratitude",
+    label: "Value pool distributed at each cycle close",
+    description:
+      "The ReGen Civics model (Rye, 2026-07-26): recognition itself is a signal, and the VALUE arrives when a lunar cycle closes — this pool of tokens is split among everyone in proportion to the recognition they received that cycle. You set how big the pool is; the community's appreciation decides where it flows. 0 turns distribution off (signal only).",
+    type: "integer",
+    default: "1000",
+    min: 0,
+    max: 1000000,
+    unit: "tokens",
+  },
+  {
+    key: "gratitude.pool_token",
+    category: "Gratitude",
+    label: "Which token the pool pays",
+    description:
+      "The registry slug of the platform token the cycle pool distributes (rename or add tokens as you configure modules — per-module tokens are yours to name). It must be platform-governed and must NOT be the recognition token itself: recognition is the signal, this is the value, and keeping them separate is what stops appreciation from becoming a price.",
+    type: "text",
+    default: "credits",
+  },
+  {
     key: "gratitude.max_per_recipient_per_cycle",
     category: "Gratitude",
     label: "Maximum sends to the same person per cycle",

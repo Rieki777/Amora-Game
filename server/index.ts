@@ -14,7 +14,7 @@ import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar"
 import { hasCapability, type Capability } from "../shared/capabilities";
 import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/variables";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
-import { backfillOpeningBalances, balanceOf, creditTokens, entriesFor } from "./lib/ledger";
+import { backfillOpeningBalances, balanceOf, creditTokens, entriesFor, tokenDef } from "./lib/ledger";
 import { usersRepo } from "./repos/users";
 import { collectionRepo, documentRepo } from "./repos/store";
 import {
@@ -1292,7 +1292,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-s4-profile-journey", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-26-gratitude-pool", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -2954,7 +2954,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           ...c,
           totals: dists
             .filter((d) => d.cycleId === c.id)
-            .map((d) => ({ name: nameOf(d.userId), received: d.received, distinctSenders: d.distinctSenders })),
+            .map((d) => ({
+              name: nameOf(d.userId),
+              received: d.received,
+              distinctSenders: d.distinctSenders,
+              // The value the recognition released (ReGen pool model).
+              credited: d.credited ?? 0,
+              poolToken: d.poolToken ?? null,
+            })),
         })),
     );
   });
@@ -2972,23 +2979,77 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.post("/api/admin/cycles/close", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+
+    /**
+     * The ReGen model (Rye directive, 2026-07-26; mechanics researched in
+     * FIXES_TO_MAKE_2026-07-17 §1.1a): recognition is the SIGNAL — sends stay
+     * exactly as they are, budgeted and public. VALUE arrives here, at close:
+     * an admin-sized pool of a separate platform token distributes to
+     * recipients in proportion to the recognition they received that cycle.
+     * Value pays exactly once, in exactly one token, at exactly one moment.
+     * Floors round in the pool's favor; the idempotency key makes any re-run
+     * credit nothing twice.
+     */
+    const poolSize = numberVar(VARIABLES_FILE, "gratitude.pool_per_cycle") as number;
+    const poolToken = String(stringVar(VARIABLES_FILE, "gratitude.pool_token"));
+    if (poolSize > 0) {
+      // Fail loud BEFORE closing anything: a misconfigured pool should stop
+      // the admin here, not half-settle a lunation.
+      const def = tokenDef(poolToken);
+      if (!def) {
+        return res.status(400).json({ error: `gratitude.pool_token "${poolToken}" is not a registered token` });
+      }
+      if (def.governance !== "platform") {
+        return res.status(400).json({ error: `${poolToken} is ${def.governance}-governed and cannot be minted by the pool` });
+      }
+      if (poolToken === "gratitude") {
+        return res.status(400).json({ error: "The pool cannot pay the recognition token itself: recognition is the signal, the pool is the value" });
+      }
+    }
+
     const cycles: CycleRecord[] = cyclesRepo.all();
     const entries: any[] = gratitudeRepo.all();
     const due = dueCycles(cycles, entries, new Date());
 
     const dists: DistributionRecord[] = distributionsRepo.all();
     const closed: CycleRecord[] = [];
+    let totalCredited = 0;
     for (const cycle of due) {
       const totals = settleCycle(entries, cycle.id);
+      const totalReceived = totals.reduce((n, t) => n + t.received, 0);
+      let cycleCredited = 0;
       for (const t of totals) {
+        // Pool share ∝ recognition received this lunation. floor() keeps the
+        // remainder in the pool rather than minting dust.
+        let credited = 0;
+        if (poolSize > 0 && totalReceived > 0) {
+          credited = Math.floor((t.received / totalReceived) * poolSize);
+          if (credited > 0) {
+            const r = creditTokens(LEDGER_FILE, {
+              userId: t.userId,
+              tokenType: poolToken,
+              amount: credited,
+              source: "gratitude_pool",
+              sourceRef: cycle.id,
+              description: `Cycle pool share: ${t.received} recognition from ${t.distinctSenders} ${t.distinctSenders === 1 ? "person" : "people"}`,
+              idempotencyKey: `gratitude_pool:${cycle.cycleNumber}:${t.userId}`,
+            });
+            if (!r.ok) {
+              return res.status(500).json({ error: `pool distribution failed: ${r.error}` });
+            }
+            if (!r.duplicate) { totalCredited += credited; cycleCredited += credited; }
+          }
+        }
         dists.push({
           id: `dist-${cycle.cycleNumber}-${t.userId}`,
           cycleId: cycle.id,
           userId: t.userId,
           received: t.received,
           distinctSenders: t.distinctSenders,
+          credited,
+          poolToken: poolSize > 0 ? poolToken : null,
           createdAt: new Date().toISOString(),
-        });
+        } as DistributionRecord);
       }
       const record: CycleRecord = { ...cycle, status: "closed", closedAt: new Date().toISOString() };
       const existingIdx = cycles.findIndex((c) => c.cycleNumber === cycle.cycleNumber);
@@ -2996,9 +3057,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       else cycles.push(record);
       closed.push(record);
       if (totals.length > 0) {
+        const poolNote = cycleCredited > 0
+          ? ` — the cycle pool released ${cycleCredited} ${tokenDef(poolToken)?.name ?? poolToken}`
+          : "";
         addActivity(
           "cycle",
-          `A lunar cycle closed: ${totals.length} ${totals.length === 1 ? "member was" : "members were"} acknowledged with ${GAME_CONFIG.currency.nameLower}`,
+          `A lunar cycle closed: ${totals.length} ${totals.length === 1 ? "member was" : "members were"} acknowledged with ${GAME_CONFIG.currency.nameLower}${poolNote}`,
         );
       }
     }
@@ -3006,7 +3070,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       cyclesRepo.saveAll(cycles);
       distributionsRepo.saveAll(dists);
     }
-    res.json({ closed: closed.length, cycles: closed });
+    res.json({ closed: closed.length, cycles: closed, poolCredited: totalCredited });
   });
 
   /**
@@ -3063,8 +3127,18 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/game/ledger", (req, res) => {
     const user = requireUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const entries = entriesFor(LEDGER_FILE, user.id, "gratitude");
+    // All tokens now, not just recognition: since the cycle pool pays value in
+    // a separate token (ReGen model), a member's ledger view must show every
+    // token they hold, each with its registry display name.
+    const entries = entriesFor(LEDGER_FILE, user.id);
     const summed = balanceOf(LEDGER_FILE, user.id, "gratitude");
+    const balances: Record<string, { name: string; balance: number }> = {};
+    for (const e of entries) {
+      if (!balances[e.tokenType]) {
+        balances[e.tokenType] = { name: tokenDef(e.tokenType)?.name ?? e.tokenType, balance: 0 };
+      }
+      balances[e.tokenType].balance += Number(e.amount) || 0;
+    }
     res.json({
       // The column is a cache of the ledger. If these ever disagree the ledger
       // wins, and saying so here makes a drift visible rather than mysterious.
@@ -3072,7 +3146,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       cachedBalance: user.recognitionBalance ?? 0,
       inSync: summed === (user.recognitionBalance ?? 0),
       currency: GAME_CONFIG.currency.name,
+      balances,
       entries: entries.map((e) => ({
+        tokenType: e.tokenType,
+        tokenName: tokenDef(e.tokenType)?.name ?? e.tokenType,
         amount: e.amount,
         source: e.source,
         sourceRef: e.sourceRef,

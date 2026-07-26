@@ -47,11 +47,15 @@ export interface TokenDef {
   transferable: boolean;
 }
 
-/** The tokens every deployment is born knowing (mirrors the 0006 seed rows). */
+/** The tokens every deployment is born knowing (mirrors the 0006/0007 seed rows). */
 const BUILT_IN_TOKENS: TokenDef[] = [
   { slug: "gratitude", name: "Gratitude", kind: "recognition", governance: "platform", transferable: true },
   { slug: "amora", name: "Amora", kind: "equity", governance: "hypha", transferable: false },
   { slug: "voice", name: "Voice", kind: "voice", governance: "hypha", transferable: false },
+  // The default value token the gratitude cycle pool pays (ReGen model, Rye
+  // 2026-07-26). Per-deployment DATA: villages rename it, point the pool at a
+  // different platform token, or add per-module tokens as they configure them.
+  { slug: "credits", name: "Village Credits", kind: "credit", governance: "platform", transferable: false },
 ];
 
 const registry = new Map<string, TokenDef>(BUILT_IN_TOKENS.map((t) => [t.slug, t]));
