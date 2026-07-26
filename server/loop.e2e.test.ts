@@ -196,6 +196,46 @@ describe("the coordination loop, end to end", () => {
     expect(profile.json.heartsBalance).toBe(0);
   });
 
+  it("refuses to consent work that was never submitted", async () => {
+    // A second member claims a quest and does NOT submit it. Consent must refuse:
+    // releasing value for unshown work breaks the only promise the recognition
+    // economy makes. This gap was live until the loop test went looking for it.
+    const idler = { email: `idler-${PORT}@example.test`, password: "LoopTest123!", name: "Idle Claimer" };
+    const reg = await api("POST", "/api/auth/register", { ...idler, paths: ["resident"] });
+    expect(reg.status).toBe(200);
+    const idlerToken = reg.json.token;
+
+    const quests = await api("GET", "/api/quests");
+    const other = quests.json.find((q: any) => q.id !== questId);
+    expect(other).toBeTruthy();
+
+    const claim = await api("POST", `/api/game/quests/${other.id}/claim`, {}, idlerToken);
+    expect(claim.status).toBe(200);
+    expect(claim.json.status).toBe("claimed");
+
+    const premature = await api(
+      "POST",
+      `/api/admin/quest-claims/${claim.json.id}/consent`,
+      { approve: true, amount: 50 },
+      ADMIN,
+    );
+    expect(premature.status).toBe(409);
+
+    // And nothing was credited.
+    const profile = await api("GET", "/api/profile", undefined, idlerToken);
+    expect(profile.json.heartsBalance).toBe(0);
+
+    // Declining is still allowed from any state, so stale claims can be cleared.
+    const declined = await api(
+      "POST",
+      `/api/admin/quest-claims/${claim.json.id}/consent`,
+      { approve: false },
+      ADMIN,
+    );
+    expect(declined.status).toBe(200);
+    expect(declined.json.status).toBe("declined");
+  });
+
   it("requires an admin to consent, and refuses an anonymous caller", async () => {
     const forged = await api("POST", `/api/admin/quest-claims/${claimId}/consent`, { approve: true, amount: 999 });
     expect(forged.status).toBe(401);

@@ -2161,6 +2161,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       writeJson(QUEST_CLAIMS_FILE, claims);
       return res.json(claims[idx]);
     }
+    // Consent releases value, so it may only follow an actual submission.
+    // Without this an admin could credit a quest that was claimed and never
+    // done, which quietly breaks the one promise the recognition economy makes:
+    // that credit lands after the work was shown and consented to. Declining
+    // stays legal from any state, since a stale claim needs clearing.
+    if (claims[idx].status !== "submitted") {
+      return res.status(409).json({
+        error: `Cannot consent a claim with status "${claims[idx].status}". The member has to submit their work first.`,
+        status: claims[idx].status,
+      });
+    }
     const granted = Math.max(0, Number(amount) || 0);
     claims[idx] = { ...claims[idx], status: "consented", amount: granted, resolvedAt: new Date().toISOString() };
     writeJson(QUEST_CLAIMS_FILE, claims);
