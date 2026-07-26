@@ -24,6 +24,7 @@ what, where, what breaks without it.
 | `BREAK_GLASS_ADMIN_EMAIL` | (from S1) may re-elevate exactly that account | No recovery if all admins are demoted |
 | `ANTHROPIC_API_KEY` | Maia guided proposals (`/api/assistant/*`) | Assistant hides; forms still work |
 | `RESEND_API_KEY` | Transactional email | Emails silently skipped (logged) |
+| ↳ *sender domain* | **Every fork must verify its sender domain in Resend (resend.com/domains: SPF + DKIM records in the domain's DNS).** Resend returns 200 on unverified domains and delivers NOTHING — email death is silent. **Amora handoff item (Rye, 2026-07-26): `amora.cr` is unverified and only its team can add the DNS records — verify it during handoff.** | Claim links & notifications never arrive |
 | `FRONTEND_URL` | CORS origin | Cross-origin API calls fail |
 | `TEST_DATABASE_URL` | (dev/CI only, local .env) scratch-schema MySQL for DB-backed tests — the harness DROPs/CREATEs `amora_test`; never point it at the app schema | DB suites skip loudly |
 
@@ -43,6 +44,23 @@ what, where, what breaks without it.
   from this one value; blank hides all Hypha buttons.
 - Stripe (v3 S32+): per-fork keys; ONE webhook endpoint; test with the CLI
   before go-live; dispute handling is mandatory, not optional.
+
+## Backups (S12 — MySQL is the ONLY authority now)
+
+- **What's authoritative:** everything lives in MySQL. The `data/` volume
+  holds ONLY uploaded images (`data/uploads/`) plus historical JSON kept as
+  an archive. `scripts/import-json-to-mysql.ts` remains the restore/cutover
+  tool for that archive format.
+- **Automated:** `.github/workflows/db-backup.yml` dumps the production
+  schema daily (09:17 UTC), keeps 30 days of artifacts, and — on every run —
+  RESTORES the dump into a scratch MySQL and asserts row counts plus an
+  exact round-tripped timestamp against a manifest taken at dump time. A red
+  `db-backup` run means the backup is bad, not just late. Requires the
+  `PROD_DATABASE_URL` repo secret (the Railway MySQL public-proxy URL);
+  every fork sets its own.
+- **Manual restore:** download the artifact →
+  `gunzip -c dump.sql.gz | mysql <target-url>` → point `DATABASE_URL` at the
+  target. Boot migrations and invariants verify the rest.
 
 ## Smoke test after provisioning
 

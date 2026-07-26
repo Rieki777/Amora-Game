@@ -117,9 +117,12 @@ async function main() {
 
     for (const s of read("submissions.json") ?? []) {
       await conn.query(
-        "INSERT INTO `submissions` (id, type, status, data, rewarded, submitted_at) VALUES (?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
-          "ON DUPLICATE KEY UPDATE type=VALUES(type), status=VALUES(status), data=VALUES(data), rewarded=VALUES(rewarded)",
-        [str(s.id, 64), str(s.type, 64), str(s.status, 32) ?? "new", JSON.stringify(s.data ?? {}), s.rewarded ? 1 : 0, ts(s.submittedAt)],
+        "INSERT INTO `submissions` (id, type, status, data, rewarded, user_id, user_name, submitted_at) VALUES (?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
+          "ON DUPLICATE KEY UPDATE type=VALUES(type), status=VALUES(status), data=VALUES(data), rewarded=VALUES(rewarded), " +
+          "user_id=VALUES(user_id), user_name=VALUES(user_name)",
+        [str(s.id, 64), str(s.type, 64), str(s.status, 32) ?? "new", JSON.stringify(s.data ?? {}), s.rewarded ? 1 : 0,
+          // S12: attribution columns — dropping them orphans proposals from members.
+          str(s.userId, 64), str(s.userName, 255), ts(s.submittedAt)],
       );
     }
 
@@ -336,6 +339,20 @@ async function main() {
         "INSERT INTO `app_config` (config_key, value) VALUES (?,?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
         [key, JSON.stringify(doc)],
       );
+    }
+
+    // S12: the runOnce ledger (data/migrations.json, a bare array of ids)
+    // becomes app_config 'data-migrations' {applied: [...]} — without this,
+    // one-shot fixups would consider themselves never-run after the flip.
+    {
+      const applied = read("migrations.json");
+      if (Array.isArray(applied) && applied.length) {
+        await conn.query(
+          "INSERT INTO `app_config` (config_key, value) VALUES ('data-migrations', ?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
+          [JSON.stringify({ applied })],
+        );
+        console.log(`  data-migrations: ${applied.length} applied fixup id(s) carried over`);
+      }
     }
     console.log("Import complete.\n");
   }

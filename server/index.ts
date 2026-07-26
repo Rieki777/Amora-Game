@@ -35,7 +35,8 @@ import { budgetFor, sendGratitude, type GratitudeDeps } from "./lib/gratitude";
 import { deleteEvent, recentEvents, recordEvent } from "./lib/events";
 import { getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
-import { collectionRepo, documentRepo } from "./repos/store";
+import { dbCollection, dbDocument } from "./repos/store-db";
+import { loadVariables } from "./lib/variables";
 import {
   cycleIdFor,
   currentCycle,
@@ -65,25 +66,14 @@ const DATA_DIR = process.env.DATA_DIR
 // there. Any seed file that lived inside data/ would silently vanish at runtime
 // the moment a volume is attached. Seeds must ship as part of the app image.
 const SEEDS_DIR = path.resolve(__dirname, "..", "server", "seeds");
-const SUBMISSIONS_FILE = path.join(DATA_DIR, "submissions.json");
-const CONTENT_FILE = path.join(DATA_DIR, "content.json");
 const CONTENT_SEED_FILE = path.join(SEEDS_DIR, "content-seed.json");
 // users.json retired in S6 — members live in MySQL (server/repos/users.ts).
-const JOURNEY_FILE = path.join(DATA_DIR, "journey-state.json");
-const EMAIL_CONFIG_FILE = path.join(DATA_DIR, "email-config.json");
-const INVESTOR_DOCS_FILE = path.join(DATA_DIR, "investor-docs.json");
-const TRAINING_MODULES_FILE = path.join(DATA_DIR, "training-modules.json");
-const FAQS_FILE = path.join(DATA_DIR, "faqs.json");
 // quests.json / quest-claims.json retired in S10 (MySQL: server/repos/quests.ts).
 const QUESTS_SEED_FILE = path.join(SEEDS_DIR, "quests-seed.json");
 // gratitude-log.json retired in S8 — the domain lives in MySQL (server/repos/gratitude.ts).
 // activity.json + admin-audit.json retired in S11 (health_events, server/lib/events.ts).
-const SEASON_FILE = path.join(DATA_DIR, "season.json");
-const ROLES_FILE = path.join(DATA_DIR, "roles.json");
 const ROLES_SEED_FILE = path.join(SEEDS_DIR, "roles-seed.json");
-const ROLE_HOLDERS_FILE = path.join(DATA_DIR, "role-holders.json");
 // gratitude-cycles.json / gratitude-distributions.json retired in S8 (MySQL).
-const VARIABLES_FILE = path.join(DATA_DIR, "game-variables.json");
 // token-ledger.json retired in S7 — the ledger lives in MySQL (server/lib/ledger.ts).
 
 /**
@@ -93,16 +83,9 @@ const VARIABLES_FILE = path.join(DATA_DIR, "game-variables.json");
  */
 
 
-const STAGE_EVENTS_FILE = path.join(DATA_DIR, "stage-events.json");
 
-const MILESTONES_FILE = path.join(DATA_DIR, "milestones.json");
 /** Ledger of one-shot data fixes already applied to this deployment's volume. */
-const MIGRATIONS_FILE = path.join(DATA_DIR, "migrations.json");
-const VISIT_CONFIG_FILE = path.join(DATA_DIR, "visit-config.json");
-const INVESTOR_SUMMARY_FILE = path.join(DATA_DIR, "investor-summary.json");
-const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
-const BRAND_FILE = path.join(DATA_DIR, "brand.json");
-const WORK_WITH_US_FILE = path.join(DATA_DIR, "work-with-us.json");
+// migrations.json retired in S12 — the runOnce ledger is app_config 'data-migrations'.
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me";
 /**
@@ -311,36 +294,146 @@ const FORM_TYPE_TO_PATHWAY: Record<string, "investor" | "steward" | "resident" |
  * route code talks to the same repository interface it always did, now async.
  */
 const members = usersRepo();
-// One seam per domain: see server/repos/store.ts for why these are generic.
-const submissionsRepo = collectionRepo(SUBMISSIONS_FILE);
 const claimsRepo = claimsRepoFactory(getPool());
 const questsRepo = questsRepoFactory(getPool());
 const gratitudeRepo = gratitudeLogRepo(getPool());
-
-const milestonesRepo = collectionRepo(MILESTONES_FILE);
-const trainingRepo = collectionRepo(TRAINING_MODULES_FILE);
-const investorDocsRepo = collectionRepo(INVESTOR_DOCS_FILE);
 const distributionsRepo = gratitudeDistributionsRepo(getPool());
 const cyclesRepo = gratitudeCyclesRepo(getPool());
-const stageEventsRepo = collectionRepo(STAGE_EVENTS_FILE);
 // S11: recordEvent() subsumed the admin audit; see server/lib/events.ts.
 
-const rolesRepo = collectionRepo<RoleDef>(ROLES_FILE);
-const roleHoldersRepo = collectionRepo<RoleHolderRow>(ROLE_HOLDERS_FILE);
-const migrationsRepo = collectionRepo<any>(MIGRATIONS_FILE);
-// Each document repository carries its REAL default, so a missing or corrupt file
-// yields a working document and the `?? DEFAULT_X` dance disappears from the call
-// sites rather than being copied to a new place.
-const contentRepo = documentRepo(CONTENT_FILE, {} as any);
-const faqsRepo = documentRepo(FAQS_FILE, DEFAULT_FAQS as any);
-const journeyRepo = documentRepo(JOURNEY_FILE, { checkboxes: {}, copy: {}, kanban: {}, decisions: {} } as any);
-const emailConfigRepo = documentRepo(EMAIL_CONFIG_FILE, DEFAULT_EMAIL_CONFIG as any);
-const settingsRepo = documentRepo(SETTINGS_FILE, DEFAULT_SETTINGS as any);
-const brandRepo = documentRepo(BRAND_FILE, DEFAULT_BRAND as any);
-const workWithUsRepo = documentRepo(WORK_WITH_US_FILE, DEFAULT_WORK_WITH_US as any);
-const visitConfigRepo = documentRepo(VISIT_CONFIG_FILE, DEFAULT_VISIT_CONFIG as any);
-const investorSummaryRepo = documentRepo(INVESTOR_SUMMARY_FILE, DEFAULT_INVESTOR_SUMMARY as any);
-const seasonRepo = documentRepo(SEASON_FILE, GAME_CONFIG.season as any);
+/**
+ * S12, the authority flip: everything left reads MySQL through boot-loaded
+ * caches (see server/repos/store-db.ts for why reads stay synchronous). The
+ * column specs below ARE the camelCase↔snake_case contract per table.
+ */
+const submissionsRepo = dbCollection(getPool(), {
+  table: "submissions",
+  orderBy: "`submitted_at`, `id`",
+  columns: [
+    { js: "id", db: "id" },
+    { js: "type", db: "type" },
+    { js: "status", db: "status" },
+    { js: "data", db: "data", kind: "json" },
+    { js: "rewarded", db: "rewarded", kind: "bool" },
+    { js: "userId", db: "user_id" },
+    { js: "userName", db: "user_name" },
+    { js: "submittedAt", db: "submitted_at", kind: "time" },
+  ],
+});
+const milestonesRepo = dbCollection(getPool(), {
+  table: "milestones",
+  orderBy: "`sort_order`, `id`",
+  columns: [
+    { js: "id", db: "id" },
+    { js: "title", db: "title" },
+    { js: "description", db: "description" },
+    { js: "phase", db: "phase" },
+    { js: "status", db: "status" },
+    { js: "updateNote", db: "update_note" },
+    { js: "completedDate", db: "completed_date" },
+    { js: "order", db: "sort_order", kind: "int" },
+    { js: "updatedAt", db: "updated_at", kind: "time", defaultNow: true },
+  ],
+});
+const trainingRepo = dbCollection(getPool(), {
+  table: "training_modules",
+  orderBy: "`sort_order`, `id`",
+  columns: [
+    { js: "id", db: "id" },
+    { js: "title", db: "title" },
+    { js: "description", db: "description" },
+    { js: "type", db: "type" },
+    { js: "url", db: "url" },
+    { js: "order", db: "sort_order", kind: "int" },
+  ],
+});
+const investorDocsRepo = dbCollection(getPool(), {
+  table: "investor_docs",
+  orderBy: "`sort_order`, `id`",
+  columns: [
+    { js: "id", db: "id" },
+    { js: "title", db: "title" },
+    { js: "description", db: "description" },
+    { js: "url", db: "url" },
+    { js: "requiresRequest", db: "requires_request", kind: "bool" },
+    { js: "order", db: "sort_order", kind: "int" },
+  ],
+});
+const stageEventsRepo = dbCollection(getPool(), {
+  table: "stage_events",
+  orderBy: "`at`, `id`",
+  columns: [
+    { js: "id", db: "id" },
+    { js: "userId", db: "user_id" },
+    { js: "fromStage", db: "from_stage" },
+    { js: "toStage", db: "to_stage" },
+    { js: "unlocked", db: "unlocked", kind: "json" },
+    { js: "reason", db: "reason" },
+    { js: "at", db: "at", kind: "time" },
+  ],
+});
+const rolesRepo = dbCollection<RoleDef>(getPool(), {
+  table: "roles",
+  orderBy: "`sort_order`, `id`",
+  columns: [
+    { js: "id", db: "id" },
+    { js: "name", db: "name" },
+    { js: "description", db: "description" },
+    { js: "capabilities", db: "capabilities", kind: "json" },
+    { js: "minStage", db: "min_stage" },
+    { js: "order", db: "sort_order", kind: "int" },
+  ],
+});
+const roleHoldersRepo = dbCollection<RoleHolderRow>(getPool(), {
+  table: "role_holders",
+  orderBy: "`granted_at`, `id`",
+  columns: [
+    { js: "id", db: "id" },
+    { js: "roleId", db: "role_id" },
+    { js: "userId", db: "user_id" },
+    { js: "grantedBy", db: "granted_by" },
+    { js: "grantedAt", db: "granted_at", kind: "time" },
+  ],
+});
+// Each document carries its REAL default; absent rows read as the default and
+// are never persisted, so forks keep inheriting future platform defaults.
+const contentRepo = dbDocument(getPool(), "content", {} as any);
+const faqsRepo = dbDocument(getPool(), "faqs", DEFAULT_FAQS as any);
+const journeyRepo = dbDocument(getPool(), "journey-state", { checkboxes: {}, copy: {}, kanban: {}, decisions: {} } as any);
+const emailConfigRepo = dbDocument(getPool(), "email-config", DEFAULT_EMAIL_CONFIG as any);
+const settingsRepo = dbDocument(getPool(), "settings", DEFAULT_SETTINGS as any);
+const brandRepo = dbDocument(getPool(), "brand", DEFAULT_BRAND as any);
+const workWithUsRepo = dbDocument(getPool(), "work-with-us", DEFAULT_WORK_WITH_US as any);
+const visitConfigRepo = dbDocument(getPool(), "visit-config", DEFAULT_VISIT_CONFIG as any);
+const investorSummaryRepo = dbDocument(getPool(), "investor-summary", DEFAULT_INVESTOR_SUMMARY as any);
+const seasonRepo = dbDocument(getPool(), "season", GAME_CONFIG.season as any);
+// The runOnce ledger (one-shot data fixups) — formerly data/migrations.json.
+const dataMigrations = dbDocument(getPool(), "data-migrations", { applied: [] as string[] });
+
+/** Boot-time cache fill for every S12 store. Fail-loud, before serving. */
+async function initStores(): Promise<void> {
+  await Promise.all([
+    submissionsRepo.load(),
+    milestonesRepo.load(),
+    trainingRepo.load(),
+    investorDocsRepo.load(),
+    stageEventsRepo.load(),
+    rolesRepo.load(),
+    roleHoldersRepo.load(),
+    contentRepo.load(),
+    faqsRepo.load(),
+    journeyRepo.load(),
+    emailConfigRepo.load(),
+    settingsRepo.load(),
+    brandRepo.load(),
+    workWithUsRepo.load(),
+    visitConfigRepo.load(),
+    investorSummaryRepo.load(),
+    seasonRepo.load(),
+    dataMigrations.load(),
+    loadVariables(getPool()),
+  ]);
+}
 
 function legacySha256(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
@@ -515,61 +608,59 @@ function readSetPasswordToken(token: string): { userId: string } | null {
   }
 }
 
-/**
- * Seed a data file from a seed source, but also self-heal a known volume-mount
- * failure mode: if a data volume gets attached to an already-deployed service
- * (Railway and most PaaS volume mounts do this), the mount shadows whatever the
- * Docker image had at that path — including any seed file that used to live
- * inside data/. The very first boot after that mount then "succeeds" at writing
- * only the trivial empty placeholder (`{}`/`[]`), because it read from a seed
- * path that had just vanished underneath it. Seed sources now live outside the
- * mounted directory (see SEEDS_DIR above) so this shouldn't recur, but this
- * check repairs any data file stuck at that placeholder from before the fix.
- */
-function seedIfMissingOrEmpty(dataFile: string, seedFile: string, emptyValue: string) {
-  const seedContent = fs.existsSync(seedFile) ? fs.readFileSync(seedFile, "utf-8") : null;
-  if (!fs.existsSync(dataFile)) {
-    fs.writeFileSync(dataFile, seedContent ?? emptyValue);
-    return;
-  }
-  if (seedContent && fs.readFileSync(dataFile, "utf-8").trim() === emptyValue) {
-    fs.writeFileSync(dataFile, seedContent);
-  }
-}
+// seedIfMissingOrEmpty retired in S12: seeds land in MySQL on empty deployments.
 
+/**
+ * S12, the authority flip: data/ stops being authoritative. What remains on
+ * the volume is UPLOADS (images) — everything else lives in MySQL, seeded
+ * below only where a fresh deployment genuinely needs content to exist
+ * (page copy, the starter roles, training modules, milestones). Documents
+ * with working defaults are never persisted until first edited, so forks
+ * keep inheriting platform defaults. JSON files already on a volume stay
+ * behind as history; the importer remains the cutover/restore tool.
+ */
 async function ensureDataFiles() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  if (!fs.existsSync(SUBMISSIONS_FILE)) fs.writeFileSync(SUBMISSIONS_FILE, "[]");
-  seedIfMissingOrEmpty(CONTENT_FILE, CONTENT_SEED_FILE, "{}");
-  // users.json is no longer seeded: the members domain lives in MySQL (S6).
-  // Any existing file on the volume is left untouched as a historical record.
-  if (!fs.existsSync(JOURNEY_FILE)) fs.writeFileSync(JOURNEY_FILE, JSON.stringify({ checkboxes: {}, copy: {}, kanban: {}, decisions: {} }, null, 2));
-  if (!fs.existsSync(EMAIL_CONFIG_FILE)) fs.writeFileSync(EMAIL_CONFIG_FILE, JSON.stringify(DEFAULT_EMAIL_CONFIG, null, 2));
-  if (!fs.existsSync(INVESTOR_DOCS_FILE)) fs.writeFileSync(INVESTOR_DOCS_FILE, "[]");
-  if (!fs.existsSync(TRAINING_MODULES_FILE)) fs.writeFileSync(TRAINING_MODULES_FILE, JSON.stringify(DEFAULT_TRAINING_MODULES, null, 2));
-  if (!fs.existsSync(FAQS_FILE)) fs.writeFileSync(FAQS_FILE, JSON.stringify(DEFAULT_FAQS, null, 2));
-  if (!fs.existsSync(MILESTONES_FILE)) fs.writeFileSync(MILESTONES_FILE, JSON.stringify(DEFAULT_MILESTONES, null, 2));
-  if (!fs.existsSync(VISIT_CONFIG_FILE)) fs.writeFileSync(VISIT_CONFIG_FILE, JSON.stringify(DEFAULT_VISIT_CONFIG, null, 2));
-  if (!fs.existsSync(INVESTOR_SUMMARY_FILE)) fs.writeFileSync(INVESTOR_SUMMARY_FILE, JSON.stringify(DEFAULT_INVESTOR_SUMMARY, null, 2));
-  if (!fs.existsSync(SETTINGS_FILE)) fs.writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2));
-  if (!fs.existsSync(BRAND_FILE)) fs.writeFileSync(BRAND_FILE, JSON.stringify(DEFAULT_BRAND, null, 2));
-  if (!fs.existsSync(WORK_WITH_US_FILE)) fs.writeFileSync(WORK_WITH_US_FILE, JSON.stringify(DEFAULT_WORK_WITH_US, null, 2));
-  // Quests seed into MySQL at boot (seedQuestsIfEmpty in startServer, S10).
 
-  if (!fs.existsSync(SEASON_FILE)) fs.writeFileSync(SEASON_FILE, JSON.stringify(GAME_CONFIG.season, null, 2));
-  seedIfMissingOrEmpty(ROLES_FILE, ROLES_SEED_FILE, "[]");
-  if (!fs.existsSync(ROLE_HOLDERS_FILE)) fs.writeFileSync(ROLE_HOLDERS_FILE, "[]");
-  // Only CHANGED variables are stored, so new platform defaults are inherited.
-  if (!fs.existsSync(VARIABLES_FILE)) fs.writeFileSync(VARIABLES_FILE, "{}");
-  if (!fs.existsSync(STAGE_EVENTS_FILE)) fs.writeFileSync(STAGE_EVENTS_FILE, "[]");
+  // Page copy ships as a seed FILE (per-deployment data, fork swap point) and
+  // lands in the DB once, on first boot of an empty deployment.
+  if (!contentRepo.exists() && fs.existsSync(CONTENT_SEED_FILE)) {
+    try {
+      const seed = JSON.parse(fs.readFileSync(CONTENT_SEED_FILE, "utf-8"));
+      if (seed && typeof seed === "object") {
+        await contentRepo.put(seed);
+        console.log("[seed] content document seeded from file");
+      }
+    } catch (e) {
+      console.error("[seed] content seed failed (continuing)", e);
+    }
+  }
+  if (rolesRepo.all().length === 0 && fs.existsSync(ROLES_SEED_FILE)) {
+    try {
+      const seed = JSON.parse(fs.readFileSync(ROLES_SEED_FILE, "utf-8"));
+      if (Array.isArray(seed) && seed.length) {
+        await rolesRepo.replaceAll(seed);
+        console.log(`[seed] ${seed.length} starter role(s) seeded`);
+      }
+    } catch (e) {
+      console.error("[seed] roles seed failed (continuing)", e);
+    }
+  }
+  if (trainingRepo.all().length === 0 && DEFAULT_TRAINING_MODULES.length) {
+    await trainingRepo.replaceAll(DEFAULT_TRAINING_MODULES as any[]);
+    console.log("[seed] default training modules seeded");
+  }
+  if (milestonesRepo.all().length === 0 && DEFAULT_MILESTONES.length) {
+    await milestonesRepo.replaceAll(DEFAULT_MILESTONES as any[]);
+    console.log("[seed] default milestones seeded");
+  }
 
-  // Retired runOnce fixups, recorded in migrations.json where they ran:
+  // Retired runOnce fixups, recorded where they ran:
   //   rename-hearts-to-recognition — rewrote a JSON-era field the MySQL users
   //     table never had.
   //   ledger-opening-balances — seeded the JSON ledger; the MySQL ledger
-  //     carries those rows forward via the 0009 backfill, and a fresh fork
-  //     has no pre-ledger balances to explain.
+  //     carries those rows forward via the 0009 backfill.
   await runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
   await runOnce("founding-team-in-progress", markFoundingTeamInProgress);
   await runOnce("backfill-member-handles", backfillMemberHandles);
@@ -582,11 +673,10 @@ async function ensureDataFiles() {
  */
 async function runOnce(id: string, fn: () => void | Promise<void>) {
   try {
-    const applied: string[] = migrationsRepo.all();
+    const applied = dataMigrations.get().applied ?? [];
     if (applied.includes(id)) return;
     await fn();
-    applied.push(id);
-    migrationsRepo.saveAll(applied);
+    await dataMigrations.put({ applied: [...applied, id] });
     console.log(`[MIGRATION] applied ${id}`);
   } catch (e) {
     console.error(`[MIGRATION] ${id} failed (continuing)`, e);
@@ -610,7 +700,7 @@ async function backfillMemberHandles() {
 
 /** The founding circle is still forming, so the public tracker shouldn't call it
  *  done. Only touches the milestone if it's still the untouched seeded value. */
-function markFoundingTeamInProgress() {
+async function markFoundingTeamInProgress() {
   const mils: any[] = milestonesRepo.all();
   const m = mils.find((x) => x.id === "founding-team");
   if (!m || m.status !== "complete") return;
@@ -618,7 +708,7 @@ function markFoundingTeamInProgress() {
   m.completedDate = null;
   if (!m.updateNote) m.updateNote = "Core circle forming — still welcoming co-creators.";
   m.updatedAt = new Date().toISOString();
-  milestonesRepo.saveAll(mils);
+  await milestonesRepo.replaceAll(mils);
 }
 
 /**
@@ -631,7 +721,7 @@ function markFoundingTeamInProgress() {
  * This rewrites them ONLY where the stored value is still character-for-character
  * the old default. Anything a human has since edited is left exactly as it is.
  */
-function retireLegacyPegCopy() {
+async function retireLegacyPegCopy() {
   const OLD_FAQ = "Contributions are compensated in Gratitude (1 Gratitude = $1 USD in value). As Amora's shared businesses generate revenue, Gratitude converts to cash.";
   const OLD_DUES_NOTE = "Village Dues cover utilities, maintenance, and community services. They can be offset through Gratitude (1 Gratitude = $1 USD of contribution).";
   try {
@@ -647,14 +737,14 @@ function retireLegacyPegCopy() {
           }
         }
       }
-      if (changed) faqsRepo.set(faqs);
+      if (changed) await faqsRepo.put(faqs);
     }
   } catch { /* copy migration is best-effort; never block boot */ }
   try {
     const settings = settingsRepo.get();
     if (settings?.villageDues?.note === OLD_DUES_NOTE) {
       settings.villageDues.note = (DEFAULT_SETTINGS as any).villageDues.note;
-      settingsRepo.set(settings);
+      await settingsRepo.put(settings);
     }
   } catch { /* same */ }
 }
@@ -743,7 +833,7 @@ function addActivity(
  */
 function currentCycleId(): string {
   // The rhythm is a village choice (Admin > Gratitude > Cycle rhythm).
-  if (stringVar(VARIABLES_FILE, "gratitude.cycle_mode") === "month") {
+  if (stringVar("gratitude.cycle_mode") === "month") {
     return new Date().toISOString().slice(0, 7);
   }
   return cycleIdFor(new Date());
@@ -816,7 +906,7 @@ async function recordStageEvent(user: any, from: string, to: string, reason: str
     reason,
     at: new Date().toISOString(),
   });
-  stageEventsRepo.saveAll(events.slice(-2000));
+  await stageEventsRepo.replaceAll(events.slice(-2000));
   await addActivity("stage", `${firstName(user.name)} advanced to ${getStage(to).name}`, { actorUserId: user.id, entityType: "stage", entityRef: to });
 }
 
@@ -1041,7 +1131,6 @@ async function stageOf(user: any): Promise<string> {
  */
 const gratitudeDeps: GratitudeDeps = {
   get pool() { return getPool(); },
-  variablesFile: VARIABLES_FILE,
   log: gratitudeRepo,
   members,
   stageMultiplierFor: async (user: any) => getStage(await stageOf(user)).gratitudeMultiplier,
@@ -1209,16 +1298,36 @@ function writeJson(filePath: string, data: unknown) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
-// ── Abuse guards (in-memory; reset on redeploy, which is fine at this scale) ──
+// ── Abuse guards (S12: MySQL-backed — a redeploy is no longer an amnesty) ──
 
-const rateBuckets = new Map<string, number[]>();
-function rateLimited(key: string, max: number, windowMs: number): boolean {
-  const now = Date.now();
-  const arr = (rateBuckets.get(key) ?? []).filter((t) => now - t < windowMs);
-  if (arr.length >= max) { rateBuckets.set(key, arr); return true; }
-  arr.push(now);
-  rateBuckets.set(key, arr);
-  return false;
+/**
+ * Sliding-window rate limit over the rate_hits table. Named differently from
+ * the old in-memory rateLimited() ON PURPOSE: this one is async, and a missed
+ * await on a Promise is always truthy — every un-converted call site would
+ * have silently rate-limited everyone. The rename makes that a compile error.
+ *
+ * Fail-open on database trouble: an unreachable guard table must not take
+ * login down with it; the guard protects against abuse, not outages.
+ */
+async function overLimit(bucket: string, max: number, windowMs: number): Promise<boolean> {
+  try {
+    const pool = getPool();
+    const since = new Date(Date.now() - windowMs);
+    const [[row]] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS n FROM rate_hits WHERE bucket = ? AND at > ?",
+      [bucket, since],
+    );
+    if (Number(row?.n ?? 0) >= max) return true;
+    await pool.query("INSERT INTO rate_hits (bucket, at) VALUES (?, CURRENT_TIMESTAMP(3))", [bucket]);
+    // Opportunistic sweep (~1% of calls): the table stays a day deep, forever.
+    if (Math.random() < 0.01) {
+      void pool.query("DELETE FROM rate_hits WHERE at < (NOW() - INTERVAL 1 DAY) LIMIT 5000").catch(() => {});
+    }
+    return false;
+  } catch (e) {
+    console.error("[abuse-guard] check failed (failing open)", e);
+    return false;
+  }
 }
 function clientIp(req: express.Request): string {
   const fwd = req.headers["x-forwarded-for"];
@@ -1226,14 +1335,9 @@ function clientIp(req: express.Request): string {
   return req.socket.remoteAddress ?? "unknown";
 }
 // Global daily call cap for the AI assistant, so a key can't run away with cost.
-let assistantDay = "";
-let assistantCalls = 0;
-function assistantDailyCapReached(max: number): boolean {
+async function assistantDailyCapReached(max: number): Promise<boolean> {
   const today = new Date().toISOString().slice(0, 10);
-  if (today !== assistantDay) { assistantDay = today; assistantCalls = 0; }
-  if (assistantCalls >= max) return true;
-  assistantCalls++;
-  return false;
+  return overLimit(`assistant-day:${today}`, max, 24 * 60 * 60 * 1000);
 }
 
 async function startServer() {
@@ -1268,6 +1372,9 @@ async function startServer() {
     }
     console.log("[ledger] invariants hold: conservation ≡ 0, no hypha rows, no non-faucet negatives");
   }
+
+  // S12: fill every store cache before a single route can read one.
+  await initStores();
 
   // S10: the quest library seeds into MySQL on an EMPTY table only — the seed
   // file stays the fork-onboarding source, and a village that deleted quests
@@ -1357,7 +1464,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", async (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-s11-event-spine", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-26-s12-authority-flip", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -1370,7 +1477,7 @@ async function startServer() {
     // Honeypot: a hidden field only bots fill. Pretend success, store nothing.
     if (hp) return res.json({ success: true });
     // Rate limit: modest cap per IP to blunt spam floods.
-    if (rateLimited(`submit:${clientIp(req)}`, 6, 10 * 60 * 1000)) {
+    if (await overLimit(`submit:${clientIp(req)}`, 6, 10 * 60 * 1000)) {
       return res.status(429).json({ error: "Too many submissions. Please try again shortly." });
     }
     // Attribution: if a valid member token is present, stamp who submitted.
@@ -1385,7 +1492,7 @@ async function startServer() {
     };
     if (submitter) { entry.userId = submitter.id; entry.userName = submitter.name; }
     submissions.push(entry);
-    submissionsRepo.saveAll(submissions);
+    await submissionsRepo.replaceAll(submissions);
 
     const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "amora.regencivics.earth";
     const proto = req.headers["x-forwarded-proto"] ?? "https";
@@ -1442,7 +1549,7 @@ async function startServer() {
     if (filtered.length === submissions.length) {
       return res.status(404).json({ error: "Not found" });
     }
-    submissionsRepo.saveAll(filtered);
+    await submissionsRepo.replaceAll(filtered);
     res.json({ success: true });
   });
 
@@ -1463,7 +1570,7 @@ async function startServer() {
       rewarded = await applyAcceptReward(submissions[idx]);
       if (rewarded) submissions[idx].rewarded = true;
     }
-    submissionsRepo.saveAll(submissions);
+    await submissionsRepo.replaceAll(submissions);
     res.json({ success: true, rewarded });
   });
 
@@ -1543,7 +1650,7 @@ async function startServer() {
     }
     const content = contentRepo.get();
     content[req.params.section] = req.body;
-    contentRepo.set(content);
+    await contentRepo.put(content);
     res.json({ success: true });
   });
 
@@ -1581,7 +1688,7 @@ async function startServer() {
   app.post("/api/auth/login", async (req, res) => {
     // Throttled (S1): before admins were real users this endpoint was the one
     // unthrottled password oracle in the app.
-    if (rateLimited(`login:${clientIp(req)}`, 10, 15 * 60 * 1000)) {
+    if (await overLimit(`login:${clientIp(req)}`, 10, 15 * 60 * 1000)) {
       return res.status(429).json({ error: "Too many attempts. Try again in a few minutes." });
     }
     const { email, password } = req.body;
@@ -1612,7 +1719,7 @@ async function startServer() {
    * link so the founder's credential never travels through an operator.
    */
   app.post("/api/admin/bootstrap", async (req, res) => {
-    if (rateLimited(`bootstrap:${clientIp(req)}`, 5, 60 * 60 * 1000)) {
+    if (await overLimit(`bootstrap:${clientIp(req)}`, 5, 60 * 60 * 1000)) {
       return res.status(429).json({ error: "Too many attempts." });
     }
     const { password, email, name } = req.body ?? {};
@@ -1703,7 +1810,7 @@ async function startServer() {
 
   /** Claim a created account (or later: reset) by setting a password. */
   app.post("/api/auth/set-password", async (req, res) => {
-    if (rateLimited(`setpw:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
+    if (await overLimit(`setpw:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
       return res.status(429).json({ error: "Too many attempts." });
     }
     const { token, password } = req.body ?? {};
@@ -1794,7 +1901,7 @@ async function startServer() {
     }
     res.json({
       tokens: allTokens().map((t) => ({ ...t, issuedBy: byToken[t.slug] ?? {} })),
-      mintCapPerCycle: numberVar(VARIABLES_FILE, "ledger.admin_mint_cycle_cap"),
+      mintCapPerCycle: numberVar("ledger.admin_mint_cycle_cap"),
     });
   });
 
@@ -1851,7 +1958,7 @@ async function startServer() {
     const target = await members.byId(String(toUserId));
     if (!target) return res.status(404).json({ error: "Member not found" });
 
-    const cap = numberVar(VARIABLES_FILE, "ledger.admin_mint_cycle_cap");
+    const cap = numberVar("ledger.admin_mint_cycle_cap");
     if (cap <= 0) return res.status(403).json({ error: "Manual minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
     const cycle = currentCycle();
     const [[mintedRow]] = await getPool().query<any[]>(
@@ -2018,7 +2125,7 @@ async function startServer() {
     }
     const journey = journeyRepo.get();
     journey.checkboxes[id] = state;
-    journeyRepo.set(journey);
+    await journeyRepo.put(journey);
     res.json({ success: true });
   });
 
@@ -2036,7 +2143,7 @@ async function startServer() {
     const journey = journeyRepo.get();
     if (!journey.kanban) journey.kanban = {};
     journey.kanban[id] = { column, assignee: assignee ?? "" };
-    journeyRepo.set(journey);
+    await journeyRepo.put(journey);
     res.json({ success: true });
   });
 
@@ -2052,7 +2159,7 @@ async function startServer() {
     }
     const journey = journeyRepo.get();
     journey.copy[sectionId] = content;
-    journeyRepo.set(journey);
+    await journeyRepo.put(journey);
     res.json({ success: true });
   });
 
@@ -2070,7 +2177,7 @@ async function startServer() {
     const journey = journeyRepo.get();
     if (!journey.decisions) journey.decisions = {};
     journey.decisions[id] = { status, chosen: chosen ?? "", notes: notes ?? "" };
-    journeyRepo.set(journey);
+    await journeyRepo.put(journey);
     res.json({ success: true });
   });
 
@@ -2101,7 +2208,7 @@ async function startServer() {
       assistant_api_key:
         typeof req.body.assistant_api_key === "string" ? req.body.assistant_api_key.trim() : current.assistant_api_key,
     };
-    emailConfigRepo.set(next);
+    await emailConfigRepo.put(next);
     res.json({ success: true });
   });
 
@@ -2148,10 +2255,10 @@ async function startServer() {
     if (!cfg.assistant_api_key) return res.status(503).json({ error: "assistant-unavailable" });
     // Abuse/cost guards: per-IP burst limit + a global daily cap so a live key
     // can never run away with spend.
-    if (rateLimited(`assist:${clientIp(req)}`, 30, 60 * 60 * 1000)) {
+    if (await overLimit(`assist:${clientIp(req)}`, 30, 60 * 60 * 1000)) {
       return res.status(429).json({ error: "Slow down a moment, then keep going." });
     }
-    if (assistantDailyCapReached(600)) {
+    if (await assistantDailyCapReached(600)) {
       return res.status(503).json({ error: "assistant-unavailable" });
     }
 
@@ -2257,7 +2364,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.put("/api/admin/work-with-us-config", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
-    workWithUsRepo.set({ ...getWorkWithUs(), ...req.body });
+    await workWithUsRepo.put({ ...getWorkWithUs(), ...req.body });
     res.json({ success: true });
   });
 
@@ -2281,7 +2388,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     },
   });
   app.post("/api/work-with-us/attachment", async (req, res) => {
-    if (rateLimited(`upload:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
+    if (await overLimit(`upload:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
       return res.status(429).json({ error: "Too many uploads. Try again shortly." });
     }
     proposalUpload.single("file")(req, res, (err: any) => {
@@ -2402,7 +2509,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     };
     const docs = investorDocsRepo.all();
     docs.push(entry);
-    investorDocsRepo.saveAll(docs);
+    await investorDocsRepo.replaceAll(docs);
     res.json(entry);
   });
 
@@ -2414,7 +2521,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const target = docs.find((d) => d.id === req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
     const filtered = docs.filter((d) => d.id !== req.params.id);
-    investorDocsRepo.saveAll(filtered);
+    await investorDocsRepo.replaceAll(filtered);
     const filePath = path.join(UPLOADS_DIR, target.filename);
     if (fs.existsSync(filePath)) {
       try { fs.unlinkSync(filePath); } catch (err) { console.error("[VAULT] Failed to delete file", err); }
@@ -2444,7 +2551,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       submittedAt: new Date().toISOString(),
     };
     submissions.push(entry);
-    submissionsRepo.saveAll(submissions);
+    await submissionsRepo.replaceAll(submissions);
 
     const docs: any[] = investorDocsRepo.all();
     const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "amora.regencivics.earth";
@@ -2523,7 +2630,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       order: typeof order === "number" ? order : mods.length + 1,
     };
     mods.push(entry);
-    trainingRepo.saveAll(mods);
+    await trainingRepo.replaceAll(mods);
     res.json(entry);
   });
 
@@ -2538,7 +2645,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     for (const key of allowed) {
       if (req.body[key] !== undefined) mods[idx][key] = req.body[key];
     }
-    trainingRepo.saveAll(mods);
+    await trainingRepo.replaceAll(mods);
     res.json(mods[idx]);
   });
 
@@ -2549,7 +2656,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const mods: any[] = trainingRepo.all();
     const filtered = mods.filter((m) => m.id !== req.params.id);
     if (filtered.length === mods.length) return res.status(404).json({ error: "Not found" });
-    trainingRepo.saveAll(filtered);
+    await trainingRepo.replaceAll(filtered);
     res.json({ success: true });
   });
 
@@ -2578,7 +2685,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       question: String(item.question ?? "").trim(),
       answer: String(item.answer ?? "").trim(),
     }));
-    faqsRepo.set(all);
+    await faqsRepo.put(all);
     res.json({ success: true, items: all[pathway] });
   });
 
@@ -2596,7 +2703,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       answer: String(answer ?? "").trim(),
     };
     all[pathway].push(item);
-    faqsRepo.set(all);
+    await faqsRepo.put(all);
     res.json(item);
   });
 
@@ -2608,7 +2715,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const before = (all[pathway] ?? []).length;
     all[pathway] = (all[pathway] ?? []).filter((f: any) => f.id !== id);
     if (all[pathway].length === before) return res.status(404).json({ error: "Not found" });
-    faqsRepo.set(all);
+    await faqsRepo.put(all);
     res.json({ success: true });
   });
 
@@ -2644,7 +2751,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       updatedAt: new Date().toISOString(),
     };
     mils.push(entry);
-    milestonesRepo.saveAll(mils);
+    await milestonesRepo.replaceAll(mils);
     res.json(entry);
   });
 
@@ -2661,7 +2768,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // Stamped so the admin can surface milestones nobody has looked at in weeks —
     // a board goes stale silently otherwise (see "Founding Team Assembled").
     if (touched) mils[idx].updatedAt = new Date().toISOString();
-    milestonesRepo.saveAll(mils);
+    await milestonesRepo.replaceAll(mils);
     res.json(mils[idx]);
   });
 
@@ -2670,7 +2777,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const mils: any[] = milestonesRepo.all();
     const filtered = mils.filter((m) => m.id !== req.params.id);
     if (filtered.length === mils.length) return res.status(404).json({ error: "Not found" });
-    milestonesRepo.saveAll(filtered);
+    await milestonesRepo.replaceAll(filtered);
     res.json({ success: true });
   });
 
@@ -2689,7 +2796,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     const current = { ...DEFAULT_SETTINGS, ...(settingsRepo.get()) };
-    settingsRepo.set({ ...current, ...req.body });
+    await settingsRepo.put({ ...current, ...req.body });
     res.json({ success: true });
   });
 
@@ -2707,7 +2814,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.put("/api/admin/visit-config", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
-    visitConfigRepo.set(req.body);
+    await visitConfigRepo.put(req.body);
     res.json({ success: true });
   });
 
@@ -2725,7 +2832,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.put("/api/admin/investor-summary", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
-    investorSummaryRepo.set(req.body);
+    await investorSummaryRepo.put(req.body);
     res.json({ success: true });
   });
 
@@ -2760,7 +2867,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       images: { ...current.images, ...(req.body.images ?? {}) },
       setup: { ...current.setup, ...(req.body.setup ?? {}) },
     };
-    brandRepo.set(next);
+    await brandRepo.put(next);
     res.json({ success: true, brand: next });
   });
 
@@ -2788,7 +2895,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     const before = seasonState().current?.id ?? null;
     const next = normalizeSeasonConfig(req.body);
-    seasonRepo.set(next);
+    await seasonRepo.put(next);
     const after = seasonState();
     if (after.current && after.current.id !== before) {
       await addActivity("season", `The season has turned: ${after.current.name}`, { actorUserId: adminActor(req)?.id, entityType: "season" });
@@ -2811,7 +2918,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       goals: Array.isArray(req.body.goals) ? req.body.goals : [],
     };
     if (idx >= 0) cfg.seasons[idx] = entry; else cfg.seasons.push(entry);
-    seasonRepo.set(cfg);
+    await seasonRepo.put(cfg);
     if (entry.name) await addActivity("season", `The season has been set: ${entry.name}`, { actorUserId: adminActor(req)?.id, entityType: "season" });
     res.json({ success: true });
   });
@@ -2947,7 +3054,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // done, which quietly breaks the one promise the recognition economy makes:
     // that credit lands after the work was shown and consented to. Declining
     // stays legal from any state, since a stale claim needs clearing.
-    if (boolVar(VARIABLES_FILE, "quest.require_submission_before_consent") && claim.status !== "submitted") {
+    if (boolVar("quest.require_submission_before_consent") && claim.status !== "submitted") {
       return res.status(409).json({
         error: `Cannot consent a claim with status "${claim.status}". The member has to submit their work first.`,
         status: claim.status,
@@ -2961,7 +3068,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // decides where in the range it landed. parseRewardRange is the one place
     // that knows the format.
     const range = parseRewardRange((await questsRepo.byId(claim.questId))?.gratitude);
-    const capMode = stringVar(VARIABLES_FILE, "quest.consent_cap_mode");
+    const capMode = stringVar("quest.consent_cap_mode");
     const granted = requested;
     if (capMode === "posted") {
       if (!range.valid) {
@@ -2977,7 +3084,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         });
       }
     } else if (capMode === "capped") {
-      const ceiling = Math.round(range.max * numberVar(VARIABLES_FILE, "quest.consent_cap_multiplier"));
+      const ceiling = Math.round(range.max * numberVar("quest.consent_cap_multiplier"));
       if (requested > ceiling) {
         return res.status(409).json({
           error: `${requested} is above the ceiling for this quest. It advertises ${describeRange(range)} and the bonus ceiling is ${ceiling}.`,
@@ -3168,8 +3275,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
      * Floors round in the pool's favor; the idempotency key makes any re-run
      * credit nothing twice.
      */
-    const poolSize = numberVar(VARIABLES_FILE, "gratitude.pool_per_cycle") as number;
-    const poolToken = String(stringVar(VARIABLES_FILE, "gratitude.pool_token"));
+    const poolSize = numberVar("gratitude.pool_per_cycle") as number;
+    const poolToken = String(stringVar("gratitude.pool_token"));
     if (poolSize > 0) {
       // Fail loud BEFORE closing anything: a misconfigured pool should stop
       // the admin here, not half-settle a lunation.
@@ -3342,7 +3449,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.get("/api/admin/variables", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const all = allVariables(VARIABLES_FILE);
+    const all = allVariables();
     const categories: Record<string, typeof all> = {};
     for (const v of all) (categories[v.category] ??= []).push(v);
     res.json({
@@ -3362,7 +3469,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const raw = req.body?.value;
     if (raw === undefined || raw === null) return res.status(400).json({ error: "A value is required" });
-    const result = setVariable(VARIABLES_FILE, req.params.key, String(raw));
+    const result = await setVariable(getPool(), req.params.key, String(raw));
     if (!result.ok) return res.status(400).json({ error: result.error });
     if (result.previous !== result.value) {
       await addActivity("settings", `A game rule changed: ${req.params.key} is now ${result.value}`, { actorUserId: adminActor(req)?.id, entityType: "variable", entityRef: req.params.key });
@@ -3378,32 +3485,32 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/game/rules", async (_req, res) => {
     res.json({
       gratitude: {
-        baseBudget: numberVar(VARIABLES_FILE, "gratitude.base_budget"),
-        maxPerRecipientPerCycle: numberVar(VARIABLES_FILE, "gratitude.max_per_recipient_per_cycle"),
-        requireMessage: boolVar(VARIABLES_FILE, "gratitude.require_message"),
-        cycleMode: stringVar(VARIABLES_FILE, "gratitude.cycle_mode"),
+        baseBudget: numberVar("gratitude.base_budget"),
+        maxPerRecipientPerCycle: numberVar("gratitude.max_per_recipient_per_cycle"),
+        requireMessage: boolVar("gratitude.require_message"),
+        cycleMode: stringVar("gratitude.cycle_mode"),
         // The ReGen pool model: the community can always see how big the pool
         // is and what it pays — but a member's SHARE is unknowable before
         // close, and that indeterminacy is the design, not a gap.
-        poolPerCycle: numberVar(VARIABLES_FILE, "gratitude.pool_per_cycle"),
+        poolPerCycle: numberVar("gratitude.pool_per_cycle"),
         poolToken: (() => {
-          const slug = String(stringVar(VARIABLES_FILE, "gratitude.pool_token"));
+          const slug = String(stringVar("gratitude.pool_token"));
           return { slug, name: tokenDef(slug)?.name ?? slug };
         })(),
       },
       governance: {
-        voiceWeighting: stringVar(VARIABLES_FILE, "governance.voice_weighting"),
-        hyphaThreshold: numberVar(VARIABLES_FILE, "governance.hypha_threshold"),
-        sensingDays: numberVar(VARIABLES_FILE, "governance.sensing_days"),
+        voiceWeighting: stringVar("governance.voice_weighting"),
+        hyphaThreshold: numberVar("governance.hypha_threshold"),
+        sensingDays: numberVar("governance.sensing_days"),
       },
       quests: {
-        consentCapMode: stringVar(VARIABLES_FILE, "quest.consent_cap_mode"),
+        consentCapMode: stringVar("quest.consent_cap_mode"),
       },
       tokens: {
         // Addresses are public on-chain data; the RPC endpoint is not exposed.
-        equity: { ...GAME_CONFIG.currency.equity, address: stringVar(VARIABLES_FILE, "tokens.equity_address") },
-        voice: { ...GAME_CONFIG.currency.voice, address: stringVar(VARIABLES_FILE, "tokens.voice_address") },
-        showEconomics: boolVar(VARIABLES_FILE, "tokens.show_economics_section"),
+        equity: { ...GAME_CONFIG.currency.equity, address: stringVar("tokens.equity_address") },
+        voice: { ...GAME_CONFIG.currency.voice, address: stringVar("tokens.voice_address") },
+        showEconomics: boolVar("tokens.show_economics_section"),
       },
     });
   });
@@ -3467,7 +3574,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     } else {
       holders = holders.filter((h) => !(h.roleId === role.id && h.userId === userId));
     }
-    roleHoldersRepo.saveAll(holders);
+    await roleHoldersRepo.replaceAll(holders);
     res.json({ roleId: role.id, userId, action, holders: holders.filter((h) => h.roleId === role.id).length });
   });
 

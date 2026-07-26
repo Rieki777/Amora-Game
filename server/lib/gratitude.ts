@@ -19,7 +19,6 @@ import type { UsersRepo } from "../repos/users";
 
 export interface GratitudeDeps {
   pool: Pool;
-  variablesFile: string;
   log: GratitudeLogRepo;
   members: UsersRepo;
   /** stage.gratitudeMultiplier for this member — stage rules stay in the host.
@@ -37,7 +36,7 @@ export interface GratitudeBudget {
 /** Budget = base variable × stage multiplier, minus what this cycle already spent. */
 export async function budgetFor(deps: GratitudeDeps, user: any): Promise<GratitudeBudget> {
   const total = Math.round(
-    numberVar(deps.variablesFile, "gratitude.base_budget") * (await deps.stageMultiplierFor(user)),
+    numberVar("gratitude.base_budget") * (await deps.stageMultiplierFor(user)),
   );
   const cycleId = cycleIdFor(new Date());
   const log = await deps.log.all();
@@ -77,7 +76,7 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
   if ((!input.toEmail && !input.toId) || amt <= 0) {
     return { ok: false, status: 400, error: "Recipient and a positive amount are required" };
   }
-  if (kind === "gratitude" && boolVar(deps.variablesFile, "gratitude.require_message") && !String(input.message ?? "").trim()) {
+  if (kind === "gratitude" && boolVar("gratitude.require_message") && !String(input.message ?? "").trim()) {
     return { ok: false, status: 400, error: "A few words of appreciation are required" };
   }
 
@@ -99,7 +98,7 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
   const already = log.filter(
     (g) => g.fromId === user.id && g.toId === recipient.id && g.cycleId === budget.cycleId && g.kind === kind,
   ).length;
-  if (already >= numberVar(deps.variablesFile, "gratitude.max_per_recipient_per_cycle")) {
+  if (already >= numberVar("gratitude.max_per_recipient_per_cycle")) {
     return { ok: false, status: 409, error: "You have already acknowledged them this cycle" };
   }
 

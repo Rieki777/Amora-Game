@@ -1,0 +1,123 @@
+# S12: scheduled MySQL backups WITH a restore drill on every run.
+#
+# A backup nobody has restored is a hope, not a backup (plan rule 2.3 /
+# economy invariant #12: tested backup+restore is a go-live precondition for
+# funds-bearing modules). So this workflow never just dumps: a second job
+# restores the dump into a scratch MySQL and asserts fidelity against a
+# manifest taken at dump time — row counts AND a round-tripped timestamp,
+# because the timezone lesson (rule 2.3) says counts can match while every
+# date shifted six hours.
+#
+# PROD_DATABASE_URL secret = the Railway MySQL public-proxy URL (same value
+# as the local .env's TEST_DATABASE_URL). Artifacts retain 30 days of dailies.
+name: db-backup
+
+on:
+  schedule:
+    - cron: "17 9 * * *" # daily, 09:17 UTC
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Dump production
+        env:
+          DB_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          if [ -z "$DB_URL" ]; then echo "PROD_DATABASE_URL secret is not set"; exit 1; fi
+          proto_removed="${DB_URL#mysql://}"
+          userpass="${proto_removed%%@*}"
+          hostportdb="${proto_removed#*@}"
+          DB_USER="${userpass%%:*}"
+          DB_PASS="${userpass#*:}"
+          hostport="${hostportdb%%/*}"
+          DB_NAME_RAW="${hostportdb#*/}"
+          DB_NAME="${DB_NAME_RAW%%\?*}"
+          DB_HOST="${hostport%%:*}"
+          DB_PORT="${hostport#*:}"
+          echo "Dumping schema '$DB_NAME' from $DB_HOST:$DB_PORT"
+          mysqldump --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" --password="$DB_PASS" \
+            --single-transaction --set-gtid-purged=OFF --no-tablespaces "$DB_NAME" > dump.sql
+          gzip -9 dump.sql
+          ls -la dump.sql.gz
+
+      - name: Write fidelity manifest (counts + a timestamp, at dump time)
+        env:
+          DB_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          proto_removed="${DB_URL#mysql://}"
+          userpass="${proto_removed%%@*}"
+          hostportdb="${proto_removed#*@}"
+          DB_USER="${userpass%%:*}"; DB_PASS="${userpass#*:}"
+          hostport="${hostportdb%%/*}"; DB_NAME_RAW="${hostportdb#*/}"; DB_NAME="${DB_NAME_RAW%%\?*}"
+          DB_HOST="${hostport%%:*}"; DB_PORT="${hostport#*:}"
+          MYSQL="mysql --host=$DB_HOST --port=$DB_PORT --user=$DB_USER --password=$DB_PASS -N -B $DB_NAME"
+          {
+            echo "users=$($MYSQL -e 'SELECT COUNT(*) FROM users')"
+            echo "token_ledger=$($MYSQL -e 'SELECT COUNT(*) FROM token_ledger')"
+            echo "health_events=$($MYSQL -e 'SELECT COUNT(*) FROM health_events')"
+            echo "quests=$($MYSQL -e 'SELECT COUNT(*) FROM quests')"
+            # The round-trip probe: an exact UTC timestamp string.
+            echo "probe=$($MYSQL -e "SELECT CONCAT(id, '|', DATE_FORMAT(joined_at, '%Y-%m-%dT%H:%i:%s')) FROM users ORDER BY id LIMIT 1")"
+          } > manifest.txt
+          cat manifest.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: |
+            dump.sql.gz
+            manifest.txt
+          retention-days: 30
+
+  restore-drill:
+    needs: backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: drill
+          MYSQL_DATABASE: restored
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -pdrill"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+
+      - name: Restore into scratch MySQL
+        run: |
+          gunzip -c dump.sql.gz | mysql --host=127.0.0.1 --port=3306 --user=root --password=drill restored
+          echo "Restore completed."
+
+      - name: Assert fidelity against the manifest
+        run: |
+          MYSQL="mysql --host=127.0.0.1 --port=3306 --user=root --password=drill -N -B restored"
+          fail=0
+          while IFS='=' read -r key want; do
+            case "$key" in
+              users|token_ledger|health_events|quests)
+                got=$($MYSQL -e "SELECT COUNT(*) FROM $key");;
+              probe)
+                got=$($MYSQL -e "SELECT CONCAT(id, '|', DATE_FORMAT(joined_at, '%Y-%m-%dT%H:%i:%s')) FROM users ORDER BY id LIMIT 1");;
+              *) continue;;
+            esac
+            if [ "$got" != "$want" ]; then
+              echo "MISMATCH $key: dumped='$want' restored='$got'"
+              fail=1
+            else
+              echo "ok $key = $got"
+            fi
+          done < manifest.txt
+          if [ "$fail" = "1" ]; then
+            echo "RESTORE DRILL FAILED — this backup does not faithfully restore."
+            exit 1
+          fi
+          echo "Restore drill passed: counts match and the probe timestamp round-tripped exactly."

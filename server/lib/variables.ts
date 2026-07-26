@@ -1,19 +1,18 @@
 /**
  * Runtime accessor for the variables registry.
  *
- * Reads overrides from data/game-variables.json and falls back to the defaults
- * declared in shared/gameVariables.ts. Only values a founder has actually
- * CHANGED are stored, so upgrading the platform picks up new defaults instead of
- * freezing whatever was seeded on the day the village launched. That is the
+ * S12: overrides live in the game_variables TABLE and are cached in memory —
+ * loaded at boot, written through on change. Only values a founder has
+ * actually CHANGED are stored, so upgrading the platform picks up new
+ * defaults instead of freezing whatever was seeded on launch day. That is the
  * opposite of regen-civics, which seeds every row via migration and therefore
  * needs a migration to change a default.
  *
- * Deliberately synchronous and file-backed for now, matching every other read in
- * this server, so the whole codebase does not have to go async in the same
- * change that introduces the variables layer. The cutover to MySQL swaps the two
- * load/save functions and nothing else.
+ * Readers stay SYNCHRONOUS (the cache is the read path): variables sit on hot
+ * paths — budget math, cycle close, consent caps — and they change through
+ * exactly one admin endpoint, which is where the single async write lives.
  */
-import fs from "fs";
+import type { Pool, RowDataPacket } from "mysql2/promise";
 import {
   VARIABLES,
   VARIABLES_BY_KEY,
@@ -24,57 +23,44 @@ import {
 
 type Overrides = Record<string, string>;
 
-let cache: { mtimeMs: number; overrides: Overrides } | null = null;
+let overrides: Overrides = {};
 
-/** Read overrides, memoised on file mtime so hot paths do not re-parse per call. */
-function loadOverrides(file: string): Overrides {
-  try {
-    const stat = fs.statSync(file);
-    if (cache && cache.mtimeMs === stat.mtimeMs) return cache.overrides;
-    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
-    const overrides: Overrides = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-    cache = { mtimeMs: stat.mtimeMs, overrides };
-    return overrides;
-  } catch {
-    // Absent or corrupt: every variable falls back to its declared default,
-    // which is always a working game rather than a broken one.
-    return {};
-  }
-}
-
-export function invalidateVariableCache() {
-  cache = null;
+/** Boot-time load. Fail-loud: a server that cannot read its rules must not guess them. */
+export async function loadVariables(pool: Pool): Promise<void> {
+  const [rows] = await pool.query<RowDataPacket[]>("SELECT config_key, value FROM game_variables");
+  const next: Overrides = {};
+  for (const r of rows) next[String(r.config_key)] = String(r.value);
+  overrides = next;
 }
 
 /** One variable, typed. Unknown keys throw, because a typo must not read as 0. */
-export function variable(file: string, key: string): number | boolean | string {
+export function variable(key: string): number | boolean | string {
   const def = VARIABLES_BY_KEY[key];
   if (!def) throw new Error(`Unknown game variable: ${key}`);
-  return parseVariable(def, loadOverrides(file)[key]);
+  return parseVariable(def, overrides[key]);
 }
 
-export function numberVar(file: string, key: string): number {
-  const v = variable(file, key);
+export function numberVar(key: string): number {
+  const v = variable(key);
   return typeof v === "number" ? v : Number(v) || 0;
 }
 
-export function boolVar(file: string, key: string): boolean {
-  const v = variable(file, key);
+export function boolVar(key: string): boolean {
+  const v = variable(key);
   return typeof v === "boolean" ? v : v === "true";
 }
 
-export function stringVar(file: string, key: string): string {
-  return String(variable(file, key));
+export function stringVar(key: string): string {
+  return String(variable(key));
 }
 
 /**
  * Every variable with its definition and current value, grouped for Admin.
  * `isDefault` lets the UI show what has been customised at a glance.
  */
-export function allVariables(file: string): Array<
+export function allVariables(): Array<
   VariableDef & { value: string; parsed: number | boolean | string; isDefault: boolean }
 > {
-  const overrides = loadOverrides(file);
   return VARIABLES.map((def) => {
     const raw = overrides[def.key];
     return {
@@ -95,7 +81,7 @@ export interface SetResult {
 }
 
 /** Write one override after validating it. Returns the previous value for audit. */
-export function setVariable(file: string, key: string, raw: string): SetResult {
+export async function setVariable(pool: Pool, key: string, raw: string): Promise<SetResult> {
   const def = VARIABLES_BY_KEY[key];
   if (!def) return { ok: false, key, error: `Unknown variable: ${key}` };
 
@@ -103,15 +89,20 @@ export function setVariable(file: string, key: string, raw: string): SetResult {
   const error = validateVariable(def, value);
   if (error) return { ok: false, key, error };
 
-  const overrides = { ...loadOverrides(file) };
   const previous = overrides[key] ?? def.default;
 
   // Setting a variable back to its default REMOVES the override, so the village
   // keeps inheriting future platform defaults for anything it has not opinionated.
-  if (value === def.default) delete overrides[key];
-  else overrides[key] = value;
-
-  fs.writeFileSync(file, JSON.stringify(overrides, null, 2));
-  invalidateVariableCache();
+  if (value === def.default) {
+    await pool.query("DELETE FROM game_variables WHERE config_key = ?", [key]);
+    delete overrides[key];
+  } else {
+    await pool.query(
+      "INSERT INTO game_variables (config_key, value, value_type) VALUES (?,?,?) " +
+        "ON DUPLICATE KEY UPDATE value = VALUES(value), value_type = VALUES(value_type)",
+      [key, value, "text"],
+    );
+    overrides[key] = value;
+  }
   return { ok: true, key, value, previous };
 }
