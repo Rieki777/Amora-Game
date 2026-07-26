@@ -32,6 +32,7 @@ import { usersRepo } from "./repos/users";
 import { gratitudeCyclesRepo, gratitudeDistributionsRepo, gratitudeLogRepo } from "./repos/gratitude";
 import { claimsRepo as claimsRepoFactory, questsRepo as questsRepoFactory } from "./repos/quests";
 import { budgetFor, sendGratitude, type GratitudeDeps } from "./lib/gratitude";
+import { deleteEvent, recentEvents, recordEvent } from "./lib/events";
 import { getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
 import { collectionRepo, documentRepo } from "./repos/store";
@@ -76,7 +77,7 @@ const FAQS_FILE = path.join(DATA_DIR, "faqs.json");
 // quests.json / quest-claims.json retired in S10 (MySQL: server/repos/quests.ts).
 const QUESTS_SEED_FILE = path.join(SEEDS_DIR, "quests-seed.json");
 // gratitude-log.json retired in S8 — the domain lives in MySQL (server/repos/gratitude.ts).
-const ACTIVITY_FILE = path.join(DATA_DIR, "activity.json");
+// activity.json + admin-audit.json retired in S11 (health_events, server/lib/events.ts).
 const SEASON_FILE = path.join(DATA_DIR, "season.json");
 const ROLES_FILE = path.join(DATA_DIR, "roles.json");
 const ROLES_SEED_FILE = path.join(SEEDS_DIR, "roles-seed.json");
@@ -93,7 +94,7 @@ const VARIABLES_FILE = path.join(DATA_DIR, "game-variables.json");
 
 
 const STAGE_EVENTS_FILE = path.join(DATA_DIR, "stage-events.json");
-const ADMIN_AUDIT_FILE = path.join(DATA_DIR, "admin-audit.json");
+
 const MILESTONES_FILE = path.join(DATA_DIR, "milestones.json");
 /** Ledger of one-shot data fixes already applied to this deployment's volume. */
 const MIGRATIONS_FILE = path.join(DATA_DIR, "migrations.json");
@@ -315,15 +316,15 @@ const submissionsRepo = collectionRepo(SUBMISSIONS_FILE);
 const claimsRepo = claimsRepoFactory(getPool());
 const questsRepo = questsRepoFactory(getPool());
 const gratitudeRepo = gratitudeLogRepo(getPool());
-const activityRepo = collectionRepo(ACTIVITY_FILE);
+
 const milestonesRepo = collectionRepo(MILESTONES_FILE);
 const trainingRepo = collectionRepo(TRAINING_MODULES_FILE);
 const investorDocsRepo = collectionRepo(INVESTOR_DOCS_FILE);
 const distributionsRepo = gratitudeDistributionsRepo(getPool());
 const cyclesRepo = gratitudeCyclesRepo(getPool());
 const stageEventsRepo = collectionRepo(STAGE_EVENTS_FILE);
-// S1: who did what, as admin — the substrate S11's recordEvent() later subsumes.
-const adminAuditRepo = collectionRepo(ADMIN_AUDIT_FILE);
+// S11: recordEvent() subsumed the admin audit; see server/lib/events.ts.
+
 const rolesRepo = collectionRepo<RoleDef>(ROLES_FILE);
 const roleHoldersRepo = collectionRepo<RoleHolderRow>(ROLE_HOLDERS_FILE);
 const migrationsRepo = collectionRepo<any>(MIGRATIONS_FILE);
@@ -555,14 +556,14 @@ async function ensureDataFiles() {
   if (!fs.existsSync(BRAND_FILE)) fs.writeFileSync(BRAND_FILE, JSON.stringify(DEFAULT_BRAND, null, 2));
   if (!fs.existsSync(WORK_WITH_US_FILE)) fs.writeFileSync(WORK_WITH_US_FILE, JSON.stringify(DEFAULT_WORK_WITH_US, null, 2));
   // Quests seed into MySQL at boot (seedQuestsIfEmpty in startServer, S10).
-  if (!fs.existsSync(ACTIVITY_FILE)) fs.writeFileSync(ACTIVITY_FILE, "[]");
+
   if (!fs.existsSync(SEASON_FILE)) fs.writeFileSync(SEASON_FILE, JSON.stringify(GAME_CONFIG.season, null, 2));
   seedIfMissingOrEmpty(ROLES_FILE, ROLES_SEED_FILE, "[]");
   if (!fs.existsSync(ROLE_HOLDERS_FILE)) fs.writeFileSync(ROLE_HOLDERS_FILE, "[]");
   // Only CHANGED variables are stored, so new platform defaults are inherited.
   if (!fs.existsSync(VARIABLES_FILE)) fs.writeFileSync(VARIABLES_FILE, "{}");
   if (!fs.existsSync(STAGE_EVENTS_FILE)) fs.writeFileSync(STAGE_EVENTS_FILE, "[]");
-  if (!fs.existsSync(ADMIN_AUDIT_FILE)) fs.writeFileSync(ADMIN_AUDIT_FILE, "[]");
+
   // Retired runOnce fixups, recorded in migrations.json where they ran:
   //   rename-hearts-to-recognition — rewrote a JSON-era field the MySQL users
   //     table never had.
@@ -719,10 +720,18 @@ function mergedConfig() {
   };
 }
 
-function addActivity(type: string, text: string) {
-  const log: any[] = activityRepo.all();
-  log.push({ id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, text, at: new Date().toISOString() });
-  activityRepo.saveAll(log.slice(-500));
+/**
+ * S11: the Village Pulse writes through the event spine. Fire-and-forget by
+ * design (recordEvent never throws into the mutation it describes), and each
+ * call site now says WHO did it and WHAT it touched — the attribution the
+ * old activity log lost with every line.
+ */
+function addActivity(
+  kind: string,
+  text: string,
+  extra?: { actorUserId?: string | null; entityType?: string | null; entityRef?: string | null },
+): Promise<void> {
+  return recordEvent(getPool(), { kind, text, ...extra });
 }
 
 /**
@@ -785,7 +794,7 @@ function roleCapabilitiesFor(userId: string): string[] {
  * unlocked" was invisible on a profile and unassertable in a test. Every
  * advance now leaves an event, including which capabilities it opened.
  */
-function recordStageEvent(user: any, from: string, to: string, reason: string) {
+async function recordStageEvent(user: any, from: string, to: string, reason: string) {
   if (stageIndex(to) <= stageIndex(from)) return;
   const events: any[] = stageEventsRepo.all();
   const before = new Set(
@@ -808,7 +817,7 @@ function recordStageEvent(user: any, from: string, to: string, reason: string) {
     at: new Date().toISOString(),
   });
   stageEventsRepo.saveAll(events.slice(-2000));
-  addActivity("stage", `${firstName(user.name)} advanced to ${getStage(to).name}`);
+  await addActivity("stage", `${firstName(user.name)} advanced to ${getStage(to).name}`, { actorUserId: user.id, entityType: "stage", entityRef: to });
 }
 
 /** Every capability the platform knows about, for gates and unlock diffs. */
@@ -1111,7 +1120,7 @@ async function applyAcceptReward(entry: any): Promise<boolean> {
     u.recognitionBalance = (u.recognitionBalance ?? 0) + amount;
   });
   if (!updated) return false;
-  addActivity("proposal", `${firstName(updated.name)}'s proposal was welcomed into the village`);
+  await addActivity("proposal", `${firstName(updated.name)}'s proposal was welcomed into the village`, { actorUserId: updated.id, entityType: "submission", entityRef: entry.id });
   return true;
 }
 
@@ -1324,18 +1333,15 @@ async function startServer() {
     res.on("finish", () => {
       const actor = adminActor(req);
       if (!actor || res.statusCode >= 400) return;
-      try {
-        adminAuditRepo.add({
-          id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          at: new Date().toISOString(),
-          actorUserId: actor.id,
-          // originalUrl, not req.path: by finish-time Express has restored the
-          // full URL on the request, so a mount-prefix template would double it.
-          action: `${req.method} ${String(req.originalUrl).split("?")[0]}`,
-          targetType: null,
-          targetId: null,
-        });
-      } catch { /* auditing must never break the mutation it describes */ }
+      // originalUrl, not req.path: by finish-time Express has restored the
+      // full URL on the request, so a mount-prefix template would double it.
+      // recordEvent never throws — auditing must never break the mutation.
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `${req.method} ${String(req.originalUrl).split("?")[0]}`,
+        actorUserId: actor.id,
+        audience: "admin",
+      });
     });
     next();
   });
@@ -1351,7 +1357,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", async (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-s10-quests-mysql", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-26-s11-event-spine", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -1566,7 +1572,7 @@ async function startServer() {
       avatar: null,
     };
     await members.add(user);
-    addActivity("join", `${firstName(name)} stepped into the village as a Guest`);
+    await addActivity("join", `${firstName(name)} stepped into the village as a Guest`, { actorUserId: userId, entityType: "user", entityRef: userId });
     const token = encodeToken(userId, email);
     res.json({ success: true, token, user: publicUser(user) });
   });
@@ -1678,15 +1684,15 @@ async function startServer() {
       } catch { /* fall through: claimUrl is returned to the operator */ }
     }
 
-    adminAuditRepo.add({
-      id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      at: new Date().toISOString(),
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: bootstrapped ? "bootstrap:break-glass" : "bootstrap:founder",
       actorUserId: user.id,
-      action: bootstrapped ? "bootstrap:break-glass" : "bootstrap:founder",
-      targetType: "user",
-      targetId: user.id,
+      entityType: "user",
+      entityRef: user.id,
+      audience: "admin",
     });
-    addActivity("admin", `A founder account was established`);
+    await addActivity("admin", `A founder account was established`, { actorUserId: user.id, entityType: "user", entityRef: user.id });
     // The claim link is ALWAYS returned to the operator when one was minted:
     // the caller already holds the bootstrap credential, so the link is not an
     // escalation — and email providers accept sends they never deliver
@@ -1751,13 +1757,13 @@ async function startServer() {
       }
     }
     await members.update(target.id, (u: any) => { u.role = role; });
-    adminAuditRepo.add({
-      id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      at: new Date().toISOString(),
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: `role:${fromRole}->${role}`,
       actorUserId: actor.id,
-      action: `role:${fromRole}->${role}`,
-      targetType: "user",
-      targetId: target.id,
+      entityType: "user",
+      entityRef: target.id,
+      audience: "admin",
     });
     res.json({ success: true, user: publicUser(await members.byId(target.id)) });
   });
@@ -1765,8 +1771,12 @@ async function startServer() {
   /** The audit trail, newest first. Every admin mutation lands here. */
   app.get("/api/admin/audit", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const rows = adminAuditRepo.all().sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)));
-    res.json(rows.slice(0, 200));
+    // Legacy response shape preserved: the Admin audit view reads action/target.
+    const rows = await recentEvents(getPool(), "admin", 200);
+    res.json(rows.map((r) => ({
+      id: r.id, at: r.at, actorUserId: r.actorUserId,
+      action: r.text, targetType: r.entityType, targetId: r.entityRef,
+    })));
   });
 
   // ── S9: the token registry and ledger as admin surfaces ───────────────────
@@ -1874,13 +1884,13 @@ async function startServer() {
     if (slug === "gratitude") {
       await members.update(target.id, (u: any) => { u.recognitionBalance = r.toBalance; });
     }
-    adminAuditRepo.add({
-      id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      at: new Date().toISOString(),
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: `mint:${amt}:${slug}`,
       actorUserId: adminActor(req)?.id ?? null,
-      action: `mint:${amt}:${slug}`,
-      targetType: "user",
-      targetId: target.id,
+      entityType: "user",
+      entityRef: target.id,
+      audience: "admin",
     });
     res.json({ success: true, toBalance: r.toBalance, minted: minted + amt, cap, remaining: cap - minted - amt });
   });
@@ -2781,7 +2791,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     seasonRepo.set(next);
     const after = seasonState();
     if (after.current && after.current.id !== before) {
-      addActivity("season", `The season has turned: ${after.current.name}`);
+      await addActivity("season", `The season has turned: ${after.current.name}`, { actorUserId: adminActor(req)?.id, entityType: "season" });
     }
     res.json({ success: true, ...after });
   });
@@ -2802,7 +2812,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     };
     if (idx >= 0) cfg.seasons[idx] = entry; else cfg.seasons.push(entry);
     seasonRepo.set(cfg);
-    if (entry.name) addActivity("season", `The season has been set: ${entry.name}`);
+    if (entry.name) await addActivity("season", `The season has been set: ${entry.name}`, { actorUserId: adminActor(req)?.id, entityType: "season" });
     res.json({ success: true });
   });
 
@@ -3003,10 +3013,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         idempotencyKey: `quest_consent:${consented.id}`,
       });
       const after = await members.update(claimant.id, (u: any) => { u.recognitionBalance = credit.toBalance; });
-      addActivity("quest", `${firstName(consented.userName)} completed the quest "${consented.questTitle}"`);
+      await addActivity("quest", `${firstName(consented.userName)} completed the quest "${consented.questTitle}"`, { actorUserId: consented.userId, entityType: "quest", entityRef: consented.questId });
       if (after) {
         const stageAfter = await stageOf(after);
-        if (stageBefore) recordStageEvent(after, stageBefore, stageAfter, `quest consented: ${consented.questTitle}`);
+        if (stageBefore) await recordStageEvent(after, stageBefore, stageAfter, `quest consented: ${consented.questTitle}`);
       }
     }
     res.json(consented);
@@ -3064,7 +3074,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const { toEmail, amount, message } = req.body ?? {};
     const outcome = await sendGratitude(gratitudeDeps, { fromUser: user, toEmail, amount, message });
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(outcome.recipient.name)}`);
+    await addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(outcome.recipient.name)}`, { actorUserId: user.id, entityType: "user", entityRef: outcome.recipient.id });
     res.json({ success: true, entry: { ...outcome.entry, amount: undefined }, budget: outcome.budget });
   });
 
@@ -3229,9 +3239,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         const poolNote = cycleCredited > 0
           ? ` — the cycle pool released ${cycleCredited} ${tokenDef(poolToken)?.name ?? poolToken}`
           : "";
-        addActivity(
+        await addActivity(
           "cycle",
           `A lunar cycle closed: ${totals.length} ${totals.length === 1 ? "member was" : "members were"} acknowledged with ${GAME_CONFIG.currency.nameLower}${poolNote}`,
+          { actorUserId: adminActor(req)?.id, entityType: "cycle", entityRef: cycle.id },
         );
       }
     }
@@ -3354,7 +3365,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const result = setVariable(VARIABLES_FILE, req.params.key, String(raw));
     if (!result.ok) return res.status(400).json({ error: result.error });
     if (result.previous !== result.value) {
-      addActivity("settings", `A game rule changed: ${req.params.key} is now ${result.value}`);
+      await addActivity("settings", `A game rule changed: ${req.params.key} is now ${result.value}`, { actorUserId: adminActor(req)?.id, entityType: "variable", entityRef: req.params.key });
     }
     res.json(result);
   });
@@ -3451,7 +3462,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           grantedBy: adminActor(req)?.id ?? "admin",
           grantedAt: new Date().toISOString(),
         });
-        addActivity("role", `${firstName(member.name)} joined the ${role.name}`);
+        await addActivity("role", `${firstName(member.name)} joined the ${role.name}`, { actorUserId: adminActor(req)?.id, entityType: "role", entityRef: role.id });
       }
     } else {
       holders = holders.filter((h) => !(h.roleId === role.id && h.userId === userId));
@@ -3460,10 +3471,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ roleId: role.id, userId, action, holders: holders.filter((h) => h.roleId === role.id).length });
   });
 
-  // Village pulse: public activity feed
+  // Village pulse: public activity feed (S11: reads the event spine; the
+  // legacy {id, type, text, at} shape is preserved for the client).
   app.get("/api/game/pulse", async (_req, res) => {
-    const log: any[] = activityRepo.all();
-    res.json(log.slice(-30).reverse());
+    const events = await recentEvents(getPool(), "public", 30);
+    res.json(events.map((e) => ({ id: e.id, type: e.kind, text: e.text, at: e.at })));
   });
 
   // Players admin: list + stage grants
@@ -3501,7 +3513,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const updated = await members.update(target.id, (u: any) => { u.stageGranted = stageId ?? null; });
     if (!updated) return res.status(404).json({ error: "Not found" });
     const after = await stageOf(updated);
-    recordStageEvent(updated, before, after, stageId ? "granted by an admin" : "grant removed");
+    await recordStageEvent(updated, before, after, stageId ? "granted by an admin" : "grant removed");
     res.json({ success: true, stageComputed: after });
   });
 
@@ -3518,11 +3530,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Find the id via GET /api/game/pulse, then DELETE with the admin password.
   app.delete("/api/admin/activity/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const log: any[] = activityRepo.all();
-    const idx = log.findIndex((a) => a.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: "Not found" });
-    const [removed] = log.splice(idx, 1);
-    activityRepo.saveAll(log);
+    const removed = await deleteEvent(getPool(), req.params.id);
+    if (!removed) return res.status(404).json({ error: "Not found" });
     res.json({ success: true, removed });
   });
 

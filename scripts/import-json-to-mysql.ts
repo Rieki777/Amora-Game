@@ -177,11 +177,26 @@ async function main() {
       );
     }
 
+    // S11: activity + admin audit land in the event spine (health_events).
+    // Legacy rows carry no actor/entity — imported as-is; attribution starts
+    // the day the spine went live, which is exactly why S11 ran early.
     for (const a of read("activity.json") ?? []) {
       await conn.query(
-        "INSERT INTO `activity` (id, type, text, at) VALUES (?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
-          "ON DUPLICATE KEY UPDATE type=VALUES(type), text=VALUES(text)",
+        "INSERT INTO `health_events` (id, kind, text, audience, at) VALUES (?,?,?,'public',COALESCE(?, CURRENT_TIMESTAMP)) " +
+          "ON DUPLICATE KEY UPDATE kind=VALUES(kind), text=VALUES(text)",
         [str(a.id, 64), str(a.type, 64) ?? "event", String(a.text ?? ""), ts(a.at)],
+      );
+    }
+
+    for (const a of read("admin-audit.json") ?? []) {
+      await conn.query(
+        "INSERT INTO `health_events` (id, kind, text, actor_user_id, entity_type, entity_ref, audience, at) " +
+          "VALUES (?,?,?,?,?,?,'admin',COALESCE(?, CURRENT_TIMESTAMP)) " +
+          "ON DUPLICATE KEY UPDATE text=VALUES(text)",
+        [
+          str(a.id, 64), "audit", String(a.action ?? ""), str(a.actorUserId, 64),
+          str(a.targetType, 32), str(a.targetId, 120), ts(a.at),
+        ],
       );
     }
 
@@ -333,7 +348,8 @@ async function main() {
     quests: (read("quests.json") ?? []).length,
     quest_claims: (read("quest-claims.json") ?? []).length,
     gratitude_log: (read("gratitude-log.json") ?? []).length,
-    activity: (read("activity.json") ?? []).length,
+    // S11: both legacy logs land in the spine; the count must cover the union.
+    health_events: (read("activity.json") ?? []).length + (read("admin-audit.json") ?? []).length,
     investor_docs: (read("investor-docs.json") ?? []).length,
     training_modules: (read("training-modules.json") ?? []).length,
     milestones: (read("milestones.json") ?? []).length,
