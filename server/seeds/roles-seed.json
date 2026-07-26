@@ -1,0 +1,34 @@
+[
+  {
+    "id": "founders-circle",
+    "name": "Founders Circle",
+    "description": "Holds the founding vision and final say while the village grows into governing itself. Can open and decide proposals, consent to quests, and moderate the forum.",
+    "capabilities": ["proposal.open", "proposal.decide", "quest.consent", "forum.moderate", "quest.propose", "forum.post"],
+    "minStage": null,
+    "order": 1
+  },
+  {
+    "id": "steward-circle",
+    "name": "Steward Circle",
+    "description": "Village Stewards coordinating the land and the work. Can consent to quests and propose new ones.",
+    "capabilities": ["quest.consent", "quest.propose", "forum.post"],
+    "minStage": "member",
+    "order": 2
+  },
+  {
+    "id": "treasury",
+    "name": "Treasury",
+    "description": "Keeps the money legible: tracks budgets and allocations, and carries the cycle report to Hypha where Amora and Voice are governed.",
+    "capabilities": ["proposal.open", "forum.post"],
+    "minStage": "member",
+    "order": 3
+  },
+  {
+    "id": "practitioners",
+    "name": "Trained Practitioners",
+    "description": "Members trained for work that needs it (machinery, earthworks, medicine). Some quests require this role.",
+    "capabilities": ["forum.post"],
+    "minStage": "participant",
+    "order": 4
+  }
+]

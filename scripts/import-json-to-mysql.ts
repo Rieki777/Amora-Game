@@ -195,6 +195,42 @@ async function main() {
       );
     }
 
+    for (const [i, r] of (read("roles.json") ?? []).entries()) {
+      await conn.query(
+        "INSERT INTO `roles` (id, name, description, capabilities, min_stage, sort_order) VALUES (?,?,?,?,?,?) " +
+          "ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), capabilities=VALUES(capabilities), " +
+          "min_stage=VALUES(min_stage), sort_order=VALUES(sort_order)",
+        [str(r.id, 64), str(r.name, 120) ?? "", r.description ?? null, JSON.stringify(r.capabilities ?? []), str(r.minStage, 64), num(r.order, i)],
+      );
+    }
+
+    for (const h of read("role-holders.json") ?? []) {
+      await conn.query(
+        "INSERT INTO `role_holders` (id, role_id, user_id, granted_by, granted_at) VALUES (?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
+          "ON DUPLICATE KEY UPDATE granted_by=VALUES(granted_by)",
+        [str(h.id, 64), str(h.roleId, 64), str(h.userId, 64), str(h.grantedBy, 64), ts(h.grantedAt)],
+      );
+    }
+
+    for (const c of read("gratitude-cycles.json") ?? []) {
+      await conn.query(
+        "INSERT INTO `gratitude_cycles` (id, cycle_number, starts_at, ends_at, status, closed_at) VALUES (?,?,?,?,?,?) " +
+          "ON DUPLICATE KEY UPDATE status=VALUES(status), closed_at=VALUES(closed_at)",
+        [
+          str(c.id, 64), num(c.cycleNumber, 0), ts(c.startsAt), ts(c.endsAt),
+          ["open", "distributing", "closed"].includes(c.status) ? c.status : "open", ts(c.closedAt),
+        ],
+      );
+    }
+
+    for (const d of read("gratitude-distributions.json") ?? []) {
+      await conn.query(
+        "INSERT INTO `gratitude_distributions` (id, cycle_id, user_id, received, distinct_senders, created_at) VALUES (?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
+          "ON DUPLICATE KEY UPDATE received=VALUES(received), distinct_senders=VALUES(distinct_senders)",
+        [str(d.id, 64), str(d.cycleId, 64), str(d.userId, 64), num(d.received, 0), num(d.distinctSenders, 0), ts(d.createdAt)],
+      );
+    }
+
     for (const key of CONFIG_FILES) {
       const doc = read(`${key}.json`);
       if (doc === null) {
@@ -221,6 +257,10 @@ async function main() {
     investor_docs: (read("investor-docs.json") ?? []).length,
     training_modules: (read("training-modules.json") ?? []).length,
     milestones: (read("milestones.json") ?? []).length,
+    roles: (read("roles.json") ?? []).length,
+    role_holders: (read("role-holders.json") ?? []).length,
+    gratitude_cycles: (read("gratitude-cycles.json") ?? []).length,
+    gratitude_distributions: (read("gratitude-distributions.json") ?? []).length,
   };
 
   let bad = 0;

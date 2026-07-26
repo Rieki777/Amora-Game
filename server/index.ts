@@ -7,6 +7,17 @@ import crypto from "crypto";
 import multer from "multer";
 import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
+import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
+import { hasCapability, type Capability } from "../shared/capabilities";
+import {
+  cycleIdFor,
+  currentCycle,
+  dueCycles,
+  settleCycle,
+  formatCycleId,
+  type CycleRecord,
+  type DistributionRecord,
+} from "./lib/gratitude-cycles";
 
 const BCRYPT_SALT_ROUNDS = 10;
 
@@ -42,6 +53,11 @@ const QUEST_CLAIMS_FILE = path.join(DATA_DIR, "quest-claims.json");
 const GRATITUDE_LOG_FILE = path.join(DATA_DIR, "gratitude-log.json");
 const ACTIVITY_FILE = path.join(DATA_DIR, "activity.json");
 const SEASON_FILE = path.join(DATA_DIR, "season.json");
+const ROLES_FILE = path.join(DATA_DIR, "roles.json");
+const ROLES_SEED_FILE = path.join(SEEDS_DIR, "roles-seed.json");
+const ROLE_HOLDERS_FILE = path.join(DATA_DIR, "role-holders.json");
+const CYCLES_FILE = path.join(DATA_DIR, "gratitude-cycles.json");
+const DISTRIBUTIONS_FILE = path.join(DATA_DIR, "gratitude-distributions.json");
 const MILESTONES_FILE = path.join(DATA_DIR, "milestones.json");
 /** Ledger of one-shot data fixes already applied to this deployment's volume. */
 const MIGRATIONS_FILE = path.join(DATA_DIR, "migrations.json");
@@ -379,6 +395,10 @@ function ensureDataFiles() {
   if (!fs.existsSync(GRATITUDE_LOG_FILE)) fs.writeFileSync(GRATITUDE_LOG_FILE, "[]");
   if (!fs.existsSync(ACTIVITY_FILE)) fs.writeFileSync(ACTIVITY_FILE, "[]");
   if (!fs.existsSync(SEASON_FILE)) fs.writeFileSync(SEASON_FILE, JSON.stringify(GAME_CONFIG.season, null, 2));
+  seedIfMissingOrEmpty(ROLES_FILE, ROLES_SEED_FILE, "[]");
+  if (!fs.existsSync(ROLE_HOLDERS_FILE)) fs.writeFileSync(ROLE_HOLDERS_FILE, "[]");
+  if (!fs.existsSync(CYCLES_FILE)) fs.writeFileSync(CYCLES_FILE, "[]");
+  if (!fs.existsSync(DISTRIBUTIONS_FILE)) fs.writeFileSync(DISTRIBUTIONS_FILE, "[]");
   runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
   runOnce("founding-team-in-progress", markFoundingTeamInProgress);
 }
@@ -513,8 +533,65 @@ function addActivity(type: string, text: string) {
   writeJson(ACTIVITY_FILE, log.slice(-500));
 }
 
+/**
+ * The cycle every acknowledgment is stamped with. LUNAR now, not calendar
+ * month: budgets and per-recipient caps reset at each new moon, matching
+ * regen-civics (revision 2, decision 1). Legacy "YYYY-MM" ids in old rows
+ * simply never match a lunar id again, which is the correct behaviour: one
+ * clean reset at changeover instead of double-counting a partial month.
+ */
 function currentCycleId(): string {
-  return new Date().toISOString().slice(0, 7); // calendar month, e.g. "2026-07"
+  return cycleIdFor(new Date());
+}
+
+// ── Roles as data (revision 2, step 3) ───────────────────────────────────────
+
+type RoleDef = {
+  id: string;
+  name: string;
+  description?: string;
+  capabilities?: string[];
+  minStage?: string | null;
+  order?: number;
+};
+type RoleHolderRow = { id: string; roleId: string; userId: string; grantedBy?: string; grantedAt: string };
+
+function loadRoles(): RoleDef[] {
+  const roles = readJson(ROLES_FILE);
+  return Array.isArray(roles) ? roles : [];
+}
+
+function loadRoleHolders(): RoleHolderRow[] {
+  const rows = readJson(ROLE_HOLDERS_FILE);
+  return Array.isArray(rows) ? rows : [];
+}
+
+/** Role ids a member holds. */
+function roleIdsFor(userId: string): string[] {
+  return loadRoleHolders().filter((r) => r.userId === userId).map((r) => r.roleId);
+}
+
+/** Every capability the member's roles grant, deduplicated. */
+function roleCapabilitiesFor(userId: string): string[] {
+  const held = new Set(roleIdsFor(userId));
+  const caps = new Set<string>();
+  for (const role of loadRoles()) {
+    if (!held.has(role.id)) continue;
+    for (const c of role.capabilities ?? []) caps.add(c);
+  }
+  return Array.from(caps);
+}
+
+/**
+ * The single gate every capability check goes through: stage ladder OR role
+ * grant, per shared/capabilities.ts. Admin (password auth) always passes.
+ */
+function userCan(user: any, cap: Capability): boolean {
+  return hasCapability(cap, {
+    stageIndex: stageIndex(computeStage(user)),
+    stageIndexOf: stageIndex,
+    roleCapabilities: roleCapabilitiesFor(user.id),
+  });
 }
 
 // ── Seasons ──────────────────────────────────────────────────────────────────
@@ -2110,6 +2187,30 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const quests: any[] = readJson(QUESTS_FILE) ?? [];
     const quest = quests.find((q) => q.id === req.params.id);
     if (!quest) return res.status(404).json({ error: "Quest not found" });
+
+    // Progression gates (revision 2, step 3). Structured fields enforce; the
+    // legacy free-text `roleRequired` stays display-only prose. Refusals name
+    // exactly what is missing, because "computer says no" teaches nothing.
+    if (quest.minStage) {
+      const needed = stageIndex(quest.minStage);
+      if (needed >= 0 && stageIndex(computeStage(user)) < needed) {
+        const stage = getStage(quest.minStage);
+        return res.status(403).json({
+          error: `This quest opens at the ${stage?.name ?? quest.minStage} stage. Keep walking the path and it will unlock.`,
+          minStage: quest.minStage,
+        });
+      }
+    }
+    if (quest.requiresRole) {
+      const role = loadRoles().find((r) => r.id === quest.requiresRole);
+      if (!roleIdsFor(user.id).includes(quest.requiresRole)) {
+        return res.status(403).json({
+          error: `This quest is reserved for ${role?.name ?? quest.requiresRole}. Ask a founder about joining.`,
+          requiresRole: quest.requiresRole,
+        });
+      }
+    }
+
     const claims: any[] = readJson(QUEST_CLAIMS_FILE) ?? [];
     const existing = claims.find((c) => c.userId === user.id && c.questId === quest.id && c.status !== "declined");
     if (existing) return res.status(409).json({ error: "Already claimed", claim: existing });
@@ -2217,6 +2318,16 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       membership: hasMembership(user),
       trainingComplete: trainingComplete(user),
       nextAction: nextActionFor(user),
+      // Revision 2: progression is no longer decoration. The client renders
+      // what you can DO, so the gates are legible instead of mysterious.
+      roles: roleIdsFor(user.id),
+      capabilities: (["quest.propose", "quest.consent", "forum.post", "forum.moderate", "proposal.open", "proposal.decide"] as Capability[])
+        .filter((c) => userCan(user, c)),
+      cycle: {
+        ...currentCycle(),
+        daysRemaining: daysRemainingInCycle(new Date()),
+        moonPhaseName: moonPhaseName(moonPhase(new Date())),
+      },
     });
   });
 
@@ -2282,6 +2393,156 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       sent: log.filter((g) => g.fromId === user.id).reverse(),
       budget: gratitudeBudget(user),
     });
+  });
+
+  // ── Lunar cycles + roles (revision 2, steps 3 and 5) ───────────────────────
+
+  // The current lunation: bounds, moon phase, and (when signed in) your budget.
+  app.get("/api/game/cycle", (req, res) => {
+    const now = new Date();
+    const cycle = currentCycle(now);
+    const user = requireUser(req);
+    res.json({
+      ...cycle,
+      daysRemaining: daysRemainingInCycle(now),
+      moonPhase: moonPhase(now),
+      moonPhaseName: moonPhaseName(moonPhase(now)),
+      budget: user ? gratitudeBudget(user) : null,
+    });
+  });
+
+  // Public settlement history: what each closed lunation looked like. This is
+  // the report the founders carry to Hypha, where Amora and Voice distribution
+  // is actually governed. Names only, no emails.
+  app.get("/api/game/cycle/distributions", (_req, res) => {
+    const cycles: CycleRecord[] = readJson(CYCLES_FILE) ?? [];
+    const dists: DistributionRecord[] = readJson(DISTRIBUTIONS_FILE) ?? [];
+    const users = readJson(USERS_FILE) ?? { users: [] };
+    const nameOf = (id: string) => firstName(users.users.find((u: any) => u.id === id)?.name ?? "Member");
+    res.json(
+      cycles
+        .filter((c) => c.status === "closed")
+        .sort((a, b) => b.cycleNumber - a.cycleNumber)
+        .map((c) => ({
+          ...c,
+          totals: dists
+            .filter((d) => d.cycleId === c.id)
+            .map((d) => ({ name: nameOf(d.userId), received: d.received, distinctSenders: d.distinctSenders })),
+        })),
+    );
+  });
+
+  /**
+   * Close every finished lunation that is not yet settled. Explicitly admin
+   * triggered rather than a timer, keeping regen-civics' operating rule that
+   * nothing mutates on a schedule (its cron deliberately does NOT close
+   * cycles either). Idempotent: a cycle already recorded as closed is skipped,
+   * so running this twice cannot double-settle.
+   *
+   * Settlement here records and resets; it does not mint. Amora's spendable
+   * Gratitude is credited at send/consent time, and the project's real value
+   * (Amora, Voice) is distributed on Hypha using exactly this report.
+   */
+  app.post("/api/admin/cycles/close", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const cycles: CycleRecord[] = readJson(CYCLES_FILE) ?? [];
+    const entries: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
+    const due = dueCycles(cycles, entries, new Date());
+
+    const dists: DistributionRecord[] = readJson(DISTRIBUTIONS_FILE) ?? [];
+    const closed: CycleRecord[] = [];
+    for (const cycle of due) {
+      const totals = settleCycle(entries, cycle.id);
+      for (const t of totals) {
+        dists.push({
+          id: `dist-${cycle.cycleNumber}-${t.userId}`,
+          cycleId: cycle.id,
+          userId: t.userId,
+          received: t.received,
+          distinctSenders: t.distinctSenders,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      const record: CycleRecord = { ...cycle, status: "closed", closedAt: new Date().toISOString() };
+      const existingIdx = cycles.findIndex((c) => c.cycleNumber === cycle.cycleNumber);
+      if (existingIdx >= 0) cycles[existingIdx] = record;
+      else cycles.push(record);
+      closed.push(record);
+      if (totals.length > 0) {
+        addActivity(
+          "cycle",
+          `A lunar cycle closed: ${totals.length} ${totals.length === 1 ? "member was" : "members were"} acknowledged with ${GAME_CONFIG.currency.nameLower}`,
+        );
+      }
+    }
+    if (closed.length > 0) {
+      writeJson(CYCLES_FILE, cycles);
+      writeJson(DISTRIBUTIONS_FILE, dists);
+    }
+    res.json({ closed: closed.length, cycles: closed });
+  });
+
+  // Roles, public: who holds what, so the village can see its own shape.
+  app.get("/api/roles", (_req, res) => {
+    const users = readJson(USERS_FILE) ?? { users: [] };
+    const holders = loadRoleHolders();
+    const nameOf = (id: string) => firstName(users.users.find((u: any) => u.id === id)?.name ?? "Member");
+    res.json(
+      loadRoles()
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .map((r) => ({
+          id: r.id,
+          name: r.name,
+          description: r.description ?? "",
+          capabilities: r.capabilities ?? [],
+          minStage: r.minStage ?? null,
+          holders: holders.filter((h) => h.roleId === r.id).map((h) => ({ userId: h.userId, name: nameOf(h.userId) })),
+        })),
+    );
+  });
+
+  // Assign or remove a role holder. Admin for now; moves behind
+  // proposal.decide when the decision primitive lands.
+  app.post("/api/admin/roles/:id/holders", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const role = loadRoles().find((r) => r.id === req.params.id);
+    if (!role) return res.status(404).json({ error: "Role not found" });
+    const { userId, action } = req.body ?? {};
+    if (!userId || !["add", "remove"].includes(action)) {
+      return res.status(400).json({ error: "userId and action (add|remove) are required" });
+    }
+    const users = readJson(USERS_FILE) ?? { users: [] };
+    const member = users.users.find((u: any) => u.id === userId);
+    if (!member) return res.status(404).json({ error: "Member not found" });
+
+    // A role can require a minimum stage: appointments respect the ladder too.
+    if (action === "add" && role.minStage) {
+      const needed = stageIndex(role.minStage);
+      if (needed >= 0 && stageIndex(computeStage(member)) < needed) {
+        return res.status(409).json({
+          error: `${firstName(member.name)} has not reached the ${getStage(role.minStage)?.name ?? role.minStage} stage this role asks for.`,
+          minStage: role.minStage,
+        });
+      }
+    }
+
+    let holders = loadRoleHolders();
+    if (action === "add") {
+      if (!holders.some((h) => h.roleId === role.id && h.userId === userId)) {
+        holders.push({
+          id: `rh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          roleId: role.id,
+          userId,
+          grantedBy: "admin",
+          grantedAt: new Date().toISOString(),
+        });
+        addActivity("role", `${firstName(member.name)} joined the ${role.name}`);
+      }
+    } else {
+      holders = holders.filter((h) => !(h.roleId === role.id && h.userId === userId));
+    }
+    writeJson(ROLE_HOLDERS_FILE, holders);
+    res.json({ roleId: role.id, userId, action, holders: holders.filter((h) => h.roleId === role.id).length });
   });
 
   // Village pulse: public activity feed

@@ -27,6 +27,25 @@ export interface GamePath {
   route: string;
 }
 
+/**
+ * An on-chain token the platform DISPLAYS but does not control. The address and
+ * chain identify it on Base; balances are read through a public RPC and shown on
+ * profiles and the economics section. Hypha remains the source of truth for the
+ * value itself. Empty `address` means "not deployed yet, show nothing".
+ */
+export interface TokenRef {
+  /** Display symbol, e.g. "AMORA" or "VOICE". */
+  symbol: string;
+  /** Human name, e.g. "Amora Equity". */
+  name: string;
+  /** ERC-20 contract address on Base, or "" until deployed. */
+  address: string;
+  /** Chain id. Base mainnet is 8453. */
+  chainId: number;
+  /** Token decimals, for formatting balances. */
+  decimals: number;
+}
+
 export type StageRule =
   | { type: "default" }                       // everyone starts here
   | { type: "account" }                       // has created an account
@@ -69,10 +88,18 @@ export interface GameConfig {
     adminPath: string;
   };
   currency: {
-    /** The community recognition currency (e.g. Gratitude, Seeds, Thanks). */
+    /** The in-site recognition currency (e.g. Gratitude, Seeds, Thanks).
+     *  Earned from consented quests, sent peer to peer, settled on lunar cycles.
+     *  Platform-governed. This is NOT the equity token, even when a project
+     *  wants to brand its equity "Gratitude" too: keep them separate here. */
     name: string;
     /** Sentence-position variant, e.g. "gratitude" in "send gratitude". */
     nameLower: string;
+    /** The project's EQUITY token, on Base, governed by Hypha. The platform
+     *  never mints, moves, or prices it: it reads balances and displays them. */
+    equity: TokenRef;
+    /** Governance-weight token, on Base, also Hypha-governed. Read-only here. */
+    voice: TokenRef;
   };
   /** Hero images rendered by React pages. Runtime-swappable via the brand overlay
    * (the Setup Wizard). og:image and favicon are build-time in index.html, not here. */
@@ -140,6 +167,12 @@ export const GAME_CONFIG: GameConfig = {
   currency: {
     name: "Gratitude",
     nameLower: "gratitude",
+    // The equity token is also called "Amora" per the project's wish. It stays
+    // distinct from Gratitude above: Gratitude is in-site recognition, Amora is
+    // equity on Base under Hypha. Addresses are blank until the tokens deploy;
+    // the economics section shows nothing rather than a fake balance meanwhile.
+    equity: { symbol: "AMORA", name: "Amora Equity", address: "", chainId: 8453, decimals: 18 },
+    voice: { symbol: "VOICE", name: "Amora Voice", address: "", chainId: 8453, decimals: 18 },
   },
 
   images: {

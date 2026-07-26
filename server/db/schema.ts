@@ -189,6 +189,84 @@ export const migrationsApplied = mysqlTable("_migrations_applied", {
   appliedAt: timestamp("applied_at").defaultNow().notNull(),
 });
 
+// ─── Roles as data (revision 2, step 3) ──────────────────────────────────────
+
+/**
+ * A role a member can hold: stewards, treasurer, facilitator, whatever a
+ * village defines. Roles are the keystone the whole revision leans on: they are
+ * what capabilities gate on, and what role-targeted messaging addresses.
+ *
+ * `capabilities` is the list of permission keys this role grants (e.g.
+ * "quest.consent", "forum.moderate", "proposal.decide"). Gating checks ask
+ * whether any role a member holds includes the capability, so permissions are
+ * data a founder edits, not code a developer ships.
+ */
+export const roles = mysqlTable("roles", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  description: text("description"),
+  /** Permission keys this role grants. */
+  capabilities: json("capabilities"),
+  /** Minimum computed stage before a member may be assigned this role. */
+  minStage: varchar("min_stage", { length: 64 }),
+  sortOrder: int("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** One row per (member, role). A member can hold several roles. */
+export const roleHolders = mysqlTable("role_holders", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  roleId: varchar("role_id", { length: 64 }).notNull(),
+  userId: varchar("user_id", { length: 64 }).notNull(),
+  /** Who granted it, for the audit trail. */
+  grantedBy: varchar("granted_by", { length: 64 }),
+  grantedAt: timestamp("granted_at").defaultNow().notNull(),
+});
+
+// ─── Gratitude lunar cycles (revision 2, step 5) ─────────────────────────────
+
+/**
+ * One row per lunation, keyed by the deterministic cycleNumber from
+ * shared/lunar.ts so Amora and regen-civics agree on boundaries. Gratitude
+ * sent during a cycle is settled when the cycle closes.
+ *
+ * status: open -> distributing -> closed. The distributing state is the guard
+ * that lets exactly one runner settle a cycle even if the close is triggered
+ * twice at once.
+ */
+export const gratitudeCycles = mysqlTable("gratitude_cycles", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  /** Whole lunations since the reference new moon. Unique natural key. */
+  cycleNumber: int("cycle_number").notNull().unique(),
+  startsAt: timestamp("starts_at").notNull(),
+  endsAt: timestamp("ends_at").notNull(),
+  status: mysqlEnum("status", ["open", "distributing", "closed"]).default("open").notNull(),
+  closedAt: timestamp("closed_at"),
+});
+
+/**
+ * A settlement record: at cycle close, one row per recipient, capturing what
+ * they received that cycle. Amora's Gratitude is a spendable balance rather
+ * than a pooled token (unlike regen's $ReGen distribution), so this is the
+ * audit trail of the cycle, not a separate minting event. uniqueness on
+ * (cycle, user) makes the close idempotent.
+ */
+export const gratitudeDistributions = mysqlTable("gratitude_distributions", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  cycleId: varchar("cycle_id", { length: 64 }).notNull(),
+  userId: varchar("user_id", { length: 64 }).notNull(),
+  /** Total Gratitude this member received during the cycle. */
+  received: int("received").notNull(),
+  /** Distinct senders who acknowledged them, a reach signal for the profile. */
+  distinctSenders: int("distinct_senders").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type Role = typeof roles.$inferSelect;
+export type RoleHolder = typeof roleHolders.$inferSelect;
+export type GratitudeCycle = typeof gratitudeCycles.$inferSelect;
+export type GratitudeDistribution = typeof gratitudeDistributions.$inferSelect;
+
 export type User = typeof users.$inferSelect;
 export type Submission = typeof submissions.$inferSelect;
 export type Quest = typeof quests.$inferSelect;

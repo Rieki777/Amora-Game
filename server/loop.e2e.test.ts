@@ -310,6 +310,106 @@ describe("the coordination loop, end to end", () => {
     expect(peerProfile.json.heartsBalance).toBeGreaterThanOrEqual(5);
   });
 
+  it("gates quests on stage and role, and an appointment unlocks the role gate", async () => {
+    // Revision 2, step 3: progression stops being decoration. A fresh member sits
+    // at guest, below the member stage the scribe quest asks for.
+    const gated = await api("GET", "/api/quests");
+    const stageGated = gated.json.find((q: any) => q.minStage === "member");
+    const roleGated = gated.json.find((q: any) => q.requiresRole === "practitioners");
+    expect(stageGated).toBeTruthy();
+    expect(roleGated).toBeTruthy();
+
+    const tooEarly = await api("POST", `/api/game/quests/${stageGated.id}/claim`, {}, peerToken);
+    expect(tooEarly.status).toBe(403);
+    expect(tooEarly.json.minStage).toBe("member");
+
+    const noRole = await api("POST", `/api/game/quests/${roleGated.id}/claim`, {}, peerToken);
+    expect(noRole.status).toBe(403);
+    expect(noRole.json.requiresRole).toBe("practitioners");
+
+    // Appointments respect the ladder too: the practitioners role asks for the
+    // participant stage, and this member is still a guest, so even the founder
+    // appointing them is refused.
+    const appointment = await api(
+      "POST",
+      "/api/admin/roles/practitioners/holders",
+      { userId: peerId, action: "add" },
+      ADMIN,
+    );
+    // A guest is below the practitioners role's participant minStage: refused.
+    expect(appointment.status).toBe(409);
+    expect(appointment.json.minStage).toBe("participant");
+
+    // Founders Circle carries no stage floor, so that appointment lands, and
+    // capabilities show up on /api/game/me.
+    const founders = await api(
+      "POST",
+      "/api/admin/roles/founders-circle/holders",
+      { userId: peerId, action: "add" },
+      ADMIN,
+    );
+    expect(founders.status).toBe(200);
+
+    const me = await api("GET", "/api/game/me", undefined, peerToken);
+    expect(me.status).toBe(200);
+    expect(me.json.roles).toContain("founders-circle");
+    expect(me.json.capabilities).toContain("proposal.decide");
+    expect(me.json.cycle.cycleNumber).toBeGreaterThan(300);
+  });
+
+  it("closes a finished lunar cycle exactly once, and records the settlement", async () => {
+    // Revision 2, step 5: the heartbeat. Current-cycle activity cannot be
+    // settled (the lunation has not ended), so plant an acknowledgment in the
+    // PREVIOUS lunation by writing the data file directly; the data dir is a
+    // throwaway created by this test, so reaching into it is legitimate here.
+    const cyclePath = path.join(dataDir, "gratitude-log.json");
+    const log = JSON.parse(fs.readFileSync(cyclePath, "utf-8"));
+    const current = await api("GET", "/api/game/cycle");
+    expect(current.status).toBe(200);
+    const prevNumber = current.json.cycleNumber - 1;
+    const prevId = `lunar-${String(prevNumber).padStart(6, "0")}`;
+    log.push({
+      id: "grat-loop-prev-cycle",
+      fromId: doerId,
+      fromName: "Willing Doer",
+      toId: peerId,
+      toName: "Grateful Peer",
+      amount: 8,
+      message: "Backdated acknowledgment for the close test.",
+      cycleId: prevId,
+      at: new Date(Date.parse(current.json.startsAt) - 1000 * 60 * 60 * 24).toISOString(),
+    });
+    fs.writeFileSync(cyclePath, JSON.stringify(log, null, 2));
+
+    // Anonymous close is refused; the founder's close settles it.
+    const anon = await api("POST", "/api/admin/cycles/close", {});
+    expect(anon.status).toBe(401);
+
+    const close = await api("POST", "/api/admin/cycles/close", {}, ADMIN);
+    expect(close.status).toBe(200);
+    expect(close.json.closed).toBeGreaterThanOrEqual(1);
+    const closedNumbers = close.json.cycles.map((c: any) => c.cycleNumber);
+    expect(closedNumbers).toContain(prevNumber);
+
+    // The settlement is public and carries the totals.
+    const dists = await api("GET", "/api/game/cycle/distributions");
+    expect(dists.status).toBe(200);
+    const prev = dists.json.find((c: any) => c.cycleNumber === prevNumber);
+    expect(prev).toBeTruthy();
+    expect(prev.totals).toEqual([
+      { name: "Grateful", received: 8, distinctSenders: 1 },
+    ]);
+
+    // Idempotent: closing again settles nothing further.
+    const again = await api("POST", "/api/admin/cycles/close", {}, ADMIN);
+    expect(again.status).toBe(200);
+    expect(again.json.cycles.map((c: any) => c.cycleNumber)).not.toContain(prevNumber);
+
+    // And the wall still works: the backdated entry never broke the live feed.
+    const wall = await api("GET", "/api/game/gratitude/wall");
+    expect(wall.status).toBe(200);
+  });
+
   it("holds the economy's guard rails: no self-send, one per peer per cycle, message required", async () => {
     const self = await api(
       "POST",
