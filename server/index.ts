@@ -33,10 +33,13 @@ import { gratitudeCyclesRepo, gratitudeDistributionsRepo, gratitudeLogRepo } fro
 import { claimsRepo as claimsRepoFactory, questsRepo as questsRepoFactory } from "./repos/quests";
 import { budgetFor, sendGratitude, type GratitudeDeps } from "./lib/gratitude";
 import { deleteEvent, recentEvents, recordEvent } from "./lib/events";
+import { checkToolLink } from "./lib/toolcheck";
+import { canSeeTool } from "../shared/toolsVisibility";
 import {
   assertModuleGraph,
   effectiveLifecycle,
   loadModuleSettings,
+  moduleActivity,
   moduleConfig,
   moduleDemotions,
   moduleOrphans,
@@ -66,7 +69,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s13-module-framework";
+const BUILD_MARKER = "2026-07-26-s15-tools-hub";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -428,6 +431,30 @@ const investorSummaryRepo = dbDocument(getPool(), "investor-summary", DEFAULT_IN
 const seasonRepo = dbDocument(getPool(), "season", GAME_CONFIG.season as any);
 // The runOnce ledger (one-shot data fixups) — formerly data/migrations.json.
 const dataMigrations = dbDocument(getPool(), "data-migrations", { applied: [] as string[] });
+// S15: the tools hub registry (the framework's reference consumer).
+const toolsRepo = dbCollection(getPool(), {
+  table: "tools",
+  orderBy: "`sort_order`, `name`",
+  columns: [
+    { js: "id", db: "id" },
+    { js: "name", db: "name" },
+    { js: "purpose", db: "purpose" },
+    { js: "description", db: "description" },
+    { js: "url", db: "url" },
+    { js: "ctaLabel", db: "cta_label" },
+    { js: "category", db: "category" },
+    { js: "iconKind", db: "icon_kind" },
+    { js: "icon", db: "icon" },
+    { js: "visibility", db: "visibility" },
+    { js: "roleIds", db: "role_ids", kind: "json" },
+    { js: "gettingStarted", db: "getting_started" },
+    { js: "order", db: "sort_order", kind: "int" },
+    { js: "enabled", db: "enabled", kind: "bool" },
+    { js: "lastCheckedAt", db: "last_checked_at", kind: "time" },
+    { js: "lastCheckStatus", db: "last_check_status", kind: "int" },
+    { js: "createdAt", db: "created_at", kind: "time", defaultNow: true },
+  ],
+});
 
 /** Boot-time cache fill for every S12 store. Fail-loud, before serving. */
 async function initStores(): Promise<void> {
@@ -437,6 +464,7 @@ async function initStores(): Promise<void> {
     trainingRepo.load(),
     investorDocsRepo.load(),
     stageEventsRepo.load(),
+    toolsRepo.load(),
     rolesRepo.load(),
     roleHoldersRepo.load(),
     contentRepo.load(),
@@ -2029,6 +2057,195 @@ async function startServer() {
     const result = await setModuleConfig(req.params.id, req.body?.config, adminActor(req)?.id ?? null);
     if (!result.ok) return res.status(result.status).json({ error: result.error });
     res.json({ success: true, config: moduleConfig(req.params.id) });
+  });
+
+  // ── S15: the tools hub — the framework's reference consumer ───────────────
+  // Every route (member AND admin) mounts behind requireModule('tools'):
+  // lifecycle off = the whole surface is a 404, admin tabs included; the
+  // Modules tab is where lifecycle changes happen.
+  app.use("/api/tools", requireModule("tools"));
+  app.use("/api/admin/tools", requireModule("tools"));
+
+  const toolsCategories = () =>
+    (moduleConfig<any>("tools") ?? MODULES_BY_ID["tools"].defaultConfig)?.categories ?? [];
+
+  function validateToolBody(body: any): string | null {
+    if (!String(body?.name ?? "").trim()) return "A name is required";
+    if (!String(body?.purpose ?? "").trim()) return "A one-line purpose is required";
+    let url: URL;
+    try {
+      url = new URL(String(body?.url ?? ""));
+    } catch {
+      return "The link must be a valid URL";
+    }
+    if (url.protocol !== "https:") return "Tool links are https-only";
+    if (!toolsCategories().some((c: any) => c.id === body?.category)) {
+      return `Unknown category "${String(body?.category)}" — manage categories in the module's config`;
+    }
+    if (body?.visibility === "roles") {
+      const known = new Set(rolesRepo.all().map((r: any) => r.id));
+      const ids: string[] = Array.isArray(body?.roleIds) ? body.roleIds : [];
+      if (!ids.length) return "Pick at least one role for role-restricted visibility";
+      const bad = ids.filter((r) => !known.has(r));
+      if (bad.length) return `Unknown role id(s): ${bad.join(", ")}`;
+    }
+    if (body?.ctaLabel && !["Open", "Join", "View"].includes(body.ctaLabel)) {
+      return "CTA label must be Open, Join or View";
+    }
+    return null;
+  }
+
+  /** The member-facing grid: filtered per viewer, Hypha card pinned first. */
+  app.get("/api/tools", async (req, res) => {
+    const viewer = await authedUser(req);
+    const admin = await isAdmin(req);
+    const ctx = {
+      hasAccount: !!viewer,
+      roleIds: viewer ? roleIdsFor(viewer.id) : [],
+      isAdmin: admin,
+    };
+    const cards = toolsRepo
+      .all()
+      .filter((t: any) => canSeeTool(t, ctx))
+      .map((t: any) => ({
+        id: t.id,
+        name: t.name,
+        purpose: t.purpose,
+        description: t.description,
+        url: t.url,
+        ctaLabel: t.ctaLabel || "Open",
+        category: t.category,
+        iconKind: t.iconKind || "slug",
+        icon: t.icon,
+        gettingStarted: t.gettingStarted,
+        order: t.order ?? 0,
+        // Admin-only audience badge data; harmless to others (they never see it).
+        ...(admin ? { visibility: t.visibility, roleIds: t.roleIds ?? [], enabled: t.enabled !== false } : {}),
+      }));
+    const hypha = resolveHyphaLinks(stringVar);
+    res.json({
+      categories: toolsCategories(),
+      // The Hypha card is NOT a row: injected at read time, pinned position
+      // zero, non-editable. Blank DHO URL = no card, nothing fake.
+      hyphaCard: hypha.configured ? { name: mergedConfig().project.name, links: hypha.links } : null,
+      tools: cards,
+    });
+  });
+
+  /** The click beacon: analytics, never truth. Silent-drop on any failure. */
+  app.post("/api/tools/:id/click", async (req, res) => {
+    if (!boolVar("tools.click_tracking")) return res.json({ ok: true });
+    if (await overLimit(`toolclick:${clientIp(req)}`, 120, 60 * 60 * 1000)) return res.json({ ok: true });
+    try {
+      const viewer = await authedUser(req);
+      await getPool().query(
+        "INSERT INTO tool_clicks (id, tool_id, user_id) VALUES (?,?,?)",
+        [`tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, req.params.id, viewer?.id ?? null],
+      );
+    } catch { /* dropped clicks are acceptable; broken opens are not */ }
+    res.json({ ok: true });
+  });
+
+  /** Admin list: everything incl. disabled, with 30/90-day click counts. */
+  app.get("/api/admin/tools", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [counts] = await getPool().query<any[]>(
+      "SELECT tool_id, " +
+        "SUM(CASE WHEN at > (NOW() - INTERVAL 30 DAY) THEN 1 ELSE 0 END) AS d30, " +
+        "SUM(CASE WHEN at > (NOW() - INTERVAL 90 DAY) THEN 1 ELSE 0 END) AS d90 " +
+        "FROM tool_clicks GROUP BY tool_id",
+    );
+    const byTool = new Map(counts.map((c) => [String(c.tool_id), { d30: Number(c.d30), d90: Number(c.d90) }]));
+    res.json({
+      categories: toolsCategories(),
+      tools: toolsRepo.all().map((t: any) => ({ ...t, clicks: byTool.get(t.id) ?? { d30: 0, d90: 0 } })),
+    });
+  });
+
+  app.post("/api/admin/tools", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const problem = validateToolBody(req.body);
+    if (problem) return res.status(400).json({ error: problem });
+    const slug = String(req.body.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    const id = toolsRepo.all().some((t: any) => t.id === slug)
+      ? `${slug}-${Math.random().toString(36).slice(2, 5)}`
+      : slug || `tool-${Date.now()}`;
+    const tool = {
+      id,
+      name: String(req.body.name).trim().slice(0, 120),
+      purpose: String(req.body.purpose).trim().slice(0, 200),
+      description: req.body.description ?? null,
+      url: String(req.body.url),
+      ctaLabel: req.body.ctaLabel || "Open",
+      category: req.body.category,
+      iconKind: req.body.iconKind === "upload" ? "upload" : "slug",
+      icon: req.body.icon ?? null,
+      visibility: ["public", "members", "roles"].includes(req.body.visibility) ? req.body.visibility : "members",
+      roleIds: Array.isArray(req.body.roleIds) ? req.body.roleIds : null,
+      gettingStarted: req.body.gettingStarted ?? null,
+      order: toolsRepo.all().length + 1,
+      enabled: req.body.enabled !== false,
+    };
+    await toolsRepo.insert(tool);
+    // Through the framework's preview-leak guard: nothing lands on the Pulse
+    // unless the tools module is at least 'members'.
+    await moduleActivity("tools", "tools", `${tool.name} was added to the village toolbox`, {
+      actorUserId: adminActor(req)?.id,
+      entityType: "tool",
+      entityRef: tool.id,
+    });
+    res.json(tool);
+  });
+
+  app.put("/api/admin/tools/order", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+    const all = toolsRepo.all();
+    if (ids.length !== all.length || !all.every((t: any) => ids.includes(t.id))) {
+      return res.status(400).json({ error: "Order must list every tool id exactly once" });
+    }
+    const pos = new Map(ids.map((id, i) => [id, i + 1]));
+    await toolsRepo.replaceAll(all.map((t: any) => ({ ...t, order: pos.get(t.id) ?? t.order })));
+    res.json({ success: true });
+  });
+
+  app.put("/api/admin/tools/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const all = toolsRepo.all();
+    const idx = all.findIndex((t: any) => t.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    const merged = { ...all[idx], ...req.body, id: all[idx].id };
+    const problem = validateToolBody(merged);
+    if (problem) return res.status(400).json({ error: problem });
+    all[idx] = merged;
+    await toolsRepo.replaceAll(all);
+    res.json(merged);
+  });
+
+  app.delete("/api/admin/tools/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const all = toolsRepo.all();
+    const filtered = all.filter((t: any) => t.id !== req.params.id);
+    if (filtered.length === all.length) return res.status(404).json({ error: "Not found" });
+    // Click rows survive on purpose: analytics history is orphan-tolerated.
+    await toolsRepo.replaceAll(filtered);
+    res.json({ success: true });
+  });
+
+  /** SSRF-guarded link check (server/lib/toolcheck.ts). Admin-triggered in v1. */
+  app.post("/api/admin/tools/check-links", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const all = toolsRepo.all();
+    const results: any[] = [];
+    for (const t of all as any[]) {
+      if (t.enabled === false) continue;
+      const r = await checkToolLink(t.url);
+      t.lastCheckedAt = new Date().toISOString();
+      t.lastCheckStatus = r.status ?? 0;
+      results.push({ id: t.id, ...r });
+    }
+    await toolsRepo.replaceAll(all);
+    res.json({ checked: results.length, results });
   });
 
   // ── S9: the token registry and ledger as admin surfaces ───────────────────

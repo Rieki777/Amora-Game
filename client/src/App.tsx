@@ -56,6 +56,7 @@ import Governance from "./pages/Governance";
 import Visit from "./pages/Visit";
 import GratitudeWall from "./pages/GratitudeWall";
 import WorkWithUs from "./pages/WorkWithUs";
+import ToolsHub from "./pages/ToolsHub";
 
 function Router() {
   const [location] = useLocation();
@@ -73,6 +74,7 @@ function Router() {
       <Route path="/love-letter" component={LoveLetter} />
       <Route path="/circles" component={Circles} />
       <Route path="/quests" component={Quests} />
+      <Route path="/tools" component={ToolsHub} />
       <Route path="/propose-quest" component={ProposeQuest} />
       <Route path="/roles" component={Roles} />
       <Route path="/how-we-create" component={HowWeCreate} />

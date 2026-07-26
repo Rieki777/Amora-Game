@@ -993,4 +993,75 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(adminView.json.modules.find((m: any) => m.id === "tools").lifecycle).toBe("off");
     expect(adminView.json.orphans).toEqual([]);
   });
+
+  it("S15: the tools hub rides the framework — lifecycle posture end to end", async () => {
+    // OFF: the whole surface — member AND admin routes — is the same 404.
+    const offMember = await api("GET", "/api/tools");
+    expect(offMember.status).toBe(404);
+    expect(offMember.json.error).toBe("module_disabled");
+    const offAdmin = await api("GET", "/api/admin/tools", undefined, founderToken);
+    expect(offAdmin.status).toBe(404);
+
+    // PREVIEW: admins pass, everyone else gets the identical 404 body.
+    await api("PUT", "/api/admin/modules/tools/lifecycle", { lifecycle: "preview" }, founderToken);
+    const previewAnon = await api("GET", "/api/tools");
+    expect(previewAnon.status).toBe(404);
+    expect(previewAnon.json).toEqual(offMember.json);
+    const previewAdmin = await api("GET", "/api/tools", undefined, founderToken);
+    expect(previewAdmin.status).toBe(200);
+    expect(previewAdmin.json.categories.map((c: any) => c.id)).toContain("communication");
+
+    // Create tools while in preview: one public, one members-only, one role-gated.
+    const mkTool = (body: any) => api("POST", "/api/admin/tools", body, founderToken);
+    const pub = await mkTool({ name: "Village Site", purpose: "The public site", url: "https://example.org", category: "communication", visibility: "public" });
+    expect(pub.status).toBe(200);
+    const mem = await mkTool({ name: "Member Chat", purpose: "Where members talk", url: "https://example.org/chat", category: "communication", visibility: "members" });
+    expect(mem.status).toBe(200);
+    const roleGated = await mkTool({ name: "Founders Vault", purpose: "Founding docs", url: "https://example.org/vault", category: "documents", visibility: "roles", roleIds: ["founders-circle"] });
+    expect(roleGated.status).toBe(200);
+
+    // Validation is loud: http refused, unknown category refused, bad role refused.
+    expect((await mkTool({ name: "Bad", purpose: "x", url: "http://example.org", category: "communication" })).status).toBe(400);
+    expect((await mkTool({ name: "Bad2", purpose: "x", url: "https://example.org", category: "nope" })).status).toBe(400);
+    expect((await mkTool({ name: "Bad3", purpose: "x", url: "https://example.org", category: "documents", visibility: "roles", roleIds: ["ghost-role"] })).status).toBe(400);
+
+    // MEMBERS lifecycle: anonymous gets 401 (prompt to sign in), members pass,
+    // and the audience filter works per card.
+    await api("PUT", "/api/admin/modules/tools/lifecycle", { lifecycle: "members" }, founderToken);
+    const memAnon = await api("GET", "/api/tools");
+    expect(memAnon.status).toBe(401);
+    const asDoer = await api("GET", "/api/tools", undefined, doerToken);
+    expect(asDoer.status).toBe(200);
+    const doerNames = asDoer.json.tools.map((t: any) => t.name);
+    expect(doerNames).toContain("Village Site");
+    expect(doerNames).toContain("Member Chat");
+    expect(doerNames).not.toContain("Founders Vault"); // doer holds no founders-circle role
+
+    // PUBLIC lifecycle: anonymous sees only public cards.
+    await api("PUT", "/api/admin/modules/tools/lifecycle", { lifecycle: "public" }, founderToken);
+    const pubAnon = await api("GET", "/api/tools");
+    expect(pubAnon.status).toBe(200);
+    const anonNames = pubAnon.json.tools.map((t: any) => t.name);
+    expect(anonNames).toContain("Village Site");
+    expect(anonNames).not.toContain("Member Chat");
+
+    // The click beacon accepts and never blocks the open.
+    const click = await api("POST", `/api/tools/${pub.json.id}/click`);
+    expect(click.status).toBe(200);
+    const adminList = await api("GET", "/api/admin/tools", undefined, founderToken);
+    expect(adminList.json.tools.find((t: any) => t.id === pub.json.id).clicks.d30).toBeGreaterThanOrEqual(1);
+
+    // The SSRF guard refuses private targets without fetching them.
+    const evil = await api("PUT", `/api/admin/tools/${pub.json.id}`, { url: "https://localhost/admin" }, founderToken);
+    expect(evil.status).toBe(200); // the URL itself is stored (https, parseable)…
+    const checked = await api("POST", "/api/admin/tools/check-links", undefined, founderToken);
+    expect(checked.status).toBe(200);
+    const evilResult = checked.json.results.find((r: any) => r.id === pub.json.id);
+    expect(evilResult.ok).toBe(false);
+    expect(String(evilResult.refused ?? "")).toContain("private");
+
+    // Back to off for a clean final state: the surface vanishes again.
+    await api("PUT", "/api/admin/modules/tools/lifecycle", { lifecycle: "off" }, founderToken);
+    expect((await api("GET", "/api/tools")).status).toBe(404);
+  });
 });

@@ -292,6 +292,29 @@ export const VARIABLES: VariableDef[] = [
     default: "",
   },
 
+  // ── Tools hub (S15; visible in Admin only while the module is non-off) ────
+  {
+    key: "tools.click_tracking",
+    category: "Tools",
+    label: "Count tool opens",
+    description:
+      "When on, opening a tool records an anonymous-friendly click row (member id attached only for signed-in members) so admins can see which tools the village actually uses. Turning it off makes the beacon a no-op — a village-level privacy choice.",
+    type: "boolean",
+    default: "true",
+  },
+  {
+    key: "tools.link_check_days",
+    category: "Tools",
+    label: "Days between automatic link checks",
+    description:
+      "0 means manual-only: admins run 'Check links now' from the Tools tab. A cadence takes effect once the platform scheduler ships (v3 S16) — setting it earlier is harmless and remembered.",
+    type: "integer",
+    default: "0",
+    min: 0,
+    max: 90,
+    unit: "days",
+  },
+
   // ── Village rhythm ────────────────────────────────────────────────────────
   {
     key: "village.pulse_max_entries",

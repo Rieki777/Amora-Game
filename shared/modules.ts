@@ -126,6 +126,28 @@ export const MODULES: ModuleDef[] = [
     variableKeys: ["tools.click_tracking", "tools.link_check_days"],
     apiPrefixes: ["/api/tools"],
     hyphaLinks: ["governance", "proposals", "treasury", "members"],
+    defaultConfig: {
+      categories: [
+        { id: "governance", label: "Governance", sortOrder: 1 },
+        { id: "communication", label: "Communication", sortOrder: 2 },
+        { id: "documents", label: "Documents", sortOrder: 3 },
+        { id: "coordination", label: "Coordination", sortOrder: 4 },
+      ],
+    },
+    validateConfig: (c: any) => {
+      if (!c || typeof c !== "object" || !Array.isArray(c.categories)) {
+        return "config must be { categories: [{id, label, sortOrder}] }";
+      }
+      for (const cat of c.categories) {
+        if (!cat?.id || typeof cat.id !== "string" || !/^[a-z0-9][a-z0-9-]{0,40}$/.test(cat.id)) {
+          return `category id "${String(cat?.id)}" must be a lowercase slug`;
+        }
+        if (!cat?.label || typeof cat.label !== "string") return `category "${cat.id}" needs a label`;
+      }
+      const ids = c.categories.map((x: any) => x.id);
+      if (new Set(ids).size !== ids.length) return "category ids must be unique";
+      return null;
+    },
   },
 ];
 

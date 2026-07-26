@@ -2275,6 +2275,228 @@ function ModulesTab({ password }: { password: string }) {
   );
 }
 
+// ── Tools hub admin (S15): CRUD, audience, click counts, link checks ─────────
+
+const EMPTY_TOOL = {
+  name: "", purpose: "", description: "", url: "", ctaLabel: "Open",
+  category: "", icon: "", visibility: "members", roleIds: [] as string[], gettingStarted: "",
+};
+
+function ToolsAdminTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [off, setOff] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [roles, setRoles] = useState<any[]>([]);
+  const [form, setForm] = useState<any>(EMPTY_TOOL);
+  const [editingId, setEditingId] = useState<string>("");
+  const [checking, setChecking] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [tRes, rRes] = await Promise.all([
+        fetch(`${API_BASE}/admin/tools`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/roles`),
+      ]);
+      if (tRes.status === 404) { setOff(true); setLoading(false); return; }
+      setOff(false);
+      setData(await tRes.json());
+      const r = await rRes.json();
+      setRoles(Array.isArray(r) ? r : []);
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    const isEdit = !!editingId;
+    try {
+      const res = await fetch(`${API_BASE}/admin/tools${isEdit ? `/${editingId}` : ""}`, {
+        method: isEdit ? "PUT" : "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(form),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "failed");
+      toast.success(isEdit ? "Tool updated" : "Tool added");
+      setForm(EMPTY_TOOL);
+      setEditingId("");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Save failed"); }
+  };
+
+  const remove = async (id: string) => {
+    if (!window.confirm("Remove this tool? Click history is kept.")) return;
+    await fetch(`${API_BASE}/admin/tools/${id}`, { method: "DELETE", headers: authHeaders(password) });
+    load();
+  };
+
+  const move = async (id: string, dir: -1 | 1) => {
+    const ids = (data?.tools ?? []).map((t: any) => t.id);
+    const i = ids.indexOf(id);
+    const j = i + dir;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    await fetch(`${API_BASE}/admin/tools/order`, {
+      method: "PUT",
+      headers: authHeaders(password, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ ids }),
+    });
+    load();
+  };
+
+  const checkLinks = async () => {
+    setChecking(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/tools/check-links`, { method: "POST", headers: authHeaders(password) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "failed");
+      toast.success(`Checked ${d.checked} link(s)`);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Check failed"); }
+    setChecking(false);
+  };
+
+  const statusDot = (t: any) => {
+    if (!t.lastCheckedAt) return <span className="w-2 h-2 rounded-full bg-gray-300 inline-block" title="never checked" />;
+    if (t.lastCheckStatus && t.lastCheckStatus < 400) return <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" title={`HTTP ${t.lastCheckStatus}`} />;
+    return <span className="w-2 h-2 rounded-full bg-red-500 inline-block" title={`HTTP ${t.lastCheckStatus || "unreachable"}`} />;
+  };
+
+  if (off) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Tools</h2>
+        <p className="text-sm text-gray-500">
+          The Tools Hub module is off. Enable it (at least to Preview) in the
+          Modules tab, then come back here to add tools.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Tools</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            The village toolbox: links out to where things happen. The Hypha card is
+            managed by the DHO address setting, not here.
+          </p>
+        </div>
+        <button onClick={checkLinks} disabled={checking}
+          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+          {checking ? "Checking…" : "Check links now"}
+        </button>
+      </div>
+      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
+        <div className="space-y-6">
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
+                <tr>
+                  <th className="px-4 py-2.5">Tool</th>
+                  <th className="px-4 py-2.5">Audience</th>
+                  <th className="px-4 py-2.5">Opens (30d)</th>
+                  <th className="px-4 py-2.5">Link</th>
+                  <th className="px-4 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.tools ?? []).map((t: any, i: number) => (
+                  <tr key={t.id} className={`border-t border-gray-100 ${t.enabled === false ? "opacity-50" : ""}`}>
+                    <td className="px-4 py-2.5">
+                      <span className="font-medium text-gray-900">{t.name}</span>
+                      <div className="text-xs text-gray-400">{t.purpose}</div>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-600">
+                      {t.visibility}{t.visibility === "roles" ? `: ${(t.roleIds ?? []).join(", ")}` : ""}
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-600">{t.clicks?.d30 ?? 0}</td>
+                    <td className="px-4 py-2.5">{statusDot(t)}</td>
+                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                      <button onClick={() => move(t.id, -1)} disabled={i === 0} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 px-1">↑</button>
+                      <button onClick={() => move(t.id, 1)} disabled={i === (data?.tools ?? []).length - 1} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 px-1">↓</button>
+                      <button onClick={() => { setEditingId(t.id); setForm({ ...EMPTY_TOOL, ...t }); }} className="text-xs text-[#2D5A5A] font-medium px-2">Edit</button>
+                      <button onClick={() => remove(t.id)} className="text-xs text-red-500 px-1">Remove</button>
+                    </td>
+                  </tr>
+                ))}
+                {(data?.tools ?? []).length === 0 && (
+                  <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400 text-xs">No tools yet — add the first one below.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="border border-gray-200 rounded-xl p-5">
+            <h3 className="font-semibold text-gray-900 mb-3">{editingId ? `Edit: ${form.name}` : "Add a tool"}</h3>
+            <div className="grid sm:grid-cols-2 gap-2.5">
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Name" className="text-sm border border-gray-200 rounded-lg px-3 py-2" />
+              <input value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })}
+                placeholder="One-line purpose" className="text-sm border border-gray-200 rounded-lg px-3 py-2" />
+              <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })}
+                placeholder="https:// link" className="text-sm border border-gray-200 rounded-lg px-3 py-2 sm:col-span-2 font-mono" />
+              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
+                className="text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white">
+                <option value="">Category…</option>
+                {(data?.categories ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+              <select value={form.ctaLabel} onChange={(e) => setForm({ ...form, ctaLabel: e.target.value })}
+                className="text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white">
+                {["Open", "Join", "View"].map((x) => <option key={x} value={x}>{x}</option>)}
+              </select>
+              <select value={form.visibility} onChange={(e) => setForm({ ...form, visibility: e.target.value })}
+                className="text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white">
+                <option value="public">Everyone (public)</option>
+                <option value="members">Members (signed in)</option>
+                <option value="roles">Specific roles</option>
+              </select>
+              <input value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })}
+                placeholder="Icon slug (e.g. MessageCircle)" className="text-sm border border-gray-200 rounded-lg px-3 py-2" />
+              {form.visibility === "roles" && (
+                <div className="sm:col-span-2 flex flex-wrap gap-2">
+                  {roles.map((r) => (
+                    <label key={r.id} className="text-xs text-gray-600 flex items-center gap-1.5 border border-gray-200 rounded-lg px-2 py-1.5">
+                      <input type="checkbox" checked={(form.roleIds ?? []).includes(r.id)}
+                        onChange={(e) => setForm({
+                          ...form,
+                          roleIds: e.target.checked
+                            ? [...(form.roleIds ?? []), r.id]
+                            : (form.roleIds ?? []).filter((x: string) => x !== r.id),
+                        })} />
+                      {r.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <textarea value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })}
+                placeholder="Longer description (optional)" rows={2} className="text-sm border border-gray-200 rounded-lg px-3 py-2 sm:col-span-2" />
+              <input value={form.gettingStarted ?? ""} onChange={(e) => setForm({ ...form, gettingStarted: e.target.value })}
+                placeholder="Getting-started note (optional)" className="text-sm border border-gray-200 rounded-lg px-3 py-2 sm:col-span-2" />
+            </div>
+            <div className="flex gap-2 mt-3">
+              <button onClick={save} disabled={!form.name || !form.purpose || !form.url || !form.category}
+                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                {editingId ? "Save changes" : "Add tool"}
+              </button>
+              {editingId && (
+                <button onClick={() => { setEditingId(""); setForm(EMPTY_TOOL); }}
+                  className="text-sm border border-gray-200 rounded-lg px-4 py-2 text-gray-600">
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Token registry + capped mint (S9, Gate D: admins name their tokens) ──────
 
 function TokensTab({ password }: { password: string }) {
@@ -3574,6 +3796,7 @@ export default function Admin() {
             { key: "players", label: "Players", icon: Users },
             { key: "game-roles", label: "Game Roles", icon: Users2 },
             { key: "modules", label: "Modules", icon: Sparkles },
+            { key: "tools-admin", label: "Tools", icon: Handshake },
             { key: "tokens", label: "Tokens", icon: Coins },
             { key: "ledger", label: "Ledger", icon: BarChart3 },
             { key: "variables", label: "Game Mechanics", icon: Activity },
@@ -3698,6 +3921,7 @@ export default function Admin() {
           {activeTab === "players" && <PlayersTab password={password} />}
           {activeTab === "game-roles" && <GameRolesTab password={password} />}
           {activeTab === "modules" && <ModulesTab password={password} />}
+          {activeTab === "tools-admin" && <ToolsAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}
