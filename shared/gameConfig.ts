@@ -97,14 +97,33 @@ export interface GameConfig {
   };
   /** Ordered: the first matching rule becomes the player's next-best-action. */
   nextActions: NextActionRule[];
-  season: {
-    /** Seed values for data/season.json — editable in Admin after first boot. */
-    name: string;
-    theme: string;
-    focus: string;
-    startsOn: string; // ISO date
-    endsOn: string;   // ISO date
-  };
+  season: SeasonConfig;
+}
+
+/** One season. `endsOn` is the turn date: the day this season hands over to the
+ *  next one (so it belongs to the next season, not this one). */
+export interface SeasonEntry {
+  id: string;
+  name: string;
+  theme: string;
+  focus: string;
+  startsOn: string; // ISO date, inclusive
+  endsOn: string;   // ISO date, exclusive — the day the season turns
+  /** What this season is actually trying to achieve. Shown on the banner//season. */
+  goals: { text: string; done: boolean }[];
+}
+
+export interface SeasonConfig {
+  /** Seed values for data/season.json — editable in Admin after first boot.
+   *  Seasons are a LIST so the server can pick the current one by date. A single
+   *  season with a passed end date is how a banner silently starts lying. */
+  seasons: SeasonEntry[];
+  /** How this project paces its seasons. Drives the "queue next season" helper;
+   *  projects differ (quarters, solstices, lunar cycles). */
+  cadence: "quarterly" | "solstice-equinox" | "lunar" | "custom";
+  /** IANA zone the season turns in — a season turn is a ritual moment, and UTC
+   *  midnight is not midnight where the village lives. */
+  timezone: string;
 }
 
 // ── AMORA CONFIGURATION (edit below for a new project) ───────────────────────
@@ -172,11 +191,35 @@ export const GAME_CONFIG: GameConfig = {
   ],
 
   season: {
-    name: "Season of Foundations",
-    theme: "Building and Preparing",
-    focus: "Site planning, first structures, and growing the founding community.",
-    startsOn: "2026-06-21",
-    endsOn: "2026-09-21",
+    cadence: "solstice-equinox",
+    timezone: "America/Costa_Rica",
+    seasons: [
+      {
+        id: "foundations-2026",
+        name: "Season of Foundations",
+        theme: "Building and Preparing",
+        focus: "Site planning, first structures, and growing the founding community.",
+        startsOn: "2026-06-21",
+        endsOn: "2026-09-22",
+        goals: [
+          { text: "Master plan reviewed and agreed", done: false },
+          { text: "First homes designed and costed", done: false },
+          { text: "Founding circle fully assembled", done: false },
+        ],
+      },
+      {
+        id: "rooting-2026",
+        name: "Season of Rooting",
+        theme: "Planting and Deepening",
+        focus: "First builds underway, food forests planted, and the circles finding their rhythm.",
+        startsOn: "2026-09-22",
+        endsOn: "2026-12-21",
+        goals: [
+          { text: "Ground broken on the first structures", done: false },
+          { text: "Food forest phase one planted", done: false },
+        ],
+      },
+    ],
   },
 };
 

@@ -1,10 +1,12 @@
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { useState } from "react";
-import { Lightbulb, ArrowLeft, CheckCircle2, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Lightbulb, ArrowLeft, CheckCircle2, Sparkles, MessageCircle, ClipboardList } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { authToken } from "@/lib/gameApi";
+import { fetchConfigCached } from "@/lib/gameApi";
+import GuideChat from "@/components/GuideChat";
+import { submitProposal, assistantAvailable } from "@/lib/proposals";
 
 interface QuestProposal {
   title: string;
@@ -17,22 +19,35 @@ interface QuestProposal {
   timelineMilestones: string;
 }
 
+const EMPTY: QuestProposal = {
+  title: "", name: "", email: "", whatYouWantToDo: "",
+  resourcesBringing: "", resourcesNeeded: "", compensation: "", timelineMilestones: "",
+};
+
 export default function ProposeQuest() {
   const { user } = useAuth();
+  const [projectName, setProjectName] = useState("Amora");
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [mode, setMode] = useState<"ai" | "form">("form");
   const [form, setForm] = useState<QuestProposal>({
-    title: "",
+    ...EMPTY,
     name: user?.name ?? "",
     email: user?.email ?? "",
-    whatYouWantToDo: "",
-    resourcesBringing: "",
-    resourcesNeeded: "",
-    compensation: "",
-    timelineMilestones: "",
   });
   const [hp, setHp] = useState(""); // honeypot: real people never fill this
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetchConfigCached().then((c) => { if (c?.project?.name) setProjectName(c.project.name); });
+    assistantAvailable().then((ok) => { setAiAvailable(ok); if (ok) setMode("ai"); });
+  }, []);
+
+  // Prefill for a signed-in member, without clobbering anything they've typed.
+  useEffect(() => {
+    if (user) setForm((f) => ({ ...f, name: f.name || user.name || "", email: f.email || user.email || "" }));
+  }, [user]);
 
   const set = (k: keyof QuestProposal, v: string) =>
     setForm((p) => ({ ...p, [k]: v }));
@@ -45,22 +60,10 @@ export default function ProposeQuest() {
       return;
     }
     setSubmitting(true);
-    try {
-      const token = authToken();
-      const res = await fetch("/api/forms/submit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ type: "quest-proposal", data: form, hp }),
-      });
-      if (!res.ok) throw new Error();
-      setSubmitted(true);
-    } catch {
-      setError("Something went wrong sending your proposal. Please try again.");
-    }
+    const ok = await submitProposal("quest-proposal", form, hp);
     setSubmitting(false);
+    if (ok) setSubmitted(true);
+    else setError("Something went wrong sending your proposal. Please try again.");
   };
 
   if (submitted) {
@@ -142,15 +145,55 @@ export default function ProposeQuest() {
             </h1>
             <p className="text-xl text-muted-foreground">
               This is for everyone with an idea to bring value to the community. Tell
-              us what you want to create — it moves to the Amora team as a proposal,
-              and we'll reach out to explore it with you.
+              us what you want to create — it moves to the {projectName} team as a
+              proposal, and we'll reach out to explore it with you.
             </p>
           </motion.div>
         </div>
       </section>
 
+      {/* Talk it through, or fill it in yourself */}
+      {aiAvailable && (
+        <div className="bg-background">
+          <div className="container max-w-2xl mx-auto flex flex-wrap gap-2 pb-6">
+            <button
+              onClick={() => setMode("ai")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                mode === "ai" ? "bg-teal-deep text-white" : "bg-card border border-border text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <MessageCircle className="w-4 h-4" /> Talk it through with Maia
+            </button>
+            <button
+              onClick={() => setMode("form")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                mode === "form" ? "bg-teal-deep text-white" : "bg-card border border-border text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <ClipboardList className="w-4 h-4" /> Fill the form yourself
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === "ai" && aiAvailable && (
+        <section className="pb-24 bg-background">
+          <div className="container max-w-2xl mx-auto">
+            <GuideChat
+              kind="quest-proposal"
+              projectName={projectName}
+              assistantName="Maia"
+              empty={EMPTY}
+              onSubmitted={() => setSubmitted(true)}
+              onFallback={() => { setAiAvailable(false); setMode("form"); }}
+              onRefineInForm={(p) => { setForm({ ...EMPTY, ...form, ...p }); setMode("form"); }}
+            />
+          </div>
+        </section>
+      )}
+
       {/* Form */}
-      <section className="pb-24 bg-background">
+      <section className={`pb-24 bg-background ${mode === "ai" && aiAvailable ? "hidden" : ""}`}>
         <div className="container">
           <motion.form
             onSubmit={submit}

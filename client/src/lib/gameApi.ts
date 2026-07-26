@@ -18,7 +18,30 @@ export interface PublicGameConfig {
   images: BrandImages;
   paths: { id: string; label: string; role: string; route: string }[];
   stages: { id: string; name: string; description: string }[];
-  season: { name: string; theme: string; focus: string; startsOn: string; endsOn: string };
+  season: SeasonState;
+}
+
+export interface SeasonEntry {
+  id: string;
+  name: string;
+  theme: string;
+  focus: string;
+  startsOn: string;
+  endsOn: string;
+  goals: { text: string; done: boolean }[];
+}
+
+/** Computed server-side: `current` is chosen by date, so a banner can never
+ *  advertise a season that already ended. Null current = show nothing. */
+export interface SeasonState {
+  current: SeasonEntry | null;
+  upcoming: SeasonEntry | null;
+  needsNextSeason: boolean;
+  daysLeft: number;
+  daysUntilStart: number;
+  timezone: string;
+  cadence: string;
+  today: string;
 }
 
 // One shared, cached fetch of the public config so many components don't each hit it.
@@ -40,6 +63,28 @@ export function useBrandImages(): BrandImages {
     fetchConfigCached().then((c) => { if (c?.images) setImages(c.images); });
   }, []);
   return images;
+}
+
+/** The one source every season-driven surface reads, so a banner, a page header
+ *  and the pulse can never disagree about what season it is. */
+let _seasonCache: Promise<SeasonState | null> | null = null;
+export function fetchSeasonCached(): Promise<SeasonState | null> {
+  if (!_seasonCache) {
+    _seasonCache = fetch("/api/season")
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+  }
+  return _seasonCache;
+}
+
+export function useSeason(): SeasonState | null {
+  const [season, setSeason] = useState<SeasonState | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchSeasonCached().then((s) => { if (alive) setSeason(s); });
+    return () => { alive = false; };
+  }, []);
+  return season;
 }
 
 export function authToken(): string | null {

@@ -1224,7 +1224,20 @@ interface Milestone {
   completedDate: string | null;
   updateNote: string;
   order: number;
+  updatedAt?: string;
 }
+
+/** Days since a milestone was last touched, or null if it's never been edited. */
+function daysSinceUpdate(m: Milestone): number | null {
+  if (!m.updatedAt) return null;
+  const t = Date.parse(m.updatedAt);
+  if (Number.isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / 86400000);
+}
+
+/** In-progress work that nobody has touched in a while is how a board quietly
+ *  goes stale — surface it rather than waiting for someone to notice. */
+const STALE_AFTER_DAYS = 21;
 
 function MilestonesAdminTab({ password }: { password: string }) {
   const [items, setItems] = useState<Milestone[]>([]);
@@ -1286,6 +1299,11 @@ function MilestonesAdminTab({ password }: { password: string }) {
     return acc;
   }, {});
 
+  const stale = items.filter((m) => {
+    const d = daysSinceUpdate(m);
+    return m.status === "in-progress" && d !== null && d >= STALE_AFTER_DAYS;
+  });
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -1299,6 +1317,13 @@ function MilestonesAdminTab({ password }: { password: string }) {
           </button>
         )}
       </div>
+
+      {stale.length > 0 && (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <strong>{stale.length} milestone{stale.length === 1 ? "" : "s"} not updated in over {STALE_AFTER_DAYS} days:</strong>{" "}
+          {stale.map((m) => m.title).join(", ")}. A quick note keeps the public tracker honest.
+        </div>
+      )}
 
       {adding && (
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-6 space-y-3">
@@ -1409,6 +1434,17 @@ function MilestonesAdminTab({ password }: { password: string }) {
                       placeholder="Status note (optional, shown on homepage)"
                       className="w-full px-2 py-1 text-xs border border-gray-200 rounded"
                     />
+                    {(() => {
+                      const d = daysSinceUpdate(m);
+                      if (d === null) return null;
+                      const isStale = m.status === "in-progress" && d >= STALE_AFTER_DAYS;
+                      return (
+                        <p className={`text-[11px] ${isStale ? "text-amber-600 font-medium" : "text-gray-400"}`}>
+                          {d === 0 ? "Updated today" : `Updated ${d} day${d === 1 ? "" : "s"} ago`}
+                          {isStale && " — worth a fresh look"}
+                        </p>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
@@ -1847,66 +1883,285 @@ function PlayersTab({ password }: { password: string }) {
   );
 }
 
-// ── Game Admin: Season editor ─────────────────────────────────────────────────
+// ── Game Admin: Seasons ───────────────────────────────────────────────────────
+// Seasons are a list and the current one is picked by date, so the banner can
+// never keep advertising a season that already turned. Queue the next one and
+// the handover happens on its own.
+
+interface SeasonGoal { text: string; done: boolean }
+interface SeasonRow {
+  id: string; name: string; theme: string; focus: string;
+  startsOn: string; endsOn: string; goals: SeasonGoal[];
+}
+
+const CADENCES = [
+  { value: "solstice-equinox", label: "Solstices & equinoxes" },
+  { value: "quarterly", label: "Quarterly (3 months)" },
+  { value: "lunar", label: "Lunar (~29.5 days)" },
+  { value: "custom", label: "Custom / set by hand" },
+];
 
 function SeasonTab({ password }: { password: string }) {
-  const [season, setSeason] = useState<any>(null);
+  const [cfg, setCfg] = useState<any>(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    fetch(`${API_BASE}/season`).then((r) => r.json()).then(setSeason).catch(() => { /* silent */ });
-  }, []);
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/seasons`, { headers: authHeaders(password) });
+      setCfg(await res.json());
+    } catch { /* silent */ }
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
 
   const save = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/season`, {
+      const res = await fetch(`${API_BASE}/admin/seasons`, {
         method: "PUT",
         headers: authHeaders(password, { "Content-Type": "application/json" }),
-        body: JSON.stringify(season),
+        body: JSON.stringify({ seasons: cfg.seasons, cadence: cfg.cadence, timezone: cfg.timezone }),
       });
       if (!res.ok) throw new Error();
-      toast.success("Season saved");
+      toast.success("Seasons saved");
+      load();
     } catch { toast.error("Save failed"); }
     setSaving(false);
   };
 
-  if (!season) return <div className="text-center py-12 text-gray-400">Loading...</div>;
+  if (!cfg) return <div className="text-center py-12 text-gray-400">Loading...</div>;
+
+  const seasons: SeasonRow[] = cfg.seasons ?? [];
+  const setSeasons = (next: SeasonRow[]) => setCfg({ ...cfg, seasons: next });
+  const update = (i: number, patch: Partial<SeasonRow>) =>
+    setSeasons(seasons.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+
+  const addSeason = () => {
+    const s = cfg.suggestion ?? { startsOn: "", endsOn: "" };
+    setSeasons([...seasons, {
+      id: `season-${Date.now()}`, name: "", theme: "", focus: "",
+      startsOn: s.startsOn, endsOn: s.endsOn, goals: [],
+    }]);
+  };
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-start justify-between mb-6 gap-4">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Current Season</h2>
-          <p className="text-sm text-gray-500 mt-1">Shown as the banner on the homepage. Give each season a name, a theme, and a closing date.</p>
+          <h2 className="text-xl font-bold text-gray-900">Seasons</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Name your seasons, say what each one is for, and set its goals. The banner shows
+            whichever season covers today — queue the next one and it hands over by itself.
+          </p>
         </div>
-        <button onClick={save} disabled={saving} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+        <button onClick={save} disabled={saving} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50 shrink-0">
           {saving ? "Saving..." : "Save"}
         </button>
       </div>
-      <div className="space-y-4 max-w-xl">
-        {(["name", "theme", "focus"] as const).map((k) => (
-          <div key={k}>
-            <label className="text-sm font-medium text-gray-700 block mb-1 capitalize">{k}</label>
-            <input
-              type="text"
-              value={season[k] ?? ""}
-              onChange={(e) => setSeason({ ...season, [k]: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
-            />
-          </div>
-        ))}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-medium text-gray-700 block mb-1">Starts (YYYY-MM-DD)</label>
-            <input type="text" value={season.startsOn ?? ""} onChange={(e) => setSeason({ ...season, startsOn: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700 block mb-1">Ends (YYYY-MM-DD)</label>
-            <input type="text" value={season.endsOn ?? ""} onChange={(e) => setSeason({ ...season, endsOn: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-          </div>
+
+      {cfg.needsNextSeason && (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <strong>No season covers today.</strong> The banner stays hidden until you add one —
+          better than showing a season that has already turned.
+        </div>
+      )}
+
+      <div className="grid sm:grid-cols-2 gap-4 mb-6 max-w-xl">
+        <div>
+          <label className="text-sm font-medium text-gray-700 block mb-1">Rhythm</label>
+          <select
+            value={cfg.cadence}
+            onChange={(e) => setCfg({ ...cfg, cadence: e.target.value })}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+          >
+            {CADENCES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+          </select>
+          <p className="text-[11px] text-gray-400 mt-1">Used to suggest dates for the next season.</p>
+        </div>
+        <div>
+          <label className="text-sm font-medium text-gray-700 block mb-1">Timezone</label>
+          <input
+            type="text"
+            value={cfg.timezone ?? ""}
+            onChange={(e) => setCfg({ ...cfg, timezone: e.target.value })}
+            placeholder="America/Costa_Rica"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+          />
+          <p className="text-[11px] text-gray-400 mt-1">A season turns at midnight where the village is.</p>
         </div>
       </div>
+
+      <div className="space-y-4">
+        {seasons.map((s, i) => {
+          const isCurrent = cfg.currentId === s.id;
+          const upcoming = s.startsOn > (cfg.today ?? "");
+          return (
+            <div key={s.id} className={`border rounded-xl overflow-hidden ${isCurrent ? "border-[#2D5A5A]" : "border-gray-200"}`}>
+              <div className={`flex items-center justify-between px-4 py-2 text-xs font-semibold ${isCurrent ? "bg-[#2D5A5A]/10 text-[#2D5A5A]" : "bg-gray-50 text-gray-500"}`}>
+                <span>{isCurrent ? "Running now" : upcoming ? "Upcoming" : "Past"}</span>
+                <button onClick={() => setSeasons(seasons.filter((_, idx) => idx !== i))} className="text-red-600 hover:text-red-700 font-medium">
+                  Remove
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <input type="text" value={s.name} onChange={(e) => update(i, { name: e.target.value })} placeholder="Season name" className="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                  <input type="text" value={s.theme} onChange={(e) => update(i, { theme: e.target.value })} placeholder="Theme" className="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="date" value={s.startsOn} onChange={(e) => update(i, { startsOn: e.target.value })} className="px-2 py-2 text-sm border border-gray-200 rounded-lg" />
+                    <input type="date" value={s.endsOn} onChange={(e) => update(i, { endsOn: e.target.value })} className="px-2 py-2 text-sm border border-gray-200 rounded-lg" />
+                  </div>
+                </div>
+                <input type="text" value={s.focus} onChange={(e) => update(i, { focus: e.target.value })} placeholder="What this season is for (shown on the banner)" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 mb-1.5">Main goals</p>
+                  <div className="space-y-1.5">
+                    {(s.goals ?? []).map((g, gi) => (
+                      <div key={gi} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={g.done}
+                          onChange={(e) => update(i, { goals: s.goals.map((x, xi) => xi === gi ? { ...x, done: e.target.checked } : x) })}
+                          className="h-4 w-4 accent-[#2D5A5A] shrink-0"
+                        />
+                        <input
+                          type="text"
+                          value={g.text}
+                          onChange={(e) => update(i, { goals: s.goals.map((x, xi) => xi === gi ? { ...x, text: e.target.value } : x) })}
+                          placeholder="What this season is trying to achieve"
+                          className="flex-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg"
+                        />
+                        <button onClick={() => update(i, { goals: s.goals.filter((_, xi) => xi !== gi) })} className="text-gray-400 hover:text-red-600 shrink-0">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => update(i, { goals: [...(s.goals ?? []), { text: "", done: false }] })}
+                    className="mt-2 inline-flex items-center gap-1 text-xs text-[#2D5A5A] font-medium hover:underline"
+                  >
+                    <Plus className="w-3 h-3" /> Add goal
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <button onClick={addSeason} className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+        <Plus className="w-4 h-4" /> Queue the next season
+        {cfg.suggestion?.endsOn && (
+          <span className="text-xs text-gray-400">({cfg.suggestion.startsOn} → {cfg.suggestion.endsOn})</span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+
+// ── One hero image: upload (compressed for you) or point at your own URL ──────
+
+function BrandImageField({
+  label, value, fallback, alt, password, onChange, onAltChange,
+}: {
+  label: string;
+  value: string;
+  fallback: string;
+  alt: string;
+  password: string;
+  onChange: (v: string) => void;
+  onAltChange: (v: string) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [note, setNote] = useState("");
+  const [showUrl, setShowUrl] = useState(false);
+
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    setNote("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${API_BASE}/admin/brand/image`, {
+        method: "POST", headers: authHeaders(password), body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      onChange(data.url);
+      const saved = data.originalBytes && data.bytes
+        ? ` — ${Math.round(data.originalBytes / 1024)}KB down to ${Math.round(data.bytes / 1024)}KB`
+        : "";
+      setNote(`Uploaded${saved}. Remember to save.`);
+    } catch (e: any) {
+      toast.error(e?.message || "Upload failed");
+    }
+    setUploading(false);
+  };
+
+  const src = value || fallback;
+
+  return (
+    <div>
+      <label className="text-xs font-medium text-gray-500 block mb-1">{label}</label>
+
+      {/* Preview at the shape it actually renders in, so nothing gets beheaded */}
+      <div className="relative aspect-[16/9] w-full rounded-lg bg-gray-100 overflow-hidden border border-gray-200 mb-2">
+        {src
+          ? <img src={src} alt="" className="w-full h-full object-cover" />
+          : <div className="w-full h-full flex items-center justify-center text-[11px] text-gray-400">No image yet</div>}
+        {uploading && (
+          <div className="absolute inset-0 bg-white/70 flex items-center justify-center text-xs text-gray-600">
+            Compressing…
+          </div>
+        )}
+      </div>
+
+      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2D5A5A] text-white text-xs font-medium cursor-pointer hover:opacity-90">
+        <Upload className="w-3.5 h-3.5" />
+        {value ? "Replace image" : "Upload image"}
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/avif"
+          className="hidden"
+          disabled={uploading}
+          onChange={(e) => { pick(e.target.files?.[0]); e.currentTarget.value = ""; }}
+        />
+      </label>
+
+      <button
+        type="button"
+        onClick={() => setShowUrl((s) => !s)}
+        className="ml-2 text-[11px] text-gray-500 underline hover:text-gray-700"
+      >
+        {showUrl ? "hide URL" : "or use a URL"}
+      </button>
+
+      {showUrl && (
+        <input
+          type="url"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={fallback}
+          className="w-full mt-2 px-3 py-2 text-sm border border-gray-200 rounded-lg"
+        />
+      )}
+
+      <input
+        type="text"
+        value={alt}
+        onChange={(e) => onAltChange(e.target.value)}
+        placeholder="Describe this image (for screen readers)"
+        className="w-full mt-2 px-3 py-1.5 text-xs border border-gray-200 rounded-lg"
+      />
+
+      {note && <p className="text-[11px] text-emerald-600 mt-1">{note}</p>}
+      <p className="text-[11px] text-gray-400 mt-0.5">
+        Landscape works best. Big photos are resized and compressed automatically.
+      </p>
     </div>
   );
 }
@@ -1964,6 +2219,15 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
     { key: "technical", label: "Go live" },
   ];
   const doneCount = steps.filter((s) => brand.setup?.[s.key]).length;
+  const setupComplete = doneCount === steps.length;
+
+  /** Clears the done flags so the walkthrough (and its progress bar) comes back —
+   *  none of the actual settings are touched. */
+  const resetSetup = () => {
+    const cleared = Object.fromEntries(steps.map((s) => [s.key, false]));
+    setBrand({ ...brand, setup: cleared });
+    saveBrand("setup", { setup: cleared });
+  };
 
   const brandField = (group: "project" | "currency", key: string, label: string, defaultVal: string) => (
     <div>
@@ -1980,19 +2244,16 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
   );
 
   const imageField = (key: string, label: string) => (
-    <div>
-      <label className="text-xs font-medium text-gray-500 block mb-1">{label}</label>
-      <input
-        type="url"
-        value={brand.images[key] ?? ""}
-        onChange={(e) => setField("images", key, e.target.value)}
-        placeholder={defaults.images[key]}
-        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
-      />
-      <div className="mt-1.5 h-16 w-28 rounded-md bg-gray-100 overflow-hidden border border-gray-200">
-        <img src={brand.images[key] || defaults.images[key]} alt="" className="w-full h-full object-cover" />
-      </div>
-    </div>
+    <BrandImageField
+      key={key}
+      label={label}
+      value={brand.images[key] ?? ""}
+      fallback={defaults.images[key]}
+      alt={brand.images[`${key}Alt`] ?? ""}
+      password={password}
+      onChange={(v) => setField("images", key, v)}
+      onAltChange={(v) => setField("images", `${key}Alt`, v)}
+    />
   );
 
   const contentEditors = [
@@ -2028,16 +2289,32 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-xl font-bold text-gray-900">Make This Site Yours</h2>
+        {/* Once every step is done this stops being an onboarding wizard and
+            becomes the place you come back to — so it changes posture, not just
+            its name. The steps stay editable either way. */}
+        <h2 className="text-xl font-bold text-gray-900">
+          {setupComplete ? "Project Settings" : "Make This Site Yours"}
+        </h2>
         <p className="text-sm text-gray-500 mt-1">
-          Everything you need to turn this into your project's coordination game. Blank fields keep Amora's value as the suggestion.
+          {setupComplete
+            ? "Your project's identity, pictures, and numbers. Change any of it any time."
+            : "Everything you need to turn this into your project's coordination game. Blank fields keep Amora's value as the suggestion."}
         </p>
-        <div className="flex items-center gap-3 mt-4">
-          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden max-w-xs">
-            <div className="h-2 bg-[#2D5A5A] rounded-full transition-all" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
+        {!setupComplete ? (
+          <div className="flex items-center gap-3 mt-4">
+            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden max-w-xs">
+              <div className="h-2 bg-[#2D5A5A] rounded-full transition-all" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
+            </div>
+            <span className="text-sm text-gray-500">{doneCount} / {steps.length} steps</span>
           </div>
-          <span className="text-sm text-gray-500">{doneCount} / {steps.length} steps</span>
-        </div>
+        ) : (
+          <button
+            onClick={resetSetup}
+            className="mt-3 text-xs text-gray-500 underline hover:text-gray-700"
+          >
+            Re-run the setup walkthrough
+          </button>
+        )}
       </div>
 
       <Section id="identity" n={1} title="Identity" subtitle="What your project is called.">
@@ -2055,7 +2332,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
         <p className="text-xs text-gray-400 mt-2">Instantly updates the game layer (profile, gratitude, season banner, pulse). Page marketing copy is edited under Content below.</p>
       </Section>
 
-      <Section id="images" n={2} title="Pictures" subtitle="Hero images across the site. Paste an image URL; landscape works best.">
+      <Section id="images" n={2} title="Pictures" subtitle="Hero images across the site. Upload your own — we host and compress them — or point at a URL you already host.">
         <div className="grid md:grid-cols-3 gap-4 mb-4">
           {imageField("hero", "Homepage hero")}
           {imageField("investorHero", "Investor hero")}
@@ -2323,6 +2600,21 @@ function WorkWithUsTab({ password }: { password: string }) {
 export default function Admin() {
   const [password, setPassword] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>("submissions");
+  // Drives where the setup panel sits in the nav and what it's called: a front
+  // door while you're still setting up, ordinary settings once you're done.
+  const [setupComplete, setSetupComplete] = useState(false);
+
+  useEffect(() => {
+    if (!password) return;
+    fetch(`${API_BASE}/admin/brand`, { headers: authHeaders(password) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const s = d?.brand?.setup ?? {};
+        const keys = ["identity", "images", "numbers", "content", "technical"];
+        setSetupComplete(keys.every((k) => s[k]));
+      })
+      .catch(() => { /* leave as incomplete; the wizard just stays pinned */ });
+  }, [password, activeTab]);
 
   if (!password) {
     return <PasswordGate onAuth={setPassword} />;
@@ -2352,23 +2644,31 @@ export default function Admin() {
       <div className="flex">
         <nav className="w-56 min-h-[calc(100vh-60px)] bg-white border-r border-gray-200 py-6 flex-shrink-0">
           <div className="px-4 mb-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Start Here</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+              {setupComplete ? "Submissions" : "Start Here"}
+            </p>
           </div>
-          <button
-            onClick={() => setActiveTab("setup")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold transition-colors ${
-              activeTab === "setup"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-[#2D5A5A] hover:bg-gray-50"
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            Make This Yours
-          </button>
+          {/* Pinned at the top while setup is unfinished; once it's done it drops
+              to the bottom with the other settings and loses the urgency styling. */}
+          {!setupComplete && (
+            <button
+              onClick={() => setActiveTab("setup")}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold transition-colors ${
+                activeTab === "setup"
+                  ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                  : "text-[#2D5A5A] hover:bg-gray-50"
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              Make This Yours
+            </button>
+          )}
 
-          <div className="px-4 mt-6 mb-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Submissions</p>
-          </div>
+          {!setupComplete && (
+            <div className="px-4 mt-6 mb-4">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Submissions</p>
+            </div>
+          )}
           <button
             onClick={() => setActiveTab("submissions")}
             className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
@@ -2535,6 +2835,25 @@ export default function Admin() {
             <BarChart3 className="w-4 h-4" />
             Investor Summary
           </button>
+
+          {setupComplete && (
+            <>
+              <div className="px-4 mt-6 mb-4">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Settings</p>
+              </div>
+              <button
+                onClick={() => setActiveTab("setup")}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+                  activeTab === "setup"
+                    ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                    : "text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <Sparkles className="w-4 h-4" />
+                Project Settings
+              </button>
+            </>
+          )}
         </nav>
 
         <main className="flex-1 p-8 max-w-4xl">

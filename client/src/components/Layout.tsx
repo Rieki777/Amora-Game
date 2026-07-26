@@ -90,6 +90,9 @@ export default function Layout({ children }: LayoutProps) {
             <Link href="/quests" className="text-white/70 hover:text-white transition-colors text-sm">
               Quests
             </Link>
+            <Link href="/work-with-us" className="text-white/70 hover:text-white transition-colors text-sm">
+              Work With Us
+            </Link>
             <Link href="/how-we-create" className="text-white/70 hover:text-white transition-colors text-sm">
               How We Create
             </Link>
@@ -190,6 +193,9 @@ export default function Layout({ children }: LayoutProps) {
                 </Link>
                 <Link href="/quests" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   Quests
+                </Link>
+                <Link href="/work-with-us" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                  Work With Us
                 </Link>
                 <Link href="/how-we-create" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   How We Create

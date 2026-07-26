@@ -1,16 +1,15 @@
 import Layout from "@/components/Layout";
-import { useEffect, useRef, useState } from "react";
-import { fetchConfigCached, authToken } from "@/lib/gameApi";
+import { useEffect, useState } from "react";
+import { fetchConfigCached } from "@/lib/gameApi";
 import { useAuth } from "@/contexts/AuthContext";
+import GuideChat from "@/components/GuideChat";
+import { submitProposal } from "@/lib/proposals";
 import {
   Handshake,
   MessageCircle,
   ClipboardList,
-  Send,
-  Sparkles,
   CheckCircle2,
   ArrowRight,
-  Loader2,
   Paperclip,
   X,
 } from "lucide-react";
@@ -65,19 +64,6 @@ const RECIPROCITY_FALLBACK: ReciprocityOption[] = [
   { value: "Memorandum of Understanding", title: "Memorandum of Understanding", desc: "A clear, living exchange of contribution — e.g. you grow vegetables, share some harvest, and add to the beauty of the land." },
 ];
 
-async function submitProposal(p: Proposal, hp = ""): Promise<boolean> {
-  try {
-    const token = authToken();
-    const res = await fetch("/api/forms/submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ type: "work-with-us", data: p, hp }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
@@ -185,9 +171,11 @@ export default function WorkWithUs() {
         <div className="container max-w-3xl mx-auto px-4">
           {mode === "ai" && aiAvailable ? (
             <GuideChat
+              kind="work-with-us"
               projectName={projectName}
               assistantName={assistantName}
               greeting={wwu?.assistantGreeting}
+              empty={EMPTY}
               onSubmitted={onSubmitted}
               onFallback={() => { setAiAvailable(false); setMode("form"); }}
               onRefineInForm={(p) => { saveDraft({ ...EMPTY, ...form, ...p }); setMode("form"); }}
@@ -203,139 +191,6 @@ export default function WorkWithUs() {
         Any partnership is subject to mutual agreement and formal terms.
       </p>
     </Layout>
-  );
-}
-
-// ── The AI guide (Maia) ──────────────────────────────────────────────────────
-
-interface ChatMsg { role: "user" | "assistant"; content: string }
-
-function GuideChat({
-  projectName, assistantName, greeting, onSubmitted, onFallback, onRefineInForm,
-}: {
-  projectName: string;
-  assistantName: string;
-  greeting?: string;
-  onSubmitted: () => void;
-  onFallback: () => void;
-  onRefineInForm: (p: Partial<Proposal>) => void;
-}) {
-  const [messages, setMessages] = useState<ChatMsg[]>([
-    {
-      role: "assistant",
-      content:
-        (greeting ? greeting.replace(/\{name\}/g, assistantName) : `Hi, I'm ${assistantName} — I help people shape their offering to ${projectName}. There's no wrong way to start. What are you dreaming of bringing?`),
-    },
-  ]);
-  const [input, setInput] = useState("");
-  const [thinking, setThinking] = useState(false);
-  const [proposal, setProposal] = useState<Proposal | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, thinking]);
-
-  const send = async () => {
-    const text = input.trim();
-    if (!text || thinking) return;
-    const next = [...messages, { role: "user" as const, content: text }];
-    setMessages(next);
-    setInput("");
-    setThinking(true);
-    try {
-      const res = await fetch("/api/assistant/work-with-us", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next }),
-      });
-      if (res.status === 503) { onFallback(); return; }
-      const data = await res.json();
-      if (!res.ok) {
-        setMessages([...next, { role: "assistant", content: "I lost my thread for a moment — could you say that again?" }]);
-      } else {
-        setMessages([...next, { role: "assistant", content: data.reply }]);
-        if (data.complete && data.proposal) setProposal({ ...EMPTY, ...data.proposal });
-      }
-    } catch {
-      setMessages([...next, { role: "assistant", content: "Something interrupted us. Try sending that once more." }]);
-    }
-    setThinking(false);
-  };
-
-  const submit = async () => {
-    if (!proposal) return;
-    setSubmitting(true);
-    const ok = await submitProposal(proposal);
-    setSubmitting(false);
-    if (ok) onSubmitted();
-  };
-
-  return (
-    <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-stone-100 bg-teal-deep/5">
-        <div className="w-9 h-9 rounded-full bg-teal-deep text-white flex items-center justify-center">
-          <Sparkles className="w-4 h-4" />
-        </div>
-        <div>
-          <p className="font-semibold text-teal-deep leading-tight">{assistantName}</p>
-          <p className="text-xs text-stone-500">Your {projectName} guide</p>
-        </div>
-      </div>
-
-      <div ref={scrollRef} className="h-[420px] overflow-y-auto px-5 py-4 space-y-3">
-        {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-              m.role === "user" ? "bg-teal-deep text-white" : "bg-stone-100 text-stone-700"
-            }`}>
-              {m.content}
-            </div>
-          </div>
-        ))}
-        {thinking && (
-          <div className="flex justify-start">
-            <div className="bg-stone-100 text-stone-500 rounded-2xl px-4 py-2.5 text-sm flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> {assistantName} is thinking…
-            </div>
-          </div>
-        )}
-
-        {proposal && (
-          <div className="bg-amber/10 border border-amber/30 rounded-2xl p-4 mt-2">
-            <p className="font-semibold text-teal-deep mb-2 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4" /> Your proposal is ready
-            </p>
-            <p className="text-sm text-stone-600 mb-3">
-              {assistantName} has captured everything. Review it, then send it to the {projectName} team.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={submit} disabled={submitting} className="inline-flex items-center gap-2 bg-teal-deep text-white text-sm font-semibold px-4 py-2 rounded-xl hover:bg-teal disabled:opacity-50">
-                {submitting ? "Sending…" : "Submit proposal"} <ArrowRight className="w-4 h-4" />
-              </button>
-              <button onClick={() => onRefineInForm(proposal)} className="text-sm font-medium text-teal-deep px-4 py-2 rounded-xl border border-stone-200 hover:bg-stone-50">
-                Review in the form
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="border-t border-stone-100 p-3 flex items-end gap-2">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder={`Tell ${assistantName} about your idea…`}
-          rows={1}
-          className="flex-1 resize-none px-3 py-2 text-sm border border-stone-200 rounded-xl outline-none focus:border-teal-deep max-h-32"
-        />
-        <button onClick={send} disabled={thinking || !input.trim()} className="shrink-0 w-10 h-10 rounded-xl bg-teal-deep text-white flex items-center justify-center hover:bg-teal disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:min-w-11">
-          <Send className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -383,7 +238,7 @@ function ProposalForm({
     if (form.reciprocity.length === 0) { setError("Choose at least one form of reciprocity that fits."); return; }
     setError("");
     setSubmitting(true);
-    const ok = await submitProposal(form, hp);
+    const ok = await submitProposal("work-with-us", form, hp);
     setSubmitting(false);
     if (ok) onSubmitted(); else setError("Something went wrong sending your proposal. Please try again.");
   };
