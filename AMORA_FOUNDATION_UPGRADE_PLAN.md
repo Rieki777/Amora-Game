@@ -75,6 +75,106 @@ unlocks something. `server/loop.e2e.test.ts` walks all of that except cycle clos
 the unlock, which are steps 3 and 5 above. Those two assertions are the definition of
 done for this whole revision.
 
+## Revision 3 (2026-07-26): findings from the regen-civics port audit
+
+Eight agents mapped every source system in regen-civics, then a critic pass looked
+for collisions. The findings below are load-bearing; several contradict what the
+individual system maps claimed was portable.
+
+### The collision that would have broken the economy
+
+**Amora pays at SEND. ReGen pays at CLOSE. Never run both.**
+
+Amora's gratitude send credits the recipient immediately (`server/index.ts`, the
+`heartsBalance + amt` line). ReGen's ADR-30 model is the opposite: sending mints
+nothing, and recipients are paid pro-rata at cycle close from a fixed pool. A
+naive "finish the port" that adds pool minting on top of Amora's send-time credit
+would **pay every acknowledgment twice** and the fixed pool would stop being fixed.
+
+Resolved, and this is deliberate: **Amora keeps pay-at-send. `gratitude_cycles` and
+`gratitude_distributions` are a SETTLEMENT AUDIT of each lunation (who received
+what, from how many distinct people), not a second payment.** Cycle close credits
+nobody. Anyone extending this must not "fix" that by adding a distribution.
+
+Note also that under ADR-30 the sender does not choose an amount at all, so
+porting it would change the API, the UI and the wall. Amora's sender-chosen amount
+stays.
+
+### Corrected build order
+
+The ledger moves BEFORE cycle close. `hearts_balance` is currently incremented in
+two places across non-atomic file writes, so there are already two writers to the
+same number and no audit trail. Order:
+
+1. Storage layer and repository split. **Set `timezone: 'Z'` on the MySQL pool.**
+   `GAME_CONFIG.season.timezone` is `America/Costa_Rica` (UTC-6) and someone will
+   helpfully point the pool at it, shifting every lunar boundary six hours.
+2. **The ledger**, with `tokenType enum('gratitude','amora','voice')` correct on
+   day one, because altering a live MySQL enum later is the migration regen
+   refused to do. One opening `migrated_from_hearts` row per member, after which
+   `hearts_balance` is a recomputed cache and never `+=` again.
+3. Rewire quest consent through the ledger. The loop test is the regression gate.
+4. Roles as data, one capability helper, `quests.roleRequired` validated against
+   `roles.slug` on write (today it is an unvalidated pointer).
+5. Stage gating and `stage_events`. DONE.
+6. Profiles, against real data.
+7. Lunar cycles and close. DONE, as settlement only.
+8. Notification spine. Prerequisite for the forum and for role-targeted messaging.
+9. Forum and the decision primitive.
+10. Economics section (Base reads).
+11. Command centre.
+
+### Traps that are specific to this codebase
+
+- **There is no tRPC here.** Every "port this procedure" is an Express rewrite,
+  including the guards, the error-code-to-HTTP mapping, and the client's
+  `staleTime` / `refetchInterval` / optimistic-update behaviour.
+- **Ids are `varchar(64)`, not INT.** Every regen table that keys on a user is
+  INT-keyed, so idempotency keys grow: widen `idempotencyKey` to at least 160.
+- **Equity decimals are a cap-table problem, not a rounding problem.** Regen reads
+  balances with integer BigInt division into INT columns, so 0.5 tokens displays as
+  0. Acceptable for a recognition token; for **Amora as equity, displayed beside a
+  member's name, it is a misstatement.** Read `decimals()`, store fixed point, and
+  **return null on RPC failure rather than persisting a zero.**
+- **Wallet binding needs proof of control.** Regen's link only checks nobody else
+  claimed the string. `users.wallet_verified_at` (0003) exists to record a signed
+  message, and equity must not be displayed against an unverified binding.
+- **Two cycle keys.** `gratitude_log.cycle_id` historically held a calendar month
+  (`"2026-07"`); it now holds lunar ids (`lunar-000328`). Harmless today because
+  production has no gratitude rows, but the cutover should add an int cycle FK,
+  rename the old column `legacy_cycle_month`, and make the uniqueness
+  `(from_id, to_id, cycle_id)`.
+- **`visitor.gratitudeMultiplier` is 0**, so a zero-budget sender is reachable by
+  default. Regen's floor is 1.0 and never hits this. Any future pooled maths must
+  treat total weight zero as "nothing to settle", not divide by it.
+- **Stage is computed live** over three JSON files on every call, so snapshotting a
+  derived tier into a budget row freezes different values depending on when a
+  member first touched the cycle.
+
+### What we are explicitly NOT porting
+
+- The legacy season gratitude path (`gratitude_transactions`, `gratitude_budgets`,
+  `game.sendGratitude`, the hand-typed `lunar_cycles` table whose dates are a year
+  wrong). Amora already has the faucet; the job is not to import a second one.
+- The Hypha claim bridge, unless Gratitude-to-Amora conversion becomes a real
+  product decision. Roughly 600 lines, a hand-provisioned webhook, a weak bridge
+  key, and public endpoints leaking wallet and payout. Decision 1 says the platform
+  never mints or moves Amora, so a bridge that requests issuance is out of scope by
+  our own rule. `governance.hypha_threshold` is a progress target until then.
+- Percentile scoring and trust scores. `PERCENT_RANK()` over eight players makes
+  fourth place a rank. Use absolute counts.
+- The public/private balance split and the second and third token ledgers. One
+  ledger.
+- Nine capitals, bioregions, seasons-as-infrastructure, thread chains,
+  multi-tenancy, quest unlock tiers. Movement-scoped or dead. Caveat:
+  `quests.circle` IS populated in Amora, so circles are a real decision rather
+  than a blanket delete.
+- **Regen's `game_variables` table.** It fails soft (a missing key silently becomes
+  a code default, so a typo yields a plausible economy with no error) and has five
+  duplicated readers. Our `shared/gameVariables.ts` plus `server/lib/variables.ts`
+  deliberately does the opposite: an unknown key throws, there is one reader, and
+  only changed values are stored so platform defaults stay inheritable.
+
 ## What already exists, do not rebuild
 
 Verified by reading the code and probing production, not assumed.
