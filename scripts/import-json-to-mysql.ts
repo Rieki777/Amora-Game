@@ -93,18 +93,24 @@ async function main() {
     const users: any[] = Array.isArray(usersDoc) ? usersDoc : (usersDoc?.users ?? []);
     for (const u of users) {
       await conn.query(
-        "INSERT INTO `users` (id, name, email, password_hash, paths, recognition_balance, contributions, quests, bio, avatar, stage_granted, training_complete, joined_at) " +
-          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
+        // S6 columns included: role/handle/token_version/journeys carry the
+        // admin identities, session revocation, and training progress — losing
+        // any of these on import would demote admins or log people out wrong.
+        "INSERT INTO `users` (id, name, email, password_hash, paths, recognition_balance, contributions, quests, journeys, bio, avatar, stage_granted, training_complete, role, handle, token_version, joined_at) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
           "ON DUPLICATE KEY UPDATE name=VALUES(name), email=VALUES(email), password_hash=VALUES(password_hash), " +
           "paths=VALUES(paths), recognition_balance=VALUES(recognition_balance), contributions=VALUES(contributions), " +
-          "quests=VALUES(quests), bio=VALUES(bio), avatar=VALUES(avatar), stage_granted=VALUES(stage_granted), " +
-          "training_complete=VALUES(training_complete)",
+          "quests=VALUES(quests), journeys=VALUES(journeys), bio=VALUES(bio), avatar=VALUES(avatar), stage_granted=VALUES(stage_granted), " +
+          "training_complete=VALUES(training_complete), role=VALUES(role), handle=VALUES(handle), token_version=VALUES(token_version)",
         [
           str(u.id, 64), str(u.name, 255), str(u.email, 255), str(u.passwordHash, 255),
           JSON.stringify(u.paths ?? []), num(u.recognitionBalance, 0),
           JSON.stringify(u.contributions ?? []), JSON.stringify(u.quests ?? []),
+          JSON.stringify(u.journeys ?? {}),
           u.bio ?? null, str(u.avatar, 500), str(u.stageGranted, 64),
-          u.trainingComplete ? 1 : 0, ts(u.joinedAt),
+          u.trainingComplete ? 1 : 0,
+          str(u.role, 32) ?? "member", str(u.handle, 40), num(u.tokenVersion, 0),
+          ts(u.joinedAt),
         ],
       );
     }
@@ -372,6 +378,38 @@ async function main() {
         // Compare as strings so 50 and "50" agree, but "50-100" and 0 do not.
         if (String(want) !== String(got)) {
           console.log(`field ${check.table}/${id}.${c.col} (${c.label}): json=${JSON.stringify(want)} mysql=${JSON.stringify(got)}  MISMATCH`);
+          bad++;
+        }
+      }
+    }
+  }
+  // Users get their own check (the file is {users:[...]}, not a bare array):
+  // S6 moved auth itself onto these columns, so a silently-dropped role or
+  // token_version is an admin demoted or a member logged out — not cosmetic.
+  {
+    const jsonUsers: any[] = Array.isArray(usersDoc) ? usersDoc : (usersDoc?.users ?? []);
+    for (const u of jsonUsers) {
+      if (!u?.id) continue;
+      const [rows] = await conn.query<any[]>(
+        "SELECT email, role, handle, token_version, recognition_balance FROM `users` WHERE id = ? LIMIT 1",
+        [u.id],
+      );
+      if (rows.length === 0) {
+        console.log(`field users/${u.id}: MISSING ROW`);
+        bad++;
+        continue;
+      }
+      const want = {
+        email: String(u.email ?? ""),
+        role: String(u.role ?? "member"),
+        handle: String(u.handle ?? ""),
+        token_version: String(u.tokenVersion ?? 0),
+        recognition_balance: String(u.recognitionBalance ?? 0),
+      };
+      for (const [col, w] of Object.entries(want)) {
+        const got = String(rows[0][col] ?? "");
+        if (w !== got) {
+          console.log(`field users/${u.id}.${col}: json=${JSON.stringify(w)} mysql=${JSON.stringify(got)}  MISMATCH`);
           bad++;
         }
       }

@@ -27,13 +27,20 @@ import { spawn, type ChildProcess } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
 
 const PORT = 3781;
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "loop-test-admin";
 
+// S6: the users domain lives in MySQL, so the loop needs the S5 harness — a
+// scratch schema the child server auto-migrates and uses. Without a database
+// the loop cannot run at all; it skips loudly rather than passing hollowly.
+const DB_CONFIGURED = testDbConfigured();
+
 let child: ChildProcess;
 let dataDir: string;
+let testDb: TestDb;
 
 /** Absolute path to the built server, which the test requires to exist. */
 const DIST = path.resolve(process.cwd(), "dist", "index.js");
@@ -63,10 +70,12 @@ async function api(
 }
 
 beforeAll(async () => {
+  if (!DB_CONFIGURED) return;
   if (!fs.existsSync(DIST)) {
     throw new Error(`${DIST} is missing. Run \`pnpm build\` before the loop test.`);
   }
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "amora-loop-"));
+  testDb = await provisionTestDb();
 
   child = spawn(process.execPath, [DIST], {
     env: {
@@ -74,6 +83,9 @@ beforeAll(async () => {
       NODE_ENV: "production",
       PORT: String(PORT),
       DATA_DIR: dataDir,
+      // The child runs its own boot migrations against the scratch schema —
+      // the same self-migrating path production takes on deploy.
+      DATABASE_URL: testDb.url,
       ADMIN_PASSWORD: ADMIN,
       JOURNEY_PASSWORD: "loop-test-journey",
       AUTH_TOKEN_SECRET: "loop-test-token-secret",
@@ -103,14 +115,15 @@ beforeAll(async () => {
   }
 });
 
-afterAll(() => {
+afterAll(async () => {
   child?.kill();
   if (dataDir && fs.existsSync(dataDir)) {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
+  await testDb?.drop();
 });
 
-describe("the coordination loop, end to end", () => {
+describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
   // Shared across the ordered steps below: this is deliberately one journey,
   // not seven isolated cases, because the loop is the unit under test.
   const doer = { email: `doer-${PORT}@example.test`, password: "LoopTest123!", name: "Willing Doer" };

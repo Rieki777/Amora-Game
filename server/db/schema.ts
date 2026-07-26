@@ -56,6 +56,9 @@ export const users = mysqlTable("users", {
   recognitionBalance: int("recognition_balance").default(0).notNull(),
   contributions: json("contributions"),
   quests: json("quests"),
+  /** Per-journey step progress: { journeyId: [stepId, ...] }. Training
+   *  completion reads journeys.training and gates stage computation. */
+  journeys: json("journeys"),
   bio: text("bio"),
   avatar: varchar("avatar", { length: 500 }),
   /** Manual admin override of the computed stage. */
@@ -65,6 +68,8 @@ export const users = mysqlTable("users", {
   role: varchar("role", { length: 32 }).default("member").notNull(),
   /** Public identifier for @mentions; without it mentions leak email addresses. */
   handle: varchar("handle", { length: 40 }).unique(),
+  /** S1 session revocation: tokens carry `v`; a mismatch kills old sessions. */
+  tokenVersion: int("token_version").default(0).notNull(),
   /** On-chain identity. Only trusted once control is proven by signature. */
   walletAddress: varchar("wallet_address", { length: 42 }).unique(),
   walletVerifiedAt: timestamp("wallet_verified_at"),

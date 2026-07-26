@@ -1,156 +1,148 @@
 /**
- * Unit tests for the members repository.
+ * Tests for the members repository, S6 edition: the backing store is MySQL.
  *
- * The interesting case is `update()`. Every handler previously did its own
- * read-modify-write: load all members, edit one, write the lot back. Two
- * overlapping requests means the second load happens before the first save, and
- * one member's change vanishes with no error. `update()` narrows that window to a
- * single function, and `saveDoc()` keeps the old shape available while making the
- * staleness visible in one signature instead of at 29 call sites.
+ * The interesting case is still `update()`. In the JSON era every handler did
+ * its own read-modify-write and two overlapping requests silently lost one
+ * member's change — the old suite documented that staleness as a known
+ * limitation. The MySQL repository runs SELECT ... FOR UPDATE inside a
+ * transaction, so overlapping update() calls SERIALIZE; the concurrency test
+ * here proves all of them land, which the file store could never promise.
  *
- * These assert the difference explicitly, so nobody "simplifies" update() back
- * into a load-mutate-save pair at the call site later.
+ * Runs against the S5 harness: a scratch schema with every real migration
+ * applied. No TEST_DATABASE_URL → the suite skips loudly (harness rule).
  */
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import fs from "fs";
-import os from "os";
-import path from "path";
-import { usersRepo, type MemberRecord } from "./users";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import mysql from "mysql2/promise";
+import { usersRepo, type MemberRecord, type UsersRepo } from "./users";
+import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
 
-let dir: string;
-let file: string;
-let repo: ReturnType<typeof usersRepo>;
+const configured = testDbConfigured();
 
-const member = (id: string, email: string, extra: Record<string, any> = {}): MemberRecord =>
-  ({ id, email, name: id, recognitionBalance: 0, ...extra });
+let db: TestDb;
+let pool: mysql.Pool;
+let repo: UsersRepo;
 
-beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "amora-users-"));
-  file = path.join(dir, "users.json");
-  fs.writeFileSync(file, JSON.stringify({ users: [] }));
-  repo = usersRepo(file);
+const member = (id: string, email: string, extra: Record<string, any> = {}): MemberRecord => ({
+  id,
+  email,
+  name: id,
+  recognitionBalance: 0,
+  ...extra,
 });
 
-afterEach(() => {
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-describe("reads", () => {
-  beforeEach(() => {
-    repo.add(member("usr-1", "One@Example.test"));
-    repo.add(member("usr-2", "two@example.test"));
+describe.skipIf(!configured)("usersRepo (MySQL)", () => {
+  beforeAll(async () => {
+    db = await provisionTestDb();
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 4 });
+    repo = usersRepo(pool);
   });
 
-  it("finds by id and by email, and email matching is case-insensitive", () => {
-    expect(repo.byId("usr-1")?.email).toBe("One@Example.test");
-    // Registration and login compare emails, so a member typing a different case
-    // must not create or miss an account.
-    expect(repo.byEmail("one@example.test")?.id).toBe("usr-1");
-    expect(repo.byEmail("ONE@EXAMPLE.TEST")?.id).toBe("usr-1");
-    expect(repo.existsByEmail("TWO@example.test")).toBe(true);
-    expect(repo.existsByEmail("nobody@example.test")).toBe(false);
+  afterAll(async () => {
+    await pool?.end();
+    await db?.drop();
   });
 
-  it("returns null rather than throwing for a member who is gone", () => {
-    expect(repo.byId("usr-missing")).toBeNull();
-    expect(repo.byEmail("missing@example.test")).toBeNull();
+  it("adds and reads back a full record with camelCase fidelity", async () => {
+    const joined = "2025-03-01T12:00:00.000Z";
+    await repo.add(
+      member("usr-1", "One@Example.test", {
+        passwordHash: "hash-1",
+        role: "founder",
+        handle: "one",
+        tokenVersion: 3,
+        paths: ["steward"],
+        contributions: [{ id: "c1", recognitionEarned: 5 }],
+        quests: ["q1"],
+        journeys: { training: ["step-1", "step-2"] },
+        bio: "hello",
+        avatar: "/a.png",
+        stageGranted: "resident",
+        trainingComplete: true,
+        recognitionBalance: 42,
+        joinedAt: joined,
+      }),
+    );
+    const u = await repo.byId("usr-1");
+    expect(u).not.toBeNull();
+    expect(u!.email).toBe("One@Example.test");
+    expect(u!.passwordHash).toBe("hash-1");
+    expect(u!.role).toBe("founder");
+    expect(u!.handle).toBe("one");
+    expect(u!.tokenVersion).toBe(3);
+    expect(u!.paths).toEqual(["steward"]);
+    expect(u!.contributions).toEqual([{ id: "c1", recognitionEarned: 5 }]);
+    expect(u!.quests).toEqual(["q1"]);
+    // journeys gates training completion and therefore stage computation —
+    // this field silently vanishing is a member silently demoted.
+    expect(u!.journeys).toEqual({ training: ["step-1", "step-2"] });
+    expect(u!.bio).toBe("hello");
+    expect(u!.avatar).toBe("/a.png");
+    expect(u!.stageGranted).toBe("resident");
+    expect(u!.trainingComplete).toBe(true);
+    expect(u!.recognitionBalance).toBe(42);
+    // Timestamp round-trip without zone drift (the timezone-Z discipline;
+    // this machine is UTC-6, so a 'local' connection would shift this).
+    expect(u!.joinedAt).toBe(joined);
   });
 
-  it("counts members", () => {
-    expect(repo.count()).toBe(2);
-  });
-});
-
-describe("update", () => {
-  beforeEach(() => {
-    repo.add(member("usr-1", "one@example.test", { recognitionBalance: 10 }));
-    repo.add(member("usr-2", "two@example.test", { recognitionBalance: 99 }));
+  it("finds by email case-insensitively, like the JSON repo did", async () => {
+    // Registration and login compare emails, so a member typing a different
+    // case must not create or miss an account.
+    expect((await repo.byEmail("one@example.TEST"))?.id).toBe("usr-1");
+    expect(await repo.existsByEmail("ONE@EXAMPLE.TEST")).toBe(true);
+    expect(await repo.existsByEmail("nobody@example.test")).toBe(false);
   });
 
-  it("persists the mutation and leaves everyone else alone", () => {
-    const updated = repo.update("usr-1", (m) => {
+  it("returns null rather than throwing for a member who is gone", async () => {
+    expect(await repo.byId("usr-missing")).toBeNull();
+    expect(await repo.byEmail("missing@example.test")).toBeNull();
+  });
+
+  it("counts and lists in join order", async () => {
+    await repo.add(member("usr-2", "two@example.test", { joinedAt: "2025-03-02T00:00:00.000Z" }));
+    expect(await repo.count()).toBe(2);
+    expect((await repo.all()).map((u) => u.id)).toEqual(["usr-1", "usr-2"]);
+  });
+
+  it("update() persists the mutation and leaves everyone else alone", async () => {
+    const updated = await repo.update("usr-2", (m) => {
       m.recognitionBalance = 40;
       m.bio = "planted the swale";
+      m.journeys = { training: ["s1"] };
     });
     expect(updated?.recognitionBalance).toBe(40);
-    // Read back from disk, not from the returned object.
-    expect(repo.byId("usr-1")?.recognitionBalance).toBe(40);
-    expect(repo.byId("usr-1")?.bio).toBe("planted the swale");
-    expect(repo.byId("usr-2")?.recognitionBalance).toBe(99);
-    expect(repo.count()).toBe(2);
+    // Read back from the database, not from the returned object.
+    const fresh = await repo.byId("usr-2");
+    expect(fresh?.recognitionBalance).toBe(40);
+    expect(fresh?.bio).toBe("planted the swale");
+    expect(fresh?.journeys).toEqual({ training: ["s1"] });
+    expect((await repo.byId("usr-1"))?.recognitionBalance).toBe(42);
   });
 
-  it("returns null for a missing member and writes nothing", () => {
-    expect(repo.update("usr-missing", (m) => { m.recognitionBalance = 1; })).toBeNull();
-    expect(repo.byId("usr-1")?.recognitionBalance).toBe(10);
-    expect(repo.count()).toBe(2);
+  it("update() returns null for a missing member and writes nothing", async () => {
+    expect(await repo.update("usr-missing", (m) => void (m.recognitionBalance = 1))).toBeNull();
+    expect(await repo.count()).toBe(2);
   });
 
-  it("THE POINT: two sequential updates to different members both survive", () => {
-    // This is what the old pattern lost. Each update reloads, so the second one
-    // sees the first one's write instead of overwriting it from a stale copy.
-    repo.update("usr-1", (m) => { m.recognitionBalance = 111; });
-    repo.update("usr-2", (m) => { m.recognitionBalance = 222; });
-    expect(repo.byId("usr-1")?.recognitionBalance).toBe(111);
-    expect(repo.byId("usr-2")?.recognitionBalance).toBe(222);
+  it("THE POINT: overlapping update() calls all land (row lock, no lost update)", async () => {
+    // This is what the JSON store lost routinely: two handlers read, both
+    // mutate, second write erases the first. FOR UPDATE serializes the
+    // mutators, so ten concurrent increments must produce exactly ten.
+    await repo.update("usr-1", (m) => void (m.recognitionBalance = 0));
+    await Promise.all(
+      Array.from({ length: 10 }, () =>
+        repo.update("usr-1", (m) => {
+          m.recognitionBalance = (m.recognitionBalance ?? 0) + 1;
+        }),
+      ),
+    );
+    expect((await repo.byId("usr-1"))?.recognitionBalance).toBe(10);
   });
 
-  it("shows the staleness that saveDoc still carries, so it is not a surprise", () => {
-    // Two handlers each load the whole list, then each save it. The second save
-    // wins and the first edit is lost. update() avoids this; saveDoc cannot,
-    // because the caller's array was already stale when it arrived. This is the
-    // pre-existing race, documented here rather than pretended away, and it is
-    // what a transaction fixes when this moves to MySQL.
-    const handlerA = repo.readDoc();
-    const handlerB = repo.readDoc();
-    handlerA.find((m) => m.id === "usr-1")!.recognitionBalance = 500;
-    handlerB.find((m) => m.id === "usr-2")!.recognitionBalance = 600;
-    repo.saveDoc(handlerA);
-    repo.saveDoc(handlerB);
-    expect(repo.byId("usr-2")?.recognitionBalance).toBe(600);
-    // usr-1's edit is gone, and that is the documented limitation.
-    expect(repo.byId("usr-1")?.recognitionBalance).toBe(10);
-  });
-});
-
-describe("add and remove", () => {
-  it("adds without disturbing existing members", () => {
-    repo.add(member("usr-1", "one@example.test"));
-    repo.add(member("usr-2", "two@example.test"));
-    expect(repo.count()).toBe(2);
-    expect(repo.all().map((m) => m.id)).toEqual(["usr-1", "usr-2"]);
-  });
-
-  it("removes one member and returns them", () => {
-    repo.add(member("usr-1", "one@example.test"));
-    repo.add(member("usr-2", "two@example.test"));
-    expect(repo.remove("usr-1")?.id).toBe("usr-1");
-    expect(repo.byId("usr-1")).toBeNull();
-    expect(repo.count()).toBe(1);
-    expect(repo.remove("usr-1")).toBeNull();
-  });
-});
-
-describe("resilience", () => {
-  it("reads a corrupt file as empty rather than throwing", () => {
-    // Matches readJson's long-standing behaviour in server/index.ts. Worth an
-    // explicit test because it means a damaged file presents as "no members",
-    // which looks like data loss rather than an error.
-    fs.writeFileSync(file, "{not json");
-    expect(repo.all()).toEqual([]);
-    expect(repo.count()).toBe(0);
-    // And it recovers: a write lays down a valid document again.
-    repo.add(member("usr-1", "one@example.test"));
-    expect(repo.count()).toBe(1);
-  });
-
-  it("tolerates a bare array, which early fixtures wrote", () => {
-    fs.writeFileSync(file, JSON.stringify([member("usr-9", "nine@example.test")]));
-    expect(repo.byId("usr-9")?.email).toBe("nine@example.test");
-  });
-
-  it("reads a missing file as empty", () => {
-    fs.rmSync(file);
-    expect(repo.all()).toEqual([]);
+  it("removes one member and returns them", async () => {
+    await repo.add(member("usr-3", "three@example.test"));
+    expect((await repo.remove("usr-3"))?.email).toBe("three@example.test");
+    expect(await repo.byId("usr-3")).toBeNull();
+    expect(await repo.remove("usr-3")).toBeNull();
   });
 });

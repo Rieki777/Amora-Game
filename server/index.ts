@@ -16,6 +16,7 @@ import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import { backfillOpeningBalances, balanceOf, creditTokens, entriesFor, tokenDef } from "./lib/ledger";
 import { usersRepo } from "./repos/users";
+import { applyPending, connect as dbConnect } from "./db/migrate";
 import { collectionRepo, documentRepo } from "./repos/store";
 import {
   cycleIdFor,
@@ -49,7 +50,7 @@ const SEEDS_DIR = path.resolve(__dirname, "..", "server", "seeds");
 const SUBMISSIONS_FILE = path.join(DATA_DIR, "submissions.json");
 const CONTENT_FILE = path.join(DATA_DIR, "content.json");
 const CONTENT_SEED_FILE = path.join(SEEDS_DIR, "content-seed.json");
-const USERS_FILE = path.join(DATA_DIR, "users.json");
+// users.json retired in S6 — members live in MySQL (server/repos/users.ts).
 const JOURNEY_FILE = path.join(DATA_DIR, "journey-state.json");
 const EMAIL_CONFIG_FILE = path.join(DATA_DIR, "email-config.json");
 const INVESTOR_DOCS_FILE = path.join(DATA_DIR, "investor-docs.json");
@@ -289,14 +290,11 @@ const FORM_TYPE_TO_PATHWAY: Record<string, "investor" | "steward" | "resident" |
 
 /**
  * The single seam for member data. Every read and write of a member record goes
- * through here, so the JSON-to-MySQL swap happens in one module rather than at
- * 29 call sites. See server/repos/users.ts for why `saveDoc` exists.
- *
- * Declared here, below every FILE and DEFAULT_ constant, because the document
- * repositories take their real defaults as arguments and those constants must
- * exist first.
+ * through here — and as of S6 "here" is MySQL, reached through the shared pool
+ * (server/db/pool.ts). The JSON-to-MySQL swap happened in this one module; the
+ * route code talks to the same repository interface it always did, now async.
  */
-const members = usersRepo(USERS_FILE);
+const members = usersRepo();
 // One seam per domain: see server/repos/store.ts for why these are generic.
 const submissionsRepo = collectionRepo(SUBMISSIONS_FILE);
 const claimsRepo = collectionRepo(QUEST_CLAIMS_FILE);
@@ -381,8 +379,8 @@ function secretEquals(provided: string | undefined, expected: string): boolean {
  *   founder — master admin: implies admin, manages admins, cannot be demoted
  *             by non-founders, and the last founder cannot be demoted at all.
  */
-function requireAdmin(req: express.Request): boolean {
-  const user = requireUser(req);
+async function isAdmin(req: express.Request): Promise<boolean> {
+  const user = await authedUser(req);
   if (!user || (user.role !== "admin" && user.role !== "founder")) return false;
   (req as any).adminUser = user;
   return true;
@@ -399,9 +397,7 @@ function adminActor(req: express.Request): { id: string; name?: string } | null 
  * identities as everything else. The second shared password is retired —
  * two shared secrets was one more than zero too many.
  */
-function requireJourney(req: express.Request): boolean {
-  return requireAdmin(req);
-}
+const isJourney = isAdmin;
 
 /**
  * Handles (S2): the public name-tag @mentions and audit views show, so member
@@ -419,8 +415,8 @@ function slugifyHandle(name: string): string {
       .slice(0, 24) || "member"
   );
 }
-function uniqueHandle(base: string, ownId?: string): string {
-  const all = members.readDoc();
+async function uniqueHandle(base: string, ownId?: string): Promise<string> {
+  const all = await members.all();
   const taken = (h: string) =>
     all.some((u: any) => u.id !== ownId && String(u.handle ?? "").toLowerCase() === h);
   if (!taken(base)) return base;
@@ -525,12 +521,13 @@ function seedIfMissingOrEmpty(dataFile: string, seedFile: string, emptyValue: st
   }
 }
 
-function ensureDataFiles() {
+async function ensureDataFiles() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   if (!fs.existsSync(SUBMISSIONS_FILE)) fs.writeFileSync(SUBMISSIONS_FILE, "[]");
   seedIfMissingOrEmpty(CONTENT_FILE, CONTENT_SEED_FILE, "{}");
-  if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify({ users: [] }, null, 2));
+  // users.json is no longer seeded: the members domain lives in MySQL (S6).
+  // Any existing file on the volume is left untouched as a historical record.
   if (!fs.existsSync(JOURNEY_FILE)) fs.writeFileSync(JOURNEY_FILE, JSON.stringify({ checkboxes: {}, copy: {}, kanban: {}, decisions: {} }, null, 2));
   if (!fs.existsSync(EMAIL_CONFIG_FILE)) fs.writeFileSync(EMAIL_CONFIG_FILE, JSON.stringify(DEFAULT_EMAIL_CONFIG, null, 2));
   if (!fs.existsSync(INVESTOR_DOCS_FILE)) fs.writeFileSync(INVESTOR_DOCS_FILE, "[]");
@@ -556,42 +553,13 @@ function ensureDataFiles() {
   if (!fs.existsSync(STAGE_EVENTS_FILE)) fs.writeFileSync(STAGE_EVENTS_FILE, "[]");
   if (!fs.existsSync(ADMIN_AUDIT_FILE)) fs.writeFileSync(ADMIN_AUDIT_FILE, "[]");
   if (!fs.existsSync(LEDGER_FILE)) fs.writeFileSync(LEDGER_FILE, "[]");
-  runOnce("rename-hearts-to-recognition", renameHeartsBalanceField);
-  runOnce("ledger-opening-balances", seedLedgerOpeningBalances);
-  runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
-  runOnce("founding-team-in-progress", markFoundingTeamInProgress);
-  runOnce("backfill-member-handles", backfillMemberHandles);
-}
-
-/**
- * "hearts" was this project's early word for its in-site currency, and it leaked
- * into the platform as `heartsBalance`. A foundation other villages inherit must
- * not carry one project's brand, so the field is now `recognitionBalance`, naming
- * the KIND of currency rather than anyone's name for it. Existing records on the
- * mounted volume still say `heartsBalance`, and reading the new name off them
- * would silently zero every balance, so copy it across once.
- */
-function renameHeartsBalanceField() {
-  const users = { users: members.readDoc() };
-  if (!Array.isArray(users.users)) return;
-  let moved = 0;
-  for (const u of users.users) {
-    if (u.recognitionBalance === undefined && u.heartsBalance !== undefined) {
-      u.recognitionBalance = u.heartsBalance;
-      delete u.heartsBalance;
-      moved++;
-    }
-    if (Array.isArray(u.contributions)) {
-      for (const c of u.contributions) {
-        if (c && c.recognitionEarned === undefined && c.heartsEarned !== undefined) {
-          c.recognitionEarned = c.heartsEarned;
-          delete c.heartsEarned;
-        }
-      }
-    }
-  }
-  if (moved > 0) members.saveDoc(users.users);
-  console.log(`[migration] renamed heartsBalance on ${moved} member(s)`);
+  // `rename-hearts-to-recognition` is retired: it rewrote a JSON-era field
+  // (heartsBalance) that the MySQL users table never had. Deployments that
+  // needed it have it recorded in migrations.json; fresh ones cannot need it.
+  await runOnce("ledger-opening-balances", seedLedgerOpeningBalances);
+  await runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
+  await runOnce("founding-team-in-progress", markFoundingTeamInProgress);
+  await runOnce("backfill-member-handles", backfillMemberHandles);
 }
 
 /**
@@ -599,12 +567,11 @@ function renameHeartsBalanceField() {
  * of a member's balance, not just what happened after it was introduced. Give
  * everyone carrying a balance one opening entry.
  */
-function seedLedgerOpeningBalances() {
-  const users = { users: members.readDoc() };
-  if (!Array.isArray(users.users)) return;
+async function seedLedgerOpeningBalances() {
+  const users = await members.all();
   const { created } = backfillOpeningBalances(
     LEDGER_FILE,
-    users.users.map((u: any) => ({ id: u.id, balance: Number(u.recognitionBalance) || 0 })),
+    users.map((u: any) => ({ id: u.id, balance: Number(u.recognitionBalance) || 0 })),
   );
   console.log(`[migration] wrote ${created} opening ledger balance(s)`);
 }
@@ -614,11 +581,11 @@ function seedLedgerOpeningBalances() {
  * can't keep re-applying itself and undoing what someone edited afterwards.
  * Live data lives on a mounted volume, out of reach of ordinary code changes.
  */
-function runOnce(id: string, fn: () => void) {
+async function runOnce(id: string, fn: () => void | Promise<void>) {
   try {
     const applied: string[] = migrationsRepo.all();
     if (applied.includes(id)) return;
-    fn();
+    await fn();
     applied.push(id);
     migrationsRepo.saveAll(applied);
     console.log(`[MIGRATION] applied ${id}`);
@@ -629,16 +596,16 @@ function runOnce(id: string, fn: () => void) {
 
 /** S2: every pre-existing member gets a handle, once. New members get one at
  *  registration; this covers everyone who joined before handles existed. */
-function backfillMemberHandles() {
-  const all = members.readDoc();
+async function backfillMemberHandles() {
+  const all = await members.all();
   let changed = 0;
   for (const u of all as any[]) {
     if (!u.handle) {
-      u.handle = uniqueHandle(slugifyHandle(u.name || "member"), u.id);
+      const handle = await uniqueHandle(slugifyHandle(u.name || "member"), u.id);
+      await members.update(u.id, (m) => { m.handle = handle; });
       changed++;
     }
   }
-  if (changed > 0) members.saveDoc(all);
   console.log(`[MIGRATION] handles backfilled for ${changed} member(s)`);
 }
 
@@ -695,13 +662,12 @@ function retireLegacyPegCopy() {
 
 // ── Game engine helpers (platform-level; all project specifics live in gameConfig) ──
 
-function requireUser(req: express.Request): any | null {
+async function authedUser(req: express.Request): Promise<any | null> {
   const header = req.headers.authorization;
   if (!header || !header.startsWith("Bearer ")) return null;
   const decoded = decodeToken(header.slice(7));
   if (!decoded) return null;
-  const users = { users: members.readDoc() };
-  const user = users.users.find((u: any) => u.id === decoded.userId) ?? null;
+  const user = await members.byId(decoded.userId);
   if (!user) return null;
   // Session revocation (S1): a token minted before the member's tokenVersion
   // was bumped is dead. Tokens from before this field existed carry no `v` and
@@ -1109,27 +1075,27 @@ function getWorkWithUs() {
 
 /** When a Work With Us proposal is accepted, fold it into the game for a matching
  * member: a logged contribution, Gratitude credit, and a pulse. Idempotent. */
-function applyAcceptReward(entry: any): boolean {
+async function applyAcceptReward(entry: any): Promise<boolean> {
   if (entry.rewarded) return false;
-  const users = { users: members.readDoc() };
   const email = String(entry.data?.email ?? "").toLowerCase();
-  const idx = users.users.findIndex(
-    (u: any) => (entry.userId && u.id === entry.userId) || (email && String(u.email).toLowerCase() === email)
-  );
-  if (idx === -1) return false; // not a registered member; nothing to fold in
+  const match =
+    (entry.userId ? await members.byId(entry.userId) : null) ??
+    (email ? await members.byEmail(email) : null);
+  if (!match) return false; // not a registered member; nothing to fold in
   const amount = Number(getWorkWithUs().acceptGratitude) || 0;
-  const u = users.users[idx];
-  u.contributions = u.contributions ?? [];
-  u.contributions.push({
-    id: `contrib-${Date.now()}`,
-    type: "proposal",
-    description: `Work With Us proposal accepted: ${String(entry.data?.work ?? "your offering").slice(0, 120)}`,
-    recognitionEarned: amount,
-    date: new Date().toISOString(),
+  const updated = await members.update(match.id, (u: any) => {
+    u.contributions = u.contributions ?? [];
+    u.contributions.push({
+      id: `contrib-${Date.now()}`,
+      type: "proposal",
+      description: `Work With Us proposal accepted: ${String(entry.data?.work ?? "your offering").slice(0, 120)}`,
+      recognitionEarned: amount,
+      date: new Date().toISOString(),
+    });
+    u.recognitionBalance = (u.recognitionBalance ?? 0) + amount;
   });
-  u.recognitionBalance = (u.recognitionBalance ?? 0) + amount;
-  members.saveDoc(users.users);
-  addActivity("proposal", `${firstName(u.name)}'s proposal was welcomed into the village`);
+  if (!updated) return false;
+  addActivity("proposal", `${firstName(updated.name)}'s proposal was welcomed into the village`);
   return true;
 }
 
@@ -1246,10 +1212,54 @@ function assistantDailyCapReached(max: number): boolean {
 }
 
 async function startServer() {
-  ensureDataFiles();
+  // S6: schema migrations apply themselves at boot, through the same engine
+  // the CLI and the test harness use. This removes the deploy-ordering trap
+  // forever: code that needs a column can never run before the column exists,
+  // because the process that runs the code is the process that added it.
+  // Fail-loud: if migrations cannot apply, the server must not come up and
+  // serve routes against a schema they don't match.
+  {
+    const url = process.env.DATABASE_URL;
+    if (!url) throw new Error("DATABASE_URL is not set — the users domain lives in MySQL (S6).");
+    const conn = await dbConnect(url);
+    try {
+      const result = await applyPending(conn, undefined, (line) => console.log(`[db] ${line}`));
+      if (result.failed) throw new Error(`migration failed: ${result.failed}`);
+      if (result.applied.length) console.log(`[db] applied ${result.applied.length} migration(s)`);
+    } finally {
+      await conn.end();
+    }
+  }
+
+  await ensureDataFiles();
 
   const app = express();
   const server = createServer(app);
+
+  /**
+   * Express 4 does not route async handler rejections into its error
+   * pipeline — an unawaited throw becomes an unhandled rejection, which kills
+   * the process. S6 made most handlers async (the members repository is
+   * MySQL now), so patch the four registration verbs once, here, instead of
+   * wrapping ~100 call sites: any handler that returns a rejecting promise
+   * has the rejection forwarded to next().
+   */
+  for (const method of ["get", "post", "put", "delete"] as const) {
+    const original = (app as any)[method].bind(app);
+    (app as any)[method] = (pathArg: any, ...handlers: any[]) =>
+      original(
+        pathArg,
+        ...handlers.map((h: any) =>
+          typeof h === "function"
+            ? (req: any, res: any, next: any) => {
+                const out = h(req, res, next);
+                if (out && typeof out.catch === "function") out.catch(next);
+                return out;
+              }
+            : h,
+        ),
+      );
+  }
 
   app.use(express.json({ limit: "1mb" }));
 
@@ -1291,13 +1301,13 @@ async function startServer() {
   });
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
-  app.get("/health", (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-gratitude-pool", timestamp: new Date().toISOString() });
+  app.get("/health", async (_req, res) => {
+    res.json({ status: "ok", build: "2026-07-26-s6-users-mysql", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
   // POST /api/forms/submit  { type, data, hp? }   (hp = honeypot; must be empty)
-  app.post("/api/forms/submit", (req, res) => {
+  app.post("/api/forms/submit", async (req, res) => {
     const { type, data, hp } = req.body;
     if (!type || !data) {
       return res.status(400).json({ error: "Missing type or data" });
@@ -1309,7 +1319,7 @@ async function startServer() {
       return res.status(429).json({ error: "Too many submissions. Please try again shortly." });
     }
     // Attribution: if a valid member token is present, stamp who submitted.
-    const submitter = requireUser(req);
+    const submitter = await authedUser(req);
     const submissions: any[] = submissionsRepo.all();
     const entry: any = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1353,8 +1363,8 @@ async function startServer() {
 
   // Admin: List Submissions
   // GET /api/admin/submissions?type=investor   (Authorization: Bearer <admin password>)
-  app.get("/api/admin/submissions", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.get("/api/admin/submissions", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     let submissions: any[] = submissionsRepo.all();
@@ -1368,8 +1378,8 @@ async function startServer() {
   });
 
   // Admin: Delete Submission
-  app.delete("/api/admin/submissions/:id", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.delete("/api/admin/submissions/:id", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const submissions: any[] = submissionsRepo.all();
@@ -1384,8 +1394,8 @@ async function startServer() {
   // Admin: move a submission along its pipeline. Accepting a proposal folds it
   // into the game for a matching member (contribution + Gratitude + pulse).
   const SUBMISSION_STATUSES = ["new", "reviewing", "in-conversation", "accepted", "declined"];
-  app.put("/api/admin/submissions/:id/status", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/submissions/:id/status", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const { status } = req.body ?? {};
     if (!SUBMISSION_STATUSES.includes(status)) return res.status(400).json({ error: "Invalid status" });
     const submissions: any[] = submissionsRepo.all();
@@ -1395,7 +1405,7 @@ async function startServer() {
     submissions[idx].status = status;
     let rewarded = false;
     if (status === "accepted" && !wasAccepted && submissions[idx].type === "work-with-us") {
-      rewarded = applyAcceptReward(submissions[idx]);
+      rewarded = await applyAcceptReward(submissions[idx]);
       if (rewarded) submissions[idx].rewarded = true;
     }
     submissionsRepo.saveAll(submissions);
@@ -1404,8 +1414,8 @@ async function startServer() {
 
   // Admin: Export Submissions as CSV
   // GET /api/admin/submissions/export?type=optional   (Authorization: Bearer <admin password>)
-  app.get("/api/admin/submissions/export", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.get("/api/admin/submissions/export", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     let submissions: any[] = submissionsRepo.all();
@@ -1453,7 +1463,7 @@ async function startServer() {
 
   // Content: Public Read
   // GET /api/content/:section
-  app.get("/api/content/:section", (req, res) => {
+  app.get("/api/content/:section", async (req, res) => {
     const content = contentRepo.get();
     const section = content[req.params.section];
     if (section === undefined) {
@@ -1463,8 +1473,8 @@ async function startServer() {
   });
 
   // Admin: Read All Content
-  app.get("/api/admin/content", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.get("/api/admin/content", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     res.json(contentRepo.get());
@@ -1472,8 +1482,8 @@ async function startServer() {
 
   // Admin: Update Content Section
   // PUT /api/admin/content/:section   (Authorization: Bearer <admin password>)
-  app.put("/api/admin/content/:section", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.put("/api/admin/content/:section", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const content = contentRepo.get();
@@ -1488,8 +1498,7 @@ async function startServer() {
     if (!name || !email || !password || !paths || !Array.isArray(paths)) {
       return res.status(400).json({ error: "Missing required fields" });
     }
-    const users = { users: members.readDoc() };
-    if (users.users.some((u: any) => u.email === email)) {
+    if (await members.existsByEmail(email)) {
       return res.status(409).json({ error: "Email already exists" });
     }
     const userId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -1498,7 +1507,7 @@ async function startServer() {
       name,
       email,
       passwordHash: await hashPassword(password),
-      handle: uniqueHandle(slugifyHandle(name)),
+      handle: await uniqueHandle(slugifyHandle(name)),
       paths,
       contributions: [],
       quests: [],
@@ -1507,8 +1516,7 @@ async function startServer() {
       bio: "",
       avatar: null,
     };
-    users.users.push(user);
-    members.saveDoc(users.users);
+    await members.add(user);
     addActivity("join", `${firstName(name)} stepped into the village as a Guest`);
     const token = encodeToken(userId, email);
     res.json({ success: true, token, user: publicUser(user) });
@@ -1525,19 +1533,18 @@ async function startServer() {
     if (!email || !password) {
       return res.status(400).json({ error: "Missing email or password" });
     }
-    const users = { users: members.readDoc() };
-    const userIdx = users.users.findIndex((u: any) => u.email === email);
-    const user = userIdx === -1 ? null : users.users[userIdx];
+    const user = await members.byEmail(email);
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
     // Transparent upgrade: if the user is still on a legacy SHA256 hash, re-hash with bcrypt
     if (user.passwordHash === legacySha256(password)) {
-      users.users[userIdx].passwordHash = await hashPassword(password);
-      members.saveDoc(users.users);
+      const newHash = await hashPassword(password);
+      await members.update(user.id, (u: any) => { u.passwordHash = newHash; });
+      user.passwordHash = newHash;
     }
     const token = encodeToken(user.id, email, user.tokenVersion ?? 0);
-    res.json({ success: true, token, user: publicUser(users.users[userIdx]) });
+    res.json({ success: true, token, user: publicUser(user) });
   });
 
   // ── S1: founder bootstrap, set-password, session revocation, audit ────────
@@ -1559,7 +1566,7 @@ async function startServer() {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const normEmail = String(email).trim().toLowerCase();
-    const all = members.readDoc();
+    const all = await members.all();
     const bootstrapped = all.some((u: any) => u.role === "admin" || u.role === "founder");
     const breakGlass = (process.env.BREAK_GLASS_ADMIN_EMAIL || "").trim().toLowerCase();
     if (bootstrapped && normEmail !== breakGlass) {
@@ -1573,7 +1580,7 @@ async function startServer() {
     let claimUrl: string | null = null;
     let emailed = false;
     if (user) {
-      members.update(user.id, (u: any) => { u.role = "founder"; });
+      await members.update(user.id, (u: any) => { u.role = "founder"; });
       // Expired-link recovery: an account created by bootstrap that never set a
       // password cannot log in and cannot ask for a reset. Re-running bootstrap
       // (break-glass path) re-sends a fresh claim link for exactly that case.
@@ -1598,7 +1605,7 @@ async function startServer() {
         email: normEmail,
         // No password yet: login is impossible until the claim link sets one.
         passwordHash: "",
-        handle: uniqueHandle(slugifyHandle(String(name || "founder"))),
+        handle: await uniqueHandle(slugifyHandle(String(name || "founder"))),
         role: "founder",
         tokenVersion: 0,
         paths: [],
@@ -1607,7 +1614,7 @@ async function startServer() {
         recognitionBalance: 0,
         joinedAt: new Date().toISOString(),
       };
-      members.add(user);
+      await members.add(user);
       const claim = makeSetPasswordToken(userId);
       claimUrl = `${(process.env.FRONTEND_URL || "").replace(/\/$/, "")}/set-password?token=${encodeURIComponent(claim)}`;
       try {
@@ -1650,21 +1657,21 @@ async function startServer() {
     }
     const claim = readSetPasswordToken(String(token));
     if (!claim) return res.status(401).json({ error: "This link is invalid or has expired" });
-    const user = members.byId(claim.userId);
+    const user = await members.byId(claim.userId);
     if (!user) return res.status(404).json({ error: "Account not found" });
     const hash = await hashPassword(String(password));
-    members.update(user.id, (u: any) => { u.passwordHash = hash; });
-    const fresh = members.byId(user.id)!;
+    const fresh = await members.update(user.id, (u: any) => { u.passwordHash = hash; });
+    if (!fresh) return res.status(404).json({ error: "Account not found" });
     const authTokenStr = encodeToken(fresh.id, fresh.email, fresh.tokenVersion ?? 0);
     res.json({ success: true, token: authTokenStr, user: publicUser(fresh) });
   });
 
   /** Revoke every session a member holds (S1's tokenVersion lever). */
-  app.post("/api/admin/users/:id/revoke-sessions", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const target = members.byId(req.params.id);
+  app.post("/api/admin/users/:id/revoke-sessions", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
-    members.update(target.id, (u: any) => { u.tokenVersion = (u.tokenVersion ?? 0) + 1; });
+    await members.update(target.id, (u: any) => { u.tokenVersion = (u.tokenVersion ?? 0) + 1; });
     res.json({ success: true });
   });
 
@@ -1675,8 +1682,8 @@ async function startServer() {
    * demoted at all — a deployment must never strand itself without a master
    * admin, because bootstrap is spent.
    */
-  app.put("/api/admin/users/:id/role", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/users/:id/role", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const actor = (req as any).adminUser;
     if (actor.role !== "founder") {
       return res.status(403).json({ error: "Only a founder can change roles" });
@@ -1685,16 +1692,16 @@ async function startServer() {
     if (!["member", "admin", "founder"].includes(role)) {
       return res.status(400).json({ error: "role must be member, admin, or founder" });
     }
-    const target = members.byId(req.params.id);
+    const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
     const fromRole = target.role ?? "member";
     if (fromRole === "founder" && role !== "founder") {
-      const founders = members.readDoc().filter((u: any) => u.role === "founder");
+      const founders = (await members.all()).filter((u: any) => u.role === "founder");
       if (founders.length <= 1) {
         return res.status(409).json({ error: "The last founder cannot be demoted" });
       }
     }
-    members.update(target.id, (u: any) => { u.role = role; });
+    await members.update(target.id, (u: any) => { u.role = role; });
     adminAuditRepo.add({
       id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       at: new Date().toISOString(),
@@ -1703,67 +1710,59 @@ async function startServer() {
       targetType: "user",
       targetId: target.id,
     });
-    res.json({ success: true, user: publicUser(members.byId(target.id)) });
+    res.json({ success: true, user: publicUser(await members.byId(target.id)) });
   });
 
   /** The audit trail, newest first. Every admin mutation lands here. */
-  app.get("/api/admin/audit", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.get("/api/admin/audit", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const rows = adminAuditRepo.all().sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)));
     res.json(rows.slice(0, 200));
   });
 
   // Auth: Get Profile
-  app.get("/api/profile", (req, res) => {
+  app.get("/api/profile", async (req, res) => {
     // Through requireUser like everything else (S1): a second decode path here
     // silently bypassed the tokenVersion revocation check.
-    const user = requireUser(req);
+    const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     res.json(publicUser(user));
   });
 
   // Auth: Update Profile
-  app.put("/api/profile", (req, res) => {
-    const authed = requireUser(req);
+  app.put("/api/profile", async (req, res) => {
+    const authed = await authedUser(req);
     if (!authed) return res.status(401).json({ error: "Unauthorized" });
-    const users = { users: members.readDoc() };
-    const userIdx = users.users.findIndex((u: any) => u.id === authed.id);
-    if (userIdx === -1) {
-      return res.status(404).json({ error: "User not found" });
-    }
     const { name, bio, avatar, paths, handle } = req.body;
-    if (name) users.users[userIdx].name = name;
-    if (bio !== undefined) users.users[userIdx].bio = bio;
-    if (avatar !== undefined) users.users[userIdx].avatar = avatar;
-    if (paths) users.users[userIdx].paths = paths;
+    let wanted: string | undefined;
     if (handle !== undefined) {
-      const wanted = String(handle).toLowerCase().trim();
+      wanted = String(handle).toLowerCase().trim();
       if (!HANDLE_RE.test(wanted)) {
         return res.status(400).json({ error: "Handles are 3-30 characters: letters, numbers, dashes" });
       }
-      const clash = users.users.some(
+      const clash = (await members.all()).some(
         (u: any) => u.id !== authed.id && String(u.handle ?? "").toLowerCase() === wanted,
       );
       if (clash) return res.status(409).json({ error: "That handle is taken" });
-      users.users[userIdx].handle = wanted;
     }
-    members.saveDoc(users.users);
-    res.json(publicUser(users.users[userIdx]));
+    const updated = await members.update(authed.id, (u: any) => {
+      if (name) u.name = name;
+      if (bio !== undefined) u.bio = bio;
+      if (avatar !== undefined) u.avatar = avatar;
+      if (paths) u.paths = paths;
+      if (wanted !== undefined) u.handle = wanted;
+    });
+    if (!updated) return res.status(404).json({ error: "User not found" });
+    res.json(publicUser(updated));
   });
 
   // Auth: Log Contribution
-  app.post("/api/profile/contribution", (req, res) => {
-    const authed = requireUser(req);
+  app.post("/api/profile/contribution", async (req, res) => {
+    const authed = await authedUser(req);
     if (!authed) return res.status(401).json({ error: "Unauthorized" });
-    const decoded = { userId: authed.id };
     const { type, description, recognitionEarned } = req.body;
     if (!type || !description || recognitionEarned === undefined) {
       return res.status(400).json({ error: "Missing required fields" });
-    }
-    const users = { users: members.readDoc() };
-    const userIdx = users.users.findIndex((u: any) => u.id === decoded.userId);
-    if (userIdx === -1) {
-      return res.status(404).json({ error: "User not found" });
     }
     const contribution = {
       id: `contrib-${Date.now()}`,
@@ -1772,29 +1771,31 @@ async function startServer() {
       recognitionEarned,
       date: new Date().toISOString(),
     };
-    users.users[userIdx].contributions = users.users[userIdx].contributions ?? [];
-    users.users[userIdx].contributions.push(contribution);
-    users.users[userIdx].recognitionBalance = (users.users[userIdx].recognitionBalance ?? 0) + recognitionEarned;
-    members.saveDoc(users.users);
+    const updated = await members.update(authed.id, (u: any) => {
+      u.contributions = u.contributions ?? [];
+      u.contributions.push(contribution);
+      u.recognitionBalance = (u.recognitionBalance ?? 0) + recognitionEarned;
+    });
+    if (!updated) return res.status(404).json({ error: "User not found" });
     res.json({ success: true, contribution });
   });
 
   // Journey State: Public Read
   // GET /api/journey/state
-  app.get("/api/journey/state", (req, res) => {
+  app.get("/api/journey/state", async (req, res) => {
     // S2: reads are gated like writes. This is the founding team's internal
     // tracker — notes, decisions, kanban — and it was publicly readable while
     // only mutations checked auth.
-    if (!requireJourney(req)) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isJourney(req))) return res.status(401).json({ error: "Unauthorized" });
     const state = journeyRepo.get();
     res.json(state);
   });
 
   // Journey State: Update Checkbox
   // POST /api/journey/checkbox  { password, id, state: 0|1|2 }
-  app.post("/api/journey/checkbox", (req, res) => {
+  app.post("/api/journey/checkbox", async (req, res) => {
     const { password, id, state } = req.body;
-    if (!requireJourney(req)) {
+    if (!(await isJourney(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     if (!id || state === undefined || ![0, 1, 2].includes(state)) {
@@ -1808,9 +1809,9 @@ async function startServer() {
 
   // Journey State: Update Kanban Card
   // POST /api/journey/kanban  { password, id, column, assignee }
-  app.post("/api/journey/kanban", (req, res) => {
+  app.post("/api/journey/kanban", async (req, res) => {
     const { password, id, column, assignee } = req.body;
-    if (!requireJourney(req)) {
+    if (!(await isJourney(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const validColumns = ["assigned", "actioning", "needs-support", "completed"];
@@ -1826,9 +1827,9 @@ async function startServer() {
 
   // Journey State: Update Copy Section
   // POST /api/journey/copy  { password, sectionId, content }
-  app.post("/api/journey/copy", (req, res) => {
+  app.post("/api/journey/copy", async (req, res) => {
     const { password, sectionId, content } = req.body;
-    if (!requireJourney(req)) {
+    if (!(await isJourney(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     if (!sectionId || content === undefined) {
@@ -1842,9 +1843,9 @@ async function startServer() {
 
   // Journey State: Update Decision
   // POST /api/journey/decision  { password, id, status, chosen, notes }
-  app.post("/api/journey/decision", (req, res) => {
+  app.post("/api/journey/decision", async (req, res) => {
     const { password, id, status, chosen, notes } = req.body;
-    if (!requireJourney(req)) {
+    if (!(await isJourney(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const validStatuses = ["open", "decided"];
@@ -1860,8 +1861,8 @@ async function startServer() {
 
   // ── Email Config (Resend) ─────────────────────────────────────────────────
 
-  app.get("/api/admin/email-config", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.get("/api/admin/email-config", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     // Return only what's stored — never echo a key inherited from the host env
@@ -1870,8 +1871,8 @@ async function startServer() {
     res.json({ ...stored, _sources: keySources() });
   });
 
-  app.put("/api/admin/email-config", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.put("/api/admin/email-config", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const current = getEmailConfig();
@@ -1892,7 +1893,7 @@ async function startServer() {
   // ── "Work With Us" AI guide (Anthropic-backed, dormant without a key) ──────
 
   // Whether the guided assistant is switched on (a key is configured).
-  app.get("/api/assistant/status", (_req, res) => {
+  app.get("/api/assistant/status", async (_req, res) => {
     res.json({ available: !!getEmailConfig().assistant_api_key });
   });
 
@@ -2029,17 +2030,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // ── Work With Us: content config + proposal attachment ────────────────────
 
-  app.get("/api/work-with-us-config", (_req, res) => {
+  app.get("/api/work-with-us-config", async (_req, res) => {
     res.json(getWorkWithUs());
   });
 
-  app.get("/api/admin/work-with-us-config", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.get("/api/admin/work-with-us-config", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     res.json(getWorkWithUs());
   });
 
-  app.put("/api/admin/work-with-us-config", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/work-with-us-config", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     workWithUsRepo.set({ ...getWorkWithUs(), ...req.body });
     res.json({ success: true });
@@ -2064,7 +2065,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       else cb(new Error("Only images or PDF are allowed"));
     },
   });
-  app.post("/api/work-with-us/attachment", (req, res) => {
+  app.post("/api/work-with-us/attachment", async (req, res) => {
     if (rateLimited(`upload:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
       return res.status(429).json({ error: "Too many uploads. Try again shortly." });
     }
@@ -2090,8 +2091,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     },
   });
 
-  app.post("/api/admin/brand/image", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.post("/api/admin/brand/image", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     brandImageUpload.single("file")(req, res, async (err: any) => {
       if (err) return res.status(400).json({ error: err.message || "Upload failed" });
       if (!req.file) return res.status(400).json({ error: "Missing file" });
@@ -2156,15 +2157,15 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     limits: { fileSize: 50 * 1024 * 1024 },
   });
 
-  app.get("/api/admin/investor-docs", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.get("/api/admin/investor-docs", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     res.json(investorDocsRepo.all());
   });
 
-  app.post("/api/admin/investor-docs/upload", upload.single("file"), (req, res) => {
-    if (!requireAdmin(req)) {
+  app.post("/api/admin/investor-docs/upload", upload.single("file"), async (req, res) => {
+    if (!(await isAdmin(req))) {
       if (req.file) fs.unlinkSync(path.join(UPLOADS_DIR, req.file.filename));
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -2190,8 +2191,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(entry);
   });
 
-  app.delete("/api/admin/investor-docs/:id", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.delete("/api/admin/investor-docs/:id", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const docs: any[] = investorDocsRepo.all();
@@ -2206,7 +2207,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true });
   });
 
-  app.get("/api/uploads/:filename", (req, res) => {
+  app.get("/api/uploads/:filename", async (req, res) => {
     const safe = path.basename(req.params.filename);
     const filePath = path.join(UPLOADS_DIR, safe);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Not found" });
@@ -2276,14 +2277,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // ── Training Modules ──────────────────────────────────────────────────────
 
-  app.get("/api/training-modules", (_req, res) => {
+  app.get("/api/training-modules", async (_req, res) => {
     const mods: any[] = trainingRepo.all();
     mods.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     res.json(mods);
   });
 
-  app.get("/api/admin/training-modules", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.get("/api/admin/training-modules", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const mods: any[] = trainingRepo.all();
@@ -2291,8 +2292,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(mods);
   });
 
-  app.post("/api/admin/training-modules", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.post("/api/admin/training-modules", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const { title, description, type, url, order } = req.body ?? {};
@@ -2311,8 +2312,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(entry);
   });
 
-  app.put("/api/admin/training-modules/:id", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.put("/api/admin/training-modules/:id", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const mods: any[] = trainingRepo.all();
@@ -2326,8 +2327,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(mods[idx]);
   });
 
-  app.delete("/api/admin/training-modules/:id", (req, res) => {
-    if (!requireAdmin(req)) {
+  app.delete("/api/admin/training-modules/:id", async (req, res) => {
+    if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const mods: any[] = trainingRepo.all();
@@ -2339,20 +2340,20 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // ── FAQs (NEW-1) ──────────────────────────────────────────────────────────
 
-  app.get("/api/faqs/:pathway", (req, res) => {
+  app.get("/api/faqs/:pathway", async (req, res) => {
     const pathway = req.params.pathway;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     const all = faqsRepo.get();
     res.json(all[pathway] ?? []);
   });
 
-  app.get("/api/admin/faqs", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.get("/api/admin/faqs", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     res.json(faqsRepo.get());
   });
 
-  app.put("/api/admin/faqs/:pathway", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/faqs/:pathway", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const pathway = req.params.pathway;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     if (!Array.isArray(req.body)) return res.status(400).json({ error: "Body must be an array" });
@@ -2366,8 +2367,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true, items: all[pathway] });
   });
 
-  app.post("/api/admin/faqs/:pathway", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.post("/api/admin/faqs/:pathway", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const pathway = req.params.pathway;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     const { question, answer } = req.body ?? {};
@@ -2384,8 +2385,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(item);
   });
 
-  app.delete("/api/admin/faqs/:pathway/:id", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.delete("/api/admin/faqs/:pathway/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const { pathway, id } = req.params;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     const all = faqsRepo.get();
@@ -2398,21 +2399,21 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // ── Milestones (NEW-3) ────────────────────────────────────────────────────
 
-  app.get("/api/milestones", (_req, res) => {
+  app.get("/api/milestones", async (_req, res) => {
     const mils: any[] = milestonesRepo.all();
     mils.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     res.json(mils);
   });
 
-  app.get("/api/admin/milestones", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.get("/api/admin/milestones", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const mils: any[] = milestonesRepo.all();
     mils.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     res.json(mils);
   });
 
-  app.post("/api/admin/milestones", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.post("/api/admin/milestones", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const { phase, title, description, status, completedDate, updateNote, order } = req.body ?? {};
     if (!title || !phase) return res.status(400).json({ error: "Missing title or phase" });
     const mils: any[] = milestonesRepo.all();
@@ -2432,8 +2433,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(entry);
   });
 
-  app.put("/api/admin/milestones/:id", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/milestones/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const mils: any[] = milestonesRepo.all();
     const idx = mils.findIndex((m) => m.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
@@ -2449,8 +2450,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(mils[idx]);
   });
 
-  app.delete("/api/admin/milestones/:id", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.delete("/api/admin/milestones/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const mils: any[] = milestonesRepo.all();
     const filtered = mils.filter((m) => m.id !== req.params.id);
     if (filtered.length === mils.length) return res.status(404).json({ error: "Not found" });
@@ -2460,17 +2461,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // ── Project Settings (village dues + other editable numbers) ──────────────
 
-  app.get("/api/settings", (_req, res) => {
+  app.get("/api/settings", async (_req, res) => {
     res.json({ ...DEFAULT_SETTINGS, ...(settingsRepo.get()) });
   });
 
-  app.get("/api/admin/settings", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.get("/api/admin/settings", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     res.json({ ...DEFAULT_SETTINGS, ...(settingsRepo.get()) });
   });
 
-  app.put("/api/admin/settings", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/settings", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     const current = { ...DEFAULT_SETTINGS, ...(settingsRepo.get()) };
     settingsRepo.set({ ...current, ...req.body });
@@ -2479,17 +2480,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // ── Visit Config (NEW-5) ──────────────────────────────────────────────────
 
-  app.get("/api/visit-config", (_req, res) => {
+  app.get("/api/visit-config", async (_req, res) => {
     res.json(visitConfigRepo.get());
   });
 
-  app.get("/api/admin/visit-config", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.get("/api/admin/visit-config", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     res.json(visitConfigRepo.get());
   });
 
-  app.put("/api/admin/visit-config", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/visit-config", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     visitConfigRepo.set(req.body);
     res.json({ success: true });
@@ -2497,17 +2498,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // ── Investor Summary (NEW-6) ──────────────────────────────────────────────
 
-  app.get("/api/investor-summary", (_req, res) => {
+  app.get("/api/investor-summary", async (_req, res) => {
     res.json(investorSummaryRepo.get());
   });
 
-  app.get("/api/admin/investor-summary", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.get("/api/admin/investor-summary", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     res.json(investorSummaryRepo.get());
   });
 
-  app.put("/api/admin/investor-summary", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/investor-summary", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     investorSummaryRepo.set(req.body);
     res.json({ success: true });
@@ -2516,7 +2517,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // ── Game Engine API (platform-level; project specifics come from gameConfig) ──
 
   // Public game config (safe subset) + current season
-  app.get("/api/game/config", (_req, res) => {
+  app.get("/api/game/config", async (_req, res) => {
     const m = mergedConfig();
     res.json({
       project: m.project,
@@ -2529,13 +2530,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   // Brand overlay: the Setup Wizard reads/writes this to white-label the site live.
-  app.get("/api/admin/brand", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.get("/api/admin/brand", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     res.json({ brand: getBrand(), defaults: { project: GAME_CONFIG.project, currency: GAME_CONFIG.currency, images: GAME_CONFIG.images } });
   });
 
-  app.put("/api/admin/brand", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/brand", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     const current = getBrand();
     const next = {
@@ -2549,13 +2550,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   // Public: the computed season state (current picked by date — never stale).
-  app.get("/api/season", (_req, res) => {
+  app.get("/api/season", async (_req, res) => {
     res.json(seasonState());
   });
 
   // Admin: the whole season list + cadence + timezone.
-  app.get("/api/admin/seasons", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.get("/api/admin/seasons", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const cfg = getSeasonConfig();
     const state = seasonState();
     const last = [...cfg.seasons].sort((a, b) => (a.endsOn ?? "").localeCompare(b.endsOn ?? "")).pop();
@@ -2567,8 +2568,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     });
   });
 
-  app.put("/api/admin/seasons", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/seasons", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     const before = seasonState().current?.id ?? null;
     const next = normalizeSeasonConfig(req.body);
@@ -2582,8 +2583,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // Legacy single-season save, kept so nothing that still points here breaks:
   // it updates the season covering today, or appends one if there is none.
-  app.put("/api/admin/season", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/season", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     const cfg = getSeasonConfig();
     const currentId = seasonState().current?.id;
@@ -2601,15 +2602,15 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   // Quests: public list
-  app.get("/api/quests", (_req, res) => {
+  app.get("/api/quests", async (_req, res) => {
     const quests: any[] = questsRepo.all();
     quests.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     res.json(quests);
   });
 
   // Quests: admin CRUD
-  app.post("/api/admin/quests", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.post("/api/admin/quests", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const { title } = req.body ?? {};
     if (!title) return res.status(400).json({ error: "Missing title" });
     const quests: any[] = questsRepo.all();
@@ -2627,8 +2628,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(entry);
   });
 
-  app.put("/api/admin/quests/:id", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/quests/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const quests: any[] = questsRepo.all();
     const idx = quests.findIndex((q) => q.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
@@ -2637,8 +2638,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(quests[idx]);
   });
 
-  app.delete("/api/admin/quests/:id", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.delete("/api/admin/quests/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const quests: any[] = questsRepo.all();
     const filtered = quests.filter((q) => q.id !== req.params.id);
     if (filtered.length === quests.length) return res.status(404).json({ error: "Not found" });
@@ -2647,8 +2648,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   // Quests: claim / submit (player)
-  app.post("/api/game/quests/:id/claim", (req, res) => {
-    const user = requireUser(req);
+  app.post("/api/game/quests/:id/claim", async (req, res) => {
+    const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to claim quests" });
     const quests: any[] = questsRepo.all();
     const quest = quests.find((q) => q.id === req.params.id);
@@ -2696,8 +2697,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(claim);
   });
 
-  app.post("/api/game/quests/:id/submit", (req, res) => {
-    const user = requireUser(req);
+  app.post("/api/game/quests/:id/submit", async (req, res) => {
+    const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const { artifactUrl, note } = req.body ?? {};
     if (!artifactUrl && !note) return res.status(400).json({ error: "Share a link or a few words as evidence of your work" });
@@ -2710,15 +2711,15 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   // Quests: team consent (value release is always human-gated)
-  app.get("/api/admin/quest-claims", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.get("/api/admin/quest-claims", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const claims: any[] = claimsRepo.all();
     claims.sort((a, b) => new Date(b.claimedAt).getTime() - new Date(a.claimedAt).getTime());
     res.json(claims);
   });
 
-  app.post("/api/admin/quest-claims/:id/consent", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.post("/api/admin/quest-claims/:id/consent", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const { approve, amount } = req.body ?? {};
     const claims: any[] = claimsRepo.all();
     const idx = claims.findIndex((c) => c.id === req.params.id);
@@ -2776,14 +2777,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // Stage depends on consented-quest count, so the snapshot must be taken
     // BEFORE the claim flips to consented; taking it after would always compare
     // equal and the advancement event would never fire.
-    const users = { users: members.readDoc() };
-    const uIdx = users.users.findIndex((u: any) => u.id === claims[idx].userId);
-    const stageBefore = uIdx !== -1 ? computeStage(users.users[uIdx]) : null;
+    const claimant = await members.byId(claims[idx].userId);
+    const stageBefore = claimant ? computeStage(claimant) : null;
 
     claims[idx] = { ...claims[idx], status: "consented", amount: granted, resolvedAt: new Date().toISOString() };
     claimsRepo.saveAll(claims);
     // Credit the player's balance
-    if (uIdx !== -1) {
+    if (claimant) {
       // Through the ledger, not `+=`. The idempotency key is the claim, so a
       // retried or double-clicked consent credits exactly once, and the balance
       // column is RECOMPUTED from the ledger rather than incremented.
@@ -2795,33 +2795,33 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         description: `Quest consented: ${claims[idx].questTitle}`,
         idempotencyKey: `quest_consent:${claims[idx].id}`,
       });
-      users.users[uIdx].recognitionBalance = credit.balance;
-      members.saveDoc(users.users);
+      const after = await members.update(claimant.id, (u: any) => { u.recognitionBalance = credit.balance; });
       addActivity("quest", `${firstName(claims[idx].userName)} completed the quest "${claims[idx].questTitle}"`);
-      const stageAfter = computeStage(users.users[uIdx]);
-      if (stageBefore) recordStageEvent(users.users[uIdx], stageBefore, stageAfter, `quest consented: ${claims[idx].questTitle}`);
+      if (after) {
+        const stageAfter = computeStage(after);
+        if (stageBefore) recordStageEvent(after, stageBefore, stageAfter, `quest consented: ${claims[idx].questTitle}`);
+      }
     }
     res.json(claims[idx]);
   });
 
   // Journey / training progress sync (server-side game state)
-  app.post("/api/game/journey/sync", (req, res) => {
-    const user = requireUser(req);
+  app.post("/api/game/journey/sync", async (req, res) => {
+    const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const { journeyId, steps } = req.body ?? {};
     if (!journeyId || !Array.isArray(steps)) return res.status(400).json({ error: "Missing journeyId or steps" });
-    const users = { users: members.readDoc() };
-    const idx = users.users.findIndex((u: any) => u.id === user.id);
-    if (idx === -1) return res.status(404).json({ error: "User not found" });
-    if (!users.users[idx].journeys) users.users[idx].journeys = {};
-    users.users[idx].journeys[journeyId] = steps.map(String);
-    members.saveDoc(users.users);
-    res.json({ success: true, journeys: users.users[idx].journeys });
+    const updated = await members.update(user.id, (u: any) => {
+      if (!u.journeys) u.journeys = {};
+      u.journeys[journeyId] = steps.map(String);
+    });
+    if (!updated) return res.status(404).json({ error: "User not found" });
+    res.json({ success: true, journeys: updated.journeys });
   });
 
   // My game state
-  app.get("/api/game/me", (req, res) => {
-    const user = requireUser(req);
+  app.get("/api/game/me", async (req, res) => {
+    const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const stageId = computeStage(user);
     const claims: any[] = (claimsRepo.all()).filter((c: any) => c.userId === user.id);
@@ -2848,8 +2848,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   // Gratitude: send an acknowledgment
-  app.post("/api/game/gratitude/send", (req, res) => {
-    const user = requireUser(req);
+  app.post("/api/game/gratitude/send", async (req, res) => {
+    const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to send " + mergedConfig().currency.nameLower });
     const { toEmail, amount, message } = req.body ?? {};
     const amt = Math.floor(Number(amount) || 0);
@@ -2857,10 +2857,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (boolVar(VARIABLES_FILE, "gratitude.require_message") && !String(message ?? "").trim()) {
       return res.status(400).json({ error: "A few words of appreciation are required" });
     }
-    const users = { users: members.readDoc() };
-    const toIdx = users.users.findIndex((u: any) => String(u.email).toLowerCase() === String(toEmail).toLowerCase());
-    if (toIdx === -1) return res.status(404).json({ error: "No member found with that email" });
-    const recipient = users.users[toIdx];
+    const recipient = await members.byEmail(String(toEmail));
+    if (!recipient) return res.status(404).json({ error: "No member found with that email" });
     if (recipient.id === user.id) return res.status(400).json({ error: "Gratitude flows to others" });
     const budget = gratitudeBudget(user);
     if (budget.total <= 0) return res.status(403).json({ error: "Your sending budget unlocks as you progress on the path" });
@@ -2894,14 +2892,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       description: `Gratitude from ${firstName(user.name)}`,
       idempotencyKey: `gratitude_received:${entry.id}`,
     });
-    users.users[toIdx].recognitionBalance = sendCredit.balance;
-    members.saveDoc(users.users);
+    await members.update(recipient.id, (u: any) => { u.recognitionBalance = sendCredit.balance; });
     addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(recipient.name)}`);
     res.json({ success: true, entry: { ...entry, amount: undefined }, budget: gratitudeBudget(user) });
   });
 
   // Gratitude: public wall (messages and names only; amounts stay private)
-  app.get("/api/game/gratitude/wall", (_req, res) => {
+  app.get("/api/game/gratitude/wall", async (_req, res) => {
     const log: any[] = gratitudeRepo.all();
     const wall = log
       .slice(-60)
@@ -2911,8 +2908,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   // Gratitude: my journal (received + sent, with amounts)
-  app.get("/api/game/gratitude/me", (req, res) => {
-    const user = requireUser(req);
+  app.get("/api/game/gratitude/me", async (req, res) => {
+    const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const log: any[] = gratitudeRepo.all();
     res.json({
@@ -2925,10 +2922,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // ── Lunar cycles + roles (revision 2, steps 3 and 5) ───────────────────────
 
   // The current lunation: bounds, moon phase, and (when signed in) your budget.
-  app.get("/api/game/cycle", (req, res) => {
+  app.get("/api/game/cycle", async (req, res) => {
     const now = new Date();
     const cycle = currentCycle(now);
-    const user = requireUser(req);
+    const user = await authedUser(req);
     res.json({
       ...cycle,
       daysRemaining: daysRemainingInCycle(now),
@@ -2941,11 +2938,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Public settlement history: what each closed lunation looked like. This is
   // the report the founders carry to Hypha, where Amora and Voice distribution
   // is actually governed. Names only, no emails.
-  app.get("/api/game/cycle/distributions", (_req, res) => {
+  app.get("/api/game/cycle/distributions", async (_req, res) => {
     const cycles: CycleRecord[] = cyclesRepo.all();
     const dists: DistributionRecord[] = distributionsRepo.all();
-    const users = { users: members.readDoc() };
-    const nameOf = (id: string) => firstName(users.users.find((u: any) => u.id === id)?.name ?? "Member");
+    const allMembers = await members.all();
+    const nameOf = (id: string) => firstName(allMembers.find((u: any) => u.id === id)?.name ?? "Member");
     res.json(
       cycles
         .filter((c) => c.status === "closed")
@@ -2977,8 +2974,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * Gratitude is credited at send/consent time, and the project's real value
    * (Amora, Voice) is distributed on Hypha using exactly this report.
    */
-  app.post("/api/admin/cycles/close", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.post("/api/admin/cycles/close", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
 
     /**
      * The ReGen model (Rye directive, 2026-07-26; mechanics researched in
@@ -3078,8 +3075,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * unlocked. Revision 2, step 4 (profiles) reads this, and it is what makes
    * "you advanced and something opened" visible rather than mysterious.
    */
-  app.get("/api/game/progression", (req, res) => {
-    const user = requireUser(req);
+  app.get("/api/game/progression", async (req, res) => {
+    const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const events: any[] = stageEventsRepo.all();
     const stageId = computeStage(user);
@@ -3099,8 +3096,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * A member's Gratitude flows: what they gave, what they received, and how each
    * closed lunation settled for them. The profile's economics tab reads this.
    */
-  app.get("/api/game/gratitude/flows", (req, res) => {
-    const user = requireUser(req);
+  app.get("/api/game/gratitude/flows", async (req, res) => {
+    const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const log: any[] = gratitudeRepo.all();
     const dists: DistributionRecord[] = distributionsRepo.all();
@@ -3124,8 +3121,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * reason. This is what makes a balance explainable instead of a bare number, and
    * it is the same data the founder command centre will read for reconciliation.
    */
-  app.get("/api/game/ledger", (req, res) => {
-    const user = requireUser(req);
+  app.get("/api/game/ledger", async (req, res) => {
+    const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     // All tokens now, not just recognition: since the cycle pool pays value in
     // a separate token (ReGen model), a member's ledger view must show every
@@ -3165,8 +3162,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * Every variable with its definition, current value and whether it is still
    * the default. Admin-only: some values (RPC endpoints) are operational.
    */
-  app.get("/api/admin/variables", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.get("/api/admin/variables", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const all = allVariables(VARIABLES_FILE);
     const categories: Record<string, typeof all> = {};
     for (const v of all) (categories[v.category] ??= []).push(v);
@@ -3183,8 +3180,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * allowed. Setting a value back to its default clears the override, which is
    * how a village keeps inheriting future platform defaults.
    */
-  app.put("/api/admin/variables/:key", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/variables/:key", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const raw = req.body?.value;
     if (raw === undefined || raw === null) return res.status(400).json({ error: "A value is required" });
     const result = setVariable(VARIABLES_FILE, req.params.key, String(raw));
@@ -3200,7 +3197,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * the game's actual rules rather than hardcoded copy. Deliberately a
    * whitelist: RPC endpoints and operational values stay server-side.
    */
-  app.get("/api/game/rules", (_req, res) => {
+  app.get("/api/game/rules", async (_req, res) => {
     res.json({
       gratitude: {
         baseBudget: numberVar(VARIABLES_FILE, "gratitude.base_budget"),
@@ -3234,10 +3231,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   // Roles, public: who holds what, so the village can see its own shape.
-  app.get("/api/roles", (_req, res) => {
-    const users = { users: members.readDoc() };
+  app.get("/api/roles", async (_req, res) => {
+    const allMembers = await members.all();
     const holders = loadRoleHolders();
-    const nameOf = (id: string) => firstName(users.users.find((u: any) => u.id === id)?.name ?? "Member");
+    const nameOf = (id: string) => firstName(allMembers.find((u: any) => u.id === id)?.name ?? "Member");
     res.json(
       loadRoles()
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -3254,16 +3251,15 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // Assign or remove a role holder. Admin for now; moves behind
   // proposal.decide when the decision primitive lands.
-  app.post("/api/admin/roles/:id/holders", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.post("/api/admin/roles/:id/holders", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const role = loadRoles().find((r) => r.id === req.params.id);
     if (!role) return res.status(404).json({ error: "Role not found" });
     const { userId, action } = req.body ?? {};
     if (!userId || !["add", "remove"].includes(action)) {
       return res.status(400).json({ error: "userId and action (add|remove) are required" });
     }
-    const users = { users: members.readDoc() };
-    const member = users.users.find((u: any) => u.id === userId);
+    const member = await members.byId(userId);
     if (!member) return res.status(404).json({ error: "Member not found" });
 
     // A role can require a minimum stage: appointments respect the ladder too.
@@ -3298,17 +3294,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   // Village pulse: public activity feed
-  app.get("/api/game/pulse", (_req, res) => {
+  app.get("/api/game/pulse", async (_req, res) => {
     const log: any[] = activityRepo.all();
     res.json(log.slice(-30).reverse());
   });
 
   // Players admin: list + stage grants
-  app.get("/api/admin/players", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const users = { users: members.readDoc() };
+  app.get("/api/admin/players", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const allMembers = await members.all();
     res.json(
-      users.users.map((u: any) => ({
+      allMembers.map((u: any) => ({
         id: u.id,
         name: u.name,
         email: u.email,
@@ -3324,30 +3320,26 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     );
   });
 
-  app.put("/api/admin/players/:id/stage", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.put("/api/admin/players/:id/stage", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const { stageId } = req.body ?? {};
     if (stageId && !GAME_CONFIG.stages.some((s) => s.id === stageId)) {
       return res.status(400).json({ error: "Unknown stage" });
     }
-    const users = { users: members.readDoc() };
-    const idx = users.users.findIndex((u: any) => u.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: "Not found" });
-    const before = computeStage(users.users[idx]);
-    users.users[idx].stageGranted = stageId ?? null;
-    members.saveDoc(users.users);
-    const after = computeStage(users.users[idx]);
-    recordStageEvent(users.users[idx], before, after, stageId ? "granted by an admin" : "grant removed");
+    const target = await members.byId(req.params.id);
+    if (!target) return res.status(404).json({ error: "Not found" });
+    const before = computeStage(target);
+    const updated = await members.update(target.id, (u: any) => { u.stageGranted = stageId ?? null; });
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    const after = computeStage(updated);
+    recordStageEvent(updated, before, after, stageId ? "granted by an admin" : "grant removed");
     res.json({ success: true, stageComputed: after });
   });
 
-  app.delete("/api/admin/players/:id", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const users = { users: members.readDoc() };
-    const idx = users.users.findIndex((u: any) => u.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: "Not found" });
-    const [removed] = users.users.splice(idx, 1);
-    members.saveDoc(users.users);
+  app.delete("/api/admin/players/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const removed = await members.remove(req.params.id);
+    if (!removed) return res.status(404).json({ error: "Not found" });
     // Note: historical quest claims and gratitude-log entries are intentionally
     // left intact; they are a shared ledger, not owned by a single account.
     res.json({ success: true, removed: { id: removed.id, email: removed.email } });
@@ -3355,8 +3347,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // Activity admin: remove a single pulse entry (e.g. a test account's join line).
   // Find the id via GET /api/game/pulse, then DELETE with the admin password.
-  app.delete("/api/admin/activity/:id", (req, res) => {
-    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  app.delete("/api/admin/activity/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const log: any[] = activityRepo.all();
     const idx = log.findIndex((a) => a.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
@@ -3381,6 +3373,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         res.status(500).send(`Server error: could not serve index.html from ${indexPath}`);
       }
     });
+  });
+
+  // Terminal error handler: async handler rejections land here via the
+  // registration wrapper above. JSON, because every consumer is the SPA.
+  app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("[route error]", err);
+    if (res.headersSent) return next(err);
+    res.status(500).json({ error: "Internal server error" });
   });
 
   const port = parseInt(String(process.env.PORT || 3000), 10);
