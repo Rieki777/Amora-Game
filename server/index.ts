@@ -13,6 +13,7 @@ import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import { backfillOpeningBalances, balanceOf, creditTokens, entriesFor } from "./lib/ledger";
 import { usersRepo } from "./repos/users";
+import { collectionRepo, documentRepo } from "./repos/store";
 import {
   cycleIdFor,
   currentCycle,
@@ -70,7 +71,8 @@ const LEDGER_FILE = path.join(DATA_DIR, "token-ledger.json");
  * through here, so the JSON-to-MySQL swap happens in one module rather than at 29
  * call sites. See server/repos/users.ts for why `withDoc` exists.
  */
-const members = usersRepo(USERS_FILE);
+
+
 const STAGE_EVENTS_FILE = path.join(DATA_DIR, "stage-events.json");
 const MILESTONES_FILE = path.join(DATA_DIR, "milestones.json");
 /** Ledger of one-shot data fixes already applied to this deployment's volume. */
@@ -282,6 +284,45 @@ const FORM_TYPE_TO_PATHWAY: Record<string, "investor" | "steward" | "resident" |
   "quest-proposal": "steward",
 };
 
+/**
+ * The single seam for member data. Every read and write of a member record goes
+ * through here, so the JSON-to-MySQL swap happens in one module rather than at
+ * 29 call sites. See server/repos/users.ts for why `saveDoc` exists.
+ *
+ * Declared here, below every FILE and DEFAULT_ constant, because the document
+ * repositories take their real defaults as arguments and those constants must
+ * exist first.
+ */
+const members = usersRepo(USERS_FILE);
+// One seam per domain: see server/repos/store.ts for why these are generic.
+const submissionsRepo = collectionRepo(SUBMISSIONS_FILE);
+const claimsRepo = collectionRepo(QUEST_CLAIMS_FILE);
+const questsRepo = collectionRepo(QUESTS_FILE);
+const gratitudeRepo = collectionRepo(GRATITUDE_LOG_FILE);
+const activityRepo = collectionRepo(ACTIVITY_FILE);
+const milestonesRepo = collectionRepo(MILESTONES_FILE);
+const trainingRepo = collectionRepo(TRAINING_MODULES_FILE);
+const investorDocsRepo = collectionRepo(INVESTOR_DOCS_FILE);
+const distributionsRepo = collectionRepo<DistributionRecord>(DISTRIBUTIONS_FILE);
+const cyclesRepo = collectionRepo<CycleRecord>(CYCLES_FILE);
+const stageEventsRepo = collectionRepo(STAGE_EVENTS_FILE);
+const rolesRepo = collectionRepo<RoleDef>(ROLES_FILE);
+const roleHoldersRepo = collectionRepo<RoleHolderRow>(ROLE_HOLDERS_FILE);
+const migrationsRepo = collectionRepo<any>(MIGRATIONS_FILE);
+// Each document repository carries its REAL default, so a missing or corrupt file
+// yields a working document and the `?? DEFAULT_X` dance disappears from the call
+// sites rather than being copied to a new place.
+const contentRepo = documentRepo(CONTENT_FILE, {} as any);
+const faqsRepo = documentRepo(FAQS_FILE, DEFAULT_FAQS as any);
+const journeyRepo = documentRepo(JOURNEY_FILE, { checkboxes: {}, copy: {}, kanban: {}, decisions: {} } as any);
+const emailConfigRepo = documentRepo(EMAIL_CONFIG_FILE, DEFAULT_EMAIL_CONFIG as any);
+const settingsRepo = documentRepo(SETTINGS_FILE, DEFAULT_SETTINGS as any);
+const brandRepo = documentRepo(BRAND_FILE, DEFAULT_BRAND as any);
+const workWithUsRepo = documentRepo(WORK_WITH_US_FILE, DEFAULT_WORK_WITH_US as any);
+const visitConfigRepo = documentRepo(VISIT_CONFIG_FILE, DEFAULT_VISIT_CONFIG as any);
+const investorSummaryRepo = documentRepo(INVESTOR_SUMMARY_FILE, DEFAULT_INVESTOR_SUMMARY as any);
+const seasonRepo = documentRepo(SEASON_FILE, GAME_CONFIG.season as any);
+
 function legacySha256(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
 }
@@ -476,11 +517,11 @@ function seedLedgerOpeningBalances() {
  */
 function runOnce(id: string, fn: () => void) {
   try {
-    const applied: string[] = readJson(MIGRATIONS_FILE) ?? [];
+    const applied: string[] = migrationsRepo.all();
     if (applied.includes(id)) return;
     fn();
     applied.push(id);
-    writeJson(MIGRATIONS_FILE, applied);
+    migrationsRepo.saveAll(applied);
     console.log(`[MIGRATION] applied ${id}`);
   } catch (e) {
     console.error(`[MIGRATION] ${id} failed (continuing)`, e);
@@ -490,14 +531,14 @@ function runOnce(id: string, fn: () => void) {
 /** The founding circle is still forming, so the public tracker shouldn't call it
  *  done. Only touches the milestone if it's still the untouched seeded value. */
 function markFoundingTeamInProgress() {
-  const mils: any[] = readJson(MILESTONES_FILE) ?? [];
+  const mils: any[] = milestonesRepo.all();
   const m = mils.find((x) => x.id === "founding-team");
   if (!m || m.status !== "complete") return;
   m.status = "in-progress";
   m.completedDate = null;
   if (!m.updateNote) m.updateNote = "Core circle forming — still welcoming co-creators.";
   m.updatedAt = new Date().toISOString();
-  writeJson(MILESTONES_FILE, mils);
+  milestonesRepo.saveAll(mils);
 }
 
 /**
@@ -514,7 +555,7 @@ function retireLegacyPegCopy() {
   const OLD_FAQ = "Contributions are compensated in Gratitude (1 Gratitude = $1 USD in value). As Amora's shared businesses generate revenue, Gratitude converts to cash.";
   const OLD_DUES_NOTE = "Village Dues cover utilities, maintenance, and community services. They can be offset through Gratitude (1 Gratitude = $1 USD of contribution).";
   try {
-    const faqs = readJson(FAQS_FILE);
+    const faqs = faqsRepo.get();
     if (faqs && typeof faqs === "object") {
       let changed = false;
       for (const list of Object.values(faqs) as any[]) {
@@ -526,14 +567,14 @@ function retireLegacyPegCopy() {
           }
         }
       }
-      if (changed) writeJson(FAQS_FILE, faqs);
+      if (changed) faqsRepo.set(faqs);
     }
   } catch { /* copy migration is best-effort; never block boot */ }
   try {
-    const settings = readJson(SETTINGS_FILE);
+    const settings = settingsRepo.get();
     if (settings?.villageDues?.note === OLD_DUES_NOTE) {
       settings.villageDues.note = (DEFAULT_SETTINGS as any).villageDues.note;
-      writeJson(SETTINGS_FILE, settings);
+      settingsRepo.set(settings);
     }
   } catch { /* same */ }
 }
@@ -550,7 +591,7 @@ function requireUser(req: express.Request): any | null {
 }
 
 function getBrand() {
-  const b = readJson(BRAND_FILE) ?? {};
+  const b = brandRepo.get();
   return {
     project: { ...DEFAULT_BRAND.project, ...(b.project ?? {}) },
     currency: { ...DEFAULT_BRAND.currency, ...(b.currency ?? {}) },
@@ -594,9 +635,9 @@ function mergedConfig() {
 }
 
 function addActivity(type: string, text: string) {
-  const log: any[] = readJson(ACTIVITY_FILE) ?? [];
+  const log: any[] = activityRepo.all();
   log.push({ id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, text, at: new Date().toISOString() });
-  writeJson(ACTIVITY_FILE, log.slice(-500));
+  activityRepo.saveAll(log.slice(-500));
 }
 
 /**
@@ -627,13 +668,11 @@ type RoleDef = {
 type RoleHolderRow = { id: string; roleId: string; userId: string; grantedBy?: string; grantedAt: string };
 
 function loadRoles(): RoleDef[] {
-  const roles = readJson(ROLES_FILE);
-  return Array.isArray(roles) ? roles : [];
+  return rolesRepo.all();
 }
 
 function loadRoleHolders(): RoleHolderRow[] {
-  const rows = readJson(ROLE_HOLDERS_FILE);
-  return Array.isArray(rows) ? rows : [];
+  return roleHoldersRepo.all();
 }
 
 /** Role ids a member holds. */
@@ -663,7 +702,7 @@ function roleCapabilitiesFor(userId: string): string[] {
  */
 function recordStageEvent(user: any, from: string, to: string, reason: string) {
   if (stageIndex(to) <= stageIndex(from)) return;
-  const events: any[] = readJson(STAGE_EVENTS_FILE) ?? [];
+  const events: any[] = stageEventsRepo.all();
   const before = new Set(
     ALL_CAPABILITIES.filter((c) => hasCapability(c, {
       stageIndex: stageIndex(from), stageIndexOf: stageIndex, roleCapabilities: roleCapabilitiesFor(user.id),
@@ -683,7 +722,7 @@ function recordStageEvent(user: any, from: string, to: string, reason: string) {
     reason,
     at: new Date().toISOString(),
   });
-  writeJson(STAGE_EVENTS_FILE, events.slice(-2000));
+  stageEventsRepo.saveAll(events.slice(-2000));
   addActivity("stage", `${firstName(user.name)} advanced to ${getStage(to).name}`);
 }
 
@@ -763,7 +802,7 @@ function normalizeSeasonConfig(raw: any): { seasons: any[]; cadence: string; tim
 }
 
 function getSeasonConfig() {
-  return normalizeSeasonConfig(readJson(SEASON_FILE));
+  return normalizeSeasonConfig(seasonRepo.get());
 }
 
 /** The payload every season-driven banner reads. `current` is null when no
@@ -846,7 +885,7 @@ function firstName(name: string): string {
 
 function hasMembership(user: any): boolean {
   if (user.membershipGranted) return true;
-  const submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
+  const submissions: any[] = submissionsRepo.all();
   const email = String(user.email ?? "").toLowerCase();
   return submissions.some(
     (s) => s.type === "membership-508" && String(s.data?.email ?? "").toLowerCase() === email
@@ -854,12 +893,12 @@ function hasMembership(user: any): boolean {
 }
 
 function consentedQuestCount(userId: string): number {
-  const claims: any[] = readJson(QUEST_CLAIMS_FILE) ?? [];
+  const claims: any[] = claimsRepo.all();
   return claims.filter((c) => c.userId === userId && c.status === "consented").length;
 }
 
 function trainingComplete(user: any): boolean {
-  const mods: any[] = readJson(TRAINING_MODULES_FILE) ?? [];
+  const mods: any[] = trainingRepo.all();
   if (!mods.length) return false;
   const done: string[] = user.journeys?.training ?? [];
   return mods.every((m) => done.includes(m.id));
@@ -892,7 +931,7 @@ function gratitudeBudget(user: any): { total: number; spent: number; remaining: 
   // constant. The stage multiplier still shapes it.
   const total = Math.round(numberVar(VARIABLES_FILE, "gratitude.base_budget") * stage.gratitudeMultiplier);
   const cycleId = currentCycleId();
-  const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
+  const log: any[] = gratitudeRepo.all();
   const spent = log
     .filter((g) => g.fromId === user.id && g.cycleId === cycleId)
     .reduce((acc, g) => acc + (g.amount ?? 0), 0);
@@ -900,7 +939,7 @@ function gratitudeBudget(user: any): { total: number; spent: number; remaining: 
 }
 
 function nextActionFor(user: any): { id: string; label: string; href: string } {
-  const claims: any[] = (readJson(QUEST_CLAIMS_FILE) ?? []).filter((c: any) => c.userId === user.id);
+  const claims: any[] = (claimsRepo.all()).filter((c: any) => c.userId === user.id);
   const budget = gratitudeBudget(user);
   for (const rule of GAME_CONFIG.nextActions) {
     switch (rule.when) {
@@ -924,8 +963,7 @@ function nextActionFor(user: any): { id: string; label: string; href: string } {
  * project hosted under it. The admin UI still wins if a project sets its own.
  */
 function getEmailConfig() {
-  const cfg = readJson(EMAIL_CONFIG_FILE);
-  const merged = { ...DEFAULT_EMAIL_CONFIG, ...(cfg ?? {}) };
+  const merged = { ...DEFAULT_EMAIL_CONFIG, ...emailConfigRepo.get() };
   return {
     ...merged,
     resend_api_key: merged.resend_api_key || process.env.RESEND_API_KEY || "",
@@ -936,7 +974,7 @@ function getEmailConfig() {
 /** True when a key is inherited from the host rather than typed into admin —
  * lets the UI say "provided by the environment" instead of showing a blank box. */
 function keySources() {
-  const cfg = readJson(EMAIL_CONFIG_FILE) ?? {};
+  const cfg = emailConfigRepo.get();
   return {
     resend_from_env: !cfg.resend_api_key && !!process.env.RESEND_API_KEY,
     assistant_from_env: !cfg.assistant_api_key && !!process.env.ANTHROPIC_API_KEY,
@@ -944,8 +982,7 @@ function keySources() {
 }
 
 function getWorkWithUs() {
-  const cfg = readJson(WORK_WITH_US_FILE);
-  return { ...DEFAULT_WORK_WITH_US, ...(cfg ?? {}) };
+  return { ...DEFAULT_WORK_WITH_US, ...workWithUsRepo.get() };
 }
 
 /** When a Work With Us proposal is accepted, fold it into the game for a matching
@@ -1123,7 +1160,7 @@ async function startServer() {
     }
     // Attribution: if a valid member token is present, stamp who submitted.
     const submitter = requireUser(req);
-    const submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
+    const submissions: any[] = submissionsRepo.all();
     const entry: any = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       type,
@@ -1133,7 +1170,7 @@ async function startServer() {
     };
     if (submitter) { entry.userId = submitter.id; entry.userName = submitter.name; }
     submissions.push(entry);
-    writeJson(SUBMISSIONS_FILE, submissions);
+    submissionsRepo.saveAll(submissions);
 
     const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "amora.regencivics.earth";
     const proto = req.headers["x-forwarded-proto"] ?? "https";
@@ -1170,7 +1207,7 @@ async function startServer() {
     if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    let submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
+    let submissions: any[] = submissionsRepo.all();
     if (req.query.type) {
       submissions = submissions.filter((s) => s.type === req.query.type);
     }
@@ -1185,12 +1222,12 @@ async function startServer() {
     if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
+    const submissions: any[] = submissionsRepo.all();
     const filtered = submissions.filter((s) => s.id !== req.params.id);
     if (filtered.length === submissions.length) {
       return res.status(404).json({ error: "Not found" });
     }
-    writeJson(SUBMISSIONS_FILE, filtered);
+    submissionsRepo.saveAll(filtered);
     res.json({ success: true });
   });
 
@@ -1201,7 +1238,7 @@ async function startServer() {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
     const { status } = req.body ?? {};
     if (!SUBMISSION_STATUSES.includes(status)) return res.status(400).json({ error: "Invalid status" });
-    const submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
+    const submissions: any[] = submissionsRepo.all();
     const idx = submissions.findIndex((s) => s.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
     const wasAccepted = submissions[idx].status === "accepted";
@@ -1211,7 +1248,7 @@ async function startServer() {
       rewarded = applyAcceptReward(submissions[idx]);
       if (rewarded) submissions[idx].rewarded = true;
     }
-    writeJson(SUBMISSIONS_FILE, submissions);
+    submissionsRepo.saveAll(submissions);
     res.json({ success: true, rewarded });
   });
 
@@ -1221,7 +1258,7 @@ async function startServer() {
     if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    let submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
+    let submissions: any[] = submissionsRepo.all();
     if (req.query.type) {
       submissions = submissions.filter((s) => s.type === req.query.type);
     }
@@ -1267,7 +1304,7 @@ async function startServer() {
   // Content: Public Read
   // GET /api/content/:section
   app.get("/api/content/:section", (req, res) => {
-    const content = readJson(CONTENT_FILE) ?? {};
+    const content = contentRepo.get();
     const section = content[req.params.section];
     if (section === undefined) {
       return res.status(404).json({ error: "Section not found" });
@@ -1280,7 +1317,7 @@ async function startServer() {
     if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    res.json(readJson(CONTENT_FILE) ?? {});
+    res.json(contentRepo.get());
   });
 
   // Admin: Update Content Section
@@ -1289,9 +1326,9 @@ async function startServer() {
     if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const content = readJson(CONTENT_FILE) ?? {};
+    const content = contentRepo.get();
     content[req.params.section] = req.body;
-    writeJson(CONTENT_FILE, content);
+    contentRepo.set(content);
     res.json({ success: true });
   });
 
@@ -1428,7 +1465,7 @@ async function startServer() {
   // Journey State: Public Read
   // GET /api/journey/state
   app.get("/api/journey/state", (_req, res) => {
-    const state = readJson(JOURNEY_FILE) ?? { checkboxes: {}, copy: {} };
+    const state = journeyRepo.get();
     res.json(state);
   });
 
@@ -1442,9 +1479,9 @@ async function startServer() {
     if (!id || state === undefined || ![0, 1, 2].includes(state)) {
       return res.status(400).json({ error: "Missing or invalid fields" });
     }
-    const journey = readJson(JOURNEY_FILE) ?? { checkboxes: {}, copy: {} };
+    const journey = journeyRepo.get();
     journey.checkboxes[id] = state;
-    writeJson(JOURNEY_FILE, journey);
+    journeyRepo.set(journey);
     res.json({ success: true });
   });
 
@@ -1459,10 +1496,10 @@ async function startServer() {
     if (!id || !validColumns.includes(column)) {
       return res.status(400).json({ error: "Missing or invalid fields" });
     }
-    const journey = readJson(JOURNEY_FILE) ?? { checkboxes: {}, copy: {}, kanban: {} };
+    const journey = journeyRepo.get();
     if (!journey.kanban) journey.kanban = {};
     journey.kanban[id] = { column, assignee: assignee ?? "" };
-    writeJson(JOURNEY_FILE, journey);
+    journeyRepo.set(journey);
     res.json({ success: true });
   });
 
@@ -1476,9 +1513,9 @@ async function startServer() {
     if (!sectionId || content === undefined) {
       return res.status(400).json({ error: "Missing fields" });
     }
-    const journey = readJson(JOURNEY_FILE) ?? { checkboxes: {}, copy: {} };
+    const journey = journeyRepo.get();
     journey.copy[sectionId] = content;
-    writeJson(JOURNEY_FILE, journey);
+    journeyRepo.set(journey);
     res.json({ success: true });
   });
 
@@ -1493,10 +1530,10 @@ async function startServer() {
     if (!id || !validStatuses.includes(status)) {
       return res.status(400).json({ error: "Missing or invalid fields" });
     }
-    const journey = readJson(JOURNEY_FILE) ?? { checkboxes: {}, copy: {}, kanban: {}, decisions: {} };
+    const journey = journeyRepo.get();
     if (!journey.decisions) journey.decisions = {};
     journey.decisions[id] = { status, chosen: chosen ?? "", notes: notes ?? "" };
-    writeJson(JOURNEY_FILE, journey);
+    journeyRepo.set(journey);
     res.json({ success: true });
   });
 
@@ -1508,7 +1545,7 @@ async function startServer() {
     }
     // Return only what's stored — never echo a key inherited from the host env
     // back into the browser. `_sources` tells the UI which keys are env-provided.
-    const stored = { ...DEFAULT_EMAIL_CONFIG, ...(readJson(EMAIL_CONFIG_FILE) ?? {}) };
+    const stored = { ...DEFAULT_EMAIL_CONFIG, ...(emailConfigRepo.get()) };
     res.json({ ...stored, _sources: keySources() });
   });
 
@@ -1527,7 +1564,7 @@ async function startServer() {
       assistant_api_key:
         typeof req.body.assistant_api_key === "string" ? req.body.assistant_api_key.trim() : current.assistant_api_key,
     };
-    writeJson(EMAIL_CONFIG_FILE, next);
+    emailConfigRepo.set(next);
     res.json({ success: true });
   });
 
@@ -1683,7 +1720,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.put("/api/admin/work-with-us-config", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
-    writeJson(WORK_WITH_US_FILE, { ...getWorkWithUs(), ...req.body });
+    workWithUsRepo.set({ ...getWorkWithUs(), ...req.body });
     res.json({ success: true });
   });
 
@@ -1802,7 +1839,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    res.json(readJson(INVESTOR_DOCS_FILE) ?? []);
+    res.json(investorDocsRepo.all());
   });
 
   app.post("/api/admin/investor-docs/upload", upload.single("file"), (req, res) => {
@@ -1826,9 +1863,9 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       pageLink,
       uploadedAt: new Date().toISOString(),
     };
-    const docs = readJson(INVESTOR_DOCS_FILE) ?? [];
+    const docs = investorDocsRepo.all();
     docs.push(entry);
-    writeJson(INVESTOR_DOCS_FILE, docs);
+    investorDocsRepo.saveAll(docs);
     res.json(entry);
   });
 
@@ -1836,11 +1873,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const docs: any[] = readJson(INVESTOR_DOCS_FILE) ?? [];
+    const docs: any[] = investorDocsRepo.all();
     const target = docs.find((d) => d.id === req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
     const filtered = docs.filter((d) => d.id !== req.params.id);
-    writeJson(INVESTOR_DOCS_FILE, filtered);
+    investorDocsRepo.saveAll(filtered);
     const filePath = path.join(UPLOADS_DIR, target.filename);
     if (fs.existsSync(filePath)) {
       try { fs.unlinkSync(filePath); } catch (err) { console.error("[VAULT] Failed to delete file", err); }
@@ -1862,7 +1899,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       return res.status(400).json({ error: "Missing required fields" });
     }
     // Save lead
-    const submissions: any[] = readJson(SUBMISSIONS_FILE) ?? [];
+    const submissions: any[] = submissionsRepo.all();
     const entry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       type: "investor-doc-request",
@@ -1870,9 +1907,9 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       submittedAt: new Date().toISOString(),
     };
     submissions.push(entry);
-    writeJson(SUBMISSIONS_FILE, submissions);
+    submissionsRepo.saveAll(submissions);
 
-    const docs: any[] = readJson(INVESTOR_DOCS_FILE) ?? [];
+    const docs: any[] = investorDocsRepo.all();
     const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "amora.regencivics.earth";
     const proto = req.headers["x-forwarded-proto"] ?? "https";
     const origin = `${proto}://${host}`;
@@ -1919,7 +1956,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // ── Training Modules ──────────────────────────────────────────────────────
 
   app.get("/api/training-modules", (_req, res) => {
-    const mods: any[] = readJson(TRAINING_MODULES_FILE) ?? [];
+    const mods: any[] = trainingRepo.all();
     mods.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     res.json(mods);
   });
@@ -1928,7 +1965,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const mods: any[] = readJson(TRAINING_MODULES_FILE) ?? [];
+    const mods: any[] = trainingRepo.all();
     mods.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     res.json(mods);
   });
@@ -1939,7 +1976,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     }
     const { title, description, type, url, order } = req.body ?? {};
     if (!title || !type) return res.status(400).json({ error: "Missing title or type" });
-    const mods: any[] = readJson(TRAINING_MODULES_FILE) ?? [];
+    const mods: any[] = trainingRepo.all();
     const entry = {
       id: `mod-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       title,
@@ -1949,7 +1986,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       order: typeof order === "number" ? order : mods.length + 1,
     };
     mods.push(entry);
-    writeJson(TRAINING_MODULES_FILE, mods);
+    trainingRepo.saveAll(mods);
     res.json(entry);
   });
 
@@ -1957,14 +1994,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const mods: any[] = readJson(TRAINING_MODULES_FILE) ?? [];
+    const mods: any[] = trainingRepo.all();
     const idx = mods.findIndex((m) => m.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
     const allowed = ["title", "description", "type", "url", "order"];
     for (const key of allowed) {
       if (req.body[key] !== undefined) mods[idx][key] = req.body[key];
     }
-    writeJson(TRAINING_MODULES_FILE, mods);
+    trainingRepo.saveAll(mods);
     res.json(mods[idx]);
   });
 
@@ -1972,10 +2009,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!requireAdmin(req)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const mods: any[] = readJson(TRAINING_MODULES_FILE) ?? [];
+    const mods: any[] = trainingRepo.all();
     const filtered = mods.filter((m) => m.id !== req.params.id);
     if (filtered.length === mods.length) return res.status(404).json({ error: "Not found" });
-    writeJson(TRAINING_MODULES_FILE, filtered);
+    trainingRepo.saveAll(filtered);
     res.json({ success: true });
   });
 
@@ -1984,13 +2021,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/faqs/:pathway", (req, res) => {
     const pathway = req.params.pathway;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
-    const all = readJson(FAQS_FILE) ?? {};
+    const all = faqsRepo.get();
     res.json(all[pathway] ?? []);
   });
 
   app.get("/api/admin/faqs", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    res.json(readJson(FAQS_FILE) ?? {});
+    res.json(faqsRepo.get());
   });
 
   app.put("/api/admin/faqs/:pathway", (req, res) => {
@@ -1998,13 +2035,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const pathway = req.params.pathway;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     if (!Array.isArray(req.body)) return res.status(400).json({ error: "Body must be an array" });
-    const all = readJson(FAQS_FILE) ?? {};
+    const all = faqsRepo.get();
     all[pathway] = req.body.map((item: any) => ({
       id: item.id || `${pathway.slice(0, 3)}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       question: String(item.question ?? "").trim(),
       answer: String(item.answer ?? "").trim(),
     }));
-    writeJson(FAQS_FILE, all);
+    faqsRepo.set(all);
     res.json({ success: true, items: all[pathway] });
   });
 
@@ -2014,7 +2051,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     const { question, answer } = req.body ?? {};
     if (!question) return res.status(400).json({ error: "Missing question" });
-    const all = readJson(FAQS_FILE) ?? {};
+    const all = faqsRepo.get();
     if (!all[pathway]) all[pathway] = [];
     const item = {
       id: `${pathway.slice(0, 3)}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -2022,7 +2059,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       answer: String(answer ?? "").trim(),
     };
     all[pathway].push(item);
-    writeJson(FAQS_FILE, all);
+    faqsRepo.set(all);
     res.json(item);
   });
 
@@ -2030,25 +2067,25 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
     const { pathway, id } = req.params;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
-    const all = readJson(FAQS_FILE) ?? {};
+    const all = faqsRepo.get();
     const before = (all[pathway] ?? []).length;
     all[pathway] = (all[pathway] ?? []).filter((f: any) => f.id !== id);
     if (all[pathway].length === before) return res.status(404).json({ error: "Not found" });
-    writeJson(FAQS_FILE, all);
+    faqsRepo.set(all);
     res.json({ success: true });
   });
 
   // ── Milestones (NEW-3) ────────────────────────────────────────────────────
 
   app.get("/api/milestones", (_req, res) => {
-    const mils: any[] = readJson(MILESTONES_FILE) ?? [];
+    const mils: any[] = milestonesRepo.all();
     mils.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     res.json(mils);
   });
 
   app.get("/api/admin/milestones", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const mils: any[] = readJson(MILESTONES_FILE) ?? [];
+    const mils: any[] = milestonesRepo.all();
     mils.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     res.json(mils);
   });
@@ -2057,7 +2094,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
     const { phase, title, description, status, completedDate, updateNote, order } = req.body ?? {};
     if (!title || !phase) return res.status(400).json({ error: "Missing title or phase" });
-    const mils: any[] = readJson(MILESTONES_FILE) ?? [];
+    const mils: any[] = milestonesRepo.all();
     const entry = {
       id: `mil-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       phase,
@@ -2070,13 +2107,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       updatedAt: new Date().toISOString(),
     };
     mils.push(entry);
-    writeJson(MILESTONES_FILE, mils);
+    milestonesRepo.saveAll(mils);
     res.json(entry);
   });
 
   app.put("/api/admin/milestones/:id", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const mils: any[] = readJson(MILESTONES_FILE) ?? [];
+    const mils: any[] = milestonesRepo.all();
     const idx = mils.findIndex((m) => m.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
     const allowed = ["phase", "title", "description", "status", "completedDate", "updateNote", "order"];
@@ -2087,71 +2124,71 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // Stamped so the admin can surface milestones nobody has looked at in weeks —
     // a board goes stale silently otherwise (see "Founding Team Assembled").
     if (touched) mils[idx].updatedAt = new Date().toISOString();
-    writeJson(MILESTONES_FILE, mils);
+    milestonesRepo.saveAll(mils);
     res.json(mils[idx]);
   });
 
   app.delete("/api/admin/milestones/:id", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const mils: any[] = readJson(MILESTONES_FILE) ?? [];
+    const mils: any[] = milestonesRepo.all();
     const filtered = mils.filter((m) => m.id !== req.params.id);
     if (filtered.length === mils.length) return res.status(404).json({ error: "Not found" });
-    writeJson(MILESTONES_FILE, filtered);
+    milestonesRepo.saveAll(filtered);
     res.json({ success: true });
   });
 
   // ── Project Settings (village dues + other editable numbers) ──────────────
 
   app.get("/api/settings", (_req, res) => {
-    res.json({ ...DEFAULT_SETTINGS, ...(readJson(SETTINGS_FILE) ?? {}) });
+    res.json({ ...DEFAULT_SETTINGS, ...(settingsRepo.get()) });
   });
 
   app.get("/api/admin/settings", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    res.json({ ...DEFAULT_SETTINGS, ...(readJson(SETTINGS_FILE) ?? {}) });
+    res.json({ ...DEFAULT_SETTINGS, ...(settingsRepo.get()) });
   });
 
   app.put("/api/admin/settings", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
-    const current = { ...DEFAULT_SETTINGS, ...(readJson(SETTINGS_FILE) ?? {}) };
-    writeJson(SETTINGS_FILE, { ...current, ...req.body });
+    const current = { ...DEFAULT_SETTINGS, ...(settingsRepo.get()) };
+    settingsRepo.set({ ...current, ...req.body });
     res.json({ success: true });
   });
 
   // ── Visit Config (NEW-5) ──────────────────────────────────────────────────
 
   app.get("/api/visit-config", (_req, res) => {
-    res.json(readJson(VISIT_CONFIG_FILE) ?? DEFAULT_VISIT_CONFIG);
+    res.json(visitConfigRepo.get());
   });
 
   app.get("/api/admin/visit-config", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    res.json(readJson(VISIT_CONFIG_FILE) ?? DEFAULT_VISIT_CONFIG);
+    res.json(visitConfigRepo.get());
   });
 
   app.put("/api/admin/visit-config", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
-    writeJson(VISIT_CONFIG_FILE, req.body);
+    visitConfigRepo.set(req.body);
     res.json({ success: true });
   });
 
   // ── Investor Summary (NEW-6) ──────────────────────────────────────────────
 
   app.get("/api/investor-summary", (_req, res) => {
-    res.json(readJson(INVESTOR_SUMMARY_FILE) ?? DEFAULT_INVESTOR_SUMMARY);
+    res.json(investorSummaryRepo.get());
   });
 
   app.get("/api/admin/investor-summary", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    res.json(readJson(INVESTOR_SUMMARY_FILE) ?? DEFAULT_INVESTOR_SUMMARY);
+    res.json(investorSummaryRepo.get());
   });
 
   app.put("/api/admin/investor-summary", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
-    writeJson(INVESTOR_SUMMARY_FILE, req.body);
+    investorSummaryRepo.set(req.body);
     res.json({ success: true });
   });
 
@@ -2186,7 +2223,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       images: { ...current.images, ...(req.body.images ?? {}) },
       setup: { ...current.setup, ...(req.body.setup ?? {}) },
     };
-    writeJson(BRAND_FILE, next);
+    brandRepo.set(next);
     res.json({ success: true, brand: next });
   });
 
@@ -2214,7 +2251,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     const before = seasonState().current?.id ?? null;
     const next = normalizeSeasonConfig(req.body);
-    writeJson(SEASON_FILE, next);
+    seasonRepo.set(next);
     const after = seasonState();
     if (after.current && after.current.id !== before) {
       addActivity("season", `The season has turned: ${after.current.name}`);
@@ -2237,14 +2274,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       goals: Array.isArray(req.body.goals) ? req.body.goals : [],
     };
     if (idx >= 0) cfg.seasons[idx] = entry; else cfg.seasons.push(entry);
-    writeJson(SEASON_FILE, cfg);
+    seasonRepo.set(cfg);
     if (entry.name) addActivity("season", `The season has been set: ${entry.name}`);
     res.json({ success: true });
   });
 
   // Quests: public list
   app.get("/api/quests", (_req, res) => {
-    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    const quests: any[] = questsRepo.all();
     quests.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     res.json(quests);
   });
@@ -2254,7 +2291,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
     const { title } = req.body ?? {};
     if (!title) return res.status(400).json({ error: "Missing title" });
-    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    const quests: any[] = questsRepo.all();
     const entry = {
       id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       order: quests.length + 1,
@@ -2265,26 +2302,26 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       ...req.body,
     };
     quests.push(entry);
-    writeJson(QUESTS_FILE, quests);
+    questsRepo.saveAll(quests);
     res.json(entry);
   });
 
   app.put("/api/admin/quests/:id", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    const quests: any[] = questsRepo.all();
     const idx = quests.findIndex((q) => q.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
     quests[idx] = { ...quests[idx], ...req.body, id: quests[idx].id };
-    writeJson(QUESTS_FILE, quests);
+    questsRepo.saveAll(quests);
     res.json(quests[idx]);
   });
 
   app.delete("/api/admin/quests/:id", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    const quests: any[] = questsRepo.all();
     const filtered = quests.filter((q) => q.id !== req.params.id);
     if (filtered.length === quests.length) return res.status(404).json({ error: "Not found" });
-    writeJson(QUESTS_FILE, filtered);
+    questsRepo.saveAll(filtered);
     res.json({ success: true });
   });
 
@@ -2292,7 +2329,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.post("/api/game/quests/:id/claim", (req, res) => {
     const user = requireUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to claim quests" });
-    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    const quests: any[] = questsRepo.all();
     const quest = quests.find((q) => q.id === req.params.id);
     if (!quest) return res.status(404).json({ error: "Quest not found" });
 
@@ -2319,7 +2356,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       }
     }
 
-    const claims: any[] = readJson(QUEST_CLAIMS_FILE) ?? [];
+    const claims: any[] = claimsRepo.all();
     const existing = claims.find((c) => c.userId === user.id && c.questId === quest.id && c.status !== "declined");
     if (existing) return res.status(409).json({ error: "Already claimed", claim: existing });
     const claim = {
@@ -2334,7 +2371,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       note: "",
     };
     claims.push(claim);
-    writeJson(QUEST_CLAIMS_FILE, claims);
+    claimsRepo.saveAll(claims);
     res.json(claim);
   });
 
@@ -2343,18 +2380,18 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const { artifactUrl, note } = req.body ?? {};
     if (!artifactUrl && !note) return res.status(400).json({ error: "Share a link or a few words as evidence of your work" });
-    const claims: any[] = readJson(QUEST_CLAIMS_FILE) ?? [];
+    const claims: any[] = claimsRepo.all();
     const idx = claims.findIndex((c) => c.userId === user.id && c.questId === req.params.id && (c.status === "claimed" || c.status === "submitted"));
     if (idx === -1) return res.status(404).json({ error: "No active claim for this quest" });
     claims[idx] = { ...claims[idx], status: "submitted", artifactUrl: artifactUrl ?? "", note: note ?? "", submittedAt: new Date().toISOString() };
-    writeJson(QUEST_CLAIMS_FILE, claims);
+    claimsRepo.saveAll(claims);
     res.json(claims[idx]);
   });
 
   // Quests: team consent (value release is always human-gated)
   app.get("/api/admin/quest-claims", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const claims: any[] = readJson(QUEST_CLAIMS_FILE) ?? [];
+    const claims: any[] = claimsRepo.all();
     claims.sort((a, b) => new Date(b.claimedAt).getTime() - new Date(a.claimedAt).getTime());
     res.json(claims);
   });
@@ -2362,12 +2399,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.post("/api/admin/quest-claims/:id/consent", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
     const { approve, amount } = req.body ?? {};
-    const claims: any[] = readJson(QUEST_CLAIMS_FILE) ?? [];
+    const claims: any[] = claimsRepo.all();
     const idx = claims.findIndex((c) => c.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
     if (approve === false) {
       claims[idx] = { ...claims[idx], status: "declined", resolvedAt: new Date().toISOString() };
-      writeJson(QUEST_CLAIMS_FILE, claims);
+      claimsRepo.saveAll(claims);
       return res.json(claims[idx]);
     }
     // Consent releases value, so it may only follow an actual submission.
@@ -2384,7 +2421,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // Item 7: the award was unbounded and never compared to the posted amount,
     // so the quest board was not a contract. The ceiling is a village choice.
     const requested = Math.max(0, Number(amount) || 0);
-    const quests: any[] = readJson(QUESTS_FILE) ?? [];
+    const quests: any[] = questsRepo.all();
     // Quests advertise a RANGE ("50-100"), not a number: the same work done
     // thoroughly is worth more than done adequately, and the consenting admin
     // decides where in the range it landed. parseRewardRange is the one place
@@ -2423,7 +2460,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const stageBefore = uIdx !== -1 ? computeStage(users.users[uIdx]) : null;
 
     claims[idx] = { ...claims[idx], status: "consented", amount: granted, resolvedAt: new Date().toISOString() };
-    writeJson(QUEST_CLAIMS_FILE, claims);
+    claimsRepo.saveAll(claims);
     // Credit the player's balance
     if (uIdx !== -1) {
       // Through the ledger, not `+=`. The idempotency key is the claim, so a
@@ -2466,7 +2503,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const user = requireUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const stageId = computeStage(user);
-    const claims: any[] = (readJson(QUEST_CLAIMS_FILE) ?? []).filter((c: any) => c.userId === user.id);
+    const claims: any[] = (claimsRepo.all()).filter((c: any) => c.userId === user.id);
     res.json({
       stage: getStage(stageId),
       stageIndex: stageIndex(stageId),
@@ -2507,7 +2544,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const budget = gratitudeBudget(user);
     if (budget.total <= 0) return res.status(403).json({ error: "Your sending budget unlocks as you progress on the path" });
     if (amt > budget.remaining) return res.status(400).json({ error: `Only ${budget.remaining} left in your budget this cycle` });
-    const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
+    const log: any[] = gratitudeRepo.all();
     const already = log.filter((g) => g.fromId === user.id && g.toId === recipient.id && g.cycleId === budget.cycleId).length;
     if (already >= numberVar(VARIABLES_FILE, "gratitude.max_per_recipient_per_cycle")) {
       return res.status(409).json({ error: "You have already acknowledged them this cycle" });
@@ -2524,7 +2561,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       at: new Date().toISOString(),
     };
     log.push(entry);
-    writeJson(GRATITUDE_LOG_FILE, log);
+    gratitudeRepo.saveAll(log);
     // Amora pays at SEND (see revision 3: never add pool minting on top of this).
     // Routed through the ledger so the movement is recorded and the balance is a
     // recomputed cache. Keyed on the acknowledgment id, so a retry credits once.
@@ -2544,7 +2581,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // Gratitude: public wall (messages and names only; amounts stay private)
   app.get("/api/game/gratitude/wall", (_req, res) => {
-    const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
+    const log: any[] = gratitudeRepo.all();
     const wall = log
       .slice(-60)
       .reverse()
@@ -2556,7 +2593,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/game/gratitude/me", (req, res) => {
     const user = requireUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
+    const log: any[] = gratitudeRepo.all();
     res.json({
       received: log.filter((g) => g.toId === user.id).reverse(),
       sent: log.filter((g) => g.fromId === user.id).reverse(),
@@ -2584,8 +2621,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // the report the founders carry to Hypha, where Amora and Voice distribution
   // is actually governed. Names only, no emails.
   app.get("/api/game/cycle/distributions", (_req, res) => {
-    const cycles: CycleRecord[] = readJson(CYCLES_FILE) ?? [];
-    const dists: DistributionRecord[] = readJson(DISTRIBUTIONS_FILE) ?? [];
+    const cycles: CycleRecord[] = cyclesRepo.all();
+    const dists: DistributionRecord[] = distributionsRepo.all();
     const users = { users: members.readDoc() };
     const nameOf = (id: string) => firstName(users.users.find((u: any) => u.id === id)?.name ?? "Member");
     res.json(
@@ -2614,11 +2651,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.post("/api/admin/cycles/close", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const cycles: CycleRecord[] = readJson(CYCLES_FILE) ?? [];
-    const entries: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
+    const cycles: CycleRecord[] = cyclesRepo.all();
+    const entries: any[] = gratitudeRepo.all();
     const due = dueCycles(cycles, entries, new Date());
 
-    const dists: DistributionRecord[] = readJson(DISTRIBUTIONS_FILE) ?? [];
+    const dists: DistributionRecord[] = distributionsRepo.all();
     const closed: CycleRecord[] = [];
     for (const cycle of due) {
       const totals = settleCycle(entries, cycle.id);
@@ -2645,8 +2682,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       }
     }
     if (closed.length > 0) {
-      writeJson(CYCLES_FILE, cycles);
-      writeJson(DISTRIBUTIONS_FILE, dists);
+      cyclesRepo.saveAll(cycles);
+      distributionsRepo.saveAll(dists);
     }
     res.json({ closed: closed.length, cycles: closed });
   });
@@ -2659,7 +2696,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/game/progression", (req, res) => {
     const user = requireUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const events: any[] = readJson(STAGE_EVENTS_FILE) ?? [];
+    const events: any[] = stageEventsRepo.all();
     const stageId = computeStage(user);
     res.json({
       stage: getStage(stageId),
@@ -2680,8 +2717,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/game/gratitude/flows", (req, res) => {
     const user = requireUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const log: any[] = readJson(GRATITUDE_LOG_FILE) ?? [];
-    const dists: DistributionRecord[] = readJson(DISTRIBUTIONS_FILE) ?? [];
+    const log: any[] = gratitudeRepo.all();
+    const dists: DistributionRecord[] = distributionsRepo.all();
     const mine = dists.filter((d) => d.userId === user.id);
     res.json({
       balance: user.recognitionBalance ?? 0,
@@ -2849,13 +2886,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     } else {
       holders = holders.filter((h) => !(h.roleId === role.id && h.userId === userId));
     }
-    writeJson(ROLE_HOLDERS_FILE, holders);
+    roleHoldersRepo.saveAll(holders);
     res.json({ roleId: role.id, userId, action, holders: holders.filter((h) => h.roleId === role.id).length });
   });
 
   // Village pulse: public activity feed
   app.get("/api/game/pulse", (_req, res) => {
-    const log: any[] = readJson(ACTIVITY_FILE) ?? [];
+    const log: any[] = activityRepo.all();
     res.json(log.slice(-30).reverse());
   });
 
@@ -2911,11 +2948,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Find the id via GET /api/game/pulse, then DELETE with the admin password.
   app.delete("/api/admin/activity/:id", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const log: any[] = readJson(ACTIVITY_FILE) ?? [];
+    const log: any[] = activityRepo.all();
     const idx = log.findIndex((a) => a.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
     const [removed] = log.splice(idx, 1);
-    writeJson(ACTIVITY_FILE, log);
+    activityRepo.saveAll(log);
     res.json({ success: true, removed });
   });
 
