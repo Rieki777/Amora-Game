@@ -12,7 +12,7 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { backfillOpeningBalances, balanceOf, creditTokens, entriesFor } from "./lib/ledger";
+import { backfillOpeningBalances, balanceOf, creditTokens, entriesFor, registerToken } from "./lib/ledger";
 
 let file: string;
 let dir: string;
@@ -112,6 +112,64 @@ describe("creditTokens", () => {
     }
     // If the platform could credit equity it would have quietly become the source
     // of truth for the cap table, which decision 5 says it must never be.
+  });
+
+  it("fails LOUD on an unknown token, never coercing it to gratitude", () => {
+    // A typo that silently became 'gratitude' would be a mint bug wearing a
+    // coercion costume. The registry is fail-loud like game variables.
+    const r = creditTokens(file, {
+      userId: "usr-1",
+      tokenType: "libary-credits", // sic — the typo is the test
+      amount: 500,
+      source: "library_intake",
+      idempotencyKey: "intake:item-1",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("unknown token");
+    expect(balanceOf(file, "usr-1")).toBe(0); // and gratitude untouched
+    expect(entriesFor(file, "usr-1").length).toBe(0);
+  });
+
+  it("credits a runtime-registered platform token, in its own balance", () => {
+    // The module layer's whole case: tokens created at runtime (0006), no DDL.
+    registerToken({
+      slug: "library-credits",
+      name: "Library Credits",
+      kind: "credit",
+      governance: "platform",
+      transferable: false,
+    });
+    const r = creditTokens(file, {
+      userId: "usr-1",
+      tokenType: "library-credits",
+      amount: 1000,
+      source: "library_intake",
+      idempotencyKey: "intake:item-1",
+    });
+    expect(r.ok).toBe(true);
+    expect(r.balance).toBe(1000);
+    // Balances are per-token: the new token never bleeds into gratitude.
+    expect(balanceOf(file, "usr-1", "library-credits")).toBe(1000);
+    expect(balanceOf(file, "usr-1")).toBe(0);
+  });
+
+  it("still refuses a runtime-registered token that is hypha-governed", () => {
+    registerToken({
+      slug: "village-equity",
+      name: "Village Equity",
+      kind: "equity",
+      governance: "hypha",
+      transferable: false,
+    });
+    const r = creditTokens(file, {
+      userId: "usr-1",
+      tokenType: "village-equity",
+      amount: 10,
+      source: "should_not_happen",
+      idempotencyKey: "bad:village-equity",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("Hypha");
   });
 
   it("requires an idempotency key at all", () => {

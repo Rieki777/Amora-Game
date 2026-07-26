@@ -243,7 +243,10 @@ async function main() {
           "ON DUPLICATE KEY UPDATE amount=VALUES(amount), source=VALUES(source)",
         [
           str(e.id, 64), str(e.userId, 64),
-          ["gratitude", "amora", "voice"].includes(e.tokenType) ? e.tokenType : "gratitude",
+          // Pass through verbatim (0006: token types are a registry, not a
+          // closed list). Coercing an unknown slug to 'gratitude' here would
+          // silently re-denominate a module token's entries at import.
+          str(e.tokenType, 32) ?? "gratitude",
           num(e.amount, 0), str(e.source, 64) ?? "", str(e.sourceRef, 120),
           str(e.description, 500), str(e.idempotencyKey, 160) ?? "", ts(e.at),
         ],

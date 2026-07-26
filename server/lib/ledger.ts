@@ -18,17 +18,59 @@
  *     button, or a re-run job must credit once. The key is the dedupe, not a flag,
  *     because a flag can be lost while the money stays credited.
  *
- * The token TYPES are fixed on day one deliberately. Only `gratitude` is ever
- * written by this platform: `amora` (equity) and `voice` (governance weight) live
- * on Base and are governed by Hypha, and the platform only ever reads those. They
- * exist in the enum anyway because widening a live MySQL enum later is exactly the
- * migration regen-civics refused to do, and it left a permanent fossil.
+ * Token types are a REGISTRY, not a closed union (0006 superseded 0005's enum).
+ * The village module layer creates internal tokens at runtime — material
+ * library credits, stay credits, access tokens — so the set of valid tokens is
+ * data, seeded with the three the platform is born knowing. Validation is
+ * fail-loud, matching the game-variables philosophy: an unknown token slug is
+ * an error, never a silent default, because a typo that quietly becomes
+ * 'gratitude' is a mint bug wearing a coercion costume.
+ *
+ * `governance` is the guard that matters: 'platform' tokens are minted and
+ * moved here; 'hypha' tokens (`amora` equity, `voice` governance weight) live
+ * on Base under Hypha and are read-only mirrors — if this platform ever minted
+ * them it would quietly become the source of truth for the cap table, which
+ * decision 5 says it must never be.
  */
 import fs from "fs";
 
-export type TokenType = "gratitude" | "amora" | "voice";
+export type TokenType = string;
 
-/** The only token this platform mints. The others are read from chain. */
+export interface TokenDef {
+  slug: string;
+  name: string;
+  /** Levers-spec taxonomy: recognition | equity | voice | credit. */
+  kind: string;
+  /** 'platform' = this ledger mints and moves it; 'hypha' = read-only mirror. */
+  governance: "platform" | "hypha";
+  /** May members send it peer-to-peer? */
+  transferable: boolean;
+}
+
+/** The tokens every deployment is born knowing (mirrors the 0006 seed rows). */
+const BUILT_IN_TOKENS: TokenDef[] = [
+  { slug: "gratitude", name: "Gratitude", kind: "recognition", governance: "platform", transferable: true },
+  { slug: "amora", name: "Amora", kind: "equity", governance: "hypha", transferable: false },
+  { slug: "voice", name: "Voice", kind: "voice", governance: "hypha", transferable: false },
+];
+
+const registry = new Map<string, TokenDef>(BUILT_IN_TOKENS.map((t) => [t.slug, t]));
+
+/** Look up a token. Undefined means "not a token" — callers must fail loud. */
+export function tokenDef(slug: string): TokenDef | undefined {
+  return registry.get(slug);
+}
+
+/**
+ * Register a runtime-created token (module layer: library credits, stay
+ * credits…). Re-registering a slug replaces its definition, so a registry
+ * loaded from the tokens table on boot can be refreshed after an admin edit.
+ */
+export function registerToken(def: TokenDef) {
+  registry.set(def.slug, def);
+}
+
+/** The default recognition token. The others are read from chain. */
 export const PLATFORM_TOKEN: TokenType = "gratitude";
 
 export interface LedgerEntry {
@@ -108,7 +150,19 @@ export function creditTokens(file: string, input: CreditInput): CreditResult {
   if (!input.idempotencyKey) {
     return { ok: false, duplicate: false, balance: 0, error: "idempotencyKey is required" };
   }
-  if (tokenType !== PLATFORM_TOKEN) {
+  const def = tokenDef(tokenType);
+  if (!def) {
+    // Fail loud, never coerce: a typo that silently became 'gratitude' would be
+    // a mint bug. Unknown token = registration was forgotten, and that is the
+    // caller's bug to hear about.
+    return {
+      ok: false,
+      duplicate: false,
+      balance: 0,
+      error: `unknown token "${tokenType}" — register it in the token registry before crediting`,
+    };
+  }
+  if (def.governance !== "platform") {
     // A guard, not a limitation: Amora and Voice are Hypha's to issue. If this
     // platform ever mints them it has quietly become the source of truth for
     // equity, which is exactly what decision 5 says it must never be.

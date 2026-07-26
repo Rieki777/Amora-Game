@@ -304,14 +304,52 @@ export const stageEvents = mysqlTable("stage_events", {
 });
 
 /**
+ * The token registry: which tokens exist in THIS deployment, as data (0006).
+ *
+ * 0005 fixed `token_type` as a three-value enum so it would be "right on day
+ * one". The village module layer inverted that reasoning: internal tokens are
+ * created at runtime by admins (library credits, stay credits, access tokens),
+ * so a closed enum guarantees the exact widening migration it was meant to
+ * avoid. The registry keeps the day-one discipline one level up — the column
+ * is a stable varchar reference forever, and "which tokens exist" lives here,
+ * where modules add rows without DDL.
+ *
+ * `governance` is the load-bearing column: 'platform' tokens are minted and
+ * moved by this database; 'hypha' tokens (equity, voice) live on Base under
+ * Hypha and are read-only mirrors here. Brand names in rows are fine: this is
+ * per-deployment data, like brand.json; a fork seeds its own token names.
+ */
+export const tokens = mysqlTable("tokens", {
+  slug: varchar("slug", { length: 32 }).primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  /** Levers-spec taxonomy: recognition | equity | voice | credit. */
+  kind: varchar("kind", { length: 32 }).notNull(),
+  /** 'platform' = this database mints and moves it; 'hypha' = read-only mirror of Base. */
+  governance: varchar("governance", { length: 16 }).default("platform").notNull(),
+  decimals: int("decimals").default(0).notNull(),
+  /** May members send it peer-to-peer? */
+  transferable: boolean("transferable").default(false).notNull(),
+  active: boolean("active").default(true).notNull(),
+  sortOrder: int("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/**
  * Append-only record of every movement of value. The balance column on `users` is
- * a derived cache of SUM(amount); this is the truth. Only `gratitude` is written
- * by this platform: amora and voice live on Base under Hypha and are read-only.
+ * a derived cache of SUM(amount); this is the truth. Only platform-governed
+ * tokens are ever written by this platform: amora and voice live on Base under
+ * Hypha and are read-only.
  */
 export const tokenLedger = mysqlTable("token_ledger", {
   id: varchar("id", { length: 64 }).primaryKey(),
   userId: varchar("user_id", { length: 64 }).notNull(),
-  tokenType: mysqlEnum("token_type", ["gratitude", "amora", "voice"]).default("gratitude").notNull(),
+  /**
+   * References tokens.slug. varchar, not enum: internal tokens are created at
+   * runtime by the module layer, and widening a live MySQL enum is the
+   * migration nobody wants (drizzle/0006). Validation happens at write time
+   * against the registry, fail-loud, matching the game-variables philosophy.
+   */
+  tokenType: varchar("token_type", { length: 32 }).default("gratitude").notNull(),
   /** Signed: negative entries are legitimate corrections and reversals. */
   amount: int("amount").notNull(),
   source: varchar("source", { length: 64 }).notNull(),
@@ -322,6 +360,7 @@ export const tokenLedger = mysqlTable("token_ledger", {
   at: timestamp("at").defaultNow().notNull(),
 });
 
+export type Token = typeof tokens.$inferSelect;
 export type LedgerEntry = typeof tokenLedger.$inferSelect;
 export type GameVariable = typeof gameVariables.$inferSelect;
 export type StageEvent = typeof stageEvents.$inferSelect;
