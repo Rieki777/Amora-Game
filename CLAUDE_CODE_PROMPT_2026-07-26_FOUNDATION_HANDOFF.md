@@ -278,19 +278,35 @@ all four.
 **Do not trust `railway volume delete`.** It prints `Volume "..." deleted` and exits 0
 while deleting nothing, verified four times across two sessions.
 
-**How to actually remove them,** cheapest first:
+**Three separate deletion paths claim success and none of them works.** This now looks
+like a Railway platform bug rather than three independent tool bugs, and it is worth
+knowing before anyone spends another hour on it:
 
-1. Give Railway's own agent the volume IDs above rather than the names. It failed only
-   because name search walks services; acting on an id should bypass that.
-2. `railway volume attach -v 76ddbb9a-... ` to bind an orphan to a service so it becomes
-   visible, then delete it from that service's UI. **Never attach one to MySQL or Amora
-   Game**: their mount paths (`/var/lib/mysql`, `/app/data`) would collide with live
-   data. Use a throwaway service.
-3. The GraphQL API (`backboard.railway.com/graphql/v2`) with a real Railway API token.
-   The CLI's stored `user.token` is NOT one; every auth variant returns 403.
+| Path | What it reports | Actual effect |
+|---|---|---|
+| `railway volume delete -v <name> -y` | `Volume "..." deleted`, exit 0 | none, tried 4x |
+| Railway's AI agent, given the IDs | `Deployed - 2 resources removed` | none, polled 2.5 min |
+| GraphQL `backboard.railway.com/graphql/v2` | HTTP 403 on every auth variant | not attempted |
 
-Low urgency: they are inert and cost a few dollars a month. Worth clearing because they
-exist only as an artifact of my mistake.
+Giving the agent the IDs DID get past the discovery problem: it addressed both volumes
+by id and staged the removal. The removal simply did not take. The common factor across
+all three is that these volumes have no service, so the plausible root cause is that
+Railway's deletion machinery is service-scoped in the same way its listing is.
+
+**What is left to try, and what NOT to try:**
+
+- **Railway support.** An orphaned, data-bearing volume that no interface can remove is
+  their bug to fix. Quote the two ids and that three paths report success with no effect.
+- **`railway volume attach`** would make an orphan service-owned and therefore deletable
+  by the normal path, but the CLI offers no `--service` flag: it would attach to the
+  linked service, which is Amora Game. That volume's mount path is `/var/lib/mysql`, so
+  attaching it to the app container invites a redeploy and confusion for no benefit.
+  **I deliberately did not do this on production.** Only worth trying against a
+  throwaway service created for the purpose.
+
+Low urgency: they are inert and cost a few dollars a month. Worth clearing eventually
+because they exist only as an artifact of my mistake, but do not let it block feature
+work, and do not trust any tool's success message here without re-listing.
 
 ---
 
