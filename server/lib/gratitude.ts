@@ -22,8 +22,9 @@ export interface GratitudeDeps {
   variablesFile: string;
   log: GratitudeLogRepo;
   members: UsersRepo;
-  /** stage.gratitudeMultiplier for this member — stage rules stay in the host. */
-  stageMultiplierFor(user: any): number;
+  /** stage.gratitudeMultiplier for this member — stage rules stay in the host.
+   *  Async since S10: the stage's quest rule reads a MySQL count. */
+  stageMultiplierFor(user: any): Promise<number>;
 }
 
 export interface GratitudeBudget {
@@ -36,7 +37,7 @@ export interface GratitudeBudget {
 /** Budget = base variable × stage multiplier, minus what this cycle already spent. */
 export async function budgetFor(deps: GratitudeDeps, user: any): Promise<GratitudeBudget> {
   const total = Math.round(
-    numberVar(deps.variablesFile, "gratitude.base_budget") * deps.stageMultiplierFor(user),
+    numberVar(deps.variablesFile, "gratitude.base_budget") * (await deps.stageMultiplierFor(user)),
   );
   const cycleId = cycleIdFor(new Date());
   const log = await deps.log.all();

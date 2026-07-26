@@ -125,18 +125,21 @@ async function main() {
 
     for (const q of read("quests.json") ?? []) {
       await conn.query(
-        "INSERT INTO `quests` (id, title, description, impact, gratitude, gratitude_min, gratitude_max, duration, difficulty, circle, status, icon, role_required, tags, sort_order) " +
-          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
+        "INSERT INTO `quests` (id, title, description, impact, gratitude, gratitude_min, gratitude_max, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, tags, sort_order) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
           "ON DUPLICATE KEY UPDATE title=VALUES(title), description=VALUES(description), impact=VALUES(impact), " +
           "gratitude=VALUES(gratitude), gratitude_min=VALUES(gratitude_min), gratitude_max=VALUES(gratitude_max), " +
           "duration=VALUES(duration), difficulty=VALUES(difficulty), circle=VALUES(circle), " +
-          "status=VALUES(status), icon=VALUES(icon), role_required=VALUES(role_required), tags=VALUES(tags), sort_order=VALUES(sort_order)",
+          "status=VALUES(status), icon=VALUES(icon), role_required=VALUES(role_required), " +
+          "min_stage=VALUES(min_stage), requires_role=VALUES(requires_role), tags=VALUES(tags), sort_order=VALUES(sort_order)",
         [
           str(q.id, 64), str(q.title, 255), q.description ?? null, q.impact ?? null,
           // The label is preserved verbatim; the bounds are derived from it.
           str(q.gratitude, 64) ?? "", parseRewardRange(q.gratitude).min, parseRewardRange(q.gratitude).max,
           str(q.duration, 64), str(q.difficulty, 32), str(q.circle, 64),
           str(q.status, 32) ?? "open", str(q.icon, 64), str(q.roleRequired, 64),
+          // The STRUCTURED gates (S10) — dropping these silently un-gates quests.
+          str(q.minStage, 64), str(q.requiresRole, 64),
           JSON.stringify(q.tags ?? []), num(q.order, 0),
         ],
       );
@@ -151,7 +154,9 @@ async function main() {
         [
           str(c.id, 64), str(c.questId, 64), str(c.questTitle, 255), str(c.userId, 64), str(c.userName, 255),
           ["claimed", "submitted", "consented", "declined"].includes(c.status) ? c.status : "claimed",
-          str(c.artifactUrl, 1000), c.note ?? null, num(c.amount), ts(c.claimedAt), ts(c.submittedAt), ts(c.consentedAt),
+          // JSON claims stamp resolution as `resolvedAt` (consent AND decline);
+          // `consentedAt` never existed — importing it read NULL forever.
+          str(c.artifactUrl, 1000), c.note ?? null, num(c.amount), ts(c.claimedAt), ts(c.submittedAt), ts(c.consentedAt ?? c.resolvedAt),
         ],
       );
     }
@@ -365,6 +370,10 @@ async function main() {
         { col: "gratitude_min", from: (q) => parseRewardRange(q.gratitude).min, label: "range floor" },
         { col: "gratitude_max", from: (q) => parseRewardRange(q.gratitude).max, label: "range ceiling" },
         { col: "title", from: (q) => String(q.title ?? ""), label: "title" },
+        // The structured gates: a dropped gate is an un-gated quest, silently.
+        // (null, not "": the column is nullable and String(null) must agree.)
+        { col: "min_stage", from: (q) => q.minStage ?? null, label: "stage floor" },
+        { col: "requires_role", from: (q) => q.requiresRole ?? null, label: "role gate" },
       ],
     },
     {

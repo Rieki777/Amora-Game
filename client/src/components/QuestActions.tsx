@@ -3,10 +3,8 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { CheckCircle2, Send, Sparkles } from "lucide-react";
 
-/** Server quest ids are derived from titles; keep in sync with data/quests-seed.json generation. */
-export function questIdFromTitle(title: string): string {
-  return "q-" + title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
+// questIdFromTitle is gone (S10): quest ids are REAL server references now.
+// Deriving ids from titles meant a rename silently orphaned every claim.
 
 export default function QuestActions({
   questId,

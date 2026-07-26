@@ -30,6 +30,7 @@ import {
 } from "./lib/ledger";
 import { usersRepo } from "./repos/users";
 import { gratitudeCyclesRepo, gratitudeDistributionsRepo, gratitudeLogRepo } from "./repos/gratitude";
+import { claimsRepo as claimsRepoFactory, questsRepo as questsRepoFactory } from "./repos/quests";
 import { budgetFor, sendGratitude, type GratitudeDeps } from "./lib/gratitude";
 import { getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
@@ -72,9 +73,8 @@ const EMAIL_CONFIG_FILE = path.join(DATA_DIR, "email-config.json");
 const INVESTOR_DOCS_FILE = path.join(DATA_DIR, "investor-docs.json");
 const TRAINING_MODULES_FILE = path.join(DATA_DIR, "training-modules.json");
 const FAQS_FILE = path.join(DATA_DIR, "faqs.json");
-const QUESTS_FILE = path.join(DATA_DIR, "quests.json");
+// quests.json / quest-claims.json retired in S10 (MySQL: server/repos/quests.ts).
 const QUESTS_SEED_FILE = path.join(SEEDS_DIR, "quests-seed.json");
-const QUEST_CLAIMS_FILE = path.join(DATA_DIR, "quest-claims.json");
 // gratitude-log.json retired in S8 — the domain lives in MySQL (server/repos/gratitude.ts).
 const ACTIVITY_FILE = path.join(DATA_DIR, "activity.json");
 const SEASON_FILE = path.join(DATA_DIR, "season.json");
@@ -312,8 +312,8 @@ const FORM_TYPE_TO_PATHWAY: Record<string, "investor" | "steward" | "resident" |
 const members = usersRepo();
 // One seam per domain: see server/repos/store.ts for why these are generic.
 const submissionsRepo = collectionRepo(SUBMISSIONS_FILE);
-const claimsRepo = collectionRepo(QUEST_CLAIMS_FILE);
-const questsRepo = collectionRepo(QUESTS_FILE);
+const claimsRepo = claimsRepoFactory(getPool());
+const questsRepo = questsRepoFactory(getPool());
 const gratitudeRepo = gratitudeLogRepo(getPool());
 const activityRepo = collectionRepo(ACTIVITY_FILE);
 const milestonesRepo = collectionRepo(MILESTONES_FILE);
@@ -554,8 +554,7 @@ async function ensureDataFiles() {
   if (!fs.existsSync(SETTINGS_FILE)) fs.writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2));
   if (!fs.existsSync(BRAND_FILE)) fs.writeFileSync(BRAND_FILE, JSON.stringify(DEFAULT_BRAND, null, 2));
   if (!fs.existsSync(WORK_WITH_US_FILE)) fs.writeFileSync(WORK_WITH_US_FILE, JSON.stringify(DEFAULT_WORK_WITH_US, null, 2));
-  seedIfMissingOrEmpty(QUESTS_FILE, QUESTS_SEED_FILE, "[]");
-  if (!fs.existsSync(QUEST_CLAIMS_FILE)) fs.writeFileSync(QUEST_CLAIMS_FILE, "[]");
+  // Quests seed into MySQL at boot (seedQuestsIfEmpty in startServer, S10).
   if (!fs.existsSync(ACTIVITY_FILE)) fs.writeFileSync(ACTIVITY_FILE, "[]");
   if (!fs.existsSync(SEASON_FILE)) fs.writeFileSync(SEASON_FILE, JSON.stringify(GAME_CONFIG.season, null, 2));
   seedIfMissingOrEmpty(ROLES_FILE, ROLES_SEED_FILE, "[]");
@@ -817,12 +816,19 @@ const ALL_CAPABILITIES: Capability[] = [
   "quest.propose", "quest.consent", "forum.post", "forum.moderate", "proposal.open", "proposal.decide",
 ];
 
-function userCan(user: any, cap: Capability): boolean {
-  return hasCapability(cap, {
-    stageIndex: stageIndex(computeStage(user)),
+/**
+ * Build the capability context for a member ONCE, then answer any number of
+ * hasCapability questions synchronously against it. Replaces the old
+ * per-question userCan(): with claims in MySQL (S10), the stage lookup is a
+ * query, and paying it once per request instead of once per capability is
+ * the difference between one COUNT and six.
+ */
+async function capabilityCtx(user: any) {
+  return {
+    stageIndex: stageIndex(await stageOf(user)),
     stageIndexOf: stageIndex,
     roleCapabilities: roleCapabilitiesFor(user.id),
-  });
+  };
 }
 
 // ── Seasons ──────────────────────────────────────────────────────────────────
@@ -979,10 +985,6 @@ function hasMembership(user: any): boolean {
   );
 }
 
-function consentedQuestCount(userId: string): number {
-  const claims: any[] = claimsRepo.all();
-  return claims.filter((c) => c.userId === userId && c.status === "consented").length;
-}
 
 function trainingComplete(user: any): boolean {
   const mods: any[] = trainingRepo.all();
@@ -991,8 +993,14 @@ function trainingComplete(user: any): boolean {
   return mods.every((m) => done.includes(m.id));
 }
 
-/** Compute the highest stage the player has earned, per gameConfig rules. */
-function computeStage(user: any): string {
+/**
+ * Compute the highest stage the player has earned, per gameConfig rules.
+ * PURE and synchronous: the consented-quest count is a parameter (S10 moved
+ * claims to MySQL), so callers that already hold counts — like the players
+ * list, which fetches them grouped in one query — pay nothing extra.
+ * Single-member callers use stageOf(), which fetches the count and delegates.
+ */
+function computeStage(user: any, consentedQuests: number): string {
   let earned = GAME_CONFIG.stages[0].id;
   const grantedIdx = user.stageGranted ? stageIndex(user.stageGranted) : -1;
   for (const stage of GAME_CONFIG.stages) {
@@ -1003,13 +1011,18 @@ function computeStage(user: any): string {
       case "account": ok = true; break; // having a user record implies an account
       case "training-complete": ok = trainingComplete(user); break;
       case "membership": ok = hasMembership(user); break;
-      case "quests": ok = consentedQuestCount(user.id) >= stage.rule.min; break;
+      case "quests": ok = consentedQuests >= stage.rule.min; break;
       case "granted": ok = grantedIdx >= idx; break;
     }
     if (ok && idx > stageIndex(earned)) earned = stage.id;
   }
   if (grantedIdx > stageIndex(earned)) earned = user.stageGranted;
   return earned;
+}
+
+/** The one-member form: fetch the consented count, then compute. */
+async function stageOf(user: any): Promise<string> {
+  return computeStage(user, await claimsRepo.consentedCount(user.id));
 }
 
 /**
@@ -1022,7 +1035,7 @@ const gratitudeDeps: GratitudeDeps = {
   variablesFile: VARIABLES_FILE,
   log: gratitudeRepo,
   members,
-  stageMultiplierFor: (user: any) => getStage(computeStage(user)).gratitudeMultiplier,
+  stageMultiplierFor: async (user: any) => getStage(await stageOf(user)).gratitudeMultiplier,
 };
 
 function gratitudeBudget(user: any) {
@@ -1030,7 +1043,7 @@ function gratitudeBudget(user: any) {
 }
 
 async function nextActionFor(user: any): Promise<{ id: string; label: string; href: string }> {
-  const claims: any[] = (claimsRepo.all()).filter((c: any) => c.userId === user.id);
+  const claims = await claimsRepo.forUser(user.id);
   const budget = await gratitudeBudget(user);
   for (const rule of GAME_CONFIG.nextActions) {
     switch (rule.when) {
@@ -1247,6 +1260,26 @@ async function startServer() {
     console.log("[ledger] invariants hold: conservation ≡ 0, no hypha rows, no non-faucet negatives");
   }
 
+  // S10: the quest library seeds into MySQL on an EMPTY table only — the seed
+  // file stays the fork-onboarding source, and a village that deleted quests
+  // on purpose never has them resurrected (INSERT IGNORE + the empty check).
+  {
+    const existing = await questsRepo.all();
+    if (existing.length === 0 && fs.existsSync(QUESTS_SEED_FILE)) {
+      try {
+        const seed = JSON.parse(fs.readFileSync(QUESTS_SEED_FILE, "utf-8"));
+        if (Array.isArray(seed)) {
+          for (const q of seed) {
+            if (q?.id && q?.title) await questsRepo.add({ tags: [], order: 0, status: "open", gratitude: "", ...q });
+          }
+          console.log(`[seed] quests table was empty — seeded ${seed.length} quest(s)`);
+        }
+      } catch (e) {
+        console.error("[seed] quests seed failed (continuing)", e);
+      }
+    }
+  }
+
   await ensureDataFiles();
 
   const app = express();
@@ -1318,7 +1351,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", async (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-s9-tokens-ledger-admin", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-26-s10-quests-mysql", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -2775,9 +2808,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // Quests: public list
   app.get("/api/quests", async (_req, res) => {
-    const quests: any[] = questsRepo.all();
-    quests.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    res.json(quests);
+    res.json(await questsRepo.all());
   });
 
   // Quests: admin CRUD
@@ -2785,37 +2816,34 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const { title } = req.body ?? {};
     if (!title) return res.status(400).json({ error: "Missing title" });
-    const quests: any[] = questsRepo.all();
+    const count = (await questsRepo.all()).length;
     const entry = {
       id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      order: quests.length + 1,
+      order: count + 1,
       icon: "Star",
       status: "Open",
       difficulty: "Beginner",
       tags: [],
+      gratitude: "",
       ...req.body,
     };
-    quests.push(entry);
-    questsRepo.saveAll(quests);
+    await questsRepo.add(entry);
     res.json(entry);
   });
 
   app.put("/api/admin/quests/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const quests: any[] = questsRepo.all();
-    const idx = quests.findIndex((q) => q.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: "Not found" });
-    quests[idx] = { ...quests[idx], ...req.body, id: quests[idx].id };
-    questsRepo.saveAll(quests);
-    res.json(quests[idx]);
+    const updated = await questsRepo.update(req.params.id, (q: any) => {
+      Object.assign(q, req.body, { id: q.id });
+    });
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
   });
 
   app.delete("/api/admin/quests/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const quests: any[] = questsRepo.all();
-    const filtered = quests.filter((q) => q.id !== req.params.id);
-    if (filtered.length === quests.length) return res.status(404).json({ error: "Not found" });
-    questsRepo.saveAll(filtered);
+    const removed = await questsRepo.remove(req.params.id);
+    if (!removed) return res.status(404).json({ error: "Not found" });
     res.json({ success: true });
   });
 
@@ -2823,8 +2851,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.post("/api/game/quests/:id/claim", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to claim quests" });
-    const quests: any[] = questsRepo.all();
-    const quest = quests.find((q) => q.id === req.params.id);
+    const quest: any = await questsRepo.byId(req.params.id);
     if (!quest) return res.status(404).json({ error: "Quest not found" });
 
     // Progression gates (revision 2, step 3). Structured fields enforce; the
@@ -2832,7 +2859,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // exactly what is missing, because "computer says no" teaches nothing.
     if (quest.minStage) {
       const needed = stageIndex(quest.minStage);
-      if (needed >= 0 && stageIndex(computeStage(user)) < needed) {
+      if (needed >= 0 && stageIndex(await stageOf(user)) < needed) {
         const stage = getStage(quest.minStage);
         return res.status(403).json({
           error: `This quest opens at the ${stage?.name ?? quest.minStage} stage. Keep walking the path and it will unlock.`,
@@ -2850,8 +2877,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       }
     }
 
-    const claims: any[] = claimsRepo.all();
-    const existing = claims.find((c) => c.userId === user.id && c.questId === quest.id && c.status !== "declined");
+    const mine = await claimsRepo.forUser(user.id);
+    const existing = mine.find((c) => c.questId === quest.id && c.status !== "declined");
     if (existing) return res.status(409).json({ error: "Already claimed", claim: existing });
     const claim = {
       id: `claim-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -2859,13 +2886,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       questTitle: quest.title,
       userId: user.id,
       userName: user.name,
-      status: "claimed", // claimed -> submitted -> consented | declined
+      status: "claimed" as const, // claimed -> submitted -> consented | declined
       claimedAt: new Date().toISOString(),
       artifactUrl: "",
       note: "",
     };
-    claims.push(claim);
-    claimsRepo.saveAll(claims);
+    await claimsRepo.add(claim);
     res.json(claim);
   });
 
@@ -2874,53 +2900,57 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const { artifactUrl, note } = req.body ?? {};
     if (!artifactUrl && !note) return res.status(400).json({ error: "Share a link or a few words as evidence of your work" });
-    const claims: any[] = claimsRepo.all();
-    const idx = claims.findIndex((c) => c.userId === user.id && c.questId === req.params.id && (c.status === "claimed" || c.status === "submitted"));
-    if (idx === -1) return res.status(404).json({ error: "No active claim for this quest" });
-    claims[idx] = { ...claims[idx], status: "submitted", artifactUrl: artifactUrl ?? "", note: note ?? "", submittedAt: new Date().toISOString() };
-    claimsRepo.saveAll(claims);
-    res.json(claims[idx]);
+    const mine = await claimsRepo.forUser(user.id);
+    const active = mine.find((c) => c.questId === req.params.id && (c.status === "claimed" || c.status === "submitted"));
+    if (!active) return res.status(404).json({ error: "No active claim for this quest" });
+    const updated = await claimsRepo.update(active.id, (c) => {
+      c.status = "submitted";
+      c.artifactUrl = artifactUrl ?? "";
+      c.note = note ?? "";
+      c.submittedAt = new Date().toISOString();
+    });
+    res.json(updated);
   });
 
   // Quests: team consent (value release is always human-gated)
   app.get("/api/admin/quest-claims", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const claims: any[] = claimsRepo.all();
-    claims.sort((a, b) => new Date(b.claimedAt).getTime() - new Date(a.claimedAt).getTime());
+    const claims = await claimsRepo.all();
+    claims.sort((a, b) => new Date(b.claimedAt ?? 0).getTime() - new Date(a.claimedAt ?? 0).getTime());
     res.json(claims);
   });
 
   app.post("/api/admin/quest-claims/:id/consent", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const { approve, amount } = req.body ?? {};
-    const claims: any[] = claimsRepo.all();
-    const idx = claims.findIndex((c) => c.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    const claim = await claimsRepo.byId(req.params.id);
+    if (!claim) return res.status(404).json({ error: "Not found" });
     if (approve === false) {
-      claims[idx] = { ...claims[idx], status: "declined", resolvedAt: new Date().toISOString() };
-      claimsRepo.saveAll(claims);
-      return res.json(claims[idx]);
+      const declined = await claimsRepo.update(claim.id, (c) => {
+        c.status = "declined";
+        c.resolvedAt = new Date().toISOString();
+      });
+      return res.json(declined);
     }
     // Consent releases value, so it may only follow an actual submission.
     // Without this an admin could credit a quest that was claimed and never
     // done, which quietly breaks the one promise the recognition economy makes:
     // that credit lands after the work was shown and consented to. Declining
     // stays legal from any state, since a stale claim needs clearing.
-    if (boolVar(VARIABLES_FILE, "quest.require_submission_before_consent") && claims[idx].status !== "submitted") {
+    if (boolVar(VARIABLES_FILE, "quest.require_submission_before_consent") && claim.status !== "submitted") {
       return res.status(409).json({
-        error: `Cannot consent a claim with status "${claims[idx].status}". The member has to submit their work first.`,
-        status: claims[idx].status,
+        error: `Cannot consent a claim with status "${claim.status}". The member has to submit their work first.`,
+        status: claim.status,
       });
     }
     // Item 7: the award was unbounded and never compared to the posted amount,
     // so the quest board was not a contract. The ceiling is a village choice.
     const requested = Math.max(0, Number(amount) || 0);
-    const quests: any[] = questsRepo.all();
     // Quests advertise a RANGE ("50-100"), not a number: the same work done
     // thoroughly is worth more than done adequately, and the consenting admin
     // decides where in the range it landed. parseRewardRange is the one place
     // that knows the format.
-    const range = parseRewardRange(quests.find((q) => q.id === claims[idx].questId)?.gratitude);
+    const range = parseRewardRange((await questsRepo.byId(claim.questId))?.gratitude);
     const capMode = stringVar(VARIABLES_FILE, "quest.consent_cap_mode");
     const granted = requested;
     if (capMode === "posted") {
@@ -2949,34 +2979,37 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // Stage depends on consented-quest count, so the snapshot must be taken
     // BEFORE the claim flips to consented; taking it after would always compare
     // equal and the advancement event would never fire.
-    const claimant = await members.byId(claims[idx].userId);
-    const stageBefore = claimant ? computeStage(claimant) : null;
+    const claimant = await members.byId(claim.userId);
+    const stageBefore = claimant ? await stageOf(claimant) : null;
 
-    claims[idx] = { ...claims[idx], status: "consented", amount: granted, resolvedAt: new Date().toISOString() };
-    claimsRepo.saveAll(claims);
+    const consented = await claimsRepo.update(claim.id, (c) => {
+      c.status = "consented";
+      c.amount = granted;
+      c.resolvedAt = new Date().toISOString();
+    });
     // Credit the player's balance
-    if (claimant) {
+    if (claimant && consented) {
       // Through the ledger, not `+=`. The idempotency key is the claim, so a
       // retried or double-clicked consent credits exactly once, and the balance
       // column is RECOMPUTED from the ledger rather than incremented. S7:
       // recognition issues from the faucet account, so issuance is visible.
       const credit = await postTransfer(getPool(), {
         from: RECOGNITION_FAUCET,
-        to: memberAccount(claims[idx].userId),
+        to: memberAccount(consented.userId),
         amount: granted,
         source: "quest_consent",
-        sourceRef: claims[idx].id,
-        description: `Quest consented: ${claims[idx].questTitle}`,
-        idempotencyKey: `quest_consent:${claims[idx].id}`,
+        sourceRef: consented.id,
+        description: `Quest consented: ${consented.questTitle}`,
+        idempotencyKey: `quest_consent:${consented.id}`,
       });
       const after = await members.update(claimant.id, (u: any) => { u.recognitionBalance = credit.toBalance; });
-      addActivity("quest", `${firstName(claims[idx].userName)} completed the quest "${claims[idx].questTitle}"`);
+      addActivity("quest", `${firstName(consented.userName)} completed the quest "${consented.questTitle}"`);
       if (after) {
-        const stageAfter = computeStage(after);
-        if (stageBefore) recordStageEvent(after, stageBefore, stageAfter, `quest consented: ${claims[idx].questTitle}`);
+        const stageAfter = await stageOf(after);
+        if (stageBefore) recordStageEvent(after, stageBefore, stageAfter, `quest consented: ${consented.questTitle}`);
       }
     }
-    res.json(claims[idx]);
+    res.json(consented);
   });
 
   // Journey / training progress sync (server-side game state)
@@ -2997,8 +3030,9 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/game/me", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const stageId = computeStage(user);
-    const claims: any[] = (claimsRepo.all()).filter((c: any) => c.userId === user.id);
+    const stageId = await stageOf(user);
+    const claims = await claimsRepo.forUser(user.id);
+    const ctx = await capabilityCtx(user);
     res.json({
       stage: getStage(stageId),
       stageIndex: stageIndex(stageId),
@@ -3012,7 +3046,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       // Revision 2: progression is no longer decoration. The client renders
       // what you can DO, so the gates are legible instead of mysterious.
       roles: roleIdsFor(user.id),
-      capabilities: ALL_CAPABILITIES.filter((c) => userCan(user, c)),
+      capabilities: ALL_CAPABILITIES.filter((c) => hasCapability(c, ctx)),
       cycle: {
         ...currentCycle(),
         daysRemaining: daysRemainingInCycle(new Date()),
@@ -3213,11 +3247,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const events: any[] = stageEventsRepo.all();
-    const stageId = computeStage(user);
+    const stageId = await stageOf(user);
+    const ctx = await capabilityCtx(user);
     res.json({
       stage: getStage(stageId),
       stageIndex: stageIndex(stageId),
-      capabilities: ALL_CAPABILITIES.filter((c) => userCan(user, c)),
+      capabilities: ALL_CAPABILITIES.filter((c) => hasCapability(c, ctx)),
       roles: roleIdsFor(user.id),
       history: events
         .filter((e) => e.userId === user.id)
@@ -3397,7 +3432,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // A role can require a minimum stage: appointments respect the ladder too.
     if (action === "add" && role.minStage) {
       const needed = stageIndex(role.minStage);
-      if (needed >= 0 && stageIndex(computeStage(member)) < needed) {
+      if (needed >= 0 && stageIndex(await stageOf(member)) < needed) {
         return res.status(409).json({
           error: `${firstName(member.name)} has not reached the ${getStage(role.minStage)?.name ?? role.minStage} stage this role asks for.`,
           minStage: role.minStage,
@@ -3435,6 +3470,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/admin/players", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const allMembers = await members.all();
+    // One grouped COUNT for the whole roster, not one query per member.
+    const consented = await claimsRepo.consentedCounts();
     res.json(
       allMembers.map((u: any) => ({
         id: u.id,
@@ -3446,7 +3483,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         joinedAt: u.joinedAt,
         balance: u.recognitionBalance ?? 0,
         stageGranted: u.stageGranted ?? null,
-        stageComputed: computeStage(u),
+        stageComputed: computeStage(u, consented.get(u.id) ?? 0),
         membership: hasMembership(u),
       }))
     );
@@ -3460,10 +3497,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     }
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
-    const before = computeStage(target);
+    const before = await stageOf(target);
     const updated = await members.update(target.id, (u: any) => { u.stageGranted = stageId ?? null; });
     if (!updated) return res.status(404).json({ error: "Not found" });
-    const after = computeStage(updated);
+    const after = await stageOf(updated);
     recordStageEvent(updated, before, after, stageId ? "granted by an admin" : "grant removed");
     res.json({ success: true, stageComputed: after });
   });

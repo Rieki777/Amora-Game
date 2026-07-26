@@ -105,7 +105,12 @@ export const quests = mysqlTable("quests", {
   circle: varchar("circle", { length: 64 }),
   status: varchar("status", { length: 32 }).default("open").notNull(),
   icon: varchar("icon", { length: 64 }),
+  /** Display-only prose. The ENFORCED gates are the two structured columns. */
   roleRequired: varchar("role_required", { length: 64 }),
+  /** Structured stage floor the claim gate enforces (0012). */
+  minStage: varchar("min_stage", { length: 64 }),
+  /** Structured role gate the claim gate enforces (0012). */
+  requiresRole: varchar("requires_role", { length: 64 }),
   tags: json("tags"),
   sortOrder: int("sort_order").default(0).notNull(),
 });
