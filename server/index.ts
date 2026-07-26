@@ -14,8 +14,20 @@ import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar"
 import { hasCapability, type Capability } from "../shared/capabilities";
 import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/variables";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
-import { backfillOpeningBalances, balanceOf, creditTokens, entriesFor, tokenDef } from "./lib/ledger";
+import {
+  balanceOf,
+  balancesFor,
+  checkLedgerInvariants,
+  CYCLE_POOL_FAUCET,
+  entriesForMember,
+  loadTokenRegistry,
+  memberAccount,
+  postTransfer,
+  RECOGNITION_FAUCET,
+  tokenDef,
+} from "./lib/ledger";
 import { usersRepo } from "./repos/users";
+import { getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
 import { collectionRepo, documentRepo } from "./repos/store";
 import {
@@ -68,7 +80,7 @@ const ROLE_HOLDERS_FILE = path.join(DATA_DIR, "role-holders.json");
 const CYCLES_FILE = path.join(DATA_DIR, "gratitude-cycles.json");
 const DISTRIBUTIONS_FILE = path.join(DATA_DIR, "gratitude-distributions.json");
 const VARIABLES_FILE = path.join(DATA_DIR, "game-variables.json");
-const LEDGER_FILE = path.join(DATA_DIR, "token-ledger.json");
+// token-ledger.json retired in S7 — the ledger lives in MySQL (server/lib/ledger.ts).
 
 /**
  * The single seam for member data. Every read and write of a member record goes
@@ -552,28 +564,15 @@ async function ensureDataFiles() {
   if (!fs.existsSync(VARIABLES_FILE)) fs.writeFileSync(VARIABLES_FILE, "{}");
   if (!fs.existsSync(STAGE_EVENTS_FILE)) fs.writeFileSync(STAGE_EVENTS_FILE, "[]");
   if (!fs.existsSync(ADMIN_AUDIT_FILE)) fs.writeFileSync(ADMIN_AUDIT_FILE, "[]");
-  if (!fs.existsSync(LEDGER_FILE)) fs.writeFileSync(LEDGER_FILE, "[]");
-  // `rename-hearts-to-recognition` is retired: it rewrote a JSON-era field
-  // (heartsBalance) that the MySQL users table never had. Deployments that
-  // needed it have it recorded in migrations.json; fresh ones cannot need it.
-  await runOnce("ledger-opening-balances", seedLedgerOpeningBalances);
+  // Retired runOnce fixups, recorded in migrations.json where they ran:
+  //   rename-hearts-to-recognition — rewrote a JSON-era field the MySQL users
+  //     table never had.
+  //   ledger-opening-balances — seeded the JSON ledger; the MySQL ledger
+  //     carries those rows forward via the 0009 backfill, and a fresh fork
+  //     has no pre-ledger balances to explain.
   await runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
   await runOnce("founding-team-in-progress", markFoundingTeamInProgress);
   await runOnce("backfill-member-handles", backfillMemberHandles);
-}
-
-/**
- * The ledger is the source of truth for balances, so it has to explain the whole
- * of a member's balance, not just what happened after it was introduced. Give
- * everyone carrying a balance one opening entry.
- */
-async function seedLedgerOpeningBalances() {
-  const users = await members.all();
-  const { created } = backfillOpeningBalances(
-    LEDGER_FILE,
-    users.map((u: any) => ({ id: u.id, balance: Number(u.recognitionBalance) || 0 })),
-  );
-  console.log(`[migration] wrote ${created} opening ledger balance(s)`);
 }
 
 /**
@@ -1231,6 +1230,19 @@ async function startServer() {
     }
   }
 
+  // S7: the token registry is the tokens TABLE; load it before any handler
+  // can ask, then prove the economy's invariants hold before serving a single
+  // request. A server that boots over a broken ledger normalizes the break.
+  await loadTokenRegistry(getPool());
+  {
+    const inv = await checkLedgerInvariants(getPool());
+    if (!inv.ok) {
+      for (const p of inv.problems) console.error(`[ledger invariant] ${p}`);
+      throw new Error(`ledger invariants violated (${inv.problems.length}) — refusing to serve`);
+    }
+    console.log("[ledger] invariants hold: conservation ≡ 0, no hypha rows, no non-faucet negatives");
+  }
+
   await ensureDataFiles();
 
   const app = express();
@@ -1302,7 +1314,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", async (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-s6-users-mysql", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-26-s7-ledger-keystone", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -2786,16 +2798,18 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (claimant) {
       // Through the ledger, not `+=`. The idempotency key is the claim, so a
       // retried or double-clicked consent credits exactly once, and the balance
-      // column is RECOMPUTED from the ledger rather than incremented.
-      const credit = creditTokens(LEDGER_FILE, {
-        userId: claims[idx].userId,
+      // column is RECOMPUTED from the ledger rather than incremented. S7:
+      // recognition issues from the faucet account, so issuance is visible.
+      const credit = await postTransfer(getPool(), {
+        from: RECOGNITION_FAUCET,
+        to: memberAccount(claims[idx].userId),
         amount: granted,
         source: "quest_consent",
         sourceRef: claims[idx].id,
         description: `Quest consented: ${claims[idx].questTitle}`,
         idempotencyKey: `quest_consent:${claims[idx].id}`,
       });
-      const after = await members.update(claimant.id, (u: any) => { u.recognitionBalance = credit.balance; });
+      const after = await members.update(claimant.id, (u: any) => { u.recognitionBalance = credit.toBalance; });
       addActivity("quest", `${firstName(claims[idx].userName)} completed the quest "${claims[idx].questTitle}"`);
       if (after) {
         const stageAfter = computeStage(after);
@@ -2884,15 +2898,18 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // Amora pays at SEND (see revision 3: never add pool minting on top of this).
     // Routed through the ledger so the movement is recorded and the balance is a
     // recomputed cache. Keyed on the acknowledgment id, so a retry credits once.
-    const sendCredit = creditTokens(LEDGER_FILE, {
-      userId: recipient.id,
+    // Recognition ISSUES at send (the sender spends budget, not balance), so
+    // the transfer comes from the recognition faucet, not the sender's account.
+    const sendCredit = await postTransfer(getPool(), {
+      from: RECOGNITION_FAUCET,
+      to: memberAccount(recipient.id),
       amount: amt,
       source: "gratitude_received",
       sourceRef: entry.id,
       description: `Gratitude from ${firstName(user.name)}`,
       idempotencyKey: `gratitude_received:${entry.id}`,
     });
-    await members.update(recipient.id, (u: any) => { u.recognitionBalance = sendCredit.balance; });
+    await members.update(recipient.id, (u: any) => { u.recognitionBalance = sendCredit.toBalance; });
     addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(recipient.name)}`);
     res.json({ success: true, entry: { ...entry, amount: undefined }, budget: gratitudeBudget(user) });
   });
@@ -3022,8 +3039,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         if (poolSize > 0 && totalReceived > 0) {
           credited = Math.floor((t.received / totalReceived) * poolSize);
           if (credited > 0) {
-            const r = creditTokens(LEDGER_FILE, {
-              userId: t.userId,
+            // Value flows from the cycle-pool faucet (S7): the pool's negative
+            // balance is the total value ever released, in one query.
+            const r = await postTransfer(getPool(), {
+              from: CYCLE_POOL_FAUCET,
+              to: memberAccount(t.userId),
               tokenType: poolToken,
               amount: credited,
               source: "gratitude_pool",
@@ -3127,14 +3147,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // All tokens now, not just recognition: since the cycle pool pays value in
     // a separate token (ReGen model), a member's ledger view must show every
     // token they hold, each with its registry display name.
-    const entries = entriesFor(LEDGER_FILE, user.id);
-    const summed = balanceOf(LEDGER_FILE, user.id, "gratitude");
+    const entries = await entriesForMember(getPool(), user.id);
+    const summed = await balanceOf(getPool(), memberAccount(user.id), "gratitude");
+    const raw = await balancesFor(getPool(), memberAccount(user.id));
     const balances: Record<string, { name: string; balance: number }> = {};
-    for (const e of entries) {
-      if (!balances[e.tokenType]) {
-        balances[e.tokenType] = { name: tokenDef(e.tokenType)?.name ?? e.tokenType, balance: 0 };
-      }
-      balances[e.tokenType].balance += Number(e.amount) || 0;
+    for (const [slug, balance] of Object.entries(raw)) {
+      balances[slug] = { name: tokenDef(slug)?.name ?? slug, balance };
     }
     res.json({
       // The column is a cache of the ledger. If these ever disagree the ledger

@@ -241,23 +241,44 @@ async function main() {
       );
     }
 
+    // S7: token_ledger is transfer rows. Every JSON-era entry was an issuance
+    // credit, so each becomes a transfer out of the matching faucet — cycle
+    // pool distributions from sys:cycle-pool, everything else (opening
+    // balances, quest consents, gratitude sends) from sys:gratitude-pool.
     for (const e of read("token-ledger.json") ?? []) {
       await conn.query(
-        "INSERT INTO `token_ledger` (id, user_id, token_type, amount, source, source_ref, description, idempotency_key, at) " +
-          "VALUES (?,?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
+        "INSERT IGNORE INTO `ledger_accounts` (id, kind, user_id, label, faucet) VALUES (?,?,?,?,0)",
+        [`mem:${e.userId}`, "member", str(e.userId, 64), str(e.userId, 64)],
+      );
+      await conn.query(
+        "INSERT INTO `token_ledger` (id, from_account, to_account, token_type, amount, source, source_ref, description, idempotency_key, at) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
           // The UNIQUE on idempotency_key is the dedupe; re-importing is a no-op.
           "ON DUPLICATE KEY UPDATE amount=VALUES(amount), source=VALUES(source)",
         [
-          str(e.id, 64), str(e.userId, 64),
+          str(e.id, 64),
+          e.source === "gratitude_pool" ? "sys:cycle-pool" : "sys:gratitude-pool",
+          `mem:${e.userId}`,
           // Pass through verbatim (0006: token types are a registry, not a
           // closed list). Coercing an unknown slug to 'gratitude' here would
           // silently re-denominate a module token's entries at import.
           str(e.tokenType, 32) ?? "gratitude",
           num(e.amount, 0), str(e.source, 64) ?? "", str(e.sourceRef, 120),
-          str(e.description, 500), str(e.idempotencyKey, 160) ?? "", ts(e.at),
+          str(e.description, 500), str(e.idempotencyKey, 191) ?? "", ts(e.at),
         ],
       );
     }
+
+    // Rebuild the balance cache from the transfers just written (recompute,
+    // never increment — the import must leave the cache provably derived).
+    await conn.query(
+      "INSERT INTO `token_balances` (account_id, token_type, balance) " +
+        "SELECT t.account_id, t.token_type, SUM(t.delta) FROM (" +
+        "  SELECT to_account AS account_id, token_type, amount AS delta FROM `token_ledger` " +
+        "  UNION ALL SELECT from_account, token_type, -amount FROM `token_ledger`" +
+        ") t GROUP BY t.account_id, t.token_type " +
+        "ON DUPLICATE KEY UPDATE balance = VALUES(balance)",
+    );
 
     for (const e of read("stage-events.json") ?? []) {
       await conn.query(
@@ -422,7 +443,9 @@ async function main() {
   {
     const [rows] = await conn.query<any[]>(
       "SELECT u.id, u.recognition_balance AS cached, " +
-        "COALESCE((SELECT SUM(amount) FROM token_ledger l WHERE l.user_id = u.id AND l.token_type='gratitude'), 0) AS summed " +
+        "COALESCE((SELECT SUM(CASE WHEN l.to_account = CONCAT('mem:', u.id) THEN l.amount ELSE -l.amount END) " +
+        "  FROM token_ledger l WHERE l.token_type='gratitude' " +
+        "  AND (l.to_account = CONCAT('mem:', u.id) OR l.from_account = CONCAT('mem:', u.id))), 0) AS summed " +
         "FROM users u",
     );
     const drift = rows.filter((r) => Number(r.cached) !== Number(r.summed));

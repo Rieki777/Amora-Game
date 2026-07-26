@@ -1,38 +1,35 @@
 /**
- * The token ledger: one append-only record of every movement of value.
+ * The token ledger, S7 edition: transfer rows in MySQL, between ACCOUNTS.
  *
- * Before this, a member's balance was a single mutable number incremented in two
- * places (`+=` at quest consent and at gratitude send) across two non-atomic file
- * writes, with no record of why it changed. That is three problems at once: two
- * writers racing on one number, no audit trail, and no way to answer "where did
- * this come from" when a founder asks.
+ * The JSON era recorded bare credits — "N appeared in X's balance" — which
+ * makes issuance invisible. The keystone shape is double-entry-lite: every
+ * movement is a transfer FROM one account TO another, amount strictly
+ * positive. Ordinary accounts can never overdraft. Designated FAUCET accounts
+ * (sys:gratitude-pool, sys:cycle-pool) may run negative, and their negative
+ * balance IS the issued-to-date figure. Conservation is therefore a checkable
+ * invariant, not a hope: for every token, SUM(balance) over all accounts ≡ 0.
  *
- * Two disciplines are non-negotiable here, both learned from regen-civics:
+ * Disciplines carried forward from the JSON ledger, both learned at
+ * regen-civics:
  *
- *  1. RECOMPUTE, NEVER INCREMENT. The balance column is a cache derived from
- *     SUM(entries). Every credit rewrites it from the sum rather than adding to
- *     it, so the cache is self-healing: a crash halfway through leaves a
- *     recoverable state, and a wrong balance is fixed by recomputing rather than
- *     by hand-patching a number nobody can explain.
- *  2. EVERY WRITE CARRIES AN IDEMPOTENCY KEY. A retried request, a double-clicked
- *     button, or a re-run job must credit once. The key is the dedupe, not a flag,
- *     because a flag can be lost while the money stays credited.
+ *  1. RECOMPUTE, NEVER INCREMENT. token_balances is a cache; every posting
+ *     rewrites the two touched rows from SUM(transfers) inside the same
+ *     transaction. A wrong cache is fixed by recomputation, not hand-patching.
+ *  2. EVERY WRITE CARRIES AN IDEMPOTENCY KEY. The UNIQUE index is the dedupe:
+ *     a retried request posts once because the second INSERT fails, not
+ *     because a flag was checked.
  *
- * Token types are a REGISTRY, not a closed union (0006 superseded 0005's enum).
- * The village module layer creates internal tokens at runtime — material
- * library credits, stay credits, access tokens — so the set of valid tokens is
- * data, seeded with the three the platform is born knowing. Validation is
- * fail-loud, matching the game-variables philosophy: an unknown token slug is
- * an error, never a silent default, because a typo that quietly becomes
- * 'gratitude' is a mint bug wearing a coercion costume.
+ * The registry now READS THE tokens TABLE (0006/0007) — the in-memory list
+ * this file used to carry is gone, because two registries drift. It is loaded
+ * at boot and refreshed whenever an admin creates a token (S9).
  *
  * `governance` is the guard that matters: 'platform' tokens are minted and
- * moved here; 'hypha' tokens (`amora` equity, `voice` governance weight) live
- * on Base under Hypha and are read-only mirrors — if this platform ever minted
- * them it would quietly become the source of truth for the cap table, which
- * decision 5 says it must never be.
+ * moved here; 'hypha' tokens (equity, voice) live on Base under Hypha and are
+ * read-only mirrors — if this platform ever posted one it would quietly
+ * become the source of truth for the cap table, which decision 5 says it must
+ * never be. Boot invariants enforce that with a loud failure, not a comment.
  */
-import fs from "fs";
+import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 
 export type TokenType = string;
 
@@ -45,191 +42,344 @@ export interface TokenDef {
   governance: "platform" | "hypha";
   /** May members send it peer-to-peer? */
   transferable: boolean;
+  active: boolean;
 }
 
-/** The tokens every deployment is born knowing (mirrors the 0006/0007 seed rows). */
-const BUILT_IN_TOKENS: TokenDef[] = [
-  { slug: "gratitude", name: "Gratitude", kind: "recognition", governance: "platform", transferable: true },
-  { slug: "amora", name: "Amora", kind: "equity", governance: "hypha", transferable: false },
-  { slug: "voice", name: "Voice", kind: "voice", governance: "hypha", transferable: false },
-  // The default value token the gratitude cycle pool pays (ReGen model, Rye
-  // 2026-07-26). Per-deployment DATA: villages rename it, point the pool at a
-  // different platform token, or add per-module tokens as they configure them.
-  { slug: "credits", name: "Village Credits", kind: "credit", governance: "platform", transferable: false },
-];
+/** The default recognition token. The others are read from chain. */
+export const PLATFORM_TOKEN: TokenType = "gratitude";
 
-const registry = new Map<string, TokenDef>(BUILT_IN_TOKENS.map((t) => [t.slug, t]));
+/** System account ids the platform is born knowing (seeded by 0009). */
+export const RECOGNITION_FAUCET = "sys:gratitude-pool";
+export const CYCLE_POOL_FAUCET = "sys:cycle-pool";
+export const TREASURY = "sys:treasury";
+
+/** The ledger account id that belongs to a member. */
+export function memberAccount(userId: string): string {
+  return `mem:${userId}`;
+}
+
+// ── Registry ────────────────────────────────────────────────────────────────
+
+const registry = new Map<string, TokenDef>();
+
+/**
+ * Fill the in-memory registry from the tokens table. Called at boot (after
+ * migrations) and after any admin change to the table. Handlers then use the
+ * synchronous tokenDef() they always used.
+ */
+export async function loadTokenRegistry(pool: Pool): Promise<void> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT slug, name, kind, governance, transferable, active FROM tokens",
+  );
+  registry.clear();
+  for (const r of rows) {
+    registry.set(String(r.slug), {
+      slug: String(r.slug),
+      name: String(r.name),
+      kind: String(r.kind),
+      governance: r.governance === "hypha" ? "hypha" : "platform",
+      transferable: !!r.transferable,
+      active: !!r.active,
+    });
+  }
+}
 
 /** Look up a token. Undefined means "not a token" — callers must fail loud. */
 export function tokenDef(slug: string): TokenDef | undefined {
   return registry.get(slug);
 }
 
-/**
- * Register a runtime-created token (module layer: library credits, stay
- * credits…). Re-registering a slug replaces its definition, so a registry
- * loaded from the tokens table on boot can be refreshed after an admin edit.
- */
-export function registerToken(def: TokenDef) {
-  registry.set(def.slug, def);
+export function allTokens(): TokenDef[] {
+  return Array.from(registry.values());
 }
 
-/** The default recognition token. The others are read from chain. */
-export const PLATFORM_TOKEN: TokenType = "gratitude";
+/**
+ * Create or update a token (S9 admin surface; module layer later). Writes the
+ * table first, then refreshes the registry — the table is the truth.
+ */
+export async function registerToken(
+  pool: Pool,
+  def: Omit<TokenDef, "active"> & { active?: boolean },
+): Promise<void> {
+  await pool.query(
+    "INSERT INTO tokens (slug, name, kind, governance, transferable, active) VALUES (?,?,?,?,?,?) " +
+      "ON DUPLICATE KEY UPDATE name=VALUES(name), kind=VALUES(kind), governance=VALUES(governance), " +
+      "transferable=VALUES(transferable), active=VALUES(active)",
+    [def.slug, def.name, def.kind, def.governance, def.transferable ? 1 : 0, def.active === false ? 0 : 1],
+  );
+  await loadTokenRegistry(pool);
+}
 
-export interface LedgerEntry {
-  id: string;
-  userId: string;
-  tokenType: TokenType;
-  /** Signed: negative entries are legitimate (corrections, reversals). */
+// ── Posting ─────────────────────────────────────────────────────────────────
+
+export interface TransferInput {
+  from: string;
+  to: string;
+  tokenType?: TokenType;
   amount: number;
   /** Machine-readable origin, e.g. "quest_consent", "gratitude_received". */
   source: string;
-  /** What it points at, e.g. a claim id. */
   sourceRef?: string;
   description?: string;
-  /** Unique. A repeat write with the same key is a no-op, not a second credit. */
+  /** Unique. A repeat write with the same key is a no-op, not a second post. */
   idempotencyKey: string;
-  at: string;
 }
 
-export interface CreditInput {
-  userId: string;
-  tokenType?: TokenType;
+export interface TransferResult {
+  ok: boolean;
+  duplicate: boolean;
+  error?: string;
+  /** The recomputed balance of the RECEIVING account after this post. */
+  toBalance: number;
+}
+
+async function recomputeBalance(conn: PoolConnection, accountId: string, tokenType: string): Promise<number> {
+  await conn.query(
+    "INSERT IGNORE INTO token_balances (account_id, token_type, balance) VALUES (?,?,0)",
+    [accountId, tokenType],
+  );
+  await conn.query(
+    "UPDATE token_balances tb SET tb.balance = (" +
+      "SELECT COALESCE(SUM(CASE WHEN t.to_account = ? THEN t.amount ELSE -t.amount END), 0) " +
+      "FROM token_ledger t WHERE t.token_type = ? AND (t.to_account = ? OR t.from_account = ?)" +
+      ") WHERE tb.account_id = ? AND tb.token_type = ?",
+    [accountId, tokenType, accountId, accountId, accountId, tokenType],
+  );
+  const [rows] = await conn.query<RowDataPacket[]>(
+    "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = ?",
+    [accountId, tokenType],
+  );
+  return Number(rows[0]?.balance ?? 0);
+}
+
+/**
+ * Post one transfer, transactionally and idempotently.
+ *
+ * Inside the transaction: the transfer row is inserted (the UNIQUE
+ * idempotency key rejects replays), both touched balances are RECOMPUTED from
+ * the transfer table, and the sending account is checked for overdraft —
+ * non-faucet accounts must never go negative; if this post would take one
+ * below zero the whole transaction rolls back and nothing moved.
+ *
+ * Member accounts (mem:*) are created on first touch; system accounts must
+ * already exist — a typo'd system id is a bug to hear about, not an account
+ * to invent.
+ */
+export async function postTransfer(pool: Pool, input: TransferInput): Promise<TransferResult> {
+  const tokenType = input.tokenType ?? PLATFORM_TOKEN;
+  const amount = Math.trunc(Number(input.amount) || 0);
+
+  if (!input.from || !input.to) return { ok: false, duplicate: false, toBalance: 0, error: "from and to accounts are required" };
+  if (input.from === input.to) return { ok: false, duplicate: false, toBalance: 0, error: "an account cannot transfer to itself" };
+  if (amount <= 0) return { ok: false, duplicate: false, toBalance: 0, error: "amount must be a positive integer" };
+  if (!input.idempotencyKey) return { ok: false, duplicate: false, toBalance: 0, error: "idempotencyKey is required" };
+
+  const def = tokenDef(tokenType);
+  if (!def) {
+    // Fail loud, never coerce: a typo that silently became 'gratitude' would
+    // be a mint bug wearing a coercion costume.
+    return {
+      ok: false,
+      duplicate: false,
+      toBalance: 0,
+      error: `unknown token "${tokenType}" — register it in the token registry before posting`,
+    };
+  }
+  if (def.governance !== "platform") {
+    return {
+      ok: false,
+      duplicate: false,
+      toBalance: 0,
+      error: `${tokenType} is issued on Hypha and only read here; the platform cannot move it`,
+    };
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Accounts: members materialize on first touch, system ids must exist.
+    for (const acct of [input.from, input.to]) {
+      if (acct.startsWith("mem:")) {
+        await conn.query(
+          "INSERT IGNORE INTO ledger_accounts (id, kind, user_id, label, faucet) VALUES (?,?,?,?,0)",
+          [acct, "member", acct.slice(4), acct.slice(4)],
+        );
+      }
+    }
+    const [acctRows] = await conn.query<RowDataPacket[]>(
+      "SELECT id, faucet FROM ledger_accounts WHERE id IN (?, ?) FOR UPDATE",
+      [input.from, input.to],
+    );
+    const accounts = new Map(acctRows.map((r) => [String(r.id), { faucet: !!r.faucet }]));
+    const fromAcct = accounts.get(input.from);
+    if (!fromAcct || !accounts.get(input.to)) {
+      await conn.rollback();
+      const missing = !fromAcct ? input.from : input.to;
+      return { ok: false, duplicate: false, toBalance: 0, error: `account "${missing}" does not exist` };
+    }
+
+    try {
+      await conn.query(
+        "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, source_ref, description, idempotency_key) " +
+          "VALUES (?,?,?,?,?,?,?,?,?)",
+        [
+          `led-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          input.from,
+          input.to,
+          tokenType,
+          amount,
+          input.source,
+          input.sourceRef ?? null,
+          input.description ?? null,
+          input.idempotencyKey,
+        ],
+      );
+    } catch (e: any) {
+      await conn.rollback();
+      if (e?.code === "ER_DUP_ENTRY") {
+        // Replay: the money already moved exactly once. Report the current state.
+        const [b] = await pool.query<RowDataPacket[]>(
+          "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = ?",
+          [input.to, tokenType],
+        );
+        return { ok: true, duplicate: true, toBalance: Number(b[0]?.balance ?? 0) };
+      }
+      throw e;
+    }
+
+    // Recompute both caches in a stable order (avoids lock-order deadlocks).
+    const ordered = [input.from, input.to].sort();
+    const balances = new Map<string, number>();
+    for (const acct of ordered) balances.set(acct, await recomputeBalance(conn, acct, tokenType));
+
+    const fromBalance = balances.get(input.from)!;
+    if (!fromAcct.faucet && fromBalance < 0) {
+      await conn.rollback();
+      return {
+        ok: false,
+        duplicate: false,
+        toBalance: 0,
+        error: `insufficient ${tokenType}: "${input.from}" holds ${fromBalance + amount} and cannot overdraft`,
+      };
+    }
+
+    await conn.commit();
+    return { ok: true, duplicate: false, toBalance: balances.get(input.to)! };
+  } catch (e) {
+    try { await conn.rollback(); } catch { /* already rolled back */ }
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+// ── Reads ───────────────────────────────────────────────────────────────────
+
+/** Cached balance of one account for one token. */
+export async function balanceOf(pool: Pool, accountId: string, tokenType: TokenType = PLATFORM_TOKEN): Promise<number> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = ?",
+    [accountId, tokenType],
+  );
+  return Number(rows[0]?.balance ?? 0);
+}
+
+/** All of one account's balances: slug -> cached balance. */
+export async function balancesFor(pool: Pool, accountId: string): Promise<Record<string, number>> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT token_type, balance FROM token_balances WHERE account_id = ?",
+    [accountId],
+  );
+  const out: Record<string, number> = {};
+  for (const r of rows) out[String(r.token_type)] = Number(r.balance);
+  return out;
+}
+
+/** A member-perspective ledger line: amount signed from the member's side. */
+export interface MemberLedgerEntry {
+  id: string;
+  tokenType: string;
   amount: number;
   source: string;
   sourceRef?: string;
   description?: string;
-  idempotencyKey: string;
+  at: string;
 }
 
-export interface CreditResult {
+/** A member's movements, newest first, signed from their perspective. */
+export async function entriesForMember(pool: Pool, userId: string): Promise<MemberLedgerEntry[]> {
+  const acct = memberAccount(userId);
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT id, from_account, to_account, token_type, amount, source, source_ref, description, at " +
+      "FROM token_ledger WHERE to_account = ? OR from_account = ? ORDER BY at DESC, id DESC",
+    [acct, acct],
+  );
+  return rows.map((r) => ({
+    id: String(r.id),
+    tokenType: String(r.token_type),
+    amount: String(r.to_account) === acct ? Number(r.amount) : -Number(r.amount),
+    source: String(r.source),
+    sourceRef: r.source_ref ?? undefined,
+    description: r.description ?? undefined,
+    at: r.at instanceof Date ? r.at.toISOString() : String(r.at),
+  }));
+}
+
+// ── Boot invariants ─────────────────────────────────────────────────────────
+
+export interface InvariantReport {
   ok: boolean;
-  duplicate: boolean;
-  entry?: LedgerEntry;
-  /** The recomputed balance after this credit. */
-  balance: number;
-  error?: string;
-}
-
-function load(file: string): LedgerEntry[] {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function save(file: string, entries: LedgerEntry[]) {
-  fs.writeFileSync(file, JSON.stringify(entries, null, 2));
-}
-
-/** Sum of a member's entries for one token. This is the truth; columns are caches. */
-export function balanceOf(file: string, userId: string, tokenType: TokenType = PLATFORM_TOKEN): number {
-  return load(file)
-    .filter((e) => e.userId === userId && e.tokenType === tokenType)
-    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-}
-
-/** A member's entries, newest first, for the profile's flows view. */
-export function entriesFor(file: string, userId: string, tokenType?: TokenType): LedgerEntry[] {
-  return load(file)
-    .filter((e) => e.userId === userId && (tokenType === undefined || e.tokenType === tokenType))
-    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  problems: string[];
 }
 
 /**
- * Write one credit, idempotently, then return the RECOMPUTED balance.
+ * The checks that make the economy trustworthy, run at every boot:
  *
- * The caller is responsible for persisting that balance onto the member record as
- * a cache; this function never mutates the member. Splitting it that way keeps the
- * ledger the single writer of truth and makes the cache obviously derived.
+ *  1. Hypha-governed tokens have ZERO transfer rows — the moment one appears,
+ *     this database has started minting equity, and the server must not come
+ *     up and normalize that.
+ *  2. Every transfer's token is registered — an orphan slug is a mint bug.
+ *  3. Conservation: per token, SUM(cached balances) ≡ 0.
+ *  4. The cache agrees with recomputation from transfers (drift = a posting
+ *     path that skipped the discipline).
+ *  5. No non-faucet account is negative.
  */
-export function creditTokens(file: string, input: CreditInput): CreditResult {
-  const tokenType = input.tokenType ?? PLATFORM_TOKEN;
-  const amount = Math.trunc(Number(input.amount) || 0);
+export async function checkLedgerInvariants(pool: Pool): Promise<InvariantReport> {
+  const problems: string[] = [];
 
-  if (!input.userId) return { ok: false, duplicate: false, balance: 0, error: "userId is required" };
-  if (!input.idempotencyKey) {
-    return { ok: false, duplicate: false, balance: 0, error: "idempotencyKey is required" };
-  }
-  const def = tokenDef(tokenType);
-  if (!def) {
-    // Fail loud, never coerce: a typo that silently became 'gratitude' would be
-    // a mint bug. Unknown token = registration was forgotten, and that is the
-    // caller's bug to hear about.
-    return {
-      ok: false,
-      duplicate: false,
-      balance: 0,
-      error: `unknown token "${tokenType}" — register it in the token registry before crediting`,
-    };
-  }
-  if (def.governance !== "platform") {
-    // A guard, not a limitation: Amora and Voice are Hypha's to issue. If this
-    // platform ever mints them it has quietly become the source of truth for
-    // equity, which is exactly what decision 5 says it must never be.
-    return {
-      ok: false,
-      duplicate: false,
-      balance: balanceOf(file, input.userId, tokenType),
-      error: `${tokenType} is issued on Hypha and only read here; the platform cannot credit it`,
-    };
-  }
+  const [hypha] = await pool.query<RowDataPacket[]>(
+    "SELECT l.token_type, COUNT(*) n FROM token_ledger l JOIN tokens t ON t.slug = l.token_type " +
+      "WHERE t.governance = 'hypha' GROUP BY l.token_type",
+  );
+  for (const r of hypha) problems.push(`hypha token "${r.token_type}" has ${r.n} ledger row(s) — this platform must never move it`);
 
-  const entries = load(file);
-  const existing = entries.find((e) => e.idempotencyKey === input.idempotencyKey);
-  if (existing) {
-    return {
-      ok: true,
-      duplicate: true,
-      entry: existing,
-      balance: balanceOf(file, input.userId, tokenType),
-    };
-  }
+  const [orphans] = await pool.query<RowDataPacket[]>(
+    "SELECT DISTINCT l.token_type FROM token_ledger l LEFT JOIN tokens t ON t.slug = l.token_type WHERE t.slug IS NULL",
+  );
+  for (const r of orphans) problems.push(`ledger rows exist for unregistered token "${r.token_type}"`);
 
-  const entry: LedgerEntry = {
-    id: `led-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    userId: input.userId,
-    tokenType,
-    amount,
-    source: input.source,
-    sourceRef: input.sourceRef,
-    description: input.description,
-    idempotencyKey: input.idempotencyKey,
-    at: new Date().toISOString(),
-  };
-  entries.push(entry);
-  save(file, entries);
+  const [sums] = await pool.query<RowDataPacket[]>(
+    "SELECT token_type, SUM(balance) s FROM token_balances GROUP BY token_type HAVING SUM(balance) <> 0",
+  );
+  for (const r of sums) problems.push(`conservation broken for "${r.token_type}": balances sum to ${r.s}, not 0`);
 
-  return { ok: true, duplicate: false, entry, balance: balanceOf(file, input.userId, tokenType) };
-}
+  const [drift] = await pool.query<RowDataPacket[]>(
+    "SELECT tb.account_id, tb.token_type, tb.balance AS cached, COALESCE(x.actual, 0) AS actual FROM token_balances tb " +
+      "LEFT JOIN (SELECT account_id, token_type, SUM(delta) actual FROM (" +
+      "  SELECT to_account account_id, token_type, amount delta FROM token_ledger " +
+      "  UNION ALL SELECT from_account, token_type, -amount FROM token_ledger" +
+      ") m GROUP BY account_id, token_type) x " +
+      "ON x.account_id = tb.account_id AND x.token_type = tb.token_type " +
+      "WHERE tb.balance <> COALESCE(x.actual, 0)",
+  );
+  for (const r of drift) problems.push(`cache drift ${r.account_id}/${r.token_type}: cached=${r.cached} actual=${r.actual}`);
 
-/**
- * Give every member without one an opening balance entry, so the ledger explains
- * the whole of their current balance rather than only what happened after it was
- * introduced. Idempotent per member, so it is safe to run on every boot.
- */
-export function backfillOpeningBalances(
-  file: string,
-  members: Array<{ id: string; balance: number }>,
-): { created: number } {
-  let created = 0;
-  for (const m of members) {
-    const key = `opening_balance:${m.id}`;
-    const amount = Math.trunc(Number(m.balance) || 0);
-    if (amount === 0) continue;
-    const before = load(file).some((e) => e.idempotencyKey === key);
-    if (before) continue;
-    const res = creditTokens(file, {
-      userId: m.id,
-      amount,
-      source: "opening_balance",
-      description: "Balance carried over from before the ledger existed",
-      idempotencyKey: key,
-    });
-    if (res.ok && !res.duplicate) created++;
-  }
-  return { created };
+  const [negatives] = await pool.query<RowDataPacket[]>(
+    "SELECT tb.account_id, tb.token_type, tb.balance FROM token_balances tb " +
+      "JOIN ledger_accounts a ON a.id = tb.account_id WHERE a.faucet = 0 AND tb.balance < 0",
+  );
+  for (const r of negatives) problems.push(`non-faucet account ${r.account_id} is negative: ${r.balance} ${r.token_type}`);
+
+  return { ok: problems.length === 0, problems };
 }
