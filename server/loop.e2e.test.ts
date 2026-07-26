@@ -1064,4 +1064,85 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     await api("PUT", "/api/admin/modules/tools/lifecycle", { lifecycle: "off" }, founderToken);
     expect((await api("GET", "/api/tools")).status).toBe(404);
   });
+
+  it("S16: the notification spine — producers fired, bell reads, prefs validate", async () => {
+    // Everything this suite already did produced notifications: the peer
+    // received gratitude and a role appointment, the doer had a quest
+    // consented. The spine recorded each exactly once.
+    const peerBell = await api("GET", "/api/notifications", undefined, peerToken);
+    expect(peerBell.status).toBe(200);
+    const peerTypes = peerBell.json.notifications.map((n: any) => n.type);
+    expect(peerTypes).toContain("gratitude");
+    expect(peerTypes).toContain("role_appointed");
+    expect(peerBell.json.unreadCount).toBeGreaterThan(0);
+
+    const doerBell = await api("GET", "/api/notifications", undefined, doerToken);
+    expect(doerBell.json.notifications.map((n: any) => n.type)).toContain("quest_consented");
+
+    // Anonymous is refused; mark-all-read zeroes the badge.
+    expect((await api("GET", "/api/notifications")).status).toBe(401);
+    const marked = await api("POST", "/api/notifications/read", {}, peerToken);
+    expect(marked.status).toBe(200);
+    expect((await api("GET", "/api/notifications", undefined, peerToken)).json.unreadCount).toBe(0);
+
+    // Prefs: junk writes echo back as validated defaults; real writes stick.
+    const junk = await api("PUT", "/api/profile/prefs", { notify: { gratitudeEmail: "hourly", nonsense: 1 } }, peerToken);
+    expect(junk.status).toBe(200);
+    expect(junk.json.notify.gratitudeEmail).toBe("daily"); // junk degraded to default
+    const real = await api("PUT", "/api/profile/prefs", { notify: { gratitudeEmail: "off", emailsOff: true } }, peerToken);
+    expect(real.json.notify.gratitudeEmail).toBe("off");
+    expect(real.json.notify.emailsOff).toBe(true);
+    expect((await api("GET", "/api/profile/prefs", undefined, peerToken)).json.notify.emailsOff).toBe(true);
+  });
+
+  it("S18: export gives a member everything; deletion anonymizes without touching value", async () => {
+    // A member joins, receives appreciation, then exercises both rights.
+    const leaver = { email: `leaver-${PORT}@example.test`, password: "LoopTest123!", name: "Leaving Member" };
+    const reg = await api("POST", "/api/auth/register", { ...leaver, paths: ["resident"] });
+    expect(reg.status).toBe(200);
+    const leaverToken = reg.json.token;
+    const leaverId = reg.json.user.id;
+
+    const send = await api(
+      "POST",
+      "/api/game/gratitude/send",
+      { toEmail: leaver.email, amount: 1, message: "Welcome, and farewell" },
+      doerToken,
+    );
+    expect(send.status).toBe(200);
+
+    // Export: the full picture, attachment-shaped.
+    const exported = await api("GET", "/api/profile/export", undefined, leaverToken);
+    expect(exported.status).toBe(200);
+    expect(exported.json.member.email).toBe(leaver.email);
+    expect(exported.json.member.passwordHash).toBeUndefined();
+    expect(exported.json.gratitudeReceived.length).toBe(1);
+    expect(exported.json.balances.gratitude).toBe(1);
+
+    // Deletion needs the password; then the account is a tombstone.
+    expect((await api("POST", "/api/profile/delete-account", { password: "wrong" }, leaverToken)).status).toBe(403);
+    const deleted = await api("POST", "/api/profile/delete-account", { password: leaver.password }, leaverToken);
+    expect(deleted.status).toBe(200);
+    expect(deleted.json.anonymized).toBe(true);
+
+    // Sessions are dead, login is impossible, the name is gone everywhere.
+    expect((await api("GET", "/api/profile", undefined, leaverToken)).status).toBe(401);
+    expect((await api("POST", "/api/auth/login", { email: leaver.email, password: leaver.password })).status).toBe(401);
+    const doerJournal = await api("GET", "/api/game/gratitude/me", undefined, doerToken);
+    const sentRow = doerJournal.json.sent.find((g: any) => g.toId === leaverId);
+    expect(sentRow.toName).toBe("A departed member");
+    const players = await api("GET", "/api/admin/players", undefined, founderToken);
+    const tombstone = players.json.find((p: any) => p.id === leaverId);
+    expect(tombstone.name).toBe("A departed member");
+    expect(tombstone.email).toContain("anonymized.invalid");
+
+    // THE point: value rows persisted — the economy still conserves, and the
+    // departed member's ledger account still balances what it received.
+    const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec.json.invariants.ok).toBe(true);
+
+    // The admin path does the same thing (and refuses to erase a founder).
+    const founderSelf = await api("DELETE", `/api/admin/players/${founderId}`, undefined, founderToken);
+    expect(founderSelf.status).toBe(409);
+  });
 });

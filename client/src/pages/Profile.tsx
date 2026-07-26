@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import GameDashboard from "@/components/GameDashboard";
 import ProfileJourney from "@/components/ProfileJourney";
+import NotifyPrefsPanel from "@/components/NotifyPrefsPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -112,6 +113,11 @@ export default function Profile() {
             {/* S4: the journey in numbers — progression history, flows, ledger */}
             <div className="mb-8">
               <ProfileJourney />
+            </div>
+
+            {/* S16/S18: notification cadence + data rights */}
+            <div className="mb-8">
+              <NotifyPrefsPanel onDeleted={logout} />
             </div>
 
             <div className="grid lg:grid-cols-3 gap-8">

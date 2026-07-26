@@ -4,6 +4,7 @@ import { TreePine, Menu, X, User, LogOut, ChevronDown, TrendingUp, Users, Home a
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModule } from "@/modules/ModuleProvider";
+import NotificationBell from "@/components/NotificationBell";
 import AmoraLogo, { AmoraHeartLogo } from "./AmoraLogo";
 import MobileTabBar from "./mobile/MobileTabBar";
 import MobileFab from "./mobile/MobileFab";
@@ -125,6 +126,7 @@ export default function Layout({ children }: LayoutProps) {
 
             {user ? (
               <div className="flex items-center gap-3">
+                <NotificationBell />
                 <Link href="/profile">
                   <a className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
                     <User className="w-4 h-4" />
@@ -158,13 +160,16 @@ export default function Layout({ children }: LayoutProps) {
             </a>
           </div>
 
-          {/* Mobile Menu Button */}
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden text-white inline-flex items-center justify-center pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:-m-2"
-          >
-            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </button>
+          {/* Mobile Menu Button (bell beside it when signed in) */}
+          <div className="md:hidden flex items-center gap-1 text-white">
+            {user && <NotificationBell />}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="text-white inline-flex items-center justify-center pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:-m-2"
+            >
+              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+          </div>
         </div>
 
         {/* Mobile Menu */}

@@ -36,6 +36,15 @@ import { deleteEvent, recentEvents, recordEvent } from "./lib/events";
 import { checkToolLink } from "./lib/toolcheck";
 import { canSeeTool } from "../shared/toolsVisibility";
 import {
+  insertNotification,
+  markNotificationsRead,
+  notificationsFor,
+  resolveNotifyPrefs,
+  runNotificationDigest,
+  type NotifyDeps,
+} from "./lib/notify";
+import { registerJob, startScheduler } from "./lib/scheduler";
+import {
   assertModuleGraph,
   effectiveLifecycle,
   loadModuleSettings,
@@ -69,7 +78,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s15-tools-hub";
+const BUILD_MARKER = "2026-07-26-s18-lifecycle";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -955,6 +964,15 @@ async function recordStageEvent(user: any, from: string, to: string, reason: str
   });
   await stageEventsRepo.replaceAll(events.slice(-2000));
   await addActivity("stage", `${firstName(user.name)} advanced to ${getStage(to).name}`, { actorUserId: user.id, entityType: "stage", entityRef: to });
+  await notify({
+    userId: user.id,
+    type: "stage_advanced",
+    title: `You advanced to ${getStage(to).name}`,
+    body: unlocked.length ? `Newly unlocked: ${unlocked.join(", ")}` : null,
+    link: "/profile",
+    // One per stage, ever: re-computation can never re-celebrate.
+    dedupeKey: `stage:${user.id}:${to}`,
+  });
 }
 
 /** Every capability the platform knows about, for gates and unlock diffs. */
@@ -1185,6 +1203,140 @@ const gratitudeDeps: GratitudeDeps = {
 
 function gratitudeBudget(user: any) {
   return budgetFor(gratitudeDeps, user);
+}
+
+/**
+ * S16: the notification spine's dependencies. The spine never imports the
+ * server; the server hands it exactly what it needs.
+ */
+const notifyDeps: NotifyDeps = {
+  get pool() { return getPool(); },
+  memberById: (id) => members.byId(id),
+  sendEmail: (opts) => sendResendEmail(opts),
+  origin: () => (process.env.FRONTEND_URL || "https://amora.regencivics.earth").replace(/\/$/, ""),
+  projectName: () => mergedConfig().project.name,
+};
+
+/** Producer shorthand: fire-and-forget by contract (insertNotification never throws). */
+function notify(input: Parameters<typeof insertNotification>[1]) {
+  return insertNotification(notifyDeps, input);
+}
+
+/**
+ * S18: the daily retention sweep. Two rules, both variables, both refusing
+ * to touch anything still in flight: handled submissions age out (their data
+ * JSON carries PII), read notifications age out. Unhandled and unread rows
+ * are never swept — an unread message is a commitment, not clutter.
+ * Maia conversations need no sweep: they are never persisted at all.
+ */
+async function runRetentionSweep(): Promise<string> {
+  const parts: string[] = [];
+  const subDays = numberVar("retention.submissions_days");
+  if (subDays > 0) {
+    const cutoff = new Date(Date.now() - subDays * 86_400_000);
+    const before = submissionsRepo.all();
+    const keep = before.filter(
+      (s: any) => s.status === "new" || !s.submittedAt || new Date(s.submittedAt) >= cutoff,
+    );
+    if (keep.length !== before.length) {
+      await submissionsRepo.replaceAll(keep);
+      parts.push(`${before.length - keep.length} submission(s)`);
+    }
+  }
+  const ntfDays = numberVar("retention.notifications_days");
+  if (ntfDays > 0) {
+    const [r]: any = await getPool().query(
+      "DELETE FROM notifications WHERE is_read = 1 AND created_at < (NOW() - INTERVAL ? DAY)",
+      [ntfDays],
+    );
+    if (r.affectedRows) parts.push(`${r.affectedRows} notification(s)`);
+  }
+  return parts.length ? `swept ${parts.join(", ")}` : "nothing due";
+}
+
+/**
+ * S18: account deletion = anonymization. Value rows are NEVER deleted — the
+ * ledger's conservation proof must keep holding, settlements must keep
+ * explaining themselves — so the member row becomes a tombstone and every
+ * denormalized trace of their identity is scrubbed:
+ *
+ *  - users row: name/handle/email/bio/avatar/paths/journeys/contributions
+ *    cleared, password removed, sessions revoked, role dropped to member;
+ *  - gratitude_log from_name/to_name → "A departed member" (rows KEPT);
+ *  - quest_claims.user_name → same (rows KEPT, amounts intact);
+ *  - token_ledger descriptions that carried their first name → generic
+ *    (keyed by structured refs, never string matching);
+ *  - submissions they authored: PII keys inside data scrubbed, row kept;
+ *  - their notifications deleted; notifications they acted in de-attributed;
+ *  - tool clicks de-attributed; active role appointments end;
+ *  - PUBLIC pulse lines naming them are deleted; ADMIN audit rows are kept
+ *    (id-only, retained as the legal record — Law 8968 permits retention
+ *    for accountability obligations).
+ */
+async function anonymizeMember(target: any, actorId: string | null): Promise<void> {
+  const pool = getPool();
+  const anon = "A departed member";
+
+  // Ledger descriptions first, while gratitude_log still links names to refs.
+  await pool.query(
+    "UPDATE token_ledger SET description = 'Gratitude from a departed member' " +
+      "WHERE source IN ('gratitude_received','heart_received') " +
+      "AND source_ref IN (SELECT id FROM gratitude_log WHERE from_id = ?)",
+    [target.id],
+  );
+  await pool.query("UPDATE gratitude_log SET from_name = ? WHERE from_id = ?", [anon, target.id]);
+  await pool.query("UPDATE gratitude_log SET to_name = ? WHERE to_id = ?", [anon, target.id]);
+  await pool.query("UPDATE quest_claims SET user_name = ? WHERE user_id = ?", [anon, target.id]);
+  await pool.query("DELETE FROM notifications WHERE user_id = ?", [target.id]);
+  await pool.query("UPDATE notifications SET actor_user_id = NULL WHERE actor_user_id = ?", [target.id]);
+  await pool.query("UPDATE tool_clicks SET user_id = NULL WHERE user_id = ?", [target.id]);
+  await pool.query("DELETE FROM health_events WHERE audience = 'public' AND actor_user_id = ?", [target.id]);
+
+  // Scrub PII keys inside submissions they authored; the proposal content
+  // itself stays part of the village record.
+  const submissions = submissionsRepo.all();
+  let scrubbed = false;
+  for (const s of submissions as any[]) {
+    if (s.userId !== target.id) continue;
+    s.userName = anon;
+    if (s.data && typeof s.data === "object") {
+      for (const k of ["name", "firstName", "lastName", "email", "phone", "whatsapp", "telegram"]) {
+        if (k in s.data) s.data[k] = "[removed at member's request]";
+      }
+    }
+    scrubbed = true;
+  }
+  if (scrubbed) await submissionsRepo.replaceAll(submissions);
+
+  const holders = loadRoleHolders().filter((h) => h.userId !== target.id);
+  await roleHoldersRepo.replaceAll(holders);
+
+  await members.update(target.id, (u: any) => {
+    u.name = anon;
+    u.email = `deleted-${u.id}@anonymized.invalid`;
+    u.handle = `departed-${String(u.id).slice(-8)}`;
+    u.passwordHash = "";
+    u.tokenVersion = (u.tokenVersion ?? 0) + 1; // every session dies now
+    u.bio = "";
+    u.avatar = null;
+    u.paths = [];
+    u.journeys = {};
+    u.prefs = {};
+    u.contributions = [];
+    u.role = "member";
+    u.stageGranted = null;
+    u.walletAddress = null;
+    u.walletVerifiedAt = null;
+  });
+
+  await recordEvent(pool, {
+    kind: "audit",
+    text: "member:anonymized",
+    actorUserId: actorId,
+    entityType: "user",
+    entityRef: target.id,
+    audience: "admin",
+  });
 }
 
 async function nextActionFor(user: any): Promise<{ id: string; label: string; href: string }> {
@@ -1422,6 +1574,15 @@ async function startServer() {
 
   // S12: fill every store cache before a single route can read one.
   await initStores();
+
+  // S17: the scheduler host — one mechanism, DB-claimed jobs. It closes NO
+  // cycles and rolls NO seasons (both stay human/compute-on-read by design).
+  registerJob("notification-digest", 24 * 60 * 60 * 1000, async () => {
+    const r = await runNotificationDigest(notifyDeps);
+    return `${r.users} member(s), ${r.rows} notification(s)`;
+  });
+  registerJob("retention-sweep", 24 * 60 * 60 * 1000, async () => runRetentionSweep());
+  startScheduler(getPool());
 
   // S13: the module framework — load lifecycle state, reconcile the
   // dependency graph loudly (demotions serve as OFF, never brick), and
@@ -2402,6 +2563,40 @@ async function startServer() {
         name: tokenDef(t.token_type)?.name ?? t.token_type,
       })),
     });
+  });
+
+  // ── S16: notifications + preferences ──────────────────────────────────────
+
+  app.get("/api/notifications", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    res.json(await notificationsFor(getPool(), user.id));
+  });
+
+  app.post("/api/notifications/read", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : undefined;
+    const marked = await markNotificationsRead(getPool(), user.id, ids);
+    res.json({ success: true, marked });
+  });
+
+  app.get("/api/profile/prefs", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    res.json({ notify: resolveNotifyPrefs(user.prefs) });
+  });
+
+  app.put("/api/profile/prefs", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const incoming = req.body?.notify ?? {};
+    const updated = await members.update(user.id, (u: any) => {
+      u.prefs = { ...(u.prefs ?? {}), notify: { ...(u.prefs?.notify ?? {}), ...incoming } };
+    });
+    if (!updated) return res.status(404).json({ error: "User not found" });
+    // Echo back the VALIDATED view, so a junk write reads back as defaults.
+    res.json({ notify: resolveNotifyPrefs(updated.prefs) });
   });
 
   // Auth: Get Profile
@@ -3409,6 +3604,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         c.status = "declined";
         c.resolvedAt = new Date().toISOString();
       });
+      if (declined) {
+        await notify({
+          userId: declined.userId,
+          type: "quest_declined",
+          title: `Your claim on "${declined.questTitle}" was released`,
+          body: "The claim was declined or cleared — the quest is open again.",
+          link: "/quests",
+          actorUserId: adminActor(req)?.id,
+          dedupeKey: `quest:${declined.id}:declined`,
+        });
+      }
       return res.json(declined);
     }
     // Consent releases value, so it may only follow an actual submission.
@@ -3483,6 +3689,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       });
       const after = await members.update(claimant.id, (u: any) => { u.recognitionBalance = credit.toBalance; });
       await addActivity("quest", `${firstName(consented.userName)} completed the quest "${consented.questTitle}"`, { actorUserId: consented.userId, entityType: "quest", entityRef: consented.questId });
+      await notify({
+        userId: consented.userId,
+        type: "quest_consented",
+        title: `Your quest was consented: ${consented.questTitle} (+${granted})`,
+        link: "/profile",
+        actorUserId: adminActor(req)?.id,
+        dedupeKey: `quest:${consented.id}:consented`,
+      });
       if (after) {
         const stageAfter = await stageOf(after);
         if (stageBefore) await recordStageEvent(after, stageBefore, stageAfter, `quest consented: ${consented.questTitle}`);
@@ -3544,6 +3758,15 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const outcome = await sendGratitude(gratitudeDeps, { fromUser: user, toEmail, amount, message });
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     await addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(outcome.recipient.name)}`, { actorUserId: user.id, entityType: "user", entityRef: outcome.recipient.id });
+    await notify({
+      userId: outcome.recipient.id,
+      type: "gratitude",
+      title: `${firstName(user.name)} sent you appreciation`,
+      body: outcome.entry.message ? String(outcome.entry.message).slice(0, 140) : null,
+      link: "/profile",
+      actorUserId: user.id,
+      dedupeKey: `gratitude:${outcome.entry.id}`,
+    });
     res.json({ success: true, entry: { ...outcome.entry, amount: undefined }, budget: outcome.budget });
   });
 
@@ -3937,6 +4160,16 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           grantedAt: new Date().toISOString(),
         });
         await addActivity("role", `${firstName(member.name)} joined the ${role.name}`, { actorUserId: adminActor(req)?.id, entityType: "role", entityRef: role.id });
+        await notify({
+          userId: member.id,
+          type: "role_appointed",
+          title: `You were appointed to the ${role.name}`,
+          body: role.description ? String(role.description).slice(0, 140) : null,
+          link: "/roles",
+          actorUserId: adminActor(req)?.id,
+          // Keyed on the holder row: a re-appointment after removal notifies again.
+          dedupeKey: `role:${holders[holders.length - 1]?.id ?? `${role.id}:${userId}`}`,
+        });
       }
     } else {
       holders = holders.filter((h) => !(h.roleId === role.id && h.userId === userId));
@@ -3991,13 +4224,62 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true, stageComputed: after });
   });
 
+  // S18: "delete" a member = anonymize them. Value rows persist (the ledger
+  // must keep conserving; settlements must keep explaining themselves); the
+  // person's identity is scrubbed from every denormalized surface.
   app.delete("/api/admin/players/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const removed = await members.remove(req.params.id);
-    if (!removed) return res.status(404).json({ error: "Not found" });
-    // Note: historical quest claims and gratitude-log entries are intentionally
-    // left intact; they are a shared ledger, not owned by a single account.
-    res.json({ success: true, removed: { id: removed.id, email: removed.email } });
+    const target = await members.byId(req.params.id);
+    if (!target) return res.status(404).json({ error: "Not found" });
+    if (target.role === "founder") {
+      return res.status(409).json({ error: "Demote the founder first — a deployment must never strand itself" });
+    }
+    await anonymizeMember(target, adminActor(req)?.id ?? null);
+    res.json({ success: true, removed: { id: target.id, email: target.email }, anonymized: true });
+  });
+
+  /** Member-initiated deletion (Law 8968 posture): same path, own account. */
+  app.post("/api/profile/delete-account", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const { password } = req.body ?? {};
+    if (!password || !(await verifyPassword(String(password), user.passwordHash))) {
+      return res.status(403).json({ error: "Confirm with your password to delete your account" });
+    }
+    if (user.role === "founder") {
+      return res.status(409).json({ error: "A founder must hand off the village before leaving — demote yourself first" });
+    }
+    await anonymizeMember(user, user.id);
+    res.json({ success: true, anonymized: true });
+  });
+
+  /** Member data export (Law 8968 posture): everything the village holds on you. */
+  app.get("/api/profile/export", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const { passwordHash, tokenVersion, ...member } = user;
+    const log = await gratitudeRepo.all();
+    const [notifRows] = await getPool().query<any[]>(
+      "SELECT type, title, body, link, is_read, created_at FROM notifications WHERE user_id = ?",
+      [user.id],
+    );
+    const exportDoc = {
+      exportedAt: new Date().toISOString(),
+      platform: mergedConfig().project.name,
+      member,
+      stage: await stageOf(user),
+      questClaims: await claimsRepo.forUser(user.id),
+      gratitudeSent: log.filter((g) => g.fromId === user.id),
+      gratitudeReceived: log.filter((g) => g.toId === user.id),
+      ledger: await entriesForMember(getPool(), user.id),
+      balances: await balancesFor(getPool(), memberAccount(user.id)),
+      stageEvents: stageEventsRepo.all().filter((e: any) => e.userId === user.id),
+      submissions: submissionsRepo.all().filter((s: any) => s.userId === user.id),
+      notifications: notifRows,
+      preferences: resolveNotifyPrefs(user.prefs),
+    };
+    res.setHeader("Content-Disposition", `attachment; filename="my-data-${user.id}.json"`);
+    res.json(exportDoc);
   });
 
   // Activity admin: remove a single pulse entry (e.g. a test account's join line).

@@ -59,6 +59,8 @@ export const users = mysqlTable("users", {
   /** Per-journey step progress: { journeyId: [stepId, ...] }. Training
    *  completion reads journeys.training and gates stage computation. */
   journeys: json("journeys"),
+  /** Member preferences: notification cadence today, contact opt-outs later (0017). */
+  prefs: json("prefs"),
   bio: text("bio"),
   avatar: varchar("avatar", { length: 500 }),
   /** Manual admin override of the computed stage. */

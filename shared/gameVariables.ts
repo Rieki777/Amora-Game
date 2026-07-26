@@ -315,6 +315,33 @@ export const VARIABLES: VariableDef[] = [
     unit: "days",
   },
 
+  // ── Data lifecycle (S18). Every fork inherits this posture — Gate F's
+  //    legal scope includes data protection (Costa Rica Law 8968). ──────────
+  {
+    key: "retention.submissions_days",
+    category: "Data lifecycle",
+    label: "Keep handled form submissions for",
+    description:
+      "Form submissions carry personal details (names, emails, phone numbers). Once a submission has been handled — any status other than new — it is deleted this many days after it arrived. Unhandled submissions are never swept: an unread message is a commitment, not clutter. 0 keeps everything forever.",
+    type: "integer",
+    default: "365",
+    min: 0,
+    max: 3650,
+    unit: "days",
+  },
+  {
+    key: "retention.notifications_days",
+    category: "Data lifecycle",
+    label: "Keep read notifications for",
+    description:
+      "Read notifications older than this are deleted by the daily sweep. Unread ones stay — they have not done their job yet. 0 keeps everything forever.",
+    type: "integer",
+    default: "90",
+    min: 0,
+    max: 3650,
+    unit: "days",
+  },
+
   // ── Village rhythm ────────────────────────────────────────────────────────
   {
     key: "village.pulse_max_entries",
