@@ -129,12 +129,12 @@ Once the above is proven live in Amora. Mostly mechanical if decision 2 held: co
 
 | Task | Owner | Status |
 |---|---|---|
-| Phase 0: sign tokens, header-only admin auth | CLAUDE CODE | NEXT |
-| Rotate `ADMIN_PASSWORD` + `JOURNEY_PASSWORD` | RYE | PENDING |
+| Phase 0: sign tokens, header-only admin auth | CLAUDE CODE | SHIPPED, live. Verified on production: an unsigned token for a real existing user id is rejected, a token signed with the wrong secret is rejected, one signed correctly is accepted (the control), and `?password=` no longer authenticates. `AUTH_TOKEN_SECRET` is set on the Railway service. |
+| Phase 2: mobile FAB + bottom tab bar | CLAUDE CODE | SHIPPED, live (`1352025`). Config-driven via `client/src/config/mobileNav.ts`. Verified at 390px on production. The trigger glyph is intentionally a plain icon: the brand PNGs carry the AMORA wordmark and are illegible at 32px, so `FabTriggerIcon` in the config is the swap point if a square brand glyph is ever cut. |
+| Rotate `ADMIN_PASSWORD` + `JOURNEY_PASSWORD` | RYE | DECLINED, deliberate. Rye's call 2026-07-18: they are placeholders and meaningless until a real project takes over and sets its own. Revisit before any real membership exists. |
 | Back up the production `data/` volume before Phase 1 | RYE (or Claude with explicit go-ahead) | PENDING |
 | Choose Postgres vs MySQL for Amora | RYE | PENDING, MySQL matches regen-civics and maximizes portability |
 | Phase 1: DB + migrations + repository layer + split `server/index.ts` | CLAUDE CODE | BLOCKED on the two rows above |
-| Phase 2: mobile FAB + bottom nav | CLAUDE CODE | READY, independent of Phase 1 |
 | Phase 3: notification spine + scheduler | CLAUDE CODE | after Phase 1 |
 | Roles as data (role holders, assignment, gating) | CLAUDE CODE | prerequisite for Phase 5 |
 | Phase 4: minimal forum | CLAUDE CODE | after Phase 3 |
