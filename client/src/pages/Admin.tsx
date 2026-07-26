@@ -1995,6 +1995,270 @@ function PlayersTab({ password }: { password: string }) {
   );
 }
 
+// ── Game Admin: Role appointments (S3 — no more curl) ────────────────────────
+
+function GameRolesTab({ password }: { password: string }) {
+  const [roles, setRoles] = useState<any[]>([]);
+  const [players, setPlayers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [picking, setPicking] = useState<Record<string, string>>({});
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [rRes, pRes] = await Promise.all([
+        fetch(`${API_BASE}/roles`),
+        fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
+      ]);
+      const r = await rRes.json();
+      const p = await pRes.json();
+      setRoles(Array.isArray(r) ? r : []);
+      setPlayers(Array.isArray(p) ? p : []);
+    } catch { setRoles([]); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const change = async (roleId: string, userId: string, action: "add" | "remove") => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/roles/${roleId}/holders`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ userId, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "failed");
+      toast.success(action === "add" ? "Appointed" : "Removed");
+      setPicking((prev) => ({ ...prev, [roleId]: "" }));
+      load();
+    } catch (e: any) {
+      // The stage-floor refusal comes back with the member's name and the
+      // stage the role asks for — show it verbatim, it is written for humans.
+      toast.error(e?.message || "Change failed");
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Game Roles</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Appoint and remove role holders. Appointments respect each role's stage
+          floor; role grants are one of the two ways a member gains capabilities.
+        </p>
+      </div>
+      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : roles.length === 0 ? (
+        <p className="text-sm text-gray-400">No roles defined yet.</p>
+      ) : (
+        <div className="space-y-4">
+          {roles.map((r) => (
+            <div key={r.id} className="border border-gray-200 rounded-xl p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+                <div>
+                  <h3 className="font-semibold text-gray-900">{r.name}</h3>
+                  {r.description && <p className="text-sm text-gray-500 mt-0.5 max-w-xl">{r.description}</p>}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {r.minStage && (
+                    <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
+                      stage ≥ {r.minStage}
+                    </span>
+                  )}
+                  {(r.capabilities ?? []).map((c: string) => (
+                    <span key={c} className="text-xs bg-[#2D5A5A]/10 text-[#2D5A5A] px-2 py-0.5 rounded-full font-mono">
+                      {c}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 mt-3">
+                {(r.holders ?? []).length === 0 && (
+                  <span className="text-xs text-gray-400 italic">Vacant — an open call</span>
+                )}
+                {(r.holders ?? []).map((h: any) => (
+                  <span key={h.userId} className="inline-flex items-center gap-1.5 text-xs bg-gray-100 text-gray-700 pl-2.5 pr-1 py-1 rounded-full">
+                    {h.name}
+                    <button
+                      onClick={() => change(r.id, h.userId, "remove")}
+                      title="Remove from this role"
+                      className="w-4 h-4 rounded-full hover:bg-gray-300 text-gray-500 flex items-center justify-center"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <select
+                  value={picking[r.id] ?? ""}
+                  onChange={(e) => setPicking((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+                >
+                  <option value="">Appoint a member…</option>
+                  {players
+                    .filter((p) => !(r.holders ?? []).some((h: any) => h.userId === p.id))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}{p.handle ? ` (@${p.handle})` : ""}</option>
+                    ))}
+                </select>
+                <button
+                  onClick={() => picking[r.id] && change(r.id, picking[r.id], "add")}
+                  disabled={!picking[r.id]}
+                  className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                >
+                  Appoint
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Game Admin: the game-variables editor (S3 — built from scratch; the one
+//    the plan's hardening pass proved was a phantom) ──────────────────────────
+
+function VariablesTab({ password }: { password: string }) {
+  const [vars, setVars] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/variables`, { headers: authHeaders(password) });
+      const data = await res.json();
+      // Server shape: { categories: [{ name, variables: [...] }], … }
+      const flat = Array.isArray(data)
+        ? data
+        : (data.categories ?? []).flatMap((c: any) => c.variables ?? []);
+      setVars(flat);
+    } catch { setVars([]); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async (key: string, value: string) => {
+    setSaving(key);
+    try {
+      const res = await fetch(`${API_BASE}/admin/variables/${encodeURIComponent(key)}`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Invalid value");
+      toast.success("Saved — the rule is live");
+      setDrafts((d) => { const n = { ...d }; delete n[key]; return n; });
+      load();
+    } catch (e: any) {
+      // Fail-loud by design: the server names exactly what's wrong (bounds,
+      // type, unknown key). Show it verbatim.
+      toast.error(e?.message || "Save failed");
+    }
+    setSaving(null);
+  };
+
+  const byCategory: Record<string, any[]> = {};
+  for (const v of vars) (byCategory[v.category] ??= []).push(v);
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Game Mechanics</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          The rules of your village's game, live-editable. Only changed values are
+          stored, so platform defaults keep flowing to you as the foundation
+          evolves. Every value is validated against its bounds before it lands.
+        </p>
+      </div>
+      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
+        <div className="space-y-8">
+          {Object.entries(byCategory).map(([cat, list]) => (
+            <div key={cat}>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">{cat}</h3>
+              <div className="space-y-3">
+                {list.map((v) => {
+                  const draft = drafts[v.key] ?? v.value;
+                  const dirty = draft !== v.value;
+                  return (
+                    <div key={v.key} className="border border-gray-200 rounded-xl px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex-1 min-w-[220px]">
+                          <div className="font-medium text-gray-900 text-sm">
+                            {v.label}
+                            {v.isDefault && (
+                              <span className="ml-2 text-[10px] uppercase tracking-wide bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">platform default</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5 max-w-xl">{v.description}</p>
+                          <p className="text-[11px] text-gray-400 mt-0.5 font-mono">
+                            {v.key}
+                            {v.min !== undefined && v.max !== undefined && ` · ${v.min}–${v.max}`}
+                            {v.unit ? ` ${v.unit}` : ""}
+                          </p>
+                        </div>
+                        {v.type === "boolean" ? (
+                          <select
+                            value={draft}
+                            onChange={(e) => setDrafts((d) => ({ ...d, [v.key]: e.target.value }))}
+                            className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+                          >
+                            <option value="true">on</option>
+                            <option value="false">off</option>
+                          </select>
+                        ) : v.type === "choice" ? (
+                          <select
+                            value={draft}
+                            onChange={(e) => setDrafts((d) => ({ ...d, [v.key]: e.target.value }))}
+                            className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white max-w-[220px]"
+                          >
+                            {(v.choices ?? []).map((c: any) => (
+                              <option key={c.value} value={c.value}>{c.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type={v.type === "text" ? "text" : "number"}
+                            value={draft}
+                            step={v.type === "decimal" || v.type === "percentage" ? "0.01" : "1"}
+                            onChange={(e) => setDrafts((d) => ({ ...d, [v.key]: e.target.value }))}
+                            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 w-40"
+                          />
+                        )}
+                        <button
+                          onClick={() => save(v.key, draft)}
+                          disabled={!dirty || saving === v.key}
+                          className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                        >
+                          {saving === v.key ? "Saving…" : "Save"}
+                        </button>
+                        {!v.isDefault && (
+                          <button
+                            onClick={() => save(v.key, v.default)}
+                            title={`Back to the platform default (${v.default})`}
+                            className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1.5"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Game Admin: Seasons ───────────────────────────────────────────────────────
 // Seasons are a list and the current one is picked by date, so the banner can
 // never keep advertising a season that already turned. Queue the next one and
@@ -2862,6 +3126,8 @@ export default function Admin() {
           {[
             { key: "quest-claims", label: "Quest Claims", icon: Sparkles },
             { key: "players", label: "Players", icon: Users },
+            { key: "game-roles", label: "Game Roles", icon: Users2 },
+            { key: "variables", label: "Game Mechanics", icon: Activity },
             { key: "season", label: "Season", icon: Circle },
           ].map(({ key, label, icon: Icon }) => (
             <button
@@ -2981,6 +3247,8 @@ export default function Admin() {
           {activeTab === "training-modules" && <TrainingModulesTab password={password} />}
           {activeTab === "quest-claims" && <QuestClaimsTab password={password} />}
           {activeTab === "players" && <PlayersTab password={password} />}
+          {activeTab === "game-roles" && <GameRolesTab password={password} />}
+          {activeTab === "variables" && <VariablesTab password={password} />}
           {activeTab === "season" && <SeasonTab password={password} />}
           {activeTab === "settings" && <SettingsTab password={password} />}
           {activeTab === "work-with-us" && <WorkWithUsTab password={password} />}

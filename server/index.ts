@@ -1270,7 +1270,9 @@ async function startServer() {
           id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           at: new Date().toISOString(),
           actorUserId: actor.id,
-          action: `${req.method} /api/admin${req.path}`,
+          // originalUrl, not req.path: by finish-time Express has restored the
+          // full URL on the request, so a mount-prefix template would double it.
+          action: `${req.method} ${String(req.originalUrl).split("?")[0]}`,
           targetType: null,
           targetId: null,
         });
@@ -1290,7 +1292,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-26-s2-handles-founders", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-26-s3-founder-selfservice", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -3197,7 +3199,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           id: `rh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           roleId: role.id,
           userId,
-          grantedBy: "admin",
+          // S1 made this a real person instead of the string "admin".
+          grantedBy: adminActor(req)?.id ?? "admin",
           grantedAt: new Date().toISOString(),
         });
         addActivity("role", `${firstName(member.name)} joined the ${role.name}`);
