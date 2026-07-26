@@ -1522,6 +1522,22 @@ async function startServer() {
     let emailed = false;
     if (user) {
       members.update(user.id, (u: any) => { u.role = "founder"; });
+      // Expired-link recovery: an account created by bootstrap that never set a
+      // password cannot log in and cannot ask for a reset. Re-running bootstrap
+      // (break-glass path) re-sends a fresh claim link for exactly that case.
+      if (!user.passwordHash) {
+        const claim = makeSetPasswordToken(user.id);
+        claimUrl = `${(process.env.FRONTEND_URL || "").replace(/\/$/, "")}/set-password?token=${encodeURIComponent(claim)}`;
+        try {
+          await sendResendEmail({
+            to: [normEmail],
+            subject: `Set your password`,
+            html: `<p><a href="${escapeHtml(claimUrl)}">Set your password</a> (link expires in 60 minutes).</p>
+<p>If the button does nothing, paste this into your browser:<br>${escapeHtml(claimUrl)}</p>`,
+          });
+          emailed = true;
+        } catch { /* claimUrl returned to the operator */ }
+      }
     } else {
       const userId = `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       user = {
