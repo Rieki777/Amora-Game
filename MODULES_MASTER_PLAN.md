@@ -133,6 +133,13 @@ session's acceptance includes it** — standing rules with no home get skipped.
 7. **i18n posture (decided):** English-only UI is an explicit v1 non-goal, but
    from the module framework (S13) onward, module UI copy goes through a
    per-module strings object so extraction stays cheap. Revisit at S56.
+8. **Interop posture (Rye, 2026-07-26): design principle only, no cross-village
+   features yet.** Every fork keeps: stable public slugs/ids, a versioned
+   `GET /api/platform/info` (name, version, enabled modules — lands with the
+   framework S13), documented export formats, and config shapes that inherit
+   platform upgrades (delta-only storage everywhere). Village directory,
+   cross-village balances, and shared identity become possible later without
+   migrations because of this rule — none are built now.
 
 ## 2.2 Economy invariants (build-blocking; owning sessions named)
 
@@ -223,8 +230,12 @@ session's acceptance includes it** — standing rules with no home get skipped.
 D1 one ledger spec (keystone owns all token DDL) · D2 one module framework
 (lifecycle in `module_settings`, never game variables; tools-hub demoted to
 reference consumer) · D3 one Hypha home · D4 event spine before modules · D5 feed
-is a forum lens (riders baked into the forum session) · D6 exchange v1 buy-only ·
-D7 crowdpool deferred to trigger, `crowdpool.fulfill_recognition` deleted.
+is a forum lens (riders baked into the forum session) · **D6 (updated per Gate B):
+exchange v1 is buy-only; internal token↔token trading ships as the exchange's
+explicit opt-in capability (S33+ builds it OFF-by-default rather than deferring it
+indefinitely) — treasury-as-counterparty at admin-posted prices, never an AMM,
+never fiat-out, faucet tokens never swappable** · D7 crowdpool deferred to
+trigger, `crowdpool.fulfill_recognition` deleted.
 
 ## 2.5 Known live hazards (inherited from the foundation plan's v1 list — still
 live, each with its kill-point)
@@ -263,14 +274,23 @@ for itself by S6.
 **S1. Admin identities (auth).** Fully specified so nothing is guessed:
 - **Storage:** lands on the **JSON usersRepo** (`role`, `tokenVersion` fields +
   seeds). Do NOT read the 0003 MySQL columns — they receive values at S6.
-- **Mechanism:** `requireAdmin(req)` = valid member token AND `user.role ===
-  'admin'`. **While zero admins exist**, `POST /api/admin/bootstrap
-  {password, email}` (password = current `ADMIN_PASSWORD`) elevates that existing
-  member exactly once — self-sequencing rollout: the same deploy is safe on
-  production because enforcement is "the password authenticates nothing once ≥1
-  admin exists". `BREAK_GLASS_ADMIN_EMAIL` env var can re-elevate only that
+- **Roles (template concept, Rye 2026-07-26):** `role ∈ member | admin |
+  founder`. **Founder is the master-admin tier every fork inherits:** implies
+  admin everywhere (`requireAdmin` accepts both), can promote/demote admins,
+  cannot be demoted by non-founders, and the last founder cannot be demoted at
+  all. Amora's founder: **rieki.cordon@gmail.com**.
+- **Mechanism:** `requireAdmin(req)` = valid member token AND role in
+  (admin, founder). **While zero admins/founders exist**, `POST
+  /api/admin/bootstrap {password, email, name?}` (password = current
+  `ADMIN_PASSWORD`) makes that account the **founder** — elevating the member if
+  one exists with that email, or **creating the account and emailing a
+  short-lived signed set-password link** (Resend is live; if email fails the
+  claim link is returned to the operator). Self-sequencing rollout: the same
+  deploy is safe on production because the password authenticates nothing once
+  a founder exists. `BREAK_GLASS_ADMIN_EMAIL` env var can re-elevate only that
   account. After bootstrap on prod is verified (an admin-token mutation
-  succeeds), `ADMIN_PASSWORD` is deleted from Railway.
+  succeeds), `ADMIN_PASSWORD` is deleted from Railway. The set-password token
+  path doubles as the platform's password-reset primitive later.
 - **Client:** `Admin.tsx` PasswordGate becomes a login-aware gate (logged out →
   member login; non-admin → refusal screen); all tabs drop the password prop for
   standard member-token `authHeaders`. No dual-accept window except bootstrap.
@@ -480,17 +500,18 @@ the gate and this run are not allowed to disagree silently.
 
 ---
 
-# Part 5 — Decision gates for Rye
+# Part 5 — Decision gates (ALL RATIFIED by Rye, 2026-07-26)
 
-| Gate | Question | Status / Recommendation | Blocks |
-|---|---|---|---|
-| ~~0~~ | ~~enum → registry~~ | **DONE** — live + committed (`339a093`) | — |
-| ~~C~~ | ~~per-admin identities~~ | **ABSORBED into S1** (the handoff's own 4.0) | — |
-| **A** | Ledger shape: `ledger_accounts` + transfer rows + faucet flag | **Decided as the plan's basis — ratify or veto by S7.** Both critiques rate freezing this CRITICAL; rules 2.2 #1/#4/#6/#8 and Part 4's conservation assertion are written against it. **A veto is priced:** it re-scopes Block 6 and rewrites those rules and the DoD — say so explicitly if vetoing. | S7 |
-| B | Nothing share-like ever trades in-platform (exchange = closed-loop credits only) | Yes — the deck's own slide-25 rule and the legal firewall | Block 6 |
-| D | One shared credit token vs per-module tokens | Separate per module — cleaner pools and legal stories; the registry makes it free. Name them (stay credits, library credits) before Block 6 seeds | Block 6 |
-| E | Deny-beats-role-grant for warning badges | Yes, with expiry + provenance + re-issue counts surfaced | S36 |
-| F | Legal review: closed-loop credit sales (CR 13% IVA lodging, consumer refund, gift-certificate/escheatment) **and data protection (Law 8968: retention, deletion, export)** | **Engage counsel around S16** (weeks of lead time; S30–S32 are consecutive sessions — "before S32" starts the clock too late) | S32+ |
+| Gate | Decision |
+|---|---|
+| ~~0~~ | enum → registry — **DONE** (`339a093`, live) |
+| ~~C~~ | per-admin identities — **ABSORBED into S1** |
+| **A** | **RATIFIED: `ledger_accounts` + transfer rows + faucet flag.** S7 builds it; rules 2.2 #1/#4/#6/#8 and Part 4's conservation assertion stand as written. |
+| **B** | **RATIFIED, refined:** Base-governed tokens (equity, Voice, anything Hypha mints) NEVER trade here — read-only display; they trade on Base/Coinbase-connected exchanges. **Platform-governed tokens (our DB) CAN trade token↔token internally — but internal trading is a separate opt-in capability, OFF by default,** enabled explicitly per deployment with the legal caution card. The deployment declares each token's value semantics (`kind`: share-like / utility / credit / etc.) — the platform provides capability, the village owns the meaning and the legal posture. Invariant 2.2 #2 (no swappable faucet tokens) holds even when trading is enabled. |
+| **C2** | **RATIFIED (fiat direction): fiat flows IN only.** Tokens can be BOUGHT with national currency (Stripe + **Zeffy** — learn the Zeffy pattern from core.regencivics.earth's existing integration, else link-out + admin reconcile); tokens can NEVER be sold for fiat on the platform (cash-out is Hypha/Base's job). Once bought, tokens trade internally per Gate B. `payments.ts` is provider-agnostic from day one: stripe + zeffy adapters over one idempotent order path. |
+| **D** | **RATIFIED: per-module tokens.** Each module's enable/configure flow includes naming its token(s) — registry rows are created at module-enable time with admin-chosen names. No shared credit token. |
+| E | Deny-beats-role-grant for warning badges — pending, decide by S36 |
+| F | Legal review (CR 13% IVA lodging, consumer refund, gift-certificate/escheatment, **Law 8968 data protection**) — **engage counsel around S16** |
 
 ---
 
