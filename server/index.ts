@@ -77,6 +77,7 @@ const LEDGER_FILE = path.join(DATA_DIR, "token-ledger.json");
 
 
 const STAGE_EVENTS_FILE = path.join(DATA_DIR, "stage-events.json");
+const ADMIN_AUDIT_FILE = path.join(DATA_DIR, "admin-audit.json");
 const MILESTONES_FILE = path.join(DATA_DIR, "milestones.json");
 /** Ledger of one-shot data fixes already applied to this deployment's volume. */
 const MIGRATIONS_FILE = path.join(DATA_DIR, "migrations.json");
@@ -309,6 +310,8 @@ const investorDocsRepo = collectionRepo(INVESTOR_DOCS_FILE);
 const distributionsRepo = collectionRepo<DistributionRecord>(DISTRIBUTIONS_FILE);
 const cyclesRepo = collectionRepo<CycleRecord>(CYCLES_FILE);
 const stageEventsRepo = collectionRepo(STAGE_EVENTS_FILE);
+// S1: who did what, as admin — the substrate S11's recordEvent() later subsumes.
+const adminAuditRepo = collectionRepo(ADMIN_AUDIT_FILE);
 const rolesRepo = collectionRepo<RoleDef>(ROLES_FILE);
 const roleHoldersRepo = collectionRepo<RoleHolderRow>(ROLE_HOLDERS_FILE);
 const migrationsRepo = collectionRepo<any>(MIGRATIONS_FILE);
@@ -364,8 +367,32 @@ function secretEquals(provided: string | undefined, expected: string): boolean {
   return crypto.timingSafeEqual(a, b);
 }
 
+/**
+ * S1: admins are real users (MODULES_MASTER_PLAN.md Block 1).
+ *
+ * A request is admin when it carries a valid MEMBER token whose account role is
+ * 'admin' or 'founder'. The shared password authenticates NOTHING here — its
+ * only remaining power is the one-shot founder bootstrap endpoint, and that
+ * power expires the moment a founder exists. The matched account is attached to
+ * the request so every admin mutation can name a real person in the audit log.
+ *
+ * Roles are a template concept every fork inherits:
+ *   member  — everyone
+ *   admin   — full admin surfaces, appointed by a founder
+ *   founder — master admin: implies admin, manages admins, cannot be demoted
+ *             by non-founders, and the last founder cannot be demoted at all.
+ */
 function requireAdmin(req: express.Request): boolean {
-  return secretEquals(authPassword(req), ADMIN_PASSWORD);
+  const user = requireUser(req);
+  if (!user || (user.role !== "admin" && user.role !== "founder")) return false;
+  (req as any).adminUser = user;
+  return true;
+}
+
+/** The admin account a passing requireAdmin attached, for audit attribution. */
+function adminActor(req: express.Request): { id: string; name?: string } | null {
+  const u = (req as any).adminUser;
+  return u ? { id: u.id, name: u.name } : null;
 }
 
 function requireJourney(req: express.Request): boolean {
@@ -385,12 +412,16 @@ function signTokenPayload(payload: string): string {
  * any account. Old unsigned tokens are rejected by decodeToken, which logs
  * everyone out once. That is intended.
  */
-function encodeToken(userId: string, email: string): string {
-  const payload = Buffer.from(JSON.stringify({ userId, email, timestamp: Date.now() })).toString("base64url");
+function encodeToken(userId: string, email: string, tokenVersion = 0): string {
+  // `v` is the session-revocation lever (S1): bumping user.tokenVersion
+  // invalidates every token minted before the bump, for one member only.
+  const payload = Buffer.from(
+    JSON.stringify({ userId, email, timestamp: Date.now(), v: tokenVersion }),
+  ).toString("base64url");
   return `${payload}.${signTokenPayload(payload)}`;
 }
 
-function decodeToken(token: string): { userId: string; email: string; timestamp: number } | null {
+function decodeToken(token: string): { userId: string; email: string; timestamp: number; v?: number } | null {
   try {
     const dot = token.lastIndexOf(".");
     if (dot < 1 || dot === token.length - 1) return null; // unsigned or malformed
@@ -404,6 +435,36 @@ function decodeToken(token: string): { userId: string; email: string; timestamp:
     if (!decoded.userId || !decoded.email || typeof decoded.timestamp !== "number") return null;
     if (Date.now() - decoded.timestamp > TOKEN_TTL_MS) return null;
     return decoded;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Set-password claim tokens (S1): the founder-bootstrap invite, and later the
+ * platform's password-reset primitive. Same HMAC as session tokens, different
+ * purpose field so one can never be replayed as the other, and a hard expiry.
+ */
+const SET_PASSWORD_TTL_MS = 60 * 60 * 1000;
+function makeSetPasswordToken(userId: string): string {
+  const payload = Buffer.from(
+    JSON.stringify({ userId, purpose: "set-password", exp: Date.now() + SET_PASSWORD_TTL_MS }),
+  ).toString("base64url");
+  return `${payload}.${signTokenPayload(payload)}`;
+}
+function readSetPasswordToken(token: string): { userId: string } | null {
+  try {
+    const dot = token.lastIndexOf(".");
+    if (dot < 1 || dot === token.length - 1) return null;
+    const payload = token.slice(0, dot);
+    const provided = Buffer.from(token.slice(dot + 1));
+    const expected = Buffer.from(signTokenPayload(payload));
+    if (provided.length !== expected.length) return null;
+    if (!crypto.timingSafeEqual(provided, expected)) return null;
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
+    if (decoded.purpose !== "set-password" || !decoded.userId) return null;
+    if (typeof decoded.exp !== "number" || Date.now() > decoded.exp) return null;
+    return { userId: decoded.userId };
   } catch {
     return null;
   }
@@ -460,6 +521,7 @@ function ensureDataFiles() {
   // Only CHANGED variables are stored, so new platform defaults are inherited.
   if (!fs.existsSync(VARIABLES_FILE)) fs.writeFileSync(VARIABLES_FILE, "{}");
   if (!fs.existsSync(STAGE_EVENTS_FILE)) fs.writeFileSync(STAGE_EVENTS_FILE, "[]");
+  if (!fs.existsSync(ADMIN_AUDIT_FILE)) fs.writeFileSync(ADMIN_AUDIT_FILE, "[]");
   if (!fs.existsSync(LEDGER_FILE)) fs.writeFileSync(LEDGER_FILE, "[]");
   runOnce("rename-hearts-to-recognition", renameHeartsBalanceField);
   runOnce("ledger-opening-balances", seedLedgerOpeningBalances);
@@ -590,7 +652,14 @@ function requireUser(req: express.Request): any | null {
   const decoded = decodeToken(header.slice(7));
   if (!decoded) return null;
   const users = { users: members.readDoc() };
-  return users.users.find((u: any) => u.id === decoded.userId) ?? null;
+  const user = users.users.find((u: any) => u.id === decoded.userId) ?? null;
+  if (!user) return null;
+  // Session revocation (S1): a token minted before the member's tokenVersion
+  // was bumped is dead. Tokens from before this field existed carry no `v` and
+  // are accepted while the member's version is still 0, so shipping this did
+  // not log anyone out.
+  if ((decoded.v ?? 0) !== (user.tokenVersion ?? 0)) return null;
+  return user;
 }
 
 function getBrand() {
@@ -869,7 +938,8 @@ function suggestNextSeasonDates(cadence: string, lastEndsOn: string): { startsOn
 // where a page expects an array or number (see Profile.tsx contributions crash).
 function publicUser(u: any) {
   if (!u) return null;
-  const { passwordHash, ...rest } = u;
+  // tokenVersion is internal plumbing (session revocation), not profile data.
+  const { passwordHash, tokenVersion, ...rest } = u;
   return {
     ...rest,
     paths: u.paths ?? [],
@@ -1134,6 +1204,32 @@ async function startServer() {
 
   app.use(express.json({ limit: "1mb" }));
 
+  /**
+   * S1: automatic audit attribution for EVERY admin mutation, present and
+   * future. One registration instead of forty hand-placed calls: any non-GET
+   * under /api/admin that succeeds with an attached admin account writes an
+   * audit row naming the person. Endpoints with richer context (bootstrap,
+   * role changes) still write their own, more specific rows.
+   */
+  app.use("/api/admin", (req, res, next) => {
+    if (req.method === "GET" || req.method === "OPTIONS") return next();
+    res.on("finish", () => {
+      const actor = adminActor(req);
+      if (!actor || res.statusCode >= 400) return;
+      try {
+        adminAuditRepo.add({
+          id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          at: new Date().toISOString(),
+          actorUserId: actor.id,
+          action: `${req.method} /api/admin${req.path}`,
+          targetType: null,
+          targetId: null,
+        });
+      } catch { /* auditing must never break the mutation it describes */ }
+    });
+    next();
+  });
+
   // CORS
   const allowedOrigin = process.env.FRONTEND_URL || "https://amora.regencivics.earth";
   app.use((_req, res, next) => {
@@ -1145,7 +1241,7 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", build: "2026-07-24-autodeploy", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", build: "2026-07-26-s1-admin-identities", timestamp: new Date().toISOString() });
   });
 
   // Form Submission
@@ -1368,6 +1464,11 @@ async function startServer() {
 
   // Auth: Login
   app.post("/api/auth/login", async (req, res) => {
+    // Throttled (S1): before admins were real users this endpoint was the one
+    // unthrottled password oracle in the app.
+    if (rateLimited(`login:${clientIp(req)}`, 10, 15 * 60 * 1000)) {
+      return res.status(429).json({ error: "Too many attempts. Try again in a few minutes." });
+    }
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: "Missing email or password" });
@@ -1383,42 +1484,138 @@ async function startServer() {
       users.users[userIdx].passwordHash = await hashPassword(password);
       members.saveDoc(users.users);
     }
-    const token = encodeToken(user.id, email);
+    const token = encodeToken(user.id, email, user.tokenVersion ?? 0);
     res.json({ success: true, token, user: publicUser(users.users[userIdx]) });
+  });
+
+  // ── S1: founder bootstrap, set-password, session revocation, audit ────────
+
+  /**
+   * One-shot founder bootstrap. The ONLY thing the legacy shared password can
+   * still do — and only while no admin or founder exists (or, break-glass, for
+   * the account named in BREAK_GLASS_ADMIN_EMAIL). Elevates an existing member
+   * to founder, or creates the account and emails a short-lived set-password
+   * link so the founder's credential never travels through an operator.
+   */
+  app.post("/api/admin/bootstrap", async (req, res) => {
+    if (rateLimited(`bootstrap:${clientIp(req)}`, 5, 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Too many attempts." });
+    }
+    const { password, email, name } = req.body ?? {};
+    if (!password || !email) return res.status(400).json({ error: "password and email required" });
+    if (!secretEquals(String(password), ADMIN_PASSWORD)) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const normEmail = String(email).trim().toLowerCase();
+    const all = members.readDoc();
+    const bootstrapped = all.some((u: any) => u.role === "admin" || u.role === "founder");
+    const breakGlass = (process.env.BREAK_GLASS_ADMIN_EMAIL || "").trim().toLowerCase();
+    if (bootstrapped && normEmail !== breakGlass) {
+      // The password's power is spent. This is the enforcement flip, and it is
+      // self-sequencing: the same deploy is safe on production because nothing
+      // changes until someone completes a bootstrap.
+      return res.status(403).json({ error: "Already bootstrapped. The shared password no longer authenticates." });
+    }
+
+    let user = all.find((u: any) => String(u.email).toLowerCase() === normEmail);
+    let claimUrl: string | null = null;
+    let emailed = false;
+    if (user) {
+      members.update(user.id, (u: any) => { u.role = "founder"; });
+    } else {
+      const userId = `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      user = {
+        id: userId,
+        name: String(name || "Founder").slice(0, 120),
+        email: normEmail,
+        // No password yet: login is impossible until the claim link sets one.
+        passwordHash: "",
+        role: "founder",
+        tokenVersion: 0,
+        paths: [],
+        contributions: [],
+        quests: [],
+        recognitionBalance: 0,
+        joinedAt: new Date().toISOString(),
+      };
+      members.add(user);
+      const claim = makeSetPasswordToken(userId);
+      claimUrl = `${(process.env.FRONTEND_URL || "").replace(/\/$/, "")}/set-password?token=${encodeURIComponent(claim)}`;
+      try {
+        await sendResendEmail({
+          to: [normEmail],
+          subject: `You are the founder admin — set your password`,
+          html: `<p>Your founder admin account was just created on ${escapeHtml(mergedConfig().project.name)}.</p>
+<p><a href="${escapeHtml(claimUrl)}">Set your password</a> (link expires in 60 minutes).</p>
+<p>If the button does nothing, paste this into your browser:<br>${escapeHtml(claimUrl)}</p>`,
+        });
+        emailed = true;
+      } catch { /* fall through: claimUrl is returned to the operator */ }
+    }
+
+    adminAuditRepo.add({
+      id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      at: new Date().toISOString(),
+      actorUserId: user.id,
+      action: bootstrapped ? "bootstrap:break-glass" : "bootstrap:founder",
+      targetType: "user",
+      targetId: user.id,
+    });
+    addActivity("admin", `A founder account was established`);
+    res.json({ success: true, userId: user.id, emailed, ...(emailed ? {} : claimUrl ? { claimUrl } : {}) });
+  });
+
+  /** Claim a created account (or later: reset) by setting a password. */
+  app.post("/api/auth/set-password", async (req, res) => {
+    if (rateLimited(`setpw:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Too many attempts." });
+    }
+    const { token, password } = req.body ?? {};
+    if (!token || !password || String(password).length < 8) {
+      return res.status(400).json({ error: "A token and a password of at least 8 characters are required" });
+    }
+    const claim = readSetPasswordToken(String(token));
+    if (!claim) return res.status(401).json({ error: "This link is invalid or has expired" });
+    const user = members.byId(claim.userId);
+    if (!user) return res.status(404).json({ error: "Account not found" });
+    const hash = await hashPassword(String(password));
+    members.update(user.id, (u: any) => { u.passwordHash = hash; });
+    const fresh = members.byId(user.id)!;
+    const authTokenStr = encodeToken(fresh.id, fresh.email, fresh.tokenVersion ?? 0);
+    res.json({ success: true, token: authTokenStr, user: publicUser(fresh) });
+  });
+
+  /** Revoke every session a member holds (S1's tokenVersion lever). */
+  app.post("/api/admin/users/:id/revoke-sessions", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const target = members.byId(req.params.id);
+    if (!target) return res.status(404).json({ error: "Not found" });
+    members.update(target.id, (u: any) => { u.tokenVersion = (u.tokenVersion ?? 0) + 1; });
+    res.json({ success: true });
+  });
+
+  /** The audit trail, newest first. Every admin mutation lands here. */
+  app.get("/api/admin/audit", (req, res) => {
+    if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    const rows = adminAuditRepo.all().sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)));
+    res.json(rows.slice(0, 200));
   });
 
   // Auth: Get Profile
   app.get("/api/profile", (req, res) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    const token = authHeader.slice(7);
-    const decoded = decodeToken(token);
-    if (!decoded) {
-      return res.status(401).json({ error: "Invalid token" });
-    }
-    const users = { users: members.readDoc() };
-    const user = users.users.find((u: any) => u.id === decoded.userId);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
+    // Through requireUser like everything else (S1): a second decode path here
+    // silently bypassed the tokenVersion revocation check.
+    const user = requireUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
     res.json(publicUser(user));
   });
 
   // Auth: Update Profile
   app.put("/api/profile", (req, res) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    const token = authHeader.slice(7);
-    const decoded = decodeToken(token);
-    if (!decoded) {
-      return res.status(401).json({ error: "Invalid token" });
-    }
+    const authed = requireUser(req);
+    if (!authed) return res.status(401).json({ error: "Unauthorized" });
     const users = { users: members.readDoc() };
-    const userIdx = users.users.findIndex((u: any) => u.id === decoded.userId);
+    const userIdx = users.users.findIndex((u: any) => u.id === authed.id);
     if (userIdx === -1) {
       return res.status(404).json({ error: "User not found" });
     }
@@ -1433,15 +1630,9 @@ async function startServer() {
 
   // Auth: Log Contribution
   app.post("/api/profile/contribution", (req, res) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    const token = authHeader.slice(7);
-    const decoded = decodeToken(token);
-    if (!decoded) {
-      return res.status(401).json({ error: "Invalid token" });
-    }
+    const authed = requireUser(req);
+    if (!authed) return res.status(401).json({ error: "Unauthorized" });
+    const decoded = { userId: authed.id };
     const { type, description, recognitionEarned } = req.body;
     if (!type || !description || recognitionEarned === undefined) {
       return res.status(400).json({ error: "Missing required fields" });

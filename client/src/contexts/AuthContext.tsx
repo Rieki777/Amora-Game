@@ -4,6 +4,8 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  /** member (default) | admin | founder — founder is the master-admin tier. */
+  role?: "member" | "admin" | "founder";
   paths: string[];
   contributions: Array<{
     id: string;

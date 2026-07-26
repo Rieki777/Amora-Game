@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import { authToken } from "@/lib/gameApi";
 
 const API_BASE = "/api";
 const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
@@ -42,36 +44,79 @@ function prettyType(t: string) {
   return t.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// ── Password Gate ─────────────────────────────────────────────────────────────
+// ── Admin Gate (S1: admins are real users) ───────────────────────────────────
+//
+// The old PasswordGate probed the server with a shared password. Admins are
+// member accounts with role admin|founder now, so the gate is login-aware:
+// signed out → member login; signed in without the role → a clear refusal;
+// admin → the member TOKEN flows into the existing `password` prop plumbing,
+// which already sends `Authorization: Bearer <value>` everywhere. Renaming
+// that prop across fifteen tabs is deliberate later cleanup, not S1.
 
-function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
+function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
+  const { user, loading, login, logout } = useAuth();
+  const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
 
-  // Validate against the server (which reads ADMIN_PASSWORD from the environment)
-  // rather than a hardcoded value, so rotating the password never locks admin out.
+  const isAdmin = !!user && (user.role === "admin" || user.role === "founder");
+
+  useEffect(() => {
+    if (isAdmin) {
+      const token = authToken();
+      if (token) onAuth(token);
+    }
+  }, [isAdmin, onAuth]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pw) return;
+    if (!email || !pw) return;
     setChecking(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/admin/settings`, {
-        headers: { Authorization: `Bearer ${pw}` },
-      });
-      if (res.ok) {
-        onAuth(pw);
-      } else {
-        setError("Wrong password. Try again.");
-        setPw("");
-      }
+      await login(email, pw);
+      // On success the user lands in context; the effect above finishes the job
+      // (or the refusal screen renders if the account isn't an admin).
     } catch {
-      setError("Could not reach the server. Try again.");
+      setError("Wrong email or password.");
+      setPw("");
     }
     setChecking(false);
   };
+
+  if (loading || isAdmin) {
+    return (
+      <div className="min-h-screen bg-[#2D5A5A] flex items-center justify-center">
+        <RefreshCw className="w-6 h-6 text-white/60 animate-spin" />
+      </div>
+    );
+  }
+
+  if (user && !isAdmin) {
+    return (
+      <div className="min-h-screen bg-[#2D5A5A] flex items-center justify-center px-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-sm text-center">
+          <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-6">
+            <Lock className="w-7 h-7 text-red-500" />
+          </div>
+          <h1 className="font-display text-2xl font-bold text-gray-900 mb-2">Not an admin</h1>
+          <p className="text-sm text-gray-500 mb-8">
+            You're signed in as <strong>{user.name}</strong>, but this account doesn't
+            have admin access. Ask a founder to grant it, or sign in with an admin
+            account.
+          </p>
+          <button
+            onClick={() => logout()}
+            className="w-full py-3 bg-[#2D5A5A] text-white rounded-lg font-medium hover:bg-[#2D5A5A]/90 transition-colors"
+          >
+            Sign out and switch accounts
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#2D5A5A] flex items-center justify-center px-4">
@@ -83,16 +128,23 @@ function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
           Amora Admin
         </h1>
         <p className="text-sm text-gray-500 text-center mb-8">
-          Enter the admin password to continue
+          Sign in with your admin account
         </p>
         <form onSubmit={submit} className="space-y-4">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setError(""); }}
+            placeholder="Email"
+            autoFocus
+            className="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+          />
           <div className="relative">
             <input
               type={show ? "text" : "password"}
               value={pw}
               onChange={(e) => { setPw(e.target.value); setError(""); }}
               placeholder="Password"
-              autoFocus
               className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
             />
             <button
@@ -109,7 +161,7 @@ function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
             disabled={checking}
             className="w-full py-3 bg-[#2D5A5A] text-white rounded-lg font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-60 transition-colors"
           >
-            {checking ? "Checking..." : "Enter"}
+            {checking ? "Signing in..." : "Sign in"}
           </button>
         </form>
       </div>
@@ -2617,7 +2669,7 @@ export default function Admin() {
   }, [password, activeTab]);
 
   if (!password) {
-    return <PasswordGate onAuth={setPassword} />;
+    return <AdminGate onAuth={setPassword} />;
   }
 
   return (

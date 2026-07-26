@@ -45,6 +45,7 @@ import Admin from "./pages/Admin";
 import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import SetPassword from "./pages/SetPassword";
 import GoodNeighbor from "./pages/GoodNeighbor";
 import JourneyToLaunch from "./pages/JourneyToLaunch";
 import StewardRights from "./pages/StewardRights";
@@ -83,6 +84,7 @@ function Router() {
       <Route path="/profile" component={Profile} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
+      <Route path="/set-password" component={SetPassword} />
       <Route path="/good-neighbor" component={GoodNeighbor} />
       <Route path="/steward-rights" component={StewardRights} />
       <Route path="/resident-rights" component={ResidentRights} />

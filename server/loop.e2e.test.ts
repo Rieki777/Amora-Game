@@ -115,15 +115,18 @@ describe("the coordination loop, end to end", () => {
   // not seven isolated cases, because the loop is the unit under test.
   const doer = { email: `doer-${PORT}@example.test`, password: "LoopTest123!", name: "Willing Doer" };
   const peer = { email: `peer-${PORT}@example.test`, password: "LoopTest123!", name: "Grateful Peer" };
+  const founder = { email: `founder-${PORT}@example.test`, password: "LoopTest123!", name: "Village Founder" };
   let doerToken = "";
   let peerToken = "";
+  let founderToken = "";
   let doerId = "";
   let peerId = "";
+  let founderId = "";
   let questId = "";
   let questReward = 0;
   let claimId = "";
 
-  it("boots against a throwaway data dir, seeded and empty of members", async () => {
+  it("boots against a throwaway data dir, seeded", async () => {
     const health = await api("GET", "/health");
     expect(health.status).toBe(200);
 
@@ -132,11 +135,44 @@ describe("the coordination loop, end to end", () => {
     expect(quests.status).toBe(200);
     expect(Array.isArray(quests.json)).toBe(true);
     expect(quests.json.length).toBeGreaterThan(0);
+  });
 
-    const players = await api("GET", "/api/admin/players", undefined, ADMIN);
-    expect(players.status).toBe(200);
-    const list = Array.isArray(players.json) ? players.json : (players.json.players ?? players.json.users ?? []);
-    expect(list.length).toBe(0);
+  it("S1: the shared password authenticates nothing; bootstrap forges the founder once", async () => {
+    // The password is NOT an admin credential — not even before bootstrap.
+    const asPassword = await api("GET", "/api/admin/players", undefined, ADMIN);
+    expect(asPassword.status).toBe(401);
+
+    // A founding member registers like anyone else…
+    const reg = await api("POST", "/api/auth/register", { ...founder, paths: ["steward"] });
+    expect(reg.status).toBe(200);
+    founderToken = reg.json.token;
+    founderId = reg.json.user.id;
+
+    // …and cannot touch admin surfaces as a plain member (control refusal).
+    const asMember = await api("GET", "/api/admin/players", undefined, founderToken);
+    expect(asMember.status).toBe(401);
+
+    // Bootstrap refuses a wrong password…
+    const wrong = await api("POST", "/api/admin/bootstrap", { password: "not-it", email: founder.email });
+    expect(wrong.status).toBe(401);
+
+    // …and elevates the member to founder with the right one.
+    const boot = await api("POST", "/api/admin/bootstrap", { password: ADMIN, email: founder.email });
+    expect(boot.status).toBe(200);
+    expect(boot.json.success).toBe(true);
+
+    // The SAME token now passes requireAdmin (role is read live, control success)…
+    const asFounder = await api("GET", "/api/admin/players", undefined, founderToken);
+    expect(asFounder.status).toBe(200);
+    const list = Array.isArray(asFounder.json) ? asFounder.json : (asFounder.json.players ?? asFounder.json.users ?? []);
+    expect(list.length).toBe(1); // exactly the founder so far
+
+    // …and the password's one power is spent: a second bootstrap is refused,
+    // WITH the correct password. Which guard fired matters (trap 3.3): the
+    // error must be already-bootstrapped, not bad-password.
+    const again = await api("POST", "/api/admin/bootstrap", { password: ADMIN, email: doer.email });
+    expect(again.status).toBe(403);
+    expect(String(again.json.error)).toContain("Already bootstrapped");
   });
 
   it("someone arrives and declares a path", async () => {
@@ -222,7 +258,7 @@ describe("the coordination loop, end to end", () => {
       "POST",
       `/api/admin/quest-claims/${claim.json.id}/consent`,
       { approve: true, amount: 50 },
-      ADMIN,
+      founderToken,
     );
     expect(premature.status).toBe(409);
 
@@ -235,7 +271,7 @@ describe("the coordination loop, end to end", () => {
       "POST",
       `/api/admin/quest-claims/${claim.json.id}/consent`,
       { approve: false },
-      ADMIN,
+      founderToken,
     );
     expect(declined.status).toBe(200);
     expect(declined.json.status).toBe("declined");
@@ -263,7 +299,7 @@ describe("the coordination loop, end to end", () => {
       "POST",
       `/api/admin/quest-claims/${claimId}/consent`,
       { approve: true, amount: questReward },
-      ADMIN,
+      founderToken,
     );
     expect(consent.status).toBe(200);
     expect(consent.json.status).toBe("consented");
@@ -339,7 +375,7 @@ describe("the coordination loop, end to end", () => {
       "POST",
       "/api/admin/roles/practitioners/holders",
       { userId: peerId, action: "add" },
-      ADMIN,
+      founderToken,
     );
     // A guest is below the practitioners role's participant minStage: refused.
     expect(appointment.status).toBe(409);
@@ -351,7 +387,7 @@ describe("the coordination loop, end to end", () => {
       "POST",
       "/api/admin/roles/founders-circle/holders",
       { userId: peerId, action: "add" },
-      ADMIN,
+      founderToken,
     );
     expect(founders.status).toBe(200);
 
@@ -390,7 +426,7 @@ describe("the coordination loop, end to end", () => {
     const anon = await api("POST", "/api/admin/cycles/close", {});
     expect(anon.status).toBe(401);
 
-    const close = await api("POST", "/api/admin/cycles/close", {}, ADMIN);
+    const close = await api("POST", "/api/admin/cycles/close", {}, founderToken);
     expect(close.status).toBe(200);
     expect(close.json.closed).toBeGreaterThanOrEqual(1);
     const closedNumbers = close.json.cycles.map((c: any) => c.cycleNumber);
@@ -406,7 +442,7 @@ describe("the coordination loop, end to end", () => {
     ]);
 
     // Idempotent: closing again settles nothing further.
-    const again = await api("POST", "/api/admin/cycles/close", {}, ADMIN);
+    const again = await api("POST", "/api/admin/cycles/close", {}, founderToken);
     expect(again.status).toBe(200);
     expect(again.json.cycles.map((c: any) => c.cycleNumber)).not.toContain(prevNumber);
 
@@ -444,7 +480,7 @@ describe("the coordination loop, end to end", () => {
       "POST",
       `/api/admin/quest-claims/${claim.json.id}/consent`,
       { approve: true, amount: 999999 },
-      ADMIN,
+      founderToken,
     );
     expect(tooMuch.status).toBe(409);
     expect(tooMuch.json.max).toBe(hi);
@@ -455,7 +491,7 @@ describe("the coordination loop, end to end", () => {
         "POST",
         `/api/admin/quest-claims/${claim.json.id}/consent`,
         { approve: true, amount: lo - 1 },
-        ADMIN,
+        founderToken,
       );
       expect(tooLittle.status).toBe(409);
     }
@@ -465,7 +501,7 @@ describe("the coordination loop, end to end", () => {
       "POST",
       `/api/admin/quest-claims/${claim.json.id}/consent`,
       { approve: true, amount: hi },
-      ADMIN,
+      founderToken,
     );
     expect(consent.status).toBe(200);
     expect(consent.json.amount).toBe(hi);
@@ -484,34 +520,34 @@ describe("the coordination loop, end to end", () => {
     expect(JSON.stringify(rules.json)).not.toContain("base_rpc_url");
 
     // Admin sees the full registry, grouped, with nothing customized yet.
-    const listing = await api("GET", "/api/admin/variables", undefined, ADMIN);
+    const listing = await api("GET", "/api/admin/variables", undefined, founderToken);
     expect(listing.status).toBe(200);
     expect(listing.json.customized).toBe(0);
     expect(listing.json.total).toBeGreaterThanOrEqual(15);
 
     // Validation refuses garbage with a human-readable reason.
-    const bad = await api("PUT", "/api/admin/variables/gratitude.base_budget", { value: "not-a-number" }, ADMIN);
+    const bad = await api("PUT", "/api/admin/variables/gratitude.base_budget", { value: "not-a-number" }, founderToken);
     expect(bad.status).toBe(400);
-    const badChoice = await api("PUT", "/api/admin/variables/governance.voice_weighting", { value: "plutocracy" }, ADMIN);
+    const badChoice = await api("PUT", "/api/admin/variables/governance.voice_weighting", { value: "plutocracy" }, founderToken);
     expect(badChoice.status).toBe(400);
-    const badAddress = await api("PUT", "/api/admin/variables/tokens.equity_address", { value: "0x123" }, ADMIN);
+    const badAddress = await api("PUT", "/api/admin/variables/tokens.equity_address", { value: "0x123" }, founderToken);
     expect(badAddress.status).toBe(400);
-    const unknown = await api("PUT", "/api/admin/variables/not.a.real.key", { value: "1" }, ADMIN);
+    const unknown = await api("PUT", "/api/admin/variables/not.a.real.key", { value: "1" }, founderToken);
     expect(unknown.status).toBe(400);
     const anon = await api("PUT", "/api/admin/variables/gratitude.base_budget", { value: "50" });
     expect(anon.status).toBe(401);
 
     // A real change lands, is visible in the public rules, and CHANGES BEHAVIOUR:
     // with the voice weighting flipped to hypha-mirror the rules endpoint says so.
-    const set = await api("PUT", "/api/admin/variables/governance.voice_weighting", { value: "hypha-mirror" }, ADMIN);
+    const set = await api("PUT", "/api/admin/variables/governance.voice_weighting", { value: "hypha-mirror" }, founderToken);
     expect(set.status).toBe(200);
     const after = await api("GET", "/api/game/rules");
     expect(after.json.governance.voiceWeighting).toBe("hypha-mirror");
 
     // Setting back to the default clears the override entirely.
-    const reset = await api("PUT", "/api/admin/variables/governance.voice_weighting", { value: "equal" }, ADMIN);
+    const reset = await api("PUT", "/api/admin/variables/governance.voice_weighting", { value: "equal" }, founderToken);
     expect(reset.status).toBe(200);
-    const listing2 = await api("GET", "/api/admin/variables", undefined, ADMIN);
+    const listing2 = await api("GET", "/api/admin/variables", undefined, founderToken);
     expect(listing2.json.customized).toBe(0);
   });
 
@@ -604,7 +640,7 @@ describe("the coordination loop, end to end", () => {
       "POST",
       `/api/admin/quest-claims/${claim.json.id}/consent`,
       { approve: true, amount: award },
-      ADMIN,
+      founderToken,
     );
     expect(first.status).toBe(200);
 
@@ -618,7 +654,7 @@ describe("the coordination loop, end to end", () => {
       "POST",
       `/api/admin/quest-claims/${claim.json.id}/consent`,
       { approve: true, amount: award },
-      ADMIN,
+      founderToken,
     );
     const afterSecond = await api("GET", "/api/game/ledger", undefined, token);
     expect(afterSecond.json.entries.length).toBe(entriesAfterFirst);
@@ -659,5 +695,46 @@ describe("the coordination loop, end to end", () => {
       message: "Anonymous thanks.",
     });
     expect(unauthenticated.status).toBe(401);
+  });
+
+  it("S1: every admin mutation writes an audit row naming a real person", async () => {
+    // The consent earlier in this run was an admin mutation; the audit trail
+    // must name the founder — a row 'admin' could never have named anyone.
+    const audit = await api("GET", "/api/admin/audit", undefined, founderToken);
+    expect(audit.status).toBe(200);
+    expect(Array.isArray(audit.json)).toBe(true);
+    const mutations = audit.json.filter((r: any) => r.actorUserId === founderId);
+    expect(mutations.length).toBeGreaterThan(0);
+    // At least one of them is the consent that released value in this run.
+    expect(
+      audit.json.some((r: any) => String(r.action).includes("/claims") || String(r.action).includes("consent")),
+    ).toBe(true);
+    // And a non-admin cannot read the trail.
+    const asMember = await api("GET", "/api/admin/audit", undefined, doerToken);
+    expect(asMember.status).toBe(401);
+  });
+
+  it("S1: revoking sessions kills old tokens for ONE member, and re-login recovers", async () => {
+    // Peer's token works now (control success)…
+    const before = await api("GET", "/api/profile", undefined, peerToken);
+    expect(before.status).toBe(200);
+
+    const revoke = await api("POST", `/api/admin/users/${peerId}/revoke-sessions`, {}, founderToken);
+    expect(revoke.status).toBe(200);
+
+    // …their old token is dead…
+    const after = await api("GET", "/api/profile", undefined, peerToken);
+    expect(after.status).toBe(401);
+
+    // …nobody else's session was touched…
+    const doerStill = await api("GET", "/api/profile", undefined, doerToken);
+    expect(doerStill.status).toBe(200);
+
+    // …and a fresh login mints a working token at the new version (control).
+    const relogin = await api("POST", "/api/auth/login", { email: peer.email, password: peer.password });
+    expect(relogin.status).toBe(200);
+    peerToken = relogin.json.token;
+    const recovered = await api("GET", "/api/profile", undefined, peerToken);
+    expect(recovered.status).toBe(200);
   });
 });
