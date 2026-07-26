@@ -1,3 +1,7 @@
+> **SUPERSEDED (2026-07-26): see `MODULES_MASTER_PLAN.md` (v3).** The locked
+> decisions, the not-ported list, and the revision-3 codebase traps in this
+> document remain binding; **all build orders and status tables here are stale.**
+
 # Amora Foundation Upgrade Plan
 
 **Created:** 2026-07-18. **Status:** decisions locked, Phase 0 next.

@@ -1,309 +1,520 @@
-# Village OS — Modules Master Plan
+# Village OS — Master Plan (v3, unified & hardened)
 
-**Created:** 2026-07-26. **Status:** designed, critiqued, reconciled; enum→registry correction already shipped to the live DB.
-**Companion docs:** `AMORA_FOUNDATION_UPGRADE_PLAN.md` (the substrate: DB, ledger, forum, notifications — its build order continues unchanged underneath this plan), `docs/modules/*.md` (one full design spec per module — the build ticket each session works from), `docs/modules/CRITIQUE-economy.md` + `CRITIQUE-architecture.md` (the adversarial passes whose fixes are folded in below), `FIXES_TO_MAKE_2026-07-17_FOUNDATION_LEVERS.md` (F1–F16 governance/economy levers).
+**Created:** 2026-07-26 (v1: module designs + critiques). **v2:** same day — the
+foundation session was stopped and handed off; one session now builds everything.
+**v3:** same day — v2 was itself attacked by five adversarial reviewers (facts,
+sequencing, traps-compliance, gaps, cold-read executability; 58 findings) and this
+revision folds every accepted fix in. 53 tests green at the commit introducing this
+revision; the enum→registry ledger fix is committed (`339a093`) and applied live.
+
+**Precedence, read carefully:**
+- **Part 3 of this document supersedes ALL earlier build orders** — the foundation
+  plan's phases, the handoff's §4 sequence, and the critiques' 42-session
+  parallel-track plan. Those documents remain authoritative for **traps, findings,
+  locked decisions, and specs** — not for ordering.
+- `AMORA_FOUNDATION_UPGRADE_PLAN.md` is superseded **in its build order only**: its
+  locked decisions (revisions 2–3), its explicitly-NOT-ported list, and its
+  codebase traps remain binding. Its status tables are stale — trust this document.
+- Where a module spec in `docs/modules/*.md` contradicts Part 2 here or a fix in
+  the two CRITIQUE files, **the fix wins**; the specs are deliberately left
+  unedited as design references.
+
+**Reading order for any session picking this up:**
+1. This document, whole.
+2. `CLAUDE_CODE_PROMPT_2026-07-26_FOUNDATION_HANDOFF.md` §3 — the traps. Twice.
+3. `docs/modules/<module>.md` + both `docs/modules/CRITIQUE-*.md` findings for
+   whatever you are building.
+4. `AMORA_FOUNDATION_UPGRADE_PLAN.md` rev 2–3 for locked-decision context;
+   `FIXES_TO_MAKE_2026-07-17_FOUNDATION_LEVERS.md` for the F1–F16 levers.
 
 ## What this is
 
-The 2020 village-demo deck (45 slides, speaker notes recovered) sketched a village
-operating system with live Hypha tech woven into an imagined whole. Six years later
-the split is clean: **everything governance-shaped in that deck is Hypha's job**
-(app.hypha.earth, each village configures its own DHO URL and we deep-link), and
-**what remains is the village coordination layer** — the parts specific to running
-a regenerative village day to day. Those are the modules this plan builds:
+The 2020 village-demo deck sketched a village operating system with live Hypha tech
+woven into an imagined whole. Six years later the split is clean: **everything
+governance-shaped is Hypha's job** (each village configures its DHO URL; we
+deep-link, never rebuild), and **what remains is the village coordination layer** —
+admin-toggleable modules on one ledger, one gate, one config story:
 
 | Deck | Module | Spec |
 |---|---|---|
-| substrate | Module framework (toggles, lifecycle, Hypha links) | `docs/modules/module-framework.md` |
-| substrate | Token registry + ledger (the keystone) | `docs/modules/token-registry-ledger.md` |
-| 25 + 26 | Internal exchange (buy + swap closed-loop credits) | `docs/modules/internal-exchange.md` |
+| substrate | Module framework (lifecycle, toggles, Hypha links) | `docs/modules/module-framework.md` |
+| substrate | Token registry + ledger (keystone) | `docs/modules/token-registry-ledger.md` |
+| 25+26 | Internal exchange (buy closed-loop credits; swap deferred) | `docs/modules/internal-exchange.md` |
 | 32 | Stays / accommodation payments | `docs/modules/stays.md` |
-| 33 | Material library (the flagship) | `docs/modules/material-library.md` |
+| 33 | Material library (flagship) | `docs/modules/material-library.md` |
 | 28 | Village map + coordination concierge | `docs/modules/village-map.md` |
 | 30 | Tools hub | `docs/modules/tools-hub.md` |
-| 31 | Gratitude feed | `docs/modules/gratitude-feed.md` |
+| 31 | Gratitude feed (a forum lens, hearts pay real budget) | `docs/modules/gratitude-feed.md` |
 | 34 | Village health dashboard | `docs/modules/health-dashboard.md` |
 | 38 | Badges | `docs/modules/badges.md` |
-| 43–45 | Crowdpool commitments dashboard | `docs/modules/crowdpool-dashboard.md` |
+| 43–45 | Crowdpool commitments dashboard (deferred to trigger) | `docs/modules/crowdpool-dashboard.md` |
 
-Every module ships **OFF by default**, is enabled per deployment through an admin
-lifecycle (off → admin-preview → members-only → public), and is config-driven with
-zero Amora copy in platform files — per the foundation plan's white-label mandate.
-
-## How this was produced
-
-Eleven design agents (one per module, each reading the deck extract, the foundation
-plan, and the live code) fanned out in parallel; two adversarial critics then attacked
-the whole set — one hunting economy exploits, one hunting architecture collisions and
-false sequencing. The critics found that the designs are individually disciplined but
-**fail as a set in exactly three places**, all fixed by declaring winners below. Their
-full findings are in `docs/modules/CRITIQUE-*.md` and every CRITICAL/HIGH fix is folded
-into this plan's rules. Anyone building a module MUST read its spec file **and** the
-two critiques' findings for that module.
+Every module ships **OFF by default**, enabled per deployment through a lifecycle
+(off → admin-preview → members-only → public), config-driven, zero village brand in
+platform files.
 
 ---
 
-# Part 1 — Decisions (the reconciliation)
+# Part 1 — Ground truth (re-verified during the v3 hardening pass)
 
-## D1. One ledger spec: the keystone wins ✅ partially shipped
+- **Shipped and committed:** loop e2e test (boots `dist/index.js`, walks
+  register→path→claim→submit→consent→gratitude→wall→pulse→progression; **currently
+  authenticates admin steps with the shared password — S1 deliberately rewrites
+  that plumbing**); consent-requires-submission; lunar cycles + idempotent close
+  (settlement audit — **credits nobody**); roles as data + `role_holders` +
+  `shared/capabilities.ts` (stage unlock OR role grant); the variables layer —
+  **API-only**: `GET /api/admin/variables`, `PUT /api/admin/variables/:key`,
+  `GET /api/game/rules` exist and are loop-tested, but **no editor UI exists
+  anywhere** (the "Variables" tab on `/journey-to-launch` is an unrelated
+  copy-placeholder sheet — do not wire it to game variables); stage events; quest
+  reward ranges (`shared/questRewards.ts` is the ONLY parser); token ledger
+  (`server/lib/ledger.ts`, JSON-backed, recompute-never-increment, idempotency
+  keys, hypha-mint refusal) with `hearts_balance → recognition_balance`; **runtime
+  token registry** — `tokens` table live in MySQL, `token_type` varchar(32),
+  fail-loud slug guard; note the in-process registry currently mirrors the 0006
+  seeds from a hardcoded constant — **wiring `creditTokens` to read the `tokens`
+  table is part of the ledger-domain conversion (S7–S9)**; repository seam
+  (`server/repos/*`: bespoke `usersRepo`, generic `collectionRepo`/`documentRepo`;
+  zero `readJson`/`writeJson` **call sites** remain in `server/index.ts` — the two
+  dead definitions still exist and can be deleted in passing).
+- **Database:** MySQL live on Railway private network, migrations 0001–0006
+  applied, `scripts/run-migration.ts --status|--all`, `pnpm db:migrate|db:status|
+  db:import`. **The app still reads JSON** through synchronous repos; `data/` is
+  volume-mounted and authoritative; `token_ledger` has 0 rows.
+- **Identity columns exist unused:** `users.role`, `users.handle`,
+  `users.wallet_address`, `users.wallet_verified_at` (0003) — **MySQL columns only;
+  nothing reads them, and the app's user records live in JSON until S6.** S1 lands
+  identity on the JSON usersRepo; the columns receive values at the S6 cutover.
+- **Admin auth is one shared password** (`requireAdmin`, ~70 inline call sites;
+  `Admin.tsx` threads a password prop through ~15 tabs / 40+ fetches). Legacy
+  `?password=` auth is gone (header-only, verified). `/journey-to-launch` sits
+  behind a second shared password (`requireJourney`, 4 routes).
+- **No admin UI exists for:** role holders (API `POST /api/admin/roles/:id/holders`
+  works and is loop-tested — appointing currently requires curl), game variables
+  (API-only, above), admin accounts (concept doesn't exist yet).
+- **Tests:** 53 across 4 files (loop 17, ledger 14, usersRepo 12, lunar 10);
+  `pnpm check && pnpm build && pnpm test` before every commit. The loop test is
+  the veto (rule 2.1 #1) — **on behavior, not on its literal auth plumbing**.
+- **Ops reality:** pushing `main` auto-deploys production; **no CI exists** (no
+  .github/workflows), no staging, no error tracking, no scheduler/cron (season
+  "auto-rollover" is compute-on-read by date, not a job); rate limiting and the AI
+  daily cap are in-memory and reset on every deploy; email is fire-and-forget.
+- **This session's earlier product work, live:** Maia unified proposals, seasons
+  (list + rollover-by-read + goals + timezone), sharp image uploads, admin
+  "Project Settings" posture, milestones staleness nudges, mobile FAB/tab bar.
+- **Production:** healthy, cycle 328, 14 quests. One manual volume backup:
+  `Desktop/Amora/backups/amora-data-2026-07-26_000010.tar.gz`; importer replays
+  JSON (`--dir`). **No MySQL backup story exists yet** (S12 fixes this).
 
-Four designs mutated the ledger four incompatible ways. Resolution: the **Token
-Registry + Ledger** design (`docs/modules/token-registry-ledger.md`) is the ONLY
-ledger spec. No other module owns any token DDL — they call `postTransfer()` and
-register pool accounts via `ensureSystemAccount()`. Struck from the other designs:
-the Library's enum-append migration and private `transferTokens()`, the Exchange's
-parallel `currencies` table, Stays' enum fallback, and the two per-module balance
-columns on `users` (read `token_balances` instead).
+---
 
-**Already shipped (2026-07-26, Rye directive, live in MySQL):** `token_type` is
-`varchar(32)` backed by a seeded `tokens` registry table (`drizzle/0006`), with a
-fail-loud registry guard in `server/lib/ledger.ts` — unknown token = error, never a
-silent 'gratitude'; `governance='hypha'` rows (amora, voice) are un-mintable. The
-conversion landed while `token_ledger` had zero rows, i.e. inside the free window.
+# Part 2 — Standing rules
 
-**Still needs Rye's sign-off (Decision Gate A):** the keystone's full shape —
-`ledger_accounts` (system accounts as real account rows with a `faucet` flag; only
-faucets may go negative) and **transfer rows** (`fromAccountId`/`toAccountId`,
-conservation by construction) instead of today's single-entry signed rows. This is
-the bigger amendment and the natural moment is the Phase 1b ledger cutover, when
-JSON entries get rewritten into MySQL anyway (existing entries become transfers
-from their source faucet). If declined, modules still work on single-entry +
-paired writes, but conservation checks become per-module conventions instead of
-structural — the critics rate that materially weaker.
+Merged non-negotiables: foundation ground rules, handoff traps, critique fixes.
+Every session inherits all of them. **Where a fix names an owning session, that
+session's acceptance includes it** — standing rules with no home get skipped.
 
-## D2. One module framework: module-framework wins, tools-hub demotes
+## 2.1 Product rules
 
-Two designs each built "the" framework with contradictory toggle models, and eight
-others assumed one or the other. Resolution: **module-framework** is the substrate
-(lifecycle in a `module_settings` table, NOT game variables — every
-`<module>.enabled` variable in the other ten designs is void). **tools-hub demotes
-from a standalone module to the framework's reference consumer** (+1 session for
-its registry CRUD, audience visibility, click beacon, SSRF-guarded link check).
+1. **The loop test is the acceptance criterion** — for the *behavior* it protects.
+   Sessions that change auth or storage are expected to grow/rewrite its plumbing
+   (S1 explicitly does); what may never regress is the loop itself.
+2. **No village's brand in platform code.** Identity in `shared/gameConfig.ts`,
+   behaviour in `shared/gameVariables.ts`, per-deployment data in DB rows/seeds.
+3. **Cycle close is a settlement audit and credits nobody.** Amora pays at SEND.
+   Never add pool minting (trap 3.1 — the double-pay collision).
+4. **The ledger recomputes, never increments; every write carries an idempotency
+   key;** hypha-governed tokens are un-mintable; unknown token slugs fail loud.
+5. **One gate** (`shared/capabilities.ts`): stage unlock OR role grant; badges add
+   the third source in their own exclusive session. Never a parallel path.
+6. **Hypha boundary:** governance, voting, equity, anything share-like → the
+   configured DHO via the single `hypha.org_url` home + `<HyphaLink>`. Read and
+   display; never mint, move, or price.
+7. **i18n posture (decided):** English-only UI is an explicit v1 non-goal, but
+   from the module framework (S13) onward, module UI copy goes through a
+   per-module strings object so extraction stays cheap. Revisit at S56.
 
-## D3. One Hypha home
+## 2.2 Economy invariants (build-blocking; owning sessions named)
 
-Four designs minted four variables for the same DHO URL. Resolution: the
-framework's `hypha.org_url` + four named deep-link overrides is the single home,
-shipped with `shared/hypha.ts` + a `<HyphaLink>` component that hides itself when
-unconfigured. `governance.hypha_org_url`, `exchange.hypha_dho_url`, and
-`crowdpool.hypha_dho_url` are deleted from those designs. The CoCreatorsGuide
-`[YOUR-DHO-SLUG]` placeholder fix rides the framework session. Add a CI grep that
-fails on any second `*hypha*url*` variable registration.
-
-## D4. One event spine, pulled forward
-
-Three modules claimed F13 instrumentation. Resolution: **Health Dashboard Session 1
-ONLY** (recordEvent() + `health_events` DB-native + converting the 11 addActivity
-call sites + the activity-table actor/entity columns) ships immediately after the
-ledger keystone — it is cheap, has no UI, and every later module emits through it.
-The data is unrecoverable retroactively; that is why it jumps the queue. The
-dashboard UI stays late (after a few lunations of data exist).
-
-## D5. The feed is a forum lens, and the forum must know it
-
-The Gratitude Feed correctly refuses to become a fourth content surface: it is a
-feed-style read-model over a config-designated forum category, interleaved with
-Pulse events, where a heart click IS a real budget-bounded Gratitude send through
-the existing pay-at-send path. Consequence: **two schema riders are now part of the
-foundation plan's own tickets** — (a) Phase 4 forum tables ship WITH
-`kind`/`meta`/`imageUrl`/`heartCount` + `forum_thread_tags` + `forum_reports`;
-(b) the Phase 1b gratitude domain cutover migration includes
-`kind`/`contextType`/`contextRef` on `gratitude_log`, the `(from_id, context_ref,
-kind)` unique heart index, and Revision 3's cycle-key cleanup, all in one migration.
-
-## D6. Exchange v1 is buy-only; the swap is deferred
-
-The Exchange design's own reasoning demolishes the swap (thin market, credits with
-intrinsic redemption value, price-setting as governance). What a village actually
-needs first is: sell stay credits and event tickets for fiat, with receipts. Swap
-(the Uniswap-homage card, quote engine, 4-leg settlement) moves to a
-demand-triggered v2 that may never be scheduled. This also shrinks the legal
-surface until counsel reviews the closed-loop posture.
-
-## D7. Crowdpool is deferred until its trigger exists
-
-Campaigns run on regen-civics; the module's trigger event (a passed campaign, with
-a webhook/export contract that repo has not built) has not happened. Its honest v1
-is 5–6 sessions. Pre-work worth doing now: one paragraph agreeing the
-material-library draft-item back-reference shape, so neither schema freezes wrong.
-Also: **`crowdpool.fulfill_recognition` is deleted** (money-in → Gratitude-out
-breaches the recognition firewall; if a village wants to thank a donor, a human
-sends Gratitude through the normal budgeted send).
-
-## D8. The economy invariants (from the exploit critique — non-negotiable)
-
-1. **Per-source-event single payout**, not just per-token XOR: while any token pays
-   at send, no release job may weight on that token's ack/send rows when crediting
-   ANY token (kills the cross-token double-pay resurrection of ADR-30). Pinned test
-   in the keystone session: an ack row funds at most one ledger credit, ever.
-2. **No swappable/purchasable faucet tokens:** the exchange rejects
-   `swappable=true`/`purchasable=true` on any token with non-purchase faucet
-   sources (e.g. library intake awards) — library-credit seeds as non-swappable,
-   non-overridable in v1. Kills the junk-item → appraisal-mint → swap-to-beds
-   laundering chain.
-3. **One selling module per token**, enforced as a boot assertion (if the library
-   sells its credits, the exchange must not, and vice versa).
-4. **Non-negative system accounts except declared faucets** — pool grants, repair
-   burns, and steward rewards fail loudly when the pool lacks balance; steward
-   reward = min(pct × inflow, pool balance); inflow attributed by stamping cycleId
+1. **Per-source-event single payout** — while any token pays at send, no release
+   job may weight on that token's send/ack rows when crediting ANY token. Pinned
+   test in **S7**: one ack row funds at most one ledger credit, ever.
+2. **No swappable/purchasable faucet tokens** (boot assertion, **S33**);
+   library-credit seeds non-swappable.
+3. **One selling module per token** (boot assertion, **S13** framework +
+   consumed by S33).
+4. **Non-negative system accounts except declared faucets** (**S7**); steward
+   reward = min(pct × inflow, pool balance); cycle attribution by stamping cycleId
    on ledger rows at write time, never timestamp windows.
-5. **Intake mint controls** (library): `intake_award_pct` bound capped at 100,
-   per-member per-cycle mint cap, dual sign-off above a value threshold,
-   high-value items stage/role-gated with escrow covered by non-intake credits,
-   and a "credits minted vs replacement value backing" red-flag metric from day one.
-6. **One terminal settle transition per loan** (`loan:{id}:settle`, row-locked) —
-   every path that ends a loan funnels through a single `settleLoan()`;
-   reconciliation asserts escrow account balance == SUM(open loans' escrow).
-7. **Sybil eligibility filter, shipped WITH the feed-heart and badge-engine
-   sessions** (not retrofitted): breadth/recognition-derived metrics and badge
-   rules count only senders at stage ≥ member or with ≥ 1 consented quest; any
-   capability-bearing earned badge keys exclusively on quest-consent metrics.
-8. **Fiat platform trio before any fiat module ships:** (a) one shared
-   `server/lib/payments.ts` + ONE raw-body Stripe webhook route dispatching on
-   metadata (never two mounts), (b) dispute/chargeback webhook handling in v1
-   (reversal entries that may go negative + auto-suspend + admin queue),
-   (c) a shared per-member purchase-limit helper across ALL fiat modules.
-9. **Per-admin identities are a hard precondition for enabling any funds-bearing
-   module** (Decision Gate C). Every design's mint/price/manual-payment audit field
-   is worthless while one shared admin password exists; the framework's legal
-   caution card refuses (not warns) until real admin accounts exist. Plus
-   `ledger.admin_mint_cycle_cap` (aggregate per cycle) beside the per-call cap.
-10. **Module disable respects open economic state:** `openStateCheck()` on
-    ModuleDef — refuse `off` while loans/stays/orders are open (offer wind-down);
-    webhook settlement endpoints are exempt from module-off 404s.
-11. **Rounding favors the treasury** (ceil what the member pays, floor what the
-    member receives) with an A→B→A no-profit property test; idempotency keys
-    positional (`ord:{id}:leg{n}`) at varchar(191).
-12. **Preview-lifecycle leak guard:** module Pulse/feed emissions go through
-    `moduleActivity(moduleId, …)` which checks lifecycle before delegating —
-    structural, not reviewed-for.
+5. **No per-token balance columns on `users` — ever.** Balances read the
+   keystone's `token_balances` recomputed cache. Strike `users.stayCreditBalance`
+   / `users.library_credit_balance` from the Stays/Library specs when building.
+6. **System accounts are never rows in `users`** (no `sys-treasury` fake members),
+   regardless of the Gate A outcome — `ensureSystemAccount()` / `ledger_accounts`
+   only (**S7**).
+7. **Intake mint controls** (library, **S41+**): award ≤ 100% of appraisal,
+   per-member per-cycle mint cap, dual sign-off above a threshold, high-value
+   escrow covered by non-intake credits, supply-vs-backing red flag from day one.
+8. **One terminal settle per loan** (`loan:{id}:settle`, row-locked settleLoan(),
+   **S41+**); escrow account reconciles to SUM(open loans) at all times.
+9. **Sybil eligibility filter** — breadth/recognition metrics and badge rules
+   count only senders at stage ≥ member or with ≥ 1 consented quest. Ships as a
+   shared helper **with the feed hearts (S27)**; badges (S37+) consume it, never
+   re-implement. Capability-bearing badges key on quest-consent metrics only.
+10. **Fiat trio before any fiat module** (**S32**): one `server/lib/payments.ts`;
+    ONE raw-body Stripe webhook route mounted before `express.json()`, dispatching
+    on metadata, **exempt from module-off 404s**; dispute/chargeback handling in
+    v1 (reversal entries may go negative + auto-suspend + admin queue); one
+    cross-module per-member purchase-limit helper. Rounding favors the treasury;
+    A→B→A no-profit property test; positional idempotency leg keys
+    (`ord:{id}:leg{n}`).
+11. **Admin power is bounded:** per-admin identities (S1) AND
+    `ledger.admin_mint_cycle_cap` (aggregate per lunar cycle across all mints,
+    **S8**) beside the per-call cap.
+12. **Ops readiness is a go-live precondition for funds-bearing modules,** equal
+    in rank to #11: tested MySQL backup+restore (S12), CI gating main (S0), error
+    tracking + webhook/settlement failure alerts (S32 rider). The framework's
+    legal caution card **refuses** enablement without #11 and this.
+13. **Module disable respects open economic state** — `openStateCheck()` on
+    ModuleDef (**S13**); settlement webhooks exempt from module-off 404s (**S32**).
+14. **Preview-lifecycle leak guard** — module activity emits via
+    `moduleActivity(moduleId, …)` (**S13**).
+15. **Exchange consolidation details** (from the two-registries fix, **S33**):
+    commerce flags live in a satellite `token_exchange_settings` keyed on
+    `tokens.slug`; the kind vocabulary is the keystone's
+    (recognition|credit|ticket|equity|voice — `governance='hypha'` subsumes
+    "external"); `currency_prices` survives pointed at the tokens registry.
 
-## Decision gates for Rye (everything else proceeds without you)
+## 2.3 Verification & infra discipline (traps as policy)
 
-| Gate | Question | Recommendation | Blocks |
-|---|---|---|---|
-| ~~Gate 0~~ | ~~enum → registry~~ | **DONE 2026-07-26** — you ordered it, it is live | — |
-| A | Ledger row shape at Phase 1b cutover: transfer rows + `ledger_accounts` (+faucet flag), or keep single-entry signed rows? | Transfer rows — conservation holds by construction; the cutover rewrites rows anyway | Keystone sessions 2–4 |
-| B | Confirm the Hypha-only posture: nothing share-like (project/business tokens, equity) ever trades in-platform; the internal exchange handles closed-loop credits only | Yes — it is the deck's own slide-25 rule, and the legal firewall | Exchange, Stays v2, token seeds |
-| C | Per-admin identities (named admin accounts) before any module that sells for fiat goes live | Yes — otherwise every audit field says "admin" | Exchange S3, Stays S3 |
-| D | One shared credit token vs one token per module (library-credit + stay-credit separate)? | Separate per module — cleaner pools, cleaner legal stories, the registry makes it free | Token seeds |
-| E | Village dues option: should stays' nightly posting also cover the dues-offset story from the resident journey? | Defer — dues stay as-is until stays v2 | Nothing now |
+- A green suite says nothing about lines no test exercises; before trusting green,
+  ask what covers your change; drive uncovered endpoints by hand (trap 3.2).
+- When you assert a refusal, check **which guard fired**; always include a control
+  case that must SUCCEED (trap 3.3).
+- Behaviour-preserving refactors: bump the `/health` build marker for deploy-level
+  proof (trap 3.4).
+- Row counts prove nothing about column fidelity — every domain added to the
+  importer gets value-level checks (trap 3.5). **S6 adds role/handle checks for
+  the S1-era fields.**
+- Quest rewards parse only in `shared/questRewards.ts` (trap 3.6). No regex over
+  brace structures (trap 3.7). Before fixing anything a tool reports, confirm a
+  user can experience it (trap 3.8).
+- **Every mysql2 connection sets `timezone: 'Z'`** — none do today (the runner and
+  the importer both run at 'local'; the importer is the blessed restore path, so a
+  replay on this UTC-6 machine would shift every timestamp). **Fix both scripts in
+  S5**, and the restore drill (S12) asserts a round-tripped timestamp value.
+- Idempotency keys: **widen `idempotency_key` to varchar(191) during the S7
+  cutover** (concatenated multi-leg keys exceed 160; truncation silently merges
+  keys and drops a swap leg).
+- Pushing `main` deploys production — land non-deploy work on `claude/*` branches;
+  after S0, main is CI-gated.
+- **If another session is ever active in this tree again:** never stage a shared
+  file wholesale; assemble commits from a worktree cut off fresh `origin/main`
+  re-applying only your own edits. (Single-session today; the rule outlives the
+  era because it has already saved this repo once.)
+- Fresh worktrees: `pnpm install --frozen-lockfile`; never junction
+  `node_modules`. `py`, not `python3`. Railway volume CLI lies without 2FA —
+  verify, don't trust exit codes. Ids are varchar(64), so composite keys run long.
+- **Back up before conversions:** the volume tarball before each Block 2 domain
+  cutover; from S12 on, scheduled MySQL dumps with a **tested** restore.
+
+## 2.4 Design decisions carried (v1, unchanged)
+
+D1 one ledger spec (keystone owns all token DDL) · D2 one module framework
+(lifecycle in `module_settings`, never game variables; tools-hub demoted to
+reference consumer) · D3 one Hypha home · D4 event spine before modules · D5 feed
+is a forum lens (riders baked into the forum session) · D6 exchange v1 buy-only ·
+D7 crowdpool deferred to trigger, `crowdpool.fulfill_recognition` deleted.
+
+## 2.5 Known live hazards (inherited from the foundation plan's v1 list — still
+live, each with its kill-point)
+
+| Hazard | Dies at |
+|---|---|
+| No dev API proxy in `vite.config.ts` (`pnpm dev` = SPA with no backend) | **S0** (ten-minute fix) |
+| No login/admin-attempt throttling; shared password brute-forceable | **S1** (throttle rider) |
+| No session revocation for 30-day member tokens | **S1** (`tokenVersion` on the user record) |
+| `questIdFromTitle()` derives quest ids client-side; a rename breaks claims | **S10** (quests domain conversion adds real id references) |
+| Rate-limit + AI-cap state in-memory, resets per deploy, per-process | **S12** (state moves to MySQL with the last domains) |
+| `readJson` returns null on corrupt files (corrupt = silently empty) | **S12** (data/ stops being read) |
+| No client code splitting; bundle grows monotonically with 11 modules | **S13** (framework registers module routes as `lazy()` chunks; CI bundle line from S0) |
+| Stale statuses in older planning docs | **S0** (supersession banners added to both docs) |
 
 ---
 
-# Part 2 — The build order (back-to-back sessions)
+# Part 3 — The build order
 
-The foundation plan's remaining phases (1b repo cutover, notification spine, forum)
-continue as planned — this order interleaves the modules around them. One session ≈
-one focused block shipping a deployable increment. Parallel tracks are safe because
-they touch disjoint domains; `schema.ts`, `gameVariables.ts`, `capabilities.ts` and
-`Admin.tsx` are append-only merge points (PRs land serialized).
+One session ≈ one focused block shipping a deployable increment that leaves
+`pnpm check && pnpm build && pnpm test` green. Strictly ordered; the two things
+everything waits on come first: **identity** and **storage truth**. Honest total:
+**~56 sessions** (the v2 "~50" hid compression the reviewers priced).
 
-**Serialization rules:** (1) any session touching tokens/ledger DDL is exclusive —
-after Session 4 that set must be empty; (2) `shared/capabilities.ts` SEMANTIC
-changes are exclusive (the badges gate session); key additions merge-coordinate;
-(3) no fiat module ships before the Gate-C trio (D8 #8–9).
+## Block 0 — Ops bootstrap
 
-| # | Session | Track | Depends on |
-|---|---|---|---|
-| 1 | Test harness bootstrap + Phase 1b begins (users/auth domain cutover, index.ts split starts) | Foundation | — |
-| 2–4 | **Keystone:** token registry + ledger v1 per its spec (accounts + transfer shape per Gate A, byte-exact idempotent import, postTransfer(), rewire quest consent + gratitude send, boot invariants D8 #1, admin Tokens/Ledger tabs + reconciliation) | Foundation | Gate A |
-| 5 | **Event spine** (health S1 only): recordEvent() + health_events + 11 call sites + activity columns | Foundation | S2 |
-| 6–7 | **Module framework v1:** registry + module_settings (DB-native) + requireModule + boot reconciliation; Admin Modules tab + hypha.* + shared/hypha.ts + HyphaLink + moduleActivity() guard + CoCreatorsGuide DHO fix | Modules | — |
-| 8 | **Tools hub** as framework reference consumer (first visible member-facing ship) | Modules | S7 |
-| 9–11 | Phase 1b completion: quests domain; gratitude domain WITH the D5 riders (sendGratitude() service, gratitude_log columns + heart index, cycle-key cleanup); config docs. data/ stops being authoritative | Foundation | S2 |
-| 12–14 | **Track B: Stays v1** (3 sessions; S3 = shared payments.ts + Stripe webhook router + purchase limits + chargeback handling, built ONCE) | Modules | S4, Gate C for S3 |
-| 12–16 | **Track A (parallel): Village Map v1** (5 sessions; circles as data → map render → mobile fallback → contact relay → concierge) | Modules | S8 |
-| 15–17 | **Track B: Exchange v1, buy-only** (3 sessions, consumes payments.ts) | Modules | S14, Gates B+C |
-| 15 | **Track C: capabilities gate change** (badges grant/deny semantics, standalone, heavily tested, Rye signs off deny-beats-role-grant) | Modules | — (exclusive on capabilities.ts) |
-| 16–19 | **Track C: Badges v1** (4 sessions; earned engine ships WITH the Sybil filter D8 #7) | Modules | S15, S5 |
-| 17–22 | **Track D: Material Library v1** (6 sessions, believed; DB-native, real transactions, single settleLoan(), intake controls D8 #5) | Modules | S11 |
-| 18–19 | Phase 3: notification spine + scheduler; retrofit hooks land as small riders in shipped modules (stay low-balance, library reservation-ready, map contact) | Foundation | S11 |
-| 20–22 | Phase 4: forum + decision primitive, WITH the D5 feed riders, shipped AS a module on the framework | Foundation | S18 |
-| 23–25 | **Gratitude Feed v1** (3 sessions — its deps are all satisfied by construction here) | Modules | S22 |
-| 26–28 | **Health dashboard v1 remainder** (S2–S4: snapshots at cycle close, regen metrics entry, dashboard page + season-goals overlay) — after a few lunations of data | Modules | S5 + data |
-| 29+ | Economics section (Base reads), founder command centre (consumes health), then **extract Custom-Game-Foundation** | Foundation | — |
-| deferred | **Crowdpool** — until a regen-civics campaign is scheduled and the contract exists; **Exchange swap** — until demand; **all v2s** — behind demand | — | triggers |
+**S0.** GitHub Actions running check/build/test on every push; branch protection
+on `main` so the deploy branch is CI-gated; `pnpm audit` in CI; bundle-size line
+in CI output; the vite dev proxy (hazard table); supersession banners on
+`AMORA_FOUNDATION_UPGRADE_PLAN.md` and the handoff ("decisions stand; statuses
+and build orders are stale — see MODULES_MASTER_PLAN.md"). Half a session, pays
+for itself by S6.
 
-**Working total: ~42 sessions of v1 work** (down from the designers' 71 — the
-critics' rebudget). First visible member-facing ship: Session 8 (tools hub).
-First money-touching ship: ~Session 14 (Stays with Stripe). The loop the foundation
-plan protects (arrive → path → do → be seen → recognition carries value → do more)
-is never blocked: it runs on today's shipped systems while this builds underneath.
+## Block 1 — Identity & founder self-service
+
+**S1. Admin identities (auth).** Fully specified so nothing is guessed:
+- **Storage:** lands on the **JSON usersRepo** (`role`, `tokenVersion` fields +
+  seeds). Do NOT read the 0003 MySQL columns — they receive values at S6.
+- **Mechanism:** `requireAdmin(req)` = valid member token AND `user.role ===
+  'admin'`. **While zero admins exist**, `POST /api/admin/bootstrap
+  {password, email}` (password = current `ADMIN_PASSWORD`) elevates that existing
+  member exactly once — self-sequencing rollout: the same deploy is safe on
+  production because enforcement is "the password authenticates nothing once ≥1
+  admin exists". `BREAK_GLASS_ADMIN_EMAIL` env var can re-elevate only that
+  account. After bootstrap on prod is verified (an admin-token mutation
+  succeeds), `ADMIN_PASSWORD` is deleted from Railway.
+- **Client:** `Admin.tsx` PasswordGate becomes a login-aware gate (logged out →
+  member login; non-admin → refusal screen); all tabs drop the password prop for
+  standard member-token `authHeaders`. No dual-accept window except bootstrap.
+- **Audit home (decided):** S1 ships a minimal `admin_audit` collection behind
+  `collectionRepo` (`{at, actorUserId, action, targetType, targetId}`); **S11's
+  `recordEvent()` subsumes it** (rows become health_events with actorId). Every
+  admin mutation writes one.
+- **Riders:** login/bootstrap throttling; `tokenVersion` so one member's sessions
+  can be revoked; the loop test **grows** (bootstraps an admin inside the run,
+  consents via admin token, asserts the audit row — rule 2.1 #1 note applies).
+- **Acceptance:** every admin surface works via an admin account on production;
+  an audit row names a real user; the shared password authenticates nothing.
+
+**S2. Handles + admin management + journey gate.** `users.handle` (backfilled
+from name, unique, member-editable — the thing @mentions and audit views show;
+emails never leak); admin management UI (list/promote/demote with provenance);
+**`/journey-to-launch` migrates from `JOURNEY_PASSWORD` to the admin/founder
+check and the second shared password is retired** (S48 later adds economics to
+that page — it must not sit behind a shared secret).
+
+**S3. Founder self-service.** Roles holder management UI on `/admin` over the
+tested API (appointment enforces the stage-floor check the API already applies),
+and **build the game-variables editor from scratch** on `/admin` (list by
+category, typed inputs, bounds from `validateVariable`, change reasons) — none
+exists anywhere today. Acceptance: founder appoints/removes a role holder and
+edits one variable end-to-end on `/admin` with an admin account; both write
+audit rows; no curl.
+
+**S4. Profiles.** The page over the live endpoints (progression, gratitude
+flows, ledger, balances). Zero dependencies; pulled forward from the v2 plan's
+S11 — first member-visible ship, and it freezes a regression surface over the
+exact read endpoints Block 2 must keep stable.
+
+## Block 2 — Storage truth
+
+**S5. Test-DB harness (prelude — the loop-test gate depends on it).** Ephemeral
+MySQL strategy for vitest (local/docker or a dedicated scratch database;
+migrations 0001–000N run in setup; `DATABASE_URL` override joins the `DATA_DIR`
+override), baseline redefined; **`timezone: 'Z'` added to the migration runner
+and importer connections** (2.3). Without this session, S6 has no gate.
+
+**S6. Users domain conversion.** Async usersRepo over MySQL; importer value
+checks for role/handle/tokenVersion (trap 3.5); volume backup first; loop test
+green against the DB; routes split out as they move (the index.ts split runs
+through all of Block 2, not after it).
+
+**S7–S9. The ledger keystone (Gate A executed here — see Part 5).**
+- **S7:** `ledger_accounts` (+`faucet` flag) + transfer-row `token_ledger` +
+  `token_balances` cache + `postTransfer()` + `ensureSystemAccount()`; registry
+  wired to the `tokens` TABLE (replacing the in-memory mirror);
+  `idempotency_key` → varchar(191); byte-exact idempotency-preserving import
+  (existing entries become transfers from their source faucets); boot invariants
+  (hypha-never-mints, per-source-event single payout — the pinned double-pay
+  test); conservation test: per-token global SUM ≡ 0 with faucets declared.
+- **S8:** gratitude domain conversion through the final ledger API; the **D5
+  riders** in one migration (`gratitude_log` kind/contextType/contextRef, the
+  `(from_id, context_ref, kind)` unique heart index, int cycle FK +
+  `legacy_cycle_month` cleanup); `sendGratitude()` extracted as the one service
+  wall and future hearts both call; `ledger.admin_mint_cycle_cap` variable.
+- **S9:** Tokens + Ledger admin tabs, reconciliation panel (cache-vs-SUM drift,
+  per-token conservation, system-account balances) — the keystone scope v2
+  silently dropped.
+
+**S10. Quests/claims conversion.** Consent rewires through `postTransfer()`
+**once** (this is why the ledger precedes it); quest ids become real references
+(kills `questIdFromTitle`, hazard table); importer column checks (the reward-range
+lesson lives here — trap 3.5's original victim).
+
+**S11. Event spine = the activity domain conversion.** `recordEvent()` +
+`health_events` (DB-native) + actor/entity columns; ALL `addActivity` call sites
+converted (10 today — count at build time, it drifts); Pulse endpoint cutover;
+`admin_audit` subsumed; backup + fidelity checks like any domain. This is
+deliberately right after S10 — every session it waits is actor-attributed data
+lost forever, and S49's dashboard needs lunations of it.
+
+**S12. Remaining domains + the authority flip.** Everything left, enumerated:
+`roles`, `role_holders`, `stage_events` (capability hot path — one session's
+care), `milestones`, `training_modules`, `investor_docs`, `submissions`,
+`journey` state, seasons + the config documents. **Only after this session:**
+`data/` stops being authoritative (JSON becomes export format); rate-limit/AI-cap
+state moves to MySQL; **scheduled `mysqldump` cadence starts (Railway cron or
+external — do not wait for S16's app scheduler) and one restore drill is executed
+against a scratch DB and documented, asserting a round-tripped timestamp.**
+
+## Block 3 — Module substrate
+
+**S13–S14. Module framework v1.** `module_settings` (DB-native) + lifecycle +
+`requireModule` + boot dependency reconciliation + **`openStateCheck()`** +
+**`moduleActivity()`** + module routes as `lazy()` chunks + per-module strings
+objects (2.1 #7) + Admin Modules tab + `hypha.*` variables + `shared/hypha.ts` +
+`<HyphaLink>` + the CoCreatorsGuide `[YOUR-DHO-SLUG]` fix + the one-selling-
+module boot assertion + legal caution cards that **refuse** funds-bearing
+enablement without 2.2 #11–#12.
+
+**S15. Tools hub** as the framework's reference consumer (registry CRUD,
+audience visibility, click beacon, SSRF-guarded link check).
+
+## Block 4 — Communication spine (moved ahead of the map so the map consumes it)
+
+**S16–S17. Notification spine + scheduler.** `insertNotification` with
+dedupeKey; precedence rule (mention > direct reply > follow) and caps ported
+from regen (leave `forum-notify.ts` behind — foundation plan rule); prefs live
+on the user record (the map's contact opt-out will be one of these prefs, not a
+bespoke flag); email + web push; the cron host (which also absorbs nothing from
+seasons — rollover stays compute-on-read; say so to prevent "helpful"
+migration).
+
+**S18. Data lifecycle.** Retention variables + scheduler sweeps for contact
+messages, concierge queries, notifications; member data export; account
+deletion path that anonymizes actor references and **never deletes value rows**
+(ledger entries persist, actor becomes a tombstone). Gate F's legal scope
+explicitly includes data protection (Costa Rica Law 8968) — every fork inherits
+this posture.
+
+## Block 5 — Coordination surfaces
+
+**S19–S23. Village map v1** (5 sessions per spec): circles as data + alias
+reconciliation; deterministic radial map; mobile accordion; raise-your-hand on
+vacant roles; contact relay **consuming S16 prefs + insertNotification**
+(Reply-To disclosure in the compose UI); deterministic-first concierge with the
+`coordination` Maia kind; unmatched queries logged as demand signal.
+
+**S24–S26. Forum + decision primitive.** Written fresh, shipped AS a module,
+**with the D5 riders** (thread kind/meta/imageUrl/heartCount, tags, reports);
+@mentions use `handle` from S2; notifications via S16.
+
+**S27–S29. Gratitude feed v1.** The forum lens; hearts are real budgeted sends
+through `sendGratitude()`; **the shared Sybil eligibility helper ships here**
+(2.2 #9); settlement report splits heart totals from acknowledgment totals (the
+founders carry it to Hypha — don't blend channels silently).
+
+## Block 6 — The village economy (gated on S1 + Gates B/D; Gate F engaged since ~S16)
+
+**S30–S32. Stays v1** (3 sessions; S32 = the fiat trio built ONCE + the
+webhook module-off exemption + the ops-readiness rider: error tracker wired,
+alerts on webhook signature/settlement failures and health-check regression,
+payment-path request log — 2.2 #12 verified before go-live).
+**S33–S35. Exchange v1, buy-only** (consumes the trio; 2.2 #15 consolidation).
+**S36. Badges gate session** — capabilities grant/deny semantics, exclusive,
+heavily tested, Rye signs off deny-beats-role-grant (Gate E).
+**S37–S40. Badges v1** (earned engine reads settled events only; consumes the
+Sybil helper).
+**S41–S46. Material library v1** (6 sessions per spec; real transactions,
+single settleLoan(), intake controls, pool non-negativity, reservation no-show
+strikes, dispute deadlines with default outcomes).
+
+## Block 7 — Money legibility & steering
+
+**S47. Economics section.** Base reads for Amora/Voice — `decimals()`,
+fixed-point storage, **null on RPC failure, never zero**; balances only against
+`wallet_verified_at` bindings (signed-message challenge).
+**S48. Command centre.** Extend `/journey-to-launch` (admin-gated since S2)
+with founder economics: cycle settlement report, module health, pending
+consents, stale milestones. Never a second command centre.
+**S49–S51. Health dashboard remainder.** Snapshots at cycle close, regen
+metrics entry, dashboard page + season-goals overlay. **Calendar guard:** if
+fewer than ~3 lunations of health_events exist when this comes up, run Block 8
+first and return — the automation pipeline doesn't need the dashboard.
+
+## Block 8 — Exit, automation, extraction
+
+**S52. Member exit (F12 — Rye's "exit from the get-go").** openStateCheck
+semantics applied to a departing member: enumerate open loans/stays/roles/
+balances, define settlement, restorative-flow hooks per the F12 spec. Scheduled
+here because Blocks 5–6 create the state that makes exit painful; it must exist
+before the community is big enough to need it.
+**S53–S55. Automation pipeline.** Recording → transcript → LLM synthesis →
+forum thread → role-targeted proposals. Evidence rule verbatim (quote +
+timestamp or dropped); deterministic first; suggestions never timer-mutations;
+backpressure; write-once AI bodies.
+**S56+. Extract Custom-Game-Foundation.** The CI brand-reference guard, plus
+the **fork onboarding runbook** as a first-class deliverable: provision → env
+(the full var list, incl. AUTH_TOKEN_SECRET's silent-degrade warning) → seeds →
+brand overlay → DHO config → token naming (Gate D) → smoke test. **Standing
+rule starting NOW: every session that adds an env var or seed appends one line
+to `docs/FORK_RUNBOOK.md`** so S56 assembles rather than reverse-engineers.
+
+**Deferred, with triggers:** crowdpool (a passed regen-civics campaign + the
+webhook/export contract in that repo — pre-agree only the material-library
+draft-item back-ref shape); exchange swap (demand); module v2s (demand); AI
+forum elders (Rye's call).
+
+**Milestones:** founders self-sufficient after S3; first member-visible ship S4;
+storage truth done S12; first module S15; first money-touching ship S32. The
+live loop never stops running while this builds underneath.
 
 ---
 
-# Part 3 — What the modules improve over the 2020 deck (the short version)
+# Part 4 — The definition of done (the extended loop)
 
-- **The deck rebuilt governance; we deep-link it.** Voting, referendums, share
-  purchases, multisig badges — all Hypha, one configured URL, `<HyphaLink>`
-  everywhere, zero dead links when unconfigured, zero securities surface.
-- **The deck had tokens with no accounting.** Now: one registry, one
-  conservation-checked ledger, pools as real accounts, idempotency on every
-  movement, pay-at-send XOR release enforced at boot, recognition structurally
-  unbuyable (F4), equity structurally unmintable (governance='hypha').
-- **The deck's exchange was a Uniswap fork.** Now: treasury-as-counterparty at
-  admin-posted, provenance-logged prices (price-setting is a governance act, not a
-  market act), anchor pricing kills triangular arbitrage, quotes are
-  slippage-free-or-fail, credits are closed-loop arcade credits with KYC-free
-  limits — and anything share-like goes to Hypha, resolving the deck's own
-  slide-25/26 contradiction.
-- **The material library's speaker-note mechanics became a real economy:** wear
-  quoted BEFORE you borrow (deterministic decay curve: front-loaded by item age ×
-  duration × declared wear-class), automatic wear split from disputable damage,
-  escrow as ledger rows, dual-sign as a state machine with a dispute branch and
-  F6-style default-on-deadline, the 120%/20% pool split with a non-negative pool,
-  steward paid idempotently at lunar close, "internal NFT" honestly = an
-  append-only provenance chain in MySQL.
-- **The map became a coordination tool, not a visualization:** deterministic
-  radial layout (stable spatial memory, no physics jitter), vacant roles greyed as
-  open calls with raise-your-hand applications, deterministic-first concierge
-  ("I want to plant trees" → Food Forest lead) with the LLM only disambiguating,
-  unmatched queries logged as founder demand signal, privacy-respecting contact
-  relay, honest mobile fallback.
-- **Hearts became scarce and real:** a heart IS a 1-Gratitude budgeted send —
-  idempotent, irrevocable, cap-respecting — not a free like. The feed rides the
-  forum (one content substrate), interleaves village life with system events, and
-  never displays amounts (F2/F3).
-- **Health became breadth-first and honest:** distinct sender-recipient pairs
-  beats volume; cycle-aligned snapshots on the lunar rhythm; regenerative metrics
-  as steward observations with provenance, not sensor vaporware; small-cohort
-  suppression; season goals as the steering overlay.
-- **Badges lost their weapons:** no voting multipliers ever (F4 welded shut),
-  self-declared ≠ authorization (boot-asserted), warnings private + expiring,
-  earned rules read only consented/settled events, Hypha multisig badges mirrored
-  read-only.
-- **Everything is a module a village can turn off**, with a lifecycle (soft-launch
-  to admins → members → public), dependency checks, legal caution cards on
-  funds-bearing modules, and delta-only inheritance so hundreds of forks get new
-  modules as OFF automatically.
+One end-to-end run in `server/loop.e2e.test.ts`, growing with each block:
+
+> Register → declare a path → claim → submit → consent (by an **admin member
+> token**) → Gratitude lands → send to a peer → **a heart on a feed post moves
+> real budget** → cycle closes (credits nobody; settlement report splits hearts
+> from acknowledgments) → a stage advances and **unlocks a capability refused
+> earlier in the same run** → a role-targeted notification reaches one member
+> and not another → the economics endpoint returns last-known-with-staleness
+> (never zero) when the RPC is stubbed to fail → **an admin action writes an
+> audit row naming a real user** → **a module at preview is invisible to a
+> member and its activity leaks nothing** → **a library loan settles exactly
+> once though two terminal paths race** → **per-token conservation sums to zero
+> with faucets declared**.
+
+The conservation assertion presumes Gate A's recommended shape — see Part 5;
+the gate and this run are not allowed to disagree silently.
+
+---
+
+# Part 5 — Decision gates for Rye
+
+| Gate | Question | Status / Recommendation | Blocks |
+|---|---|---|---|
+| ~~0~~ | ~~enum → registry~~ | **DONE** — live + committed (`339a093`) | — |
+| ~~C~~ | ~~per-admin identities~~ | **ABSORBED into S1** (the handoff's own 4.0) | — |
+| **A** | Ledger shape: `ledger_accounts` + transfer rows + faucet flag | **Decided as the plan's basis — ratify or veto by S7.** Both critiques rate freezing this CRITICAL; rules 2.2 #1/#4/#6/#8 and Part 4's conservation assertion are written against it. **A veto is priced:** it re-scopes Block 6 and rewrites those rules and the DoD — say so explicitly if vetoing. | S7 |
+| B | Nothing share-like ever trades in-platform (exchange = closed-loop credits only) | Yes — the deck's own slide-25 rule and the legal firewall | Block 6 |
+| D | One shared credit token vs per-module tokens | Separate per module — cleaner pools and legal stories; the registry makes it free. Name them (stay credits, library credits) before Block 6 seeds | Block 6 |
+| E | Deny-beats-role-grant for warning badges | Yes, with expiry + provenance + re-issue counts surfaced | S36 |
+| F | Legal review: closed-loop credit sales (CR 13% IVA lodging, consumer refund, gift-certificate/escheatment) **and data protection (Law 8968: retention, deletion, export)** | **Engage counsel around S16** (weeks of lead time; S30–S32 are consecutive sessions — "before S32" starts the clock too late) | S32+ |
 
 ---
 
 # Handoff Breakdown — Who Does What
 
-### YOU (Rye) — things only you can do
+### YOU (Rye)
 
-| # | Task | Why only you | Where |
+| # | Task | Why only you | When |
 |---|---|---|---|
-| 1 | Decision Gates A–D above (ledger row shape; Hypha-only for share-like; per-admin identities; one-credit-vs-per-module tokens) | Product/governance calls | Reply in any session; A blocks keystone sessions 2–4 |
-| 2 | Legal review before real money flows: closed-loop credit sales (stays/exchange), Costa Rica 13% IVA on lodging, consumer refund law, gift-certificate/escheatment if credits ever expire | Counsel engagement | Before Exchange S3 / Stays S3 go live |
-| 3 | Confirm Hypha deep-link URL shapes hold for your DHO (the four conventional suffixes) | Your Hypha org | 2 minutes, before framework S7 |
-| 4 | regen-civics side: decide whether crowdpool pledges carry capital types + amount/unit, or the contract in `docs/modules/crowdpool-dashboard.md` drives that build | Cross-repo product call | Whenever a campaign approaches |
-| 5 | Name the per-module credit tokens if Gate D = separate (stay credits, library credits display names) | Naming is yours | Before each module's seed |
+| 1 | Ratify (or priced-veto) Gate A; answer B, D, E; engage F counsel | Product/governance/legal | A by S7; B/D before Block 6; E by S36; F around S16 |
+| 2 | Delete two orphaned MySQL volumes: `mysql-volume-PSJY`, `mysql-volume-Jin7` — **924MB each (~1.85GB billed)**, invisible on the canvas (no attached service); `railway volume list` shows them; the CLI's delete lies without 2FA | Dashboard + 2FA | Any time — it's live billing |
+| 3 | Confirm your Hypha DHO deep-link URL shapes | Your Hypha org | Before S14 |
+| 4 | regen-civics crowdpool contract (or let the spec drive it) | Cross-repo call | When a campaign approaches |
 
-### CLAUDE CODE — already done or can be done without you
+### CLAUDE CODE — in order
 
 | # | Task | Status |
 |---|---|---|
-| 0 | enum → token registry (0006), live DB converted, ledger guard, tests, import script, plan-doc supersede note | **DONE, verified in prod** (token_ledger had 0 rows — free window) |
-| 1 | 11 module design specs + 2 critiques written to `docs/modules/` | DONE |
-| 2 | This master plan | DONE |
-| 3 | Sessions 1–28 as sequenced above | READY — each session's ticket = its `docs/modules/*.md` + this plan's decisions |
+| 0 | Absorb the foundation handoff; commit the enum fix on their ledger base; verify 53 green | **DONE** (`339a093`) |
+| 1 | v3 of this plan (5-reviewer hardening pass, 58 findings folded) | DONE |
+| 2 | S0 → S1 → … per Part 3 | READY — S0/S1 are unblocked now |
 
-### WAITING ON YOU before Claude Code can proceed
+### WAITING ON YOU
 
-- **Gate A** before keystone sessions 2–4 (the very next module-track work).
-- Gates B–C before any fiat-touching session (≈ Session 14 at the earliest).
-- Everything else in Sessions 1, 5–11 (foundation + framework + tools + map) is
-  unblocked **today**.
+- Nothing before S7 except Gate A's ratification (recommended default already
+  encoded; a veto is the only thing that changes course).
+- B/D before Block 6; E before S36; F engaged ~S16.

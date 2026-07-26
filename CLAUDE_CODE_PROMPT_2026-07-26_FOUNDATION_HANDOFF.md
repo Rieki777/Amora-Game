@@ -1,3 +1,11 @@
+> **SUPERSEDED IN ORDERING (2026-07-26): see `MODULES_MASTER_PLAN.md` (v3),
+> whose Part 3 replaces §4's sequence.** The traps (§3) and the shipped-work
+> record (§2) remain binding required reading. Two corrections found during the
+> v3 hardening pass: the "variables editor on /journey-to-launch" in §4.1 does
+> not exist — that tab is a copy-placeholder sheet, and the game-variables API
+> has no UI anywhere (v3 S3 builds it); and the architecture critique files the
+> shared-admin-password finding as HIGH, not CRITICAL (ordering unaffected).
+
 # Handoff: Amora foundation, what shipped and what is left
 
 **From:** the session of 2026-07-26 that built the loop test, roles, lunar cycles, the
