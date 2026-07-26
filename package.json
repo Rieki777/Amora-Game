@@ -9,7 +9,12 @@
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate": "tsx scripts/run-migration.ts --all",
+    "db:status": "tsx scripts/run-migration.ts --status",
+    "db:import": "tsx scripts/import-json-to-mysql.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -13,7 +13,15 @@ const BCRYPT_SALT_ROUNDS = 10;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DATA_DIR = path.resolve(__dirname, "..", "data");
+/**
+ * DATA_DIR is overridable so the server can be booted against a throwaway
+ * directory. Without this the app is untestable: the path was fixed at module
+ * load, so any test either ran against real data or not at all. In production
+ * this is unset and resolves to the mounted volume exactly as before.
+ */
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.resolve(__dirname, "..", "data");
 // Seed sources live OUTSIDE data/ on purpose: in production, data/ is a mounted
 // volume, and mounting a volume onto a path shadows whatever the Docker image had
 // there. Any seed file that lived inside data/ would silently vanish at runtime
