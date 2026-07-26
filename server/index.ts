@@ -12,6 +12,7 @@ import { hasCapability, type Capability } from "../shared/capabilities";
 import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/variables";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import { backfillOpeningBalances, balanceOf, creditTokens, entriesFor } from "./lib/ledger";
+import { usersRepo } from "./repos/users";
 import {
   cycleIdFor,
   currentCycle,
@@ -63,6 +64,13 @@ const CYCLES_FILE = path.join(DATA_DIR, "gratitude-cycles.json");
 const DISTRIBUTIONS_FILE = path.join(DATA_DIR, "gratitude-distributions.json");
 const VARIABLES_FILE = path.join(DATA_DIR, "game-variables.json");
 const LEDGER_FILE = path.join(DATA_DIR, "token-ledger.json");
+
+/**
+ * The single seam for member data. Every read and write of a member record goes
+ * through here, so the JSON-to-MySQL swap happens in one module rather than at 29
+ * call sites. See server/repos/users.ts for why `withDoc` exists.
+ */
+const members = usersRepo(USERS_FILE);
 const STAGE_EVENTS_FILE = path.join(DATA_DIR, "stage-events.json");
 const MILESTONES_FILE = path.join(DATA_DIR, "milestones.json");
 /** Ledger of one-shot data fixes already applied to this deployment's volume. */
@@ -424,7 +432,7 @@ function ensureDataFiles() {
  * would silently zero every balance, so copy it across once.
  */
 function renameHeartsBalanceField() {
-  const users = readJson(USERS_FILE) ?? { users: [] };
+  const users = { users: members.readDoc() };
   if (!Array.isArray(users.users)) return;
   let moved = 0;
   for (const u of users.users) {
@@ -442,7 +450,7 @@ function renameHeartsBalanceField() {
       }
     }
   }
-  if (moved > 0) writeJson(USERS_FILE, users);
+  if (moved > 0) members.saveDoc(users.users);
   console.log(`[migration] renamed heartsBalance on ${moved} member(s)`);
 }
 
@@ -452,7 +460,7 @@ function renameHeartsBalanceField() {
  * everyone carrying a balance one opening entry.
  */
 function seedLedgerOpeningBalances() {
-  const users = readJson(USERS_FILE) ?? { users: [] };
+  const users = { users: members.readDoc() };
   if (!Array.isArray(users.users)) return;
   const { created } = backfillOpeningBalances(
     LEDGER_FILE,
@@ -537,7 +545,7 @@ function requireUser(req: express.Request): any | null {
   if (!header || !header.startsWith("Bearer ")) return null;
   const decoded = decodeToken(header.slice(7));
   if (!decoded) return null;
-  const users = readJson(USERS_FILE) ?? { users: [] };
+  const users = { users: members.readDoc() };
   return users.users.find((u: any) => u.id === decoded.userId) ?? null;
 }
 
@@ -944,7 +952,7 @@ function getWorkWithUs() {
  * member: a logged contribution, Gratitude credit, and a pulse. Idempotent. */
 function applyAcceptReward(entry: any): boolean {
   if (entry.rewarded) return false;
-  const users = readJson(USERS_FILE) ?? { users: [] };
+  const users = { users: members.readDoc() };
   const email = String(entry.data?.email ?? "").toLowerCase();
   const idx = users.users.findIndex(
     (u: any) => (entry.userId && u.id === entry.userId) || (email && String(u.email).toLowerCase() === email)
@@ -961,7 +969,7 @@ function applyAcceptReward(entry: any): boolean {
     date: new Date().toISOString(),
   });
   u.recognitionBalance = (u.recognitionBalance ?? 0) + amount;
-  writeJson(USERS_FILE, users);
+  members.saveDoc(users.users);
   addActivity("proposal", `${firstName(u.name)}'s proposal was welcomed into the village`);
   return true;
 }
@@ -1293,7 +1301,7 @@ async function startServer() {
     if (!name || !email || !password || !paths || !Array.isArray(paths)) {
       return res.status(400).json({ error: "Missing required fields" });
     }
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     if (users.users.some((u: any) => u.email === email)) {
       return res.status(409).json({ error: "Email already exists" });
     }
@@ -1312,7 +1320,7 @@ async function startServer() {
       avatar: null,
     };
     users.users.push(user);
-    writeJson(USERS_FILE, users);
+    members.saveDoc(users.users);
     addActivity("join", `${firstName(name)} stepped into the village as a Guest`);
     const token = encodeToken(userId, email);
     res.json({ success: true, token, user: publicUser(user) });
@@ -1324,7 +1332,7 @@ async function startServer() {
     if (!email || !password) {
       return res.status(400).json({ error: "Missing email or password" });
     }
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const userIdx = users.users.findIndex((u: any) => u.email === email);
     const user = userIdx === -1 ? null : users.users[userIdx];
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
@@ -1333,7 +1341,7 @@ async function startServer() {
     // Transparent upgrade: if the user is still on a legacy SHA256 hash, re-hash with bcrypt
     if (user.passwordHash === legacySha256(password)) {
       users.users[userIdx].passwordHash = await hashPassword(password);
-      writeJson(USERS_FILE, users);
+      members.saveDoc(users.users);
     }
     const token = encodeToken(user.id, email);
     res.json({ success: true, token, user: publicUser(users.users[userIdx]) });
@@ -1350,7 +1358,7 @@ async function startServer() {
     if (!decoded) {
       return res.status(401).json({ error: "Invalid token" });
     }
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const user = users.users.find((u: any) => u.id === decoded.userId);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
@@ -1369,7 +1377,7 @@ async function startServer() {
     if (!decoded) {
       return res.status(401).json({ error: "Invalid token" });
     }
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const userIdx = users.users.findIndex((u: any) => u.id === decoded.userId);
     if (userIdx === -1) {
       return res.status(404).json({ error: "User not found" });
@@ -1379,7 +1387,7 @@ async function startServer() {
     if (bio !== undefined) users.users[userIdx].bio = bio;
     if (avatar !== undefined) users.users[userIdx].avatar = avatar;
     if (paths) users.users[userIdx].paths = paths;
-    writeJson(USERS_FILE, users);
+    members.saveDoc(users.users);
     res.json(publicUser(users.users[userIdx]));
   });
 
@@ -1398,7 +1406,7 @@ async function startServer() {
     if (!type || !description || recognitionEarned === undefined) {
       return res.status(400).json({ error: "Missing required fields" });
     }
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const userIdx = users.users.findIndex((u: any) => u.id === decoded.userId);
     if (userIdx === -1) {
       return res.status(404).json({ error: "User not found" });
@@ -1413,7 +1421,7 @@ async function startServer() {
     users.users[userIdx].contributions = users.users[userIdx].contributions ?? [];
     users.users[userIdx].contributions.push(contribution);
     users.users[userIdx].recognitionBalance = (users.users[userIdx].recognitionBalance ?? 0) + recognitionEarned;
-    writeJson(USERS_FILE, users);
+    members.saveDoc(users.users);
     res.json({ success: true, contribution });
   });
 
@@ -2410,7 +2418,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // Stage depends on consented-quest count, so the snapshot must be taken
     // BEFORE the claim flips to consented; taking it after would always compare
     // equal and the advancement event would never fire.
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const uIdx = users.users.findIndex((u: any) => u.id === claims[idx].userId);
     const stageBefore = uIdx !== -1 ? computeStage(users.users[uIdx]) : null;
 
@@ -2430,7 +2438,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         idempotencyKey: `quest_consent:${claims[idx].id}`,
       });
       users.users[uIdx].recognitionBalance = credit.balance;
-      writeJson(USERS_FILE, users);
+      members.saveDoc(users.users);
       addActivity("quest", `${firstName(claims[idx].userName)} completed the quest "${claims[idx].questTitle}"`);
       const stageAfter = computeStage(users.users[uIdx]);
       if (stageBefore) recordStageEvent(users.users[uIdx], stageBefore, stageAfter, `quest consented: ${claims[idx].questTitle}`);
@@ -2444,12 +2452,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const { journeyId, steps } = req.body ?? {};
     if (!journeyId || !Array.isArray(steps)) return res.status(400).json({ error: "Missing journeyId or steps" });
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const idx = users.users.findIndex((u: any) => u.id === user.id);
     if (idx === -1) return res.status(404).json({ error: "User not found" });
     if (!users.users[idx].journeys) users.users[idx].journeys = {};
     users.users[idx].journeys[journeyId] = steps.map(String);
-    writeJson(USERS_FILE, users);
+    members.saveDoc(users.users);
     res.json({ success: true, journeys: users.users[idx].journeys });
   });
 
@@ -2491,7 +2499,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (boolVar(VARIABLES_FILE, "gratitude.require_message") && !String(message ?? "").trim()) {
       return res.status(400).json({ error: "A few words of appreciation are required" });
     }
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const toIdx = users.users.findIndex((u: any) => String(u.email).toLowerCase() === String(toEmail).toLowerCase());
     if (toIdx === -1) return res.status(404).json({ error: "No member found with that email" });
     const recipient = users.users[toIdx];
@@ -2529,7 +2537,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       idempotencyKey: `gratitude_received:${entry.id}`,
     });
     users.users[toIdx].recognitionBalance = sendCredit.balance;
-    writeJson(USERS_FILE, users);
+    members.saveDoc(users.users);
     addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(recipient.name)}`);
     res.json({ success: true, entry: { ...entry, amount: undefined }, budget: gratitudeBudget(user) });
   });
@@ -2578,7 +2586,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/game/cycle/distributions", (_req, res) => {
     const cycles: CycleRecord[] = readJson(CYCLES_FILE) ?? [];
     const dists: DistributionRecord[] = readJson(DISTRIBUTIONS_FILE) ?? [];
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const nameOf = (id: string) => firstName(users.users.find((u: any) => u.id === id)?.name ?? "Member");
     res.json(
       cycles
@@ -2784,7 +2792,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // Roles, public: who holds what, so the village can see its own shape.
   app.get("/api/roles", (_req, res) => {
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const holders = loadRoleHolders();
     const nameOf = (id: string) => firstName(users.users.find((u: any) => u.id === id)?.name ?? "Member");
     res.json(
@@ -2811,7 +2819,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!userId || !["add", "remove"].includes(action)) {
       return res.status(400).json({ error: "userId and action (add|remove) are required" });
     }
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const member = users.users.find((u: any) => u.id === userId);
     if (!member) return res.status(404).json({ error: "Member not found" });
 
@@ -2854,7 +2862,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Players admin: list + stage grants
   app.get("/api/admin/players", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     res.json(
       users.users.map((u: any) => ({
         id: u.id,
@@ -2876,12 +2884,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (stageId && !GAME_CONFIG.stages.some((s) => s.id === stageId)) {
       return res.status(400).json({ error: "Unknown stage" });
     }
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const idx = users.users.findIndex((u: any) => u.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
     const before = computeStage(users.users[idx]);
     users.users[idx].stageGranted = stageId ?? null;
-    writeJson(USERS_FILE, users);
+    members.saveDoc(users.users);
     const after = computeStage(users.users[idx]);
     recordStageEvent(users.users[idx], before, after, stageId ? "granted by an admin" : "grant removed");
     res.json({ success: true, stageComputed: after });
@@ -2889,11 +2897,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.delete("/api/admin/players/:id", (req, res) => {
     if (!requireAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
-    const users = readJson(USERS_FILE) ?? { users: [] };
+    const users = { users: members.readDoc() };
     const idx = users.users.findIndex((u: any) => u.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
     const [removed] = users.users.splice(idx, 1);
-    writeJson(USERS_FILE, users);
+    members.saveDoc(users.users);
     // Note: historical quest claims and gratitude-log entries are intentionally
     // left intact; they are a shared ledger, not owned by a single account.
     res.json({ success: true, removed: { id: removed.id, email: removed.email } });
