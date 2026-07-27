@@ -211,6 +211,32 @@ export const MODULES: ModuleDef[] = [
     // the shared registry stays import-clean for the client bundle.
   },
   {
+    id: "exchange",
+    name: "Exchange",
+    description:
+      "Buy the village's own platform tokens for fiat, out of a stocked treasury — buy-only in v1. Recognition and Hypha-governed tokens can never be listed; a token another module sells can't be listed twice. Funds-bearing — read the legal card before enabling.",
+    requires: [],
+    recommends: [],
+    capabilities: ["exchange.buy", "exchange.manage"],
+    variableKeys: [
+      "exchange.price_change_max_pct",
+      "payments.purchase_limit_per_order_usd",
+      "payments.purchase_limit_30d_usd",
+      "payments.purchase_limit_annual_usd",
+    ],
+    apiPrefixes: ["/api/exchange"],
+    legalReview: true,
+    // Swapping is a v2 engine; the CONTRACT ships now so forks configure
+    // against a stable shape. true answers 501 until the engine exists.
+    defaultConfig: { tradingEnabled: false },
+    validateConfig: (c: any) => {
+      if (!c || typeof c !== "object") return "config must be an object";
+      if (typeof c.tradingEnabled !== "boolean") return "tradingEnabled must be true or false";
+      return null;
+    },
+    // openStateCheck attached by the server at boot (needs the pool).
+  },
+  {
     id: "tools",
     name: "Tools Hub",
     description:

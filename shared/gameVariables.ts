@@ -559,6 +559,20 @@ export const VARIABLES: VariableDef[] = [
     default: "work-exchange",
   },
 
+  // ── Exchange: the buy-only token market ──────────────────────────────────
+  {
+    key: "exchange.price_change_max_pct",
+    category: "Exchange",
+    label: "Largest single price change",
+    description:
+      "How far one posted price may move from the previous one, in percent. Big moves happen in bounded steps, each with its own note — the price history stays a story, not a cliff. 0 removes the bound.",
+    type: "integer",
+    default: "20",
+    min: 0,
+    max: 1000,
+    unit: "%",
+  },
+
   // ── Payments: platform-wide fiat guardrails (all fiat modules share) ──────
   {
     key: "payments.purchase_limit_per_order_usd",

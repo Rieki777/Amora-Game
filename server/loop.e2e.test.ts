@@ -1636,4 +1636,154 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(rec.json.invariants.problems).toEqual([]);
     expect(rec.json.invariants.ok).toBe(true);
   });
+
+  it("S33-S35: the exchange — firewalls, bounded prices, stocked treasury, receipts", async () => {
+    const { createHmac } = await import("crypto");
+    const sign = (payload: string, at = Math.floor(Date.now() / 1000)) =>
+      `t=${at},v1=${createHmac("sha256", "whsec_looptest").update(`${at}.${payload}`).digest("hex")}`;
+    const webhook = async (event: any) => {
+      const payload = JSON.stringify(event);
+      const res = await fetch(`${BASE}/api/webhooks/stripe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "stripe-signature": sign(payload) },
+        body: payload,
+      });
+      const text = await res.text();
+      return { status: res.status, json: text ? JSON.parse(text) : null };
+    };
+
+    expect((await api("GET", "/api/exchange")).status).toBe(404);
+    expect((await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "public" }, founderToken)).status).toBe(200);
+
+    // THE FIREWALLS, at write time (and re-proven by the same predicate at
+    // every boot): recognition is earned, hypha never trades here, one
+    // seller per token — the stays module already sells stay-credit.
+    const recRefused = await api("PUT", "/api/admin/exchange/tokens/gratitude", { purchasable: true }, founderToken);
+    expect(recRefused.status).toBe(409);
+    expect(String(recRefused.json.error)).toContain("recognition");
+    const hyphaRefused = await api("PUT", "/api/admin/exchange/tokens/amora", { purchasable: true }, founderToken);
+    expect(hyphaRefused.status).toBe(409);
+    expect(String(hyphaRefused.json.error)).toContain("Hypha");
+    const secondSeller = await api("PUT", "/api/admin/exchange/tokens/stay-credit", { purchasable: true }, founderToken);
+    expect(secondSeller.status).toBe(409);
+    expect(String(secondSeller.json.error)).toContain("one seller");
+
+    // "stay-credits" (the S9 admin-named token, distinct from the stays
+    // module's stay-credit) is a plain platform credit: listable.
+    expect((await api("PUT", "/api/admin/exchange/tokens/stay-credits", { purchasable: true }, founderToken)).status).toBe(200);
+
+    // Prices are append-only, always explained, bounded per change.
+    expect((await api("POST", "/api/admin/exchange/tokens/stay-credits/price", { priceMinor: 1000 }, founderToken)).status).toBe(409);
+    expect((await api("POST", "/api/admin/exchange/tokens/stay-credits/price", { priceMinor: 1000, note: "Opening price: $10" }, founderToken)).status).toBe(200);
+    const tooBig = await api("POST", "/api/admin/exchange/tokens/stay-credits/price", { priceMinor: 1500, note: "to the moon" }, founderToken);
+    expect(tooBig.status).toBe(409); // 50% move against the default 20% bound
+    expect(String(tooBig.json.error)).toContain("%");
+    expect((await api("POST", "/api/admin/exchange/tokens/stay-credits/price", { priceMinor: 1200, note: "Costs rose with the wet season" }, founderToken)).status).toBe(200);
+
+    // Buying is honest BEFORE the card: an unstocked treasury refuses.
+    const noStock = await api("POST", "/api/exchange/buy", { tokenSlug: "stay-credits", quantity: 3 }, doerToken);
+    expect(noStock.status).toBe(409);
+    expect(String(noStock.json.error)).toContain("in stock");
+
+    // Stocking IS minting: the S9 test already hand-minted 9000 of the
+    // 10000 per-cycle cap this lunation, so 2000 more refuses and 500 fits.
+    const overCap = await api("POST", "/api/admin/exchange/stock", { tokenSlug: "stay-credits", amount: 2000 }, founderToken);
+    expect(overCap.status).toBe(409);
+    const stocked = await api("POST", "/api/admin/exchange/stock", { tokenSlug: "stay-credits", amount: 500 }, founderToken);
+    expect(stocked.status).toBe(200);
+    expect(stocked.json.treasuryBalance).toBe(500);
+
+    // The market lens; the v2 contract surfaces honestly as off + 501.
+    const market = await api("GET", "/api/exchange", undefined, doerToken);
+    expect(market.status).toBe(200);
+    const listing = market.json.listings.find((l: any) => l.slug === "stay-credits");
+    expect(listing.priceMinor).toBe(1200);
+    expect(listing.inStock).toBe(true);
+    expect(market.json.tradingEnabled).toBe(false);
+    expect(market.json.mine.canBuy).toBe(true);
+    expect((await api("POST", "/api/exchange/swap", {}, doerToken)).status).toBe(501);
+
+    // The one gate: exchange.buy opens at member — a fresh guest is refused;
+    // a per-listing stage floor stacks on top of it.
+    const buyerReg = await api("POST", "/api/auth/register", {
+      email: `xbuyer-${PORT}@example.test`, password: "LoopTest123!", name: "Eager Buyer", paths: ["resident"],
+    });
+    expect((await api("POST", "/api/exchange/buy", { tokenSlug: "stay-credits", quantity: 1 }, buyerReg.json.token)).status).toBe(403);
+    await api("PUT", "/api/admin/exchange/tokens/stay-credits", { minStageToBuy: "co-creator" }, founderToken);
+    const stageFloor = await api("POST", "/api/exchange/buy", { tokenSlug: "stay-credits", quantity: 1 }, peerToken);
+    expect(stageFloor.status).toBe(403); // the peer is a member, not co-creator
+    expect(String(stageFloor.json.error)).toContain("co-creator");
+    await api("PUT", "/api/admin/exchange/tokens/stay-credits", { minStageToBuy: null }, founderToken);
+
+    // ── Settlement through the SAME signed webhook (receipt planted: no
+    // Stripe key here, and the trio is what's under test). ──
+    await testDb.conn.query(
+      "INSERT INTO exchange_orders (id, receipt_no, user_id, token_slug, quantity, price_minor_each, amount_minor, status) VALUES ('xo-loop-1', 900, ?, 'stay-credits', 30, 1200, 36000, 'pending')",
+      [doerId],
+    );
+    const settle = {
+      id: "evt_loop_xsettle_1",
+      type: "checkout.session.completed",
+      data: { object: { id: "cs_xloop_1", payment_intent: "pi_xloop_1", metadata: { module: "exchange", orderId: "xo-loop-1" } } },
+    };
+    expect((await webhook(settle)).status).toBe(200);
+    const doerBal = await api("GET", "/api/game/ledger", undefined, doerToken);
+    expect(doerBal.json.balances["stay-credits"]?.balance).toBe(30);
+    expect(doerBal.json.entries.some((e: any) => e.source === "exchange_purchase" && e.amount === 30)).toBe(true);
+    // Stock came DOWN — treasury sold what it held, minted nothing.
+    const adminView = await api("GET", "/api/admin/exchange", undefined, founderToken);
+    expect(adminView.json.stock["stay-credits"]).toBe(470);
+    expect(adminView.json.orders.find((o: any) => o.id === "xo-loop-1").status).toBe("paid");
+    // The buyer sees the receipt.
+    const mine = await api("GET", "/api/exchange", undefined, doerToken);
+    expect(mine.json.mine.orders.some((o: any) => o.receipt_no === 900 && o.status === "paid")).toBe(true);
+
+    // ── OUT OF STOCK FAILS LOUD: an order the treasury cannot cover makes
+    // the webhook answer 500 — and stays retryable (the dedupe claim is
+    // released on failure), because out of stock is never a mint. ──
+    await testDb.conn.query(
+      "INSERT INTO exchange_orders (id, receipt_no, user_id, token_slug, quantity, price_minor_each, amount_minor, status) VALUES ('xo-loop-2', 901, ?, 'stay-credits', 100000, 1200, 120000000, 'pending')",
+      [doerId],
+    );
+    const bigSettle = {
+      id: "evt_loop_xsettle_2",
+      type: "checkout.session.completed",
+      data: { object: { id: "cs_xloop_2", payment_intent: "pi_xloop_2", metadata: { module: "exchange", orderId: "xo-loop-2" } } },
+    };
+    expect((await webhook(bigSettle)).status).toBe(500);
+    expect((await webhook(bigSettle)).status).toBe(500); // retry re-runs, same truth
+    const payLog = await api("GET", "/api/admin/payments", undefined, founderToken);
+    expect(payLog.json.log.some((l: any) => l.outcome === "settle_error" && l.order_id === "xo-loop-2")).toBe(true);
+    // Ops resolution for the stuck order (refund it in Stripe, void it here).
+    await testDb.conn.query("UPDATE exchange_orders SET status = 'cancelled' WHERE id = 'xo-loop-2'");
+    await testDb.conn.query("DELETE FROM fiat_charges WHERE module = 'exchange' AND order_id = 'xo-loop-2'");
+
+    // ── Mechanical reversal: the dispute returns the 30 tokens TO STOCK and
+    // suspends the buyer, cross-module — the same trio path stays proved. ──
+    expect((await webhook({
+      id: "evt_loop_xdispute_1",
+      type: "charge.dispute.created",
+      data: { object: { id: "dp_xloop_1", payment_intent: "pi_xloop_1" } },
+    })).status).toBe(200);
+    expect((await api("GET", "/api/game/ledger", undefined, doerToken)).json.balances["stay-credits"]?.balance).toBe(0);
+    const adminAfter = await api("GET", "/api/admin/exchange", undefined, founderToken);
+    expect(adminAfter.json.stock["stay-credits"]).toBe(500);
+    expect(adminAfter.json.orders.find((o: any) => o.id === "xo-loop-1").status).toBe("disputed");
+    const pay2 = await api("GET", "/api/admin/payments", undefined, founderToken);
+    const doerSusp = pay2.json.suspensions.find((s: any) => s.user_id === doerId && !s.lifted_at);
+    expect(doerSusp).toBeTruthy();
+
+    // A disputed order is open economic state: module-off refuses.
+    const offBlocked = await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
+    expect(offBlocked.status).toBe(409);
+
+    // Cleanup: lift the suspension, resolve the dispute, close the module.
+    await api("POST", `/api/admin/payments/suspensions/${doerSusp.id}/lift`, {}, founderToken);
+    await testDb.conn.query("UPDATE exchange_orders SET status = 'reversed' WHERE id = 'xo-loop-1'");
+    expect((await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken)).status).toBe(200);
+
+    // The economy conserves through listings, stock, a sale, and a clawback.
+    const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec.json.invariants.problems).toEqual([]);
+  });
 });

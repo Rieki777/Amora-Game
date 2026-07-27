@@ -3022,6 +3022,212 @@ function StaysAdminTab({ password }: { password: string }) {
   );
 }
 
+/**
+ * S33-S35: the buy-only exchange. Listings (with the firewalls' refusal
+ * reasons shown, not hidden), append-only prices with a required note,
+ * treasury stock under the shared mint cap, and the order book.
+ */
+function ExchangeAdminTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [off, setOff] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [priceForm, setPriceForm] = useState<Record<string, { usd?: string; note?: string }>>({});
+  const [stockForm, setStockForm] = useState({ tokenSlug: "", amount: "" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/exchange`, { headers: authHeaders(password) });
+      if (res.status === 404) { setOff(true); setLoading(false); return; }
+      setOff(false);
+      setData(await res.json());
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const call = async (path: string, body?: any, method = "POST") => {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "failed");
+      return d;
+    } catch (e: any) { toast.error(e?.message || "Request failed"); return null; }
+  };
+
+  const money = (minor: number) => `$${(Number(minor || 0) / 100).toFixed(2)}`;
+  const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+
+  if (off) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Exchange</h2>
+        <p className="text-sm text-gray-500">
+          The Exchange module is off. Enable it in the Modules tab (funds-bearing
+          — the legal card applies), then list tokens and post prices here.
+        </p>
+      </div>
+    );
+  }
+  if (loading && !data) return <p className="text-sm text-gray-500">Loading…</p>;
+
+  const settingsBySlug = new Map((data?.settings ?? []).map((s: any) => [s.tokenSlug, s]));
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Exchange</h2>
+        <p className="text-sm text-gray-500">
+          Buy-only in v1. Recognition and Hypha tokens can never be listed; a
+          token another module sells can't be listed twice. Prices are
+          append-only and bounded per change; stock comes out of the same
+          per-cycle mint cap as hand-mints.
+        </p>
+      </div>
+
+      {/* Listings */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Listings</h3>
+        <div className="space-y-3">
+          {(data?.listableTokens ?? []).map((t: any) => {
+            const s: any = settingsBySlug.get(t.slug);
+            const price = data?.latestPrices?.[t.slug];
+            const stock = data?.stock?.[t.slug] ?? 0;
+            return (
+              <div key={t.slug} className="border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <p className="font-medium text-gray-900">{t.name} <span className="text-xs text-gray-400">({t.slug} · {t.kind})</span></p>
+                    {t.reason ? (
+                      <p className="text-xs text-amber-700 mt-0.5">{t.reason}</p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {price ? `${money(price.priceMinor)} each` : "no price posted"} · {stock} in stock
+                        {s?.purchasable ? " · LISTED" : " · not listed"}
+                      </p>
+                    )}
+                  </div>
+                  {!t.reason && (
+                    <button
+                      onClick={async () => {
+                        const d = await call(`/admin/exchange/tokens/${t.slug}`, { purchasable: !s?.purchasable }, "PUT");
+                        if (d) { toast.success(s?.purchasable ? "Delisted" : "Listed"); load(); }
+                      }}
+                      className={`text-sm rounded-lg px-3 py-1.5 font-medium ${s?.purchasable ? "bg-gray-100 text-gray-600" : "bg-[#2D5A5A] text-white"}`}
+                    >
+                      {s?.purchasable ? "Delist" : "List for purchase"}
+                    </button>
+                  )}
+                </div>
+                {!t.reason && (
+                  <div className="mt-3 flex flex-wrap items-end gap-2">
+                    <label className="text-xs text-gray-500">Price (USD each)
+                      <input type="number" step="0.01" min="0" value={priceForm[t.slug]?.usd ?? ""}
+                        onChange={(e) => setPriceForm((p) => ({ ...p, [t.slug]: { ...(p[t.slug] ?? {}), usd: e.target.value } }))}
+                        className={`${inputCls} w-24 mt-1 block`} />
+                    </label>
+                    <label className="text-xs text-gray-500 flex-1 min-w-[180px]">Why this price? (required)
+                      <input value={priceForm[t.slug]?.note ?? ""}
+                        onChange={(e) => setPriceForm((p) => ({ ...p, [t.slug]: { ...(p[t.slug] ?? {}), note: e.target.value } }))}
+                        className={`${inputCls} w-full mt-1 block`} />
+                    </label>
+                    <button
+                      onClick={async () => {
+                        const f = priceForm[t.slug] ?? {};
+                        const d = await call(`/admin/exchange/tokens/${t.slug}/price`, {
+                          priceMinor: Math.round((Number(f.usd) || 0) * 100), note: f.note ?? "",
+                        });
+                        if (d) { toast.success("Price posted"); setPriceForm((p) => ({ ...p, [t.slug]: {} })); load(); }
+                      }}
+                      className="text-sm text-[#2D5A5A] font-medium hover:underline pb-2"
+                    >
+                      Post price
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Stock */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-1">Stock the treasury</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          sys:mint → sys:treasury, under the shared per-cycle mint cap
+          ({data?.mintCapPerCycle}). Sales come OUT of this stock — an empty
+          treasury fails a sale loudly instead of minting quietly.
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <select value={stockForm.tokenSlug} onChange={(e) => setStockForm({ ...stockForm, tokenSlug: e.target.value })} className={inputCls}>
+            <option value="">Token…</option>
+            {(data?.listableTokens ?? []).filter((t: any) => !t.reason).map((t: any) => (
+              <option key={t.slug} value={t.slug}>{t.name}</option>
+            ))}
+          </select>
+          <input type="number" min={1} placeholder="Amount" value={stockForm.amount}
+            onChange={(e) => setStockForm({ ...stockForm, amount: e.target.value })} className={`${inputCls} w-28`} />
+          <button
+            onClick={async () => {
+              const d = await call("/admin/exchange/stock", { tokenSlug: stockForm.tokenSlug, amount: Number(stockForm.amount) });
+              if (d) { toast.success(`Treasury now holds ${d.treasuryBalance}`); setStockForm({ tokenSlug: "", amount: "" }); load(); }
+            }}
+            disabled={!stockForm.tokenSlug || !stockForm.amount}
+            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+          >
+            Stock
+          </button>
+        </div>
+      </div>
+
+      {/* Orders */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Orders</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-gray-400">
+              <th className="py-1 pr-3">#</th><th className="py-1 pr-3">When</th><th className="py-1 pr-3">Member</th>
+              <th className="py-1 pr-3">Token</th><th className="py-1 pr-3">Qty</th><th className="py-1 pr-3">Paid</th><th className="py-1 pr-3">Status</th>
+            </tr></thead>
+            <tbody>
+              {(data?.orders ?? []).map((o: any) => (
+                <tr key={o.id} className="border-t border-gray-50">
+                  <td className="py-2 pr-3 text-gray-500">#{o.receipt_no}</td>
+                  <td className="py-2 pr-3 text-gray-500">{new Date(o.created_at).toLocaleDateString()}</td>
+                  <td className="py-2 pr-3">{o.user_name ?? o.user_id}</td>
+                  <td className="py-2 pr-3">{o.token_slug}</td>
+                  <td className="py-2 pr-3">{o.quantity}</td>
+                  <td className="py-2 pr-3">{money(o.amount_minor)}</td>
+                  <td className={`py-2 pr-3 ${["disputed", "reversed"].includes(o.status) ? "text-red-600 font-semibold" : ""}`}>{o.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {(data?.orders ?? []).length === 0 && <p className="text-sm text-gray-400 py-3">No orders yet.</p>}
+        </div>
+        {(data?.priceHistory ?? []).length > 0 && (
+          <details className="mt-3">
+            <summary className="text-xs text-gray-500 cursor-pointer">Price history (append-only, latest {data.priceHistory.length})</summary>
+            <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+              {data.priceHistory.map((p: any) => (
+                <p key={p.id} className="text-xs text-gray-500">
+                  {new Date(p.effective_at).toLocaleString()} — {p.token_slug} → {money(p.price_minor)} · “{p.note}”
+                </p>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TokensTab({ password }: { password: string }) {
   const [tokens, setTokens] = useState<any[]>([]);
   const [mintCap, setMintCap] = useState<number>(0);
@@ -4322,6 +4528,7 @@ export default function Admin() {
             { key: "circles-map", label: "Circles & Map", icon: Circle },
             { key: "tools-admin", label: "Tools", icon: Handshake },
             { key: "stays-admin", label: "Stays & Payments", icon: Home },
+            { key: "exchange-admin", label: "Exchange", icon: TrendingUp },
             { key: "tokens", label: "Tokens", icon: Coins },
             { key: "ledger", label: "Ledger", icon: BarChart3 },
             { key: "variables", label: "Game Mechanics", icon: Activity },
@@ -4449,6 +4656,7 @@ export default function Admin() {
           {activeTab === "circles-map" && <CirclesMapTab password={password} />}
           {activeTab === "tools-admin" && <ToolsAdminTab password={password} />}
           {activeTab === "stays-admin" && <StaysAdminTab password={password} />}
+          {activeTab === "exchange-admin" && <ExchangeAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}

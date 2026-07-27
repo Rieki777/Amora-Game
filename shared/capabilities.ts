@@ -28,7 +28,9 @@ export type Capability =
   | "map.viewPeople" // see WHO holds seats on the village map (not just counts)
   | "map.contact" // reach a role holder through the contact relay
   | "feed.announce" // post announcements to the village feed (role-only)
-  | "stay.member_rate"; // book accommodation at the member price, not the guest one
+  | "stay.member_rate" // book accommodation at the member price, not the guest one
+  | "exchange.buy" // buy listed tokens for fiat
+  | "exchange.manage"; // list tokens, post prices, stock the treasury (role-only)
 
 /**
  * Stage that unlocks each capability by progression alone, referencing the
@@ -43,6 +45,7 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   "map.viewPeople": "guest", // any account sees who holds the village's seats
   "map.contact": "member", // reaching people through the relay starts at member
   "stay.member_rate": "member", // the member price comes with membership
+  "exchange.buy": "member", // buying opens at member; exchange.manage is role-only
 };
 
 /**

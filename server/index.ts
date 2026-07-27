@@ -28,6 +28,7 @@ import {
   postTransfer,
   registerToken,
   tokenDef,
+  TREASURY,
 } from "./lib/ledger";
 import {
   STAY_CREDIT,
@@ -42,6 +43,20 @@ import {
   staysOpenState,
   allStays,
 } from "./lib/stays";
+import {
+  assertExchangeFirewalls,
+  createExchangeOrder,
+  exchangeOpenState,
+  exchangeOrderById,
+  exchangeSettings,
+  latestPrice,
+  listableTokens,
+  setPrice,
+  settingsFor,
+  settleExchangeOrder,
+  treasuryStock,
+  upsertSettings,
+} from "./lib/exchange";
 import { usersRepo } from "./repos/users";
 import { gratitudeCyclesRepo, gratitudeDistributionsRepo, gratitudeLogRepo } from "./repos/gratitude";
 import { claimsRepo as claimsRepoFactory, questsRepo as questsRepoFactory } from "./repos/quests";
@@ -115,7 +130,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s32-stays-fiat-trio";
+const BUILD_MARKER = "2026-07-26-s35-exchange-buy-only";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1728,9 +1743,15 @@ async function startServer() {
     isAuthed: async (req) => !!(await authedUser(req as any)),
   });
 
-  // S30: open-state lives on the server (it needs the pool); the shared
+  // S30/S33: open-state lives on the server (it needs the pool); the shared
   // registry stays import-clean for the client bundle.
   MODULES_BY_ID["stays"].openStateCheck = () => staysOpenState(getPool());
+  MODULES_BY_ID["exchange"].openStateCheck = () => exchangeOpenState(getPool());
+
+  // S33: the exchange firewalls are re-proven at every boot — a hand-edited
+  // listing row (recognition, hypha, second seller) can never outlive a
+  // deploy. Same posture as the ledger invariants above.
+  await assertExchangeFirewalls(getPool());
 
   // S32: stays' settlement + reversal, registered with the trio. Settle is
   // idempotent three ways (provider_ref UNIQUE, stripe_event_id UNIQUE,
@@ -1785,6 +1806,53 @@ async function startServer() {
       });
       if (!claw.ok) throw new Error(claw.error ?? "reversal leg failed");
       await pool.query("UPDATE stay_purchases SET status = ? WHERE id = ?", [refund ? "refunded" : "disputed", orderId]);
+    },
+  });
+
+  // S35: the exchange settles through the SAME trio. Tokens leave a stocked
+  // treasury — an under-stocked treasury throws, the webhook 500s, Stripe
+  // retries, and admins hear about it. Out of stock is never a mint.
+  registerPaymentHandlers("exchange", {
+    settle: async (orderId, event) => {
+      const pool = getPool();
+      const order = await exchangeOrderById(pool, orderId);
+      if (!order) throw new Error(`no exchange order "${orderId}" — refusing to settle into thin air`);
+      const obj = event?.data?.object ?? {};
+      const pi = obj.payment_intent ? String(obj.payment_intent) : null;
+      await pool.query(
+        "UPDATE exchange_orders SET status = 'paid', paid_at = COALESCE(paid_at, NOW()), " +
+          "stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id) WHERE id = ?",
+        [pi, orderId],
+      );
+      await recordFiatCharge(pool, {
+        userId: String(order.user_id), module: "exchange", orderId,
+        amountMinor: Number(order.amount_minor), paymentIntentId: pi,
+      });
+      await settleExchangeOrder(pool, orderId, order); // throws when out of stock
+      await notify({
+        userId: String(order.user_id), type: "exchange",
+        title: `Receipt #${order.receipt_no}: ${order.quantity} ${order.token_slug} delivered`,
+        link: "/wallet", dedupeKey: `ord:${orderId}:notify`,
+      });
+    },
+    reversal: async (orderId, event) => {
+      const pool = getPool();
+      const order = await exchangeOrderById(pool, orderId);
+      if (!order) return; // the trio already logged no_order and alerted
+      const refund = String(event?.type ?? "") === "charge.refunded";
+      const claw = await postTransfer(pool, {
+        from: memberAccount(String(order.user_id)),
+        to: TREASURY,
+        tokenType: String(order.token_slug),
+        amount: Number(order.quantity),
+        source: "payment_reversal",
+        sourceRef: orderId,
+        description: refund ? "Refund: tokens returned to stock" : "Dispute: tokens returned to stock",
+        idempotencyKey: `ord:${orderId}:reversal-leg1`,
+        allowNegative: true,
+      });
+      if (!claw.ok) throw new Error(claw.error ?? "reversal leg failed");
+      await pool.query("UPDATE exchange_orders SET status = ? WHERE id = ?", [refund ? "refunded" : "disputed", orderId]);
     },
   });
 
@@ -3829,6 +3897,230 @@ async function startServer() {
     );
     if (!(r as any).affectedRows) return res.status(404).json({ error: "No open suspension with that id" });
     res.json({ success: true });
+  });
+
+  // ── S33-S35: the exchange, buy-only ─────────────────────────────────────
+  // Management is the ONE gate's exchange.manage capability (role grant) or
+  // admin — not a second permission system.
+
+  app.use("/api/exchange", requireModule("exchange"));
+  app.use("/api/admin/exchange", requireModule("exchange"));
+
+  async function canManageExchange(req: express.Request): Promise<boolean> {
+    if (await isAdmin(req)) return true;
+    const user = await authedUser(req);
+    if (!user) return false;
+    return hasCapability("exchange.manage", await capabilityCtx(user));
+  }
+
+  /** The market, one call: listings, prices, stock, my balances and receipts. */
+  app.get("/api/exchange", async (req, res) => {
+    const viewer = await authedUser(req);
+    const settings = (await exchangeSettings(getPool())).filter((s) => s.active && s.purchasable);
+    const stock = await treasuryStock(getPool());
+    const listings = [];
+    for (const s of settings) {
+      const def = tokenDef(s.tokenSlug);
+      if (!def) continue;
+      const price = await latestPrice(getPool(), s.tokenSlug);
+      listings.push({
+        slug: s.tokenSlug,
+        name: def.name,
+        kind: def.kind,
+        priceMinor: price?.priceMinor ?? null,
+        inStock: (stock[s.tokenSlug] ?? 0) > 0,
+        minStageToBuy: s.minStageToBuy,
+        sortOrder: s.sortOrder,
+      });
+    }
+    let mine: any = null;
+    if (viewer) {
+      const [orders] = await getPool().query<any[]>(
+        "SELECT id, receipt_no, token_slug, quantity, amount_minor, status, created_at, paid_at FROM exchange_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+        [viewer.id],
+      );
+      const ctx = await capabilityCtx(viewer);
+      mine = {
+        balances: await balancesFor(getPool(), memberAccount(viewer.id)),
+        orders,
+        canBuy: hasCapability("exchange.buy", ctx),
+        canManage: hasCapability("exchange.manage", ctx) || (await isAdmin(req)),
+      };
+    }
+    res.json({
+      listings,
+      mine,
+      stripeConfigured: stripeConfigured(),
+      // The v2 contract, surfaced honestly: shipped, off, engineless.
+      tradingEnabled: !!(moduleConfig("exchange") as any)?.tradingEnabled,
+    });
+  });
+
+  /** Buy: everything is checked before anyone is asked for a card. */
+  app.post("/api/exchange/buy", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to buy" });
+    if (!hasCapability("exchange.buy", await capabilityCtx(user))) {
+      return res.status(403).json({ error: "Buying opens at the member stage" });
+    }
+    const { tokenSlug, quantity } = req.body ?? {};
+    const slug = String(tokenSlug ?? "");
+    const qty = Math.floor(Number(quantity) || 0);
+    if (qty < 1 || qty > 1_000_000) return res.status(400).json({ error: "How many?" });
+    const s = await settingsFor(getPool(), slug);
+    if (!s?.active || !s.purchasable) return res.status(404).json({ error: `"${slug}" is not listed for purchase` });
+    if (s.minStageToBuy) {
+      const floor = stageIndex(s.minStageToBuy);
+      if (floor >= 0 && stageIndex(await stageOf(user)) < floor) {
+        return res.status(403).json({ error: `Buying ${slug} opens at the ${s.minStageToBuy} stage` });
+      }
+    }
+    const price = await latestPrice(getPool(), slug);
+    if (!price) return res.status(409).json({ error: "No price is posted yet — the stewards set prices first" });
+    const amountMinor = ceilMinor(qty * price.priceMinor);
+    const check = await assertCanPurchase(getPool(), user.id, amountMinor);
+    if (!check.ok) return res.status(403).json({ error: check.error });
+    // Honest before charging: refuse what the treasury cannot deliver.
+    const stock = await treasuryStock(getPool());
+    if ((stock[slug] ?? 0) < qty) {
+      return res.status(409).json({ error: `Only ${stock[slug] ?? 0} ${slug} in stock right now — ask the stewards to restock` });
+    }
+    if (!stripeConfigured()) return res.status(503).json({ error: "Card payments are not set up yet" });
+    const order = await createExchangeOrder(getPool(), {
+      userId: user.id, tokenSlug: slug, quantity: qty,
+      priceMinorEach: price.priceMinor, amountMinor,
+    });
+    const origin = notifyDeps.origin();
+    const session = await createCheckout({
+      module: "exchange",
+      orderId: order.id,
+      name: `${qty} × ${tokenDef(slug)?.name ?? slug}`,
+      amountMinor,
+      successUrl: `${origin}/wallet?purchase=success`,
+      cancelUrl: `${origin}/wallet?purchase=cancelled`,
+      customerEmail: user.email ?? undefined,
+    });
+    await getPool().query("UPDATE exchange_orders SET provider_ref = ? WHERE id = ?", [session.sessionId, order.id]);
+    res.json({ url: session.url, receiptNo: order.receiptNo });
+  });
+
+  /** The v2 contract: shipped shape, no engine. 501 is the honest answer. */
+  app.post("/api/exchange/swap", async (_req, res) => {
+    res.status(501).json({
+      error: "Swapping is a v2 engine. The contract (trading_enabled, swappable flags) ships now so configurations are stable; no trade executes until the engine exists.",
+    });
+  });
+
+  /** Management overview: settings, refusal reasons, prices, stock, orders. */
+  app.get("/api/admin/exchange", async (req, res) => {
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    const settings = await exchangeSettings(getPool());
+    const stock = await treasuryStock(getPool());
+    const prices: Record<string, any> = {};
+    for (const s of settings) prices[s.tokenSlug] = await latestPrice(getPool(), s.tokenSlug);
+    const [history] = await getPool().query<any[]>(
+      "SELECT * FROM currency_prices ORDER BY effective_at DESC, id DESC LIMIT 50",
+    );
+    const [orders] = await getPool().query<any[]>(
+      "SELECT o.*, u.name AS user_name FROM exchange_orders o LEFT JOIN users u ON u.id = o.user_id ORDER BY o.created_at DESC LIMIT 200",
+    );
+    res.json({
+      settings,
+      latestPrices: prices,
+      priceHistory: history,
+      stock,
+      orders,
+      listableTokens: listableTokens(),
+      mintCapPerCycle: numberVar("ledger.admin_mint_cycle_cap"),
+      stripeConfigured: stripeConfigured(),
+    });
+  });
+
+  /** List / delist a token. The firewalls answer here AND at boot. */
+  app.put("/api/admin/exchange/tokens/:slug", async (req, res) => {
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { purchasable, swappable, minStageToBuy, sortOrder, active } = req.body ?? {};
+    const r = await upsertSettings(getPool(), {
+      slug: String(req.params.slug),
+      purchasable: purchasable == null ? undefined : !!purchasable,
+      swappable: swappable == null ? undefined : !!swappable,
+      minStageToBuy: minStageToBuy === undefined ? undefined : (minStageToBuy || null),
+      sortOrder: sortOrder == null ? undefined : Number(sortOrder),
+      active: active == null ? undefined : !!active,
+    });
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `exchange:list:${req.params.slug}`,
+      actorUserId: (await authedUser(req))?.id ?? adminActor(req)?.id ?? null,
+      entityType: "token", entityRef: String(req.params.slug), audience: "admin",
+    });
+    res.json({ success: true, settings: await settingsFor(getPool(), String(req.params.slug)) });
+  });
+
+  /** Post a price: append-only, bounded, always with a note. */
+  app.post("/api/admin/exchange/tokens/:slug/price", async (req, res) => {
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    const slug = String(req.params.slug);
+    if (!tokenDef(slug)) return res.status(404).json({ error: `unknown token "${slug}"` });
+    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+    const r = await setPrice(getPool(), {
+      slug,
+      priceMinor: Number(req.body?.priceMinor),
+      note: String(req.body?.note ?? ""),
+      setBy: actor,
+    });
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `exchange:price:${slug}:${Math.floor(Number(req.body?.priceMinor))}`,
+      actorUserId: actor, entityType: "token", entityRef: slug, audience: "admin",
+    });
+    res.json({ success: true, price: await latestPrice(getPool(), slug) });
+  });
+
+  /**
+   * Stock the treasury: sys:mint -> sys:treasury, under the SAME per-cycle
+   * aggregate mint cap as hand-mints — stocking IS minting, and two doors
+   * with one cap beats two doors with two.
+   */
+  app.post("/api/admin/exchange/stock", async (req, res) => {
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    const slug = String(req.body?.tokenSlug ?? "");
+    const amt = Math.floor(Number(req.body?.amount) || 0);
+    const def = tokenDef(slug);
+    if (!def) return res.status(404).json({ error: `unknown token "${slug}"` });
+    if (def.governance !== "platform") return res.status(400).json({ error: `${slug} is issued on Hypha and cannot be stocked here` });
+    if (amt < 1) return res.status(400).json({ error: "A positive amount is required" });
+    const cap = numberVar("ledger.admin_mint_cycle_cap");
+    if (cap <= 0) return res.status(403).json({ error: "Minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
+    const cycle = currentCycle();
+    const [[mintedRow]] = await getPool().query<any[]>(
+      "SELECT COALESCE(SUM(amount), 0) AS minted FROM token_ledger WHERE from_account = 'sys:mint' AND token_type = ? AND at >= ?",
+      [slug, new Date(cycle.startsAt)],
+    );
+    const minted = Number(mintedRow?.minted ?? 0);
+    if (minted + amt > cap) {
+      return res.status(409).json({
+        error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`,
+        minted, cap, remaining: Math.max(0, cap - minted),
+      });
+    }
+    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+    const r = await postTransfer(getPool(), {
+      from: MINT_FAUCET,
+      to: TREASURY,
+      tokenType: slug,
+      amount: amt,
+      source: "exchange_stock",
+      sourceRef: actor ?? undefined,
+      description: `Treasury stocked for the exchange`,
+      idempotencyKey: `xstock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    });
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `exchange:stock:${amt}:${slug}`,
+      actorUserId: actor, entityType: "token", entityRef: slug, audience: "admin",
+    });
+    res.json({ success: true, treasuryBalance: r.toBalance, remaining: cap - minted - amt });
   });
 
   // ── S9: the token registry and ledger as admin surfaces ───────────────────

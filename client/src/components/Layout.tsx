@@ -31,6 +31,7 @@ export default function Layout({ children }: LayoutProps) {
   const forumModule = useModule("forum");
   const feedModule = useModule("feed");
   const staysModule = useModule("stays");
+  const exchangeModule = useModule("exchange");
 
   // The bottom tab bar's "More" slot opens this same drawer rather than being a
   // second, separately-maintained menu. No scrolling: the header is sticky, so
@@ -122,6 +123,14 @@ export default function Layout({ children }: LayoutProps) {
               <Link href="/stay" className="text-white/70 hover:text-white transition-colors text-sm">
                 Stay
                 {staysModule.lifecycle === "preview" && (
+                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
+                )}
+              </Link>
+            )}
+            {exchangeModule && (
+              <Link href="/wallet" className="text-white/70 hover:text-white transition-colors text-sm">
+                Wallet
+                {exchangeModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
                 )}
               </Link>
@@ -266,6 +275,11 @@ export default function Layout({ children }: LayoutProps) {
                 {staysModule && (
                   <Link href="/stay" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Stay{staysModule.lifecycle === "preview" ? " (preview)" : ""}
+                  </Link>
+                )}
+                {exchangeModule && (
+                  <Link href="/wallet" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                    Wallet{exchangeModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {forumModule && (
