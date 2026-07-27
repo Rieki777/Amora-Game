@@ -222,7 +222,23 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-28-s70-commerce-knowledge";
+/**
+ * The deployment's identity, and it must never lie.
+ *
+ * This was a hand-edited string, which meant it was only accurate when
+ * somebody remembered — and six commits once shipped under a stale marker,
+ * so `/health` reported an old build while new code served. That matters
+ * beyond tidiness: the launch registry reads it, the runbook tells forks to
+ * verify deploys with it, and the feedback relay sends it upstream as the
+ * identity of the deployment a bug came from.
+ *
+ * Now it is stamped at BUILD time from the git SHA (see package.json's
+ * build script), with the hand-written label kept as a human-readable
+ * prefix. A build with no git context falls back to "dev".
+ */
+declare const __BUILD_SHA__: string | undefined;
+const BUILD_LABEL = "2026-07-28-wave1";
+const BUILD_MARKER = `${BUILD_LABEL}-${typeof __BUILD_SHA__ === "string" && __BUILD_SHA__ ? __BUILD_SHA__ : "dev"}`;
 
 /**
  * The legal caution card a deployment must accept before internal trading
