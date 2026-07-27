@@ -3706,6 +3706,134 @@ function LibraryAdminTab({ password }: { password: string }) {
   );
 }
 
+/**
+ * S49-S51: the steward's desk for the land's ledger. Snapshot collection is
+ * automatic (it rides every cycle close); this tab records regeneration
+ * facts — absolute counts, each entry audit-attributed.
+ */
+function HealthAdminTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [off, setOff] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ metricKey: "trees_planted", value: "", unit: "", note: "" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/health/regen`, { headers: authHeaders(password) });
+      if (res.status === 404) { setOff(true); setLoading(false); return; }
+      setOff(false);
+      setData(await res.json());
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const record = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/health/regen`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ metricKey: form.metricKey, value: Number(form.value), unit: form.unit || undefined, note: form.note }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "failed");
+      toast.success("Recorded on the land's ledger");
+      setForm({ ...form, value: "", note: "" });
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed"); }
+  };
+
+  const remove = async (id: string) => {
+    if (!window.confirm("Remove this entry?")) return;
+    await fetch(`${API_BASE}/admin/health/regen/${id}`, { method: "DELETE", headers: authHeaders(password) });
+    load();
+  };
+
+  const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+
+  if (off) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Village Health</h2>
+        <p className="text-sm text-gray-500">
+          The Village Health module is off. Snapshot collection runs anyway
+          (every cycle close freezes its numbers); enable the module in the
+          Modules tab when there is enough history to show, and to record
+          regeneration entries here.
+        </p>
+      </div>
+    );
+  }
+  if (loading && !data) return <p className="text-sm text-gray-500">Loading…</p>;
+
+  const metrics: any[] = data?.metrics ?? [];
+  const selected = metrics.find((m) => m.key === form.metricKey);
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Village Health — the land's ledger</h2>
+        <p className="text-sm text-gray-500 max-w-2xl">
+          Record regeneration as it happens: trees in the ground, water under
+          protection, hectares in restoration. Absolute counts — the numbers
+          the dashboard tiles and the investor-facing impact feed show.
+          Lunation snapshots are automatic at every cycle close.
+        </p>
+      </div>
+
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Record an entry</h3>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-xs text-gray-500">Metric
+            <select value={form.metricKey} onChange={(e) => setForm({ ...form, metricKey: e.target.value, unit: "" })} className={`${inputCls} block mt-1`}>
+              {metrics.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
+          </label>
+          <label className="text-xs text-gray-500">Value
+            <input type="number" min={0} step="any" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} className={`${inputCls} w-28 block mt-1`} />
+          </label>
+          <label className="text-xs text-gray-500">Unit
+            <input placeholder={selected?.unit ?? ""} value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className={`${inputCls} w-20 block mt-1`} />
+          </label>
+          <label className="text-xs text-gray-500 flex-1 min-w-[180px]">Note (what happened, where)
+            <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className={`${inputCls} w-full block mt-1`} />
+          </label>
+          <button onClick={record} disabled={!form.value}
+            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+            Record
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Totals & entries</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          {metrics.filter((m) => data?.totals?.[m.key]).map((m) => (
+            <div key={m.key} className="border border-gray-200 rounded-lg px-3 py-2">
+              <p className="text-lg font-bold text-gray-900">{Number(data.totals[m.key].total).toLocaleString()} <span className="text-xs font-normal text-gray-400">{data.totals[m.key].unit}</span></p>
+              <p className="text-xs text-gray-500">{m.label}</p>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-1.5">
+          {(data?.entries ?? []).map((e: any) => (
+            <div key={e.id} className="flex items-center justify-between text-sm border-t border-gray-50 py-1.5">
+              <span className="text-gray-600">
+                {new Date(e.recordedAt).toLocaleDateString()} — <b>{e.value} {e.unit}</b> {metrics.find((m) => m.key === e.metricKey)?.label?.toLowerCase() ?? e.metricKey}
+                {e.note ? <span className="text-gray-400"> · {e.note}</span> : null}
+              </span>
+              <button onClick={() => remove(e.id)} className="text-xs text-gray-400 hover:text-red-600">Remove</button>
+            </div>
+          ))}
+          {(data?.entries ?? []).length === 0 && <p className="text-sm text-gray-400">Nothing recorded yet.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TokensTab({ password }: { password: string }) {
   const [tokens, setTokens] = useState<any[]>([]);
   const [mintCap, setMintCap] = useState<number>(0);
@@ -5009,6 +5137,7 @@ export default function Admin() {
             { key: "exchange-admin", label: "Exchange", icon: TrendingUp },
             { key: "badges-admin", label: "Badges", icon: GraduationCap },
             { key: "library-admin", label: "Library", icon: Inbox },
+            { key: "health-admin", label: "Village Health", icon: Activity },
             { key: "tokens", label: "Tokens", icon: Coins },
             { key: "ledger", label: "Ledger", icon: BarChart3 },
             { key: "variables", label: "Game Mechanics", icon: Activity },
@@ -5139,6 +5268,7 @@ export default function Admin() {
           {activeTab === "exchange-admin" && <ExchangeAdminTab password={password} />}
           {activeTab === "badges-admin" && <BadgesAdminTab password={password} />}
           {activeTab === "library-admin" && <LibraryAdminTab password={password} />}
+          {activeTab === "health-admin" && <HealthAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}

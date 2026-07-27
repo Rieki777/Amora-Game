@@ -64,6 +64,7 @@ import Stay from "./pages/Stay";
 import Wallet from "./pages/Wallet";
 import Badges from "./pages/Badges";
 import Library from "./pages/Library";
+import VillageHealth from "./pages/VillageHealth";
 
 function Router() {
   const [location] = useLocation();
@@ -88,6 +89,8 @@ function Router() {
       <Route path="/wallet" component={Wallet} />
       <Route path="/badges" component={Badges} />
       <Route path="/library" component={Library} />
+      {/* /village-health, not /health: the server owns /health as the ops probe */}
+      <Route path="/village-health" component={VillageHealth} />
       <Route path="/forum" component={Forum} />
       <Route path="/forum/:id" component={Forum} />
       <Route path="/propose-quest" component={ProposeQuest} />

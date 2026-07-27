@@ -44,6 +44,8 @@ import {
   allStays,
 } from "./lib/stays";
 import { createWalletChallenge, readOnchainBalance, verifyWalletSignature } from "./lib/base-reads";
+import { governanceReads, regenEntries, regenTotals, snapshotCycle, snapshotSeries } from "./lib/health";
+import { REGEN_METRICS, TREND_MIN_LUNATIONS } from "../shared/healthMetrics";
 import {
   LIBRARY_CREDIT,
   LIBRARY_MINT,
@@ -169,7 +171,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s48-command-centre";
+const BUILD_MARKER = "2026-07-26-s51-village-health";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -3953,6 +3955,69 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // ── S49-S51: village health — the dashboard reads (collection lives in
+  //    the cycle close; only DISPLAY is module-gated) ────────────────────────
+
+  app.use("/api/health", requireModule("health"));
+  app.use("/api/admin/health", requireModule("health"));
+
+  /** The dashboard, one call: series, regen ledger, governance reads, season. */
+  app.get("/api/health/summary", async (_req, res) => {
+    const snapshots = await snapshotSeries(getPool());
+    res.json({
+      ...snapshots,
+      trendMinLunations: TREND_MIN_LUNATIONS,
+      // The honest-sparse contract the client renders from: under the line,
+      // tiles show points, never trends.
+      trendsUnlocked: snapshots.lunationsCollected >= TREND_MIN_LUNATIONS,
+      regen: {
+        totals: await regenTotals(getPool()),
+        latest: await regenEntries(getPool(), 20),
+        metrics: REGEN_METRICS,
+      },
+      governance: await governanceReads(getPool()),
+    });
+  });
+
+  /** The impact feed alone — the outward-facing regen ledger. */
+  app.get("/api/health/regen", async (_req, res) => {
+    res.json({
+      totals: await regenTotals(getPool()),
+      entries: await regenEntries(getPool(), 100),
+      metrics: REGEN_METRICS,
+    });
+  });
+
+  /** Stewards record the land's numbers: absolute counts, audit-attributed. */
+  app.post("/api/admin/health/regen", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { metricKey, value, unit, note } = req.body ?? {};
+    const def = REGEN_METRICS.find((m) => m.key === String(metricKey ?? ""));
+    if (!def) return res.status(400).json({ error: `Unknown regen metric — pick one of: ${REGEN_METRICS.map((m) => m.key).join(", ")}` });
+    const v = Number(value);
+    if (!Number.isFinite(v) || v <= 0) return res.status(400).json({ error: "A positive value is required" });
+    const actor = adminActor(req)?.id ?? null;
+    if (!actor) return res.status(401).json({ error: "Unauthorized" });
+    const id = `regen-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    await getPool().query(
+      "INSERT INTO regen_entries (id, metric_key, value, unit, note, recorded_by) VALUES (?,?,?,?,?,?)",
+      [id, def.key, v, String(unit ?? def.unit).slice(0, 32), note ? String(note).slice(0, 2000) : null, actor],
+    );
+    // The pulse can always fall back to land state: regen entries are public
+    // by nature (through the preview-leak guard like everything module-borne).
+    await moduleActivity("health", "regen", `The land's ledger grew: ${v} ${String(unit ?? def.unit)} ${def.label.toLowerCase()}`, {
+      actorUserId: actor, entityType: "regen", entityRef: id,
+    });
+    res.json({ success: true, id });
+  });
+
+  app.delete("/api/admin/health/regen/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [r] = await getPool().query<any>("DELETE FROM regen_entries WHERE id = ?", [req.params.id]);
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "No such entry" });
+    res.json({ success: true });
+  });
+
   // ── S47: the economics section — wallet binding + Base reads ─────────────
   // Not module-gated: a member's own wallet binding and ledger balances are
   // core identity (the on-chain block is variable-gated instead). The
@@ -6359,6 +6424,27 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       const record: CycleRecord = { ...cycle, status: "closed", closedAt: new Date().toISOString() };
       await cyclesRepo.upsert(record);
       closed.push(record);
+
+      // S49: freeze this lunation's health snapshot IN the close — the only
+      // moment these point-in-time facts are true (F13: unrecoverable
+      // retroactively). NOT module-gated: collection is infrastructure,
+      // display is the module. Never fails the close; the UNIQUE key makes
+      // a crash-retry write nothing twice.
+      try {
+        await snapshotCycle(getPool(), {
+          id: cycle.id,
+          cycleNumber: cycle.cycleNumber,
+          startsAt: String(cycle.startsAt),
+          endsAt: String(cycle.endsAt),
+        }, eligible);
+      } catch (e) {
+        console.error(`[health] snapshot failed for cycle ${cycle.cycleNumber} (close stands)`, e);
+        void recordEvent(getPool(), {
+          kind: "audit",
+          text: `health:snapshot-failed:${cycle.cycleNumber}`,
+          audience: "admin",
+        });
+      }
       if (totals.length > 0) {
         const poolNote = cycleCredited > 0
           ? ` — the cycle pool released ${cycleCredited} ${tokenDef(poolToken)?.name ?? poolToken}`

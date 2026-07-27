@@ -211,6 +211,17 @@ export const MODULES: ModuleDef[] = [
     // the shared registry stays import-clean for the client bundle.
   },
   {
+    id: "health",
+    name: "Village Health",
+    description:
+      "The village's vital signs: per-lunation snapshots frozen at each cycle close, the land's own regeneration ledger (trees, water, hectares — absolute counts, never leaderboards), and season goals. Snapshot COLLECTION runs from the day this ships; turn the dashboard on once a few lunations of history exist.",
+    requires: [],
+    recommends: ["gratitude", "quests"],
+    capabilities: [],
+    variableKeys: [],
+    apiPrefixes: ["/api/health"],
+  },
+  {
     id: "library",
     name: "Material Library",
     description:

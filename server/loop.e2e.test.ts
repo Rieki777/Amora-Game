@@ -2167,4 +2167,87 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(cc.json.reconciliation.invariants.ok).toBe(true);
     expect(cc.json.reconciliation.systemAccounts.length).toBeGreaterThan(0);
   });
+
+  it("S49-S51: village health — snapshots frozen at close, the land's ledger, honest sparse data", async () => {
+    // COLLECTION RAN WITH THE MODULE OFF: the closes earlier in this run
+    // (S8's lunation, S27's split cycle) each froze a snapshot, because
+    // point-in-time facts are unrecoverable retroactively. Find the split
+    // cycle's row and check the Sybil rule was CONSUMED, not re-implemented:
+    // two raw senders (the doer + the alt), ONE eligible.
+    const cyc = await api("GET", "/api/game/cycle");
+    const splitNumber = cyc.json.cycleNumber - 2; // the S27 fixture cycle
+    const [[breadthRow]] = await testDb.conn.query<any[]>(
+      "SELECT value, meta FROM health_snapshots WHERE cycle_number = ? AND metric_key = 'gratitude_senders_distinct'",
+      [splitNumber],
+    );
+    expect(breadthRow).toBeTruthy();
+    expect(Number(breadthRow.value)).toBe(1); // Sybil-filtered
+    const meta = typeof breadthRow.meta === "string" ? JSON.parse(breadthRow.meta) : breadthRow.meta;
+    expect(meta.rawSenders).toBe(2); // the alt's send counted as VALUE, not breadth
+    const [[recipRow]] = await testDb.conn.query<any[]>(
+      "SELECT value FROM health_snapshots WHERE cycle_number = ? AND metric_key = 'gratitude_recipients_distinct'",
+      [splitNumber],
+    );
+    expect(Number(recipRow.value)).toBe(1);
+
+    // FROZEN FOREVER: re-running the close changes nothing — no new rows,
+    // no changed values (the credits-nothing-twice rule, extended to facts).
+    const [[before]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n, COALESCE(SUM(value),0) AS s FROM health_snapshots");
+    expect((await api("POST", "/api/admin/cycles/close", {}, founderToken)).status).toBe(200);
+    const [[after]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n, COALESCE(SUM(value),0) AS s FROM health_snapshots");
+    expect(after.n).toBe(before.n);
+    expect(Number(after.s)).toBe(Number(before.s));
+
+    // DISPLAY is the module, and it ships OFF: the same 404 for everyone.
+    expect((await api("GET", "/api/health/summary")).status).toBe(404);
+    expect((await api("POST", "/api/admin/health/regen", { metricKey: "trees_planted", value: 10 }, founderToken)).status).toBe(404);
+
+    // PREVIEW: admins see it, members get the identical 404 — and a regen
+    // entry recorded at preview leaks NOTHING onto the public pulse.
+    await api("PUT", "/api/admin/modules/health/lifecycle", { lifecycle: "preview" }, founderToken);
+    expect((await api("GET", "/api/health/summary", undefined, peerToken)).status).toBe(404);
+    const adminPeek = await api("GET", "/api/health/summary", undefined, founderToken);
+    expect(adminPeek.status).toBe(200);
+    expect((await api("POST", "/api/admin/health/regen", { metricKey: "trees_planted", value: 40, note: "nursery block A" }, founderToken)).status).toBe(200);
+    const [[leak]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n FROM health_events WHERE kind = 'regen'");
+    expect(Number(leak.n)).toBe(0); // preview leaks nothing, structurally
+
+    // PUBLIC: the dashboard opens, honest about its two lunations of data.
+    await api("PUT", "/api/admin/modules/health/lifecycle", { lifecycle: "public" }, founderToken);
+    const summary = await api("GET", "/api/health/summary");
+    expect(summary.status).toBe(200);
+    expect(summary.json.lunationsCollected).toBe(2);
+    expect(summary.json.trendMinLunations).toBe(3);
+    expect(summary.json.trendsUnlocked).toBe(false); // 2 of 3 — trends stay locked
+    expect(summary.json.series.members_total.length).toBe(2);
+    expect(summary.json.series.members_total.every((p: any) => p.value > 0)).toBe(true);
+    // Governance reads answer honestly when the data is thin: one decision
+    // thread exists, so concentration is null WITH its reason, not a number.
+    expect(summary.json.governance.decisionsAllTime).toBe(1);
+    expect(summary.json.governance.authorshipConcentration).toBeNull();
+    expect(String(summary.json.governance.note)).toContain("Too few");
+
+    // THE LAND'S LEDGER: 1,400 trees recorded, audit-attributed, public at
+    // public lifecycle — and now the pulse hears about it too.
+    const unknown = await api("POST", "/api/admin/health/regen", { metricKey: "vibes", value: 11 }, founderToken);
+    expect(unknown.status).toBe(400);
+    expect((await api("POST", "/api/admin/health/regen", { metricKey: "trees_planted", value: 1400, note: "Reforestation sweep, south slope" }, founderToken)).status).toBe(200);
+    const regen = await api("GET", "/api/health/regen");
+    expect(regen.status).toBe(200);
+    expect(regen.json.totals.trees_planted.total).toBe(1440); // 40 (preview) + 1400
+    expect(regen.json.entries.some((e: any) => e.note?.includes("south slope"))).toBe(true);
+    const [[pulseRow]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n FROM health_events WHERE kind = 'regen'");
+    expect(Number(pulseRow.n)).toBe(1); // the public-lifecycle entry, only
+    const audit = await api("GET", "/api/admin/audit", undefined, founderToken);
+    expect(audit.json.some((r: any) => String(r.action).includes("health/regen"))).toBe(true);
+
+    // Delete removes exactly one entry; the earlier total survives.
+    const toDelete = regen.json.entries.find((e: any) => e.note?.includes("nursery"));
+    expect((await api("DELETE", `/api/admin/health/regen/${toDelete.id}`, undefined, founderToken)).status).toBe(200);
+    expect((await api("GET", "/api/health/regen")).json.totals.trees_planted.total).toBe(1400);
+
+    // Close the module again: prod parity (collection keeps running anyway).
+    await api("PUT", "/api/admin/modules/health/lifecycle", { lifecycle: "off" }, founderToken);
+    expect((await api("GET", "/api/health/summary")).status).toBe(404);
+  });
 });
