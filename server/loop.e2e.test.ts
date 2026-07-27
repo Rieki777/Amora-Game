@@ -2250,4 +2250,104 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     await api("PUT", "/api/admin/modules/health/lifecycle", { lifecycle: "off" }, founderToken);
     expect((await api("GET", "/api/health/summary")).status).toBe(404);
   });
+
+  it("S52: member exit — enumerate, settle through the domains, then the tombstone", async () => {
+    // The policy is PUBLISHED, unauthenticated, and honest about being a draft.
+    const pol = await api("GET", "/api/exit-policy");
+    expect(pol.status).toBe(200);
+    expect(pol.json.policy.placeholder).toBe(true);
+    expect(pol.json.policy.voluntary.noticePeriodDays).toBeGreaterThan(0);
+
+    // A member with real entanglements: library credits and an open loan.
+    const m = await api("POST", "/api/auth/register", {
+      email: `mover-${PORT}@example.test`, password: "LoopTest123!", name: "Second Leaver", paths: ["resident"],
+    });
+    const mToken = m.json.token;
+    const mId = m.json.user.id;
+    await api("POST", "/api/admin/library/adjust", { userId: mId, credits: 30, note: "moving-out test grant" }, founderToken);
+    const lib = await api("GET", "/api/library", undefined, mToken);
+    const barrow = lib.json.items.find((i: any) => i.name === "Wheelbarrow");
+    const loan = await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, mToken);
+    expect(loan.status).toBe(200); // 25 credits now in escrow
+
+    // They open their own departure — password-confirmed, one per member.
+    const opened = await api("POST", "/api/profile/request-exit", { password: "LoopTest123!" }, mToken);
+    expect(opened.status).toBe(200);
+    const exitId = opened.json.exit.id;
+    expect(opened.json.exit.noticeEndsAt).toBeTruthy();
+    expect((await api("POST", "/api/profile/request-exit", { password: "LoopTest123!" }, mToken)).status).toBe(409);
+
+    // RESOLVE REFUSES with the blocking domain NAMED — and both legacy
+    // tombstone doors now carry the same lock (an unsettled loan can no
+    // longer strand escrow reconciliation).
+    const refused = await api("POST", `/api/admin/exits/${exitId}/resolve`, {}, founderToken);
+    expect(refused.status).toBe(409);
+    expect(refused.json.blocking.some((b: any) => b.domain === "loans" && b.count === 1)).toBe(true);
+    expect((await api("POST", "/api/profile/delete-account", { password: "LoopTest123!" }, mToken)).status).toBe(409);
+    expect((await api("DELETE", `/api/admin/players/${mId}`, undefined, founderToken)).status).toBe(409);
+
+    // The S30 stay guest: an ACTIVE stay and a NEGATIVE balance — the
+    // enumeration names both, and debts block (nobody tombstones owing).
+    const players = await api("GET", "/api/admin/players", undefined, founderToken);
+    const stayGuest = players.json.find((p: any) => String(p.email).startsWith("stay-guest-"));
+    const gs = await api("GET", `/api/admin/players/${stayGuest.id}/exit-state`, undefined, founderToken);
+    expect(gs.json.blocking.some((b: any) => b.domain === "stays")).toBe(true);
+    expect(gs.json.blocking.some((b: any) => b.domain === "debts")).toBe(true);
+
+    // Settlement happens through the domain's OWN terminal — exit adds no
+    // settle path for loans (2.2 #8 stands): the borrower cancels.
+    expect((await api("POST", `/api/library/loans/${loan.json.loanId}/cancel`, {}, mToken)).status).toBe(200);
+
+    // The ONE settlement move exit owns: sweep positive balances, idempotent.
+    const sweep1 = await api("POST", `/api/admin/exits/${exitId}/settle-balances`, {}, founderToken);
+    expect(sweep1.status).toBe(200);
+    expect(sweep1.json.swept["library-credit"]).toBe(30);
+    const sweep2 = await api("POST", `/api/admin/exits/${exitId}/settle-balances`, {}, founderToken);
+    expect(sweep2.json.swept).toEqual({}); // nothing left; a replay moves nothing
+    expect((await api("GET", "/api/game/ledger", undefined, mToken)).json.balances["library-credit"]?.balance ?? 0).toBe(0);
+
+    // Clean → resolve: the tombstone runs, sessions die, the agreement
+    // POINTER (never content) sits on the record, and the economy conserves.
+    const resolved = await api("POST", `/api/admin/exits/${exitId}/resolve`, { agreementRef: "handshake-2026-07" }, founderToken);
+    expect(resolved.status).toBe(200);
+    expect((await api("GET", "/api/profile", undefined, mToken)).status).toBe(401);
+    const list = await api("GET", "/api/admin/exits", undefined, founderToken);
+    const row = list.json.exits.find((e: any) => e.id === exitId);
+    expect(row.status).toBe("resolved");
+    expect(row.agreementRef).toBe("handshake-2026-07");
+    expect(row.userName).toBe("A departed member");
+    const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec.json.invariants.ok).toBe(true);
+    const exitAcct = rec.json.systemAccounts.find((s: any) => s.id === "sys:exit-settlement" && s.tokenType === "library-credit");
+    expect(exitAcct?.balance).toBe(30);
+
+    // A deployment can never strand itself: no exit opens on the last founder.
+    expect((await api("POST", "/api/admin/exits", { userId: founderId }, founderToken)).status).toBe(409);
+
+    // RESTORATIVE INTAKE (the F12 hard rule as code): configure the intake
+    // role, send a private message — it reaches the role's holders through
+    // the notification spine and NOTHING else. No thread, no event, no row.
+    await api("PUT", "/api/admin/exit-policy", {
+      ...pol.json.policy,
+      restorative: { ...pol.json.policy.restorative, intakeContactRole: "founders-circle" },
+    }, founderToken);
+    const [[fBefore]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n FROM forum_threads");
+    const intake = await api("POST", "/api/exit/restorative-intake", { message: "I need help repairing something, privately." }, peerToken);
+    expect(intake.status).toBe(200);
+    expect(intake.json.reached).toBeGreaterThan(0);
+    const doerBell = await api("GET", "/api/notifications", undefined, doerToken);
+    expect(doerBell.json.notifications.some((n: any) => n.type === "restorative_intake")).toBe(true); // doer holds founders-circle
+    const [[fAfter]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n FROM forum_threads");
+    expect(Number(fAfter.n)).toBe(Number(fBefore.n)); // no thread, ever
+    // The CONTENT never lands anywhere but its recipients' notifications:
+    // no event row, no forum row, no exits row carries the words.
+    const [[he]] = await testDb.conn.query<any[]>(
+      "SELECT COUNT(*) AS n FROM health_events WHERE text LIKE '%repairing something%'",
+    );
+    expect(Number(he.n)).toBe(0);
+    const [[ex]] = await testDb.conn.query<any[]>(
+      "SELECT COUNT(*) AS n FROM exits WHERE COALESCE(resolution,'') LIKE '%repairing something%' OR COALESCE(agreement_ref,'') LIKE '%repairing%'",
+    );
+    expect(Number(ex.n)).toBe(0);
+  });
 });

@@ -3834,6 +3834,189 @@ function HealthAdminTab({ password }: { password: string }) {
   );
 }
 
+/**
+ * S52: the steward's desk for departures — open-state enumeration with
+ * blocking badges, the balance sweep, the terminal resolve (refused with
+ * named domains until clean), and the policy editor.
+ */
+function ExitsAdminTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [players, setPlayers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedUser, setSelectedUser] = useState("");
+  const [state, setState] = useState<any>(null);
+  const [policyDraft, setPolicyDraft] = useState<any>(null);
+  const [roles, setRoles] = useState<any[]>([]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [eRes, pRes, rRes] = await Promise.all([
+        fetch(`${API_BASE}/admin/exits`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/roles`),
+      ]);
+      const e = await eRes.json();
+      setData(e);
+      setPolicyDraft(e.policy);
+      const p = await pRes.json();
+      setPlayers(Array.isArray(p) ? p : []);
+      const r = await rRes.json();
+      setRoles(Array.isArray(r) ? r : []);
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const loadState = useCallback(async (userId: string) => {
+    if (!userId) { setState(null); return; }
+    const res = await fetch(`${API_BASE}/admin/players/${userId}/exit-state`, { headers: authHeaders(password) });
+    setState(res.ok ? await res.json() : null);
+  }, [password]);
+
+  useEffect(() => { loadState(selectedUser); }, [selectedUser, loadState]);
+
+  const call = async (path: string, body?: any, method = "POST") => {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        const detail = Array.isArray(d.blocking) ? ` — ${d.blocking.map((b: any) => `${b.domain}: ${b.count}`).join(", ")}` : "";
+        throw new Error((d.error || "failed") + detail);
+      }
+      return d;
+    } catch (e: any) { toast.error(e?.message || "Request failed"); return null; }
+  };
+
+  const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+  if (loading && !data) return <p className="text-sm text-gray-500">Loading…</p>;
+
+  const openExit = state?.exit;
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Departures</h2>
+        <p className="text-sm text-gray-500 max-w-2xl">
+          Exit is a process, never a delete. Blocking state settles through
+          its own domain (loans, stays, orders, debts); positive balances
+          sweep by an explicit act; the tombstone comes last. Value rows are
+          never deleted — the economy conserves through every departure.
+        </p>
+      </div>
+
+      {/* Member exit state */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">A member's open state</h3>
+        <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)} className={`${inputCls} mb-3`}>
+          <option value="">Pick a member…</option>
+          {players.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        {state && (
+          <>
+            <div className="space-y-1.5 mb-4">
+              {state.states.map((s: any) => (
+                <div key={s.domain} className="flex items-start justify-between text-sm gap-3">
+                  <span className="text-gray-600"><b className="text-gray-900">{s.domain}</b> — {s.description}</span>
+                  {s.count > 0 && (
+                    <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${s.blocking ? "bg-red-50 text-red-600 font-semibold" : "bg-gray-100 text-gray-500"}`}>
+                      {s.blocking ? `blocks (${s.count})` : s.count}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-3">
+              {!openExit ? (
+                <>
+                  <button onClick={async () => { const d = await call("/admin/exits", { userId: selectedUser, kind: "voluntary" }); if (d) { toast.success("Exit opened"); load(); loadState(selectedUser); } }}
+                    className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Open exit</button>
+                  <button onClick={async () => { const note = window.prompt("Involuntary exits follow the published process. Note for the record:"); if (note === null) return; const d = await call("/admin/exits", { userId: selectedUser, kind: "involuntary", note }); if (d) { toast.success("Exit opened"); load(); loadState(selectedUser); } }}
+                    className="text-sm border border-red-300 text-red-600 rounded-lg px-4 py-2 font-medium">Open involuntary…</button>
+                </>
+              ) : (
+                <>
+                  <span className="text-xs text-gray-500 self-center">
+                    Exit {openExit.status} since {new Date(openExit.openedAt).toLocaleDateString()}
+                    {openExit.noticeEndsAt && ` · notice ends ${new Date(openExit.noticeEndsAt).toLocaleDateString()}`}
+                  </span>
+                  <button onClick={async () => { const d = await call(`/admin/exits/${openExit.id}/settle-balances`); if (d) { toast.success(`Swept: ${JSON.stringify(d.swept)}`); loadState(selectedUser); } }}
+                    className="text-sm border border-teal-deep text-teal-deep rounded-lg px-3 py-2 font-medium">Sweep balances</button>
+                  <button onClick={async () => {
+                    if (!window.confirm("Resolve this exit? The account becomes a tombstone — identity removed, contributions kept.")) return;
+                    const d = await call(`/admin/exits/${openExit.id}/resolve`);
+                    if (d) { toast.success(`Resolved${d.vacatedRoles.length ? ` — seats opened: ${d.vacatedRoles.join(", ")}` : ""}`); setSelectedUser(""); load(); }
+                  }} className="text-sm bg-red-600 text-white rounded-lg px-3 py-2 font-medium">Resolve (tombstone)</button>
+                  <button onClick={async () => { const d = await call(`/admin/exits/${openExit.id}/cancel`); if (d) { toast.success("They're staying"); loadState(selectedUser); load(); } }}
+                    className="text-sm text-gray-500 hover:text-gray-900 px-2">They're staying</button>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Exit list */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Departure record</h3>
+        <div className="space-y-1.5">
+          {(data?.exits ?? []).map((e: any) => (
+            <p key={e.id} className="text-sm text-gray-600">
+              <b className="text-gray-900">{e.userName}</b> — {e.kind}, {e.status}
+              <span className="text-xs text-gray-400"> · opened {new Date(e.openedAt).toLocaleDateString()}{e.resolvedAt ? `, closed ${new Date(e.resolvedAt).toLocaleDateString()}` : ""}</span>
+              {e.agreementRef && <span className="text-xs text-teal-deep"> · agreement: {e.agreementRef}</span>}
+            </p>
+          ))}
+          {(data?.exits ?? []).length === 0 && <p className="text-sm text-gray-400">No departures yet — and the policy is already published. Good.</p>}
+        </div>
+      </div>
+
+      {/* Policy editor */}
+      {policyDraft && (
+        <div className="bg-white border border-gray-100 rounded-xl p-5">
+          <h3 className="font-semibold text-gray-900 mb-1">The published policy</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Lives at /exit-policy for everyone to read. The terms are the
+            community's to decide{policyDraft.placeholder ? " — these are still the platform's placeholders" : ""}.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3 mb-3">
+            <label className="text-xs text-gray-500">Notice period (days)
+              <input type="number" min={0} value={policyDraft.voluntary?.noticePeriodDays ?? 0}
+                onChange={(e) => setPolicyDraft({ ...policyDraft, voluntary: { ...policyDraft.voluntary, noticePeriodDays: Number(e.target.value) } })}
+                className={`${inputCls} w-full mt-1`} />
+            </label>
+            <label className="text-xs text-gray-500">Restorative intake role
+              <select value={policyDraft.restorative?.intakeContactRole ?? ""}
+                onChange={(e) => setPolicyDraft({ ...policyDraft, restorative: { ...policyDraft.restorative, intakeContactRole: e.target.value } })}
+                className={`${inputCls} w-full mt-1`}>
+                <option value="">none configured</option>
+                {roles.map((r: any) => <option key={r.id} value={r.id}>{r.name ?? r.id}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="text-xs text-gray-500 block mb-3">Involuntary process
+            <textarea rows={3} value={policyDraft.involuntary?.process ?? ""}
+              onChange={(e) => setPolicyDraft({ ...policyDraft, involuntary: { ...policyDraft.involuntary, process: e.target.value } })}
+              className={`${inputCls} w-full mt-1`} />
+          </label>
+          <label className="text-xs text-gray-500 flex items-center gap-2 mb-3">
+            <input type="checkbox" checked={!policyDraft.placeholder}
+              onChange={(e) => setPolicyDraft({ ...policyDraft, placeholder: !e.target.checked })} />
+            These terms were decided by the community (clears the draft banner)
+          </label>
+          <button onClick={async () => { const d = await call("/admin/exit-policy", policyDraft, "PUT"); if (d) { toast.success("Policy published"); load(); } }}
+            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Publish policy</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TokensTab({ password }: { password: string }) {
   const [tokens, setTokens] = useState<any[]>([]);
   const [mintCap, setMintCap] = useState<number>(0);
@@ -5138,6 +5321,7 @@ export default function Admin() {
             { key: "badges-admin", label: "Badges", icon: GraduationCap },
             { key: "library-admin", label: "Library", icon: Inbox },
             { key: "health-admin", label: "Village Health", icon: Activity },
+            { key: "exits-admin", label: "Departures", icon: LogOut },
             { key: "tokens", label: "Tokens", icon: Coins },
             { key: "ledger", label: "Ledger", icon: BarChart3 },
             { key: "variables", label: "Game Mechanics", icon: Activity },
@@ -5269,6 +5453,7 @@ export default function Admin() {
           {activeTab === "badges-admin" && <BadgesAdminTab password={password} />}
           {activeTab === "library-admin" && <LibraryAdminTab password={password} />}
           {activeTab === "health-admin" && <HealthAdminTab password={password} />}
+          {activeTab === "exits-admin" && <ExitsAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}

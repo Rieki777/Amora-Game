@@ -44,6 +44,15 @@ import {
   allStays,
 } from "./lib/stays";
 import { createWalletChallenge, readOnchainBalance, verifyWalletSignature } from "./lib/base-reads";
+import {
+  allExits,
+  blockingStates,
+  createExit,
+  exitById,
+  exitOpenState,
+  openExitFor,
+  sweepBalances,
+} from "./lib/exit";
 import { governanceReads, regenEntries, regenTotals, snapshotCycle, snapshotSeries } from "./lib/health";
 import { REGEN_METRICS, TREND_MIN_LUNATIONS } from "../shared/healthMetrics";
 import {
@@ -171,7 +180,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s51-village-health";
+const BUILD_MARKER = "2026-07-27-s52-member-exit";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -534,6 +543,43 @@ const workWithUsRepo = dbDocument(getPool(), "work-with-us", DEFAULT_WORK_WITH_U
 const visitConfigRepo = dbDocument(getPool(), "visit-config", DEFAULT_VISIT_CONFIG as any);
 const investorSummaryRepo = dbDocument(getPool(), "investor-summary", DEFAULT_INVESTOR_SUMMARY as any);
 const seasonRepo = dbDocument(getPool(), "season", GAME_CONFIG.season as any);
+/**
+ * S52 (F12): the exit policy, published on the site. Ships as an explicit
+ * PLACEHOLDER — the flow is platform structure, the TERMS are a community
+ * decision (Rye #8); the UI shows a caution card until an admin writes the
+ * real ones. The restorative section's rule is structural: content flows
+ * only to its recipients; records hold an agreement pointer and a status.
+ */
+const DEFAULT_EXIT_POLICY = {
+  placeholder: true,
+  voluntary: {
+    noticePeriodDays: 30,
+    valuationMethod:
+      "To be decided by the community: how contributed value is honored when someone leaves. Until then, settled balances are held in exit settlement and recorded on the exit.",
+    unwindSteps: [
+      "Return borrowed items and settle library loans",
+      "Complete or hand off any active stay; resolve open purchases",
+      "Hand off roles and open work",
+      "Balances are settled and recorded",
+      "The account becomes a tombstone; contributions stay part of the village record",
+    ],
+  },
+  involuntary: {
+    decidingDomainId: "",
+    appealDomainId: "",
+    process:
+      "To be decided by the community. Until then: a private conversation with the stewards precedes any formal step, always.",
+  },
+  restorative: {
+    intakeContactRole: "",
+    steps: [
+      "Private intake with the contact role — never a public thread",
+      "A facilitated repair conversation",
+      "A written agreement with a review date; only the agreement and its status enter the record",
+    ],
+  },
+};
+const exitPolicyRepo = dbDocument(getPool(), "exit-policy", DEFAULT_EXIT_POLICY as any);
 // The runOnce ledger (one-shot data fixups) — formerly data/migrations.json.
 const dataMigrations = dbDocument(getPool(), "data-migrations", { applied: [] as string[] });
 // S19: circles — the village's organizational shape, as data.
@@ -601,6 +647,7 @@ async function initStores(): Promise<void> {
     visitConfigRepo.load(),
     investorSummaryRepo.load(),
     seasonRepo.load(),
+    exitPolicyRepo.load(),
     dataMigrations.load(),
     loadVariables(getPool()),
   ]);
@@ -3955,6 +4002,209 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // ── S52: member exit (F12) — enumerate, settle, resolve ──────────────────
+  // Not a module: leaving is core identity, like joining. The policy is
+  // PUBLISHED; the process refuses to tombstone anyone who still owes or is
+  // owed through a blocking domain; the restorative flow's content reaches
+  // only its recipients, never a table.
+
+  /** The published policy — F12's "publish the exit policy on the site". */
+  app.get("/api/exit-policy", async (_req, res) => {
+    res.json({ policy: exitPolicyRepo.get(), configured: exitPolicyRepo.exists() });
+  });
+
+  app.put("/api/admin/exit-policy", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const body = req.body ?? {};
+    if (typeof body !== "object" || !body.voluntary || !body.involuntary || !body.restorative) {
+      return res.status(400).json({ error: "The policy needs voluntary, involuntary and restorative sections" });
+    }
+    if (body.restorative.intakeContactRole && !rolesRepo.all().some((r: any) => r.id === body.restorative.intakeContactRole)) {
+      return res.status(400).json({ error: `Unknown intake role "${body.restorative.intakeContactRole}"` });
+    }
+    // Writing real terms clears the placeholder flag unless kept deliberately.
+    const next = { ...DEFAULT_EXIT_POLICY, ...body, placeholder: body.placeholder === true };
+    await exitPolicyRepo.put(next);
+    res.json({ success: true, policy: exitPolicyRepo.get() });
+  });
+
+  /** The per-member open-state enumeration, on the admin's desk. */
+  app.get("/api/admin/players/:id/exit-state", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const target = await members.byId(req.params.id);
+    if (!target) return res.status(404).json({ error: "Not found" });
+    const states = await exitOpenState(getPool(), target.id, roleIdsFor(target.id));
+    res.json({
+      states,
+      blocking: blockingStates(states),
+      exit: await openExitFor(getPool(), target.id),
+    });
+  });
+
+  app.get("/api/admin/exits", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const exits = await allExits(getPool());
+    const withNames = [];
+    for (const e of exits) {
+      withNames.push({ ...e, userName: (await members.byId(e.userId))?.name ?? "(anonymized)" });
+    }
+    res.json({ exits: withNames, policy: exitPolicyRepo.get() });
+  });
+
+  /** A member opens their own departure. Password-confirmed, founder-guarded. */
+  app.post("/api/profile/request-exit", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const { password, note } = req.body ?? {};
+    if (!password || !(await verifyPassword(String(password), user.passwordHash))) {
+      return res.status(403).json({ error: "Confirm with your password" });
+    }
+    if (user.role === "founder") {
+      return res.status(409).json({ error: "A founder must hand off the village before leaving — demote yourself first" });
+    }
+    const policy: any = exitPolicyRepo.get();
+    const r = await createExit(getPool(), {
+      userId: user.id,
+      kind: "voluntary",
+      openedBy: user.id,
+      noticeDays: Number(policy?.voluntary?.noticePeriodDays) || 0,
+      note: note ? String(note) : null,
+    });
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    await notifyAdmins("exit_opened", `${user.name ?? "A member"} has begun a departure`, `exit:${r.exit.id}:opened`);
+    void recordEvent(getPool(), {
+      kind: "audit", text: "exit:opened:voluntary", actorUserId: user.id,
+      entityType: "user", entityRef: user.id, audience: "admin",
+    });
+    res.json({ success: true, exit: r.exit });
+  });
+
+  /** An admin opens one (on behalf, or involuntary per the published process). */
+  app.post("/api/admin/exits", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { userId, kind, note } = req.body ?? {};
+    const target = await members.byId(String(userId ?? ""));
+    if (!target) return res.status(404).json({ error: "No such member" });
+    if (target.role === "founder") {
+      return res.status(409).json({ error: "Demote the founder first — a deployment must never strand itself" });
+    }
+    const policy: any = exitPolicyRepo.get();
+    const r = await createExit(getPool(), {
+      userId: target.id,
+      kind: kind === "involuntary" ? "involuntary" : "voluntary",
+      openedBy: adminActor(req)?.id ?? "admin",
+      noticeDays: Number(policy?.voluntary?.noticePeriodDays) || 0,
+      note: note ? String(note) : null,
+    });
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    await notify({
+      userId: target.id, type: "exit_opened",
+      title: kind === "involuntary" ? "A departure process has been opened with you" : "Your departure process has been opened",
+      body: "The published exit policy describes each step. The stewards will walk it with you.",
+      link: "/exit-policy", dedupeKey: `exit:${r.exit.id}:member`,
+    });
+    res.json({ success: true, exit: r.exit });
+  });
+
+  /**
+   * The ONE settlement move exit owns: sweep positive balances, idempotent
+   * per token. Everything else settles through its own domain's terminals.
+   */
+  app.post("/api/admin/exits/:id/settle-balances", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const exit = await exitById(getPool(), req.params.id);
+    if (!exit) return res.status(404).json({ error: "No such exit" });
+    if (exit.status === "resolved" || exit.status === "cancelled") {
+      return res.status(409).json({ error: `This exit is ${exit.status}` });
+    }
+    const result = await sweepBalances(getPool(), { exitId: exit.id, userId: exit.userId });
+    await getPool().query(
+      "UPDATE exits SET status = 'settling', resolution = CONCAT(COALESCE(resolution,''), ?) WHERE id = ?",
+      [`\n[${new Date().toISOString().slice(0, 10)}] balances swept: ${JSON.stringify(result.swept)}`, exit.id],
+    );
+    res.json({ success: true, ...result });
+  });
+
+  /**
+   * The terminal act: refuses with the NAMED blocking domains until the
+   * member's open state is clean, then runs the existing tombstone. Exit
+   * never invents a settle path — 2.2 #8 stands.
+   */
+  app.post("/api/admin/exits/:id/resolve", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const exit = await exitById(getPool(), req.params.id);
+    if (!exit) return res.status(404).json({ error: "No such exit" });
+    if (exit.status === "resolved" || exit.status === "cancelled") {
+      return res.status(409).json({ error: `This exit is already ${exit.status}` });
+    }
+    const target = await members.byId(exit.userId);
+    if (!target) return res.status(404).json({ error: "Member not found" });
+    const roleIds = roleIdsFor(target.id);
+    const blocking = blockingStates(await exitOpenState(getPool(), target.id, roleIds));
+    if (blocking.length) {
+      return res.status(409).json({
+        error: "Open state must settle through its own domain first",
+        blocking,
+      });
+    }
+    const { agreementRef } = req.body ?? {};
+    await anonymizeMember(target, adminActor(req)?.id ?? null);
+    await getPool().query(
+      "UPDATE exits SET status = 'resolved', resolved_at = NOW(), agreement_ref = COALESCE(?, agreement_ref) WHERE id = ?",
+      [agreementRef ? String(agreementRef).slice(0, 255) : null, exit.id],
+    );
+    // Seats vacate at the tombstone; the stewards hear which ones.
+    for (const roleId of roleIds) {
+      await notifyAdmins("exit_opened", `A seat opened: ${roleId} (departure resolved)`, `exit:${exit.id}:vacancy:${roleId}`);
+    }
+    res.json({ success: true, vacatedRoles: roleIds });
+  });
+
+  /** A person who stays: the exit closes without a tombstone. */
+  app.post("/api/admin/exits/:id/cancel", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [r] = await getPool().query<any>(
+      "UPDATE exits SET status = 'cancelled', resolved_at = NOW() WHERE id = ? AND status IN ('open','settling')",
+      [req.params.id],
+    );
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "No open exit with that id" });
+    res.json({ success: true });
+  });
+
+  /**
+   * Restorative intake (F12's hard rule as code): the message reaches ONLY
+   * the intake role's holders, through the notification spine. No forum
+   * thread, no event row, no exits-row content — a person is never the
+   * subject of a consent decision in a general forum.
+   */
+  app.post("/api/exit/restorative-intake", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (await overLimit(`restorative:${user.id}`, 3, 24 * 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Three intakes a day — the stewards are already listening" });
+    }
+    const message = String(req.body?.message ?? "").trim();
+    if (!message) return res.status(400).json({ error: "Say what happened, in your own words" });
+    const policy: any = exitPolicyRepo.get();
+    const roleId = String(policy?.restorative?.intakeContactRole ?? "");
+    if (!roleId) return res.status(409).json({ error: "No intake contact role is configured yet — write to the stewards directly" });
+    const holders = loadRoleHolders().filter((h: any) => h.roleId === roleId);
+    if (!holders.length) return res.status(409).json({ error: "The intake role has no holders right now — write to the stewards directly" });
+    const intakeId = `ri-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    for (const h of holders as any[]) {
+      await notify({
+        userId: h.userId,
+        type: "restorative_intake",
+        title: `A private intake from ${user.name ?? "a member"}`,
+        body: message.slice(0, 2000),
+        link: "/admin",
+        actorUserId: user.id,
+        dedupeKey: `restorative:${intakeId}:${h.userId}`,
+      });
+    }
+    res.json({ success: true, reached: holders.length });
+  });
+
   // ── S49-S51: village health — the dashboard reads (collection lives in
   //    the cycle close; only DISPLAY is module-gated) ────────────────────────
 
@@ -6772,6 +7022,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (target.role === "founder") {
       return res.status(409).json({ error: "Demote the founder first — a deployment must never strand itself" });
     }
+    // S52: a tombstone must never strand open economic state (an unsettled
+    // loan would break escrow reconciliation at the next boot). The exit
+    // flow is the front door; this back door keeps the same lock.
+    const blocking = blockingStates(await exitOpenState(getPool(), target.id, roleIdsFor(target.id)));
+    if (blocking.length) {
+      return res.status(409).json({ error: "Open state must settle through its own domain first", blocking });
+    }
     await anonymizeMember(target, adminActor(req)?.id ?? null);
     res.json({ success: true, removed: { id: target.id, email: target.email }, anonymized: true });
   });
@@ -6786,6 +7043,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     }
     if (user.role === "founder") {
       return res.status(409).json({ error: "A founder must hand off the village before leaving — demote yourself first" });
+    }
+    // S52: same lock as the admin path — settle blocking state first. The
+    // 409 names each domain so the member knows exactly what remains.
+    const blocking = blockingStates(await exitOpenState(getPool(), user.id, roleIdsFor(user.id)));
+    if (blocking.length) {
+      return res.status(409).json({ error: "Open state must settle through its own domain first", blocking });
     }
     await anonymizeMember(user, user.id);
     res.json({ success: true, anonymized: true });
