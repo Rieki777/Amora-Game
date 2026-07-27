@@ -145,6 +145,8 @@ export interface IntakeInput {
   minStage?: string | null;
   requiresRole?: string | null;
   recordedBy: string | null;
+  /** L6: a picture of the actual item — the column existed since 0024. */
+  photoUrl?: string | null;
 }
 
 export type IntakeResult =
@@ -180,11 +182,12 @@ export async function recordIntake(pool: Pool, input: IntakeInput): Promise<Inta
   const needsSecond = numberVar("library.intake_dual_signoff_over") > 0 && appraisal > numberVar("library.intake_dual_signoff_over");
   const itemId = `li-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   await pool.query(
-    "INSERT INTO library_items (id, name, description, category_id, status, credit_value, min_stage, requires_role, donor_user_id, intake_signed_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    "INSERT INTO library_items (id, name, description, category_id, status, credit_value, min_stage, requires_role, donor_user_id, intake_signed_by, photo_url) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
     [
       itemId, input.name.trim().slice(0, 160), input.description ?? null, input.categoryId ?? null,
       needsSecond ? "intake_pending" : "available", appraisal,
       input.minStage ?? null, input.requiresRole ?? null, input.donorUserId, input.recordedBy,
+      input.photoUrl ?? null,
     ],
   );
   await itemEvent(pool, itemId, "intake", `appraised at ${appraisal}, award ${award}${needsSecond ? " (awaiting second sign-off)" : ""}`, input.recordedBy);
@@ -393,6 +396,87 @@ export async function settleLoan(
     await itemEvent(pool, loan.itemId, `settled_${settled.outcome}`, `wear ${settled.wearFee}, damage ${settled.damageFee}, released ${release}`, null);
   }
   return { ok: true, alreadySettled: !won, outcome: settled.outcome, wearFee: settled.wearFee, damageFee: settled.damageFee, released: release };
+}
+
+// ── Wave 1: the deadline sweep and the stall watch ───────────────────────────
+
+export interface DeadlineSettled {
+  loanId: string;
+  userId: string;
+  itemName: string;
+  wearFee: number;
+  released: number;
+}
+
+/**
+ * L10: the dispute deadline, finally enforced. A return sitting in
+ * return_pending is a contested (or merely un-clicked) close, and
+ * library.dispute_deadline_days was published as policy while nothing ran
+ * it. Past the deadline, the loan settles with the DEFAULT resolution the
+ * variable always promised — computed wear, zero damage, escrow released —
+ * through settleLoan, the same single terminal every human settle uses.
+ * Idempotent by construction: settleLoan's atomic claim makes a re-run a
+ * repair, never a second payment.
+ */
+export async function sweepReturnDeadlines(pool: Pool): Promise<DeadlineSettled[]> {
+  const days = Math.max(1, numberVar("library.dispute_deadline_days"));
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT l.id, l.user_id, i.name FROM library_loans l JOIN library_items i ON i.id = l.item_id " +
+      "WHERE l.status = 'return_pending' AND l.settled_at IS NULL AND l.updated_at < (NOW() - INTERVAL ? DAY)",
+    [days],
+  );
+  const settled: DeadlineSettled[] = [];
+  for (const r of rows) {
+    const s = await settleLoan(pool, { loanId: String(r.id), outcome: "closed" });
+    if (s.ok && !s.alreadySettled) {
+      settled.push({
+        loanId: String(r.id), userId: String(r.user_id), itemName: String(r.name),
+        wearFee: s.wearFee ?? 0, released: s.released ?? 0,
+      });
+    }
+  }
+  return settled;
+}
+
+export interface OverdueLoan {
+  loanId: string;
+  userId: string;
+  itemName: string;
+  dueOn: string;
+  daysOver: number;
+}
+
+/** L12: active loans past their due date — the digest's raw material. */
+export async function overdueLoans(pool: Pool): Promise<OverdueLoan[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT l.id, l.user_id, l.due_on, i.name, DATEDIFF(CURDATE(), l.due_on) AS days_over " +
+      "FROM library_loans l JOIN library_items i ON i.id = l.item_id " +
+      "WHERE l.status = 'active' AND l.due_on IS NOT NULL AND l.due_on < CURDATE() ORDER BY l.due_on",
+  );
+  return rows.map((r) => ({
+    loanId: String(r.id), userId: String(r.user_id), itemName: String(r.name),
+    dueOn: String(r.due_on), daysOver: Number(r.days_over),
+  }));
+}
+
+export interface StalledIntake {
+  itemId: string;
+  name: string;
+  daysWaiting: number;
+}
+
+/**
+ * L19: intakes waiting for a second sign-off with nobody moving. A donor
+ * already handed over the item and is owed their credits; silence here is
+ * a single point of failure that today fails silently.
+ */
+export async function stalledIntakes(pool: Pool, days: number): Promise<StalledIntake[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT id, name, DATEDIFF(NOW(), created_at) AS waiting FROM library_items " +
+      "WHERE status = 'intake_pending' AND created_at < (NOW() - INTERVAL ? DAY) ORDER BY created_at",
+    [Math.max(1, days)],
+  );
+  return rows.map((r) => ({ itemId: String(r.id), name: String(r.name), daysWaiting: Number(r.waiting) }));
 }
 
 // ── Invariants, strikes, red flags ───────────────────────────────────────────

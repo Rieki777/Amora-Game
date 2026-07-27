@@ -3822,7 +3822,7 @@ function LibraryAdminTab({ password }: { password: string }) {
   const [off, setOff] = useState(false);
   const [loading, setLoading] = useState(true);
   const [players, setPlayers] = useState<any[]>([]);
-  const [intake, setIntake] = useState({ name: "", description: "", categoryId: "", appraisal: "", donorUserId: "", minStage: "" });
+  const [intake, setIntake] = useState({ name: "", description: "", categoryId: "", appraisal: "", donorUserId: "", minStage: "", photoUrl: "" });
   const [catLabel, setCatLabel] = useState("");
   const [settleDraft, setSettleDraft] = useState<Record<string, { wear?: string; damage?: string }>>({});
 
@@ -3919,13 +3919,17 @@ function LibraryAdminTab({ password }: { password: string }) {
             <option value="">Category…</option>
             {(data?.categories ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
+          {/* L6: a photo makes the shelf browsable. Paste a URL, or upload
+              via any image field and paste the /api/uploads path it returns. */}
+          <input placeholder="Photo URL (optional)" value={intake.photoUrl}
+            onChange={(e) => setIntake({ ...intake, photoUrl: e.target.value })} className={`${inputCls} sm:col-span-2`} />
         </div>
         <button
           onClick={async () => {
-            const d = await call("/admin/library/intake", { ...intake, appraisal: Number(intake.appraisal), categoryId: intake.categoryId || null });
+            const d = await call("/admin/library/intake", { ...intake, appraisal: Number(intake.appraisal), categoryId: intake.categoryId || null, photoUrl: intake.photoUrl || null });
             if (d) {
               toast.success(d.pendingSecondSignoff ? "Recorded — awaiting a second steward's sign-off" : `Recorded — ${d.award} credit(s) awarded`);
-              setIntake({ name: "", description: "", categoryId: "", appraisal: "", donorUserId: "", minStage: "" });
+              setIntake({ name: "", description: "", categoryId: "", appraisal: "", donorUserId: "", minStage: "", photoUrl: "" });
               load();
             }
           }}

@@ -2932,4 +2932,47 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
     await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
   });
+
+  it("L10+L19+L6: the deadline settles what stewards forgot, stalls stop being silent, photos land", async () => {
+    // L6: an intake carries its photo end to end.
+    const withPhoto = await api("POST", "/api/admin/library/intake", {
+      name: "Cordless drill", appraisal: 10, donorUserId: founderId, photoUrl: "/api/uploads/drill.jpg",
+    }, founderToken);
+    expect(withPhoto.json.ok).toBe(true);
+    const items = (await api("GET", "/api/library", undefined, peerToken)).json.items;
+    expect(items.find((i: any) => i.name === "Cordless drill")?.photoUrl).toBe("/api/uploads/drill.jpg");
+
+    // L10: a return nobody settled, 40 days old. Zero-escrow row on purpose:
+    // the timer's job is the TERMINAL, and a zero-fee settle moves nothing,
+    // so conservation is safe by construction while the claim is proven.
+    await testDb.conn.query(
+      "INSERT INTO library_items (id, name, status, credit_value, donor_user_id) VALUES ('li-sweep-1', 'Sweep test saw', 'checked_out', 5, ?)",
+      [founderId],
+    );
+    await testDb.conn.query(
+      "INSERT INTO library_loans (id, item_id, user_id, status, escrow_credits, created_at, updated_at) " +
+        "VALUES ('ll-sweep-1', 'li-sweep-1', ?, 'return_pending', 0, NOW() - INTERVAL 45 DAY, NOW() - INTERVAL 40 DAY)",
+      [peerId],
+    );
+    // L19: an intake stuck past the stall alarm.
+    await testDb.conn.query(
+      "INSERT INTO library_items (id, name, status, credit_value, donor_user_id, created_at) " +
+        "VALUES ('li-stall-1', 'Stalled donation', 'intake_pending', 500, ?, NOW() - INTERVAL 10 DAY)",
+      [peerId],
+    );
+
+    const sweep = await api("POST", "/api/admin/library/sweep", {}, founderToken);
+    expect(sweep.status).toBe(200);
+    expect(sweep.json.settled).toBeGreaterThanOrEqual(1);
+    expect(sweep.json.stalled).toBeGreaterThanOrEqual(1);
+    const [[settledRow]] = await testDb.conn.query<any[]>("SELECT status, settled_at FROM library_loans WHERE id = 'll-sweep-1'");
+    expect(settledRow.status).toBe("closed");
+    expect(settledRow.settled_at).not.toBeNull();
+    // Idempotent: a second sweep settles nothing new.
+    expect((await api("POST", "/api/admin/library/sweep", {}, founderToken)).json.settled).toBe(0);
+
+    // The books still balance after the machine settled a loan.
+    const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec.json.invariants.problems).toEqual([]);
+  });
 });

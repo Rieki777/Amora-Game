@@ -745,6 +745,20 @@ export const VARIABLES: VariableDef[] = [
     unit: "entries",
   },
 
+  // ── Library (L19) ─────────────────────────────────────────────────────────
+  {
+    key: "library.intake_stall_days",
+    category: "Library",
+    label: "Intake stall alarm",
+    description:
+      "An item awaiting its second sign-off longer than this many days appears in the stewards' daily digest — the donor already handed it over and is owed credits.",
+    type: "integer",
+    default: "7",
+    min: 1,
+    max: 60,
+    unit: "days",
+  },
+
   // ── Badges (B10) ──────────────────────────────────────────────────────────
   {
     key: "badges.max_featured",

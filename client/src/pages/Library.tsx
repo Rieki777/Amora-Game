@@ -116,6 +116,10 @@ export default function Library() {
               const eligible = data?.mine?.eligible?.[i.id] ?? true;
               return (
                 <div key={i.id} className="bg-card border border-border rounded-xl p-4 flex flex-col">
+                  {i.photoUrl && (
+                    <img src={i.photoUrl} alt={i.name} loading="lazy"
+                      className="rounded-lg mb-3 h-36 w-full object-cover" />
+                  )}
                   <div className="flex items-center gap-2 mb-1">
                     <Wrench className="w-4 h-4 text-teal-deep" />
                     <p className="font-semibold text-foreground text-sm">{i.name}</p>

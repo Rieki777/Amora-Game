@@ -82,10 +82,13 @@ import {
   markPickedUp,
   markReturned,
   noShowStrikes,
+  overdueLoans,
   recordIntake,
   reserveItem,
   settleLoan,
+  stalledIntakes,
   supplyVsBacking,
+  sweepReturnDeadlines,
 } from "./lib/library";
 import {
   addSkill,
@@ -1513,12 +1516,25 @@ function stayPostingHooks() {
   const today = new Date().toISOString().slice(0, 10);
   return {
     onLowBalance: async (stay: { id: string; userId: string }, nightsLeft: number) => {
+      // S5 (Wave 1): the nudge names actual doors, not a category of door.
+      // "Pick up a quest" is advice; "Fix the pump house (30 gratitude)" is
+      // a plan for tomorrow morning.
+      let questLines = "";
+      try {
+        const open = (await questsRepo.all())
+          .filter((q: any) => q.status === "open")
+          .slice(0, 3)
+          .map((q: any) => `• ${q.title}${q.gratitude ? ` (${q.gratitude})` : ""}`);
+        if (open.length) questLines = `\n\nOpen quests right now:\n${open.join("\n")}`;
+      } catch {
+        /* the nudge still lands without suggestions */
+      }
       await notify({
         userId: stay.userId,
         type: "stays",
         title: nightsLeft > 0 ? `Your stay credits cover ${nightsLeft} more night(s)` : "Your stay credits have run out",
-        body: "Top up, pick up a work-exchange quest, or talk to the stewards.",
-        link: "/stay",
+        body: `Top up, pick up a work-exchange quest, or talk to the stewards.${questLines}`,
+        link: questLines ? "/quests" : "/stay",
         dedupeKey: `stay:${stay.id}:lowbal:${today}`,
       });
     },
@@ -1917,6 +1933,58 @@ async function startServer() {
     });
     if (r.sent > 0) console.log(`[feedback] relayed ${r.sent} item(s) to the hub`);
   });
+
+  // L10+L12+L19 (Wave 1): the library's daily reckoning. One job, three
+  // debts of visibility: returns past the dispute deadline settle with the
+  // default resolution the variable always promised; overdue borrowers are
+  // reminded and the stewards get one digest, not thirty pings; and an
+  // intake nobody countersigned stops being a silent single point of
+  // failure. Also runnable on demand: POST /api/admin/library/sweep.
+  registerJob("library-sweep", 24 * 60 * 60 * 1000, async () => {
+    if (effectiveLifecycle("library") === "off") return;
+    await runLibrarySweep();
+  });
+
+  async function runLibrarySweep(): Promise<{ settled: number; overdue: number; stalled: number }> {
+    const pool = getPool();
+    const today = new Date().toISOString().slice(0, 10);
+
+    // L10: deadline settles — tell both sides what the deadline decided.
+    const settled = await sweepReturnDeadlines(pool);
+    for (const s of settled) {
+      await notify({
+        userId: s.userId, type: "library",
+        title: `"${s.itemName}" settled at the deadline: ${s.released} credit(s) released${s.wearFee ? `, ${s.wearFee} wear` : ""}`,
+        link: "/library", dedupeKey: `loan:${s.loanId}:deadline-settled`,
+      });
+      void recordEvent(pool, {
+        kind: "audit", text: `library:deadline-settle:${s.loanId}`,
+        entityType: "loan", entityRef: s.loanId, audience: "admin",
+      });
+    }
+
+    // L12: overdue — one reminder per borrower per day, one steward digest.
+    const overdue = await overdueLoans(pool);
+    for (const o of overdue) {
+      await notify({
+        userId: o.userId, type: "library",
+        title: `"${o.itemName}" was due ${o.daysOver} day(s) ago — bring it home`,
+        link: "/library", dedupeKey: `loan:${o.loanId}:overdue:${today}`,
+      });
+    }
+
+    // L19: stalled intakes — the donor already handed the item over.
+    const stalled = await stalledIntakes(pool, numberVar("library.intake_stall_days"));
+
+    if (overdue.length > 0 || stalled.length > 0) {
+      await notifyAdmins(
+        "library",
+        `Library digest: ${overdue.length} overdue loan(s)${stalled.length ? `, ${stalled.length} intake(s) waiting on a second signature — a donor is owed credits` : ""}`,
+        `library-digest:${today}`,
+      );
+    }
+    return { settled: settled.length, overdue: overdue.length, stalled: stalled.length };
+  }
 
   // B4 (Wave 1): the warning-expiry sweep. Reads already exclude expired
   // warnings — the capability came back at the stroke of the clock — but a
@@ -5779,6 +5847,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       appraisal: Number(appraisal), donorUserId: donor.id,
       minStage: minStage || null, requiresRole: requiresRole || null,
       recordedBy: adminActor(req)?.id ?? null,
+      // L6: the photo column waited a year for this line.
+      photoUrl: typeof req.body?.photoUrl === "string" ? req.body.photoUrl.slice(0, 500) : null,
     });
     if (!r.ok) return res.status(409).json({ error: r.error });
     if (!r.pendingSecondSignoff && r.award > 0) {
@@ -5789,6 +5859,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       });
     }
     res.json(r);
+  });
+
+  /** The sweep, on demand — same code the daily job runs. */
+  app.post("/api/admin/library/sweep", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    res.json(await runLibrarySweep());
   });
 
   /** The SECOND steward's signature on a high-value intake. */

@@ -256,6 +256,7 @@ export const MODULES: ModuleDef[] = [
       "library.usage_fee_pct",
       "library.loan_days_default",
       "library.dispute_deadline_days",
+      "library.intake_stall_days",
     ],
     apiPrefixes: ["/api/library"],
     // L9 (Gate F, opened 2026-07-27): selling credits for fiat is OFF by
