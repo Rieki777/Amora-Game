@@ -52,6 +52,7 @@ import JourneyToLaunch from "./pages/JourneyToLaunch";
 import ProjectHistory from "./pages/ProjectHistory";
 import Feedback from "./pages/Feedback";
 import Network from "./pages/Network";
+import Contribute from "./pages/Contribute";
 import StewardRights from "./pages/StewardRights";
 import ResidentRights from "./pages/ResidentRights";
 import Training from "./pages/Training";
@@ -82,6 +83,7 @@ function Router() {
       <Route path="/project-history" component={ProjectHistory} />
       <Route path="/feedback" component={Feedback} />
       <Route path="/network" component={Network} />
+      <Route path="/contribute" component={Contribute} />
       <Route path="/investor" component={InvestorJourney} />
       <Route path="/steward" component={StewardJourney} />
       <Route path="/resident" component={ResidentJourney} />

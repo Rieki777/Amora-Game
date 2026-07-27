@@ -44,9 +44,21 @@ import {
  * carries the whole story on its own.
  */
 function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [msgs, setMsgs] = useState<Array<{ role: "user" | "assistant"; content: string }>>([
-    { role: "assistant", content: "I can see exactly where your launch stands. Want to start with what's blocking, or shall I walk the whole journey with you?" },
-  ]);
+  // Two hats, one panel. "launch" reads the live readiness checklist;
+  // "organize" (S70) reads the village's own second brain first, then the
+  // shipped practitioner corpus — and shows which shelves she consulted.
+  const [mode, setMode] = useState<"launch" | "organize">("launch");
+  const GREETINGS: Record<string, string> = {
+    launch: "I can see exactly where your launch stands. Want to start with what's blocking, or shall I walk the whole journey with you?",
+    organize: "Ask me about organizing — governance, conflict, membership, legal shells, internal economics. Your village's own calls outrank the books when they speak to it.",
+  };
+  const [threads, setThreads] = useState<Record<string, Array<{ role: "user" | "assistant"; content: string; consulted?: any }>>>({
+    launch: [{ role: "assistant", content: GREETINGS.launch }],
+    organize: [{ role: "assistant", content: GREETINGS.organize }],
+  });
+  const msgs = threads[mode];
+  const setMsgs = (fn: (m: typeof msgs) => typeof msgs) =>
+    setThreads((t) => ({ ...t, [mode]: fn(t[mode]) }));
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [gone, setGone] = useState(false);
@@ -55,17 +67,17 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
     const content = draft.trim();
     if (!content || busy) return;
     const next = [...msgs, { role: "user" as const, content }];
-    setMsgs(next);
+    setMsgs(() => next);
     setDraft("");
     setBusy(true);
-    fetch("/api/admin/assistant/launch", {
-      method: "POST", headers: headers(), body: JSON.stringify({ messages: next }),
+    fetch(mode === "launch" ? "/api/admin/assistant/launch" : "/api/admin/assistant/organize", {
+      method: "POST", headers: headers(), body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })) }),
     })
       .then(async (r) => {
         const d = await r.json();
         if (r.status === 503) { setGone(true); return; }
         if (!r.ok) throw new Error(d.error || "failed");
-        setMsgs((m) => [...m, { role: "assistant", content: d.reply }]);
+        setMsgs((m) => [...m, { role: "assistant", content: d.reply, consulted: d.consulted }]);
       })
       .catch(() => setMsgs((m) => [...m, { role: "assistant", content: "Something hiccuped — ask me that again?" }]))
       .finally(() => setBusy(false));
@@ -84,8 +96,17 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
   if (!open) return null;
   return (
     <div className="fixed bottom-4 right-4 z-50 w-[min(24rem,calc(100vw-2rem))] bg-white border border-stone-200 rounded-2xl shadow-2xl flex flex-col max-h-[70vh]">
-      <header className="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
-        <p className="font-semibold text-sm text-stone-900">Launch guide</p>
+      <header className="px-4 py-3 border-b border-stone-100 flex items-center justify-between gap-2">
+        <div className="flex gap-1">
+          <button onClick={() => setMode("launch")}
+            className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 ${mode === "launch" ? "bg-[#2D5A5A] text-white" : "text-stone-500 hover:bg-stone-100"}`}>
+            Launch
+          </button>
+          <button onClick={() => setMode("organize")}
+            className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 ${mode === "organize" ? "bg-[#2D5A5A] text-white" : "text-stone-500 hover:bg-stone-100"}`}>
+            Organizing
+          </button>
+        </div>
         <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-sm">Close</button>
       </header>
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
@@ -101,6 +122,12 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
               m.role === "user" ? "ml-auto bg-[#2D5A5A] text-white" : "bg-stone-100 text-stone-800"
             }`}>
               {m.role === "assistant" ? linkify(m.content) : m.content}
+              {m.consulted && (m.consulted.ownRecord?.length > 0 || m.consulted.references?.length > 0) && (
+                <p className="text-[10px] text-stone-400 mt-1.5 border-t border-stone-200 pt-1">
+                  {m.consulted.ownRecord?.length > 0 && <>Your calls: {m.consulted.ownRecord.join("; ")}. </>}
+                  {m.consulted.references?.length > 0 && <>References: {m.consulted.references.join("; ")}.</>}
+                </p>
+              )}
             </div>
           ))
         )}

@@ -2792,4 +2792,107 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     await api("PUT", "/api/admin/modules/network/lifecycle", { lifecycle: "off" }, founderToken);
     expect((await api("GET", "/api/network/published")).status).toBe(404);
   });
+
+  it("S69: payment products — the catalog sells, the webhook settles, the treasury never mints", async () => {
+    const { createHmac } = await import("crypto");
+    // Off = invisible, same as every module.
+    expect((await api("GET", "/api/products")).status).toBe(404);
+    expect((await api("PUT", "/api/admin/modules/commerce/lifecycle", { lifecycle: "public" }, founderToken)).status).toBe(200);
+
+    // A fixed fee, a free-amount donation, and a token pack sold from stock.
+    const fee = await api("POST", "/api/admin/products", {
+      kind: "fee", name: "Application fee", amountMinor: 2500, active: true,
+    }, founderToken);
+    expect(fee.json.success).toBe(true);
+    const donation = await api("POST", "/api/admin/products", {
+      kind: "donation", name: "Gift to the land", minAmountMinor: 500, active: true,
+    }, founderToken);
+    expect(donation.json.success).toBe(true);
+    // pair-b… no — a token pack of swap-a, which S57-S61 stocked in treasury.
+    const pack = await api("POST", "/api/admin/products", {
+      kind: "token_pack", name: "Starter pack", amountMinor: 5000,
+      tokenSlug: "swap-b", tokenAmount: 5, active: true,
+    }, founderToken);
+    expect(pack.json.success).toBe(true);
+    // Firewalls hold at the side door too: recognition can never be a pack.
+    expect((await api("POST", "/api/admin/products", {
+      kind: "token_pack", name: "Buy love", amountMinor: 100, tokenSlug: "gratitude", tokenAmount: 1, active: true,
+    }, founderToken)).status).toBe(409);
+    // Recurring without Stripe is refused with words.
+    expect((await api("POST", "/api/admin/products", {
+      kind: "membership", name: "Zeffy monthly", amountMinor: 1000, recurring: "month", provider: "zeffy", active: true,
+    }, founderToken)).status).toBe(400);
+
+    // The public catalog shows all three; a donation below floor refuses.
+    const catalog = (await api("GET", "/api/products")).json;
+    expect(catalog.products.length).toBe(3);
+    const donationId = donation.json.id;
+    expect((await api("POST", `/api/products/${donationId}/checkout`, { amountMinor: 100 }, peerToken)).status).toBe(400);
+
+    // The loop runs WITHOUT a Stripe key on purpose: checkout must refuse
+    // loudly, BEFORE writing any purchase row — no dangling pendings.
+    const packCheckout = await api("POST", `/api/products/${pack.json.id}/checkout`, {}, peerToken);
+    expect(packCheckout.status).toBe(503);
+    const [[noRows]] = await testDb.conn.query<any[]>(
+      "SELECT COUNT(*) AS n FROM product_purchases WHERE product_id = ?", [pack.json.id],
+    );
+    expect(Number(noRows.n)).toBe(0);
+    // Settlement is proven the way stays proves it: a purchase row exists
+    // (as it would after real checkout) and the SIGNED webhook settles it.
+    const purchaseRow = { id: `pp-loop-${Date.now()}` };
+    await testDb.conn.query(
+      "INSERT INTO product_purchases (id, product_id, user_id, amount_minor, receipt_no, provider_ref) VALUES (?, ?, ?, 5000, 9001, 'cs_pp_loop_1')",
+      [purchaseRow.id, pack.json.id, peerId],
+    );
+    const before = (await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["swap-b"]?.balance ?? 0;
+    const at = Math.floor(Date.now() / 1000);
+    const payload = JSON.stringify({
+      id: `evt_pp_${Date.now()}`, type: "checkout.session.completed",
+      data: { object: { id: "cs_pp_1", payment_intent: "pi_pp_1", metadata: { module: "commerce", orderId: String(purchaseRow.id) } } },
+    });
+    const sig = `t=${at},v1=${createHmac("sha256", "whsec_looptest").update(`${at}.${payload}`).digest("hex")}`;
+    const wh = await fetch(`${BASE}/api/webhooks/stripe`, {
+      method: "POST", body: payload,
+      headers: { "Content-Type": "application/json", "stripe-signature": sig },
+    });
+    expect(wh.status).toBe(200);
+    // Paid, granted from TREASURY (no mint), receipted.
+    const [[paid]] = await testDb.conn.query<any[]>("SELECT status, periods_paid FROM product_purchases WHERE id = ?", [purchaseRow.id]);
+    expect(paid.status).toBe("paid");
+    expect(Number(paid.periods_paid)).toBe(1);
+    const afterBal = (await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["swap-b"].balance;
+    expect(afterBal).toBe(before + 5);
+    const [grantLegs] = await testDb.conn.query<any[]>(
+      "SELECT from_account FROM token_ledger WHERE source = 'product_grant' AND source_ref = ?", [purchaseRow.id],
+    );
+    expect(grantLegs.length).toBe(1);
+    expect(grantLegs[0].from_account).toBe("sys:treasury");
+    // A replayed webhook is a no-op: same event id, deduped at the door.
+    await fetch(`${BASE}/api/webhooks/stripe`, {
+      method: "POST", body: payload,
+      headers: { "Content-Type": "application/json", "stripe-signature": sig },
+    });
+    const stillOne = await testDb.conn.query<any[]>(
+      "SELECT COUNT(*) AS n FROM token_ledger WHERE source = 'product_grant' AND source_ref = ?", [purchaseRow.id],
+    );
+    expect(Number((stillOne[0] as any)[0].n)).toBe(1);
+
+    // Manual products are confirmed by a steward, never by Stripe's door.
+    const manual = await api("POST", "/api/admin/products", {
+      kind: "fee", name: "Cash at the gate", amountMinor: 1000, provider: "manual",
+      manualInstructions: "Hand it to any steward.", active: true,
+    }, founderToken);
+    const mCheckout = await api("POST", `/api/products/${manual.json.id}/checkout`, { email: "walkin@example.org" });
+    expect(mCheckout.json.kind).toBe("manual");
+    const [[mRow]] = await testDb.conn.query<any[]>(
+      "SELECT id FROM product_purchases WHERE product_id = ? LIMIT 1", [manual.json.id],
+    );
+    expect((await api("POST", `/api/admin/products/purchases/${mRow.id}/confirm`, {}, founderToken)).status).toBe(200);
+    expect((await api("POST", `/api/admin/products/purchases/${mRow.id}/confirm`, {}, founderToken)).status).toBe(409);
+
+    // Conservation still holds with a whole new payment surface attached.
+    const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec.json.invariants.problems).toEqual([]);
+    await api("PUT", "/api/admin/modules/commerce/lifecycle", { lifecycle: "off" }, founderToken);
+  });
 });

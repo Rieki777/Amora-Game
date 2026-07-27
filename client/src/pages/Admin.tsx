@@ -5634,6 +5634,152 @@ function WorkWithUsTab({ password }: { password: string }) {
 }
 
 /**
+ * S69: payment products — define what the village asks money for, watch
+ * what arrives. Structural fields are immutable after creation (receipts
+ * must stay true); activate/deactivate, description and ordering are live.
+ */
+function ProductsAdminTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [f, setF] = useState<any>({ kind: "fee", name: "", description: "", amountMinor: "", minAmountMinor: "500", recurring: "none", provider: "stripe", tokenSlug: "", tokenAmount: "", zeffyUrl: "", manualInstructions: "", audience: "public", active: true });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/products`, { headers: authHeaders(password) });
+      setData(await res.json());
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+  useEffect(() => { load(); }, [load]);
+
+  const call = async (path: string, body: any, method = "POST") => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method, headers: authHeaders(password, { "Content-Type": "application/json" }), body: JSON.stringify(body),
+    });
+    const d = await res.json();
+    if (!res.ok) { toast.error(d.error || "failed"); return null; }
+    return d;
+  };
+
+  const money = (minor: number | null) => (minor == null ? "payer chooses" : `$${(Number(minor) / 100).toFixed(2)}`);
+  const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Payments & Donations</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Fees, donations, deposits, waitlist seats, recurring memberships and
+          token packs — all sold through the same verified Stripe spine, or via
+          your Zeffy form / manual arrangement (confirmed here on reconciliation).
+          Money flows in only. The public page is /contribute.
+        </p>
+      </div>
+      {loading && !data ? <div className="text-center py-12 text-gray-400">Loading…</div> : (
+        <div className="space-y-6 max-w-3xl">
+          <div className="bg-white border border-gray-100 rounded-xl p-5">
+            <h3 className="font-semibold text-gray-900 mb-3">Products</h3>
+            <div className="space-y-2">
+              {(data?.products ?? []).map((p: any) => (
+                <div key={p.id} className="border border-gray-200 rounded-lg px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {p.name} <span className="text-xs text-gray-400">({p.kind}{p.recurring !== "none" ? ` · ${p.recurring}ly` : ""} · {p.provider})</span>
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {money(p.amount_minor)}
+                      {p.token_slug && ` · grants ${p.token_amount} ${p.token_slug}`}
+                      {p.audience === "members" && " · members only"}
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => { if (await call(`/admin/products/${p.id}`, { active: !p.active }, "PUT")) load(); }}
+                    className={`text-xs rounded-lg px-3 py-1.5 font-medium ${p.active ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-gray-100 text-gray-500"}`}
+                  >
+                    {p.active ? "Offered" : "Hidden"}
+                  </button>
+                </div>
+              ))}
+              {(data?.products ?? []).length === 0 && <p className="text-sm text-gray-400">Nothing defined yet.</p>}
+            </div>
+
+            <div className="border-t border-gray-100 mt-4 pt-4 grid grid-cols-2 gap-2">
+              <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })} className={inputCls}>
+                {["fee", "donation", "deposit", "waitlist", "membership", "token_pack"].map((k) => <option key={k} value={k}>{k}</option>)}
+              </select>
+              <select value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value })} className={inputCls}>
+                <option value="stripe">Stripe (card)</option>
+                <option value="zeffy">Zeffy (fee-free link)</option>
+                <option value="manual">Manual (cash/bank)</option>
+              </select>
+              <input placeholder="Name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={`${inputCls} col-span-2`} />
+              <input placeholder="Description (shown on /contribute)" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} className={`${inputCls} col-span-2`} />
+              <input placeholder={f.kind === "donation" ? "Amount USD (blank = payer chooses)" : "Amount USD"} value={f.amountMinor}
+                onChange={(e) => setF({ ...f, amountMinor: e.target.value })} className={inputCls} />
+              <select value={f.recurring} onChange={(e) => setF({ ...f, recurring: e.target.value })} className={inputCls}>
+                <option value="none">one-time</option><option value="month">monthly</option><option value="year">yearly</option>
+              </select>
+              {f.kind === "token_pack" && (
+                <>
+                  <select value={f.tokenSlug} onChange={(e) => setF({ ...f, tokenSlug: e.target.value })} className={inputCls}>
+                    <option value="">Token…</option>
+                    {(data?.listableTokens ?? []).filter((t: any) => !t.reason).map((t: any) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
+                  </select>
+                  <input placeholder="Tokens granted" value={f.tokenAmount} onChange={(e) => setF({ ...f, tokenAmount: e.target.value })} className={inputCls} />
+                </>
+              )}
+              {f.provider === "zeffy" && (
+                <input placeholder="Your Zeffy form URL" value={f.zeffyUrl} onChange={(e) => setF({ ...f, zeffyUrl: e.target.value })} className={`${inputCls} col-span-2`} />
+              )}
+              {f.provider === "manual" && (
+                <input placeholder="Instructions shown to the payer" value={f.manualInstructions} onChange={(e) => setF({ ...f, manualInstructions: e.target.value })} className={`${inputCls} col-span-2`} />
+              )}
+              <button
+                onClick={async () => {
+                  const body = { ...f, amountMinor: f.amountMinor === "" ? null : Math.round(Number(f.amountMinor) * 100), minAmountMinor: Math.round(Number(f.minAmountMinor) || 500), tokenAmount: f.tokenAmount ? Number(f.tokenAmount) : undefined, tokenSlug: f.tokenSlug || undefined };
+                  if (await call("/admin/products", body)) { toast.success("Product created"); setF({ ...f, name: "", description: "", amountMinor: "" }); load(); }
+                }}
+                disabled={f.name.trim().length < 3}
+                className="col-span-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+              >
+                Create product
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-xl p-5">
+            <h3 className="font-semibold text-gray-900 mb-3">Purchases</h3>
+            <div className="space-y-1.5">
+              {(data?.purchases ?? []).map((o: any) => (
+                <div key={o.id} className="text-sm text-gray-600 flex items-center justify-between gap-3 flex-wrap border-b border-gray-50 pb-1.5">
+                  <span>
+                    #{o.receipt_no} — {o.product_name} · ${(o.amount_minor / 100).toFixed(2)}
+                    {o.periods_paid > 1 && ` · ${o.periods_paid} periods`}
+                    {" · "}{o.user_name ?? o.payer_email ?? "anonymous"}
+                    {" · "}
+                    <span className={o.status === "paid" ? "text-emerald-600" : o.status === "reversed" ? "text-red-600" : "text-amber-600"}>{o.status}</span>
+                  </span>
+                  {o.status === "pending" && (
+                    <button
+                      onClick={async () => { if (await call(`/admin/products/purchases/${o.id}/confirm`, {})) { toast.success("Confirmed"); load(); } }}
+                      className="text-xs text-[#2D5A5A] font-medium hover:underline"
+                    >
+                      Confirm received
+                    </button>
+                  )}
+                </div>
+              ))}
+              {(data?.purchases ?? []).length === 0 && <p className="text-sm text-gray-400">No purchases yet.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * S66: the village's own feedback queue. Everything submitted through
  * /feedback lands here, whatever the relay is set to — the relay only
  * controls whether the platform team ALSO sees a copy (content, never
@@ -5873,6 +6019,17 @@ export default function Admin() {
             <HelpCircle className="w-4 h-4" />
             Feedback
           </button>
+          <button
+            onClick={() => setActiveTab("products")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "products"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <Handshake className="w-4 h-4" />
+            Payments
+          </button>
 
           <div className="px-4 mt-6 mb-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Content</p>
@@ -6085,6 +6242,7 @@ export default function Admin() {
           {activeTab === "email-settings" && <EmailSettingsTab password={password} openIntegrations={() => setActiveTab("integrations")} />}
           {activeTab === "integrations" && <IntegrationsTab password={password} />}
           {activeTab === "feedback" && <FeedbackAdminTab password={password} />}
+          {activeTab === "products" && <ProductsAdminTab password={password} />}
           {activeTab === "investor-vault" && <InvestorVaultTab password={password} />}
           {activeTab === "training-modules" && <TrainingModulesTab password={password} />}
           {activeTab === "quest-claims" && <QuestClaimsTab password={password} />}

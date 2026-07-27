@@ -311,6 +311,20 @@ export const MODULES: ModuleDef[] = [
     // openStateCheck attached by the server at boot (needs the pool).
   },
   {
+    id: "commerce",
+    name: "Payments & Donations",
+    description:
+      "Every payment your project issues or receives, as products you define: application fees, donations, deposits and down payments, waitlist seats, recurring memberships, and token packs granted from treasury stock. Rides the same verified Stripe spine as stays and the exchange; Zeffy and manual payment paths for fee-free giving. Money flows IN only — always.",
+    requires: [],
+    recommends: [],
+    capabilities: [],
+    variableKeys: [],
+    apiPrefixes: ["/api/products"],
+    // Funds-bearing: same enabling posture as stays/exchange — per-admin
+    // identities first, the caution copy shown, refusal while shared-password.
+    legalReview: true,
+  },
+  {
     id: "network",
     name: "Village Network",
     description:
