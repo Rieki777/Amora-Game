@@ -53,6 +53,7 @@ import ProjectHistory from "./pages/ProjectHistory";
 import Feedback from "./pages/Feedback";
 import Network from "./pages/Network";
 import Contribute from "./pages/Contribute";
+import SeasonalFestivals from "./pages/SeasonalFestivals";
 import StewardRights from "./pages/StewardRights";
 import ResidentRights from "./pages/ResidentRights";
 import Training from "./pages/Training";
@@ -84,6 +85,7 @@ function Router() {
       <Route path="/feedback" component={Feedback} />
       <Route path="/network" component={Network} />
       <Route path="/contribute" component={Contribute} />
+      <Route path="/seasonal-festivals" component={SeasonalFestivals} />
       <Route path="/investor" component={InvestorJourney} />
       <Route path="/steward" component={StewardJourney} />
       <Route path="/resident" component={ResidentJourney} />

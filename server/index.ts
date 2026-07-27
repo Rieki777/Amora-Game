@@ -99,6 +99,7 @@ import {
   evaluateEarnedBadges,
   removeSkill,
   skillsFor,
+  sweepExpiredWarnings,
   upsertAward,
   BADGE_KINDS,
 } from "./lib/badges";
@@ -1793,18 +1794,6 @@ function recipientsForType(type: string): string[] {
   );
 }
 
-function readJson(filePath: string) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
-  } catch {
-    return null;
-  }
-}
-
-function writeJson(filePath: string, data: unknown) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-}
-
 // â”€â”€ Abuse guards (S12: MySQL-backed — a redeploy is no longer an amnesty) â”€â”€
 
 /**
@@ -1925,6 +1914,27 @@ async function startServer() {
       name: mergedConfig().project.name,
     });
     if (r.sent > 0) console.log(`[feedback] relayed ${r.sent} item(s) to the hub`);
+  });
+
+  // B4 (Wave 1): the warning-expiry sweep. Reads already exclude expired
+  // warnings — the capability came back at the stroke of the clock — but a
+  // standing that restores itself SILENTLY is indistinguishable from one
+  // that never restores. Hourly: tell the member, write the audit row.
+  registerJob("badge-expiry-sweep", 60 * 60 * 1000, async () => {
+    if (effectiveLifecycle("badges") === "off") return;
+    const expired = await sweepExpiredWarnings(getPool());
+    for (const w of expired) {
+      await notify({
+        userId: w.userId, type: "badge",
+        title: `Your warning “${w.badgeName}” has expired — restrictions lifted`,
+        link: "/badges", dedupeKey: `warn-expired:${w.awardId}:${w.expiredAt}`,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit", text: `badge:warning-expired:${w.badgeName}${w.reissueCount > 0 ? `:after-x${w.reissueCount + 1}` : ""}`,
+        entityType: "user", entityRef: w.userId, audience: "admin",
+      });
+    }
+    if (expired.length > 0) console.log(`[badges] ${expired.length} warning(s) expired and members told`);
   });
 
   // S67: peer sync — refresh what other villages share, every 6 hours,
@@ -5898,6 +5908,52 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   });
 
   /** Self badges are the member's own act; every other kind refuses here. */
+  /**
+   * B9 (Wave 1): the two reads that unblock four surfaces — forum bylines,
+   * map featured chips, the Team page, Maia's suggestion matching.
+   *
+   * Privacy line, drawn on purpose: WARNINGS ARE NEVER SERVED HERE. A
+   * warning is a matter between the member and the village's stewards;
+   * a public endpoint that lists them is a pillory. Only the member's own
+   * /api/badges view and the admin surfaces carry warnings.
+   */
+  app.get("/api/badges/of/:userId", async (req, res) => {
+    const [rows] = await getPool().query<any[]>(
+      "SELECT b.id, b.name, b.kind, b.description, a.count, a.expires_at FROM badge_awards a " +
+        "JOIN badges b ON b.id = a.badge_id " +
+        "WHERE a.user_id = ? AND b.active = 1 AND b.kind <> 'warning' " +
+        "AND (a.expires_at IS NULL OR a.expires_at > NOW()) ORDER BY b.name",
+      [String(req.params.userId)],
+    );
+    res.json({
+      badges: rows.map((r) => ({ id: r.id, name: r.name, kind: r.kind, description: r.description, count: Number(r.count) })),
+      skills: await skillsFor(getPool(), String(req.params.userId)),
+    });
+  });
+
+  /** Who holds a badge or a skill — matching, never surveillance: active,
+   *  unexpired, non-warning awards only, names as the member set them. */
+  app.get("/api/badges/match", async (req, res) => {
+    const badgeId = String(req.query.badge ?? "");
+    const skill = String(req.query.skill ?? "").toLowerCase();
+    if (!badgeId && !skill) return res.status(400).json({ error: "say what to match: ?badge=<id> or ?skill=<tag>" });
+    let rows: any[];
+    if (badgeId) {
+      [rows] = await getPool().query<any[]>(
+        "SELECT u.id, u.name, u.handle FROM badge_awards a JOIN badges b ON b.id = a.badge_id JOIN users u ON u.id = a.user_id " +
+          "WHERE a.badge_id = ? AND b.active = 1 AND b.kind <> 'warning' AND (a.expires_at IS NULL OR a.expires_at > NOW()) " +
+          "ORDER BY u.name LIMIT 100",
+        [badgeId],
+      );
+    } else {
+      [rows] = await getPool().query<any[]>(
+        "SELECT u.id, u.name, u.handle FROM skill_tags s JOIN users u ON u.id = s.user_id WHERE s.tag = ? ORDER BY u.name LIMIT 100",
+        [skill],
+      );
+    }
+    res.json({ members: rows.map((r) => ({ id: r.id, name: r.name, handle: r.handle ?? null })) });
+  });
+
   app.post("/api/badges/:id/claim", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in first" });
@@ -6023,7 +6079,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       return res.status(400).json({ error: "A warning needs a note — the member deserves to know why" });
     }
     const expiry = expiresAt ? new Date(String(expiresAt)) : null;
-    await upsertAward(getPool(), {
+    const award = await upsertAward(getPool(), {
       badgeId: badge.id, userId: target.id, awardedBy: adminActor(req)?.id ?? null,
       note: note ?? null, expiresAt: expiry && !Number.isNaN(expiry.getTime()) ? expiry : null,
     });
@@ -6035,11 +6091,17 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       link: "/badges",
       dedupeKey: `award:${badge.id}:${target.id}:${Date.now()}`,
     });
+    // B5: a re-issued WARNING is its own audit fact, with the running count
+    // in the text — the trail an indefinitely-renewed silencing would leave.
     void recordEvent(getPool(), {
-      kind: "audit", text: `badge:${badge.kind}:${badge.id}`, actorUserId: adminActor(req)?.id ?? null,
+      kind: "audit",
+      text: badge.kind === "warning" && award.reissued
+        ? `badge:warning-reissue:${badge.id}:x${award.reissueCount + 1}`
+        : `badge:${badge.kind}:${badge.id}`,
+      actorUserId: adminActor(req)?.id ?? null,
       entityType: "user", entityRef: target.id, audience: "admin",
     });
-    res.json({ success: true });
+    res.json({ success: true, reissued: award.reissued, reissueCount: award.reissueCount });
   });
 
   app.delete("/api/admin/badges/:id/award/:userId", async (req, res) => {

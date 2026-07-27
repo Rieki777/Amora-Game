@@ -189,11 +189,16 @@ export async function awardsFor(pool: Pool, userId: string): Promise<AwardRow[]>
 export async function upsertAward(
   pool: Pool,
   input: { badgeId: string; userId: string; count?: number; awardedBy?: string | null; note?: string | null; expiresAt?: Date | null },
-): Promise<void> {
-  await pool.query(
+): Promise<{ reissued: boolean; reissueCount: number }> {
+  // B5: an overwrite IS a re-issue, and re-issues are counted — visibly.
+  // The affectedRows convention (1 = insert, 2 = duplicate-key update) is
+  // how MySQL tells us which happened. Re-awarding also clears the expiry
+  // sweep marker: a fresh warning gets a fresh expiry story.
+  const [r] = await pool.query<any>(
     "INSERT INTO badge_awards (id, badge_id, user_id, count, awarded_by, note, expires_at) VALUES (?,?,?,?,?,?,?) " +
       "ON DUPLICATE KEY UPDATE count = VALUES(count), note = COALESCE(VALUES(note), note), " +
-      "expires_at = VALUES(expires_at), awarded_by = COALESCE(VALUES(awarded_by), awarded_by)",
+      "expires_at = VALUES(expires_at), awarded_by = COALESCE(VALUES(awarded_by), awarded_by), " +
+      "reissue_count = reissue_count + 1, expiry_notified_at = NULL",
     [
       `ba-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       input.badgeId,
@@ -204,6 +209,50 @@ export async function upsertAward(
       input.expiresAt ?? null,
     ],
   );
+  const reissued = Number((r as any).affectedRows) === 2;
+  if (!reissued) return { reissued: false, reissueCount: 0 };
+  const [[row]] = await pool.query<any[]>(
+    "SELECT reissue_count FROM badge_awards WHERE badge_id = ? AND user_id = ?",
+    [input.badgeId, input.userId],
+  );
+  return { reissued: true, reissueCount: Number(row?.reissue_count ?? 0) };
+}
+
+export interface ExpiredWarning {
+  awardId: string;
+  userId: string;
+  badgeName: string;
+  expiredAt: string;
+  reissueCount: number;
+}
+
+/**
+ * B4: the warning-expiry sweep. Reads already EXCLUDE expired awards — the
+ * capability came back the second the clock passed — but nobody was ever
+ * TOLD, and a standing that restores itself silently is indistinguishable
+ * from one that never restores. Finds expired, un-notified warning awards,
+ * marks them swept, and returns them so the caller can notify the member
+ * and write the audit row. Idempotent: the marker makes each expiry a
+ * one-time event however often the sweep runs.
+ */
+export async function sweepExpiredWarnings(pool: Pool): Promise<ExpiredWarning[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT a.id, a.user_id, a.expires_at, a.reissue_count, b.name FROM badge_awards a " +
+      "JOIN badges b ON b.id = a.badge_id " +
+      "WHERE b.kind = 'warning' AND a.expires_at IS NOT NULL AND a.expires_at <= NOW() AND a.expiry_notified_at IS NULL",
+  );
+  if (rows.length === 0) return [];
+  await pool.query(
+    `UPDATE badge_awards SET expiry_notified_at = NOW() WHERE id IN (${rows.map(() => "?").join(",")})`,
+    rows.map((r) => r.id),
+  );
+  return rows.map((r) => ({
+    awardId: String(r.id),
+    userId: String(r.user_id),
+    badgeName: String(r.name),
+    expiredAt: new Date(r.expires_at).toISOString(),
+    reissueCount: Number(r.reissue_count ?? 0),
+  }));
 }
 
 // ── The earned engine ────────────────────────────────────────────────────────
