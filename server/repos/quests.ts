@@ -44,6 +44,9 @@ export interface QuestRecord {
   minStage?: string | null;
   /** STRUCTURED role gate — the claim gate enforces this. */
   requiresRole?: string | null;
+  /** Work-exchange (S31): stay credits released at consent, in a SEPARATE
+   *  column from recognition — two currencies, one human gate, never blended. */
+  stayCreditReward?: number | null;
   tags: string[];
   order: number;
 }
@@ -57,7 +60,7 @@ export interface QuestsRepo {
 }
 
 const QUEST_SELECT =
-  "SELECT id, title, description, impact, gratitude, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, tags, sort_order FROM quests";
+  "SELECT id, title, description, impact, gratitude, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order FROM quests";
 
 function rowToQuest(r: RowDataPacket): QuestRecord {
   let tags: string[] = [];
@@ -78,6 +81,7 @@ function rowToQuest(r: RowDataPacket): QuestRecord {
     roleRequired: r.role_required ?? null,
     minStage: r.min_stage ?? null,
     requiresRole: r.requires_role ?? null,
+    stayCreditReward: r.stay_credit_reward == null ? null : Number(r.stay_credit_reward),
     tags,
     order: Number(r.sort_order ?? 0),
   };
@@ -101,13 +105,14 @@ function questParams(q: QuestRecord): any[] {
     q.roleRequired ?? null,
     q.minStage ?? null,
     q.requiresRole ?? null,
+    q.stayCreditReward == null ? null : Math.max(0, Math.floor(Number(q.stayCreditReward))),
     JSON.stringify(q.tags ?? []),
     Number(q.order ?? 0),
   ];
 }
 
 const QUEST_COLS =
-  "(id, title, description, impact, gratitude, gratitude_min, gratitude_max, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, tags, sort_order)";
+  "(id, title, description, impact, gratitude, gratitude_min, gratitude_max, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order)";
 
 export function questsRepo(pool: Pool): QuestsRepo {
   return {
@@ -123,7 +128,7 @@ export function questsRepo(pool: Pool): QuestsRepo {
 
     async add(q) {
       await pool.query(
-        `INSERT INTO quests ${QUEST_COLS} VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO quests ${QUEST_COLS} VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         questParams(q),
       );
       return q;
@@ -143,7 +148,7 @@ export function questsRepo(pool: Pool): QuestsRepo {
         const p = questParams({ ...quest, id });
         await conn.query(
           "UPDATE quests SET title=?, description=?, impact=?, gratitude=?, gratitude_min=?, gratitude_max=?, " +
-            "duration=?, difficulty=?, circle=?, status=?, icon=?, role_required=?, min_stage=?, requires_role=?, tags=?, sort_order=? WHERE id=?",
+            "duration=?, difficulty=?, circle=?, status=?, icon=?, role_required=?, min_stage=?, requires_role=?, stay_credit_reward=?, tags=?, sort_order=? WHERE id=?",
           [...p.slice(1), id],
         );
         await conn.commit();

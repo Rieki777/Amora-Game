@@ -24,10 +24,24 @@ import {
   entriesForMember,
   loadTokenRegistry,
   memberAccount,
+  MINT_FAUCET,
   postTransfer,
   registerToken,
   tokenDef,
 } from "./lib/ledger";
+import {
+  STAY_CREDIT,
+  ensureStayToken,
+  listAccommodations,
+  mintStayCredits,
+  nightsRemaining,
+  priceFor,
+  runNightlyPosting,
+  stayById,
+  staysForUser,
+  staysOpenState,
+  allStays,
+} from "./lib/stays";
 import { usersRepo } from "./repos/users";
 import { gratitudeCyclesRepo, gratitudeDistributionsRepo, gratitudeLogRepo } from "./repos/gratitude";
 import { claimsRepo as claimsRepoFactory, questsRepo as questsRepoFactory } from "./repos/quests";
@@ -69,10 +83,19 @@ import {
   requireModule,
   setModuleConfig,
   setModuleLifecycle,
-  settleHandlerFor,
   storedLifecycle,
   wireModuleAuth,
 } from "./lib/modules";
+import {
+  assertCanPurchase,
+  ceilMinor,
+  createCheckout,
+  floorTokens,
+  handleStripeEvent,
+  recordFiatCharge,
+  registerPaymentHandlers,
+  stripeConfigured,
+} from "./lib/payments";
 import { LIFECYCLE_RANK, MODULES, MODULES_BY_ID, type ModuleLifecycle } from "../shared/modules";
 import { resolveHyphaLinks } from "../shared/hypha";
 import { getPool } from "./db/pool";
@@ -92,7 +115,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s29-gratitude-feed";
+const BUILD_MARKER = "2026-07-26-s32-stays-fiat-trio";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1274,6 +1297,51 @@ function notify(input: Parameters<typeof insertNotification>[1]) {
 }
 
 /**
+ * S32 ops rider: one alert to EVERY admin/founder. The shared dedupeKey is
+ * suffixed per recipient so "each admin hears it once" and "the event fires
+ * once" stay separate concerns.
+ */
+async function notifyAdmins(type: string, title: string, dedupeKey: string): Promise<void> {
+  const admins = (await members.all()).filter((u: any) => u.role === "admin" || u.role === "founder");
+  for (const a of admins) {
+    await notify({ userId: a.id, type, title, link: "/admin", dedupeKey: `${dedupeKey}:${a.id}` });
+  }
+}
+
+/**
+ * S31: what the nightly posting says to humans. Shared verbatim by the
+ * scheduler job and the admin catch-up button, so both speak with one voice.
+ * Dedupe keys carry the date: one warning per stay per day, however many
+ * times the hourly job or a button-happy admin reruns the sweep.
+ */
+function stayPostingHooks() {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    onLowBalance: async (stay: { id: string; userId: string }, nightsLeft: number) => {
+      await notify({
+        userId: stay.userId,
+        type: "stays",
+        title: nightsLeft > 0 ? `Your stay credits cover ${nightsLeft} more night(s)` : "Your stay credits have run out",
+        body: "Top up, pick up a work-exchange quest, or talk to the stewards.",
+        link: "/stay",
+        dedupeKey: `stay:${stay.id}:lowbal:${today}`,
+      });
+    },
+    onStopped: async (stay: { id: string; userId: string }, balance: number) => {
+      await notify({
+        userId: stay.userId,
+        type: "stays",
+        title: "Your stay balance is past the grace window",
+        body: "Nightly credits have stopped posting. Please settle up with the stewards.",
+        link: "/stay",
+        dedupeKey: `stay:${stay.id}:stopped:${today}`,
+      });
+      await notifyAdmins("stays", `A stay is past its grace window (balance ${balance})`, `stay:${stay.id}:stopped:${today}`);
+    },
+  };
+}
+
+/**
  * S18: the daily retention sweep. Two rules, both variables, both refusing
  * to touch anything still in flight: handled submissions age out (their data
  * JSON carries PII), read notifications age out. Unhandled and unread rows
@@ -1619,6 +1687,9 @@ async function startServer() {
   // can ask, then prove the economy's invariants hold before serving a single
   // request. A server that boots over a broken ledger normalizes the break.
   await loadTokenRegistry(getPool());
+  // S30: the stay-credit token exists even while the module is off, so a
+  // quest's work-exchange reward can post and wait for the module to open.
+  await ensureStayToken(getPool());
   {
     const inv = await checkLedgerInvariants(getPool());
     if (!inv.ok) {
@@ -1638,6 +1709,13 @@ async function startServer() {
     return `${r.users} member(s), ${r.rows} notification(s)`;
   });
   registerJob("retention-sweep", 24 * 60 * 60 * 1000, async () => runRetentionSweep());
+  // S31: hourly sweep; acts only once the UTC hour passes stay.autopay_post_hour.
+  // Keyed ledger legs make reruns and catch-up idempotent by construction.
+  registerJob("stay-nightly", 60 * 60 * 1000, async () => {
+    if (effectiveLifecycle("stays") === "off") return "stays module off";
+    const r = await runNightlyPosting(getPool(), stayPostingHooks());
+    return `${r.swept} stay(s) swept, ${r.posted} night(s) posted${r.stopped ? `, ${r.stopped} past grace` : ""}`;
+  });
   startScheduler(getPool());
 
   // S13: the module framework — load lifecycle state, reconcile the
@@ -1648,6 +1726,66 @@ async function startServer() {
   wireModuleAuth({
     isAdmin: (req) => isAdmin(req as any),
     isAuthed: async (req) => !!(await authedUser(req as any)),
+  });
+
+  // S30: open-state lives on the server (it needs the pool); the shared
+  // registry stays import-clean for the client bundle.
+  MODULES_BY_ID["stays"].openStateCheck = () => staysOpenState(getPool());
+
+  // S32: stays' settlement + reversal, registered with the trio. Settle is
+  // idempotent three ways (provider_ref UNIQUE, stripe_event_id UNIQUE,
+  // positional ledger leg keys); reversal is MECHANICAL — claw back exactly
+  // what was granted, negative balances included, humans notified after.
+  registerPaymentHandlers("stays", {
+    settle: async (orderId, event) => {
+      const pool = getPool();
+      const [rows] = await pool.query<any[]>("SELECT * FROM stay_purchases WHERE id = ?", [orderId]);
+      const p = rows[0];
+      if (!p) throw new Error(`no stay purchase "${orderId}" — refusing to settle into thin air`);
+      const obj = event?.data?.object ?? {};
+      const pi = obj.payment_intent ? String(obj.payment_intent) : null;
+      await pool.query(
+        "UPDATE stay_purchases SET status = 'paid', paid_at = COALESCE(paid_at, NOW()), " +
+          "stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id) WHERE id = ?",
+        [pi, orderId],
+      );
+      await recordFiatCharge(pool, {
+        userId: String(p.user_id), module: "stays", orderId,
+        amountMinor: Number(p.amount_minor), paymentIntentId: pi,
+      });
+      const r = await mintStayCredits(pool, {
+        userId: String(p.user_id), amount: Number(p.credits_granted),
+        source: "stay_purchase", sourceRef: orderId,
+        description: `Purchase: ${p.nights ?? "?"} night(s)`,
+        idempotencyKey: `ord:${orderId}:leg1`,
+      });
+      if (!r.ok) throw new Error(r.error ?? "stay credit mint failed");
+      await notify({
+        userId: String(p.user_id), type: "stays",
+        title: `${p.credits_granted} stay credit(s) arrived — see you soon`,
+        link: "/stay", dedupeKey: `ord:${orderId}:notify`,
+      });
+    },
+    reversal: async (orderId, event) => {
+      const pool = getPool();
+      const [rows] = await pool.query<any[]>("SELECT * FROM stay_purchases WHERE id = ?", [orderId]);
+      const p = rows[0];
+      if (!p) return; // the trio already logged no_order and alerted
+      const refund = String(event?.type ?? "") === "charge.refunded";
+      const claw = await postTransfer(pool, {
+        from: memberAccount(String(p.user_id)),
+        to: MINT_FAUCET,
+        tokenType: STAY_CREDIT,
+        amount: Number(p.credits_granted),
+        source: "payment_reversal",
+        sourceRef: orderId,
+        description: refund ? "Refund: credits reversed" : "Dispute: credits reversed",
+        idempotencyKey: `ord:${orderId}:reversal-leg1`,
+        allowNegative: true,
+      });
+      if (!claw.ok) throw new Error(claw.error ?? "reversal leg failed");
+      await pool.query("UPDATE stay_purchases SET status = ? WHERE id = ?", [refund ? "refunded" : "disputed", orderId]);
+    },
   });
 
   // S10: the quest library seeds into MySQL on an EMPTY table only — the seed
@@ -1701,29 +1839,22 @@ async function startServer() {
   }
 
   /**
-   * S13, the framework-owned settlement seam (economy invariant #10): ONE
-   * raw-body Stripe webhook, mounted BEFORE express.json(), dispatching on
-   * event metadata {module, orderId} to per-module registered settle
-   * handlers. Deliberately NEVER behind requireModule — in-flight orders
-   * must settle even when their module was just disabled (#13). Signature
-   * verification and the full payments.ts arrive with the first fiat module
-   * (S32); until a handler registers, this answers 501, loudly.
+   * S13/S32, the framework-owned settlement seam (economy invariant #10): ONE
+   * raw-body Stripe webhook, mounted BEFORE express.json(). payments.ts owns
+   * everything behind it — signature verification against the RAW body,
+   * event-level dedupe on stripe_event_id, settle dispatch on metadata
+   * {module, orderId}, and MECHANICAL dispute/refund reversal. Deliberately
+   * NEVER behind requireModule — in-flight orders must settle even when
+   * their module was just disabled (#13).
    */
   app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), async (req, res) => {
-    try {
-      const event = JSON.parse(String(req.body ?? "{}"));
-      const meta = event?.data?.object?.metadata ?? {};
-      const moduleId = String(meta.module ?? "");
-      const handler = moduleId ? settleHandlerFor(moduleId) : undefined;
-      if (!handler) {
-        return res.status(501).json({ error: "no settlement handler registered", module: moduleId || null });
-      }
-      await handler(String(meta.orderId ?? ""), event);
-      res.json({ received: true });
-    } catch (e) {
-      console.error("[webhooks] stripe dispatch failed", e);
-      res.status(400).json({ error: "unprocessable webhook" });
-    }
+    const out = await handleStripeEvent(
+      getPool(),
+      req.body as Buffer,
+      req.headers["stripe-signature"] as string | undefined,
+      async (title, dedupeKey) => notifyAdmins("payments_alert", title, dedupeKey),
+    );
+    res.status(out.status).json(out.body);
   });
 
   app.use(express.json({ limit: "1mb" }));
@@ -3313,6 +3444,393 @@ async function startServer() {
     res.json({ checked: results.length, results });
   });
 
+  // ── S30-S31: Stays — accommodation on stay credits ─────────────────────────
+  // Every route mounts behind requireModule('stays'); the settlement webhook
+  // deliberately does NOT (in-flight orders settle even if the module was
+  // just disabled). The suspension/limits surfaces are PLATFORM routes below.
+
+  app.use("/api/stays", requireModule("stays"));
+  app.use("/api/admin/stays", requireModule("stays"));
+
+  /** The audience a viewer books at. One rule, used by pricing AND snapshots. */
+  async function stayAudienceFor(user: any | null): Promise<"guest" | "member"> {
+    if (!user) return "guest";
+    const ctx = await capabilityCtx(user);
+    return hasCapability("stay.member_rate", ctx) ? "member" : "guest";
+  }
+
+  /** Catalog + the viewer's own stay state, one call. */
+  app.get("/api/stays", async (req, res) => {
+    const viewer = await authedUser(req);
+    const audience = await stayAudienceFor(viewer);
+    const accommodations = await listAccommodations(getPool());
+    let mine: any = null;
+    if (viewer) {
+      const balance = await balanceOf(getPool(), memberAccount(viewer.id), STAY_CREDIT);
+      const stays = await staysForUser(getPool(), viewer.id);
+      mine = {
+        balance,
+        stays: stays.map((s) => ({
+          ...s,
+          nightsRemaining: s.status === "active" ? nightsRemaining(balance, s.rateSnapshotCredits) : null,
+        })),
+      };
+    }
+    // Work-exchange: quests that pay stay credits at consent, surfaced here so
+    // "earn your nights" is a visible path, not folklore.
+    const tag = stringVar("stay.work_exchange_tag");
+    // status compares lowercased: the board has both "open" (seed) and "Open"
+    // (admin-created) in the wild, and the earn path must see them all.
+    const earnQuests = (await questsRepo.all()).filter(
+      (q) => String(q.status).toLowerCase() === "open" && ((q.stayCreditReward ?? 0) > 0 || (tag && q.tags.includes(tag))),
+    ).map((q) => ({ id: q.id, title: q.title, stayCreditReward: q.stayCreditReward ?? 0, gratitude: q.gratitude }));
+    res.json({
+      accommodations,
+      audience,
+      mine,
+      earnQuests,
+      guestBookingEnabled: boolVar("stay.guest_booking_enabled"),
+      stripeConfigured: stripeConfigured(),
+      maxPurchaseNights: numberVar("stay.max_purchase_nights"),
+    });
+  });
+
+  /** Request a stay. Requested, never active: activation is a human act. */
+  app.post("/api/stays/request", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to request a stay" });
+    const audience = await stayAudienceFor(user);
+    if (audience === "guest" && !boolVar("stay.guest_booking_enabled")) {
+      return res.status(403).json({ error: "Stay requests are open to members right now — write to the village instead" });
+    }
+    if (await overLimit(`stay-request:${user.id}`, 5, 24 * 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Five stay requests in a day is plenty — the stewards will reply" });
+    }
+    const { accommodationId, arriveOn, notes } = req.body ?? {};
+    const acc = (await listAccommodations(getPool())).find((a) => a.id === String(accommodationId ?? ""));
+    if (!acc) return res.status(400).json({ error: "Pick an accommodation" });
+    const id = `stay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const arrive = arriveOn && /^\d{4}-\d{2}-\d{2}$/.test(String(arriveOn)) ? String(arriveOn) : null;
+    await getPool().query(
+      "INSERT INTO stays (id, user_id, accommodation_id, status, arrive_on, autopay, notes) VALUES (?,?,?,?,?,?,?)",
+      [id, user.id, acc.id, "requested", arrive, boolVar("stay.autopay_default") ? 1 : 0, String(notes ?? "").slice(0, 2000) || null],
+    );
+    await notifyAdmins("stays", `${user.name ?? "A member"} requested a stay in ${acc.name}`, `stay:${id}:requested`);
+    res.json({ id, status: "requested" });
+  });
+
+  /**
+   * Buy stay credits for a room: Stripe Checkout. The server derives BOTH
+   * numbers from posted prices — USD ceil'd, credits floor'd (rounding favors
+   * the treasury; the property test holds the line).
+   */
+  app.post("/api/stays/checkout", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to buy stay credits" });
+    const { accommodationId, nights } = req.body ?? {};
+    const n = Math.floor(Number(nights) || 0);
+    if (n < 1) return res.status(400).json({ error: "How many nights?" });
+    if (n > numberVar("stay.max_purchase_nights")) {
+      return res.status(400).json({ error: `At most ${numberVar("stay.max_purchase_nights")} nights per purchase (stay.max_purchase_nights)` });
+    }
+    const audience = await stayAudienceFor(user);
+    const creditRate = await priceFor(getPool(), String(accommodationId ?? ""), STAY_CREDIT, audience);
+    const usdRate = await priceFor(getPool(), String(accommodationId ?? ""), "usd", audience);
+    if (!creditRate || creditRate <= 0) return res.status(409).json({ error: "That room has no posted credit rate yet" });
+    if (!usdRate || usdRate <= 0) return res.status(409).json({ error: "That room has no posted USD price — use the manual payment path" });
+    const amountMinor = ceilMinor(n * usdRate);
+    const creditsGranted = floorTokens(n * creditRate);
+    // Limits and suspensions rule BEFORE the provider question: "you are over
+    // your 30-day limit" is the truthful refusal even where Stripe isn't set up.
+    const check = await assertCanPurchase(getPool(), user.id, amountMinor);
+    if (!check.ok) return res.status(403).json({ error: check.error });
+    if (!stripeConfigured()) return res.status(503).json({ error: "Card payments are not set up yet — ask about the manual payment path" });
+    const id = `sp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    await getPool().query(
+      "INSERT INTO stay_purchases (id, user_id, accommodation_id, nights, amount_minor, credits_granted, provider, status) VALUES (?,?,?,?,?,?, 'stripe','pending')",
+      [id, user.id, String(accommodationId), n, amountMinor, creditsGranted],
+    );
+    const origin = notifyDeps.origin();
+    const session = await createCheckout({
+      module: "stays",
+      orderId: id,
+      name: `Stay credits — ${n} night(s)`,
+      amountMinor,
+      successUrl: `${origin}/stay?purchase=success`,
+      cancelUrl: `${origin}/stay?purchase=cancelled`,
+      customerEmail: user.email ?? undefined,
+    });
+    await getPool().query("UPDATE stay_purchases SET provider_ref = ? WHERE id = ?", [session.sessionId, id]);
+    res.json({ url: session.url });
+  });
+
+  /** Admin overview: rooms (incl. inactive), stays with live balances, purchases. */
+  app.get("/api/admin/stays", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const accommodations = await listAccommodations(getPool(), { includeInactive: true });
+    const stays = await allStays(getPool());
+    const withNames = [];
+    for (const s of stays) {
+      const u = await members.byId(s.userId);
+      const balance = await balanceOf(getPool(), memberAccount(s.userId), STAY_CREDIT);
+      withNames.push({
+        ...s,
+        userName: u?.name ?? "(anonymized)",
+        balance,
+        nightsRemaining: s.status === "active" ? nightsRemaining(balance, s.rateSnapshotCredits) : null,
+      });
+    }
+    const [purchases] = await getPool().query<any[]>(
+      "SELECT * FROM stay_purchases ORDER BY created_at DESC LIMIT 200",
+    );
+    res.json({ accommodations, stays: withNames, purchases });
+  });
+
+  app.post("/api/admin/stays/accommodations", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { name, description, capacity, photoUrl } = req.body ?? {};
+    if (!String(name ?? "").trim()) return res.status(400).json({ error: "A name is required" });
+    const id = `acc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    await getPool().query(
+      "INSERT INTO accommodations (id, name, description, capacity, photo_url, sort_order) VALUES (?,?,?,?,?,?)",
+      [id, String(name).trim().slice(0, 120), description ?? null, Math.max(1, Number(capacity) || 1), photoUrl ?? null, 0],
+    );
+    res.json({ id });
+  });
+
+  app.put("/api/admin/stays/accommodations/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { name, description, capacity, photoUrl, active, sortOrder } = req.body ?? {};
+    const [r] = await getPool().query<any>(
+      "UPDATE accommodations SET name = COALESCE(?, name), description = COALESCE(?, description), " +
+        "capacity = COALESCE(?, capacity), photo_url = COALESCE(?, photo_url), active = COALESCE(?, active), " +
+        "sort_order = COALESCE(?, sort_order) WHERE id = ?",
+      [name ?? null, description ?? null, capacity ?? null, photoUrl ?? null,
+        active == null ? null : active ? 1 : 0, sortOrder ?? null, req.params.id],
+    );
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  });
+
+  /** Replace a room's posted prices. Two numbers per audience, never an FX rate. */
+  app.put("/api/admin/stays/accommodations/:id/prices", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const prices: any[] = Array.isArray(req.body?.prices) ? req.body.prices : [];
+    for (const p of prices) {
+      if (![STAY_CREDIT, "usd"].includes(String(p?.tokenType))) {
+        return res.status(400).json({ error: `Prices are posted in ${STAY_CREDIT} or usd` });
+      }
+      if (!["guest", "member"].includes(String(p?.audience))) return res.status(400).json({ error: "Audience is guest or member" });
+      if (!(Number(p?.amountMinor) > 0)) return res.status(400).json({ error: "Amounts must be positive" });
+    }
+    await getPool().query("UPDATE accommodation_prices SET active = 0 WHERE accommodation_id = ?", [req.params.id]);
+    for (const p of prices) {
+      await getPool().query(
+        "INSERT INTO accommodation_prices (id, accommodation_id, token_type, audience, amount_minor, active) VALUES (?,?,?,?,?,1) " +
+          "ON DUPLICATE KEY UPDATE amount_minor = VALUES(amount_minor), active = 1",
+        [`ap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, req.params.id, String(p.tokenType), String(p.audience), Math.floor(Number(p.amountMinor))],
+      );
+    }
+    res.json({ success: true });
+  });
+
+  /**
+   * Activate: THE snapshot moment. Rate and audience freeze here; later price
+   * edits touch this stay only through an explicit re-rate (which is just
+   * activate again, deliberately).
+   */
+  app.post("/api/admin/stays/:id/activate", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const stay = await stayById(getPool(), req.params.id);
+    if (!stay) return res.status(404).json({ error: "Not found" });
+    if (stay.status === "ended" || stay.status === "cancelled") {
+      return res.status(409).json({ error: `This stay is ${stay.status}` });
+    }
+    const guest = await members.byId(stay.userId);
+    const audience = ["guest", "member"].includes(req.body?.audience)
+      ? (req.body.audience as "guest" | "member")
+      : await stayAudienceFor(guest);
+    const rate = await priceFor(getPool(), stay.accommodationId, STAY_CREDIT, audience);
+    if (!rate || rate <= 0) {
+      return res.status(409).json({ error: "Post a stay-credit rate for this room before activating" });
+    }
+    await getPool().query(
+      "UPDATE stays SET status = 'active', rate_snapshot_credits = ?, audience_snapshot = ?, " +
+        "arrive_on = COALESCE(arrive_on, CURRENT_DATE) WHERE id = ?",
+      [rate, audience, stay.id],
+    );
+    await notify({
+      userId: stay.userId,
+      type: "stays",
+      title: `Your stay is active — ${rate} credit(s) per night`,
+      link: "/stay",
+      dedupeKey: `stay:${stay.id}:activated`,
+    });
+    res.json({ success: true, rateSnapshotCredits: rate, audienceSnapshot: audience });
+  });
+
+  /** End or cancel. NEVER automatic — ending a stay is a human act. */
+  app.post("/api/admin/stays/:id/end", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const stay = await stayById(getPool(), req.params.id);
+    if (!stay) return res.status(404).json({ error: "Not found" });
+    const to = req.body?.cancel ? "cancelled" : "ended";
+    await getPool().query("UPDATE stays SET status = ? WHERE id = ?", [to, stay.id]);
+    res.json({ success: true, status: to });
+  });
+
+  app.put("/api/admin/stays/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { autopay, notes, arriveOn } = req.body ?? {};
+    const arrive = arriveOn && /^\d{4}-\d{2}-\d{2}$/.test(String(arriveOn)) ? String(arriveOn) : null;
+    const [r] = await getPool().query<any>(
+      "UPDATE stays SET autopay = COALESCE(?, autopay), notes = COALESCE(?, notes), arrive_on = COALESCE(?, arrive_on) WHERE id = ?",
+      [autopay == null ? null : autopay ? 1 : 0, notes ?? null, arrive, req.params.id],
+    );
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  });
+
+  /** The catch-up button: same code path as the scheduler, hour check skipped. */
+  app.post("/api/admin/stays/post-nights", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const result = await runNightlyPosting(getPool(), { forced: true, ...stayPostingHooks() });
+    res.json(result);
+  });
+
+  /** Comp nights: a gift, on the ledger, keyed. */
+  app.post("/api/admin/stays/comp", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { userId, credits, note } = req.body ?? {};
+    const amount = Math.floor(Number(credits) || 0);
+    if (amount < 1) return res.status(400).json({ error: "How many credits?" });
+    if (!(await members.byId(String(userId ?? "")))) return res.status(404).json({ error: "No such member" });
+    const id = `comp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const r = await mintStayCredits(getPool(), {
+      userId: String(userId), amount, source: "stay_comp", sourceRef: id,
+      description: String(note ?? "Comped stay credits").slice(0, 255), idempotencyKey: id,
+    });
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    res.json({ success: true, balance: r.toBalance });
+  });
+
+  /** Manual override: either direction, admin-audited, refuses overdraft. */
+  app.post("/api/admin/stays/adjust", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { userId, credits, note } = req.body ?? {};
+    const amount = Math.floor(Number(credits) || 0);
+    if (!amount) return res.status(400).json({ error: "Credits must be a non-zero integer (negative removes)" });
+    if (!(await members.byId(String(userId ?? "")))) return res.status(404).json({ error: "No such member" });
+    const id = `adj-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const r = await postTransfer(getPool(), {
+      from: amount > 0 ? MINT_FAUCET : memberAccount(String(userId)),
+      to: amount > 0 ? memberAccount(String(userId)) : MINT_FAUCET,
+      tokenType: STAY_CREDIT,
+      amount: Math.abs(amount),
+      source: "stay_manual_override",
+      sourceRef: id,
+      description: String(note ?? "Manual adjustment").slice(0, 255),
+      idempotencyKey: id,
+    });
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    res.json({ success: true });
+  });
+
+  /**
+   * Manual payment (cash, Zeffy, bank transfer): the server derives the
+   * credits from nights × posted rate — the admin records money received,
+   * never types a credit amount (that's what adjust is for, audited apart).
+   */
+  app.post("/api/admin/stays/purchases/manual", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { userId, accommodationId, nights, amountMinor } = req.body ?? {};
+    const guest = await members.byId(String(userId ?? ""));
+    if (!guest) return res.status(404).json({ error: "No such member" });
+    const n = Math.floor(Number(nights) || 0);
+    if (n < 1) return res.status(400).json({ error: "How many nights?" });
+    const audience = await stayAudienceFor(guest);
+    const creditRate = await priceFor(getPool(), String(accommodationId ?? ""), STAY_CREDIT, audience);
+    if (!creditRate || creditRate <= 0) return res.status(409).json({ error: "That room has no posted credit rate yet" });
+    const creditsGranted = floorTokens(n * creditRate);
+    const paid = Math.max(0, Math.floor(Number(amountMinor) || 0));
+    const id = `sp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    await getPool().query(
+      "INSERT INTO stay_purchases (id, user_id, accommodation_id, nights, amount_minor, credits_granted, provider, status, recorded_by, paid_at) " +
+        "VALUES (?,?,?,?,?,?, 'manual','paid', ?, NOW())",
+      [id, guest.id, String(accommodationId), n, paid, creditsGranted, adminActor(req)?.id ?? null],
+    );
+    if (paid > 0) {
+      await recordFiatCharge(getPool(), { userId: guest.id, module: "stays", orderId: id, amountMinor: paid });
+    }
+    const r = await mintStayCredits(getPool(), {
+      userId: guest.id, amount: creditsGranted, source: "stay_purchase", sourceRef: id,
+      description: `Manual purchase: ${n} night(s)`, idempotencyKey: `ord:${id}:leg1`,
+    });
+    if (!r.ok) return res.status(500).json({ error: r.error });
+    await notify({
+      userId: guest.id, type: "stays", title: `${creditsGranted} stay credit(s) added to your balance`,
+      link: "/stay", dedupeKey: `ord:${id}:notify`,
+    });
+    res.json({ success: true, id, creditsGranted, balance: r.toBalance });
+  });
+
+  /**
+   * Refund, simplified (S32 refund-hold): debit the credits FIRST — if the
+   * guest already slept on them there is nothing to refund — then the admin
+   * refunds the money in the Stripe dashboard, then this purchase is done.
+   */
+  app.post("/api/admin/stays/purchases/:id/refund", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [rows] = await getPool().query<any[]>("SELECT * FROM stay_purchases WHERE id = ?", [req.params.id]);
+    const p = rows[0];
+    if (!p) return res.status(404).json({ error: "Not found" });
+    if (p.status !== "paid") return res.status(409).json({ error: `Only paid purchases refund (this one is ${p.status})` });
+    const debit = await postTransfer(getPool(), {
+      from: memberAccount(String(p.user_id)),
+      to: MINT_FAUCET,
+      tokenType: STAY_CREDIT,
+      amount: Number(p.credits_granted),
+      source: "stay_manual_override",
+      sourceRef: String(p.id),
+      description: "Refund: credits returned",
+      idempotencyKey: `ord:${p.id}:refund-hold`,
+    });
+    if (!debit.ok) {
+      return res.status(409).json({ error: `The guest no longer holds these credits (${debit.error}) — settle the difference manually first` });
+    }
+    await getPool().query("UPDATE stay_purchases SET status = 'refunded' WHERE id = ?", [p.id]);
+    await getPool().query("UPDATE fiat_charges SET status = 'reversed' WHERE module = 'stays' AND order_id = ?", [p.id]);
+    res.json({
+      success: true,
+      nextStep: p.provider === "stripe" ? "Credits are held. Now refund the charge in the Stripe dashboard." : "Credits are held. Return the money however it arrived.",
+    });
+  });
+
+  // ── S32 platform payment surfaces (NOT module-gated: the trio owns them) ──
+
+  /** Suspensions + recent payment activity, across all fiat modules. */
+  app.get("/api/admin/payments", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [suspensions] = await getPool().query<any[]>(
+      "SELECT s.*, u.name AS user_name FROM payment_suspensions s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.created_at DESC LIMIT 100",
+    );
+    const [log] = await getPool().query<any[]>("SELECT * FROM payments_log ORDER BY at DESC LIMIT 100");
+    const [charges] = await getPool().query<any[]>(
+      "SELECT c.*, u.name AS user_name FROM fiat_charges c LEFT JOIN users u ON u.id = c.user_id ORDER BY c.paid_at DESC LIMIT 100",
+    );
+    res.json({ suspensions, log, charges, stripeConfigured: stripeConfigured() });
+  });
+
+  app.post("/api/admin/payments/suspensions/:id/lift", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [r] = await getPool().query<any>(
+      "UPDATE payment_suspensions SET lifted_at = NOW(), lifted_by = ? WHERE id = ? AND lifted_at IS NULL",
+      [adminActor(req)?.id ?? null, req.params.id],
+    );
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "No open suspension with that id" });
+    res.json({ success: true });
+  });
+
   // ── S9: the token registry and ledger as admin surfaces ───────────────────
 
   /** The registry, with each token's issuance-to-date per faucet channel. */
@@ -4539,7 +5057,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // thoroughly is worth more than done adequately, and the consenting admin
     // decides where in the range it landed. parseRewardRange is the one place
     // that knows the format.
-    const range = parseRewardRange((await questsRepo.byId(claim.questId))?.gratitude);
+    const consentedQuest = await questsRepo.byId(claim.questId);
+    const range = parseRewardRange(consentedQuest?.gratitude);
     const capMode = stringVar("quest.consent_cap_mode");
     const granted = requested;
     if (capMode === "posted") {
@@ -4592,6 +5111,31 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         idempotencyKey: `quest_consent:${consented.id}`,
       });
       const after = await members.update(claimant.id, (u: any) => { u.recognitionBalance = credit.toBalance; });
+      // S31 work-exchange (F2 firewall): a quest may ALSO carry stay credits,
+      // released by the same human consent — a separate column, a separate
+      // token, the same claim-keyed idempotency. Never blended with recognition.
+      const stayReward = Math.max(0, Math.floor(Number(consentedQuest?.stayCreditReward ?? 0)));
+      if (stayReward > 0) {
+        const stayCredit = await mintStayCredits(getPool(), {
+          userId: consented.userId,
+          amount: stayReward,
+          source: "quest_stay_reward",
+          sourceRef: consented.id,
+          description: `Work exchange: ${consented.questTitle}`,
+          idempotencyKey: `queststay:${consented.id}`,
+        });
+        if (stayCredit.ok) {
+          await notify({
+            userId: consented.userId,
+            type: "stays",
+            title: `+${stayReward} stay credit(s) for "${consented.questTitle}"`,
+            link: "/stay",
+            dedupeKey: `queststay:${consented.id}:notify`,
+          });
+        } else {
+          console.error(`[stays] work-exchange release failed for claim ${consented.id}: ${stayCredit.error}`);
+        }
+      }
       await addActivity("quest", `${firstName(consented.userName)} completed the quest "${consented.questTitle}"`, { actorUserId: consented.userId, entityType: "quest", entityRef: consented.questId });
       await notify({
         userId: consented.userId,

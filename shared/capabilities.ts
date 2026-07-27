@@ -27,7 +27,8 @@ export type Capability =
   | "proposal.decide" // record a decision's outcome
   | "map.viewPeople" // see WHO holds seats on the village map (not just counts)
   | "map.contact" // reach a role holder through the contact relay
-  | "feed.announce"; // post announcements to the village feed (role-only)
+  | "feed.announce" // post announcements to the village feed (role-only)
+  | "stay.member_rate"; // book accommodation at the member price, not the guest one
 
 /**
  * Stage that unlocks each capability by progression alone, referencing the
@@ -41,6 +42,7 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   "proposal.open": "co-creator", // open a decision once you are co-creating
   "map.viewPeople": "guest", // any account sees who holds the village's seats
   "map.contact": "member", // reaching people through the relay starts at member
+  "stay.member_rate": "member", // the member price comes with membership
 };
 
 /**

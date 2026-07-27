@@ -52,6 +52,8 @@ export const PLATFORM_TOKEN: TokenType = "gratitude";
 export const RECOGNITION_FAUCET = "sys:gratitude-pool";
 export const CYCLE_POOL_FAUCET = "sys:cycle-pool";
 export const TREASURY = "sys:treasury";
+/** Seeded by 0011. Its negative balance IS each credit token's issued supply. */
+export const MINT_FAUCET = "sys:mint";
 
 /** The ledger account id that belongs to a member. */
 export function memberAccount(userId: string): string {
@@ -123,7 +125,23 @@ export interface TransferInput {
   description?: string;
   /** Unique. A repeat write with the same key is a no-op, not a second post. */
   idempotencyKey: string;
+  /**
+   * Permit this post to drive a NON-FAUCET account below zero. Only honored
+   * when `source` is in ALLOW_NEGATIVE_SOURCES — a negative balance is the
+   * truthful state after a grace-night burn or a chargeback clawback, never
+   * a convenience for ordinary spending paths.
+   */
+  allowNegative?: boolean;
 }
+
+/**
+ * The only sources that may legally drive a non-faucet account negative
+ * (with allowNegative set): stay-night burns inside the grace window, and
+ * mechanical reversal legs after a refund/dispute. Static ON PURPOSE —
+ * extending it is a one-line reviewed change to the keystone, not a runtime
+ * registration that can race the boot invariant check.
+ */
+export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set(["stay_night", "payment_reversal"]);
 
 export interface TransferResult {
   ok: boolean;
@@ -254,7 +272,8 @@ export async function postTransfer(pool: Pool, input: TransferInput): Promise<Tr
     for (const acct of ordered) balances.set(acct, await recomputeBalance(conn, acct, tokenType));
 
     const fromBalance = balances.get(input.from)!;
-    if (!fromAcct.faucet && fromBalance < 0) {
+    const negativeAllowed = !!input.allowNegative && ALLOW_NEGATIVE_SOURCES.has(input.source);
+    if (!fromAcct.faucet && fromBalance < 0 && !negativeAllowed) {
       await conn.rollback();
       return {
         ok: false,
@@ -343,7 +362,9 @@ export interface InvariantReport {
  *  3. Conservation: per token, SUM(cached balances) ≡ 0.
  *  4. The cache agrees with recomputation from transfers (drift = a posting
  *     path that skipped the discipline).
- *  5. No non-faucet account is negative.
+ *  5. No non-faucet account is ILLEGALLY negative — negative is legal only
+ *     where the account has a debit from an ALLOW_NEGATIVE_SOURCES source
+ *     (grace-night burn, payment reversal); anything else refuses boot.
  */
 export async function checkLedgerInvariants(pool: Pool): Promise<InvariantReport> {
   const problems: string[] = [];
@@ -375,9 +396,13 @@ export async function checkLedgerInvariants(pool: Pool): Promise<InvariantReport
   );
   for (const r of drift) problems.push(`cache drift ${r.account_id}/${r.token_type}: cached=${r.cached} actual=${r.actual}`);
 
+  const allowNeg = Array.from(ALLOW_NEGATIVE_SOURCES);
   const [negatives] = await pool.query<RowDataPacket[]>(
     "SELECT tb.account_id, tb.token_type, tb.balance FROM token_balances tb " +
-      "JOIN ledger_accounts a ON a.id = tb.account_id WHERE a.faucet = 0 AND tb.balance < 0",
+      "JOIN ledger_accounts a ON a.id = tb.account_id WHERE a.faucet = 0 AND tb.balance < 0 " +
+      "AND NOT EXISTS (SELECT 1 FROM token_ledger t WHERE t.from_account = tb.account_id " +
+      "AND t.token_type = tb.token_type AND t.source IN (?))",
+    [allowNeg],
   );
   for (const r of negatives) problems.push(`non-faucet account ${r.account_id} is negative: ${r.balance} ${r.token_type}`);
 

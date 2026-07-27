@@ -181,6 +181,36 @@ export const MODULES: ModuleDef[] = [
     apiPrefixes: ["/api/feed"],
   },
   {
+    id: "stays",
+    name: "Stays",
+    description:
+      "Accommodation on stay credits: rooms post credit (and optional USD) prices per audience, credits are bought or earned through work-exchange quests, and one credit hosts one night. Funds-bearing — read the legal card before enabling.",
+    requires: [],
+    recommends: ["quests"],
+    capabilities: ["stay.member_rate"],
+    variableKeys: [
+      "stay.guest_booking_enabled",
+      "stay.autopay_default",
+      "stay.autopay_post_hour",
+      "stay.low_balance_warn_nights",
+      "stay.grace_nights",
+      "stay.max_purchase_nights",
+      "stay.credit_expiry_days",
+      "stay.credits_transferable",
+      "stay.work_exchange_tag",
+      "payments.purchase_limit_per_order_usd",
+      "payments.purchase_limit_30d_usd",
+      "payments.purchase_limit_annual_usd",
+    ],
+    apiPrefixes: ["/api/stays"],
+    legalReview: true,
+    // Economy invariant #3: stays is the ONE module that may sell stay-credit
+    // for fiat. Boot-asserted against every other module's claim.
+    sellsToken: "stay-credit",
+    // openStateCheck is attached by the server at boot (it needs the pool);
+    // the shared registry stays import-clean for the client bundle.
+  },
+  {
     id: "tools",
     name: "Tools Hub",
     description:

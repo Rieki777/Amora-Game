@@ -2681,6 +2681,347 @@ function ToolsAdminTab({ password }: { password: string }) {
 
 // ── Token registry + capped mint (S9, Gate D: admins name their tokens) ──────
 
+/**
+ * S30-S32: Stays & Payments. Rooms + posted prices, the stay pipeline
+ * (requested → active → ended, all human acts), purchases with the manual
+ * path, the nightly-posting catch-up button, and the platform payment
+ * surfaces (suspensions, recent charges, webhook log).
+ */
+function StaysAdminTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [payments, setPayments] = useState<any>(null);
+  const [off, setOff] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [roomForm, setRoomForm] = useState({ name: "", description: "", capacity: 1 });
+  const [priceDraft, setPriceDraft] = useState<Record<string, any>>({});
+  const [manual, setManual] = useState({ userId: "", accommodationId: "", nights: "", amountUsd: "" });
+  const [grant, setGrant] = useState({ userId: "", credits: "", note: "", kind: "comp" });
+  const [players, setPlayers] = useState<any[]>([]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [sRes, pRes, plRes] = await Promise.all([
+        fetch(`${API_BASE}/admin/stays`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/admin/payments`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
+      ]);
+      if (sRes.status === 404) { setOff(true); setLoading(false); return; }
+      setOff(false);
+      setData(await sRes.json());
+      setPayments(pRes.ok ? await pRes.json() : null);
+      const pl = await plRes.json();
+      setPlayers(Array.isArray(pl) ? pl : []);
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const post = async (path: string, body?: any, method = "POST") => {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "failed");
+      return d;
+    } catch (e: any) {
+      toast.error(e?.message || "Request failed");
+      return null;
+    }
+  };
+
+  const addRoom = async () => {
+    if (!roomForm.name.trim()) return toast.error("Name the room");
+    const d = await post("/admin/stays/accommodations", roomForm);
+    if (d) { toast.success("Room added — now post its prices"); setRoomForm({ name: "", description: "", capacity: 1 }); load(); }
+  };
+
+  const savePrices = async (acc: any) => {
+    const draft = priceDraft[acc.id] ?? {};
+    const val = (k: string, fallback?: number) => {
+      const raw = draft[k];
+      if (raw === undefined) return fallback;
+      const n = Number(raw);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    };
+    const prices: any[] = [];
+    const cg = val("cg", acc.prices?.["stay-credit"]?.guest);
+    const cm = val("cm", acc.prices?.["stay-credit"]?.member);
+    const ug = val("ug", acc.prices?.usd?.guest ? acc.prices.usd.guest / 100 : undefined);
+    const um = val("um", acc.prices?.usd?.member ? acc.prices.usd.member / 100 : undefined);
+    if (cg) prices.push({ tokenType: "stay-credit", audience: "guest", amountMinor: Math.floor(cg) });
+    if (cm) prices.push({ tokenType: "stay-credit", audience: "member", amountMinor: Math.floor(cm) });
+    if (ug) prices.push({ tokenType: "usd", audience: "guest", amountMinor: Math.round(ug * 100) });
+    if (um) prices.push({ tokenType: "usd", audience: "member", amountMinor: Math.round(um * 100) });
+    const d = await post(`/admin/stays/accommodations/${acc.id}/prices`, { prices }, "PUT");
+    if (d) { toast.success("Prices posted"); setPriceDraft((p) => ({ ...p, [acc.id]: {} })); load(); }
+  };
+
+  const recordManual = async () => {
+    const d = await post("/admin/stays/purchases/manual", {
+      userId: manual.userId,
+      accommodationId: manual.accommodationId,
+      nights: Number(manual.nights),
+      amountMinor: Math.round((Number(manual.amountUsd) || 0) * 100),
+    });
+    if (d) { toast.success(`${d.creditsGranted} credit(s) granted`); setManual({ userId: "", accommodationId: "", nights: "", amountUsd: "" }); load(); }
+  };
+
+  const grantCredits = async () => {
+    const path = grant.kind === "comp" ? "/admin/stays/comp" : "/admin/stays/adjust";
+    const d = await post(path, { userId: grant.userId, credits: Number(grant.credits), note: grant.note });
+    if (d) { toast.success(grant.kind === "comp" ? "Comped" : "Adjusted"); setGrant({ userId: "", credits: "", note: "", kind: grant.kind }); load(); }
+  };
+
+  const money = (minor: number) => `$${(Number(minor || 0) / 100).toFixed(2)}`;
+  const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+
+  if (off) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Stays & Payments</h2>
+        <p className="text-sm text-gray-500">
+          The Stays module is off. Enable it in the Modules tab (it is
+          funds-bearing — the legal card will walk you through the posture),
+          then come back here to post rooms and rates.
+        </p>
+      </div>
+    );
+  }
+  if (loading && !data) return <p className="text-sm text-gray-500">Loading…</p>;
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Stays & Payments</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          One credit hosts one night. Rates snapshot at activation; nightly
+          credits post automatically after the configured hour, and the button
+          below catches up on demand. Stays are never ended automatically.
+        </p>
+        <button
+          onClick={async () => { const d = await post("/admin/stays/post-nights"); if (d) { toast.success(`${d.posted} night(s) posted across ${d.swept} stay(s)`); load(); } }}
+          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+        >
+          Post nights now
+        </button>
+      </div>
+
+      {/* Rooms + posted prices */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Rooms & posted prices</h3>
+        <div className="space-y-4">
+          {(data?.accommodations ?? []).map((a: any) => (
+            <div key={a.id} className={`border rounded-lg p-4 ${a.active ? "border-gray-200" : "border-gray-100 opacity-60"}`}>
+              <div className="flex items-center justify-between mb-2">
+                <p className="font-medium text-gray-900">{a.name} {!a.active && <span className="text-xs text-gray-400">(inactive)</span>}</p>
+                <button
+                  onClick={async () => { const d = await post(`/admin/stays/accommodations/${a.id}`, { active: !a.active }, "PUT"); if (d) load(); }}
+                  className="text-xs text-gray-500 hover:text-gray-900"
+                >
+                  {a.active ? "Deactivate" : "Activate"}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end">
+                {[
+                  { k: "cg", label: "Credits/night (guest)", cur: a.prices?.["stay-credit"]?.guest },
+                  { k: "cm", label: "Credits/night (member)", cur: a.prices?.["stay-credit"]?.member },
+                  { k: "ug", label: "USD/night (guest)", cur: a.prices?.usd?.guest != null ? a.prices.usd.guest / 100 : undefined },
+                  { k: "um", label: "USD/night (member)", cur: a.prices?.usd?.member != null ? a.prices.usd.member / 100 : undefined },
+                ].map(({ k, label, cur }) => (
+                  <label key={k} className="text-xs text-gray-500">
+                    {label}
+                    <input
+                      type="number" min={0} step={k.startsWith("u") ? "0.01" : "1"}
+                      value={priceDraft[a.id]?.[k] ?? cur ?? ""}
+                      onChange={(e) => setPriceDraft((p) => ({ ...p, [a.id]: { ...(p[a.id] ?? {}), [k]: e.target.value } }))}
+                      className={`${inputCls} w-full mt-1`}
+                    />
+                  </label>
+                ))}
+              </div>
+              <button onClick={() => savePrices(a)} className="mt-2 text-sm text-[#2D5A5A] font-medium hover:underline">
+                Post prices
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 border-t border-gray-100 pt-4 grid sm:grid-cols-3 gap-2 items-end">
+          <label className="text-xs text-gray-500">Room name
+            <input value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} className={`${inputCls} w-full mt-1`} />
+          </label>
+          <label className="text-xs text-gray-500">Description
+            <input value={roomForm.description} onChange={(e) => setRoomForm({ ...roomForm, description: e.target.value })} className={`${inputCls} w-full mt-1`} />
+          </label>
+          <button onClick={addRoom} className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Add room</button>
+        </div>
+      </div>
+
+      {/* Stays pipeline */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Stays</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-gray-400">
+              <th className="py-1 pr-3">Guest</th><th className="py-1 pr-3">Room</th><th className="py-1 pr-3">Status</th>
+              <th className="py-1 pr-3">Rate</th><th className="py-1 pr-3">Balance</th><th className="py-1 pr-3">Nights left</th>
+              <th className="py-1 pr-3">Autopay</th><th className="py-1" />
+            </tr></thead>
+            <tbody>
+              {(data?.stays ?? []).map((s: any) => (
+                <tr key={s.id} className="border-t border-gray-50">
+                  <td className="py-2 pr-3 font-medium text-gray-900">{s.userName}</td>
+                  <td className="py-2 pr-3 text-gray-600">{(data?.accommodations ?? []).find((a: any) => a.id === s.accommodationId)?.name ?? s.accommodationId}</td>
+                  <td className="py-2 pr-3">{s.status}</td>
+                  <td className="py-2 pr-3">{s.rateSnapshotCredits ?? "—"}{s.audienceSnapshot ? ` (${s.audienceSnapshot})` : ""}</td>
+                  <td className={`py-2 pr-3 ${s.balance < 0 ? "text-red-600 font-semibold" : ""}`}>{s.balance}</td>
+                  <td className="py-2 pr-3">{s.nightsRemaining ?? "—"}</td>
+                  <td className="py-2 pr-3">
+                    <button onClick={async () => { const d = await post(`/admin/stays/${s.id}`, { autopay: !s.autopay }, "PUT"); if (d) load(); }}
+                      className={`text-xs px-2 py-0.5 rounded-full ${s.autopay ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                      {s.autopay ? "on" : "off"}
+                    </button>
+                  </td>
+                  <td className="py-2 text-right space-x-2 whitespace-nowrap">
+                    {(s.status === "requested" || s.status === "active") && (
+                      <button onClick={async () => { const d = await post(`/admin/stays/${s.id}/activate`); if (d) { toast.success(`Active at ${d.rateSnapshotCredits}/night (${d.audienceSnapshot})`); load(); } }}
+                        className="text-xs text-[#2D5A5A] font-medium hover:underline">
+                        {s.status === "active" ? "Re-rate" : "Activate"}
+                      </button>
+                    )}
+                    {s.status !== "ended" && s.status !== "cancelled" && (
+                      <button onClick={async () => { if (!window.confirm("End this stay?")) return; const d = await post(`/admin/stays/${s.id}/end`); if (d) load(); }}
+                        className="text-xs text-gray-500 hover:text-red-600">End</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {(data?.stays ?? []).length === 0 && <p className="text-sm text-gray-400 py-3">No stays yet.</p>}
+        </div>
+      </div>
+
+      {/* Grants + manual purchase */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="bg-white border border-gray-100 rounded-xl p-5">
+          <h3 className="font-semibold text-gray-900 mb-1">Comp / adjust credits</h3>
+          <p className="text-xs text-gray-500 mb-3">Comp is a gift. Adjust is a correction (negative removes) — both land on the ledger, audited.</p>
+          <div className="space-y-2">
+            <select value={grant.userId} onChange={(e) => setGrant({ ...grant, userId: e.target.value })} className={`${inputCls} w-full`}>
+              <option value="">Member…</option>
+              {players.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <div className="flex gap-2">
+              <select value={grant.kind} onChange={(e) => setGrant({ ...grant, kind: e.target.value })} className={inputCls}>
+                <option value="comp">Comp</option>
+                <option value="adjust">Adjust</option>
+              </select>
+              <input type="number" placeholder="Credits" value={grant.credits} onChange={(e) => setGrant({ ...grant, credits: e.target.value })} className={`${inputCls} w-24`} />
+              <input placeholder="Note" value={grant.note} onChange={(e) => setGrant({ ...grant, note: e.target.value })} className={`${inputCls} flex-1`} />
+            </div>
+            <button onClick={grantCredits} disabled={!grant.userId || !grant.credits}
+              className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Apply</button>
+          </div>
+        </div>
+        <div className="bg-white border border-gray-100 rounded-xl p-5">
+          <h3 className="font-semibold text-gray-900 mb-1">Record a manual payment</h3>
+          <p className="text-xs text-gray-500 mb-3">Cash, Zeffy, bank transfer. Credits are derived from nights × the room's posted rate — you record the money, the server does the math.</p>
+          <div className="space-y-2">
+            <select value={manual.userId} onChange={(e) => setManual({ ...manual, userId: e.target.value })} className={`${inputCls} w-full`}>
+              <option value="">Member…</option>
+              {players.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <div className="flex gap-2">
+              <select value={manual.accommodationId} onChange={(e) => setManual({ ...manual, accommodationId: e.target.value })} className={`${inputCls} flex-1`}>
+                <option value="">Room…</option>
+                {(data?.accommodations ?? []).map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <input type="number" placeholder="Nights" value={manual.nights} onChange={(e) => setManual({ ...manual, nights: e.target.value })} className={`${inputCls} w-20`} />
+              <input type="number" step="0.01" placeholder="USD" value={manual.amountUsd} onChange={(e) => setManual({ ...manual, amountUsd: e.target.value })} className={`${inputCls} w-24`} />
+            </div>
+            <button onClick={recordManual} disabled={!manual.userId || !manual.accommodationId || !manual.nights}
+              className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Record & grant</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Purchases */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Purchases</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-gray-400">
+              <th className="py-1 pr-3">When</th><th className="py-1 pr-3">Member</th><th className="py-1 pr-3">Nights</th>
+              <th className="py-1 pr-3">Paid</th><th className="py-1 pr-3">Credits</th><th className="py-1 pr-3">Via</th>
+              <th className="py-1 pr-3">Status</th><th className="py-1" />
+            </tr></thead>
+            <tbody>
+              {(data?.purchases ?? []).map((p: any) => (
+                <tr key={p.id} className="border-t border-gray-50">
+                  <td className="py-2 pr-3 text-gray-500">{new Date(p.created_at).toLocaleDateString()}</td>
+                  <td className="py-2 pr-3">{players.find((pl: any) => pl.id === p.user_id)?.name ?? p.user_id}</td>
+                  <td className="py-2 pr-3">{p.nights ?? "—"}</td>
+                  <td className="py-2 pr-3">{money(p.amount_minor)}</td>
+                  <td className="py-2 pr-3">{p.credits_granted}</td>
+                  <td className="py-2 pr-3">{p.provider}</td>
+                  <td className={`py-2 pr-3 ${["disputed", "reversed"].includes(p.status) ? "text-red-600 font-semibold" : ""}`}>{p.status}</td>
+                  <td className="py-2 text-right">
+                    {p.status === "paid" && (
+                      <button onClick={async () => {
+                        if (!window.confirm("Hold the credits back for a refund? You then refund the money where it was paid.")) return;
+                        const d = await post(`/admin/stays/purchases/${p.id}/refund`);
+                        if (d) { toast.success(d.nextStep); load(); }
+                      }} className="text-xs text-gray-500 hover:text-red-600">Refund…</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {(data?.purchases ?? []).length === 0 && <p className="text-sm text-gray-400 py-3">No purchases yet.</p>}
+        </div>
+      </div>
+
+      {/* Platform payments: suspensions + log */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-1">Payment guardrails</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          Disputes and chargebacks suspend purchasing automatically, across every
+          module. Lift a suspension once the situation is resolved.
+          {payments && !payments.stripeConfigured && " Stripe is NOT configured — card checkout is off; manual payments still work."}
+        </p>
+        {(payments?.suspensions ?? []).filter((s: any) => !s.lifted_at).map((s: any) => (
+          <div key={s.id} className="flex items-center justify-between border-t border-gray-50 py-2 text-sm">
+            <span><b>{s.user_name ?? s.user_id}</b> — {s.reason}</span>
+            <button onClick={async () => { const d = await post(`/admin/payments/suspensions/${s.id}/lift`); if (d) { toast.success("Lifted"); load(); } }}
+              className="text-xs text-[#2D5A5A] font-medium hover:underline">Lift</button>
+          </div>
+        ))}
+        {(payments?.suspensions ?? []).filter((s: any) => !s.lifted_at).length === 0 && (
+          <p className="text-sm text-gray-400">No active suspensions.</p>
+        )}
+        {(payments?.log ?? []).length > 0 && (
+          <details className="mt-3">
+            <summary className="text-xs text-gray-500 cursor-pointer">Webhook log (latest {payments.log.length})</summary>
+            <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+              {payments.log.map((l: any) => (
+                <p key={l.id} className={`text-xs ${l.outcome === "ok" ? "text-gray-500" : "text-red-600"}`}>
+                  {new Date(l.at).toLocaleString()} — {l.type} → {l.outcome}{l.module ? ` (${l.module}:${l.order_id ?? ""})` : ""}
+                </p>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TokensTab({ password }: { password: string }) {
   const [tokens, setTokens] = useState<any[]>([]);
   const [mintCap, setMintCap] = useState<number>(0);
@@ -3980,6 +4321,7 @@ export default function Admin() {
             { key: "modules", label: "Modules", icon: Sparkles },
             { key: "circles-map", label: "Circles & Map", icon: Circle },
             { key: "tools-admin", label: "Tools", icon: Handshake },
+            { key: "stays-admin", label: "Stays & Payments", icon: Home },
             { key: "tokens", label: "Tokens", icon: Coins },
             { key: "ledger", label: "Ledger", icon: BarChart3 },
             { key: "variables", label: "Game Mechanics", icon: Activity },
@@ -4106,6 +4448,7 @@ export default function Admin() {
           {activeTab === "modules" && <ModulesTab password={password} />}
           {activeTab === "circles-map" && <CirclesMapTab password={password} />}
           {activeTab === "tools-admin" && <ToolsAdminTab password={password} />}
+          {activeTab === "stays-admin" && <StaysAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}

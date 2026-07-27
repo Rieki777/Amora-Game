@@ -86,6 +86,8 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
       return "off"; // the relay already sent its own email with Reply-To
     case "stage_advanced":
       return "daily"; // fixed: celebratory, never urgent
+    case "payments_alert":
+      return "immediate"; // ops: sig-fails and disputes cannot wait for a digest
     default:
       return "off";
   }

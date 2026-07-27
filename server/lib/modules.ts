@@ -301,16 +301,7 @@ export async function moduleActivity(
   await recordEvent(pool, { kind, text, ...extra });
 }
 
-// ── Settlement seam (economy invariant #10/#13; full payments.ts rides S32) ──
-
-type SettleHandler = (orderId: string, payload: any) => Promise<void>;
-const settleHandlers = new Map<string, SettleHandler>();
-
-/** Modules with fiat settlement register here; the ONE Stripe webhook dispatches. */
-export function registerSettleHandler(moduleId: string, handler: SettleHandler) {
-  settleHandlers.set(moduleId, handler);
-}
-
-export function settleHandlerFor(moduleId: string): SettleHandler | undefined {
-  return settleHandlers.get(moduleId);
-}
+// ── Settlement seam ──────────────────────────────────────────────────────────
+// The S13 stub registry moved to payments.ts (S32): modules with fiat
+// settlement call registerPaymentHandlers(moduleId, {settle, reversal}) there,
+// and the ONE raw-body webhook in index.ts routes through handleStripeEvent.

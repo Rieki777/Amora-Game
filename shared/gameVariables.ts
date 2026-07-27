@@ -462,6 +462,141 @@ export const VARIABLES: VariableDef[] = [
     unit: "hearts",
   },
 
+  // ── Stays: accommodation on stay credits (funds-bearing module) ───────────
+  {
+    key: "stay.guest_booking_enabled",
+    category: "Stays",
+    label: "Guests can request stays",
+    description:
+      "When off, only members can request a stay; visitors see the catalog but must join (or write in) first.",
+    type: "boolean",
+    default: "true",
+  },
+  {
+    key: "stay.autopay_default",
+    category: "Stays",
+    label: "New stays autopay by default",
+    description:
+      "Whether a newly activated stay burns one credit per night automatically. A guest can have autopay turned off per-stay by an admin (e.g. billing disputes).",
+    type: "boolean",
+    default: "true",
+  },
+  {
+    key: "stay.autopay_post_hour",
+    category: "Stays",
+    label: "Hour nightly credits post (UTC)",
+    description:
+      "The scheduler posts each active stay's nightly credit once per day at (or after) this hour, UTC. Catch-up is automatic and idempotent if the server slept through a night.",
+    type: "integer",
+    default: "10",
+    min: 0,
+    max: 23,
+    unit: "h UTC",
+  },
+  {
+    key: "stay.low_balance_warn_nights",
+    category: "Stays",
+    label: "Low-balance warning threshold",
+    description:
+      "Notify a guest when their remaining credits cover this many nights or fewer at their current rate.",
+    type: "integer",
+    default: "2",
+    min: 0,
+    max: 30,
+    unit: "nights",
+  },
+  {
+    key: "stay.grace_nights",
+    category: "Stays",
+    label: "Grace nights below zero",
+    description:
+      "How many nights a stay may keep posting after the balance hits zero before autopay refuses and admins are alerted. The debt is real and visible — a negative balance, not a hidden tab.",
+    type: "integer",
+    default: "2",
+    min: 0,
+    max: 14,
+    unit: "nights",
+  },
+  {
+    key: "stay.max_purchase_nights",
+    category: "Stays",
+    label: "Most nights purchasable at once",
+    description: "Ceiling on a single credit purchase, counted in nights at the room's posted rate.",
+    type: "integer",
+    default: "60",
+    min: 1,
+    max: 365,
+    unit: "nights",
+  },
+  {
+    key: "stay.credit_expiry_days",
+    category: "Stays",
+    label: "Credit expiry (0 = never)",
+    description:
+      "Days until unspent stay credits expire. 0 means they never expire. Expiry is a policy contract shipped ahead of enforcement — v1 does not yet sweep expired credits.",
+    type: "integer",
+    default: "0",
+    min: 0,
+    max: 3650,
+    unit: "days",
+  },
+  {
+    key: "stay.credits_transferable",
+    category: "Stays",
+    label: "Members can gift credits to each other",
+    description:
+      "Off by default: credits are personal. Turning this on lets a member transfer credits to another member (a future surface; the token stays non-transferable until then).",
+    type: "boolean",
+    default: "false",
+  },
+  {
+    key: "stay.work_exchange_tag",
+    category: "Stays",
+    label: "Work-exchange quest tag",
+    description:
+      "Quests carrying this tag appear on the Stay page as ways to EARN credits. The reward itself lives on each quest (stay-credit reward field).",
+    type: "text",
+    default: "work-exchange",
+  },
+
+  // ── Payments: platform-wide fiat guardrails (all fiat modules share) ──────
+  {
+    key: "payments.purchase_limit_per_order_usd",
+    category: "Payments",
+    label: "Largest single purchase (USD)",
+    description:
+      "Per-order ceiling across ALL fiat modules — stays, exchange, and anything after them. 0 disables the check.",
+    type: "integer",
+    default: "1000",
+    min: 0,
+    max: 100000,
+    unit: "USD",
+  },
+  {
+    key: "payments.purchase_limit_30d_usd",
+    category: "Payments",
+    label: "30-day purchase limit per member (USD)",
+    description:
+      "Rolling 30-day ceiling on one member's total fiat purchases, summed across every module. 0 disables the check.",
+    type: "integer",
+    default: "3000",
+    min: 0,
+    max: 1000000,
+    unit: "USD",
+  },
+  {
+    key: "payments.purchase_limit_annual_usd",
+    category: "Payments",
+    label: "Annual purchase limit per member (USD)",
+    description:
+      "Rolling 365-day ceiling on one member's total fiat purchases, summed across every module. 0 disables the check.",
+    type: "integer",
+    default: "10000",
+    min: 0,
+    max: 10000000,
+    unit: "USD",
+  },
+
   // ── Village rhythm ────────────────────────────────────────────────────────
   {
     key: "village.pulse_max_entries",

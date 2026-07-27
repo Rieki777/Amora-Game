@@ -92,6 +92,10 @@ beforeAll(async () => {
       // No Resend key: notification sends are fire-and-forget and must not block
       // or fail the loop. Their absence is part of what this asserts.
       RESEND_API_KEY: "",
+      // S32: no STRIPE_SECRET_KEY on purpose (checkout must refuse loudly),
+      // but the webhook secret IS set — the loop signs its own events and
+      // proves verification, dedupe, settlement and reversal end to end.
+      STRIPE_WEBHOOK_SECRET: "whsec_looptest",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -1429,5 +1433,207 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
     await api("PUT", "/api/admin/modules/feed/lifecycle", { lifecycle: "off" }, founderToken);
     await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
+  });
+
+  it("S30-S32: stays + the fiat trio — signed settlement, grace debt, mechanical reversal", async () => {
+    const { createHmac } = await import("crypto");
+    const SECRET = "whsec_looptest";
+    const sign = (payload: string, secret = SECRET, at = Math.floor(Date.now() / 1000)) =>
+      `t=${at},v1=${createHmac("sha256", secret).update(`${at}.${payload}`).digest("hex")}`;
+    const webhook = async (event: any, sigHeader?: string) => {
+      const payload = JSON.stringify(event);
+      const res = await fetch(`${BASE}/api/webhooks/stripe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "stripe-signature": sigHeader ?? sign(payload) },
+        body: payload,
+      });
+      const text = await res.text();
+      return { status: res.status, json: text ? JSON.parse(text) : null };
+    };
+
+    // OFF: the whole surface is the framework 404. Funds-bearing enabling
+    // passes because this deployment bootstrapped per-admin identities (S1).
+    expect((await api("GET", "/api/stays")).status).toBe(404);
+    expect((await api("PUT", "/api/admin/modules/stays/lifecycle", { lifecycle: "public" }, founderToken)).status).toBe(200);
+
+    // A room posts TWO numbers per audience — a credit rate and a USD price —
+    // never an FX rate. Missing member row falls through to guest.
+    const room = await api("POST", "/api/admin/stays/accommodations", { name: "Garden Cabin", description: "Under the mangoes", capacity: 2 }, founderToken);
+    expect(room.status).toBe(200);
+    const accId = room.json.id;
+    const priced = await api("PUT", `/api/admin/stays/accommodations/${accId}/prices`, {
+      prices: [
+        { tokenType: "stay-credit", audience: "guest", amountMinor: 2 },
+        { tokenType: "stay-credit", audience: "member", amountMinor: 1 },
+        { tokenType: "usd", audience: "guest", amountMinor: 5000 },
+      ],
+    }, founderToken);
+    expect(priced.status).toBe(200);
+    const cat = await api("GET", "/api/stays", undefined, doerToken);
+    expect(cat.status).toBe(200);
+    expect(cat.json.accommodations.find((a: any) => a.id === accId).prices["stay-credit"]).toEqual({ guest: 2, member: 1 });
+    expect(cat.json.audience).toBe("member"); // the doer is past member stage
+    expect(cat.json.stripeConfigured).toBe(false);
+
+    // Guest booking toggle is server-enforced; a request lands as 'requested'.
+    const guestReg = await api("POST", "/api/auth/register", {
+      email: `stay-guest-${PORT}@example.test`, password: "LoopTest123!", name: "Stay Guest", paths: ["resident"],
+    });
+    const guestToken = guestReg.json.token;
+    const guestId = guestReg.json.user.id;
+    await api("PUT", "/api/admin/variables/stay.guest_booking_enabled", { value: "false" }, founderToken);
+    expect((await api("POST", "/api/stays/request", { accommodationId: accId }, guestToken)).status).toBe(403);
+    await api("PUT", "/api/admin/variables/stay.guest_booking_enabled", { value: "true" }, founderToken);
+    const reqStay = await api("POST", "/api/stays/request", { accommodationId: accId, notes: "Arriving with tools." }, guestToken);
+    expect(reqStay.status).toBe(200);
+    const stayId = reqStay.json.id;
+
+    // Invariant #13: a requested stay is open economic state — off is refused.
+    const blocked = await api("PUT", "/api/admin/modules/stays/lifecycle", { lifecycle: "off" }, founderToken);
+    expect(blocked.status).toBe(409);
+    expect(String(blocked.json.error)).toContain("open state");
+
+    // ── The signed settlement path. No Stripe key in this environment, so the
+    // pending order is planted directly; the WEBHOOK is what's under test. ──
+    const orderId = "sp-loop-1";
+    await testDb.conn.query(
+      "INSERT INTO stay_purchases (id, user_id, accommodation_id, nights, amount_minor, credits_granted, provider, status) VALUES (?,?,?,?,?,?,'stripe','pending')",
+      [orderId, guestId, accId, 5, 25000, 10],
+    );
+    const settleEvent = {
+      id: "evt_loop_settle_1",
+      type: "checkout.session.completed",
+      data: { object: { id: "cs_loop_1", payment_intent: "pi_loop_1", metadata: { module: "stays", orderId } } },
+    };
+    const payload = JSON.stringify(settleEvent);
+    // Garbage signature: 400. Stale-but-valid signature (15 min old): 400.
+    expect((await webhook(settleEvent, "t=123,v1=deadbeef")).status).toBe(400);
+    expect((await webhook(settleEvent, sign(payload, SECRET, Math.floor(Date.now() / 1000) - 900))).status).toBe(400);
+    // Nothing minted by either refusal.
+    expect((await api("GET", "/api/game/ledger", undefined, guestToken)).json.balances["stay-credit"]?.balance ?? 0).toBe(0);
+
+    // Properly signed: settles, mints, records the fiat charge.
+    expect((await webhook(settleEvent)).status).toBe(200);
+    expect((await api("GET", "/api/game/ledger", undefined, guestToken)).json.balances["stay-credit"]?.balance).toBe(10);
+
+    // Idempotent three ways: same event id → absorbed at the event level;
+    // fresh event id for the same order → absorbed by the ledger leg key.
+    const replay = await webhook(settleEvent);
+    expect(replay.status).toBe(200);
+    expect(replay.json.duplicate).toBe(true);
+    expect((await webhook({ ...settleEvent, id: "evt_loop_settle_2" })).status).toBe(200);
+    expect((await api("GET", "/api/game/ledger", undefined, guestToken)).json.balances["stay-credit"]?.balance).toBe(10);
+
+    // ── Activation snapshots rate + audience (a guest books at 2/night). ──
+    const activated = await api("POST", `/api/admin/stays/${stayId}/activate`, {}, founderToken);
+    expect(activated.status).toBe(200);
+    expect(activated.json.rateSnapshotCredits).toBe(2);
+    expect(activated.json.audienceSnapshot).toBe("guest");
+
+    // Nightly posting catches up deterministically and idempotently: backdate
+    // arrival three days, the button posts exactly three nights, then zero.
+    await testDb.conn.query("UPDATE stays SET arrive_on = (CURRENT_DATE - INTERVAL 3 DAY), last_posted_on = NULL WHERE id = ?", [stayId]);
+    const posted = await api("POST", "/api/admin/stays/post-nights", {}, founderToken);
+    expect(posted.status).toBe(200);
+    expect(posted.json.posted).toBe(3);
+    expect((await api("POST", "/api/admin/stays/post-nights", {}, founderToken)).json.posted).toBe(0);
+    const mineNow = await api("GET", "/api/stays", undefined, guestToken);
+    expect(mineNow.json.mine.balance).toBe(4); // 10 - 3 nights × 2
+    expect(mineNow.json.mine.stays[0].nightsRemaining).toBe(2); // floor(4/2), derived
+
+    // ── GRACE: with 10 more nights owed and 4 credits held, posting walks the
+    // balance down to exactly -(grace_nights × rate) = -4 and STOPS. The stay
+    // is NOT auto-ended; the debt is a visible negative, not a hidden tab. ──
+    await testDb.conn.query("UPDATE stays SET last_posted_on = (CURRENT_DATE - INTERVAL 11 DAY) WHERE id = ?", [stayId]);
+    const grace = await api("POST", "/api/admin/stays/post-nights", {}, founderToken);
+    expect(grace.json.posted).toBe(4);
+    expect(grace.json.stopped).toBe(1);
+    const inDebt = await api("GET", "/api/stays", undefined, guestToken);
+    expect(inDebt.json.mine.balance).toBe(-4);
+    expect(inDebt.json.mine.stays[0].status).toBe("active"); // never auto-ended
+    // The economy still verifies: this negative is LEGAL (stay_night grace).
+    const recGrace = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(recGrace.json.invariants.ok).toBe(true);
+
+    // ── MECHANICAL reversal: a dispute claws back exactly what was granted,
+    // driving the balance further negative, and auto-suspends the buyer. ──
+    const dispute = await webhook({
+      id: "evt_loop_dispute_1",
+      type: "charge.dispute.created",
+      data: { object: { id: "dp_loop_1", payment_intent: "pi_loop_1" } },
+    });
+    expect(dispute.status).toBe(200);
+    expect((await api("GET", "/api/game/ledger", undefined, guestToken)).json.balances["stay-credit"]?.balance).toBe(-14); // -4 - 10
+    const payAdmin = await api("GET", "/api/admin/payments", undefined, founderToken);
+    const suspension = payAdmin.json.suspensions.find((s: any) => s.user_id === guestId && !s.lifted_at);
+    expect(suspension).toBeTruthy();
+    expect(payAdmin.json.charges.find((c: any) => c.order_id === orderId)?.status).toBe("reversed");
+
+    // Suspension blocks new purchases BEFORE any provider question…
+    expect((await api("POST", "/api/stays/checkout", { accommodationId: accId, nights: 1 }, guestToken)).status).toBe(403);
+    // …and lifting it restores the path (to the honest 503: no Stripe key here).
+    expect((await api("POST", `/api/admin/payments/suspensions/${suspension.id}/lift`, {}, founderToken)).status).toBe(200);
+    expect((await api("POST", "/api/stays/checkout", { accommodationId: accId, nights: 1 }, guestToken)).status).toBe(503);
+
+    // ── Purchase limits aggregate over EVERY paid charge, module-blind. The
+    // manual payment path (server derives credits from the posted rate) adds
+    // a second charge; a tightened 30-day cap then refuses the next order. ──
+    const manual = await api("POST", "/api/admin/stays/purchases/manual",
+      { userId: guestId, accommodationId: accId, nights: 2, amountMinor: 10000 }, founderToken);
+    expect(manual.status).toBe(200);
+    expect(manual.json.creditsGranted).toBe(4); // 2 nights × guest rate 2, derived server-side
+    await api("PUT", "/api/admin/variables/payments.purchase_limit_30d_usd", { value: "360" }, founderToken);
+    // Counted so far: the $100 manual charge. The $250 Stripe charge was
+    // REVERSED by the dispute and no longer counts — limits track money the
+    // village actually kept. 100 + (6 nights × $50) = 400 > 360 → refused.
+    const overCap = await api("POST", "/api/stays/checkout", { accommodationId: accId, nights: 6 }, guestToken);
+    expect(overCap.status).toBe(403);
+    expect(String(overCap.json.error)).toContain("30-day");
+    // Per-order ceiling fires independently of history.
+    await api("PUT", "/api/admin/variables/payments.purchase_limit_per_order_usd", { value: "99" }, founderToken);
+    const overOrder = await api("POST", "/api/stays/checkout", { accommodationId: accId, nights: 2 }, guestToken);
+    expect(overOrder.status).toBe(403);
+    expect(String(overOrder.json.error)).toContain("per-order");
+    await api("PUT", "/api/admin/variables/payments.purchase_limit_per_order_usd", { value: "1000" }, founderToken);
+    await api("PUT", "/api/admin/variables/payments.purchase_limit_30d_usd", { value: "3000" }, founderToken);
+
+    // ── Work-exchange (F2): a quest carries stay credits in a SEPARATE column,
+    // released by the SAME human consent, keyed on the claim. ──
+    const wq = await api("POST", "/api/admin/quests", {
+      title: "Rebuild the garden beds", gratitude: "10", stayCreditReward: 3, tags: ["work-exchange"],
+    }, founderToken);
+    expect(wq.status).toBe(200);
+    const wClaim = await api("POST", `/api/game/quests/${wq.json.id}/claim`, {}, doerToken);
+    expect(wClaim.status).toBe(200);
+    await api("POST", `/api/game/quests/${wq.json.id}/submit`, { note: "Beds rebuilt, drip lines in." }, doerToken);
+    const doerCreditsBefore = (await api("GET", "/api/game/ledger", undefined, doerToken)).json.balances["stay-credit"]?.balance ?? 0;
+    const consent = await api("POST", `/api/admin/quest-claims/${wClaim.json.id}/consent`, { approve: true, amount: 10 }, founderToken);
+    expect(consent.status).toBe(200);
+    const doerLedger = await api("GET", "/api/game/ledger", undefined, doerToken);
+    expect(doerLedger.json.balances["stay-credit"]?.balance).toBe(doerCreditsBefore + 3);
+    expect(doerLedger.json.entries.some((e: any) => e.source === "quest_stay_reward" && e.amount === 3)).toBe(true);
+    // And the earn path is visible on the stay page.
+    const earn = await api("GET", "/api/stays", undefined, doerToken);
+    expect(earn.json.earnQuests.some((q: any) => q.id === wq.json.id && q.stayCreditReward === 3)).toBe(true);
+
+    // Comp and adjust are ledgered, keyed admin acts; adjust refuses overdraft.
+    const comp = await api("POST", "/api/admin/stays/comp", { userId: doerId, credits: 2, note: "Storm helper" }, founderToken);
+    expect(comp.status).toBe(200);
+    expect(comp.json.balance).toBe(doerCreditsBefore + 5);
+    const overdraw = await api("POST", "/api/admin/stays/adjust", { userId: doerId, credits: -999, note: "typo" }, founderToken);
+    expect(overdraw.status).toBe(409);
+
+    // The refund hold: debit first. The guest is 14 credits underwater, so
+    // holding 4 back for the manual purchase refund must REFUSE — you cannot
+    // refund credits that were already slept on (or clawed back).
+    const refundBlocked = await api(`POST`, `/api/admin/stays/purchases/${manual.json.id}/refund`, {}, founderToken);
+    expect(refundBlocked.status).toBe(409);
+
+    // ── The closing assertion: after settlement, grace debt, a dispute
+    // reversal, comps and a work-exchange release, the economy CONSERVES —
+    // and the only negatives are faucets and the two legal debt sources. ──
+    const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec.json.invariants.problems).toEqual([]);
+    expect(rec.json.invariants.ok).toBe(true);
   });
 });
