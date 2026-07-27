@@ -59,6 +59,7 @@ import WorkWithUs from "./pages/WorkWithUs";
 import ToolsHub from "./pages/ToolsHub";
 import VillageMap from "./pages/VillageMap";
 import Forum from "./pages/Forum";
+import Feed from "./pages/Feed";
 
 function Router() {
   const [location] = useLocation();
@@ -78,6 +79,7 @@ function Router() {
       <Route path="/quests" component={Quests} />
       <Route path="/tools" component={ToolsHub} />
       <Route path="/map" component={VillageMap} />
+      <Route path="/feed" component={Feed} />
       <Route path="/forum" component={Forum} />
       <Route path="/forum/:id" component={Forum} />
       <Route path="/propose-quest" component={ProposeQuest} />

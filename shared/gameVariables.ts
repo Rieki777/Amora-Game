@@ -427,6 +427,41 @@ export const VARIABLES: VariableDef[] = [
     unit: "reports",
   },
 
+  // ── Gratitude feed (S27-S29; visible while the feed module is non-off) ────
+  {
+    key: "feed.category_slug",
+    category: "Feed",
+    label: "Which forum category the feed shows",
+    description:
+      "The feed is a LENS over one forum category plus the village's system events — it is not a second content store. Point it at the category where everyday village life gets posted.",
+    type: "text",
+    default: "village-life",
+  },
+  {
+    key: "feed.heart_amount",
+    category: "Feed",
+    label: "Recognition each heart sends",
+    description:
+      "A heart is a REAL send from the tapper's cycle budget — small on purpose. Bounded 1-5 (economy critique): hearts are a tap, not a transfer instrument.",
+    type: "integer",
+    default: "1",
+    min: 1,
+    max: 5,
+    unit: "recognition",
+  },
+  {
+    key: "feed.max_hearts_per_recipient_per_cycle",
+    category: "Feed",
+    label: "Hearts one person may send another per cycle",
+    description:
+      "The heart channel's own per-recipient ceiling, separate from written acknowledgments. Both draw from the same cycle budget.",
+    type: "integer",
+    default: "5",
+    min: 1,
+    max: 20,
+    unit: "hearts",
+  },
+
   // ── Village rhythm ────────────────────────────────────────────────────────
   {
     key: "village.pulse_max_entries",

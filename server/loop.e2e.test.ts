@@ -458,7 +458,9 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const prev = dists.json.find((c: any) => c.cycleNumber === prevNumber);
     expect(prev).toBeTruthy();
     expect(prev.totals).toEqual([
-      { name: "Grateful", received: 8, distinctSenders: 1, credited: 1000, poolToken: "credits" },
+      // The channel split (S27): this backdated send was a written
+      // acknowledgment, so the heart column is zero — never blended.
+      { name: "Grateful", received: 8, receivedHearts: 0, receivedAcks: 8, distinctSenders: 1, credited: 1000, poolToken: "credits" },
     ]);
     expect(close.json.poolCredited).toBe(1000);
 
@@ -1328,5 +1330,104 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
     await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
     expect((await api("GET", "/api/forum/threads")).status).toBe(404);
+  });
+
+  it("S27-S29: the feed — a lens over the forum, hearts as real sends, the split report", async () => {
+    // The feed is a LENS over the forum: enabling it while the forum is off
+    // is refused with the missing dependency named.
+    const depBlocked = await api("PUT", "/api/admin/modules/feed/lifecycle", { lifecycle: "public" }, founderToken);
+    expect(depBlocked.status).toBe(409);
+    expect(depBlocked.json.missing).toContain("forum");
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "public" }, founderToken);
+    expect((await api("PUT", "/api/admin/modules/feed/lifecycle", { lifecycle: "public" }, founderToken)).status).toBe(200);
+    // And the forum can no longer switch off underneath it.
+    const lockedDep = await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
+    expect(lockedDep.status).toBe(409);
+    expect(lockedDep.json.dependents).toContain("feed");
+
+    // A micropost through the forum route lands in the feed lens, alongside
+    // the village's own system items.
+    const micro = await api(
+      "POST",
+      "/api/forum/threads",
+      { category: "village-life", kind: "post", body: "The papaya trees are fruiting!" },
+      peerToken,
+    );
+    expect(micro.status).toBe(200);
+    const feed = await api("GET", "/api/feed", undefined, doerToken);
+    expect(feed.status).toBe(200);
+    const post = feed.json.items.find((i: any) => i.id === micro.json.id);
+    expect(post).toBeTruthy();
+    expect(post.itemType).toBe("post");
+    expect(post.heartedByMe).toBe(false);
+    expect(feed.json.items.some((i: any) => i.itemType === "system")).toBe(true);
+
+    // Announcements are role-gated: the peer (no feed.announce role) is
+    // refused; the founder (admin) passes through the same one gate.
+    const noAnnounce = await api(
+      "POST",
+      "/api/forum/threads",
+      { category: "village-life", kind: "announcement", title: "Big news", body: "..." },
+      peerToken,
+    );
+    expect(noAnnounce.status).toBe(403);
+
+    // THE HEART: a real budgeted send. The doer's budget pays, the ledger
+    // records kind 'heart', the thread's count recomputes, and the unique
+    // heart index makes a second tap a 409 that NAMES its rule.
+    const budgetBefore = (await api("GET", "/api/game/cycle", undefined, doerToken)).json.budget;
+    const heart = await api("POST", `/api/feed/threads/${micro.json.id}/heart`, {}, doerToken);
+    expect(heart.status).toBe(200);
+    expect(heart.json.heartCount).toBe(1);
+    expect(heart.json.budget.spent).toBe(budgetBefore.spent + 1);
+    const again = await api("POST", `/api/feed/threads/${micro.json.id}/heart`, {}, doerToken);
+    expect(again.status).toBe(409);
+    expect(String(again.json.error)).toContain("already acknowledged this");
+    // Self-hearts are refused by the same service every send goes through.
+    const selfHeart = await api("POST", `/api/feed/threads/${micro.json.id}/heart`, {}, peerToken);
+    expect(selfHeart.status).toBe(400);
+    // The value is real: the peer's ledger carries a heart_received transfer.
+    const peerLedger = await api("GET", "/api/game/ledger", undefined, peerToken);
+    expect(peerLedger.json.entries.some((e: any) => e.source === "heart_received" && e.amount === 1)).toBe(true);
+    const refreshed = await api("GET", "/api/feed", undefined, doerToken);
+    expect(refreshed.json.items.find((i: any) => i.id === micro.json.id).heartedByMe).toBe(true);
+
+    // THE SPLIT REPORT with the Sybil rule: plant a previous-lunation cycle
+    // holding an eligible acknowledgment (doer, has consented quests), an
+    // eligible heart (doer), and an INELIGIBLE heart (a fresh guest). Close.
+    const cyc = await api("GET", "/api/game/cycle");
+    const prevNumber = cyc.json.cycleNumber - 2; // -1 was consumed by the S8 test
+    const prevId = `lunar-${String(prevNumber).padStart(6, "0")}`;
+    const backAt = new Date(Date.parse(cyc.json.startsAt) - 40 * 24 * 3600 * 1000);
+    const guestReg = await api("POST", "/api/auth/register", {
+      email: `sybil-guest-${PORT}@example.test`, password: "LoopTest123!", name: "Eager Alt", paths: ["resident"],
+    });
+    const rows = [
+      ["grat-split-ack", "gratitude", doerId, "Willing Doer", 5],
+      ["grat-split-heart", "heart", doerId, "Willing Doer", 1],
+      ["grat-split-alt", "heart", guestReg.json.user.id, "Eager Alt", 1],
+    ];
+    for (const [id, kind, fromId, fromName, amount] of rows) {
+      await testDb.conn.query(
+        "INSERT INTO gratitude_log (id, kind, from_id, from_name, to_id, to_name, amount, message, context_type, context_ref, cycle_id, cycle_number, at) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [id, kind, fromId, fromName, peerId, "Grateful Peer", amount, "backdated", kind === "heart" ? "post" : null, kind === "heart" ? `ctx-${id}` : null, prevId, prevNumber, backAt],
+      );
+    }
+    const close = await api("POST", "/api/admin/cycles/close", {}, founderToken);
+    expect(close.status).toBe(200);
+    const dists = await api("GET", "/api/game/cycle/distributions");
+    const split = dists.json.find((c: any) => c.cycleNumber === prevNumber);
+    expect(split).toBeTruthy();
+    const peerRow = split.totals.find((t: any) => t.received === 7);
+    // Channels never blend: 2 from hearts, 5 from the written acknowledgment…
+    expect(peerRow.receivedHearts).toBe(2);
+    expect(peerRow.receivedAcks).toBe(5);
+    // …and the Sybil rule holds: the fresh guest's VALUE counted, but their
+    // breadth did not — distinctSenders is 1 (the doer), not 2.
+    expect(peerRow.distinctSenders).toBe(1);
+
+    await api("PUT", "/api/admin/modules/feed/lifecycle", { lifecycle: "off" }, founderToken);
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
   });
 });

@@ -81,8 +81,9 @@ describe("settleCycle", () => {
       "lunar-000327",
     );
     expect(rows).toEqual([
-      { userId: "b", received: 10, distinctSenders: 2 },
-      { userId: "a", received: 7, distinctSenders: 1 },
+      // S27 added the channel split; kind-less legacy entries count as acks.
+      { userId: "b", received: 10, receivedHearts: 0, receivedAcks: 10, distinctSenders: 2 },
+      { userId: "a", received: 7, receivedHearts: 0, receivedAcks: 7, distinctSenders: 1 },
     ]);
   });
 

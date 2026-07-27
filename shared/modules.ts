@@ -169,6 +169,18 @@ export const MODULES: ModuleDef[] = [
     },
   },
   {
+    id: "feed",
+    name: "Village Feed",
+    description:
+      "The everyday stream: microposts, events and announcements from one forum category, woven with the village's own milestones — where a tap of appreciation is a real gift from your cycle budget.",
+    // A hard dependency, on purpose: the feed is a LENS over forum threads.
+    requires: ["forum"],
+    recommends: [],
+    capabilities: ["feed.announce"],
+    variableKeys: ["feed.category_slug", "feed.heart_amount", "feed.max_hearts_per_recipient_per_cycle"],
+    apiPrefixes: ["/api/feed"],
+  },
+  {
     id: "tools",
     name: "Tools Hub",
     description:

@@ -29,6 +29,7 @@ export default function Layout({ children }: LayoutProps) {
   const toolsModule = useModule("tools");
   const mapModule = useModule("map");
   const forumModule = useModule("forum");
+  const feedModule = useModule("feed");
 
   // The bottom tab bar's "More" slot opens this same drawer rather than being a
   // second, separately-maintained menu. No scrolling: the header is sticky, so
@@ -108,6 +109,14 @@ export default function Layout({ children }: LayoutProps) {
             <Link href="/quests" className="text-white/70 hover:text-white transition-colors text-sm">
               Quests
             </Link>
+            {feedModule && (
+              <Link href="/feed" className="text-white/70 hover:text-white transition-colors text-sm">
+                Feed
+                {feedModule.lifecycle === "preview" && (
+                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
+                )}
+              </Link>
+            )}
             {forumModule && (
               <Link href="/forum" className="text-white/70 hover:text-white transition-colors text-sm">
                 Forum
@@ -240,6 +249,11 @@ export default function Layout({ children }: LayoutProps) {
                 <Link href="/quests" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   Quests
                 </Link>
+                {feedModule && (
+                  <Link href="/feed" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                    Feed{feedModule.lifecycle === "preview" ? " (preview)" : ""}
+                  </Link>
+                )}
                 {forumModule && (
                   <Link href="/forum" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Forum{forumModule.lifecycle === "preview" ? " (preview)" : ""}

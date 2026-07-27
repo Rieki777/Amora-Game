@@ -138,7 +138,7 @@ export function gratitudeDistributionsRepo(pool: Pool): DistributionsRepo {
   return {
     async all() {
       const [rows] = await pool.query<RowDataPacket[]>(
-        "SELECT id, cycle_id, user_id, received, distinct_senders, credited, pool_token, created_at " +
+        "SELECT id, cycle_id, user_id, received, received_hearts, received_acks, distinct_senders, credited, pool_token, created_at " +
           "FROM gratitude_distributions ORDER BY created_at, id",
       );
       return rows.map((r) => ({
@@ -146,6 +146,8 @@ export function gratitudeDistributionsRepo(pool: Pool): DistributionsRepo {
         cycleId: String(r.cycle_id),
         userId: String(r.user_id),
         received: Number(r.received ?? 0),
+        receivedHearts: Number(r.received_hearts ?? 0),
+        receivedAcks: Number(r.received_acks ?? 0),
         distinctSenders: Number(r.distinct_senders ?? 0),
         credited: Number(r.credited ?? 0),
         poolToken: r.pool_token ?? null,
@@ -155,15 +157,18 @@ export function gratitudeDistributionsRepo(pool: Pool): DistributionsRepo {
 
     async add(rec) {
       await pool.query(
-        "INSERT INTO gratitude_distributions (id, cycle_id, user_id, received, distinct_senders, credited, pool_token, created_at) " +
-          "VALUES (?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
-          "ON DUPLICATE KEY UPDATE received=VALUES(received), distinct_senders=VALUES(distinct_senders), " +
+        "INSERT INTO gratitude_distributions (id, cycle_id, user_id, received, received_hearts, received_acks, distinct_senders, credited, pool_token, created_at) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
+          "ON DUPLICATE KEY UPDATE received=VALUES(received), received_hearts=VALUES(received_hearts), " +
+          "received_acks=VALUES(received_acks), distinct_senders=VALUES(distinct_senders), " +
           "credited=VALUES(credited), pool_token=VALUES(pool_token)",
         [
           rec.id,
           rec.cycleId,
           rec.userId,
           Number(rec.received ?? 0),
+          Number((rec as any).receivedHearts ?? 0),
+          Number((rec as any).receivedAcks ?? 0),
           Number(rec.distinctSenders ?? 0),
           Number((rec as any).credited ?? 0),
           (rec as any).poolToken ?? null,

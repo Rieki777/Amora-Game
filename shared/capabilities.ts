@@ -26,7 +26,8 @@ export type Capability =
   | "proposal.open" // open a governance decision
   | "proposal.decide" // record a decision's outcome
   | "map.viewPeople" // see WHO holds seats on the village map (not just counts)
-  | "map.contact"; // reach a role holder through the contact relay
+  | "map.contact" // reach a role holder through the contact relay
+  | "feed.announce"; // post announcements to the village feed (role-only)
 
 /**
  * Stage that unlocks each capability by progression alone, referencing the

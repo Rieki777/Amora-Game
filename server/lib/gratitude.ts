@@ -94,12 +94,28 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
     return { ok: false, status: 400, error: `Only ${budget.remaining} left in your budget this cycle` };
   }
 
+  // Two caps, one budget (S27): hearts and acknowledgments each carry their
+  // own per-recipient per-cycle ceiling, and the refusal NAMES which cap
+  // fired — a silent 409 teaches nothing.
   const log = await deps.log.all();
   const already = log.filter(
     (g) => g.fromId === user.id && g.toId === recipient.id && g.cycleId === budget.cycleId && g.kind === kind,
   ).length;
-  if (already >= numberVar("gratitude.max_per_recipient_per_cycle")) {
-    return { ok: false, status: 409, error: "You have already acknowledged them this cycle" };
+  if (kind === "heart") {
+    const heartCap = numberVar("feed.max_hearts_per_recipient_per_cycle");
+    if (already >= heartCap) {
+      return {
+        ok: false,
+        status: 409,
+        error: `Hearts to one person are capped at ${heartCap} per cycle (feed.max_hearts_per_recipient_per_cycle)`,
+      };
+    }
+  } else if (already >= numberVar("gratitude.max_per_recipient_per_cycle")) {
+    return {
+      ok: false,
+      status: 409,
+      error: "You have already acknowledged them this cycle (gratitude.max_per_recipient_per_cycle)",
+    };
   }
 
   const entry: GratitudeEntry = {

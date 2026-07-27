@@ -92,7 +92,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s26-forum";
+const BUILD_MARKER = "2026-07-26-s29-gratitude-feed";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1040,6 +1040,9 @@ async function capabilityCtx(user: any) {
     stageIndex: stageIndex(await stageOf(user)),
     stageIndexOf: stageIndex,
     roleCapabilities: roleCapabilitiesFor(user.id),
+    // Admins pass every capability gate (shared/capabilities.ts honors this):
+    // real role on the user record, never a parallel permission path.
+    isAdmin: user.role === "admin" || user.role === "founder",
   };
 }
 
@@ -2274,6 +2277,124 @@ async function startServer() {
     res.json({ success: true, config: moduleConfig(req.params.id) });
   });
 
+  // ── S27-S29: the gratitude feed — a lens, and hearts as real sends ─────────
+  app.use("/api/feed", requireModule("feed"));
+
+  /**
+   * The Sybil eligibility rule (economy invariant 2.2 #9), in ONE place:
+   * breadth/recognition-derived metrics count only senders at stage >= member
+   * OR with >= 1 consented quest — a consent-gated, human-verified event that
+   * alt accounts cannot farm. The badges engine (S37+) consumes THIS helper,
+   * never re-implements it.
+   */
+  async function eligibleSenderIds(): Promise<Set<string>> {
+    const all = await members.all();
+    const consented = await claimsRepo.consentedCounts();
+    const memberIdx = stageIndex("member");
+    const eligible = new Set<string>();
+    for (const u of all as any[]) {
+      const count = consented.get(u.id) ?? 0;
+      if (count >= 1 || stageIndex(computeStage(u, count)) >= memberIdx) eligible.add(u.id);
+    }
+    return eligible;
+  }
+
+  /** The feed: one forum category's threads woven with the village's own events. */
+  app.get("/api/feed", async (req, res) => {
+    const viewer = await authedUser(req);
+    const slug = stringVar("feed.category_slug");
+    const params: any[] = [slug];
+    let where = "t.category = ? AND t.hidden_at IS NULL";
+    if (req.query.tag) {
+      where += " AND t.id IN (SELECT thread_id FROM forum_thread_tags WHERE tag = ?)";
+      params.push(String(req.query.tag).toLowerCase());
+    }
+    if (req.query.before) { where += " AND t.created_at < ?"; params.push(new Date(String(req.query.before))); }
+    const [threadRows] = await getPool().query<any[]>(
+      `SELECT t.id, t.author_id, t.title, t.body, t.kind, t.meta, t.image_url, t.heart_count, t.reply_count, t.created_at, ` +
+        `u.name AS author_name, u.handle AS author_handle ` +
+        `FROM forum_threads t LEFT JOIN users u ON u.id = t.author_id WHERE ${where} ` +
+        `ORDER BY t.created_at DESC LIMIT 20`,
+      params,
+    );
+    // Which of these the viewer already hearted — one query, not N.
+    let heartedIds = new Set<string>();
+    if (viewer && threadRows.length) {
+      const [hearts] = await getPool().query<any[]>(
+        `SELECT context_ref FROM gratitude_log WHERE from_id = ? AND kind = 'heart' AND context_ref IN (${threadRows.map(() => "?").join(",")})`,
+        [viewer.id, ...threadRows.map((t) => t.id)],
+      );
+      heartedIds = new Set(hearts.map((h) => String(h.context_ref)));
+    }
+    const posts = threadRows.map((t) => {
+      let meta = t.meta;
+      if (typeof meta === "string") { try { meta = JSON.parse(meta); } catch { meta = null; } }
+      return {
+        itemType: "post" as const,
+        id: t.id,
+        kind: t.kind,
+        title: t.title,
+        body: String(t.body).slice(0, 600),
+        meta,
+        imageUrl: t.image_url,
+        heartCount: Number(t.heart_count),
+        replyCount: Number(t.reply_count),
+        heartedByMe: heartedIds.has(String(t.id)),
+        author: { id: t.author_id, name: firstName(t.author_name ?? "Member"), handle: t.author_handle },
+        at: new Date(t.created_at).toISOString(),
+      };
+    });
+    // System items: the village's own milestones. 'gratitude' rows excluded —
+    // the feed must not echo the hearts it creates.
+    const events = (await recentEvents(getPool(), "public", 20))
+      .filter((e) => ["quest", "stage", "season", "cycle", "join"].includes(e.kind))
+      .map((e) => ({ itemType: "system" as const, id: e.id, kind: e.kind, body: e.text, at: e.at }));
+    const merged = [...posts, ...events]
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .filter((i) => (req.query.kind ? (req.query.kind === "system" ? i.itemType === "system" : i.itemType === "post" && (i as any).kind === req.query.kind) : true))
+      .slice(0, 20);
+    res.json({ categorySlug: slug, heartAmount: numberVar("feed.heart_amount"), items: merged });
+  });
+
+  /**
+   * A heart is a REAL send: the tapper's cycle budget pays, the ledger
+   * records it, the author's balance is a recomputed cache — same one
+   * payment path as every written acknowledgment (sendGratitude, kind
+   * 'heart'). Idempotent by the unique heart index; no self-hearts; no
+   * hearts on hidden posts.
+   */
+  app.post("/api/feed/threads/:id/heart", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to send appreciation" });
+    const thread = await forumThreadById(req.params.id);
+    if (!thread || thread.hiddenAt) return res.status(404).json({ error: "Post not found" });
+    const outcome = await sendGratitude(gratitudeDeps, {
+      fromUser: user,
+      toId: thread.authorId,
+      amount: numberVar("feed.heart_amount"),
+      kind: "heart",
+      contextType: "post",
+      contextRef: thread.id,
+      message: `❤ on "${String(thread.title ?? thread.body).slice(0, 80)}"`,
+    });
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    // Recompute the denormalized count from the log — never increment.
+    await getPool().query(
+      "UPDATE forum_threads SET heart_count = (SELECT COUNT(*) FROM gratitude_log WHERE context_ref = ? AND kind = 'heart') WHERE id = ?",
+      [thread.id, thread.id],
+    );
+    await notify({
+      userId: thread.authorId,
+      type: "gratitude",
+      title: `${firstName(user.name)} sent a heart on your post`,
+      body: String(thread.title ?? thread.body).slice(0, 100),
+      link: `/forum/${thread.id}`,
+      actorUserId: user.id,
+      dedupeKey: `gratitude:${outcome.entry.id}`,
+    });
+    res.json({ success: true, heartCount: (thread.heartCount ?? 0) + 1, budget: outcome.budget });
+  });
+
   // ── S24-S26: the forum + decision primitive ────────────────────────────────
   app.use("/api/forum", requireModule("forum"));
   app.use("/api/admin/forum", requireModule("forum"));
@@ -2378,6 +2499,9 @@ async function startServer() {
     }
     if (threadKind === "decision" && !hasCapability("proposal.open", ctx)) {
       return res.status(403).json({ error: "Opening a decision requires the co-creator stage or a role that grants it" });
+    }
+    if (threadKind === "announcement" && !hasCapability("feed.announce", ctx)) {
+      return res.status(403).json({ error: "Announcements require the feed.announce capability (a role grant)" });
     }
     if (imageUrl && !String(imageUrl).startsWith("/api/uploads/")) {
       return res.status(400).json({ error: "Images must come through the village's own upload" });
@@ -4607,6 +4731,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
             .map((d) => ({
               name: nameOf(d.userId),
               received: d.received,
+              // The channel split (S27): hearts and written acknowledgments
+              // are different signals; the Hypha report keeps them apart.
+              receivedHearts: d.receivedHearts ?? 0,
+              receivedAcks: d.receivedAcks ?? 0,
               distinctSenders: d.distinctSenders,
               // The value the recognition released (ReGen pool model).
               credited: d.credited ?? 0,
@@ -4663,8 +4791,9 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
     const closed: CycleRecord[] = [];
     let totalCredited = 0;
+    const eligible = await eligibleSenderIds();
     for (const cycle of due) {
-      const totals = settleCycle(entries, cycle.id);
+      const totals = settleCycle(entries, cycle.id, eligible);
       const totalReceived = totals.reduce((n, t) => n + t.received, 0);
       let cycleCredited = 0;
       for (const t of totals) {
@@ -4698,6 +4827,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           cycleId: cycle.id,
           userId: t.userId,
           received: t.received,
+          receivedHearts: t.receivedHearts,
+          receivedAcks: t.receivedAcks,
           distinctSenders: t.distinctSenders,
           credited,
           poolToken: poolSize > 0 ? poolToken : null,

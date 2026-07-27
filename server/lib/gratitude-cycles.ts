@@ -34,6 +34,8 @@ export interface GratitudeEntryLike {
   toId: string;
   amount: number;
   cycleId: string;
+  /** 'gratitude' (a written acknowledgment) or 'heart' (a tap on content). */
+  kind?: string;
   at?: string;
 }
 
@@ -60,6 +62,9 @@ export interface DistributionRecord {
    */
   credited?: number;
   poolToken?: string | null;
+  /** Channel split (S27): hearts vs written acknowledgments, never blended. */
+  receivedHearts?: number;
+  receivedAcks?: number;
   createdAt: string;
 }
 
@@ -106,21 +111,50 @@ export function currentCycle(date: Date = new Date()): CycleRecord {
  * is the interesting number socially: ten acknowledgments from one person is a
  * friendship, ten from ten people is a reputation.
  */
+export interface SettleTotals {
+  userId: string;
+  received: number;
+  /** The channel split (S27): a tap and a written appreciation are different
+   *  signals, and the founders carry this report to Hypha — never blend them. */
+  receivedHearts: number;
+  receivedAcks: number;
+  /**
+   * Breadth, Sybil-filtered (economy invariant 2.2 #9): when an eligibility
+   * set is provided, only those senders count toward distinctSenders. Free
+   * guest accounts have real budgets, so alt farms could inflate breadth
+   * metrics — and badges later escalate breadth into capabilities.
+   */
+  distinctSenders: number;
+}
+
 export function settleCycle(
   entries: readonly GratitudeEntryLike[],
   cycleId: string,
-): Array<{ userId: string; received: number; distinctSenders: number }> {
+  eligibleSenders?: ReadonlySet<string>,
+): SettleTotals[] {
   const inCycle = entries.filter((e) => e.cycleId === cycleId);
-  const byRecipient = new Map<string, { received: number; senders: Set<string> }>();
+  const byRecipient = new Map<
+    string,
+    { received: number; hearts: number; acks: number; senders: Set<string> }
+  >();
   for (const e of inCycle) {
     if (!e.toId) continue;
-    const row = byRecipient.get(e.toId) ?? { received: 0, senders: new Set<string>() };
-    row.received += Number(e.amount) || 0;
-    row.senders.add(e.fromId);
+    const row = byRecipient.get(e.toId) ?? { received: 0, hearts: 0, acks: 0, senders: new Set<string>() };
+    const amount = Number(e.amount) || 0;
+    row.received += amount;
+    if (e.kind === "heart") row.hearts += amount;
+    else row.acks += amount;
+    if (!eligibleSenders || eligibleSenders.has(e.fromId)) row.senders.add(e.fromId);
     byRecipient.set(e.toId, row);
   }
   return Array.from(byRecipient.entries())
-    .map(([userId, r]) => ({ userId, received: r.received, distinctSenders: r.senders.size }))
+    .map(([userId, r]) => ({
+      userId,
+      received: r.received,
+      receivedHearts: r.hearts,
+      receivedAcks: r.acks,
+      distinctSenders: r.senders.size,
+    }))
     .sort((a, b) => b.received - a.received || a.userId.localeCompare(b.userId));
 }
 
