@@ -10,14 +10,24 @@
  *      targets;
  *   3. HEAD with a 5s timeout, falling back to GET on 405.
  *
- * Known gap, documented on purpose: the resolve-then-fetch sequence leaves a
- * DNS-rebinding window (a hostile resolver answering differently twice).
- * Closing it needs a pinned-IP dialer and redirect re-validation — queued for
- * the scheduler-driven checker (v2). For an admin-triggered, admin-entered
- * URL list, the ranges check removes the realistic attack surface.
+ * T2 (Wave 1) CLOSED that gap, because T1 made the checker unattended.
+ * The resolve-then-fetch sequence left a DNS-rebinding window: a hostile
+ * resolver answers publicly for the check and privately for the fetch. Now
+ * the vetted IP is PINNED into the connection (a custom dispatcher whose
+ * lookup returns only the address we validated), and redirects are followed
+ * MANUALLY so every hop is re-resolved and re-range-checked before it is
+ * dialled. A redirect chain can no longer walk from a public host to
+ * 169.254.169.254.
+ *
+ * These two shipped together on purpose. The old range check was accepted
+ * only because a human triggered each run; putting it on a scheduler
+ * without the dialer would have converted a bounded risk into an
+ * unattended one.
  */
 import dns from "dns/promises";
 import net from "net";
+import https from "https";
+import type { LookupAddress } from "dns";
 
 function ipIsPrivate(ip: string): boolean {
   if (net.isIPv4(ip)) {
@@ -67,21 +77,82 @@ export async function checkToolLink(rawUrl: string): Promise<LinkCheckResult> {
   }
 
   const attempt = async (method: "HEAD" | "GET"): Promise<number | null> => {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 5000);
     try {
-      const res = await fetch(url, { method, redirect: "follow", signal: ctrl.signal });
-      return res.status;
+      const r = await dialPinned(url.toString(), method);
+      return r.status;
     } catch {
       return null;
-    } finally {
-      clearTimeout(timer);
     }
   };
 
   let status = await attempt("HEAD");
   if (status === 405) status = await attempt("GET");
   return { ok: status !== null && status < 400, status };
+}
+
+/**
+ * T2: one request to ONE vetted address.
+ *
+ * `lookup` is the seam that closes DNS rebinding. Node calls it instead of
+ * the system resolver, and ours ignores the hostname entirely and hands
+ * back the exact IP `guardOutboundUrl` already range-checked. Between the
+ * check and the connection there is no second resolution for a hostile
+ * resolver to answer differently.
+ *
+ * Redirects are followed BY HAND (max 5) so every hop goes through the
+ * same guard before it is dialled — an open redirect on a public host can
+ * no longer bounce the checker into a private range.
+ */
+async function dialPinned(rawUrl: string, method: "HEAD" | "GET", hops = 0): Promise<{ status: number }> {
+  if (hops > 5) throw new Error("too many redirects");
+  const url = new URL(rawUrl);
+  if (url.protocol !== "https:") throw new Error("https only");
+
+  const host = url.hostname;
+  const addrs = net.isIP(host)
+    ? [{ address: host, family: net.isIPv6(host) ? 6 : 4 }]
+    : await dns.lookup(host, { all: true });
+  const vetted = addrs.find((a) => !ipIsPrivate(a.address));
+  if (!vetted || addrs.some((a) => ipIsPrivate(a.address))) {
+    // ANY private answer disqualifies the host: a round-robin that returns
+    // one public and one private address is exactly the attack.
+    throw new Error("resolves to a private address");
+  }
+
+  const { status, location } = await new Promise<{ status: number; location: string | null }>((resolve, reject) => {
+    const req = https.request(
+      {
+        protocol: "https:",
+        hostname: host,
+        port: url.port || 443,
+        path: url.pathname + url.search,
+        method,
+        timeout: 5000,
+        // SNI and Host stay the ORIGINAL hostname (certificate validation
+        // must still pass); only the address dialled is pinned.
+        servername: host,
+        lookup: (_hostname: string, _opts: any, cb: (err: Error | null, address: string | LookupAddress[], family?: number) => void) => {
+          cb(null, vetted.address, (vetted as any).family === 6 ? 6 : 4);
+        },
+      },
+      (res) => {
+        res.resume(); // drain; we only want the status line and Location
+        const loc = res.headers.location;
+        resolve({ status: res.statusCode ?? 0, location: typeof loc === "string" ? loc : null });
+      },
+    );
+    req.on("timeout", () => { req.destroy(new Error("timeout")); });
+    req.on("error", reject);
+    req.end();
+  });
+
+  // Every hop re-enters this function, so it re-resolves and re-range-checks
+  // before dialling. That is the whole point: the guard is per-hop, not
+  // per-chain.
+  if (status >= 300 && status < 400 && location) {
+    return dialPinned(new URL(location, url).toString(), method, hops + 1);
+  }
+  return { status };
 }
 
 /**

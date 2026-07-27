@@ -11,7 +11,7 @@ import multer from "multer";
 import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
-import { ALL_CAPABILITIES, hasCapability, type Capability } from "../shared/capabilities";
+import { ALL_CAPABILITIES, hasCapability, STAGE_UNLOCKS, type Capability } from "../shared/capabilities";
 import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/variables";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
@@ -1938,6 +1938,38 @@ async function startServer() {
       name: mergedConfig().project.name,
     });
     if (r.sent > 0) console.log(`[feedback] relayed ${r.sent} item(s) to the hub`);
+  });
+
+  // T1 (Wave 1): the dead-link check, unattended at last — shipped in the
+  // SAME change as T2's pinned-IP dialer, never before it. A checker that
+  // fetches admin-entered URLs on a timer is only acceptable because every
+  // hop is now re-resolved and range-checked against the address actually
+  // dialled. Runs daily, checks only links older than tools.link_check_days.
+  registerJob("tools-link-check", 24 * 60 * 60 * 1000, async () => {
+    if (effectiveLifecycle("tools") === "off") return;
+    const staleDays = Math.max(1, numberVar("tools.link_check_days"));
+    const cutoff = Date.now() - staleDays * 24 * 60 * 60 * 1000;
+    const all = toolsRepo.all() as any[];
+    const due = all.filter((t) => t.enabled !== false && (!t.lastCheckedAt || new Date(t.lastCheckedAt).getTime() < cutoff));
+    if (!due.length) return;
+    const broken: string[] = [];
+    for (const t of due) {
+      const r = await checkToolLink(t.url);
+      t.lastCheckedAt = new Date().toISOString();
+      t.lastCheckStatus = r.status ?? 0;
+      if (!r.ok) broken.push(`${t.name ?? t.url}${r.refused ? ` (${r.refused})` : ` (${r.status ?? "no answer"})`}`);
+    }
+    await toolsRepo.replaceAll(all);
+    if (broken.length) {
+      // One digest naming the dead links — a per-link ping would train
+      // stewards to ignore the channel that matters.
+      await notifyAdmins(
+        "tools",
+        `${broken.length} tool link(s) not answering: ${broken.slice(0, 8).join("; ")}`,
+        `tools-deadlinks:${new Date().toISOString().slice(0, 10)}`,
+      );
+    }
+    console.log(`[tools] checked ${due.length} link(s), ${broken.length} broken`);
   });
 
   // L10+L12+L19 (Wave 1): the library's daily reckoning. One job, three
@@ -5070,6 +5102,44 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       console.error("[ASSISTANT:organize]", err);
       res.status(502).json({ error: "assistant-error" });
     }
+  });
+
+  /**
+   * P8 (Wave 1): why can this person do that?
+   *
+   * The gate now answers from five sources (admin, badge denies, roles,
+   * badge grants, stage) and the honest failure mode is FOG: an admin
+   * cannot see which one decided. This runs the real `hasCapability` for
+   * every capability and reports the DECIDING source alongside the answer,
+   * so a surprising permission has a traceable cause instead of a shrug.
+   */
+  app.get("/api/admin/members/:id/capabilities", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const target = await members.byId(String(req.params.id));
+    if (!target) return res.status(404).json({ error: "No such member" });
+    const ctx = await capabilityCtx(target);
+    const rows = ALL_CAPABILITIES.map((cap) => {
+      const held = hasCapability(cap, ctx);
+      // The order below MIRRORS shared/capabilities.ts. If that order ever
+      // changes, this explanation lies — the test in capabilities.test.ts
+      // is what keeps them honest.
+      let source: string;
+      if (ctx.isAdmin) source = "admin";
+      else if (ctx.badgeDenies.includes(cap)) source = "denied by warning badge";
+      else if (ctx.roleCapabilities.includes(cap)) source = "role";
+      else if (ctx.badgeCapabilities.includes(cap)) source = "badge";
+      else if (held) source = `stage (${STAGE_UNLOCKS[cap] ?? "?"})`;
+      else source = "not granted";
+      return { capability: cap, held, source };
+    });
+    res.json({
+      member: { id: target.id, name: target.name, role: target.role },
+      stage: await stageOf(target),
+      roles: ctx.roleCapabilities,
+      badgeGrants: ctx.badgeCapabilities,
+      badgeDenies: ctx.badgeDenies,
+      capabilities: rows,
+    });
   });
 
   /** What's on the shelf — the admin UI lists it for transparency. */
@@ -8901,10 +8971,27 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     );
   });
 
-  // Assign or remove a role holder. Admin for now; moves behind
-  // proposal.decide when the decision primitive lands.
+  /**
+   * F5 (Wave 1): appointment is a governance act, not an admin chore.
+   *
+   * The decision primitive shipped at S26 and this route's own comment has
+   * promised the move ever since. Now anyone holding `proposal.decide` may
+   * appoint — through the ONE gate, so a role grants it, a badge can grant
+   * it, a warning badge's deny removes it, and an admin still outranks all
+   * of that. Admin-only appointment made every seat depend on whoever holds
+   * the admin password; a village that decides together should be able to
+   * seat its own stewards.
+   */
   app.post("/api/admin/roles/:id/holders", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const actorUser = await authedUser(req);
+    const mayAppoint = (await isAdmin(req)) ||
+      (!!actorUser && hasCapability("proposal.decide", await capabilityCtx(actorUser)));
+    if (!mayAppoint) return res.status(401).json({ error: "Appointing needs the village's decision capability" });
+    // Attribution names the REAL appointer. Before F5 every seat was
+    // granted by "admin"; now a steward who appoints is recorded as
+    // themselves, which is the point of moving this out of the admin
+    // password's shadow.
+    const appointer = actorUser?.id ?? adminActor(req)?.id ?? null;
     const role = loadRoles().find((r) => r.id === req.params.id);
     if (!role) return res.status(404).json({ error: "Role not found" });
     const { userId, action } = req.body ?? {};
@@ -8933,17 +9020,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           roleId: role.id,
           userId,
           // S1 made this a real person instead of the string "admin".
-          grantedBy: adminActor(req)?.id ?? "admin",
+          grantedBy: appointer ?? "admin",
           grantedAt: new Date().toISOString(),
         });
-        await addActivity("role", `${firstName(member.name)} joined the ${role.name}`, { actorUserId: adminActor(req)?.id, entityType: "role", entityRef: role.id });
+        await addActivity("role", `${firstName(member.name)} joined the ${role.name}`, { actorUserId: appointer, entityType: "role", entityRef: role.id });
         await notify({
           userId: member.id,
           type: "role_appointed",
           title: `You were appointed to the ${role.name}`,
           body: role.description ? String(role.description).slice(0, 140) : null,
           link: "/roles",
-          actorUserId: adminActor(req)?.id,
+          actorUserId: appointer,
           // Keyed on the holder row: a re-appointment after removal notifies again.
           dedupeKey: `role:${holders[holders.length - 1]?.id ?? `${role.id}:${userId}`}`,
         });
