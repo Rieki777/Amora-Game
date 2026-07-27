@@ -29,6 +29,10 @@ pnpm test                           # vitest run — see loop-test rules first
 node scripts/check-brand-refs.mjs   # brand ratchet
 ```
 
+The build marker is stamped from the git SHA by `scripts/build-server.mjs` — never hand-edit
+it. Only `BUILD_LABEL` in `server/index.ts` is human-written; the SHA is appended at build
+time so `/health` cannot report a build that isn't running.
+
 ## Loop-test rules
 
 - `server/loop.e2e.test.ts` is the acceptance criterion for the whole product. It boots the

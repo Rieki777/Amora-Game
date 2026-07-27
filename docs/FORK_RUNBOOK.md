@@ -192,7 +192,10 @@ ingestion + the honest 503 without an API key → exit enumeration → the
 command centre → and finishes by asserting per-token conservation. Run it
 against a fresh deployment; every line should be a ✓.
 
-**The loop, by hand:** `/health` → ok (and reports the build marker);
+**The loop, by hand:** `/health` → ok, and its `build` reads
+`<label>-<git sha>` — the SHA is stamped at build time, so if it does not
+match the commit you just pushed, the deploy has not landed yet (a marker
+that never changes is the bug this replaced). Then:
 register → claim → submit → consent (admin) → gratitude send → wall shows
 it; `/api/season` shows the seeded season; admin Modules tab lists
 everything OFF.
