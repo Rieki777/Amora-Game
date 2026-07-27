@@ -26,6 +26,8 @@ what, where, what breaks without it.
 | `RESEND_API_KEY` | Transactional email | Emails silently skipped (logged) |
 | ↳ *sender domain* | **Every fork must verify its sender domain in Resend (resend.com/domains: SPF + DKIM records in the domain's DNS).** Resend returns 200 on unverified domains and delivers NOTHING — email death is silent. **Amora handoff item (Rye, 2026-07-26): `amora.cr` is unverified and only its team can add the DNS records — verify it during handoff.** | Claim links & notifications never arrive |
 | `FRONTEND_URL` | CORS origin | Cross-origin API calls fail |
+| `STRIPE_SECRET_KEY` | (S32) Stripe API key (`sk_live_…`) — powers card checkout for every fiat module (stays, exchange). **Amora handoff item (Rye, 2026-07-26): the Amora team creates its own Stripe account and sets this in Railway during handoff** — until then card checkout answers an honest 503 and manual payments carry stays. | Card checkout disabled (503); manual payment path still works |
+| `STRIPE_WEBHOOK_SECRET` | (S32) Signing secret (`whsec_…`) for the ONE webhook endpoint `POST /api/webhooks/stripe`. Create the endpoint in the Stripe dashboard (Developers → Webhooks) pointing at `https://<your-domain>/api/webhooks/stripe`, subscribe to `checkout.session.completed`, `charge.refunded`, `charge.dispute.created`, then copy its signing secret here. **Amora handoff item (Rye, 2026-07-26): create the endpoint + set this secret together with `STRIPE_SECRET_KEY` — a missing secret means unsigned events are processed only in dev shapes; a wrong one rejects every settlement with `sig_fail` alerts to admins.** Test with `stripe listen --forward-to` before go-live. | Settlements unverified or rejected; orders never credit |
 | `TEST_DATABASE_URL` | (dev/CI only, local .env) scratch-schema MySQL for DB-backed tests — the harness DROPs/CREATEs `amora_test`; never point it at the app schema | DB suites skip loudly |
 
 ## Seeds & per-deployment data
@@ -42,8 +44,11 @@ what, where, what breaks without it.
 
 - Hypha: set `hypha.org_url` (v3 S13) — every governance surface deep-links
   from this one value; blank hides all Hypha buttons.
-- Stripe (v3 S32+): per-fork keys; ONE webhook endpoint; test with the CLI
-  before go-live; dispute handling is mandatory, not optional.
+- Stripe (v3 S32+): per-fork keys; ONE webhook endpoint (`/api/webhooks/stripe`,
+  raw-body signature verification — see the two `STRIPE_*` env rows above for
+  the full setup checklist); test with the CLI before go-live; dispute
+  handling is mandatory, not optional — a dispute auto-suspends the buyer and
+  claws back what was granted, and admins hear about it on the bell.
 
 ## Backups (S12 — MySQL is the ONLY authority now)
 
