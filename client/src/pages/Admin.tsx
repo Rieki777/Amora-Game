@@ -387,6 +387,39 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
   const isJourney = ["investor", "steward", "resident", "prosperity"].includes(sectionKey);
   const journeyData = isJourney && raw ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : null;
 
+  // Circles and Roles get the same treatment: cards with plain fields,
+  // the raw JSON demoted to "advanced". Editing mutates the PARSED array
+  // in place and re-serializes, so keys the form doesn't know about
+  // survive untouched — the JSON stays the ground truth.
+  const isCards = sectionKey === "circles" || sectionKey === "roles";
+  const cardsData: any[] | null = isCards && raw ? (() => {
+    try { const p = JSON.parse(raw); return Array.isArray(p) ? p : null; } catch { return null; }
+  })() : null;
+  const mutateCards = (fn: (arr: any[]) => void) => {
+    const arr = JSON.parse(raw);
+    fn(arr);
+    setRaw(JSON.stringify(arr, null, 2));
+  };
+  // field spec per section: [key, label, kind]
+  const CARD_FIELDS: Array<[string, string, "text" | "long" | "lines"]> =
+    sectionKey === "circles"
+      ? [
+          ["name", "Circle name", "text"],
+          ["subtitle", "Subtitle", "text"],
+          ["description", "Description", "long"],
+          ["domain", "Domain (what it cares for)", "long"],
+          ["members", "Who's in it", "long"],
+          ["focus", "Focus areas (one per line)", "lines"],
+        ]
+      : [
+          ["name", "Role name", "text"],
+          ["size", "Size (e.g. 5-7 members)", "text"],
+          ["terms", "Terms", "text"],
+          ["purpose", "Purpose", "long"],
+          ["compensation", "Compensation", "long"],
+          ["members", "Seats / members (one per line)", "lines"],
+        ];
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -485,11 +518,72 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
             </div>
           )}
 
+          {/* Card editor for circles/roles — plain fields, no JSON in sight */}
+          {isCards && cardsData && (
+            <div className="mb-6 space-y-4">
+              {cardsData.map((card: any, idx: number) => (
+                <div key={idx} className="border border-gray-200 rounded-xl p-5 bg-gray-50">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="font-semibold text-gray-800 text-sm">{card.name || `#${idx + 1}`}</p>
+                    <button
+                      onClick={() => { if (window.confirm(`Remove "${card.name || "this entry"}"?`)) mutateCards((a) => a.splice(idx, 1)); }}
+                      className="text-xs text-gray-400 hover:text-red-600"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    {CARD_FIELDS.map(([key, label, kind]) => (
+                      <div key={key} className={kind === "text" ? "" : "sm:col-span-2"}>
+                        <label className="text-xs font-medium text-gray-500 block mb-1">{label}</label>
+                        {kind === "lines" ? (
+                          <textarea
+                            rows={Math.max(3, (Array.isArray(card[key]) ? card[key].length : 3))}
+                            value={Array.isArray(card[key]) ? card[key].join("\n") : String(card[key] ?? "")}
+                            onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value.split("\n").filter(Boolean); })}
+                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-none"
+                          />
+                        ) : kind === "long" ? (
+                          <textarea
+                            rows={2}
+                            value={String(card[key] ?? "")}
+                            onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value; })}
+                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-none"
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            value={String(card[key] ?? "")}
+                            onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value; })}
+                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <button
+                onClick={() => mutateCards((a) => a.push(
+                  sectionKey === "circles"
+                    ? { name: "New circle", subtitle: "", description: "", domain: "", members: "", focus: [] }
+                    : { id: `role-${Date.now()}`, name: "New role", size: "", terms: "", purpose: "", compensation: "", members: [] },
+                ))}
+                className="text-sm text-[#2D5A5A] font-medium hover:underline"
+              >
+                + Add {sectionKey === "circles" ? "a circle" : "a role"}
+              </button>
+              <p className="text-xs text-gray-400">
+                Remember to hit Save Changes above — edits here go live only after saving.
+              </p>
+            </div>
+          )}
+
           {/* Raw JSON editor, always shown, acts as ground truth */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                {isJourney ? "Raw JSON (advanced edits)" : "Edit JSON"}
+                {isJourney || isCards ? "Raw JSON (advanced edits)" : "Edit JSON"}
               </label>
               {parseError && (
                 <span className="text-xs text-red-500">{parseError}</span>
@@ -498,7 +592,7 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
             <textarea
               value={raw}
               onChange={(e) => { setRaw(e.target.value); setParseError(""); }}
-              rows={isJourney ? 12 : 28}
+              rows={isJourney || isCards ? 12 : 28}
               spellCheck={false}
               className="w-full px-4 py-3 text-xs font-mono border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 bg-gray-900 text-green-300 resize-none"
             />
@@ -516,6 +610,35 @@ interface EmailConfig {
   steward: string;
   resident: string;
   prosperity: string;
+}
+
+/**
+ * Hoisted OUT of EmailSettingsTab on purpose (the cursor-jump bug): a
+ * component type created inside a render is a NEW type every keystroke, so
+ * React unmounted and remounted the input mid-word and focus fell to the
+ * top of the section. Module scope = stable identity = the cursor stays
+ * where the person is typing.
+ */
+function EmailField({ label, value, onChange, hint }: {
+  label: string; value: string; onChange: (v: string) => void; hint: string;
+}) {
+  return (
+    <div>
+      <label className="text-sm font-medium text-gray-700 block mb-1">{label}</label>
+      {/* type=text, not email: these fields take a comma-separated LIST so
+          several people can receive updates, and the browser's single-email
+          validation would fight that. */}
+      <input
+        type="text"
+        inputMode="email"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+        placeholder="one@example.org, two@example.org"
+      />
+      <p className="text-xs text-gray-400 mt-1">{hint} Several people? Separate addresses with commas.</p>
+    </div>
+  );
 }
 
 function EmailSettingsTab({ password, openIntegrations }: { password: string; openIntegrations: () => void }) {
@@ -560,22 +683,6 @@ function EmailSettingsTab({ password, openIntegrations }: { password: string; op
     setSaving(false);
   };
 
-  const Field = ({ label, value, onChange, hint, type = "email" }: {
-    label: string; value: string; onChange: (v: string) => void; hint: string; type?: string;
-  }) => (
-    <div>
-      <label className="text-sm font-medium text-gray-700 block mb-1">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
-        placeholder={hint}
-      />
-      <p className="text-xs text-gray-400 mt-1">{hint}</p>
-    </div>
-  );
-
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -598,25 +705,25 @@ function EmailSettingsTab({ password, openIntegrations }: { password: string; op
         <div className="text-center py-12 text-gray-400">Loading...</div>
       ) : (
         <div className="space-y-5 max-w-xl">
-          <Field
+          <EmailField
             label="Business Inquiries (Prosperity / Contact)"
             value={cfg.prosperity}
             onChange={(v) => setCfg({ ...cfg, prosperity: v })}
             hint="Receives business and contact form submissions."
           />
-          <Field
+          <EmailField
             label="Investor"
             value={cfg.investor}
             onChange={(v) => setCfg({ ...cfg, investor: v })}
             hint="Receives investor enquiries and document requests."
           />
-          <Field
+          <EmailField
             label="Core Team (Steward)"
             value={cfg.steward}
             onChange={(v) => setCfg({ ...cfg, steward: v })}
             hint="Receives Village Steward applications."
           />
-          <Field
+          <EmailField
             label="Resident"
             value={cfg.resident}
             onChange={(v) => setCfg({ ...cfg, resident: v })}

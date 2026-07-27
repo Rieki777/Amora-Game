@@ -1768,7 +1768,13 @@ async function sendResendEmail(opts: { to: string[]; subject: string; html: stri
     console.log("[RESEND] API key not set, skipping email");
     return;
   }
-  if (!opts.to.length) {
+  // Every configured inbox may hold a comma-separated LIST — several people
+  // receiving updates is the norm for a village, not an edge case. Split,
+  // trim, drop non-addresses, dedupe; every caller gets this for free.
+  const to = Array.from(new Set(
+    opts.to.flatMap((a) => String(a ?? "").split(",")).map((s) => s.trim()).filter((s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)),
+  ));
+  if (!to.length) {
     console.log("[RESEND] No recipients, skipping email");
     return;
   }
@@ -1781,7 +1787,7 @@ async function sendResendEmail(opts: { to: string[]; subject: string; html: stri
       },
       body: JSON.stringify({
         from: opts.from ?? "Amora Site <notifications@amora.cr>",
-        to: opts.to,
+        to,
         subject: opts.subject,
         html: opts.html,
         // The contact relay (S22) sets this to the SENDER's address so a
