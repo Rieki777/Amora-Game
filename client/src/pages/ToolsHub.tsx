@@ -8,6 +8,7 @@ import Layout from "@/components/Layout";
 import NotFound from "@/pages/NotFound";
 import { useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
+import { authToken } from "@/lib/gameApi";
 import {
   ExternalLink,
   Landmark,
@@ -49,7 +50,7 @@ export default function ToolsHub() {
 
   useEffect(() => {
     if (!toolsModule) return;
-    const token = localStorage.getItem("token");
+    const token = authToken();
     fetch("/api/tools", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then((r) => (r.ok ? r.json() : null))
       .then(setData)

@@ -53,6 +53,7 @@ export default function Library() {
       .catch((e) => setError(e.message));
   };
 
+  const visibleItems = (data?.items ?? []).filter((i: any) => i.status !== "written_off");
   const liveLoans = (data?.mine?.loans ?? []).filter((l: any) => !l.settledAt);
   const itemName = (id: string) => (data?.items ?? []).find((i: any) => i.id === id)?.name ?? id;
 
@@ -111,7 +112,7 @@ export default function Library() {
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            {(data?.items ?? []).filter((i: any) => i.status !== "written_off").map((i: any) => {
+            {visibleItems.map((i: any) => {
               const eligible = data?.mine?.eligible?.[i.id] ?? true;
               return (
                 <div key={i.id} className="bg-card border border-border rounded-xl p-4 flex flex-col">
@@ -143,7 +144,9 @@ export default function Library() {
               );
             })}
           </div>
-          {data && data.items.length === 0 && (
+          {/* Gated on what's actually SHOWN: a shelf holding only retired
+              items used to render a blank grid with no explanation. */}
+          {data && visibleItems.length === 0 && (
             <p className="text-center text-sm text-muted-foreground py-12">
               <Package className="w-6 h-6 mx-auto mb-2 text-muted-foreground/50" />
               The shelves are waiting for their first donation.

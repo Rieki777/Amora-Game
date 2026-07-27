@@ -91,6 +91,15 @@ export function authToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+/**
+ * The ONE way to drop the session client-side. Components that reached for
+ * localStorage directly wrote/removed a key nobody else used — the bug that
+ * left the notification bell and the module manifest permanently anonymous.
+ */
+export function clearAuthToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
 export async function gameFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = authToken();
   return fetch(path, {

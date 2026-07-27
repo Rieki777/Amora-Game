@@ -166,8 +166,13 @@ export default function Stay() {
                             </button>
                             {data?.stripeConfigured && credit && money ? (
                               <div className="flex items-center gap-1">
+                                {/* Clamp BOTH ends here: the max attribute
+                                    only bounds the spinner, so typing 999
+                                    used to fail after the click instead of
+                                    before it. */}
                                 <input type="number" min={1} max={data?.maxPurchaseNights ?? 60} value={buyNights}
-                                  onChange={(e) => setBuyNights(Math.max(1, Number(e.target.value) || 1))}
+                                  aria-label="Nights of credits to buy"
+                                  onChange={(e) => setBuyNights(Math.min(data?.maxPurchaseNights ?? 60, Math.max(1, Number(e.target.value) || 1)))}
                                   className="w-14 text-sm border border-border rounded-lg px-2 py-2" title="Nights" />
                                 <button onClick={() => checkout(a.id)} title={`Buy ${buyNights} night(s) of credits`}
                                   className="inline-flex items-center gap-1.5 text-sm border border-teal-deep text-teal-deep rounded-lg px-3 py-2 font-medium hover:bg-teal-deep/5">

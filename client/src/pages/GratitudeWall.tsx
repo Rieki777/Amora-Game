@@ -119,9 +119,16 @@ export default function GratitudeWall() {
               {feedback && (
                 <p className={`text-sm mb-3 ${feedback.ok ? "text-teal-deep" : "text-red-600"}`}>{feedback.text}</p>
               )}
+              {/* A spent budget is a real state, not an error to discover
+                  after clicking: say so, and stop offering the button. */}
+              {budget && budget.remaining <= 0 && budget.total > 0 && (
+                <p className="text-sm text-amber-700 mb-3">
+                  You've given your whole budget this cycle — it refills when the lunar cycle turns.
+                </p>
+              )}
               <button
                 type="submit"
-                disabled={sending || !budget || budget.total <= 0}
+                disabled={sending || !budget || budget.total <= 0 || budget.remaining <= 0}
                 className="inline-flex items-center gap-2 bg-teal-deep text-white font-semibold px-5 py-2.5 rounded-xl hover:bg-teal disabled:opacity-50 transition-colors"
               >
                 <Send className="w-4 h-4" /> {sending ? "Sending..." : "Send"}

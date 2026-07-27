@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
 import { Link } from "wouter";
+import { authToken } from "@/lib/gameApi";
 
 interface Ntf {
   id: string;
@@ -24,7 +25,10 @@ export default function NotificationBell() {
   const ref = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
-    const token = localStorage.getItem("token");
+    // authToken() is the ONE reader of the canonical key. Reading
+    // localStorage directly is how this silently fetched as an anonymous
+    // visitor and left the bell permanently empty for signed-in members.
+    const token = authToken();
     if (!token) return;
     fetch("/api/notifications", { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null))
@@ -54,7 +58,7 @@ export default function NotificationBell() {
     const next = !open;
     setOpen(next);
     if (next && unread > 0) {
-      const token = localStorage.getItem("token");
+      const token = authToken();
       fetch("/api/notifications/read", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },

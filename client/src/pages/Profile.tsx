@@ -54,9 +54,24 @@ const PATH_INFO: Record<
 
 export default function Profile() {
   const [, navigate] = useLocation();
-  const { user, logout, loading } = useAuth();
+  const { user, logout, loading, updateProfile } = useAuth();
   const [editingBio, setEditingBio] = useState(false);
   const [bioText, setBioText] = useState(user?.bio || "");
+  const [savingBio, setSavingBio] = useState(false);
+  const [bioError, setBioError] = useState("");
+
+  const saveBio = async () => {
+    setSavingBio(true);
+    setBioError("");
+    try {
+      await updateProfile({ bio: bioText });
+      setEditingBio(false);
+    } catch (e: any) {
+      setBioError(e?.message || "Could not save — try again");
+    } finally {
+      setSavingBio(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -141,20 +156,43 @@ export default function Profile() {
                     <h2 className="text-2xl font-display font-bold text-teal-deep">About You</h2>
                     <motion.button
                       whileHover={{ scale: 1.1 }}
-                      onClick={() => setEditingBio(!editingBio)}
+                      onClick={() => { setBioText(user.bio || ""); setEditingBio(!editingBio); }}
                       className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                      aria-label={editingBio ? "Stop editing your bio" : "Edit your bio"}
                     >
                       <Edit2 className="w-5 h-5 text-gray-600" />
                     </motion.button>
                   </div>
                   {editingBio ? (
-                    <textarea
-                      value={bioText}
-                      onChange={(e) => setBioText(e.target.value)}
-                      placeholder="Tell us about yourself..."
-                      className="w-full p-4 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep"
-                      rows={4}
-                    />
+                    <>
+                      <label htmlFor="profile-bio" className="sr-only">Your bio</label>
+                      <textarea
+                        id="profile-bio"
+                        value={bioText}
+                        onChange={(e) => setBioText(e.target.value)}
+                        placeholder="Tell us about yourself..."
+                        className="w-full p-4 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep"
+                        rows={4}
+                      />
+                      {bioError && <p className="text-sm text-red-600 mt-2">{bioError}</p>}
+                      <div className="flex items-center gap-3 mt-3">
+                        {/* This Save is the whole point: the editor used to
+                            discard every word on close, silently. */}
+                        <button
+                          onClick={saveBio}
+                          disabled={savingBio}
+                          className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                        >
+                          {savingBio ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          onClick={() => { setBioText(user.bio || ""); setEditingBio(false); setBioError(""); }}
+                          className="text-sm text-gray-500 hover:text-gray-900"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </>
                   ) : (
                     <p className="text-gray-600 text-lg leading-relaxed">
                       {user.bio || "No bio yet. Add one to help other villagers know you."}

@@ -3990,10 +3990,20 @@ async function startServer() {
       to: MINT_FAUCET,
       tokenType: STAY_CREDIT,
       amount: Number(p.credits_granted),
-      source: "stay_manual_override",
+      source: "payment_reversal",
       sourceRef: String(p.id),
       description: "Refund: credits returned",
-      idempotencyKey: `ord:${p.id}:refund-hold`,
+      // THE SAME KEY the webhook's reversal handler uses. The admin holds
+      // the credits here, then refunds in Stripe; Stripe then sends
+      // charge.refunded, whose handler would otherwise claw the SAME
+      // credits back a second time under a different key and leave the
+      // member negative and auto-suspended for the village's own refund.
+      // NO allowNegative here on purpose: a village-initiated refund still
+      // refuses when the guest already spent the credits (settle that
+      // difference with a human). A CHARGEBACK is different — the bank
+      // already took the money — so the webhook leg keeps allowNegative and,
+      // if this path refused, posts under this same key and prevails.
+      idempotencyKey: `ord:${p.id}:reversal-leg1`,
     });
     if (!debit.ok) {
       return res.status(409).json({ error: `The guest no longer holds these credits (${debit.error}) — settle the difference manually first` });
@@ -5694,21 +5704,25 @@ async function startServer() {
   app.post("/api/profile/contribution", async (req, res) => {
     const authed = await authedUser(req);
     if (!authed) return res.status(401).json({ error: "Unauthorized" });
-    const { type, description, recognitionEarned } = req.body;
-    if (!type || !description || recognitionEarned === undefined) {
+    const { type, description } = req.body;
+    if (!type || !description) {
       return res.status(400).json({ error: "Missing required fields" });
     }
+    // A JOURNAL ENTRY, never a payment. This route used to add a
+    // caller-supplied `recognitionEarned` straight onto the member's
+    // balance — self-service minting, off-ledger, breaking the conservation
+    // proof. Value only ever moves through postTransfer behind a human
+    // consent gate (quest consent, gratitude send, admin mint). The note
+    // itself is still worth keeping: it is the member's own record.
     const contribution = {
       id: `contrib-${Date.now()}`,
-      type,
-      description,
-      recognitionEarned,
+      type: String(type).slice(0, 120),
+      description: String(description).slice(0, 2000),
       date: new Date().toISOString(),
     };
     const updated = await members.update(authed.id, (u: any) => {
       u.contributions = u.contributions ?? [];
       u.contributions.push(contribution);
-      u.recognitionBalance = (u.recognitionBalance ?? 0) + recognitionEarned;
     });
     if (!updated) return res.status(404).json({ error: "User not found" });
     res.json({ success: true, contribution });
@@ -6141,10 +6155,45 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true });
   });
 
+  /**
+   * Uploaded files are served from the village's OWN origin, which means a
+   * file that the browser decides to execute runs with the village's
+   * cookies and localStorage — including a member's session token. Two
+   * rules keep that impossible, whatever a filter upstream let through:
+   *
+   *  1. The content type is decided HERE, from a small allowlist keyed on
+   *     the extension — never sniffed from the file and never inherited
+   *     from an uploader's claim. Anything unrecognized is served as a
+   *     download, not a document.
+   *  2. nosniff, so a browser cannot second-guess rule 1; and inline
+   *     display only for real image types. SVG is deliberately NOT inline:
+   *     it is a script-bearing document wearing a picture's name.
+   */
+  const INLINE_TYPES: Record<string, string> = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".avif": "image/avif",
+    ".pdf": "application/pdf",
+  };
   app.get("/api/uploads/:filename", async (req, res) => {
     const safe = path.basename(req.params.filename);
     const filePath = path.join(UPLOADS_DIR, safe);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Not found" });
+    const ext = path.extname(safe).toLowerCase();
+    const type = INLINE_TYPES[ext];
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (type) {
+      res.type(type);
+      res.setHeader("Content-Disposition", `inline; filename="${safe}"`);
+    } else {
+      // Unknown or executable-ish (.html, .svg, .xml…): hand it over as an
+      // opaque download that no browser will render in our origin.
+      res.type("application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${safe}"`);
+    }
     res.sendFile(filePath);
   });
 

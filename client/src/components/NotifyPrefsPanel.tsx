@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import { Bell, Download, ShieldOff } from "lucide-react";
-import { authToken } from "@/lib/gameApi";
+import { authToken, clearAuthToken } from "@/lib/gameApi";
 
 const CADENCES: Record<string, Array<{ v: string; label: string }>> = {
   questsEmail: [
@@ -91,7 +91,7 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "Could not delete");
-        localStorage.removeItem("token");
+        clearAuthToken();
         onDeleted?.();
         window.location.href = "/";
       })

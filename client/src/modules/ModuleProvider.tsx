@@ -4,6 +4,7 @@
  * nav simply doesn't render; the core site never crashes over the catalog.
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { authToken } from "@/lib/gameApi";
 
 export interface ClientModule {
   id: string;
@@ -40,7 +41,10 @@ export function ModuleProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ModulesState>(EMPTY);
 
   const refresh = () => {
-    const token = localStorage.getItem("token");
+    // The viewer-scoped manifest decides which modules a member can even
+    // SEE. Reading the wrong key made every member look anonymous here, so
+    // members-lifecycle modules stayed invisible to the people they were for.
+    const token = authToken();
     fetch("/api/modules", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then((r) => r.json())
       .then((d) => {

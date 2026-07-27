@@ -172,7 +172,19 @@ export async function handleStripeEvent(
 ): Promise<{ status: number; body: any }> {
   const started = Date.now();
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (secret && !verifyStripeSignature(rawBody, sigHeader, secret)) {
+  // FAIL CLOSED. An unsigned event is an anonymous instruction to mint
+  // credits; a missing secret is a misconfiguration, not permission. The
+  // earlier `if (secret && …)` meant a deployment that never set the secret
+  // accepted forged settlements from anyone who knew the URL.
+  if (!secret) {
+    await logPayment(pool, { type: "signature", outcome: "sig_fail", detail: "STRIPE_WEBHOOK_SECRET is not set" });
+    await alertAdmins(
+      "Stripe webhook rejected: STRIPE_WEBHOOK_SECRET is not configured",
+      `payments-nosecret:${new Date().toISOString().slice(0, 13)}`,
+    );
+    return { status: 400, body: { error: "webhook signing secret is not configured" } };
+  }
+  if (!verifyStripeSignature(rawBody, sigHeader, secret)) {
     await logPayment(pool, { type: "signature", outcome: "sig_fail" });
     await alertAdmins("Stripe webhook signature verification FAILED", `payments-sigfail:${new Date().toISOString().slice(0, 13)}`);
     return { status: 400, body: { error: "signature verification failed" } };
@@ -222,11 +234,24 @@ export async function handleStripeEvent(
         return { status: 200, body: { received: true, unmatched: true } };
       }
       const row = rows[0];
+      // A refund the VILLAGE issued already marked the charge reversed (the
+      // admin refund-hold runs first, by design). Suspending the member for
+      // a refund we chose to give them would be punishing them for our own
+      // decision — so suspension follows DISPUTES, and refunds only when
+      // they arrive from outside our own flow.
+      const villageInitiated = String(row.status) === "reversed";
       const reversal = reversalHandlers.get(String(row.module));
       if (reversal) await reversal(String(row.order_id), event);
       await pool.query("UPDATE fiat_charges SET status = 'reversed' WHERE module = ? AND order_id = ?", [row.module, row.order_id]);
-      await suspendPurchasing(pool, String(row.user_id), `${type} on ${row.module}:${row.order_id}`, `${row.module}:${row.order_id}`);
-      await alertAdmins(`Payment ${type === "charge.refunded" ? "refund" : "DISPUTE"}: ${row.module} order ${row.order_id} — buyer suspended pending review`, `payments-dispute:${row.module}:${row.order_id}`);
+      const suspend = type === "charge.dispute.created" || !villageInitiated;
+      if (suspend) {
+        await suspendPurchasing(pool, String(row.user_id), `${type} on ${row.module}:${row.order_id}`, `${row.module}:${row.order_id}`);
+      }
+      await alertAdmins(
+        `Payment ${type === "charge.refunded" ? "refund" : "DISPUTE"}: ${row.module} order ${row.order_id}` +
+          (suspend ? " — buyer suspended pending review" : " — the village issued this refund; no suspension"),
+        `payments-dispute:${row.module}:${row.order_id}`,
+      );
       await recordEvent(pool, { kind: "audit", text: `payments:${type}:${row.module}:${row.order_id}`, entityType: "user", entityRef: String(row.user_id), audience: "admin" });
       return { status: 200, body: { received: true } };
     }

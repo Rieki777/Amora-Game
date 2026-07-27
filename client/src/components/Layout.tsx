@@ -235,8 +235,13 @@ export default function Layout({ children }: LayoutProps) {
           {/* Mobile Menu Button (bell beside it when signed in) */}
           <div className="md:hidden flex items-center gap-1 text-white">
             {user && <NotificationBell />}
+            {/* Icon-only, so it needs a spoken name and a state a screen
+                reader can hear — otherwise it announces as bare "button". */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+              aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-menu"
               className="text-white inline-flex items-center justify-center pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:-m-2"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -248,6 +253,7 @@ export default function Layout({ children }: LayoutProps) {
         <AnimatePresence>
           {mobileMenuOpen && (
             <motion.div
+              id="mobile-menu"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
