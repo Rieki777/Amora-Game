@@ -2895,4 +2895,41 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(rec.json.invariants.problems).toEqual([]);
     await api("PUT", "/api/admin/modules/commerce/lifecycle", { lifecycle: "off" }, founderToken);
   });
+
+  it("L9: library credits sell ONLY behind the caution card — and never, ever swap", async () => {
+    // The library module is on from S41-46; exchange back on for listings.
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "public" }, founderToken);
+
+    // CLOSED (the shipped default): listing refuses with the shelf sentence.
+    const closed = await api("PUT", "/api/admin/exchange/tokens/library-credit", { purchasable: true }, founderToken);
+    expect(closed.status).toBe(409);
+    expect(closed.json.error).toContain("shelves");
+
+    // A stale or client-authored acceptance is refused; the server stamps.
+    expect((await api("PUT", "/api/admin/modules/library/config", {
+      config: { creditSaleEnabled: true, creditSaleAck: { cardVersion: "2020-01-01" } },
+    }, founderToken)).status).toBe(409);
+    const accept = await api("PUT", "/api/admin/modules/library/config", {
+      config: { creditSaleEnabled: true, creditSaleAck: { cardVersion: "2026-07-27", acceptedBy: "forged", acceptedAt: "1999-01-01" } },
+    }, founderToken);
+    expect(accept.status).toBe(200);
+    expect(accept.json.config.creditSaleAck.acceptedBy).not.toBe("forged");
+
+    // OPEN: purchase listing lands; stock, price, and the shop sells.
+    expect((await api("PUT", "/api/admin/exchange/tokens/library-credit", { purchasable: true }, founderToken)).status).toBe(200);
+    expect((await api("POST", "/api/admin/exchange/stock", { tokenSlug: "library-credit", amount: 20 }, founderToken)).status).toBe(200);
+    expect((await api("POST", "/api/admin/exchange/tokens/library-credit/price", { priceMinor: 300, note: "Card-opened sale price" }, founderToken)).status).toBe(200);
+
+    // THE SEAL THAT NEVER OPENS: swapping refuses with the card accepted,
+    // at the listing door and in the same words the firewall uses.
+    const swapTry = await api("PUT", "/api/admin/exchange/tokens/library-credit", { swappable: true }, founderToken);
+    expect(swapTry.status).toBe(409);
+
+    // Revoke the card: the very NEXT sale refuses — no redeploy needed.
+    await api("PUT", "/api/admin/modules/library/config", { config: { creditSaleEnabled: false } }, founderToken);
+    const buyAfterRevoke = await api("POST", "/api/exchange/buy", { tokenSlug: "library-credit", quantity: 1 }, peerToken);
+    expect(buyAfterRevoke.status).toBe(409);
+
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
+  });
 });

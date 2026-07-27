@@ -244,7 +244,7 @@ export const MODULES: ModuleDef[] = [
     id: "library",
     name: "Material Library",
     description:
-      "The village's shared tools and goods: donate an item and earn library credits (appraised, capped, dual-signed above a threshold), then borrow against an escrowed deposit. Credits are backed by the shelves and never trade.",
+      "The village's shared tools and goods: donate an item and earn library credits (appraised, capped, dual-signed above a threshold), then borrow against an escrowed deposit. Credits are backed by the shelves; they never swap, and selling them for fiat is a separate caution-card opt-in (L9).",
     requires: [],
     recommends: [],
     capabilities: [],
@@ -258,6 +258,24 @@ export const MODULES: ModuleDef[] = [
       "library.dispute_deadline_days",
     ],
     apiPrefixes: ["/api/library"],
+    // L9 (Gate F, opened 2026-07-27): selling credits for fiat is OFF by
+    // default forever and requires the version-stamped caution card — the
+    // same posture as the exchange's tradingEnabled. The server stamps who
+    // accepted and when; the client may not author that record.
+    defaultConfig: { creditSaleEnabled: false },
+    validateConfig: (c: any) => {
+      if (!c || typeof c !== "object") return "config must be an object";
+      if (c.creditSaleEnabled !== undefined && typeof c.creditSaleEnabled !== "boolean") {
+        return "creditSaleEnabled must be true or false";
+      }
+      if (c.creditSaleEnabled) {
+        const ack = c.creditSaleAck;
+        if (!ack || typeof ack !== "object" || !ack.cardVersion || !ack.acceptedBy || !ack.acceptedAt) {
+          return "selling library credits requires an accepted caution card: creditSaleAck { cardVersion, acceptedBy, acceptedAt }";
+        }
+      }
+      return null;
+    },
     // openStateCheck attached by the server at boot: open loans block off.
   },
   {

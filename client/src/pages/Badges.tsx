@@ -137,15 +137,42 @@ export default function Badges() {
                       )}
                       {mine?.note && <p className="text-xs text-muted-foreground italic mt-1">“{mine.note}”</p>}
                     </div>
-                    {user && b.kind === "self" && (
-                      mine ? (
-                        <button onClick={() => call(`/api/badges/${b.id}/claim`, "DELETE")}
-                          className="text-xs text-muted-foreground hover:text-red-600">Remove</button>
-                      ) : (
-                        <button onClick={() => call(`/api/badges/${b.id}/claim`, "POST")}
-                          className="text-xs text-[#2D5A5A] font-medium hover:underline">That's me</button>
-                      )
-                    )}
+                    <div className="flex flex-col items-end gap-1.5">
+                      {user && b.kind === "self" && (
+                        mine ? (
+                          <button onClick={() => call(`/api/badges/${b.id}/claim`, "DELETE")}
+                            className="text-xs text-muted-foreground hover:text-red-600">Remove</button>
+                        ) : (
+                          <button onClick={() => call(`/api/badges/${b.id}/claim`, "POST")}
+                            className="text-xs text-[#2D5A5A] font-medium hover:underline">That's me</button>
+                        )
+                      )}
+                      {/* B10: pin up to badges.max_featured to your byline.
+                          Self-presentation — nothing shows unless YOU pin it. */}
+                      {user && mine && b.kind !== "warning" && !mine.expired && (
+                        <button
+                          onClick={() => {
+                            const current = (data?.mine?.awards ?? [])
+                              .filter((a: any) => a.featured && !a.expired)
+                              .map((a: any) => a.badgeId);
+                            const next = mine.featured
+                              ? current.filter((id: string) => id !== b.id)
+                              : [...current, b.id];
+                            fetch("/api/badges/featured", {
+                              method: "PUT", headers: headers(),
+                              body: JSON.stringify({ badgeIds: next }),
+                            }).then(async (r) => {
+                              const d = await r.json();
+                              if (!r.ok) throw new Error(d.error || "failed");
+                              load();
+                            }).catch((e) => setError(e.message));
+                          }}
+                          className={`text-xs font-medium ${mine.featured ? "text-amber-600" : "text-muted-foreground hover:text-teal-deep"}`}
+                        >
+                          {mine.featured ? "★ On your byline" : "☆ Pin to byline"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );

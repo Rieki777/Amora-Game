@@ -745,6 +745,20 @@ export const VARIABLES: VariableDef[] = [
     unit: "entries",
   },
 
+  // ── Badges (B10) ──────────────────────────────────────────────────────────
+  {
+    key: "badges.max_featured",
+    category: "Badges",
+    label: "Featured badges per member",
+    description:
+      "How many badges a member may pin to their byline (forum posts, map chips). 0 turns featured chips off everywhere.",
+    type: "integer",
+    default: "3",
+    min: 0,
+    max: 10,
+    unit: "badges",
+  },
+
   // ── Platform feedback (S66) ───────────────────────────────────────────────
   {
     key: "platform.feedback_relay",

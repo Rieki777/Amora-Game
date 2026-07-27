@@ -32,6 +32,7 @@ import {
 } from "./ledger";
 import type { PairGuard } from "./ledger";
 import { numberVar } from "./variables";
+import { moduleConfig } from "./modules";
 import { MODULES } from "../../shared/modules";
 
 export interface ExchangeSettings {
@@ -116,8 +117,43 @@ export function tradingProblem(slug: string): string | null {
   return null;
 }
 
-/** Buying refuses exactly what v1 refused. Behaviour unchanged. */
+/**
+ * L9 (Gate F, opened by Rye 2026-07-27): selling library credits for fiat.
+ *
+ * The objection was never technical. A library credit is backed by a
+ * physical item somebody brought to the shelf; a SOLD credit is backed by
+ * money instead, and past that sale the two are indistinguishable claims on
+ * the same shelves. Opening this changes what the token IS — so it opens
+ * the way trading opened: a per-deployment caution card, version-stamped,
+ * server-stamped, refused for any card but the current one. The ledger
+ * keeps the provenances separate forever (shelf-backed credits enter via
+ * sys:library-mint on intake; sold stock enters via sys:mint -> treasury),
+ * so a village can always answer "how many of our credits are money-backed".
+ *
+ * The relaxation is PURCHASE-ONLY, structurally: tradingProblem still
+ * refuses library-credit, which keeps the swap door shut regardless of any
+ * config — and the faucet-issuance test would refuse it a second time.
+ */
+export const LIBRARY_CREDIT_CARD_VERSION = "2026-07-27";
+
+export function creditSaleOpen(): boolean {
+  const cfg = (moduleConfig("library") as any) ?? {};
+  if (cfg.creditSaleEnabled !== true) return false;
+  return String(cfg.creditSaleAck?.cardVersion ?? "") === LIBRARY_CREDIT_CARD_VERSION;
+}
+
+/** Buying refuses what v1 refused — except behind the L9 caution card. */
 export function purchaseProblem(slug: string): string | null {
+  if (NEVER_LISTED.has(slug) && creditSaleOpen()) {
+    // The card is accepted: run every OTHER shared rule (recognition,
+    // hypha, one-seller) without the shelf-backing refusal.
+    const def = tokenDef(slug);
+    if (!def) return `"${slug}" is not a registered token`;
+    if (def.kind === "recognition") return `${slug} is recognition — never for sale`;
+    if (def.governance === "hypha") return `${slug} is governed on Hypha`;
+    if (moduleSoldTokens().has(slug)) return `${slug} already has a selling module`;
+    return null;
+  }
   return tradingProblem(slug);
 }
 
@@ -193,7 +229,11 @@ export async function listingProblemAsync(
 /** Synchronous subset, kept for the buy-only call sites and boot sweep. */
 export function listingProblem(slug: string, flags: { purchasable: boolean; swappable: boolean }): string | null {
   if (!flags.purchasable && !flags.swappable) return null;
-  return tradingProblem(slug);
+  // Any swap flag answers to the FULL shared rule — the L9 card never
+  // opens the swap door. A purchase-only listing answers to purchaseProblem,
+  // which is where the card (and only the card) can matter.
+  if (flags.swappable) return tradingProblem(slug);
+  return purchaseProblem(slug);
 }
 
 export async function upsertSettings(

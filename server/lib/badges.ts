@@ -166,6 +166,8 @@ export interface AwardRow {
   awardedBy: string | null;
   note: string | null;
   expiresAt: string | null;
+  featured?: boolean;
+  reissueCount?: number;
   expired: boolean;
 }
 
@@ -183,6 +185,8 @@ export async function awardsFor(pool: Pool, userId: string): Promise<AwardRow[]>
     note: r.note ?? null,
     expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
     expired: !!r.expires_at && new Date(r.expires_at).getTime() <= Date.now(),
+    featured: !!r.featured,
+    reissueCount: Number(r.reissue_count ?? 0),
   }));
 }
 

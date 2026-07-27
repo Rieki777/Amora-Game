@@ -4,6 +4,7 @@
  * TEXT (React escapes) â€” there is no HTML pipeline to sanitize.
  */
 import Layout from "@/components/Layout";
+import BylineChips from "@/components/badges/BylineChips";
 import NotFound from "@/pages/NotFound";
 import { useEffect, useState } from "react";
 import { Link, useRoute } from "wouter";
@@ -225,7 +226,9 @@ function ThreadView({ id }: { id: string }) {
               )}
             </div>
             <p className="text-xs text-muted-foreground mb-4">
-              {thread.author.name}{thread.author.handle ? ` (@${thread.author.handle})` : ""} Â· {new Date(thread.createdAt).toLocaleString()}
+              {thread.author.name}{thread.author.handle ? ` (@${thread.author.handle})` : ""}
+              <BylineChips userId={thread.author.id} />
+              {" · "}{new Date(thread.createdAt).toLocaleString()}
             </p>
             {thread.imageUrl && <img src={thread.imageUrl} alt="" className="rounded-xl mb-4 max-h-80 object-cover" />}
             <p className="text-sm text-foreground whitespace-pre-wrap">{thread.body}</p>
@@ -258,7 +261,9 @@ function ThreadView({ id }: { id: string }) {
             {thread.replies.map((r: any) => (
               <div key={r.id} className={`bg-card border border-border rounded-xl px-4 py-3 ${r.hidden ? "opacity-50" : ""}`}>
                 <p className="text-xs text-muted-foreground mb-1">
-                  {r.author.name}{r.author.handle ? ` (@${r.author.handle})` : ""} Â· {new Date(r.createdAt).toLocaleString()}
+                  {r.author.name}{r.author.handle ? ` (@${r.author.handle})` : ""}
+                  <BylineChips userId={r.author.id} />
+                  {" · "}{new Date(r.createdAt).toLocaleString()}
                 </p>
                 <p className="text-sm text-foreground whitespace-pre-wrap">{r.body}</p>
               </div>

@@ -113,7 +113,9 @@ import {
   exchangeSettings,
   executeSwap,
   faucetIssuedTokens,
+  creditSaleOpen,
   latestPrice,
+  LIBRARY_CREDIT_CARD_VERSION,
   listableTokens,
   purchaseProblem,
   quoteSwap,
@@ -2858,17 +2860,24 @@ async function startServer() {
     // client may not author it. The server stamps the authenticated actor and
     // its own clock, and refuses an acceptance of any card but the current
     // one, so amended terms genuinely have to be re-read.
-    if (req.params.id === "exchange" && config && typeof config === "object" && config.legalAck) {
-      if (String(config.legalAck.cardVersion ?? "") !== TRADING_CARD_VERSION) {
+    // One rule for every caution card the platform carries: exchange
+    // trading (legalAck) and library credit sale (creditSaleAck, L9).
+    const CARDS: Record<string, { field: string; version: string }> = {
+      exchange: { field: "legalAck", version: TRADING_CARD_VERSION },
+      library: { field: "creditSaleAck", version: LIBRARY_CREDIT_CARD_VERSION },
+    };
+    const card = CARDS[req.params.id];
+    if (card && config && typeof config === "object" && config[card.field]) {
+      if (String(config[card.field].cardVersion ?? "") !== card.version) {
         return res.status(409).json({
-          error: `That acceptance is for card ${config.legalAck.cardVersion ?? "(none)"} — the current caution card is ${TRADING_CARD_VERSION}. Read it again.`,
+          error: `That acceptance is for card ${config[card.field].cardVersion ?? "(none)"} — the current caution card is ${card.version}. Read it again.`,
         });
       }
       const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
       if (!actor) return res.status(401).json({ error: "Accepting the caution card needs a named admin, not a shared password" });
       config = {
         ...config,
-        legalAck: { cardVersion: TRADING_CARD_VERSION, acceptedBy: actor, acceptedAt: new Date().toISOString() },
+        [card.field]: { cardVersion: card.version, acceptedBy: actor, acceptedAt: new Date().toISOString() },
       };
     }
     const result = await setModuleConfig(req.params.id, config, adminActor(req)?.id ?? null);
@@ -5919,16 +5928,60 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
    */
   app.get("/api/badges/of/:userId", async (req, res) => {
     const [rows] = await getPool().query<any[]>(
-      "SELECT b.id, b.name, b.kind, b.description, a.count, a.expires_at FROM badge_awards a " +
+      "SELECT b.id, b.name, b.kind, b.description, a.count, a.expires_at, a.featured FROM badge_awards a " +
         "JOIN badges b ON b.id = a.badge_id " +
         "WHERE a.user_id = ? AND b.active = 1 AND b.kind <> 'warning' " +
-        "AND (a.expires_at IS NULL OR a.expires_at > NOW()) ORDER BY b.name",
+        "AND (a.expires_at IS NULL OR a.expires_at > NOW()) ORDER BY a.featured DESC, b.name",
       [String(req.params.userId)],
     );
     res.json({
-      badges: rows.map((r) => ({ id: r.id, name: r.name, kind: r.kind, description: r.description, count: Number(r.count) })),
+      badges: rows.map((r) => ({
+        id: r.id, name: r.name, kind: r.kind, description: r.description,
+        count: Number(r.count), featured: !!r.featured,
+      })),
       skills: await skillsFor(getPool(), String(req.params.userId)),
+      maxFeatured: numberVar("badges.max_featured"),
     });
+  });
+
+  /**
+   * B10: the featured picker. Chips are SELF-presentation — a member pins
+   * which of their own badges ride their byline, capped by
+   * badges.max_featured, and featuring nothing is a respected choice.
+   * Warnings cannot be featured; they cannot even be addressed here.
+   */
+  app.put("/api/badges/featured", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const ids = Array.isArray(req.body?.badgeIds) ? req.body.badgeIds.map(String).slice(0, 20) : null;
+    if (!ids) return res.status(400).json({ error: "badgeIds required (may be empty — a clean byline is a choice)" });
+    const max = numberVar("badges.max_featured");
+    if (ids.length > max) return res.status(400).json({ error: `Pick at most ${max}` });
+    const conn = await getPool().getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query("UPDATE badge_awards SET featured = 0 WHERE user_id = ?", [user.id]);
+      if (ids.length) {
+        // Only the member's OWN, active, non-warning, unexpired awards.
+        const [r] = await conn.query<any>(
+          "UPDATE badge_awards a JOIN badges b ON b.id = a.badge_id SET a.featured = 1 " +
+            "WHERE a.user_id = ? AND b.kind <> 'warning' AND b.active = 1 " +
+            "AND (a.expires_at IS NULL OR a.expires_at > NOW()) AND a.badge_id IN (" + ids.map(() => "?").join(",") + ")",
+          [user.id, ...ids],
+        );
+        if (Number((r as any).affectedRows) !== ids.length) {
+          await conn.rollback();
+          return res.status(400).json({ error: "You can only feature badges you actively hold" });
+        }
+      }
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+    res.json({ success: true });
   });
 
   /** Who holds a badge or a skill — matching, never surveillance: active,
@@ -6247,6 +6300,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     if (qty < 1 || qty > 1_000_000) return res.status(400).json({ error: "How many?" });
     const s = await settingsFor(getPool(), slug);
     if (!s?.active || !s.purchasable) return res.status(404).json({ error: `"${slug}" is not listed for purchase` });
+    // Re-proven at buy time, not just at listing and boot: a caution card
+    // revoked an hour ago must refuse the NEXT sale, not the next deploy.
+    const stillLegal = purchaseProblem(slug);
+    if (stillLegal) return res.status(409).json({ error: stillLegal });
     if (s.minStageToBuy) {
       const floor = stageIndex(s.minStageToBuy);
       if (floor >= 0 && stageIndex(await stageOf(user)) < floor) {
@@ -6675,6 +6732,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       tradingEnabled: tradingOpen(),
       legalCardVersion: TRADING_CARD_VERSION,
       legalAck: (moduleConfig("exchange") as any)?.legalAck ?? null,
+      // L9: the library-credit sale card, surfaced beside the trading card —
+      // both are "sell things for money" decisions, one admin surface.
+      creditSale: {
+        open: creditSaleOpen(),
+        cardVersion: LIBRARY_CREDIT_CARD_VERSION,
+        ack: (moduleConfig("library") as any)?.creditSaleAck ?? null,
+        libraryOn: effectiveLifecycle("library") !== "off",
+      },
       mintCapPerCycle: numberVar("ledger.admin_mint_cycle_cap"),
       stripeConfigured: stripeConfigured(),
     });

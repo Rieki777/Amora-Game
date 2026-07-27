@@ -132,6 +132,20 @@ them admin-only first. Funds-bearing modules (stays, exchange) refuse while
 a shared password is the only admin credential — bootstrap per-admin
 identities first.
 
+### Selling library credits (`library.creditSaleEnabled`) — opt-in, off forever by default
+
+By default a library credit is backed by a physical item on the shelf and
+can never be bought. Opening sales (Admin → Exchange, the L9 caution card)
+makes it purchasable for fiat like any credit token — backed by money
+instead of an item, indistinguishable from earned credits after the sale.
+The card states the risk: oversell against the shelves and every credit's
+promise weakens. Swapping stays sealed regardless — this card opens the
+shop, never the market. The ledger keeps the two provenances separate
+forever (`sys:library-mint` = shelf-backed intake, `sys:mint` = sold
+stock), and revoking the card refuses the next sale, not the next deploy.
+Prepaid credits can be a regulated product where you operate — ask a
+lawyer first.
+
 ### Token-for-token swapping (`exchange.tradingEnabled`) — opt-in, off forever by default
 
 Enabling the exchange module gives you a **shop**: members buy listed tokens

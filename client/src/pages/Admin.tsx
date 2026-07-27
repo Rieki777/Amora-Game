@@ -3251,6 +3251,72 @@ function ExchangeAdminTab({ password }: { password: string }) {
         )}
       </div>
 
+      {/* L9: the library-credit sale card. Selling a shelf-backed credit
+          changes what the token IS, so it opens like trading opened —
+          read here, accepted by a named admin, stamped by the server. */}
+      {data?.creditSale?.libraryOn && (
+        <div className={`rounded-xl border p-5 ${data.creditSale.open ? "border-[#2D5A5A]/30 bg-[#2D5A5A]/5" : "border-amber-200 bg-amber-50/50"}`}>
+          <h3 className="font-semibold text-gray-900 mb-1">
+            Selling library credits is {data.creditSale.open ? "OPEN" : "CLOSED"}
+          </h3>
+          {data.creditSale.open ? (
+            <>
+              <p className="text-xs text-gray-500 mb-3">
+                Library credits can be listed and sold for fiat like any credit token.
+                Accepted {data.creditSale.ack?.acceptedAt ? new Date(data.creditSale.ack.acceptedAt).toLocaleDateString() : "—"} by{" "}
+                {data.creditSale.ack?.acceptedBy ?? "—"} (card {data.creditSale.ack?.cardVersion}). Swapping stays sealed regardless.
+              </p>
+              <button
+                onClick={async () => {
+                  if (!window.confirm("Close credit sales? Existing holders keep every credit; the listing is refused from the next sale on.")) return;
+                  const d = await call("/admin/modules/library/config", { config: { creditSaleEnabled: false } }, "PUT");
+                  if (d) { toast.success("Credit sales closed"); load(); }
+                }}
+                className="text-sm text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-1.5 font-medium"
+              >
+                Close credit sales
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-gray-500 mb-2">
+                Before you open this, read what it changes (card {data.creditSale.cardVersion}):
+              </p>
+              <ul className="text-xs text-gray-600 space-y-1.5 mb-3 list-disc pl-4">
+                <li>
+                  Today every library credit is backed by a physical item someone brought
+                  to the shelf. A SOLD credit is backed by money instead — and after the
+                  sale, the two are indistinguishable claims on the same shelves.
+                </li>
+                <li>
+                  If more credits circulate than the shelves can honor, the promise
+                  behind every credit — including the earned ones — weakens. Stock
+                  the treasury conservatively and watch the ledger's two provenances
+                  (sys:library-mint = shelf-backed intake; sys:mint = sold stock).
+                </li>
+                <li>
+                  Prepaid credits can be a regulated product (gift-card and escheatment
+                  law in some places). This is the point to ask a lawyer, not after.
+                </li>
+                <li>Fiat still flows IN only, and credits still never swap — this card opens the shop, never the market.</li>
+              </ul>
+              <button
+                onClick={async () => {
+                  if (!window.confirm(`Accept caution card ${data.creditSale.cardVersion} and open library-credit sales? Your name and the time are recorded.`)) return;
+                  const d = await call("/admin/modules/library/config", {
+                    config: { creditSaleEnabled: true, creditSaleAck: { cardVersion: data.creditSale.cardVersion } },
+                  }, "PUT");
+                  if (d) { toast.success("Credit sales open — list and price library-credit below"); load(); }
+                }}
+                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+              >
+                Accept and open credit sales
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Listings */}
       <div className="bg-white border border-gray-100 rounded-xl p-5">
         <h3 className="font-semibold text-gray-900 mb-3">Listings</h3>
