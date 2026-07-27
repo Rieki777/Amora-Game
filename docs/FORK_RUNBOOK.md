@@ -117,12 +117,41 @@ shows conservation at zero for every token.
   `gunzip -c dump.sql.gz | mysql <target-url>` → point `DATABASE_URL` at the
   target. Boot migrations and invariants verify the rest.
 
+## Turning modules on
+
+Everything ships OFF. To open them all at once (dependency order handled,
+each surface verified afterwards):
+
+```bash
+node scripts/enable-all-modules.mjs --base https://your-village.example --email founder@example.com --password '…'
+```
+
+`--dry` reports what would change without changing it; `--preview` opens
+them admin-only first. Funds-bearing modules (stays, exchange) refuse while
+a shared password is the only admin credential — bootstrap per-admin
+identities first.
+
 ## Smoke test after provisioning
 
-**The loop:** `/health` → ok (and reports the build marker); register →
-claim → submit → consent (admin) → gratitude send → wall shows it;
-`/api/season` shows the seeded season; admin Modules tab lists everything
-OFF.
+**Automated (47 checks across every module):**
+
+```bash
+node scripts/smoke-all-modules.mjs --base https://your-village.example --email founder@example.com --password '…'
+```
+
+It registers throwaway members and walks the real loop: quest claim →
+submit → consent → gratitude → forum → feed heart → tools → badges (incl.
+the earned engine) → library intake/loan/settle with escrow reconciliation
+→ stays pricing/purchase/activation/nightly posting → exchange firewalls,
+pricing, stocking → health regen + sparse-data honesty → automation
+ingestion + the honest 503 without an API key → exit enumeration → the
+command centre → and finishes by asserting per-token conservation. Run it
+against a fresh deployment; every line should be a ✓.
+
+**The loop, by hand:** `/health` → ok (and reports the build marker);
+register → claim → submit → consent (admin) → gratitude send → wall shows
+it; `/api/season` shows the seeded season; admin Modules tab lists
+everything OFF.
 
 **The postures** (each one is a thing that has silently broken before):
 

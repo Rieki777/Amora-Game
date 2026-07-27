@@ -1,0 +1,168 @@
+﻿/**
+ * Exercise every enabled module end-to-end as real users against the local
+ * production build. Temporary check script; deleted after the run.
+ */
+const BASE = (process.argv.includes("--base") ? process.argv[process.argv.indexOf("--base") + 1] : "http://localhost:3901").replace(/\/$/, "");
+const FOUNDER_EMAIL = process.argv.includes("--email") ? process.argv[process.argv.indexOf("--email") + 1] : "steward@village.test";
+const FOUNDER_PASSWORD = process.argv.includes("--password") ? process.argv[process.argv.indexOf("--password") + 1] : "LocalCheck123!";
+const results = [];
+let fails = 0;
+
+async function api(method, path, body, token) {
+  const res = await fetch(BASE + path, {
+    method,
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch { json = text; }
+  return { status: res.status, json };
+}
+function check(name, ok, detail = "") {
+  results.push(`${ok ? "  âœ“" : "  âœ—"} ${name}${ok ? "" : `  â† ${detail}`}`);
+  if (!ok) fails += 1;
+}
+
+const founder = (await api("POST", "/api/auth/login", { email: FOUNDER_EMAIL, password: FOUNDER_PASSWORD })).json.token;
+
+// Two ordinary members (unique per run so reruns never collide).
+const RUN = Date.now().toString(36);
+const alice = await api("POST", "/api/auth/register", { email: `alice-${RUN}@village.test`, password: "Member123!", name: "Alice Gardener", paths: ["resident"] });
+const bob = await api("POST", "/api/auth/register", { email: `bob-${RUN}@village.test`, password: "Member123!", name: "Bob Builder", paths: ["steward"] });
+const aT = alice.json.token, bT = bob.json.token;
+const aId = alice.json.user.id, bId = bob.json.user.id;
+check("register two members", alice.status === 200 && bob.status === 200);
+
+console.log("\nâ”€â”€ QUESTS + GRATITUDE (core loop) â”€â”€");
+const quests = await api("GET", "/api/quests", undefined, aT);
+const q = (Array.isArray(quests.json) ? quests.json : quests.json.quests).find((x) => !x.minStage && !x.requiresRole);
+const claim = await api("POST", `/api/game/quests/${q.id}/claim`, {}, aT);
+check("claim a quest", claim.status === 200, `${claim.status} ${JSON.stringify(claim.json).slice(0,120)}`);
+await api("POST", `/api/game/quests/${q.id}/submit`, { note: "Planted the beds." }, aT);
+// Consent inside what the board advertises â€” the range IS the contract.
+const advertised = Number(String(q.gratitude).match(/\d+/)?.[0] ?? 25);
+const consent = await api("POST", `/api/admin/quest-claims/${claim.json.id}/consent`, { approve: true, amount: advertised }, founder);
+check("admin consent releases value", consent.status === 200, `${consent.status} ${JSON.stringify(consent.json).slice(0,140)}`);
+const grat = await api("POST", "/api/game/gratitude/send", { toEmail: `bob-${RUN}@village.test`, amount: 5, message: "Thanks for the fence" }, aT);
+check("gratitude send", grat.status === 200, `${grat.status} ${JSON.stringify(grat.json).slice(0,120)}`);
+
+console.log("\nâ”€â”€ MAP â”€â”€");
+const map = await api("GET", "/api/map", undefined, aT);
+check("map returns circles + roles", map.status === 200 && (map.json.roles?.length ?? 0) > 0);
+const concierge = await api("POST", "/api/assistant/coordinate", { query: "I want to help with gardens and permaculture" }, aT);
+check("concierge routes deterministically", concierge.status === 200 && concierge.json.method === "deterministic", `${concierge.status} ${concierge.json?.method}`);
+
+console.log("\nâ”€â”€ FORUM + FEED â”€â”€");
+await api("PUT", `/api/admin/players/${aId}/stage`, { stageId: "member" }, founder);
+await api("PUT", `/api/admin/players/${bId}/stage`, { stageId: "co-creator" }, founder);
+const thread = await api("POST", "/api/forum/threads", { category: "village-life", title: "Sunday harvest", body: "Who is in for the harvest?", tags: ["harvest"] }, aT);
+check("start a thread", thread.status === 200, `${thread.status} ${JSON.stringify(thread.json).slice(0,120)}`);
+const reply = await api("POST", `/api/forum/threads/${thread.json.id}/replies`, { body: "I'm in." }, bT);
+check("reply to a thread", reply.status === 200);
+const micro = await api("POST", "/api/forum/threads", { category: "village-life", kind: "post", body: "The papayas are ripe!" }, bT);
+const heart = await api("POST", `/api/feed/threads/${micro.json.id}/heart`, {}, aT);
+check("heart moves real budget", heart.status === 200 && heart.json.heartCount === 1, `${heart.status}`);
+const feed = await api("GET", "/api/feed", undefined, aT);
+check("feed shows posts + system items", feed.status === 200 && feed.json.items.length > 0);
+
+console.log("\nâ”€â”€ TOOLS â”€â”€");
+const tool = await api("POST", "/api/admin/tools", { name: `Village Chat ${RUN}`, purpose: "Where we talk", url: "https://example.org/chat", category: "communication", visibility: "public" }, founder);
+check("add a tool", tool.status === 200, `${tool.status} ${JSON.stringify(tool.json).slice(0,120)}`);
+check("tool visible publicly", (await api("GET", "/api/tools")).json.tools.some(t => t.name === `Village Chat ${RUN}`));
+
+console.log("\nâ”€â”€ BADGES â”€â”€");
+const selfB = await api("POST", "/api/admin/badges", { name: `Composter ${RUN}`, kind: "self", description: "I compost" }, founder);
+const earnedB = await api("POST", "/api/admin/badges", { name: `Quest Doer ${RUN}`, kind: "earned", rule: { metric: "quests_consented", threshold: 1, stackable: true, maxStack: 5 } }, founder);
+check("create self + earned badges", selfB.status === 200 && earnedB.status === 200, `${selfB.status}/${earnedB.status}`);
+check("member claims a self badge", (await api("POST", `/api/badges/${selfB.json.badge.id}/claim`, {}, aT)).status === 200);
+const evald = await api("POST", "/api/admin/badges/evaluate", {}, founder);
+check("earned engine awards from settled events", evald.status === 200 && evald.json.newTiers.length > 0, JSON.stringify(evald.json).slice(0,150));
+check("skills declare + dedupe", (await api("POST", "/api/badges/skills", { tag: "carpentry" }, bT)).status === 200);
+
+console.log("\nâ”€â”€ LIBRARY â”€â”€");
+await api("POST", "/api/admin/library/categories", { label: `Garden Tools ${RUN}` }, founder);
+const intake = await api("POST", "/api/admin/library/intake", { name: `Wheelbarrow ${RUN}`, appraisal: 100, donorUserId: aId, categoryId: null }, founder);
+check("intake awards credits", intake.status === 200 && intake.json.award === 75, `${intake.status} ${JSON.stringify(intake.json)}`);
+const libItems = (await api("GET", "/api/library", undefined, aT)).json.items;
+const barrow = libItems.find(i => i.name === `Wheelbarrow ${RUN}`);
+const reserve = await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, aT);
+check("reserve locks escrow", reserve.status === 200 && reserve.json.escrow === 25, `${reserve.status} ${JSON.stringify(reserve.json)}`);
+await api("POST", `/api/admin/library/loans/${reserve.json.loanId}/pickup`, {}, founder);
+await api("POST", `/api/library/loans/${reserve.json.loanId}/return`, {}, aT);
+const settle = await api("POST", `/api/admin/library/loans/${reserve.json.loanId}/settle`, { outcome: "closed" }, founder);
+check("settle returns escrow minus wear", settle.status === 200 && settle.json.released === 20, JSON.stringify(settle.json));
+const libAdmin = await api("GET", "/api/admin/library", undefined, founder);
+check("escrow reconciles", libAdmin.json.reconciliation.ok === true, JSON.stringify(libAdmin.json.reconciliation));
+
+console.log("\nâ”€â”€ STAYS â”€â”€");
+const room = await api("POST", "/api/admin/stays/accommodations", { name: `Garden Cabin ${RUN}`, description: "Under the mangoes", capacity: 2 }, founder);
+await api("PUT", `/api/admin/stays/accommodations/${room.json.id}/prices`, { prices: [
+  { tokenType: "stay-credit", audience: "guest", amountMinor: 2 },
+  { tokenType: "stay-credit", audience: "member", amountMinor: 1 },
+  { tokenType: "usd", audience: "guest", amountMinor: 5000 },
+]}, founder);
+const stayReq = await api("POST", "/api/stays/request", { accommodationId: room.json.id, notes: "Arriving Friday" }, bT);
+check("request a stay", stayReq.status === 200, `${stayReq.status}`);
+const manual = await api("POST", "/api/admin/stays/purchases/manual", { userId: bId, accommodationId: room.json.id, nights: 5, amountMinor: 25000 }, founder);
+check("manual payment grants credits", manual.status === 200 && manual.json.creditsGranted === 5, JSON.stringify(manual.json).slice(0,150));
+const activate = await api("POST", `/api/admin/stays/${stayReq.json.id}/activate`, {}, founder);
+check("activation snapshots the rate", activate.status === 200 && activate.json.rateSnapshotCredits === 1, JSON.stringify(activate.json));
+const nights = await api("POST", "/api/admin/stays/post-nights", {}, founder);
+check("nightly posting runs", nights.status === 200, JSON.stringify(nights.json));
+check("card checkout refuses honestly without Stripe", (await api("POST", "/api/stays/checkout", { accommodationId: room.json.id, nights: 2 }, bT)).status === 503);
+
+console.log("\nâ”€â”€ EXCHANGE â”€â”€");
+await api("POST", "/api/admin/tokens", { slug: `village-credit-${RUN}`, name: `Village Credits ${RUN}`, kind: "credit", transferable: false }, founder);
+check("recognition refuses listing", (await api("PUT", "/api/admin/exchange/tokens/gratitude", { purchasable: true }, founder)).status === 409);
+check("library-credit never lists", (await api("PUT", "/api/admin/exchange/tokens/library-credit", { purchasable: true }, founder)).status === 409);
+check("stay-credit blocked (one seller)", (await api("PUT", "/api/admin/exchange/tokens/stay-credit", { purchasable: true }, founder)).status === 409);
+const VC = `village-credit-${RUN}`;
+check("list a plain credit token", (await api("PUT", `/api/admin/exchange/tokens/${VC}`, { purchasable: true }, founder)).status === 200);
+check("price needs a note", (await api("POST", `/api/admin/exchange/tokens/${VC}/price`, { priceMinor: 500 }, founder)).status === 409);
+check("post a price with a note", (await api("POST", `/api/admin/exchange/tokens/${VC}/price`, { priceMinor: 500, note: "Opening price $5" }, founder)).status === 200);
+const stock = await api("POST", "/api/admin/exchange/stock", { tokenSlug: VC, amount: 200 }, founder);
+check("stock the treasury", stock.status === 200 && stock.json.treasuryBalance === 200, JSON.stringify(stock.json));
+const market = await api("GET", "/api/exchange", undefined, bT);
+check("market lists with price + stock", market.json.listings.some(l => l.slug === VC && l.inStock && l.priceMinor === 500), JSON.stringify(market.json.listings));
+check("swap answers 501 (v2 contract)", (await api("POST", "/api/exchange/swap", {}, bT)).status === 501);
+
+console.log("\nâ”€â”€ HEALTH â”€â”€");
+const regen = await api("POST", "/api/admin/health/regen", { metricKey: "trees_planted", value: 1400, note: "Reforestation sweep" }, founder);
+check("record regen entry", regen.status === 200, `${regen.status}`);
+const summary = await api("GET", "/api/health/summary");
+check("health summary is honest about sparse data", summary.status === 200 && summary.json.trendsUnlocked === false, JSON.stringify({ l: summary.json.lunationsCollected, t: summary.json.trendsUnlocked }));
+check("regen totals public", (await api("GET", "/api/health/regen")).json.totals.trees_planted.total >= 1400);
+
+console.log("\nâ”€â”€ AUTOMATION â”€â”€");
+const vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:09.000\nWelcome to the circle.\n\n00:01:00.000 --> 00:01:10.000\nThe founders circle should repair the water pump.";
+const rec = await api("POST", "/api/admin/recordings", { title: `Circle Call ${RUN}`, transcript: vtt }, founder);
+check("ingest recording + transcript", rec.status === 200 && rec.json.segments === 2, JSON.stringify(rec.json).slice(0,120));
+check("synthesis refuses honestly without a key", (await api("POST", `/api/admin/recordings/${rec.json.recording.id}/synthesize`, {}, founder)).status === 503);
+check("members never see the admin pipeline", (await api("GET", "/api/admin/recordings", undefined, aT)).status === 401);
+
+console.log("\nâ”€â”€ EXIT (F12) â”€â”€");
+check("exit policy is published", (await api("GET", "/api/exit-policy")).json.policy.voluntary.noticePeriodDays > 0);
+const exitOpen = await api("POST", "/api/profile/request-exit", { password: "Member123!" }, bT);
+check("member opens own departure", exitOpen.status === 200, `${exitOpen.status} ${JSON.stringify(exitOpen.json).slice(0,120)}`);
+const resolveBlocked = await api("POST", `/api/admin/exits/${exitOpen.json.exit.id}/resolve`, {}, founder);
+check("resolve refuses with blocking domains named", resolveBlocked.status === 409 && resolveBlocked.json.blocking.length > 0, JSON.stringify(resolveBlocked.json).slice(0,200));
+await api("POST", `/api/admin/exits/${exitOpen.json.exit.id}/cancel`, {}, founder);
+
+console.log("\nâ”€â”€ COMMAND CENTRE + PLATFORM â”€â”€");
+const cc = await api("GET", "/api/admin/command-centre", undefined, founder);
+check("command centre aggregates", cc.status === 200 && Array.isArray(cc.json.modules), `${cc.status}`);
+check("ledger invariants green", cc.json.reconciliation.invariants.ok === true, JSON.stringify(cc.json.reconciliation.invariants.problems));
+const info = await api("GET", "/api/platform/info");
+check("platform handshake", info.status === 200 && info.json.modules.length === 14, `${info.json.modules?.length}`);
+
+console.log("\nâ”€â”€ ECONOMY CLOSING ASSERTION â”€â”€");
+const rec2 = await api("GET", "/api/admin/ledger/reconciliation", undefined, founder);
+check("conservation holds across every token", rec2.json.invariants.ok === true, JSON.stringify(rec2.json.invariants.problems));
+
+console.log("\n" + results.join("\n"));
+console.log(`\n${fails === 0 ? "ALL GREEN" : fails + " FAILURE(S)"} â€” ${results.length} checks\n`);
+process.exit(fails === 0 ? 0 : 1);
+
+
+
