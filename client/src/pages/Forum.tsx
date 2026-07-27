@@ -165,6 +165,11 @@ function ThreadView({ id }: { id: string }) {
   const [outcome, setOutcome] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  // F1: which post is open for editing ("thread" or a reply id), and its
+  // working text. One at a time — an editor open on six posts at once is
+  // how someone saves the wrong one.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
 
   const load = () => {
     fetch(`/api/forum/threads/${id}`, { headers: headers() })
@@ -191,6 +196,24 @@ function ThreadView({ id }: { id: string }) {
         setStatus("Done.");
         setReply("");
         setOutcome("");
+        load();
+      })
+      .catch((e) => setStatus(e.message))
+      .finally(() => setBusy(false));
+  };
+
+  const saveEdit = (kind: "threads" | "replies", postId: string) => {
+    if (busy) return;
+    setBusy(true);
+    setStatus("");
+    fetch(`/api/forum/${kind}/${postId}`, {
+      method: "PATCH", headers: headers(), body: JSON.stringify({ body: draft }),
+    })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Could not save that edit");
+        setEditing(null);
+        setDraft("");
         load();
       })
       .catch((e) => setStatus(e.message))
@@ -231,7 +254,43 @@ function ThreadView({ id }: { id: string }) {
               {" · "}{new Date(thread.createdAt).toLocaleString()}
             </p>
             {thread.imageUrl && <img src={thread.imageUrl} alt="" className="rounded-xl mb-4 max-h-80 object-cover" />}
-            <p className="text-sm text-foreground whitespace-pre-wrap">{thread.body}</p>
+            {/* F1: edit your own words. The marker below is public and
+                permanent — see the PATCH route's rule 2. */}
+            {editing === "thread" ? (
+              <div className="space-y-2">
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  rows={6}
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => saveEdit("threads", thread.id)}
+                    disabled={!draft.trim()}
+                    className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+                  >
+                    Save edit
+                  </button>
+                  <button onClick={() => setEditing(null)} className="text-sm text-muted-foreground px-3">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-foreground whitespace-pre-wrap">{thread.body}</p>
+            )}
+            {thread.editedAt && !editing && (
+              <p className="text-[11px] text-muted-foreground mt-1.5 italic">
+                edited {new Date(thread.editedAt).toLocaleString()}
+              </p>
+            )}
+            {user?.id === thread.author.id && !thread.lockedAt && editing !== "thread" && (
+              <button
+                onClick={() => { setEditing("thread"); setDraft(thread.body); }}
+                className="text-xs text-muted-foreground hover:text-teal-deep mt-2"
+              >
+                Edit
+              </button>
+            )}
             {(thread.tags ?? []).length > 0 && (
               <div className="flex gap-1.5 mt-3">
                 {thread.tags.map((t: string) => (
@@ -265,7 +324,43 @@ function ThreadView({ id }: { id: string }) {
                   <BylineChips userId={r.author.id} />
                   {" · "}{new Date(r.createdAt).toLocaleString()}
                 </p>
-                <p className="text-sm text-foreground whitespace-pre-wrap">{r.body}</p>
+                {editing === r.id ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      rows={4}
+                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => saveEdit("replies", r.id)}
+                        disabled={!draft.trim()}
+                        className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                      >
+                        Save edit
+                      </button>
+                      <button onClick={() => setEditing(null)} className="text-sm text-muted-foreground px-2">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-foreground whitespace-pre-wrap">{r.body}</p>
+                )}
+                <div className="flex items-center gap-3 mt-1">
+                  {r.editedAt && (
+                    <span className="text-[11px] text-muted-foreground italic">
+                      edited {new Date(r.editedAt).toLocaleString()}
+                    </span>
+                  )}
+                  {user?.id === r.author.id && !r.hidden && !thread.lockedAt && editing !== r.id && (
+                    <button
+                      onClick={() => { setEditing(r.id); setDraft(r.body); }}
+                      className="text-xs text-muted-foreground hover:text-teal-deep"
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

@@ -150,7 +150,7 @@ import {
   type NotifyDeps,
 } from "./lib/notify";
 import { registerJob, startScheduler } from "./lib/scheduler";
-import { onReplyCreated, onThreadCreated, subscribe } from "./lib/forum";
+import { onReplyCreated, onThreadCreated, processMentions, subscribe } from "./lib/forum";
 import {
   conciergeLog,
   contactCountsToday,
@@ -3126,7 +3126,7 @@ async function startServer() {
   async function forumThreadById(id: string): Promise<any | null> {
     const [rows] = await getPool().query<any[]>(
       "SELECT id, category, author_id, title, body, kind, meta, image_url, heart_count, reply_count, " +
-        "last_reply_at, pinned_at, locked_at, hidden_at, hidden_by, hidden_reason, created_at " +
+        "last_reply_at, pinned_at, locked_at, hidden_at, hidden_by, hidden_reason, created_at, edited_at, edit_count " +
         "FROM forum_threads WHERE id = ?",
       [id],
     );
@@ -3143,6 +3143,9 @@ async function startServer() {
       lockedAt: r.locked_at ? new Date(r.locked_at).toISOString() : null,
       hiddenAt: r.hidden_at ? new Date(r.hidden_at).toISOString() : null,
       createdAt: new Date(r.created_at).toISOString(),
+      // F1: the edit marker is public, always — see the PATCH route's rule 2.
+      editedAt: r.edited_at ? new Date(r.edited_at).toISOString() : null,
+      editCount: Number(r.edit_count ?? 0),
     };
   }
 
@@ -3259,7 +3262,7 @@ async function startServer() {
     // is gone, and the difference matters to whoever bookmarked it.
     if (thread.hiddenAt && !mod) return res.status(410).json({ error: "This thread was hidden by moderation" });
     const [replyRows] = await getPool().query<any[]>(
-      "SELECT r.id, r.author_id, r.parent_reply_id, r.body, r.hidden_at, r.created_at, u.name AS author_name, u.handle AS author_handle " +
+      "SELECT r.id, r.author_id, r.parent_reply_id, r.body, r.hidden_at, r.created_at, r.edited_at, u.name AS author_name, u.handle AS author_handle " +
         "FROM forum_replies r LEFT JOIN users u ON u.id = r.author_id WHERE r.thread_id = ? ORDER BY r.created_at, r.id",
       [req.params.id],
     );
@@ -3278,6 +3281,7 @@ async function startServer() {
           hidden: !!r.hidden_at,
           author: { id: r.author_id, name: firstName(r.author_name ?? "Member"), handle: r.author_handle },
           createdAt: new Date(r.created_at).toISOString(),
+          editedAt: r.edited_at ? new Date(r.edited_at).toISOString() : null,
         })),
     });
   });
@@ -3322,6 +3326,72 @@ async function startServer() {
     );
     await onReplyCreated(forumDeps, thread, reply, user, parentAuthorId);
     res.json(reply);
+  });
+
+  /**
+   * F1 (Wave 1): edit your own post.
+   *
+   * Three rules, each answering a way editing goes wrong in communities:
+   *
+   *  1. AUTHORS ONLY. A moderator rewriting someone's words is a different
+   *     and much worse power than hiding them, and `hide` already exists
+   *     for the moderation case. Not even admins pass this one — the check
+   *     is authorship, not privilege.
+   *  2. THE EDIT IS VISIBLE. `edited_at` renders publicly, forever. A
+   *     village that cannot see a post changed after people replied to it
+   *     cannot trust its own record — and silent editing is how a thread
+   *     gets weaponised against the people who answered it.
+   *  3. NEW MENTIONS ONLY. forum_mentions has been the edit-idempotency
+   *     ledger since 0019, built for exactly this: re-parsing notifies
+   *     handles that were not there before, and removing a mention never
+   *     retracts a delivered notification. Editing cannot become a way to
+   *     ping someone repeatedly.
+   *
+   * A locked thread refuses edits like it refuses replies: a lock that the
+   * author can edit around is theater.
+   */
+  app.patch("/api/forum/:kind(threads|replies)/:id", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const isThread = req.params.kind === "threads";
+    const table = isThread ? "forum_threads" : "forum_replies";
+    const [[row]] = await getPool().query<any[]>(`SELECT * FROM ${table} WHERE id = ?`, [req.params.id]);
+    if (!row || row.hidden_at) return res.status(404).json({ error: "Not found" });
+    if (String(row.author_id) !== user.id) {
+      return res.status(403).json({ error: "Only the author edits their own words — moderators hide, they do not rewrite" });
+    }
+    const thread = isThread ? row : (await forumThreadById(String(row.thread_id)));
+    if (!thread) return res.status(404).json({ error: "Thread not found" });
+    if (thread.lockedAt ?? thread.locked_at) return res.status(423).json({ error: "This thread is locked" });
+
+    const body = String(req.body?.body ?? "").trim();
+    if (!body) return res.status(400).json({ error: "An empty post is a deletion — ask a moderator to hide it instead" });
+    const title = isThread && typeof req.body?.title === "string" ? req.body.title.trim().slice(0, 200) : null;
+    if (await overLimit(`forum-edit:${user.id}`, 20, 10 * 60 * 1000)) {
+      return res.status(429).json({ error: "That is a lot of editing — take a breath" });
+    }
+
+    await getPool().query(
+      isThread && title
+        ? `UPDATE ${table} SET body = ?, title = ?, edited_at = NOW(), edit_count = edit_count + 1 WHERE id = ?`
+        : `UPDATE ${table} SET body = ?, edited_at = NOW(), edit_count = edit_count + 1 WHERE id = ?`,
+      isThread && title ? [body.slice(0, 10000), title, row.id] : [body.slice(0, 10000), row.id],
+    );
+
+    // Only handles that were NOT already notified for this post get reached.
+    await processMentions(forumDeps, {
+      body,
+      sourceType: isThread ? "thread" : "reply",
+      sourceId: String(row.id),
+      threadId: String(isThread ? row.id : row.thread_id),
+      threadTitle: String((thread as any).title ?? "a thread"),
+      actor: user,
+    });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `forum:edit:${req.params.kind}:${row.id}`,
+      actorUserId: user.id, entityType: "forum", entityRef: String(row.id), audience: "admin",
+    });
+    res.json({ success: true, editedAt: new Date().toISOString(), editCount: Number(row.edit_count ?? 0) + 1 });
   });
 
   app.post("/api/forum/threads/:id/subscribe", async (req, res) => {

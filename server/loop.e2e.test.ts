@@ -1337,6 +1337,41 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const tagged = await api("GET", "/api/forum/threads?tag=meals");
     expect(tagged.json.some((t: any) => t.id === threadId)).toBe(true);
 
+    // ── F1 (Wave 1): editing, and the three rules that make it safe. ──
+    const editable = await api("POST", "/api/forum/threads", {
+      category: "village-life", title: "A post to edit", body: "First words.",
+    }, doerToken);
+    const editId = editable.json.id;
+
+    // Rule 1: authors only. A moderator may HIDE, never rewrite — and the
+    // founder is an admin, so this proves privilege does not pass either.
+    const notMine = await api("PATCH", `/api/forum/threads/${editId}`, { body: "Rewritten by someone else." }, founderToken);
+    expect(notMine.status).toBe(403);
+    expect(notMine.json.error).toContain("author");
+
+    // The author edits, and the marker is public.
+    const edited = await api("PATCH", `/api/forum/threads/${editId}`, { body: "Second words, clearer." }, doerToken);
+    expect(edited.json.success).toBe(true);
+    const afterEdit = await api("GET", `/api/forum/threads/${editId}`);
+    expect(afterEdit.json.body).toBe("Second words, clearer.");
+    expect(afterEdit.json.editedAt).toBeTruthy();
+    expect(afterEdit.json.editCount).toBe(1);
+
+    // Rule 3: only NEW mentions notify. forum_mentions is the ledger, so
+    // an edit that re-states an existing @handle writes no second row.
+    await api("PATCH", `/api/forum/threads/${editId}`, { body: "Third words, mentioning nobody again." }, doerToken);
+    const [mentionRows] = await testDb.conn.query<any[]>(
+      "SELECT COUNT(*) AS n FROM forum_mentions WHERE source_id = ?", [editId],
+    );
+    expect(Number(mentionRows[0].n)).toBe(0);
+    expect((await api("GET", `/api/forum/threads/${editId}`)).json.editCount).toBe(2);
+
+    // An empty body is a deletion in disguise; hiding is the honest path.
+    expect((await api("PATCH", `/api/forum/threads/${editId}`, { body: "   " }, doerToken)).status).toBe(400);
+
+    // A locked thread refuses edits exactly as it refuses replies.
+    expect((await api("PATCH", `/api/forum/threads/${threadId}`, { body: "sneaking in" }, doerToken)).status).toBe(423);
+
     await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
     expect((await api("GET", "/api/forum/threads")).status).toBe(404);
   });
