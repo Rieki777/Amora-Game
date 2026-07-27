@@ -216,7 +216,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-28-s66-launch-round";
+const BUILD_MARKER = "2026-07-28-s70-commerce-knowledge";
 
 /**
  * The legal caution card a deployment must accept before internal trading
