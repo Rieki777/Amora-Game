@@ -131,6 +131,35 @@ them admin-only first. Funds-bearing modules (stays, exchange) refuse while
 a shared password is the only admin credential — bootstrap per-admin
 identities first.
 
+### Token-for-token swapping (`exchange.tradingEnabled`) — opt-in, off forever by default
+
+Enabling the exchange module gives you a **shop**: members buy listed tokens
+with a card. It does not give you a **market**. Letting members trade one
+village token for another is a second, separate switch, and it stays off
+until a named admin accepts a version-stamped caution card in Admin →
+Exchange. The server records who accepted it and when, refuses an acceptance
+of any card but the current one, and refuses to boot with trading on while a
+shared password is your only admin credential.
+
+Before you flip it, know what you are taking on:
+
+| Property | What it means for your village |
+|---|---|
+| Regulated activity | Members trading tokens at posted prices can be a regulated activity where you operate. This is the point to ask a lawyer. |
+| Fiat is one-way | Tokens never convert back to money. There is no path out and adding one is not a setting. |
+| Faucet tokens can never swap | Anything a faucet has paid a member — recognition, quest rewards, hand-mints — is permanently unswappable, however it was earned. It can still be bought. |
+| Swaps are final | No reversal, no dispute queue, no chargeback. The only way back is swapping again at the posted prices. |
+| Caps are fail-closed | Every open token needs a per-cycle and a per-member-per-cycle cap. **0 means zero, not unlimited.** Set both before you announce anything. |
+| Card-bought tokens are held | `exchange.swap_fiat_hold_days` (default 45) freezes recently purchased tokens from swapping so a chargeback still finds them unconverted. |
+| Halt is one click | Any token can be paused instantly. Resuming requires a written sentence, recorded in the audit log. |
+
+Practically: most villages should leave this off. It exists for deployments
+that have two or more genuinely distinct credit tokens (say, a lodging credit
+and a workshop credit) which members have a real reason to move between. If
+fewer than two of your tokens pass the faucet firewall, there is nothing to
+turn on — the Exchange admin tab will tell you which tokens are refused and
+why.
+
 ## Smoke test after provisioning
 
 **Automated (47 checks across every module):**

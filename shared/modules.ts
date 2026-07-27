@@ -280,21 +280,32 @@ export const MODULES: ModuleDef[] = [
       "Buy the village's own platform tokens for fiat, out of a stocked treasury — buy-only in v1. Recognition and Hypha-governed tokens can never be listed; a token another module sells can't be listed twice. Funds-bearing — read the legal card before enabling.",
     requires: [],
     recommends: [],
-    capabilities: ["exchange.buy", "exchange.manage"],
+    capabilities: ["exchange.buy", "exchange.swap", "exchange.manage"],
     variableKeys: [
       "exchange.price_change_max_pct",
+      "exchange.swap_spread_bps",
+      "exchange.swap_fiat_hold_days",
+      "exchange.swap_max_receive_per_order",
       "payments.purchase_limit_per_order_usd",
       "payments.purchase_limit_30d_usd",
       "payments.purchase_limit_annual_usd",
     ],
     apiPrefixes: ["/api/exchange"],
     legalReview: true,
-    // Swapping is a v2 engine; the CONTRACT ships now so forks configure
-    // against a stable shape. true answers 501 until the engine exists.
+    // Gate B's opt-in switch. OFF by default, forever: internal trading is
+    // a decision each deployment makes for itself, with its own legal
+    // posture. Turning it on requires accepting the caution card, and the
+    // acceptance is version-stamped so amended terms must be re-read.
     defaultConfig: { tradingEnabled: false },
     validateConfig: (c: any) => {
       if (!c || typeof c !== "object") return "config must be an object";
       if (typeof c.tradingEnabled !== "boolean") return "tradingEnabled must be true or false";
+      if (c.tradingEnabled) {
+        const ack = c.legalAck;
+        if (!ack || typeof ack !== "object" || !ack.cardVersion || !ack.acceptedBy || !ack.acceptedAt) {
+          return "internal trading requires an accepted legal caution card: legalAck { cardVersion, acceptedBy, acceptedAt }";
+        }
+      }
       return null;
     },
     // openStateCheck attached by the server at boot (needs the pool).

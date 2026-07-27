@@ -3033,6 +3033,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
   const [loading, setLoading] = useState(true);
   const [priceForm, setPriceForm] = useState<Record<string, { usd?: string; note?: string }>>({});
   const [stockForm, setStockForm] = useState({ tokenSlug: "", amount: "" });
+  const [swapForm, setSwapForm] = useState<Record<string, { perCycle?: string; perMember?: string; note?: string }>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -3083,11 +3084,89 @@ function ExchangeAdminTab({ password }: { password: string }) {
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-1">Exchange</h2>
         <p className="text-sm text-gray-500">
-          Buy-only in v1. Recognition and Hypha tokens can never be listed; a
-          token another module sells can't be listed twice. Prices are
-          append-only and bounded per change; stock comes out of the same
-          per-cycle mint cap as hand-mints.
+          Recognition and Hypha tokens can never be listed; a token another
+          module sells can't be listed twice. Prices are append-only and
+          bounded per change; stock comes out of the same per-cycle mint cap
+          as hand-mints. Swapping refuses more still — anything a faucet has
+          paid a member is never swappable, whatever it was earned for.
         </p>
+      </div>
+
+      {/* Gate B's switch. Internal trading is a decision each deployment makes
+          for itself, so the caution card is read HERE, by the steward doing it,
+          and the acceptance is version-stamped by the server. */}
+      <div className={`rounded-xl border p-5 ${data?.tradingEnabled ? "border-[#2D5A5A]/30 bg-[#2D5A5A]/5" : "border-gray-200 bg-gray-50"}`}>
+        <h3 className="font-semibold text-gray-900 mb-1">
+          Token-for-token swapping is {data?.tradingEnabled ? "ON" : "OFF"}
+        </h3>
+        {data?.tradingEnabled ? (
+          <>
+            <p className="text-xs text-gray-500 mb-3">
+              Members can trade one listed token for another at the posted prices,
+              within the caps set per token below. Accepted{" "}
+              {data.legalAck?.acceptedAt ? new Date(data.legalAck.acceptedAt).toLocaleDateString() : "—"} by{" "}
+              {data.legalAck?.acceptedBy ?? "—"} (card {data.legalAck?.cardVersion ?? "—"}).
+            </p>
+            <button
+              onClick={async () => {
+                if (!window.confirm("Turn swapping off? Members keep every token they hold; no new swaps can start.")) return;
+                const d = await call("/admin/modules/exchange/config", { config: { tradingEnabled: false } }, "PUT");
+                if (d) { toast.success("Swapping is off"); load(); }
+              }}
+              className="text-sm text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-1.5 font-medium"
+            >
+              Turn swapping off
+            </button>
+          </>
+        ) : (
+          <>
+            {data?.legalAck?.cardVersion && data.legalAck.cardVersion !== data.legalCardVersion && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
+                Swapping closed itself: this village accepted card {data.legalAck.cardVersion}, and
+                the current one is {data.legalCardVersion}. The terms below were amended — read them
+                again and re-accept to reopen. Nobody's tokens were touched.
+              </p>
+            )}
+            <p className="text-xs text-gray-500 mb-2">
+              Before you turn this on, read what it means (card {data?.legalCardVersion}):
+            </p>
+            <ul className="text-xs text-gray-600 space-y-1.5 mb-3 list-disc pl-4">
+              <li>
+                Members will trade tokens with each other's village at prices your
+                stewards post. Depending on where you operate, that can be a
+                regulated activity — this is the point to ask a lawyer, not after.
+              </li>
+              <li>
+                Tokens never convert back to money here. Fiat comes IN only; the
+                platform has no path out, by design, and adding one is not a setting.
+              </li>
+              <li>
+                Anything a faucet has paid a member — recognition, rewards, minted
+                credits — can never be swapped, whatever else you list.
+              </li>
+              <li>
+                Swaps are final. There is no reversal, no dispute queue, no chargeback;
+                the only way back is swapping again at the posted prices.
+              </li>
+              <li>
+                Every token you open needs a per-cycle cap and a per-member cap. Zero
+                means zero. Set them before you announce this to anyone.
+              </li>
+            </ul>
+            <button
+              onClick={async () => {
+                if (!window.confirm(`Accept caution card ${data?.legalCardVersion} and open token-for-token swapping? Your name and the time are recorded.`)) return;
+                const d = await call("/admin/modules/exchange/config", {
+                  config: { tradingEnabled: true, legalAck: { cardVersion: data?.legalCardVersion } },
+                }, "PUT");
+                if (d) { toast.success("Swapping is on — set caps per token below"); load(); }
+              }}
+              className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+            >
+              Accept and open swapping
+            </button>
+          </>
+        )}
       </div>
 
       {/* Listings */}
@@ -3150,6 +3229,99 @@ function ExchangeAdminTab({ password }: { password: string }) {
                     </button>
                   </div>
                 )}
+                {/* Swapping (v2). Refuses MORE than buying: a token any faucet
+                    has paid a member cannot be swapped, however it was earned. */}
+                {!t.reason && (
+                  <div className="mt-3 border-t border-gray-100 pt-3">
+                    {data?.swapReasons?.[t.slug] ? (
+                      <p className="text-xs text-amber-700">Not swappable — {data.swapReasons[t.slug]}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-end gap-2">
+                          <label className="text-xs text-gray-500">Swapped out / cycle
+                            <input type="number" min={0} className={`${inputCls} w-24 mt-1 block`}
+                              value={swapForm[t.slug]?.perCycle ?? String(s?.maxSwapOutPerCycle ?? 0)}
+                              onChange={(e) => setSwapForm((p) => ({ ...p, [t.slug]: { ...(p[t.slug] ?? {}), perCycle: e.target.value } }))} />
+                          </label>
+                          <label className="text-xs text-gray-500">Per member / cycle
+                            <input type="number" min={0} className={`${inputCls} w-24 mt-1 block`}
+                              value={swapForm[t.slug]?.perMember ?? String(s?.maxSwapOutPerMemberPerCycle ?? 0)}
+                              onChange={(e) => setSwapForm((p) => ({ ...p, [t.slug]: { ...(p[t.slug] ?? {}), perMember: e.target.value } }))} />
+                          </label>
+                          <button
+                            onClick={async () => {
+                              const f = swapForm[t.slug] ?? {};
+                              const d = await call(`/admin/exchange/tokens/${t.slug}`, {
+                                swappable: true,
+                                maxSwapOutPerCycle: Number(f.perCycle ?? s?.maxSwapOutPerCycle ?? 0),
+                                maxSwapOutPerMemberPerCycle: Number(f.perMember ?? s?.maxSwapOutPerMemberPerCycle ?? 0),
+                              }, "PUT");
+                              if (d) { toast.success(s?.swappable ? "Caps saved" : "Swapping opened"); load(); }
+                            }}
+                            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium"
+                          >
+                            {s?.swappable ? "Save caps" : "Open swapping"}
+                          </button>
+                          {s?.swappable && (
+                            <button
+                              onClick={async () => {
+                                const d = await call(`/admin/exchange/tokens/${t.slug}`, { swappable: false }, "PUT");
+                                if (d) { toast.success("Swapping closed"); load(); }
+                              }}
+                              className="text-sm text-gray-600 bg-gray-100 rounded-lg px-3 py-1.5 font-medium"
+                            >
+                              Close swapping
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          0 means ZERO, never unlimited — a cap of 0 keeps this token from being
+                          swapped out at all, even while it is open. The spread the village keeps
+                          on every swap is one setting for all tokens, in basis points: Game
+                          Mechanics → exchange.swap_spread_bps (0 = no spread). Rounding dust
+                          always favours the treasury on top of it.
+                        </p>
+                        {s?.swappable && !s?.swapHaltedAt && (
+                          <div className="flex flex-wrap items-end gap-2">
+                            <input placeholder="Reason (shown to members)" className={`${inputCls} flex-1 min-w-[180px]`}
+                              value={swapForm[t.slug]?.note ?? ""}
+                              onChange={(e) => setSwapForm((p) => ({ ...p, [t.slug]: { ...(p[t.slug] ?? {}), note: e.target.value } }))} />
+                            <button
+                              onClick={async () => {
+                                const d = await call(`/admin/exchange/tokens/${t.slug}/halt`, { reason: swapForm[t.slug]?.note ?? "" });
+                                if (d) { toast.success("Swapping paused"); setSwapForm((p) => ({ ...p, [t.slug]: {} })); load(); }
+                              }}
+                              className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 font-medium"
+                            >
+                              Pause swapping
+                            </button>
+                          </div>
+                        )}
+                        {s?.swapHaltedAt && (
+                          <div className="space-y-2">
+                            <p className="text-xs text-amber-700">
+                              PAUSED{s.swapHaltReason ? ` — ${s.swapHaltReason}` : ""}
+                            </p>
+                            <div className="flex flex-wrap items-end gap-2">
+                              <input placeholder="Why is it safe to resume? (a sentence)" className={`${inputCls} flex-1 min-w-[220px]`}
+                                value={swapForm[t.slug]?.note ?? ""}
+                                onChange={(e) => setSwapForm((p) => ({ ...p, [t.slug]: { ...(p[t.slug] ?? {}), note: e.target.value } }))} />
+                              <button
+                                onClick={async () => {
+                                  const d = await call(`/admin/exchange/tokens/${t.slug}/resume`, { note: swapForm[t.slug]?.note ?? "" });
+                                  if (d) { toast.success("Swapping resumed"); setSwapForm((p) => ({ ...p, [t.slug]: {} })); load(); }
+                                }}
+                                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium"
+                              >
+                                Resume
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -3201,9 +3373,16 @@ function ExchangeAdminTab({ password }: { password: string }) {
                   <td className="py-2 pr-3 text-gray-500">#{o.receipt_no}</td>
                   <td className="py-2 pr-3 text-gray-500">{new Date(o.created_at).toLocaleDateString()}</td>
                   <td className="py-2 pr-3">{o.user_name ?? o.user_id}</td>
-                  <td className="py-2 pr-3">{o.token_slug}</td>
-                  <td className="py-2 pr-3">{o.quantity}</td>
-                  <td className="py-2 pr-3">{money(o.amount_minor)}</td>
+                  <td className="py-2 pr-3">
+                    {o.kind === "swap" ? `${o.pay_token_slug} → ${o.token_slug}` : o.token_slug}
+                  </td>
+                  <td className="py-2 pr-3">
+                    {o.kind === "swap" ? `${o.pay_quantity} → ${o.quantity}` : o.quantity}
+                  </td>
+                  {/* A swap's amount_minor is a VALUATION, not a charge. */}
+                  <td className="py-2 pr-3">
+                    {o.kind === "swap" ? <span className="text-gray-400">{money(o.amount_minor)} of value</span> : money(o.amount_minor)}
+                  </td>
                   <td className={`py-2 pr-3 ${["disputed", "reversed"].includes(o.status) ? "text-red-600 font-semibold" : ""}`}>{o.status}</td>
                 </tr>
               ))}

@@ -183,34 +183,36 @@ async function recomputeBalance(conn: PoolConnection, accountId: string, tokenTy
  * already exist — a typo'd system id is a bug to hear about, not an account
  * to invent.
  */
-export async function postTransfer(pool: Pool, input: TransferInput): Promise<TransferResult> {
+/**
+ * Everything true of a leg BEFORE any transaction opens. Extracted so the
+ * single-leg and paired posters cannot drift apart: one validator, two
+ * callers. Returns null when the leg is postable.
+ */
+function validateLeg(input: TransferInput): { tokenType: string; amount: number } | { error: string } {
   const tokenType = input.tokenType ?? PLATFORM_TOKEN;
   const amount = Math.trunc(Number(input.amount) || 0);
 
-  if (!input.from || !input.to) return { ok: false, duplicate: false, toBalance: 0, error: "from and to accounts are required" };
-  if (input.from === input.to) return { ok: false, duplicate: false, toBalance: 0, error: "an account cannot transfer to itself" };
-  if (amount <= 0) return { ok: false, duplicate: false, toBalance: 0, error: "amount must be a positive integer" };
-  if (!input.idempotencyKey) return { ok: false, duplicate: false, toBalance: 0, error: "idempotencyKey is required" };
+  if (!input.from || !input.to) return { error: "from and to accounts are required" };
+  if (input.from === input.to) return { error: "an account cannot transfer to itself" };
+  if (amount <= 0) return { error: "amount must be a positive integer" };
+  if (!input.idempotencyKey) return { error: "idempotencyKey is required" };
 
   const def = tokenDef(tokenType);
   if (!def) {
     // Fail loud, never coerce: a typo that silently became 'gratitude' would
     // be a mint bug wearing a coercion costume.
-    return {
-      ok: false,
-      duplicate: false,
-      toBalance: 0,
-      error: `unknown token "${tokenType}" — register it in the token registry before posting`,
-    };
+    return { error: `unknown token "${tokenType}" — register it in the token registry before posting` };
   }
   if (def.governance !== "platform") {
-    return {
-      ok: false,
-      duplicate: false,
-      toBalance: 0,
-      error: `${tokenType} is issued on Hypha and only read here; the platform cannot move it`,
-    };
+    return { error: `${tokenType} is issued on Hypha and only read here; the platform cannot move it` };
   }
+  return { tokenType, amount };
+}
+
+export async function postTransfer(pool: Pool, input: TransferInput): Promise<TransferResult> {
+  const checked = validateLeg(input);
+  if ("error" in checked) return { ok: false, duplicate: false, toBalance: 0, error: checked.error };
+  const { tokenType, amount } = checked;
 
   const conn = await pool.getConnection();
   try {
@@ -285,6 +287,210 @@ export async function postTransfer(pool: Pool, input: TransferInput): Promise<Tr
 
     await conn.commit();
     return { ok: true, duplicate: false, toBalance: balances.get(input.to)! };
+  } catch (e) {
+    try { await conn.rollback(); } catch { /* already rolled back */ }
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+// ── The pair: two legs, one transaction (S57) ────────────────────────────────
+
+export interface PairResult {
+  ok: boolean;
+  duplicate: boolean;
+  error?: string;
+  /** "accountId|tokenType" → recomputed balance, for all four touched pairs. */
+  balances: Record<string, number>;
+}
+
+/**
+ * Post EXACTLY TWO transfers in ONE transaction: both, or neither.
+ *
+ * postTransfer owns its own transaction, so two sequential calls can commit
+ * the first leg and fail the second — the member debited and never credited.
+ * A swap is the first operation in this platform where that gap is reachable
+ * by ordinary use, so the gap gets closed rather than documented.
+ *
+ * Fixed at two legs ON PURPOSE. A generic N-leg API is what makes a router
+ * easy to build, and a router is an automated market maker wearing a helper
+ * function. Two legs is a swap; anything longer is a different decision that
+ * deserves its own gate.
+ */
+/**
+ * A veto that runs INSIDE the pair's transaction, after the accounts are
+ * locked and before the rows are written. It exists for limits that live
+ * outside the ledger — per-cycle swap caps, for one — which are otherwise
+ * check-then-act: read the total, decide, and write several awaits later
+ * while a concurrent request reads the same stale total and also decides
+ * yes. Running the check under the same lock that orders the writes makes
+ * the decision and the write one atomic step. Return a member-readable
+ * reason to refuse, or null to proceed.
+ */
+export type PairGuard = (conn: PoolConnection) => Promise<string | null>;
+
+export async function postTransferPair(
+  pool: Pool,
+  legs: [TransferInput, TransferInput],
+  guard?: PairGuard,
+): Promise<PairResult> {
+  // InnoDB may still pick a deadlock victim under real contention even with
+  // perfect lock ordering (the balance recompute reads rows a neighbour is
+  // writing). A rolled-back transaction moved nothing, so retrying is safe
+  // and honest; giving up after three tries keeps a pathological case from
+  // hiding as latency.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await postTransferPairOnce(pool, legs, guard);
+    } catch (e: any) {
+      const retryable = e?.code === "ER_LOCK_DEADLOCK" || e?.code === "ER_LOCK_WAIT_TIMEOUT";
+      if (!retryable || attempt >= 3) throw e;
+      await new Promise((r) => setTimeout(r, 25 * attempt + Math.floor(Math.random() * 25)));
+    }
+  }
+}
+
+async function postTransferPairOnce(
+  pool: Pool,
+  legs: [TransferInput, TransferInput],
+  guard?: PairGuard,
+): Promise<PairResult> {
+  const fail = (error: string): PairResult => ({ ok: false, duplicate: false, error, balances: {} });
+
+  // A pair NEVER creates debt. allowNegative exists for grace nights and
+  // chargebacks — situations where a debt is the truth. A swap that could
+  // overdraft is just a mint with extra steps, so this is a hard error
+  // inside the primitive rather than a rule callers are asked to remember.
+  for (const leg of legs) {
+    if (leg.allowNegative) return fail("allowNegative is illegal in a paired post — a swap may never create debt");
+  }
+  if (legs[0].idempotencyKey === legs[1].idempotencyKey) {
+    return fail("both legs carry the same idempotency key — a pair needs two distinct keys");
+  }
+
+  const checked = legs.map(validateLeg);
+  for (const c of checked) if ("error" in c) return fail(c.error);
+  const [a, b] = checked as [{ tokenType: string; amount: number }, { tokenType: string; amount: number }];
+  const meta = [a, b];
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const touched = Array.from(new Set([legs[0].from, legs[0].to, legs[1].from, legs[1].to]));
+    // ONE sorted lock statement over the deduped union: concurrent swaps
+    // serialize deterministically on sys:treasury instead of deadlocking.
+    //
+    // LOCK FIRST, create second. Materializing member accounts up front
+    // looks harmless but takes a SHARED lock on an already-existing row,
+    // and two transactions that both hold it then both try to upgrade to
+    // the exclusive FOR UPDATE lock deadlock every time. Taking the
+    // exclusive lock first means the hot path never upgrades.
+    const sorted = [...touched].sort();
+    const lockStatement = `SELECT id, faucet FROM ledger_accounts WHERE id IN (${sorted.map(() => "?").join(",")}) ORDER BY id FOR UPDATE`;
+    let [acctRows] = await conn.query<RowDataPacket[]>(lockStatement, sorted);
+    let accounts = new Map(acctRows.map((r) => [String(r.id), { faucet: !!r.faucet }]));
+
+    const missingMembers = touched.filter((a) => !accounts.has(a) && a.startsWith("mem:"));
+    if (missingMembers.length) {
+      // Only a member account may be born here, and only when it truly does
+      // not exist yet — so the shared-lock upgrade never happens on a hot row.
+      for (const acct of missingMembers) {
+        await conn.query(
+          "INSERT IGNORE INTO ledger_accounts (id, kind, user_id, label, faucet) VALUES (?,?,?,?,0)",
+          [acct, "member", acct.slice(4), acct.slice(4)],
+        );
+      }
+      [acctRows] = await conn.query<RowDataPacket[]>(lockStatement, sorted);
+      accounts = new Map(acctRows.map((r) => [String(r.id), { faucet: !!r.faucet }]));
+    }
+    for (const acct of touched) {
+      if (!accounts.has(acct)) {
+        await conn.rollback();
+        return fail(`account "${acct}" does not exist`);
+      }
+    }
+
+    // The accounts are locked now, so any concurrent pair touching the same
+    // treasury row is queued behind this one. A limit checked here sees every
+    // committed neighbour; the same limit checked before this point does not.
+    if (guard) {
+      const refusal = await guard(conn);
+      if (refusal) {
+        await conn.rollback();
+        return fail(refusal);
+      }
+    }
+
+    try {
+      for (let i = 0; i < 2; i++) {
+        await conn.query(
+          "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, source_ref, description, idempotency_key) " +
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+          [
+            `led-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            legs[i].from,
+            legs[i].to,
+            meta[i].tokenType,
+            meta[i].amount,
+            legs[i].source,
+            legs[i].sourceRef ?? null,
+            legs[i].description ?? null,
+            legs[i].idempotencyKey,
+          ],
+        );
+      }
+    } catch (e: any) {
+      await conn.rollback();
+      if (e?.code !== "ER_DUP_ENTRY") throw e;
+      // A clean replay has BOTH keys already present. Exactly one means two
+      // different orders minted the same key — unreachable under a single
+      // transaction, so it is a key-shape bug, and the honest response is to
+      // refuse rather than guess which half is real.
+      const [existing] = await pool.query<RowDataPacket[]>(
+        "SELECT idempotency_key FROM token_ledger WHERE idempotency_key IN (?, ?)",
+        [legs[0].idempotencyKey, legs[1].idempotencyKey],
+      );
+      if (existing.length === 2) return { ok: true, duplicate: true, balances: {} };
+      if (existing.length === 1) {
+        throw new Error(
+          `partial idempotency collision on ${existing[0].idempotency_key} — keys from different orders have merged; refusing to complete`,
+        );
+      }
+      throw e;
+    }
+
+    // Recompute every touched (account, token) cache in a stable order.
+    const pairs = [
+      { acct: legs[0].from, token: meta[0].tokenType },
+      { acct: legs[0].to, token: meta[0].tokenType },
+      { acct: legs[1].from, token: meta[1].tokenType },
+      { acct: legs[1].to, token: meta[1].tokenType },
+    ];
+    const seen = new Set<string>();
+    const balances: Record<string, number> = {};
+    for (const p of pairs.map((p) => ({ ...p, key: `${p.acct}|${p.token}` })).sort((x, y) => x.key.localeCompare(y.key))) {
+      if (seen.has(p.key)) continue;
+      seen.add(p.key);
+      balances[p.key] = await recomputeBalance(conn, p.acct, p.token);
+    }
+
+    // Overdraft-check EVERY non-faucet sender. Either failing rolls both back.
+    for (let i = 0; i < 2; i++) {
+      const sender = legs[i].from;
+      if (accounts.get(sender)?.faucet) continue;
+      const bal = balances[`${sender}|${meta[i].tokenType}`];
+      if (bal < 0) {
+        await conn.rollback();
+        return fail(
+          `insufficient ${meta[i].tokenType}: "${sender}" holds ${bal + meta[i].amount} and cannot overdraft`,
+        );
+      }
+    }
+
+    await conn.commit();
+    return { ok: true, duplicate: false, balances };
   } catch (e) {
     try { await conn.rollback(); } catch { /* already rolled back */ }
     throw e;

@@ -5,6 +5,7 @@
  */
 import Layout from "@/components/Layout";
 import NotFound from "@/pages/NotFound";
+import SwapCard from "@/components/SwapCard";
 import { useEffect, useState } from "react";
 import { useModule, useModules, useHypha } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
@@ -137,6 +138,35 @@ export default function Wallet() {
             )}
           </div>
 
+          {/* Swapping only appears when the village turned it on, the member
+              can swap, and there is at least one pair they could actually
+              execute — a greyed-out grid teaches nobody anything. */}
+          {user && data?.swap?.enabled && (data.swap.myPairs ?? []).length > 0 && (
+            <SwapCard pairs={data.swap.myPairs} onDone={load} />
+          )}
+          {/* Why a token you hold isn't in the swap card — in the same words
+              the server refuses with, so the answer is never just absence. */}
+          {user && data?.swap?.enabled && (data.swap.notSwappable ?? []).length > 0 && (
+            <div className="bg-card border border-border rounded-xl p-5">
+              <p className="font-semibold text-foreground text-sm mb-2">Not everything trades</p>
+              <ul className="space-y-1.5">
+                {data.swap.notSwappable.map((n: any) => (
+                  <li key={n.slug} className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">{n.name}</span> — {n.reason}.
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {user && data?.swap?.enabled && (data.swap.halted ?? []).length > 0 && (
+            <p className="text-sm text-amber-800 bg-amber-50 rounded-lg px-4 py-2.5">
+              Swapping is paused for{" "}
+              {data.swap.halted.map((h: any) => h.slug).join(", ")}
+              {data.swap.halted[0]?.reason ? ` — ${data.swap.halted[0].reason}` : ""}.
+            </p>
+          )}
+
           {user && (data?.mine?.orders ?? []).length > 0 && (
             <div className="bg-card border border-border rounded-xl p-5">
               <div className="flex items-center gap-2 mb-3">
@@ -146,9 +176,15 @@ export default function Wallet() {
               <div className="space-y-1.5">
                 {data.mine.orders.map((o: any) => (
                   <p key={o.id} className="text-sm text-muted-foreground">
-                    #{o.receipt_no} — {o.quantity} {o.token_slug} · {usd(o.amount_minor)} ·{" "}
+                    {/* A swap has a fiat VALUATION, never a charge — printing a
+                        dollar figure beside it would read as money taken. */}
+                    #{o.receipt_no} —{" "}
+                    {o.kind === "swap"
+                      ? `${o.pay_quantity} ${o.pay_token_slug} → ${o.quantity} ${o.token_slug}`
+                      : `${o.quantity} ${o.token_slug} · ${usd(o.amount_minor)}`}{" "}
+                    ·{" "}
                     <span className={["disputed", "reversed"].includes(o.status) ? "text-red-600" : o.status === "paid" ? "text-emerald-600" : ""}>
-                      {o.status}
+                      {o.kind === "swap" && o.status === "paid" ? "swapped" : o.status}
                     </span>
                   </p>
                 ))}

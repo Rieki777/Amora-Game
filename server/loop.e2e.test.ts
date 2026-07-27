@@ -2532,4 +2532,181 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(ids).toContain("quests");
     expect(ids).not.toContain("exchange"); // off by this point in the run
   });
+
+  it("S57-S61: the swap engine — two legs or none, ceil toward the treasury, fail-closed caps", async () => {
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "public" }, founderToken);
+
+    // THE FAUCET FIREWALL, structural and retroactive. stay-credits was
+    // hand-minted to a member back in S9 (sys:mint -> mem:*), so it is
+    // faucet-issued and can never be swappable — however it was earned,
+    // whatever the source string was called.
+    const tainted = await api("PUT", "/api/admin/exchange/tokens/stay-credits", { swappable: true }, founderToken);
+    expect(tainted.status).toBe(409);
+    expect(String(tainted.json.error)).toContain("thin air");
+    // …while remaining perfectly BUYABLE: buying a minted token is a shop,
+    // swapping one is a laundering path. The two rules are different.
+    expect((await api("PUT", "/api/admin/exchange/tokens/stay-credits", { purchasable: true }, founderToken)).status).toBe(200);
+
+    // Two clean tokens: stocked treasury-side only, so no faucet ever paid
+    // a member and both stay swappable.
+    for (const slug of ["swap-a", "swap-b"]) {
+      expect((await api("POST", "/api/admin/tokens", { slug, name: `Swap ${slug.slice(-1).toUpperCase()}`, kind: "credit", transferable: false }, founderToken)).status).toBe(200);
+      expect((await api("POST", "/api/admin/exchange/stock", { tokenSlug: slug, amount: 1000 }, founderToken)).status).toBe(200);
+      expect((await api("PUT", `/api/admin/exchange/tokens/${slug}`, { swappable: true, maxSwapOutPerCycle: 500, maxSwapOutPerMemberPerCycle: 100 }, founderToken)).status).toBe(200);
+    }
+    // ₡5.00 and ₡2.00: a deliberately uneven pair so rounding is visible.
+    await api("POST", "/api/admin/exchange/tokens/swap-a/price", { priceMinor: 500, note: "Opening rate for A" }, founderToken);
+    await api("POST", "/api/admin/exchange/tokens/swap-b/price", { priceMinor: 200, note: "Opening rate for B" }, founderToken);
+
+    // Trading is OFF by default and the engine is gated on it — the v1
+    // contract assertions above still hold, byte for byte.
+    expect((await api("POST", "/api/exchange/swap", { payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 1, clientKey: "k" }, peerToken)).status).toBe(501);
+    // Turning it on REQUIRES accepting the versioned caution card.
+    const noAck = await api("PUT", "/api/admin/modules/exchange/config", { config: { tradingEnabled: true } }, founderToken);
+    expect(noAck.status).toBe(400);
+    expect(String(noAck.json.error)).toContain("legal caution card");
+    expect((await api("PUT", "/api/admin/modules/exchange/config", {
+      config: { tradingEnabled: true, legalAck: { cardVersion: "2026-07-27", acceptedBy: founderId, acceptedAt: new Date().toISOString() } },
+    }, founderToken)).status).toBe(200);
+
+    // Give the member some A the way a member actually gets tokens: out of
+    // the stocked treasury, through a settled purchase. No faucet involved.
+    await testDb.conn.query(
+      "INSERT INTO exchange_orders (id, receipt_no, user_id, token_slug, quantity, price_minor_each, amount_minor, status) VALUES ('xo-swapseed', 950, ?, 'swap-a', 100, 500, 50000, 'pending')",
+      [peerId],
+    );
+    const { createHmac } = await import("crypto");
+    const seedEvent = { id: "evt_swap_seed", type: "checkout.session.completed", data: { object: { id: "cs_swap_seed", payment_intent: "pi_swap_seed", metadata: { module: "exchange", orderId: "xo-swapseed" } } } };
+    const seedPayload = JSON.stringify(seedEvent);
+    const at = Math.floor(Date.now() / 1000);
+    await fetch(`${BASE}/api/webhooks/stripe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "stripe-signature": `t=${at},v1=${createHmac("sha256", "whsec_looptest").update(`${at}.${seedPayload}`).digest("hex")}` },
+      body: seedPayload,
+    });
+    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["swap-a"]?.balance).toBe(100);
+
+    // ── THE QUOTE: receive-driven, and it shows its work. ──
+    const quote = await api("POST", "/api/exchange/swap/quote", { payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 10 }, peerToken);
+    expect(quote.status).toBe(200);
+    // 10 B at ₡2 = ₡20; paying in ₡5 units needs 4 exactly.
+    expect(quote.json.payQuantity).toBe(4);
+    expect(quote.json.valueMinor).toBe(2000);
+    expect(quote.json.netMinor).toBe(2000);
+    expect(quote.json.takeMinor).toBe(0);
+    expect(quote.json.sentence).toContain("You hand over 4");
+    expect(quote.json.payPriceNote).toBe("Opening rate for A");
+    expect(quote.json.finality).toContain("final");
+    // Nothing was written by a quote.
+    const [[q0]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n FROM exchange_orders WHERE kind = 'swap'");
+    expect(Number(q0.n)).toBe(0);
+
+    // ── THE FIAT HOLD. Those 100 were bought with a card moments ago, so
+    // they are frozen from swapping until a chargeback could no longer
+    // find them already converted. This fires BEFORE anything is written. ──
+    const held = await api("POST", "/api/exchange/swap", {
+      payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 10, expectPayQuantity: 4, clientKey: "swap-key-held",
+    }, peerToken);
+    expect(held.status).toBe(409);
+    expect(held.json.code).toBe("RECENT_PURCHASE_HOLD");
+    expect(held.json.clearsAt).toBeTruthy();
+    // The village sets that window; drop it to zero and the tokens are free.
+    await api("PUT", "/api/admin/variables/exchange.swap_fiat_hold_days", { value: "0" }, founderToken);
+
+    // ── THE SWAP. Both legs, one transaction. ──
+    const swap = await api("POST", "/api/exchange/swap", {
+      payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 10,
+      expectPayQuantity: 4, payPriceRowId: quote.json.payPriceRowId, receivePriceRowId: quote.json.receivePriceRowId,
+      clientKey: "swap-key-1",
+    }, peerToken);
+    // Assert on the BODY so a refusal names itself instead of hiding as 409.
+    expect(swap.json).toMatchObject({ success: true });
+    const after = (await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances;
+    expect(after["swap-a"].balance).toBe(96);
+    expect(after["swap-b"].balance).toBe(10);
+    // Exactly two ledger rows, opposite directions across the treasury.
+    const [legs] = await testDb.conn.query<any[]>(
+      "SELECT from_account, to_account, token_type, amount FROM token_ledger WHERE source = 'exchange_swap' AND source_ref = ?",
+      [swap.json.orderId],
+    );
+    expect(legs.length).toBe(2);
+    expect(legs.filter((l: any) => l.to_account === "sys:treasury").length).toBe(1);
+    expect(legs.filter((l: any) => l.from_account === "sys:treasury").length).toBe(1);
+
+    // Replay of the SAME intent returns the SAME receipt and moves nothing.
+    const replay = await api("POST", "/api/exchange/swap", {
+      payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 10, expectPayQuantity: 4, clientKey: "swap-key-1",
+    }, peerToken);
+    expect(replay.status).toBe(200);
+    expect(replay.json.replay).toBe(true);
+    expect(replay.json.receiptNo).toBe(swap.json.receiptNo);
+    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["swap-b"].balance).toBe(10);
+
+    // A quote that went stale is refused WITH the fresh one attached.
+    await api("POST", "/api/admin/exchange/tokens/swap-b/price", { priceMinor: 220, note: "Wet-season adjustment" }, founderToken);
+    const stale = await api("POST", "/api/exchange/swap", {
+      payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 10,
+      expectPayQuantity: 4, receivePriceRowId: quote.json.receivePriceRowId, clientKey: "swap-key-stale",
+    }, peerToken);
+    expect(stale.status).toBe(409);
+    expect(stale.json.code).toBe("QUOTE_STALE");
+    expect(stale.json.quote.payQuantity).toBe(5); // ceil(10·220/500)
+
+    // A settled key belongs to THAT trade. Reused for a different one it is
+    // a client bug, and answering "already done" would confirm a swap the
+    // member never asked for.
+    const reused = await api("POST", "/api/exchange/swap", {
+      payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 3, clientKey: "swap-key-1",
+    }, peerToken);
+    expect(reused.status).toBe(409);
+    expect(reused.json.code).toBe("KEY_REUSED");
+
+    // ── FAIL-CLOSED CAPS. A token whose per-member allowance is spent
+    // refuses even though it is stocked, priced and open. ──
+    const capped = await api("POST", "/api/exchange/swap", {
+      payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 95, clientKey: "swap-key-cap",
+    }, peerToken);
+    expect(capped.status).toBe(409);
+    expect(capped.json.code).toBe("MEMBER_CAP");
+
+    // A halted token refuses both quote and execute, and resume needs words.
+    expect((await api("POST", "/api/admin/exchange/tokens/swap-b/halt", { reason: "Checking the rate" }, founderToken)).status).toBe(200);
+    const halted = await api("POST", "/api/exchange/swap/quote", { payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 1 }, peerToken);
+    expect(halted.status).toBe(503);
+    expect(halted.json.code).toBe("HALTED");
+    expect((await api("POST", "/api/admin/exchange/tokens/swap-b/resume", { note: "too short" }, founderToken)).status).toBe(400);
+    expect((await api("POST", "/api/admin/exchange/tokens/swap-b/resume", { note: "Rate confirmed with the stewards; reopening." }, founderToken)).status).toBe(200);
+
+    // Out of stock is refused BEFORE anything is written.
+    const [[before]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n FROM token_ledger");
+    const oos = await api("POST", "/api/exchange/swap", { payToken: "swap-b", receiveToken: "swap-a", receiveQuantity: 100000, clientKey: "swap-key-oos" }, peerToken);
+    expect([400, 409]).toContain(oos.status);
+    const [[afterCount]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n FROM token_ledger");
+    expect(Number(afterCount.n)).toBe(Number(before.n));
+
+    // A pending swap is open state: it blocks module-disable AND member exit.
+    await testDb.conn.query(
+      "INSERT INTO exchange_orders (id, receipt_no, user_id, kind, token_slug, quantity, price_minor_each, amount_minor, pay_token_slug, pay_quantity, status) " +
+        "VALUES ('xs-pending-1', 960, ?, 'swap', 'swap-b', 1, 200, 500, 'swap-a', 1, 'pending')",
+      [peerId],
+    );
+    const blocked = await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
+    expect(blocked.status).toBe(409);
+    const exitState = await api("GET", `/api/admin/players/${peerId}/exit-state`, undefined, founderToken);
+    expect(exitState.json.blocking.some((b: any) => b.domain === "exchange")).toBe(true);
+    await testDb.conn.query("DELETE FROM exchange_orders WHERE id = 'xs-pending-1'");
+
+    // Recognition and the library token refuse at the swap layer too.
+    expect((await api("PUT", "/api/admin/exchange/tokens/gratitude", { swappable: true }, founderToken)).status).toBe(409);
+    expect((await api("PUT", "/api/admin/exchange/tokens/library-credit", { swappable: true }, founderToken)).status).toBe(409);
+
+    // The economy conserves through every swap.
+    const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec.json.invariants.problems).toEqual([]);
+
+    // Close the market again: trading OFF is the shipped default.
+    await api("PUT", "/api/admin/modules/exchange/config", { config: { tradingEnabled: false } }, founderToken);
+    expect((await api("POST", "/api/exchange/swap", { payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 1, clientKey: "k2" }, peerToken)).status).toBe(501);
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
+  });
 });

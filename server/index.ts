@@ -1,4 +1,4 @@
-// Local dev reads .env (PORT=3001 so the API doesn't collide with Vite's 3000);
+﻿// Local dev reads .env (PORT=3001 so the API doesn't collide with Vite's 3000);
 // on Railway the real environment always wins over the file.
 import "dotenv/config";
 import express from "express";
@@ -104,15 +104,26 @@ import {
 } from "./lib/badges";
 import {
   assertExchangeFirewalls,
+  assertSwapFirewalls,
   createExchangeOrder,
+  createSwapOrder,
   exchangeOpenState,
   exchangeOrderById,
   exchangeSettings,
+  executeSwap,
+  faucetIssuedTokens,
   latestPrice,
   listableTokens,
+  quoteSwap,
+  type SwapQuote,
+  reconcileSwapOrders,
+  repairTaintedListings,
   setPrice,
   settingsFor,
   settleExchangeOrder,
+  swapCycleUsage,
+  swapProblem,
+  swappableBalance,
   treasuryStock,
   upsertSettings,
 } from "./lib/exchange";
@@ -189,7 +200,14 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-27-s56-extraction";
+const BUILD_MARKER = "2026-07-27-s61-exchange-swap-v2";
+
+/**
+ * The legal caution card a deployment must accept before internal trading
+ * opens. Bump this when the card's terms change — an old acceptance stops
+ * counting, and boot refuses until someone reads and accepts the new one.
+ */
+const TRADING_CARD_VERSION = "2026-07-27";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -745,6 +763,9 @@ function slugifyHandle(name: string): string {
     String(name ?? "")
       .toLowerCase()
       .normalize("NFKD")
+      // Combining diacriticals, as escapes rather than literal characters:
+      // a literal range here is one careless re-encode away from silent
+      // corruption (it has happened).
       .replace(/[̀-ͯ]/g, "")
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
@@ -988,7 +1009,7 @@ async function retireLegacyPegCopy() {
   } catch { /* same */ }
 }
 
-// ── Game engine helpers (platform-level; all project specifics live in gameConfig) ──
+// â”€â”€ Game engine helpers (platform-level; all project specifics live in gameConfig) â”€â”€
 
 async function authedUser(req: express.Request): Promise<any | null> {
   const header = req.headers.authorization;
@@ -1078,7 +1099,7 @@ function currentCycleId(): string {
   return cycleIdFor(new Date());
 }
 
-// ── Roles as data (revision 2, step 3) ───────────────────────────────────────
+// â”€â”€ Roles as data (revision 2, step 3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
 
 type RoleDef = {
   id: string;
@@ -1191,7 +1212,7 @@ async function capabilityCtx(user: any) {
   };
 }
 
-// ── Seasons ──────────────────────────────────────────────────────────────────
+// â”€â”€ Seasons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Seasons are a LIST and the current one is chosen by date. The old model stored
 // a single season, so when its end date passed the banner kept advertising a
 // season that was already over — silently, forever. Here, if nothing is active
@@ -1743,7 +1764,7 @@ function writeJson(filePath: string, data: unknown) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
-// ── Abuse guards (S12: MySQL-backed — a redeploy is no longer an amnesty) ──
+// â”€â”€ Abuse guards (S12: MySQL-backed — a redeploy is no longer an amnesty) â”€â”€
 
 /**
  * Sliding-window rate limit over the rate_hits table. Named differently from
@@ -1843,6 +1864,14 @@ async function startServer() {
   // pipeline-internal rows (idempotent on video id). Synthesis and
   // publishing remain explicit human acts; nothing a member sees mutates
   // on this timer.
+  // S59: the reaper, not a settler. It never executes a swap — it only
+  // resolves orders whose legs already tell the truth, and refuses to guess
+  // when a swap somehow has exactly one leg.
+  registerJob("exchange-reconcile", 60 * 60 * 1000, async () => {
+    if (effectiveLifecycle("exchange") === "off") return "exchange module off";
+    const r = await reconcileSwapOrders(getPool());
+    return `${r.settled} swap(s) settled, ${r.cancelled} cancelled`;
+  });
   registerJob("recording-rss", 6 * 60 * 60 * 1000, async () => {
     if (effectiveLifecycle("automation") === "off") return "automation module off";
     const channelId = String((moduleConfig("automation") as any)?.youtubeChannelId ?? "").trim();
@@ -1884,6 +1913,42 @@ async function startServer() {
   await assertExchangeFirewalls(getPool());
   await assertBadgeInvariants(getPool());
   await assertLibraryInvariants(getPool());
+
+  // S58/S61: the swap firewalls. repairTaintedListings runs FIRST — a token
+  // that has since been faucet-issued gets delisted loudly rather than
+  // crashing a deployment that was fine yesterday. Automated authority may
+  // narrow the market and never widen it.
+  {
+    const repaired = await repairTaintedListings(getPool());
+    for (const r of repaired) {
+      console.error(`[exchange] auto-delisted — ${r}`);
+      void recordEvent(getPool(), {
+        kind: "audit", text: `exchange:autodelist:${r.split(":")[0]}`,
+        entityType: "token", entityRef: r.split(":")[0], audience: "admin",
+      });
+    }
+    const exchangeCfg = (moduleConfig("exchange") as any) ?? {};
+    const adminsWithPasswords = (await members.all()).filter(
+      (u: any) => (u.role === "admin" || u.role === "founder") && u.passwordHash,
+    );
+    const swapWarnings = await assertSwapFirewalls(getPool(), {
+      tradingEnabled: !!exchangeCfg.tradingEnabled,
+      sharedPasswordPosture: adminsWithPasswords.length === 0,
+      legalAckVersion: exchangeCfg.legalAck?.cardVersion ?? null,
+      cardVersion: TRADING_CARD_VERSION,
+    });
+    // A warning closed the market. Put it where an admin will actually see
+    // it, not only in a log line nobody reads after the deploy scrolls past.
+    for (const w of swapWarnings) {
+      void recordEvent(getPool(), {
+        kind: "audit", text: `exchange:swap-closed:${w.slice(0, 200)}`,
+        entityType: "module", entityRef: "exchange", audience: "admin",
+      });
+    }
+    // A pending swap that never got its legs is reaped at boot, not left to
+    // block a module-disable forever.
+    await reconcileSwapOrders(getPool());
+  }
 
   // S32: stays' settlement + reversal, registered with the trio. Settle is
   // idempotent three ways (provider_ref UNIQUE, stripe_event_id UNIQUE,
@@ -1953,7 +2018,9 @@ async function startServer() {
       const pi = obj.payment_intent ? String(obj.payment_intent) : null;
       await pool.query(
         "UPDATE exchange_orders SET status = 'paid', paid_at = COALESCE(paid_at, NOW()), " +
-          "stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id) WHERE id = ?",
+          // A settlement webhook must never touch a swap: swaps have no
+          // provider and settle through the ledger pair, not through Stripe.
+          "stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id) WHERE id = ? AND kind = 'fiat_purchase'",
         [pi, orderId],
       );
       await recordFiatCharge(pool, {
@@ -1984,7 +2051,7 @@ async function startServer() {
         allowNegative: true,
       });
       if (!claw.ok) throw new Error(claw.error ?? "reversal leg failed");
-      await pool.query("UPDATE exchange_orders SET status = ? WHERE id = ?", [refund ? "refunded" : "disputed", orderId]);
+      await pool.query("UPDATE exchange_orders SET status = ? WHERE id = ? AND kind = 'fiat_purchase'", [refund ? "refunded" : "disputed", orderId]);
     },
   });
 
@@ -2341,7 +2408,7 @@ async function startServer() {
     res.json({ success: true, token, user: publicUser(user) });
   });
 
-  // ── S1: founder bootstrap, set-password, session revocation, audit ────────
+  // â”€â”€ S1: founder bootstrap, set-password, session revocation, audit â”€â”€â”€â”€â”€â”€â”€â”€
 
   /**
    * One-shot founder bootstrap. The ONLY thing the legacy shared password can
@@ -2518,7 +2585,7 @@ async function startServer() {
     })));
   });
 
-  // ── S13: the module framework's surfaces ──────────────────────────────────
+  // â”€â”€ S13: the module framework's surfaces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /**
    * The viewer-scoped platform manifest (interop rule 2.1 #8): which modules
@@ -2603,12 +2670,30 @@ async function startServer() {
 
   app.put("/api/admin/modules/:id/config", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const result = await setModuleConfig(req.params.id, req.body?.config, adminActor(req)?.id ?? null);
+    let config = req.body?.config;
+    // WHO accepted a legal card, and WHEN, is a record about a person — the
+    // client may not author it. The server stamps the authenticated actor and
+    // its own clock, and refuses an acceptance of any card but the current
+    // one, so amended terms genuinely have to be re-read.
+    if (req.params.id === "exchange" && config && typeof config === "object" && config.legalAck) {
+      if (String(config.legalAck.cardVersion ?? "") !== TRADING_CARD_VERSION) {
+        return res.status(409).json({
+          error: `That acceptance is for card ${config.legalAck.cardVersion ?? "(none)"} — the current caution card is ${TRADING_CARD_VERSION}. Read it again.`,
+        });
+      }
+      const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+      if (!actor) return res.status(401).json({ error: "Accepting the caution card needs a named admin, not a shared password" });
+      config = {
+        ...config,
+        legalAck: { cardVersion: TRADING_CARD_VERSION, acceptedBy: actor, acceptedAt: new Date().toISOString() },
+      };
+    }
+    const result = await setModuleConfig(req.params.id, config, adminActor(req)?.id ?? null);
     if (!result.ok) return res.status(result.status).json({ error: result.error });
     res.json({ success: true, config: moduleConfig(req.params.id) });
   });
 
-  // ── S27-S29: the gratitude feed — a lens, and hearts as real sends ─────────
+  // â”€â”€ S27-S29: the gratitude feed — a lens, and hearts as real sends â”€â”€â”€â”€â”€â”€â”€â”€─
   app.use("/api/feed", requireModule("feed"));
 
   /**
@@ -2726,7 +2811,7 @@ async function startServer() {
     res.json({ success: true, heartCount: (thread.heartCount ?? 0) + 1, budget: outcome.budget });
   });
 
-  // ── S24-S26: the forum + decision primitive ────────────────────────────────
+  // â”€â”€ S24-S26: the forum + decision primitive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.use("/api/forum", requireModule("forum"));
   app.use("/api/admin/forum", requireModule("forum"));
 
@@ -3064,7 +3149,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // ── S19-S23: the village map ───────────────────────────────────────────────
+  // â”€â”€ S19-S23: the village map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
   app.use("/api/map", requireModule("map"));
   app.use("/api/circles", requireModule("map"));
   app.use("/api/admin/circles", requireModule("map"));
@@ -3455,7 +3540,7 @@ async function startServer() {
     res.json(await conciergeLog(getPool(), String(req.query.unmatched ?? "") === "1"));
   });
 
-  // ── S15: the tools hub — the framework's reference consumer ───────────────
+  // â”€â”€ S15: the tools hub — the framework's reference consumer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
   // Every route (member AND admin) mounts behind requireModule('tools'):
   // lifecycle off = the whole surface is a 404, admin tabs included; the
   // Modules tab is where lifecycle changes happen.
@@ -3644,7 +3729,7 @@ async function startServer() {
     res.json({ checked: results.length, results });
   });
 
-  // ── S30-S31: Stays — accommodation on stay credits ─────────────────────────
+  // â”€â”€ S30-S31: Stays — accommodation on stay credits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
   // Every route mounts behind requireModule('stays'); the settlement webhook
   // deliberately does NOT (in-flight orders settle even if the module was
   // just disabled). The suspension/limits surfaces are PLATFORM routes below.
@@ -4016,7 +4101,7 @@ async function startServer() {
     });
   });
 
-  // ── S32 platform payment surfaces (NOT module-gated: the trio owns them) ──
+  // â”€â”€ S32 platform payment surfaces (NOT module-gated: the trio owns them) â”€â”€
 
   /** Suspensions + recent payment activity, across all fiat modules. */
   app.get("/api/admin/payments", async (req, res) => {
@@ -4065,7 +4150,7 @@ async function startServer() {
     });
   });
 
-  // ── S53-S55: the automation pipeline ──────────────────────────────────────
+  // â”€â”€ S53-S55: the automation pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Recording -> transcript -> synthesis -> forum thread -> role-targeted
   // suggestions. Every stage is an EXPLICIT act; the scheduler only ingests
   // pipeline-internal rows. The evidence rule does the trust work.
@@ -4353,7 +4438,7 @@ async function startServer() {
     res.json({ success: true, status });
   });
 
-  // ── S52: member exit (F12) — enumerate, settle, resolve ──────────────────
+  // â”€â”€ S52: member exit (F12) — enumerate, settle, resolve â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Not a module: leaving is core identity, like joining. The policy is
   // PUBLISHED; the process refuses to tombstone anyone who still owes or is
   // owed through a blocking domain; the restorative flow's content reaches
@@ -4556,8 +4641,8 @@ async function startServer() {
     res.json({ success: true, reached: holders.length });
   });
 
-  // ── S49-S51: village health — the dashboard reads (collection lives in
-  //    the cycle close; only DISPLAY is module-gated) ────────────────────────
+  // â”€â”€ S49-S51: village health — the dashboard reads (collection lives in
+  //    the cycle close; only DISPLAY is module-gated) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   app.use("/api/health", requireModule("health"));
   app.use("/api/admin/health", requireModule("health"));
@@ -4619,7 +4704,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // ── S47: the economics section — wallet binding + Base reads ─────────────
+  // â”€â”€ S47: the economics section — wallet binding + Base reads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
   // Not module-gated: a member's own wallet binding and ledger balances are
   // core identity (the on-chain block is variable-gated instead). The
   // platform only ever READS the chain — Gate B, never a second ledger.
@@ -4697,7 +4782,7 @@ async function startServer() {
     });
   });
 
-  // ── S41-S46: the material library ────────────────────────────────────────
+  // â”€â”€ S41-S46: the material library â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   app.use("/api/library", requireModule("library"));
   app.use("/api/admin/library", requireModule("library"));
@@ -4937,7 +5022,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // ── S37-S40: badges & skills ──────────────────────────────────────────────
+  // â”€â”€ S37-S40: badges & skills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   app.use("/api/badges", requireModule("badges"));
   app.use("/api/admin/badges", requireModule("badges"));
@@ -5137,7 +5222,7 @@ async function startServer() {
     res.json(result);
   });
 
-  // ── S33-S35: the exchange, buy-only ─────────────────────────────────────
+  // â”€â”€ S33-S35: the exchange, buy-only â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
   // Management is the ONE gate's exchange.manage capability (role grant) or
   // admin — not a second permission system.
 
@@ -5174,7 +5259,8 @@ async function startServer() {
     let mine: any = null;
     if (viewer) {
       const [orders] = await getPool().query<any[]>(
-        "SELECT id, receipt_no, token_slug, quantity, amount_minor, status, created_at, paid_at FROM exchange_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+        "SELECT id, receipt_no, kind, token_slug, quantity, pay_token_slug, pay_quantity, amount_minor, status, " +
+          "created_at, paid_at FROM exchange_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
         [viewer.id],
       );
       const ctx = await capabilityCtx(viewer);
@@ -5182,15 +5268,56 @@ async function startServer() {
         balances: await balancesFor(getPool(), memberAccount(viewer.id)),
         orders,
         canBuy: hasCapability("exchange.buy", ctx),
+        canSwap: hasCapability("exchange.swap", ctx),
         canManage: hasCapability("exchange.manage", ctx) || (await isAdmin(req)),
       };
     }
+
+    // Swap pairs the VIEWER can actually execute: their own non-zero
+    // balances against tokens that are swappable, priced, stocked and
+    // uncapped. A grid of greyed-out rows teaches nobody anything.
+    const tradingEnabled = tradingOpen();
+    let swap: any = { enabled: tradingEnabled, halted: [], myPairs: [], notSwappable: [] };
+    if (tradingEnabled) {
+      const all = await exchangeSettings(getPool());
+      const open = all.filter((s) => s.active && s.swappable);
+      swap.halted = open.filter((s) => s.swapHaltedAt).map((s) => ({ slug: s.tokenSlug, reason: s.swapHaltReason }));
+      if (viewer && mine?.canSwap) {
+        const held = await balancesFor(getPool(), memberAccount(viewer.id));
+        const live = open.filter((s) => !s.swapHaltedAt);
+        // Tokens the member actually HOLDS that can never be swapped, with the
+        // reason in the same words the write path refuses with. Absence teaches
+        // nobody; a member holding library credits deserves to be told they
+        // come from the shelf, not the market.
+        const tainted = await faucetIssuedTokens(getPool());
+        for (const [slug, bal] of Object.entries(held)) {
+          if (bal <= 0 || live.some((s) => s.tokenSlug === slug)) continue;
+          const reason = await swapProblem(getPool(), slug, tainted);
+          if (reason) swap.notSwappable.push({ slug, name: tokenDef(slug)?.name ?? slug, reason });
+        }
+        for (const from of live) {
+          if ((held[from.tokenSlug] ?? 0) <= 0) continue;
+          for (const to of live) {
+            if (to.tokenSlug === from.tokenSlug) continue;
+            if ((stock[to.tokenSlug] ?? 0) <= 0) continue;
+            if (to.maxSwapOutPerCycle <= 0 || to.maxSwapOutPerMemberPerCycle <= 0) continue;
+            if (!(await latestPrice(getPool(), from.tokenSlug)) || !(await latestPrice(getPool(), to.tokenSlug))) continue;
+            swap.myPairs.push({
+              payToken: from.tokenSlug, payTokenName: tokenDef(from.tokenSlug)?.name ?? from.tokenSlug,
+              receiveToken: to.tokenSlug, receiveTokenName: tokenDef(to.tokenSlug)?.name ?? to.tokenSlug,
+              yourBalance: held[from.tokenSlug] ?? 0,
+            });
+          }
+        }
+      }
+    }
+
     res.json({
       listings,
       mine,
+      swap,
       stripeConfigured: stripeConfigured(),
-      // The v2 contract, surfaced honestly: shipped, off, engineless.
-      tradingEnabled: !!(moduleConfig("exchange") as any)?.tradingEnabled,
+      tradingEnabled,
     });
   });
 
@@ -5242,11 +5369,367 @@ async function startServer() {
     res.json({ url: session.url, receiptNo: order.receiptNo });
   });
 
-  /** The v2 contract: shipped shape, no engine. 501 is the honest answer. */
-  app.post("/api/exchange/swap", async (_req, res) => {
-    res.status(501).json({
-      error: "Swapping is a v2 engine. The contract (trading_enabled, swappable flags) ships now so configurations are stable; no trade executes until the engine exists.",
+  // ── S59: the swap engine ─────────────────────────────────────────────────
+  // Every refusal below is ordered cheapest-and-most-informative first, and
+  // every one of them happens BEFORE any row is written. A member should
+  // learn why they cannot swap from the sentence, not from a failed trade.
+
+  /**
+   * THE runtime gate for swapping. Trading is open only when the deployment
+   * turned it on AND the acceptance on file is for the caution card this
+   * build ships. A card amended in a later release therefore closes the
+   * market by itself, without an upgrade taking the whole village offline —
+   * boot warns, this refuses.
+   */
+  function tradingOpen(): boolean {
+    const cfg = (moduleConfig("exchange") as any) ?? {};
+    if (!cfg.tradingEnabled) return false;
+    return String(cfg.legalAck?.cardVersion ?? "") === TRADING_CARD_VERSION;
+  }
+
+  const SWAP_DISABLED = {
+    code: "TRADING_DISABLED",
+    error:
+      "Internal trading is switched off for this village. It is an opt-in decision each deployment makes for itself, with its own legal posture.",
+  };
+
+  /** Resolve both sides of a proposed swap, or the reason it cannot happen. */
+  type SwapPrep =
+    | { ok: false; status: number; body: { code: string; error: string } }
+    | {
+        ok: true;
+        quote: SwapQuote;
+        paySettings: NonNullable<Awaited<ReturnType<typeof settingsFor>>>;
+        receiveSettings: NonNullable<Awaited<ReturnType<typeof settingsFor>>>;
+        payPrice: NonNullable<Awaited<ReturnType<typeof latestPrice>>>;
+        receivePrice: NonNullable<Awaited<ReturnType<typeof latestPrice>>>;
+      };
+  async function prepareSwap(user: any, body: any): Promise<SwapPrep> {
+    const payToken = String(body?.payToken ?? "");
+    const receiveToken = String(body?.receiveToken ?? "");
+    const receiveQuantity = Math.floor(Number(body?.receiveQuantity) || 0);
+    const maxReceive = numberVar("exchange.swap_max_receive_per_order");
+
+    if (!payToken || !receiveToken) return { ok: false, status: 400, body: { code: "BAD_REQUEST", error: "Name both sides of the swap" } };
+    if (payToken === receiveToken) return { ok: false, status: 400, body: { code: "SAME_TOKEN", error: "That is the same token on both sides" } };
+    if (receiveQuantity < 1 || receiveQuantity > maxReceive) {
+      return { ok: false, status: 400, body: { code: "BAD_QUANTITY", error: `Ask for between 1 and ${maxReceive} in one swap` } };
+    }
+
+    const [paySettings, receiveSettings] = await Promise.all([
+      settingsFor(getPool(), payToken),
+      settingsFor(getPool(), receiveToken),
+    ]);
+    for (const [slug, s] of [[payToken, paySettings], [receiveToken, receiveSettings]] as const) {
+      if (!s?.active || !s.swappable) {
+        return { ok: false, status: 404, body: { code: "NOT_SWAPPABLE", error: `${tokenDef(slug)?.name ?? slug} is not open for swapping` } };
+      }
+      if (s.swapHaltedAt) {
+        return {
+          ok: false as const,
+          status: 503,
+          body: {
+            code: "HALTED",
+            error: `Swapping ${tokenDef(slug)?.name ?? slug} is paused${s.swapHaltReason ? `: ${s.swapHaltReason}` : ""}`,
+          },
+        };
+      }
+    }
+    // Defence in depth: the firewalls again, in case a row was hand-edited.
+    const tainted = await faucetIssuedTokens(getPool());
+    for (const slug of [payToken, receiveToken]) {
+      const problem = await swapProblem(getPool(), slug, tainted);
+      if (problem) return { ok: false, status: 409, body: { code: "FIREWALL", error: problem } };
+    }
+
+    const [payPrice, receivePrice] = await Promise.all([
+      latestPrice(getPool(), payToken),
+      latestPrice(getPool(), receiveToken),
+    ]);
+    if (!payPrice || !receivePrice) {
+      return { ok: false, status: 409, body: { code: "NO_PRICE", error: "Both sides need a posted price before they can be swapped" } };
+    }
+
+    const quote = quoteSwap({
+      payToken, receiveToken, receiveQuantity, payPrice, receivePrice,
+      spreadBps: numberVar("exchange.swap_spread_bps"),
+      payTokenName: tokenDef(payToken)?.name,
+      receiveTokenName: tokenDef(receiveToken)?.name,
     });
+    if ("error" in quote) return { ok: false, status: 409, body: { code: "DUST", error: quote.error } };
+    // Both settings are non-null past the guards above; narrow for callers.
+    return { ok: true, quote, paySettings: paySettings!, receiveSettings: receiveSettings!, payPrice, receivePrice };
+  }
+
+  /** A stateless quote. Writes nothing; the member sees the whole trade first. */
+  app.post("/api/exchange/swap/quote", async (req, res) => {
+    if (!tradingOpen()) return res.status(501).json(SWAP_DISABLED);
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to swap" });
+    if (!hasCapability("exchange.swap", await capabilityCtx(user))) {
+      return res.status(403).json({ code: "FORBIDDEN", error: "Swapping opens at the member stage" });
+    }
+    const prepared = await prepareSwap(user, req.body);
+    if (!prepared.ok) return res.status(prepared.status).json(prepared.body);
+    const { quote } = prepared;
+    const hold = await swappableBalance(getPool(), user.id, quote.payToken, numberVar("exchange.swap_fiat_hold_days"));
+    res.json({
+      ...quote,
+      yourBalance: hold.balance,
+      swappableBalance: hold.swappable,
+      heldFromRecentPurchase: hold.held,
+      holdClearsAt: hold.clearsAt,
+      payPriceNote: prepared.payPrice.note,
+      payPriceSetAt: prepared.payPrice.effectiveAt,
+      receivePriceNote: prepared.receivePrice.note,
+      receivePriceSetAt: prepared.receivePrice.effectiveAt,
+      finality: "Swaps are final. The village cannot undo one — swapping back at the posted prices is the only reverse.",
+    });
+  });
+
+  /**
+   * The swap itself. Three transactions: claim a receipt and write the order,
+   * post BOTH ledger legs together, then mark it settled. The middle one is
+   * the only place value moves, and it is all-or-nothing.
+   */
+  app.post("/api/exchange/swap", async (req, res) => {
+    if (!tradingOpen()) return res.status(501).json(SWAP_DISABLED);
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to swap" });
+    if (!hasCapability("exchange.swap", await capabilityCtx(user))) {
+      return res.status(403).json({ code: "FORBIDDEN", error: "Swapping opens at the member stage" });
+    }
+    const clientKey = String(req.body?.clientKey ?? "").slice(0, 80);
+    if (!clientKey) return res.status(400).json({ code: "BAD_REQUEST", error: "A clientKey is required so a double tap cannot swap twice" });
+
+    // A repeat of the same intent returns the SAME receipt rather than a
+    // second trade — the member's finger, not their wallet, was double.
+    //
+    // What the prior order's STATUS was matters. Only a settled one is a
+    // replay; anything else would report a trade that moved no tokens as
+    // done. Failed and cancelled orders release their key (see below and in
+    // reconcileSwapOrders), so they never surface here at all.
+    const [[prior]] = await getPool().query<any[]>(
+      "SELECT * FROM exchange_orders WHERE user_id = ? AND client_key = ?",
+      [user.id, clientKey],
+    );
+    if (prior && prior.status === "paid") {
+      // Same key, different trade, is a client bug, not a double tap. Saying
+      // "already done" to a trade nobody asked for is the worse answer.
+      const sameTrade =
+        String(prior.pay_token_slug) === String(req.body?.payToken ?? "") &&
+        String(prior.token_slug) === String(req.body?.receiveToken ?? "") &&
+        Number(prior.quantity) === Math.floor(Number(req.body?.receiveQuantity) || 0);
+      if (!sameTrade) {
+        return res.status(409).json({
+          code: "KEY_REUSED",
+          error: "That confirmation code already belongs to a different swap — start this one fresh",
+        });
+      }
+      return res.json({
+        replay: true, receiptNo: prior.receipt_no, orderId: prior.id, status: prior.status,
+        payQuantity: prior.pay_quantity, payToken: prior.pay_token_slug,
+        receiveQuantity: prior.quantity, receiveToken: prior.token_slug,
+      });
+    }
+    if (prior) {
+      // 'pending': a previous attempt is mid-flight or died between writing
+      // its order and posting its legs. The reconciler settles or cancels it
+      // within the hour; until then, claiming either outcome would be a
+      // guess about whether tokens moved.
+      return res.status(409).json({
+        code: "IN_FLIGHT",
+        error: "That swap is still settling — give it a moment before trying again",
+      });
+    }
+
+    const prepared = await prepareSwap(user, req.body);
+    if (!prepared.ok) return res.status(prepared.status).json(prepared.body);
+    const { quote, receiveSettings } = prepared;
+
+    // The member consented to a specific trade at specific prices. If either
+    // moved, show them the new one instead of executing the old one.
+    const expectPay = Math.floor(Number(req.body?.expectPayQuantity) || 0);
+    const staleQuote =
+      (expectPay > 0 && expectPay !== quote.payQuantity) ||
+      (req.body?.payPriceRowId && req.body.payPriceRowId !== quote.payPriceRowId) ||
+      (req.body?.receivePriceRowId && req.body.receivePriceRowId !== quote.receivePriceRowId);
+    if (staleQuote) {
+      return res.status(409).json({ code: "QUOTE_STALE", error: "The price moved while you were deciding — here is the trade as it stands now", quote });
+    }
+
+    // A member who owes the village anywhere settles that first.
+    const balances = await balancesFor(getPool(), memberAccount(user.id));
+    if (Object.values(balances).some((v) => v < 0)) {
+      return res.status(403).json({ code: "ACCOUNT_SUSPENDED", error: "Settle what you owe the village before swapping" });
+    }
+
+    const hold = await swappableBalance(getPool(), user.id, quote.payToken, numberVar("exchange.swap_fiat_hold_days"));
+    if (hold.swappable < quote.payQuantity) {
+      if (hold.balance >= quote.payQuantity && hold.held > 0) {
+        return res.status(409).json({
+          code: "RECENT_PURCHASE_HOLD",
+          error: `${hold.held} of your ${tokenDef(quote.payToken)?.name ?? quote.payToken} were bought with a card and settle before they can be swapped`,
+          clearsAt: hold.clearsAt,
+        });
+      }
+      return res.status(409).json({
+        code: "INSUFFICIENT",
+        error: `You hold ${hold.swappable} and this swap needs ${quote.payQuantity}`,
+      });
+    }
+
+    const stock = await treasuryStock(getPool());
+    if ((stock[quote.receiveToken] ?? 0) < quote.receiveQuantity) {
+      return res.status(409).json({
+        code: "OUT_OF_STOCK",
+        error: `The village holds ${stock[quote.receiveToken] ?? 0} — ask the stewards to restock`,
+        available: stock[quote.receiveToken] ?? 0,
+      });
+    }
+
+    // Fail-closed caps: 0 means zero, never unlimited.
+    //
+    // These are checked TWICE on purpose. Here, cheaply, so a member over
+    // their allowance gets a clear refusal and a remaining count without a
+    // transaction being opened — and again inside the ledger transaction
+    // below, which is the one that actually binds. Checking only here would
+    // be check-then-act: ten concurrent requests would all read the same
+    // pre-swap total, all decide yes, and all execute.
+    const cycle = currentCycle();
+    const cycleStart = new Date(cycle.startsAt);
+    const tokenUsed = await swapCycleUsage(getPool(), quote.receiveToken, cycleStart);
+    if (tokenUsed + quote.receiveQuantity > receiveSettings.maxSwapOutPerCycle) {
+      return res.status(409).json({
+        code: "TOKEN_CAP",
+        error: `This lunation's swap allowance for ${tokenDef(quote.receiveToken)?.name ?? quote.receiveToken} is spent`,
+        remaining: Math.max(0, receiveSettings.maxSwapOutPerCycle - tokenUsed),
+      });
+    }
+    const memberUsed = await swapCycleUsage(getPool(), quote.receiveToken, cycleStart, user.id);
+    if (memberUsed + quote.receiveQuantity > receiveSettings.maxSwapOutPerMemberPerCycle) {
+      return res.status(409).json({
+        code: "MEMBER_CAP",
+        error: "You have swapped your share of this token for this lunation",
+        remaining: Math.max(0, receiveSettings.maxSwapOutPerMemberPerCycle - memberUsed),
+      });
+    }
+
+    /** The binding check. Runs under the same treasury lock that orders the writes. */
+    const capGuard = async (conn: any): Promise<string | null> => {
+      const t = await swapCycleUsage(conn, quote.receiveToken, cycleStart);
+      if (t + quote.receiveQuantity > receiveSettings.maxSwapOutPerCycle) {
+        return `this lunation's swap allowance for ${tokenDef(quote.receiveToken)?.name ?? quote.receiveToken} is spent (${Math.max(0, receiveSettings.maxSwapOutPerCycle - t)} left)`;
+      }
+      const m = await swapCycleUsage(conn, quote.receiveToken, cycleStart, user.id);
+      if (m + quote.receiveQuantity > receiveSettings.maxSwapOutPerMemberPerCycle) {
+        return `you have swapped your share of this token for this lunation (${Math.max(0, receiveSettings.maxSwapOutPerMemberPerCycle - m)} left)`;
+      }
+      return null;
+    };
+
+    const order = await createSwapOrder(getPool(), { userId: user.id, quote, clientKey });
+    const executed = await executeSwap(getPool(), {
+      id: order.id, user_id: user.id,
+      pay_token_slug: quote.payToken, pay_quantity: quote.payQuantity,
+      token_slug: quote.receiveToken, quantity: quote.receiveQuantity,
+      receipt_no: order.receiptNo,
+    }, capGuard);
+    if (!executed.ok) {
+      // Release the key: this trade did not happen, so the member must be
+      // able to retry the same intent instead of being told forever that a
+      // swap which moved nothing was "already done".
+      await getPool().query("UPDATE exchange_orders SET status = 'failed', client_key = NULL WHERE id = ?", [order.id]);
+      return res.status(409).json({ code: "LEDGER_REFUSED", error: executed.error });
+    }
+    await getPool().query("UPDATE exchange_orders SET status = 'paid', paid_at = NOW() WHERE id = ?", [order.id]);
+
+    await notify({
+      userId: user.id, type: "exchange",
+      title: `Receipt #${order.receiptNo}: ${quote.payQuantity} ${tokenDef(quote.payToken)?.name ?? quote.payToken} → ${quote.receiveQuantity} ${tokenDef(quote.receiveToken)?.name ?? quote.receiveToken}`,
+      link: "/wallet", dedupeKey: `ord:${order.id}:notify`,
+    });
+    await moduleActivity("exchange", "exchange", `A swap settled at the posted rates`, {
+      actorUserId: user.id, entityType: "order", entityRef: order.id,
+    });
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: `exchange:swap:${quote.payQuantity}${quote.payToken}->${quote.receiveQuantity}${quote.receiveToken}`,
+      actorUserId: user.id, entityType: "order", entityRef: order.id, audience: "admin",
+    });
+    res.json({
+      success: true, receiptNo: order.receiptNo, orderId: order.id,
+      payQuantity: quote.payQuantity, payToken: quote.payToken,
+      receiveQuantity: quote.receiveQuantity, receiveToken: quote.receiveToken,
+      sentence: quote.sentence, disclosure: quote.disclosure,
+    });
+  });
+
+  /** The cross-rate story: why a token is worth what it is worth, over time. */
+  app.get("/api/exchange/rates/history", async (req, res) => {
+    const [a, b] = String(req.query.pair ?? "").split(":");
+    if (!a || !b) return res.status(400).json({ error: "pair must be two token slugs, a:b" });
+    const [rows] = await getPool().query<any[]>(
+      "SELECT * FROM currency_prices WHERE token_slug IN (?, ?) ORDER BY effective_at ASC, id ASC LIMIT 400",
+      [a, b],
+    );
+    // Walk both series forward, emitting a cross rate whenever either side
+    // moves — each point carries BOTH source rows so a member can see who
+    // set what, and why.
+    const points: any[] = [];
+    let lastA: any = null;
+    let lastB: any = null;
+    for (const r of rows) {
+      if (String(r.token_slug) === a) lastA = r; else lastB = r;
+      if (!lastA || !lastB) continue;
+      points.push({
+        at: new Date(r.effective_at).toISOString(),
+        rate: Number(lastB.price_minor) / Number(lastA.price_minor),
+        payPriceMinor: Number(lastA.price_minor),
+        receivePriceMinor: Number(lastB.price_minor),
+        payNote: lastA.note, paySetBy: lastA.set_by, payDecisionRef: lastA.decision_ref ?? null,
+        receiveNote: lastB.note, receiveSetBy: lastB.set_by, receiveDecisionRef: lastB.decision_ref ?? null,
+      });
+    }
+    res.json({ pair: [a, b], points });
+  });
+
+  /** Halt is one click. Resume takes a sentence. */
+  app.post("/api/admin/exchange/tokens/:slug/halt", async (req, res) => {
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+    const [r] = await getPool().query<any>(
+      "UPDATE token_exchange_settings SET swap_halted_at = NOW(), swap_halted_by = ?, swap_halt_reason = ? WHERE token_slug = ?",
+      [actor, String(req.body?.reason ?? "").slice(0, 255) || null, req.params.slug],
+    );
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "That token is not listed" });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `exchange:halt:${req.params.slug}`, actorUserId: actor,
+      entityType: "token", entityRef: String(req.params.slug), audience: "admin",
+    });
+    res.json({ success: true });
+  });
+
+  app.post("/api/admin/exchange/tokens/:slug/resume", async (req, res) => {
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    const note = String(req.body?.note ?? "").trim();
+    // Narrowing the market is a hand. Widening it writes a sentence.
+    if (note.length < 20) {
+      return res.status(400).json({ error: "Say why it is safe to resume — at least a sentence (20 characters)" });
+    }
+    const problem = await swapProblem(getPool(), String(req.params.slug));
+    if (problem) return res.status(409).json({ error: problem });
+    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+    const [r] = await getPool().query<any>(
+      "UPDATE token_exchange_settings SET swap_halted_at = NULL, swap_halted_by = NULL, swap_halt_reason = NULL WHERE token_slug = ?",
+      [req.params.slug],
+    );
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "That token is not listed" });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `exchange:resume:${req.params.slug}: ${note.slice(0, 160)}`, actorUserId: actor,
+      entityType: "token", entityRef: String(req.params.slug), audience: "admin",
+    });
+    res.json({ success: true });
   });
 
   /** Management overview: settings, refusal reasons, prices, stock, orders. */
@@ -5262,13 +5745,23 @@ async function startServer() {
     const [orders] = await getPool().query<any[]>(
       "SELECT o.*, u.name AS user_name FROM exchange_orders o LEFT JOIN users u ON u.id = o.user_id ORDER BY o.created_at DESC LIMIT 200",
     );
+    // Swapping refuses MORE than buying does, so a steward needs the swap
+    // reason stated separately — "listable" does not imply "swappable".
+    const listable = listableTokens();
+    const tainted = await faucetIssuedTokens(getPool());
+    const swapReasons: Record<string, string | null> = {};
+    for (const t of listable) swapReasons[t.slug] = await swapProblem(getPool(), t.slug, tainted);
     res.json({
       settings,
       latestPrices: prices,
       priceHistory: history,
       stock,
       orders,
-      listableTokens: listableTokens(),
+      listableTokens: listable,
+      swapReasons,
+      tradingEnabled: tradingOpen(),
+      legalCardVersion: TRADING_CARD_VERSION,
+      legalAck: (moduleConfig("exchange") as any)?.legalAck ?? null,
       mintCapPerCycle: numberVar("ledger.admin_mint_cycle_cap"),
       stripeConfigured: stripeConfigured(),
     });
@@ -5277,7 +5770,11 @@ async function startServer() {
   /** List / delist a token. The firewalls answer here AND at boot. */
   app.put("/api/admin/exchange/tokens/:slug", async (req, res) => {
     if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
-    const { purchasable, swappable, minStageToBuy, sortOrder, active } = req.body ?? {};
+    const { purchasable, swappable, minStageToBuy, sortOrder, active, maxSwapOutPerCycle, maxSwapOutPerMemberPerCycle } =
+      req.body ?? {};
+    // The caps must come through here or a listing can never leave its
+    // fail-closed zero, which reads to an admin as "swapping is broken".
+    const cap = (v: any) => (v == null || !Number.isFinite(Number(v)) ? undefined : Math.max(0, Math.floor(Number(v))));
     const r = await upsertSettings(getPool(), {
       slug: String(req.params.slug),
       purchasable: purchasable == null ? undefined : !!purchasable,
@@ -5285,6 +5782,8 @@ async function startServer() {
       minStageToBuy: minStageToBuy === undefined ? undefined : (minStageToBuy || null),
       sortOrder: sortOrder == null ? undefined : Number(sortOrder),
       active: active == null ? undefined : !!active,
+      maxSwapOutPerCycle: cap(maxSwapOutPerCycle),
+      maxSwapOutPerMemberPerCycle: cap(maxSwapOutPerMemberPerCycle),
     });
     if (!r.ok) return res.status(409).json({ error: r.error });
     void recordEvent(getPool(), {
@@ -5361,7 +5860,7 @@ async function startServer() {
     res.json({ success: true, treasuryBalance: r.toBalance, remaining: cap - minted - amt });
   });
 
-  // ── S9: the token registry and ledger as admin surfaces ───────────────────
+  // â”€â”€ S9: the token registry and ledger as admin surfaces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
 
   /** The registry, with each token's issuance-to-date per faucet channel. */
   app.get("/api/admin/tokens", async (req, res) => {
@@ -5630,7 +6129,7 @@ async function startServer() {
     });
   });
 
-  // ── S16: notifications + preferences ──────────────────────────────────────
+  // â”€â”€ S16: notifications + preferences â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   app.get("/api/notifications", async (req, res) => {
     const user = await authedUser(req);
@@ -5807,7 +6306,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // ── Email Config (Resend) ─────────────────────────────────────────────────
+  // â”€â”€ Email Config (Resend) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
 
   app.get("/api/admin/email-config", async (req, res) => {
     if (!(await isAdmin(req))) {
@@ -5838,7 +6337,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // ── "Work With Us" AI guide (Anthropic-backed, dormant without a key) ──────
+  // â”€â”€ "Work With Us" AI guide (Anthropic-backed, dormant without a key) â”€â”€â”€â”€â”€â”€
 
   // Whether the guided assistant is switched on (a key is configured).
   app.get("/api/assistant/status", async (_req, res) => {
@@ -5976,7 +6475,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     }
   }
 
-  // ── Work With Us: content config + proposal attachment ────────────────────
+  // â”€â”€ Work With Us: content config + proposal attachment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   app.get("/api/work-with-us-config", async (_req, res) => {
     res.json(getWorkWithUs());
@@ -6024,7 +6523,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     });
   });
 
-  // ── Brand images: upload + compress ───────────────────────────────────────
+  // â”€â”€ Brand images: upload + compress â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
   // Hero photos come straight off phones at 3-8MB, which would make the site
   // slower than the pasted URLs it replaces. Everything is resized and re-encoded
   // to WebP on the way in. Files land in the mounted volume, so they survive
@@ -6083,7 +6582,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     });
   });
 
-  // ── Investor Document Vault ───────────────────────────────────────────────
+  // â”€â”€ Investor Document Vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
 
   const upload = multer({
     storage: multer.diskStorage({
@@ -6258,7 +6757,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true, message: "Check your email for the documents." });
   });
 
-  // ── Training Modules ──────────────────────────────────────────────────────
+  // â”€â”€ Training Modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   app.get("/api/training-modules", async (_req, res) => {
     const mods: any[] = trainingRepo.all();
@@ -6321,7 +6820,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true });
   });
 
-  // ── FAQs (NEW-1) ──────────────────────────────────────────────────────────
+  // â”€â”€ FAQs (NEW-1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   app.get("/api/faqs/:pathway", async (req, res) => {
     const pathway = req.params.pathway;
@@ -6380,7 +6879,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true });
   });
 
-  // ── Milestones (NEW-3) ────────────────────────────────────────────────────
+  // â”€â”€ Milestones (NEW-3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   app.get("/api/milestones", async (_req, res) => {
     const mils: any[] = milestonesRepo.all();
@@ -6442,7 +6941,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true });
   });
 
-  // ── Project Settings (village dues + other editable numbers) ──────────────
+  // â”€â”€ Project Settings (village dues + other editable numbers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   app.get("/api/settings", async (_req, res) => {
     res.json({ ...DEFAULT_SETTINGS, ...(settingsRepo.get()) });
@@ -6461,7 +6960,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true });
   });
 
-  // ── Visit Config (NEW-5) ──────────────────────────────────────────────────
+  // â”€â”€ Visit Config (NEW-5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   app.get("/api/visit-config", async (_req, res) => {
     res.json(visitConfigRepo.get());
@@ -6479,7 +6978,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true });
   });
 
-  // ── Investor Summary (NEW-6) ──────────────────────────────────────────────
+  // â”€â”€ Investor Summary (NEW-6) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   app.get("/api/investor-summary", async (_req, res) => {
     res.json(investorSummaryRepo.get());
@@ -6497,7 +6996,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true });
   });
 
-  // ── Game Engine API (platform-level; project specifics come from gameConfig) ──
+  // â”€â”€ Game Engine API (platform-level; project specifics come from gameConfig) â”€â”€
 
   // Public game config (safe subset) + current season
   app.get("/api/game/config", async (_req, res) => {
@@ -6922,7 +7421,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     });
   });
 
-  // ── Lunar cycles + roles (revision 2, steps 3 and 5) ───────────────────────
+  // â”€â”€ Lunar cycles + roles (revision 2, steps 3 and 5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
 
   // The current lunation: bounds, moon phase, and (when signed in) your budget.
   app.get("/api/game/cycle", async (req, res) => {
@@ -7204,7 +7703,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     });
   });
 
-  // ── Game variables: the customization layer (Admin > Settings) ─────────────
+  // â”€â”€ Game variables: the customization layer (Admin > Settings) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
 
   /**
    * Every variable with its definition, current value and whether it is still

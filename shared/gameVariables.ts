@@ -658,6 +658,42 @@ export const VARIABLES: VariableDef[] = [
     unit: "days",
   },
 
+  {
+    key: "exchange.swap_spread_bps",
+    category: "Exchange",
+    label: "The village's share of each swap",
+    description:
+      "In basis points, so half a percent is expressible (50 = 0.50%). This is a POLICY dial, not the safety mechanism — a swap can never profit the member even at 0, because the amount they hand over always rounds up. At 0 the confirm card reads 'the village keeps nothing on this swap'.",
+    type: "integer",
+    default: "0",
+    min: 0,
+    max: 2000,
+    unit: "bps",
+  },
+  {
+    key: "exchange.swap_fiat_hold_days",
+    category: "Exchange",
+    label: "Card-bought tokens settle before they can be swapped",
+    description:
+      "Tokens bought with a card are frozen from swapping for this many days — long enough that a chargeback still finds them in the wallet instead of already converted. 0 disables the hold.",
+    type: "integer",
+    default: "45",
+    min: 0,
+    max: 180,
+    unit: "days",
+  },
+  {
+    key: "exchange.swap_max_receive_per_order",
+    category: "Exchange",
+    label: "Most a member can receive in one swap",
+    description: "A ceiling on any single swap, whatever the caps allow across the cycle.",
+    type: "integer",
+    default: "500",
+    min: 1,
+    max: 1000000,
+    unit: "tokens",
+  },
+
   // ── Payments: platform-wide fiat guardrails (all fiat modules share) ──────
   {
     key: "payments.purchase_limit_per_order_usd",

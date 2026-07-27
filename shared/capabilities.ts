@@ -30,6 +30,7 @@ export type Capability =
   | "feed.announce" // post announcements to the village feed (role-only)
   | "stay.member_rate" // book accommodation at the member price, not the guest one
   | "exchange.buy" // buy listed tokens for fiat
+  | "exchange.swap" // trade one village token for another at posted prices
   | "exchange.manage"; // list tokens, post prices, stock the treasury (role-only)
 
 /**
@@ -49,6 +50,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "feed.announce",
   "stay.member_rate",
   "exchange.buy",
+  "exchange.swap",
   "exchange.manage",
 ];
 
@@ -66,6 +68,10 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   "map.contact": "member", // reaching people through the relay starts at member
   "stay.member_rate": "member", // the member price comes with membership
   "exchange.buy": "member", // buying opens at member; exchange.manage is role-only
+  // Parity with buying on purpose: the safety work is done by the
+  // deployment-level trading switch and fail-closed caps, and a higher stage
+  // floor would only show more members a door they cannot open.
+  "exchange.swap": "member",
 };
 
 /**

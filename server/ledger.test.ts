@@ -24,11 +24,13 @@ import {
   loadTokenRegistry,
   memberAccount,
   postTransfer,
+  postTransferPair,
   RECOGNITION_FAUCET,
   registerToken,
   tokenDef,
   TREASURY,
 } from "./lib/ledger";
+import { repairTaintedListings } from "./lib/exchange";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
 
 const configured = testDbConfigured();
@@ -227,6 +229,187 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
     });
     expect(r.ok).toBe(true);
     expect(r.toBalance).toBe(3);
+  });
+
+  // ── S57: the paired post — two legs, one transaction ──────────────────────
+  // A swap is the first operation where "leg 1 committed, leg 2 failed" is
+  // reachable by ordinary use. These pin that it cannot happen.
+
+  it("posts both legs of a pair atomically and recomputes every touched balance", async () => {
+    await registerToken(pool, { slug: "pair-a", name: "Pair A", kind: "credit", governance: "platform", transferable: false });
+    await registerToken(pool, { slug: "pair-b", name: "Pair B", kind: "credit", governance: "platform", transferable: false });
+    // The pair's own Hypha-governed fixture, so the refusal test does not
+    // depend on what THIS deployment happens to have named its DHO token.
+    await registerToken(pool, { slug: "pair-dho", name: "Pair DHO", kind: "voice", governance: "hypha", transferable: false });
+    // Stock the treasury with B, and give the member some A to trade.
+    await postTransfer(pool, { from: "sys:mint", to: TREASURY, tokenType: "pair-b", amount: 100, source: "exchange_stock", idempotencyKey: "pair-stock-b" });
+    await postTransfer(pool, { from: "sys:mint", to: memberAccount("swapper"), tokenType: "pair-a", amount: 50, source: "admin_mint", idempotencyKey: "pair-grant-a" });
+
+    const r = await postTransferPair(pool, [
+      { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-a", amount: 10, source: "exchange_swap", idempotencyKey: "ord:pair-1:leg1" },
+      { from: TREASURY, to: memberAccount("swapper"), tokenType: "pair-b", amount: 20, source: "exchange_swap", idempotencyKey: "ord:pair-1:leg2" },
+    ]);
+    expect(r.ok).toBe(true);
+    expect(r.duplicate).toBe(false);
+    expect(r.balances[`${memberAccount("swapper")}|pair-a`]).toBe(40);
+    expect(r.balances[`${memberAccount("swapper")}|pair-b`]).toBe(20);
+    expect(r.balances[`${TREASURY}|pair-a`]).toBe(10);
+    expect(r.balances[`${TREASURY}|pair-b`]).toBe(80);
+    expect((await checkLedgerInvariants(pool)).ok).toBe(true);
+  });
+
+  it("replays a whole pair exactly once", async () => {
+    const again = await postTransferPair(pool, [
+      { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-a", amount: 10, source: "exchange_swap", idempotencyKey: "ord:pair-1:leg1" },
+      { from: TREASURY, to: memberAccount("swapper"), tokenType: "pair-b", amount: 20, source: "exchange_swap", idempotencyKey: "ord:pair-1:leg2" },
+    ]);
+    expect(again.ok).toBe(true);
+    expect(again.duplicate).toBe(true);
+    // Nothing moved a second time.
+    expect(await balanceOf(pool, memberAccount("swapper"), "pair-a")).toBe(40);
+    expect(await balanceOf(pool, memberAccount("swapper"), "pair-b")).toBe(20);
+  });
+
+  it("ROLLS BOTH LEGS BACK when the second leg cannot be covered", async () => {
+    const beforeA = await balanceOf(pool, memberAccount("swapper"), "pair-a");
+    const beforeB = await balanceOf(pool, memberAccount("swapper"), "pair-b");
+    const [[rowsBefore]] = await pool.query<any[]>("SELECT COUNT(*) AS n FROM token_ledger");
+    // The treasury holds 80 B; ask for 5000.
+    const r = await postTransferPair(pool, [
+      { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-a", amount: 5, source: "exchange_swap", idempotencyKey: "ord:pair-fail:leg1" },
+      { from: TREASURY, to: memberAccount("swapper"), tokenType: "pair-b", amount: 5000, source: "exchange_swap", idempotencyKey: "ord:pair-fail:leg2" },
+    ]);
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("cannot overdraft");
+    // THE POINT: the member was not debited by the leg that DID insert.
+    expect(await balanceOf(pool, memberAccount("swapper"), "pair-a")).toBe(beforeA);
+    expect(await balanceOf(pool, memberAccount("swapper"), "pair-b")).toBe(beforeB);
+    const [[rowsAfter]] = await pool.query<any[]>("SELECT COUNT(*) AS n FROM token_ledger");
+    expect(Number(rowsAfter.n)).toBe(Number(rowsBefore.n));
+    expect((await checkLedgerInvariants(pool)).ok).toBe(true);
+  });
+
+  it("refuses allowNegative, duplicate keys within the pair, and invalid legs", async () => {
+    const debt = await postTransferPair(pool, [
+      { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-a", amount: 1, source: "exchange_swap", idempotencyKey: "k1", allowNegative: true },
+      { from: TREASURY, to: memberAccount("swapper"), tokenType: "pair-b", amount: 1, source: "exchange_swap", idempotencyKey: "k2" },
+    ]);
+    expect(debt.ok).toBe(false);
+    expect(String(debt.error)).toContain("allowNegative is illegal");
+
+    const sameKey = await postTransferPair(pool, [
+      { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-a", amount: 1, source: "exchange_swap", idempotencyKey: "same" },
+      { from: TREASURY, to: memberAccount("swapper"), tokenType: "pair-b", amount: 1, source: "exchange_swap", idempotencyKey: "same" },
+    ]);
+    expect(sameKey.ok).toBe(false);
+    expect(String(sameKey.error)).toContain("two distinct keys");
+
+    // Leg validation is the SAME validator single posts use.
+    const hypha = await postTransferPair(pool, [
+      { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-dho", amount: 1, source: "exchange_swap", idempotencyKey: "h1" },
+      { from: TREASURY, to: memberAccount("swapper"), tokenType: "pair-b", amount: 1, source: "exchange_swap", idempotencyKey: "h2" },
+    ]);
+    expect(hypha.ok).toBe(false);
+    expect(String(hypha.error)).toContain("issued on Hypha");
+  });
+
+  it("refuses to guess when only ONE key of a pair already exists", async () => {
+    // A key from one order reused in another is a key-shape bug. Under one
+    // transaction this state is unreachable, so the primitive refuses rather
+    // than completing half a story.
+    await expect(
+      postTransferPair(pool, [
+        { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-a", amount: 1, source: "exchange_swap", idempotencyKey: "ord:pair-1:leg1" },
+        { from: TREASURY, to: memberAccount("swapper"), tokenType: "pair-b", amount: 1, source: "exchange_swap", idempotencyKey: "ord:brand-new:leg2" },
+      ]),
+    ).rejects.toThrow(/partial idempotency collision/);
+  });
+
+  it("serializes concurrent pairs on the treasury without deadlocking", async () => {
+    // Treasury holds 80 - 0 = 80 B. Five concurrent swaps of 20 each: four
+    // can be covered, the fifth must fail cleanly rather than deadlock.
+    await postTransfer(pool, { from: "sys:mint", to: memberAccount("swapper"), tokenType: "pair-a", amount: 100, source: "admin_mint", idempotencyKey: "pair-grant-a2" });
+    const results = await Promise.all(
+      [1, 2, 3, 4, 5].map((i) =>
+        postTransferPair(pool, [
+          { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-a", amount: 5, source: "exchange_swap", idempotencyKey: `ord:conc-${i}:leg1` },
+          { from: TREASURY, to: memberAccount("swapper"), tokenType: "pair-b", amount: 20, source: "exchange_swap", idempotencyKey: `ord:conc-${i}:leg2` },
+        ]).catch((e) => ({ ok: false, duplicate: false, error: String(e.message), balances: {} })),
+      ),
+    );
+    const ok = results.filter((r) => r.ok).length;
+    const errors = results.filter((r) => !r.ok).map((r) => String(r.error));
+    // Four fit in the treasury's 80; the fifth must refuse CLEANLY — not
+    // deadlock, not throw a raw MySQL error at a member.
+    expect({ ok, errors }).toEqual({ ok: 4, errors: errors });
+    expect(errors.every((e) => e.includes("cannot overdraft"))).toBe(true);
+    expect(await balanceOf(pool, TREASURY, "pair-b")).toBe(0);
+    expect((await checkLedgerInvariants(pool)).ok).toBe(true);
+  });
+
+  it("enforces a caller's limit under the SAME lock that orders the writes", async () => {
+    // The bug this exists to prevent: a per-cycle cap read before the
+    // transaction is check-then-act. N concurrent requests all read the same
+    // pre-swap total, all decide they fit, and all execute — the cap bounds
+    // one request instead of the cycle. A guard runs after the accounts are
+    // locked, so each concurrent pair sees its committed predecessors.
+    await postTransfer(pool, { from: "sys:mint", to: TREASURY, tokenType: "pair-b", amount: 500, source: "exchange_stock", idempotencyKey: "pair-guard-stock" });
+    await postTransfer(pool, { from: "sys:mint", to: memberAccount("capped"), tokenType: "pair-a", amount: 500, source: "admin_mint", idempotencyKey: "pair-guard-grant" });
+
+    const LIMIT = 40; // …of pair-b out of the treasury, total, across all six.
+    const guard = async (conn: any): Promise<string | null> => {
+      const [[row]] = await conn.query(
+        "SELECT COALESCE(SUM(amount),0) AS s FROM token_ledger WHERE from_account = ? AND token_type = 'pair-b' AND source = 'capped_swap'",
+        [TREASURY],
+      );
+      return Number(row.s) + 20 > LIMIT ? `allowance spent (${Math.max(0, LIMIT - Number(row.s))} left)` : null;
+    };
+
+    const results = await Promise.all(
+      [1, 2, 3, 4, 5, 6].map((i) =>
+        postTransferPair(
+          pool,
+          [
+            { from: memberAccount("capped"), to: TREASURY, tokenType: "pair-a", amount: 5, source: "capped_swap", idempotencyKey: `ord:cap-${i}:leg1` },
+            { from: TREASURY, to: memberAccount("capped"), tokenType: "pair-b", amount: 20, source: "capped_swap", idempotencyKey: `ord:cap-${i}:leg2` },
+          ],
+          guard,
+        ).catch((e) => ({ ok: false, duplicate: false, error: String(e.message), balances: {} })),
+      ),
+    );
+
+    // Exactly two fit under the limit of 40. Without the guard inside the
+    // transaction, all six would have passed a pre-flight check reading 0.
+    expect(results.filter((r) => r.ok).length).toBe(2);
+    expect(results.filter((r) => !r.ok).every((r) => String(r.error).includes("allowance spent"))).toBe(true);
+    // A vetoed pair wrote NOTHING — not one leg, not a partial.
+    const [rows] = await pool.query<any[]>("SELECT COUNT(*) AS n FROM token_ledger WHERE source = 'capped_swap'");
+    expect(Number(rows[0].n)).toBe(4);
+    expect(await balanceOf(pool, memberAccount("capped"), "pair-b")).toBe(40);
+    expect((await checkLedgerInvariants(pool)).ok).toBe(true);
+  });
+
+  it("narrows a tainted listing on the swap side ONLY, leaving the legal shop open", async () => {
+    // Buying a faucet-issued token is legal; swapping one never is. A token
+    // listed for both that later becomes tainted must lose the swap listing
+    // and keep the sale — closing the shop as well would delist a legal
+    // trade silently, at a boot nobody was watching.
+    await registerToken(pool, { slug: "shop-swap", name: "Shop Swap", kind: "credit", governance: "platform", transferable: false });
+    await pool.query(
+      "INSERT INTO token_exchange_settings (token_slug, purchasable, swappable, active) VALUES ('shop-swap', 1, 1, 1) " +
+        "ON DUPLICATE KEY UPDATE purchasable = 1, swappable = 1, active = 1",
+    );
+    // Stocking the treasury is faucet -> treasury, which never taints.
+    await postTransfer(pool, { from: "sys:mint", to: TREASURY, tokenType: "shop-swap", amount: 50, source: "exchange_stock", idempotencyKey: "shop-swap-stock" });
+    expect(await repairTaintedListings(pool)).toEqual([]);
+
+    // Now a faucet pays a MEMBER — the token is a reward from here on.
+    await postTransfer(pool, { from: "sys:mint", to: memberAccount("rewarded"), tokenType: "shop-swap", amount: 5, source: "admin_mint", idempotencyKey: "shop-swap-taint" });
+    const repaired = await repairTaintedListings(pool);
+    expect(repaired.length).toBe(1);
+    expect(repaired[0]).toContain("shop-swap");
+    const [[row]] = await pool.query<any[]>("SELECT purchasable, swappable FROM token_exchange_settings WHERE token_slug = 'shop-swap'");
+    expect({ purchasable: !!row.purchasable, swappable: !!row.swappable }).toEqual({ purchasable: true, swappable: false });
   });
 
   it("holds the invariants after all of the above: conservation ≡ 0, no drift, no illegal negatives", async () => {
