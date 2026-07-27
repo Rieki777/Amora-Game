@@ -116,8 +116,9 @@ export async function readOnchainBalance(
 
 export function challengeMessage(input: { nonce: string; userId: string; host: string }): string {
   // Human-readable on purpose: wallets show this text to the person signing.
+  // The HOST names the village — no deployment's brand is welded in here.
   return (
-    `Amora wallet verification\n\n` +
+    `Wallet verification for ${input.host}\n\n` +
     `This signature proves you control this wallet. It authorizes nothing ` +
     `and costs nothing.\n\nMember: ${input.userId}\nSite: ${input.host}\nNonce: ${input.nonce}`
   );

@@ -189,7 +189,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-27-s55-automation-pipeline";
+const BUILD_MARKER = "2026-07-27-s56-extraction";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -4029,6 +4029,30 @@ async function startServer() {
     );
     if (!(r as any).affectedRows) return res.status(404).json({ error: "No open suspension with that id" });
     res.json({ success: true });
+  });
+
+  /**
+   * S56, the interop handshake (invariant 2.1 #8): one public, unauthenticated
+   * endpoint that says what this deployment IS — its own name, the platform
+   * version it runs, and which modules are actually serving. A future village
+   * directory reads this; the fork smoke test reads it to prove no code path
+   * hardcodes a brand. Names come from the merged brand overlay, never a
+   * literal.
+   */
+  app.get("/api/platform/info", async (_req, res) => {
+    const cfg = mergedConfig();
+    res.json({
+      name: cfg.project.name,
+      tagline: cfg.project.tagline ?? null,
+      location: cfg.project.location ?? null,
+      platform: "custom-game-foundation",
+      build: BUILD_MARKER,
+      modules: MODULES.filter((m) => m.core || effectiveLifecycle(m.id) !== "off").map((m) => ({
+        id: m.id,
+        lifecycle: m.core ? "public" : effectiveLifecycle(m.id),
+      })),
+      hypha: resolveHyphaLinks(stringVar).configured,
+    });
   });
 
   // ── S53-S55: the automation pipeline ──────────────────────────────────────

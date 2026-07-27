@@ -29,7 +29,7 @@ what, where, what breaks without it.
 | `FRONTEND_URL` | CORS origin | Cross-origin API calls fail |
 | `STRIPE_SECRET_KEY` | (S32) Stripe API key (`sk_live_…`) — powers card checkout for every fiat module (stays, exchange). **Amora handoff item (Rye, 2026-07-26): the Amora team creates its own Stripe account and sets this in Railway during handoff** — until then card checkout answers an honest 503 and manual payments carry stays. | Card checkout disabled (503); manual payment path still works |
 | `STRIPE_WEBHOOK_SECRET` | (S32) Signing secret (`whsec_…`) for the ONE webhook endpoint `POST /api/webhooks/stripe`. Create the endpoint in the Stripe dashboard (Developers → Webhooks) pointing at `https://<your-domain>/api/webhooks/stripe`, subscribe to `checkout.session.completed`, `charge.refunded`, `charge.dispute.created`, then copy its signing secret here. **Amora handoff item (Rye, 2026-07-26): create the endpoint + set this secret together with `STRIPE_SECRET_KEY` — a missing secret means unsigned events are processed only in dev shapes; a wrong one rejects every settlement with `sig_fail` alerts to admins.** Test with `stripe listen --forward-to` before go-live. | Settlements unverified or rejected; orders never credit |
-| `TEST_DATABASE_URL` | (dev/CI only, local .env) scratch-schema MySQL for DB-backed tests — the harness DROPs/CREATEs `amora_test`; never point it at the app schema | DB suites skip loudly |
+| `TEST_DATABASE_URL` | (dev/CI only, local .env) scratch-schema MySQL for DB-backed tests — the harness DROPs/CREATEs `village_test`; never point it at the app schema | DB suites skip loudly |
 
 ## Seeds & per-deployment data
 
@@ -41,10 +41,59 @@ what, where, what breaks without it.
   images (uploaded, sharp-compressed), dues, personas.
 - Game variables: only CHANGED values are stored; platform defaults inherit.
 
+## Brand overlay (make it yours)
+
+The platform keeps three layers apart, on purpose: **identity** in
+`shared/gameConfig.ts` (names, paths, the stage ladder, images),
+**behaviour** in `shared/gameVariables.ts` (how much, how often, which
+mode), **per-deployment data** in DB rows and seeds. A fork edits the last
+two from the admin panel and almost never touches the first.
+
+- **The overlay:** `data/brand.json` (a `dbDocument`, edited by the admin
+  Setup Wizard — "Make This Yours") is merged OVER `gameConfig.ts` by
+  `mergedConfig()` and served at `/api/game/config`. A blank field inherits
+  the platform default, so a fork overrides only what differs.
+- **Wizard order:** Identity (project + village name, tagline, currency
+  name) → Pictures (uploaded, sharp-compressed, never hotlinked) →
+  Numbers (dues, budgets — these write game variables) → Content (page
+  copy, FAQs) → Go live.
+- **NOT overlayable** (code-level edits, deliberately): the stage ladder and
+  its ids, the path definitions, season cadence semantics. Those are game
+  DESIGN; changing them is a fork of the game, not a re-skin.
+- **The guard:** `node scripts/check-brand-refs.mjs` runs in CI. Platform
+  zones (`server/lib/**`, `shared/**` except `gameConfig.ts`) must contain
+  no village's brand at all; the app shell, client pages, applied
+  migrations and test fixtures are ratcheted — their counts may only fall.
+  Forks extend the banned-terms list in that script with their own names.
+
+## Token naming (Gate D)
+
+Two layers, both admin-owned:
+
+1. **The recognition token** (the village's own word for appreciation):
+   rename in the `tokens` table row, in `shared/gameConfig.ts`, and in the
+   brand overlay — all three, or the UI and the ledger disagree.
+2. **Per-module tokens, named at enable time (Gate D):** each funds-bearing
+   module's token is created through Admin → Tokens with a name the village
+   chooses (stay credits, library credits, whatever the village calls
+   them). There is no shared platform credit token — one seller per token
+   is boot-asserted, and the exchange refuses to list a token another
+   module already sells.
+
+Verify after naming: the boot log prints `[ledger] invariants hold`; the
+cycle pool refuses to pay the recognition token (a fail-loud 400 if
+`gratitude.pool_token` is misconfigured); Admin → Ledger reconciliation
+shows conservation at zero for every token.
+
 ## Integrations
 
-- Hypha: set `hypha.org_url` (v3 S13) — every governance surface deep-links
-  from this one value; blank hides all Hypha buttons.
+- Hypha (DHO config): set `hypha.org_url` (v3 S13) — every governance
+  surface deep-links from this one value; blank hides all Hypha buttons.
+  Confirm the four derived links resolve against your own DHO
+  (governance `/`, proposals `/agreements`, treasury `/treasury`, members
+  `/members`); override individually only if your DHO differs. The
+  boundary is absolute: this platform READS and DISPLAYS what Hypha
+  governs and never mints, moves, or prices it.
 - Stripe (v3 S32+): per-fork keys; ONE webhook endpoint (`/api/webhooks/stripe`,
   raw-body signature verification — see the two `STRIPE_*` env rows above for
   the full setup checklist); test with the CLI before go-live; dispute
@@ -70,6 +119,46 @@ what, where, what breaks without it.
 
 ## Smoke test after provisioning
 
-`/health` → ok; register → claim → submit → consent (admin) → gratitude send →
-wall shows it; `/api/season` shows the seeded season; admin Modules tab lists
-everything OFF.
+**The loop:** `/health` → ok (and reports the build marker); register →
+claim → submit → consent (admin) → gratitude send → wall shows it;
+`/api/season` shows the seeded season; admin Modules tab lists everything
+OFF.
+
+**The postures** (each one is a thing that has silently broken before):
+
+- `GET /api/platform/info` returns your project name, version and enabled
+  modules — the interop handshake, and proof no path hardcodes a brand.
+- Blank `hypha.org_url` → every Hypha button is gone, not dead.
+- Without `STRIPE_SECRET_KEY` → card checkout answers an honest 503 and the
+  manual payment path still grants credits.
+- Boot log shows `[ledger] invariants hold` and, once the library module is
+  on, escrow reconciliation green in Admin → Library.
+- The exit policy renders at `/exit-policy` (placeholder banner until your
+  community writes its terms).
+- `node scripts/check-brand-refs.mjs` passes with YOUR village's terms
+  added to its banned list.
+- The `db-backup` workflow runs green against your `PROD_DATABASE_URL` —
+  it restores the dump and asserts counts, so green means restorable.
+
+## Extraction preconditions (who does what)
+
+The platform is fork-ready; these steps need a human with accounts:
+
+| Step | Who | Note |
+|---|---|---|
+| New GitHub repo / org for the fork | Village operator | The platform is pulled, not copied by hand |
+| Railway project + MySQL + volume at `/app/data` | Village operator | See Provisioning |
+| Resend sender-domain DNS (SPF + DKIM) | Whoever controls the domain | Unverified = silent email death |
+| Stripe account, keys, ONE webhook endpoint | Village operator | See the two `STRIPE_*` rows |
+| Hypha DHO + its URL | Village governance | Blank hides the surfaces cleanly |
+| Token names (Gate D) | Village admins | Recognition token + per-module tokens |
+| Exit-policy terms (F12) | The community | The flow ships; the terms are theirs |
+
+## Language
+
+The platform ships English-only. Every module's copy lives in its own page
+components rather than a locale layer, so translation is a fork-level
+decision, not a platform dependency — nothing in the server or the shared
+registries assumes a language. If a fork needs another language, the work
+is a locale layer over the client pages plus the seeds; the game rules,
+variables and invariants are language-free by construction.

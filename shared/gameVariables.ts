@@ -213,7 +213,7 @@ export const VARIABLES: VariableDef[] = [
   {
     key: "tokens.equity_address",
     category: "Tokens",
-    label: "Amora (equity) contract address on Base",
+    label: "Equity token contract address on Base",
     description:
       "The ERC-20 address for the project's equity token. The platform only ever READS this balance to display it: minting, pricing and governance all happen on Hypha. Leave blank until the token is deployed and nothing is shown.",
     type: "text",
@@ -222,7 +222,7 @@ export const VARIABLES: VariableDef[] = [
   {
     key: "tokens.voice_address",
     category: "Tokens",
-    label: "Voice (governance) contract address on Base",
+    label: "Governance token contract address on Base",
     description:
       "The ERC-20 address for the governance-weight token. Read-only here, exactly like the equity token.",
     type: "text",

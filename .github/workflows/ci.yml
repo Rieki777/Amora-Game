@@ -46,6 +46,13 @@ jobs:
       - name: Typecheck
         run: pnpm check
 
+      - name: Brand guard
+        # S56: platform code carries no village's brand (invariant 2.1 #2).
+        # Hard-clean zones must be spotless; ratchet zones may only burn down.
+        # A fork inherits the platform by pulling — a welded-in village name
+        # would travel with it.
+        run: node scripts/check-brand-refs.mjs
+
       - name: Build
         run: pnpm build
 

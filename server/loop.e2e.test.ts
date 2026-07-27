@@ -2507,4 +2507,29 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
     expect((await api("GET", "/api/admin/recordings", undefined, founderToken)).status).toBe(404);
   });
+
+  it("S56: the interop handshake — a deployment says what it is, from config", async () => {
+    // Public, unauthenticated: a village directory could read this, and the
+    // fork smoke test uses it to prove no path hardcodes a brand.
+    const info = await api("GET", "/api/platform/info");
+    expect(info.status).toBe(200);
+    expect(info.json.platform).toBe("custom-game-foundation");
+    expect(String(info.json.build)).toBeTruthy();
+    // The NAME comes from the merged brand overlay — change it, and the
+    // handshake changes with it. That is the whole white-label proof.
+    const before = info.json.name;
+    const cfg = await api("GET", "/api/admin/brand", undefined, founderToken);
+    expect(cfg.status).toBe(200);
+    expect((await api("PUT", "/api/admin/brand", { project: { name: "Rio Verde Commons" } }, founderToken)).status).toBe(200);
+    expect((await api("GET", "/api/platform/info")).json.name).toBe("Rio Verde Commons");
+    expect(before).not.toBe("Rio Verde Commons");
+    // Put the village's own name back.
+    await api("PUT", "/api/admin/brand", { project: { name: before } }, founderToken);
+    expect((await api("GET", "/api/platform/info")).json.name).toBe(before);
+
+    // Core modules always report; optional ones appear only when serving.
+    const ids = info.json.modules.map((m: any) => m.id);
+    expect(ids).toContain("quests");
+    expect(ids).not.toContain("exchange"); // off by this point in the run
+  });
 });

@@ -12,14 +12,16 @@
  *    tests still run everywhere, so a contributor without a database still
  *    has a meaningful (if smaller) suite.
  *
- * The scratch schema name is fixed (amora_test): vitest runs files in one
- * process here and the suite is serial per file, so a fresh DROP/CREATE per
- * provision is both isolation and cleanup-of-last-time.
+ * The scratch schema name is fixed and brand-free (village_test): vitest
+ * runs files in one process here and the suite is serial per file, so a
+ * fresh DROP/CREATE per provision is both isolation and
+ * cleanup-of-last-time. The harness OWNS this schema — it drops and
+ * recreates it every run, so a fork inherits it without a rename.
  */
 import mysql from "mysql2/promise";
 import { applyPending } from "./migrate";
 
-export const TEST_SCHEMA = "amora_test";
+export const TEST_SCHEMA = "village_test";
 
 export interface TestDb {
   /** Connection URL pointing at the scratch schema (timezone-Z discipline is the caller's job via connect()). */
