@@ -63,13 +63,21 @@ export interface CheckoutInput {
   successUrl: string;
   cancelUrl: string;
   customerEmail?: string;
+  /**
+   * S69: recurring turns the session into a Stripe SUBSCRIPTION. The first
+   * period settles through checkout.session.completed exactly like a
+   * one-time payment; renewals arrive as invoice.paid and dispatch to the
+   * module's `renew` handler. Metadata is duplicated onto the subscription
+   * so renewal events can find their way home.
+   */
+  recurring?: { interval: "month" | "year" };
 }
 
 export async function createCheckout(input: CheckoutInput): Promise<{ url: string; sessionId: string }> {
   const key = secretValue("stripe_secret_key");
   if (!key) throw new Error("Stripe is not configured (set it in Admin → Integrations, or STRIPE_SECRET_KEY)");
   const params = new URLSearchParams();
-  params.set("mode", "payment");
+  params.set("mode", input.recurring ? "subscription" : "payment");
   params.set("success_url", input.successUrl);
   params.set("cancel_url", input.cancelUrl);
   params.set("line_items[0][price_data][currency]", input.currency ?? "usd");
@@ -78,8 +86,16 @@ export async function createCheckout(input: CheckoutInput): Promise<{ url: strin
   params.set("line_items[0][quantity]", "1");
   params.set("metadata[module]", input.module);
   params.set("metadata[orderId]", input.orderId);
-  params.set("payment_intent_data[metadata][module]", input.module);
-  params.set("payment_intent_data[metadata][orderId]", input.orderId);
+  if (input.recurring) {
+    params.set("line_items[0][price_data][recurring][interval]", input.recurring.interval);
+    // Subscriptions have no payment_intent_data at session-create time;
+    // metadata rides the subscription itself so invoice.paid can route.
+    params.set("subscription_data[metadata][module]", input.module);
+    params.set("subscription_data[metadata][orderId]", input.orderId);
+  } else {
+    params.set("payment_intent_data[metadata][module]", input.module);
+    params.set("payment_intent_data[metadata][orderId]", input.orderId);
+  }
   if (input.customerEmail) params.set("customer_email", input.customerEmail);
 
   const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -120,13 +136,20 @@ export function verifyStripeSignature(rawBody: Buffer | string, sigHeader: strin
 
 type SettleHandler = (orderId: string, event: any) => Promise<void>;
 type ReversalHandler = (orderId: string, event: any) => Promise<void>;
+/** S69: a paid renewal period on a subscription the module sold. */
+type RenewHandler = (orderId: string, event: any) => Promise<void>;
 
 const settleHandlers = new Map<string, SettleHandler>();
 const reversalHandlers = new Map<string, ReversalHandler>();
+const renewHandlers = new Map<string, RenewHandler>();
 
-export function registerPaymentHandlers(moduleId: string, handlers: { settle: SettleHandler; reversal?: ReversalHandler }) {
+export function registerPaymentHandlers(
+  moduleId: string,
+  handlers: { settle: SettleHandler; reversal?: ReversalHandler; renew?: RenewHandler },
+) {
   settleHandlers.set(moduleId, handlers.settle);
   if (handlers.reversal) reversalHandlers.set(moduleId, handlers.reversal);
+  if (handlers.renew) renewHandlers.set(moduleId, handlers.renew);
 }
 
 // ── The ops rider: log everything, alert on failures ────────────────────────
@@ -223,6 +246,29 @@ export async function handleStripeEvent(
       }
       await handler(orderId, event);
       return { status: 200, body: { received: true } };
+    }
+
+    if (type === "invoice.paid") {
+      // S69: a renewal period on a subscription. The FIRST period settles as
+      // checkout.session.completed like any purchase; this path is periods
+      // two onward. Metadata rides the subscription (subscription_details on
+      // the invoice) because invoices carry none of their own.
+      const subMeta = obj?.subscription_details?.metadata ?? obj?.lines?.data?.[0]?.metadata ?? {};
+      const renewModule = String(subMeta.module ?? "");
+      const renewOrder = String(subMeta.orderId ?? "");
+      // billing_reason distinguishes the first invoice (already settled via
+      // checkout) from true renewals — double-granting period one would be
+      // a quiet mint.
+      if (String(obj?.billing_reason ?? "") === "subscription_create") {
+        return { status: 200, body: { received: true, firstPeriod: true } };
+      }
+      const renew = renewModule ? renewHandlers.get(renewModule) : undefined;
+      if (!renew || !renewOrder) {
+        await logPayment(pool, { module: renewModule || null, orderId: renewOrder || null, type, outcome: renewModule ? "no_handler" : "no_order" });
+        return { status: 200, body: { received: true, unhandled: true } };
+      }
+      await renew(renewOrder, event);
+      return { status: 200, body: { received: true, renewed: true } };
     }
 
     if (type === "charge.dispute.created" || type === "charge.refunded") {
