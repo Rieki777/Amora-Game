@@ -53,6 +53,15 @@ import {
   openExitFor,
   sweepBalances,
 } from "./lib/exit";
+import {
+  allRecordings,
+  ingestRecording,
+  putTranscript,
+  recordingById,
+  transcriptFor,
+  videoIdsFromRss,
+} from "./lib/recordings";
+import { chapterCandidates, synthesisSystemPrompt, validateTasks } from "./lib/callSynthesis";
 import { governanceReads, regenEntries, regenTotals, snapshotCycle, snapshotSeries } from "./lib/health";
 import { REGEN_METRICS, TREND_MIN_LUNATIONS } from "../shared/healthMetrics";
 import {
@@ -180,7 +189,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-27-s52-member-exit";
+const BUILD_MARKER = "2026-07-27-s55-automation-pipeline";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1829,6 +1838,26 @@ async function startServer() {
     if (effectiveLifecycle("stays") === "off") return "stays module off";
     const r = await runNightlyPosting(getPool(), stayPostingHooks());
     return `${r.swept} stay(s) swept, ${r.posted} night(s) posted${r.stopped ? `, ${r.stopped} past grace` : ""}`;
+  });
+  // S53: the YouTube RSS diff — no API key, purely ADDITIVE inserts of
+  // pipeline-internal rows (idempotent on video id). Synthesis and
+  // publishing remain explicit human acts; nothing a member sees mutates
+  // on this timer.
+  registerJob("recording-rss", 6 * 60 * 60 * 1000, async () => {
+    if (effectiveLifecycle("automation") === "off") return "automation module off";
+    const channelId = String((moduleConfig("automation") as any)?.youtubeChannelId ?? "").trim();
+    if (!channelId) return "no channel configured";
+    const resp = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`);
+    if (!resp.ok) return `rss fetch failed (${resp.status})`;
+    const entries = videoIdsFromRss(await resp.text());
+    let fresh = 0;
+    for (const e of entries) {
+      const r = await ingestRecording(getPool(), {
+        source: "youtube", externalId: e.id, title: e.title, url: `https://www.youtube.com/watch?v=${e.id}`,
+      });
+      if (r.fresh) fresh += 1;
+    }
+    return `${entries.length} in feed, ${fresh} new`;
   });
   startScheduler(getPool());
 
@@ -4000,6 +4029,294 @@ async function startServer() {
     );
     if (!(r as any).affectedRows) return res.status(404).json({ error: "No open suspension with that id" });
     res.json({ success: true });
+  });
+
+  // ── S53-S55: the automation pipeline ──────────────────────────────────────
+  // Recording -> transcript -> synthesis -> forum thread -> role-targeted
+  // suggestions. Every stage is an EXPLICIT act; the scheduler only ingests
+  // pipeline-internal rows. The evidence rule does the trust work.
+
+  app.use("/api/recordings", requireModule("automation"));
+  app.use("/api/admin/recordings", requireModule("automation"));
+  app.use("/api/admin/syntheses", requireModule("automation"));
+  app.use("/api/admin/call-tasks", requireModule("automation"));
+
+  /**
+   * The Riverside webhook: outside the module gate (webhooks never 404 into
+   * retry storms) but INERT below preview — 200 and discard, no state.
+   * Idempotent on (source, external_id): redelivery is a no-op.
+   */
+  app.post("/api/webhooks/riverside", async (req, res) => {
+    if (LIFECYCLE_RANK[effectiveLifecycle("automation")] < LIFECYCLE_RANK.preview) {
+      return res.json({ received: true, discarded: "automation module is off" });
+    }
+    const { id, title, url, durationS, transcript } = req.body ?? {};
+    if (!id || !String(title ?? "").trim()) return res.status(400).json({ error: "id and title required" });
+    const r = await ingestRecording(getPool(), {
+      source: "riverside", externalId: String(id), title: String(title), url: url ?? null,
+      durationS: durationS == null ? null : Number(durationS),
+    });
+    if (r.fresh && transcript) {
+      await putTranscript(getPool(), r.recording.id, String(transcript), "provided");
+    }
+    res.json({ received: true, fresh: r.fresh, recordingId: r.recording.id });
+  });
+
+  app.get("/api/admin/recordings", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const recordings = await allRecordings(getPool());
+    const [synths] = await getPool().query<any[]>(
+      "SELECT recording_id, id, published_at, dropped_task_count FROM call_syntheses",
+    );
+    const byRec = new Map(synths.map((s) => [String(s.recording_id), s]));
+    const [[queue]] = await getPool().query<any[]>("SELECT COUNT(*) AS n FROM call_syntheses WHERE published_at IS NULL");
+    res.json({
+      recordings: recordings.map((r) => ({ ...r, synthesis: byRec.get(r.id) ?? null })),
+      readyQueue: Number(queue.n),
+      maxReadyQueue: Number((moduleConfig("automation") as any)?.maxReadyQueue ?? 15),
+      assistantConfigured: !!(getEmailConfig().assistant_api_key || process.env.ANTHROPIC_API_KEY),
+    });
+  });
+
+  /** Manual ingestion: a title and a pasted transcript is a full recording. */
+  app.post("/api/admin/recordings", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { title, url, transcript } = req.body ?? {};
+    if (!String(title ?? "").trim()) return res.status(400).json({ error: "A title is required" });
+    const r = await ingestRecording(getPool(), { source: "manual", title: String(title), url: url ?? null });
+    let segments = 0;
+    if (transcript && String(transcript).trim()) {
+      segments = (await putTranscript(getPool(), r.recording.id, String(transcript), "manual")).segments;
+    }
+    res.json({ success: true, recording: await recordingById(getPool(), r.recording.id), segments });
+  });
+
+  app.put("/api/admin/recordings/:id/transcript", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const rec = await recordingById(getPool(), req.params.id);
+    if (!rec) return res.status(404).json({ error: "No such recording" });
+    if (rec.status === "synthesized" || rec.status === "published") {
+      return res.status(409).json({ error: "This recording is already synthesized — the tape does not change after the synthesis reads it" });
+    }
+    const raw = String(req.body?.transcript ?? "").trim();
+    if (!raw) return res.status(400).json({ error: "Paste the transcript" });
+    const out = await putTranscript(getPool(), rec.id, raw, "manual");
+    res.json({ success: true, segments: out.segments });
+  });
+
+  app.get("/api/admin/recordings/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const rec = await recordingById(getPool(), req.params.id);
+    if (!rec) return res.status(404).json({ error: "No such recording" });
+    const [synthRows] = await getPool().query<any[]>("SELECT * FROM call_syntheses WHERE recording_id = ?", [rec.id]);
+    const synth = synthRows[0] ?? null;
+    let tasks: any[] = [];
+    if (synth) {
+      const [t] = await getPool().query<any[]>("SELECT * FROM call_tasks WHERE synthesis_id = ? ORDER BY timestamp_ms", [synth.id]);
+      tasks = t;
+    }
+    res.json({ recording: rec, transcript: await transcriptFor(getPool(), rec.id), synthesis: synth, tasks });
+  });
+
+  /**
+   * Synthesis: an explicit admin act that costs tokens, so every guard runs
+   * first — one synthesis per recording ever, the ready-queue backpressure,
+   * the global assistant cap, and the key check. DETERMINISTIC FIRST: the
+   * role-candidate set and chapter marks are computed with zero tokens and
+   * the model may only choose from them.
+   */
+  app.post("/api/admin/recordings/:id/synthesize", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const rec = await recordingById(getPool(), req.params.id);
+    if (!rec) return res.status(404).json({ error: "No such recording" });
+    const transcript = await transcriptFor(getPool(), rec.id);
+    if (!transcript || transcript.body.trim().length < 40) {
+      return res.status(409).json({ error: "This recording needs a transcript first (a real one — a sentence is not a meeting)" });
+    }
+    const [existing] = await getPool().query<any[]>("SELECT id FROM call_syntheses WHERE recording_id = ?", [rec.id]);
+    if (existing[0]) return res.status(409).json({ error: "Already synthesized — one synthesis per recording, ever" });
+    const maxQueue = Number((moduleConfig("automation") as any)?.maxReadyQueue ?? 15);
+    const [[queue]] = await getPool().query<any[]>("SELECT COUNT(*) AS n FROM call_syntheses WHERE published_at IS NULL");
+    if (Number(queue.n) >= maxQueue) {
+      return res.status(409).json({ error: `The ready queue holds ${queue.n} unpublished syntheses — publish or clear before drafting more (backpressure at ${maxQueue})` });
+    }
+    if (await assistantDailyCapReached(600)) {
+      return res.status(429).json({ error: "The assistant's daily budget is spent — try tomorrow" });
+    }
+    const apiKey = getEmailConfig().assistant_api_key || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: "The assistant is not configured (ANTHROPIC_API_KEY) — everything else keeps working" });
+    }
+
+    // Zero-token pre-pass: candidates the model may choose from, nothing else.
+    const roleCandidates = scoreCandidates(
+      transcript.body.slice(0, 4000),
+      rolesRepo.all().map((r: any) => ({ kind: "role" as any, id: r.id, name: r.name ?? r.id, purpose: r.purpose ?? r.description ?? "" })),
+    ).filter((c: any) => c.score > 0).slice(0, 8)
+      .map((c: any) => ({ id: c.id, name: c.name, purpose: String(c.purpose ?? "").slice(0, 120) }));
+    const chapterMarks = chapterCandidates(transcript.segments);
+
+    try {
+      const base = process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
+      const resp = await fetch(`${base}/v1/messages`, {
+        method: "POST",
+        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 2000,
+          system: synthesisSystemPrompt(roleCandidates),
+          messages: [{
+            role: "user",
+            content: JSON.stringify({
+              title: rec.title,
+              chapterMarks,
+              segments: transcript.segments.slice(0, 400).map((s) => ({ startMs: s.startMs, text: s.text.slice(0, 400) })),
+            }).slice(0, 100000),
+          }],
+        }),
+      });
+      if (!resp.ok) {
+        console.error("[automation] anthropic error", resp.status, (await resp.text()).slice(0, 300));
+        return res.status(502).json({ error: "The assistant did not answer — the recording stays transcribed; try again" });
+      }
+      const data: any = await resp.json();
+      const text = String(data?.content?.[0]?.text ?? "").replace(/^```json\s*|```\s*$/g, "");
+      let parsed: any;
+      try { parsed = JSON.parse(text); } catch {
+        return res.status(502).json({ error: "The assistant's answer was not usable JSON — nothing was saved" });
+      }
+
+      // THE EVIDENCE RULE: quote + timestamp verified against the tape, or
+      // dropped — and the drops are counted where admins can see them.
+      const candidateIds = new Set(roleCandidates.map((c) => c.id));
+      const { kept, dropped } = validateTasks(parsed.tasks, transcript.segments, candidateIds);
+
+      const synthId = `syn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const overview = String(parsed.overview ?? "").slice(0, 20000) || "(the assistant returned no overview)";
+      await getPool().query(
+        "INSERT INTO call_syntheses (id, recording_id, ai_body, body, chapters, decisions, model, dropped_task_count) VALUES (?,?,?,?,?,?,?,?)",
+        [synthId, rec.id, overview, overview,
+          JSON.stringify(Array.isArray(parsed.chapters) ? parsed.chapters : chapterMarks),
+          JSON.stringify(Array.isArray(parsed.decisions) ? parsed.decisions : []),
+          "claude-haiku-4-5-20251001", dropped],
+      );
+      for (const t of kept) {
+        await getPool().query(
+          "INSERT INTO call_tasks (id, synthesis_id, description, quote, timestamp_ms, role_id) VALUES (?,?,?,?,?,?)",
+          [`ct-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, synthId, t.description, t.quote, t.timestampMs, t.roleId],
+        );
+      }
+      await getPool().query("UPDATE recordings SET status = 'synthesized' WHERE id = ?", [rec.id]);
+      await moduleActivity("automation", "automation", `A call synthesis is ready for review: ${rec.title}`, {
+        actorUserId: adminActor(req)?.id, entityType: "recording", entityRef: rec.id,
+      });
+      res.json({ success: true, synthesisId: synthId, tasks: kept.length, dropped });
+    } catch (e) {
+      console.error("[automation] synthesis failed", e);
+      res.status(502).json({ error: "The assistant did not answer — the recording stays transcribed; try again" });
+    }
+  });
+
+  /** Humans edit BODY. No code path anywhere updates ai_body — write once. */
+  app.put("/api/admin/syntheses/:id/body", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { body, chapters, decisions } = req.body ?? {};
+    if (!String(body ?? "").trim()) return res.status(400).json({ error: "The body cannot be empty" });
+    const [r] = await getPool().query<any>(
+      "UPDATE call_syntheses SET body = ?, chapters = COALESCE(?, chapters), decisions = COALESCE(?, decisions) WHERE id = ?",
+      [String(body).slice(0, 20000),
+        chapters !== undefined ? JSON.stringify(chapters) : null,
+        decisions !== undefined ? JSON.stringify(decisions) : null,
+        req.params.id],
+    );
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "No such synthesis" });
+    res.json({ success: true });
+  });
+
+  /**
+   * Publish: the ONLY door out of the admin surface, held by a human. One
+   * thread per synthesis ever (UNIQUE thread_id); the author is the
+   * publishing admin — a real member, never an AI persona (elders are
+   * deferred, Rye's call). Role-carrying suggestions fan out to exactly the
+   * role's holders and nobody else.
+   */
+  app.post("/api/admin/syntheses/:id/publish", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [synthRows] = await getPool().query<any[]>("SELECT * FROM call_syntheses WHERE id = ?", [req.params.id]);
+    const synth = synthRows[0];
+    if (!synth) return res.status(404).json({ error: "No such synthesis" });
+    if (synth.thread_id) return res.status(409).json({ error: "Already published — one thread per synthesis, ever" });
+    if (LIFECYCLE_RANK[effectiveLifecycle("forum")] < LIFECYCLE_RANK.members) {
+      return res.status(409).json({ error: "Enable the forum (at least to members) first — the synthesis publishes as a thread" });
+    }
+    const admin = await members.byId(adminActor(req)?.id ?? "");
+    if (!admin) return res.status(401).json({ error: "Unauthorized" });
+    const rec = await recordingById(getPool(), String(synth.recording_id));
+    const cats = forumCategories();
+    const configured = String((moduleConfig("automation") as any)?.forumCategory ?? "");
+    const category = cats.some((c: any) => c.id === configured) ? configured : cats[0]?.id;
+    if (!category) return res.status(409).json({ error: "The forum has no categories configured" });
+
+    const thread = {
+      id: `thr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      category,
+      authorId: admin.id,
+      title: `Call notes: ${rec?.title ?? "village call"}`.slice(0, 255),
+      body: String(synth.body).slice(0, 20000),
+      kind: "discussion",
+      meta: { synthesisId: synth.id, recordingId: synth.recording_id },
+      imageUrl: null,
+    };
+    await getPool().query(
+      "INSERT INTO forum_threads (id, category, author_id, title, body, kind, meta, image_url) VALUES (?,?,?,?,?,?,?,?)",
+      [thread.id, thread.category, thread.authorId, thread.title, thread.body, thread.kind, JSON.stringify(thread.meta), null],
+    );
+    await onThreadCreated(forumDeps, thread as any, admin);
+    await getPool().query(
+      "UPDATE call_syntheses SET thread_id = ?, published_at = NOW(), published_by = ? WHERE id = ?",
+      [thread.id, admin.id, synth.id],
+    );
+    await getPool().query("UPDATE recordings SET status = 'published' WHERE id = ?", [synth.recording_id]);
+
+    // Role-targeted suggestions: the holders of the named role hear it; a
+    // member without the seat hears nothing. Assigned work, not broadcast.
+    const [tasks] = await getPool().query<any[]>(
+      "SELECT * FROM call_tasks WHERE synthesis_id = ? AND status = 'suggested' AND role_id IS NOT NULL",
+      [synth.id],
+    );
+    let notified = 0;
+    for (const task of tasks) {
+      const holders = loadRoleHolders().filter((h: any) => h.roleId === String(task.role_id));
+      for (const h of holders as any[]) {
+        await notify({
+          userId: h.userId,
+          type: "call_task_suggested",
+          title: `From the call: ${String(task.description).slice(0, 120)}`,
+          body: `"${String(task.quote).slice(0, 300)}" — suggested for ${task.role_id}. Accept or decline on the thread; nothing happens on its own.`,
+          link: `/forum/${thread.id}`,
+          actorUserId: admin.id,
+          dedupeKey: `calltask:${task.id}:u${h.userId}`,
+        });
+        notified += 1;
+      }
+    }
+    await moduleActivity("automation", "automation", `Call notes published: ${thread.title}`, {
+      actorUserId: admin.id, entityType: "thread", entityRef: thread.id,
+    });
+    res.json({ success: true, threadId: thread.id, notified });
+  });
+
+  /** Accept/dismiss records a HUMAN decision. It moves no value, creates no
+   *  quest, applies nothing — suggestions are never timer-mutations. */
+  app.post("/api/admin/call-tasks/:id/:action(accept|dismiss)", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const status = req.params.action === "accept" ? "accepted" : "dismissed";
+    const [r] = await getPool().query<any>(
+      "UPDATE call_tasks SET status = ?, acted_by = ?, acted_at = NOW() WHERE id = ? AND status = 'suggested'",
+      [status, adminActor(req)?.id ?? null, req.params.id],
+    );
+    if (!(r as any).affectedRows) return res.status(409).json({ error: "Already acted on, or no such suggestion" });
+    res.json({ success: true, status });
   });
 
   // ── S52: member exit (F12) — enumerate, settle, resolve ──────────────────

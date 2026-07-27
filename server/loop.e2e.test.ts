@@ -96,6 +96,11 @@ beforeAll(async () => {
       // but the webhook secret IS set — the loop signs its own events and
       // proves verification, dedupe, settlement and reversal end to end.
       STRIPE_WEBHOOK_SECRET: "whsec_looptest",
+      // S54: the synthesis LLM is stubbed in-test; no key is configured at
+      // boot (the pipeline must refuse honestly without one) — the test
+      // sets the key through the admin surface when it wants a call.
+      ANTHROPIC_API_KEY: "",
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:3783",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -2349,5 +2354,157 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       "SELECT COUNT(*) AS n FROM exits WHERE COALESCE(resolution,'') LIKE '%repairing something%' OR COALESCE(agreement_ref,'') LIKE '%repairing%'",
     );
     expect(Number(ex.n)).toBe(0);
+  });
+
+  it("S53-S55: the automation pipeline — evidence or dropped, write-once, human publish", async () => {
+    // Off = the whole surface is the framework 404, member and admin alike.
+    expect((await api("GET", "/api/admin/recordings", undefined, founderToken)).status).toBe(404);
+    // …but the webhook never 404s into a retry storm: it accepts and discards.
+    const discarded = await api("POST", "/api/webhooks/riverside", { id: "riv-off", title: "While off" });
+    expect(discarded.status).toBe(200);
+    expect(discarded.json.discarded).toBeTruthy();
+
+    await api("PUT", "/api/admin/modules/automation/lifecycle", { lifecycle: "members" }, founderToken);
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "public" }, founderToken);
+
+    // The control for role-targeting, registered BEFORE anything publishes:
+    // a member holding no seat, who must hear nothing. (peer and doer both
+    // hold founders-circle by this point in the run.)
+    const bystander = await api("POST", "/api/auth/register", {
+      email: `bystander-${PORT}@example.test`, password: "LoopTest123!", name: "Quiet Bystander", paths: ["resident"],
+    });
+
+    // A recording with a REAL timestamped transcript.
+    const vtt = [
+      "WEBVTT", "",
+      "00:00:01.000 --> 00:00:09.000",
+      "Welcome everyone. Let us begin with what the land needs this week.", "",
+      "00:01:00.000 --> 00:01:11.000",
+      "The founders circle should repair the water pump before the rains.", "",
+      "00:04:00.000 --> 00:04:08.000",
+      "We agreed to hold the next gathering at sunset on Sunday.",
+    ].join("\n");
+    const ingested = await api("POST", "/api/admin/recordings", { title: "Circle Call, July 27", transcript: vtt }, founderToken);
+    expect(ingested.status).toBe(200);
+    expect(ingested.json.segments).toBe(3);
+    const recId = ingested.json.recording.id;
+    expect(ingested.json.recording.status).toBe("transcribed");
+
+    // The webhook is idempotent on (source, external_id): a redelivery is a no-op.
+    const w1 = await api("POST", "/api/webhooks/riverside", { id: "riv-1", title: "Riverside Call" });
+    expect(w1.json.fresh).toBe(true);
+    const w2 = await api("POST", "/api/webhooks/riverside", { id: "riv-1", title: "Riverside Call (again)" });
+    expect(w2.json.fresh).toBe(false);
+    expect(w2.json.recordingId).toBe(w1.json.recordingId);
+
+    // Without a key configured, synthesis refuses HONESTLY and everything
+    // else keeps working — the deterministic half never depends on the LLM.
+    const noKey = await api("POST", `/api/admin/recordings/${recId}/synthesize`, {}, founderToken);
+    expect(noKey.status).toBe(503);
+    expect(String(noKey.json.error)).toContain("not configured");
+    expect((await api("GET", `/api/admin/recordings/${recId}`, undefined, founderToken)).json.transcript.segments.length).toBe(3);
+
+    // ── Stub the model. It returns THREE suggestions: one honest, one with
+    // a fabricated quote, one pinned to the wrong minute. Only the honest
+    // one may become work. ──
+    const { createServer: createHttpServer } = await import("http");
+    let llmCalls = 0;
+    const llm = createHttpServer((req, res) => {
+      llmCalls += 1;
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        const payload = {
+          content: [{
+            text: JSON.stringify({
+              overview: "The circle met and spoke about the land, the pump, and Sunday.",
+              chapters: [{ title: "Opening", startMs: 0 }, { title: "The pump", startMs: 60000 }],
+              decisions: ["Next gathering at sunset on Sunday"],
+              tasks: [
+                { description: "Repair the water pump", quote: "repair the water pump before the rains", timestampMs: 62000, roleId: "founders-circle" },
+                { description: "Buy a second tractor", quote: "we all agreed to buy a second tractor", timestampMs: 62000, roleId: "founders-circle" },
+                { description: "Hold the gathering", quote: "hold the next gathering at sunset", timestampMs: 500000, roleId: "founders-circle" },
+              ],
+            }),
+          }],
+        };
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(payload));
+      });
+    });
+    await new Promise<void>((r) => llm.listen(3783, "127.0.0.1", r));
+
+    try {
+      // The child server reads ANTHROPIC_BASE_URL at call time; point the
+      // configured assistant key + base at the stub.
+      await api("PUT", "/api/admin/email-config", { assistant_api_key: "test-key" }, founderToken);
+      const synth = await api("POST", `/api/admin/recordings/${recId}/synthesize`, {}, founderToken);
+      expect(synth.status).toBe(200);
+      expect(llmCalls).toBe(1);
+      // THE EVIDENCE RULE, end to end: 1 kept, 2 dropped, and the drop count
+      // is stored where humans see it.
+      expect(synth.json.tasks).toBe(1);
+      expect(synth.json.dropped).toBe(2);
+
+      const detail = await api("GET", `/api/admin/recordings/${recId}`, undefined, founderToken);
+      expect(detail.json.tasks.length).toBe(1);
+      expect(detail.json.tasks[0].description).toBe("Repair the water pump");
+      expect(detail.json.tasks[0].role_id).toBe("founders-circle");
+      expect(Number(detail.json.synthesis.dropped_task_count)).toBe(2);
+
+      // One synthesis per recording, ever.
+      expect((await api("POST", `/api/admin/recordings/${recId}/synthesize`, {}, founderToken)).status).toBe(409);
+      // And the tape cannot change underneath a synthesis.
+      expect((await api("PUT", `/api/admin/recordings/${recId}/transcript`, { transcript: "rewritten" }, founderToken)).status).toBe(409);
+
+      // WRITE-ONCE AI BODY: a human edit changes `body` and nothing else.
+      const aiBefore = detail.json.synthesis.ai_body;
+      const synthId = detail.json.synthesis.id;
+      expect((await api("PUT", `/api/admin/syntheses/${synthId}/body`, { body: "Our own words for the village." }, founderToken)).status).toBe(200);
+      const [[row]] = await testDb.conn.query<any[]>("SELECT ai_body, body FROM call_syntheses WHERE id = ?", [synthId]);
+      expect(String(row.ai_body)).toBe(aiBefore);
+      expect(String(row.body)).toBe("Our own words for the village.");
+
+      // PUBLISH is the only door out, and a human holds it. The thread
+      // carries the human body; role-holders hear about their suggestion.
+      const pub = await api("POST", `/api/admin/syntheses/${synthId}/publish`, {}, founderToken);
+      expect(pub.status).toBe(200);
+      expect(pub.json.notified).toBeGreaterThan(0);
+      const thread = await api("GET", `/api/forum/threads/${pub.json.threadId}`);
+      expect(thread.status).toBe(200);
+      expect(thread.json.body).toBe("Our own words for the village.");
+      expect(thread.json.meta.synthesisId).toBe(synthId);
+      // One thread per synthesis, ever.
+      expect((await api("POST", `/api/admin/syntheses/${synthId}/publish`, {}, founderToken)).status).toBe(409);
+
+      // ROLE-TARGETED: the founders-circle holders heard it; the bystander
+      // (registered before the publish, holding no seat) heard nothing.
+      // Assigned work, not broadcast.
+      const doerBell = await api("GET", "/api/notifications", undefined, doerToken);
+      expect(doerBell.json.notifications.some((n: any) => n.type === "call_task_suggested")).toBe(true);
+      const bystanderBell = await api("GET", "/api/notifications", undefined, bystander.json.token);
+      expect(bystanderBell.json.notifications.some((n: any) => n.type === "call_task_suggested")).toBe(false);
+
+      // Accepting is a HUMAN decision that applies nothing: no quest, no
+      // value, no ledger row.
+      const taskId = detail.json.tasks[0].id;
+      const [[ledgerBefore]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n FROM token_ledger");
+      const [[questsBefore]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n FROM quests");
+      expect((await api("POST", `/api/admin/call-tasks/${taskId}/accept`, {}, founderToken)).status).toBe(200);
+      expect((await api("POST", `/api/admin/call-tasks/${taskId}/accept`, {}, founderToken)).status).toBe(409);
+      const [[ledgerAfter]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n FROM token_ledger");
+      const [[questsAfter]] = await testDb.conn.query<any[]>("SELECT COUNT(*) AS n FROM quests");
+      expect(ledgerAfter.n).toBe(ledgerBefore.n);
+      expect(questsAfter.n).toBe(questsBefore.n);
+    } finally {
+      await new Promise<void>((r) => llm.close(() => r()));
+      await api("PUT", "/api/admin/email-config", { assistant_api_key: "" }, founderToken);
+    }
+
+    // Members never see the admin surface, at any lifecycle.
+    expect((await api("GET", "/api/admin/recordings", undefined, peerToken)).status).toBe(401);
+    await api("PUT", "/api/admin/modules/automation/lifecycle", { lifecycle: "off" }, founderToken);
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
+    expect((await api("GET", "/api/admin/recordings", undefined, founderToken)).status).toBe(404);
   });
 });

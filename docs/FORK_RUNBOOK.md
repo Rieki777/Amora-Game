@@ -22,7 +22,8 @@ what, where, what breaks without it.
 | `ADMIN_PASSWORD` | Bootstrap-only (S1): each fork sets its own value and uses it once to create its founder via `POST /api/admin/bootstrap`. Inert after bootstrap — keeping it set is fine (foundation policy, Rye 2026-07-26); deleting it is optional hygiene. | No founder can be created |
 | `JOURNEY_PASSWORD` | Legacy Command Centre gate — retired at v3 S2 | — |
 | `BREAK_GLASS_ADMIN_EMAIL` | (from S1) may re-elevate exactly that account | No recovery if all admins are demoted |
-| `ANTHROPIC_API_KEY` | Maia guided proposals (`/api/assistant/*`) | Assistant hides; forms still work |
+| `ANTHROPIC_API_KEY` | Maia guided proposals (`/api/assistant/*`), the map concierge tie-break, and call synthesis (S54). May also be set per-deployment in Admin → Email Settings instead. | Assistant hides; forms still work; call synthesis refuses with an honest 503 while ingestion, transcripts and publishing keep working |
+| `ANTHROPIC_BASE_URL` | (optional, dev/CI) points the assistant at a stub instead of api.anthropic.com | Defaults to the real API |
 | `RESEND_API_KEY` | Transactional email | Emails silently skipped (logged) |
 | ↳ *sender domain* | **Every fork must verify its sender domain in Resend (resend.com/domains: SPF + DKIM records in the domain's DNS).** Resend returns 200 on unverified domains and delivers NOTHING — email death is silent. **Amora handoff item (Rye, 2026-07-26): `amora.cr` is unverified and only its team can add the DNS records — verify it during handoff.** | Claim links & notifications never arrive |
 | `FRONTEND_URL` | CORS origin | Cross-origin API calls fail |

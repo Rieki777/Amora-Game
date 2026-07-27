@@ -4017,6 +4017,221 @@ function ExitsAdminTab({ password }: { password: string }) {
   );
 }
 
+/**
+ * S53-S55: the call pipeline desk. Ingest a recording (paste the
+ * transcript), synthesize (every suggestion carries a verbatim quote and
+ * timestamp or was dropped — the drop count is shown, on purpose), edit
+ * the human body beside the untouchable AI body, publish to the forum,
+ * accept or dismiss suggestions. Nothing here happens on its own.
+ */
+function CallsAdminTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [off, setOff] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ title: "", url: "", transcript: "" });
+  const [selected, setSelected] = useState("");
+  const [detail, setDetail] = useState<any>(null);
+  const [bodyDraft, setBodyDraft] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/recordings`, { headers: authHeaders(password) });
+      if (res.status === 404) { setOff(true); setLoading(false); return; }
+      setOff(false);
+      setData(await res.json());
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const loadDetail = useCallback(async (id: string) => {
+    if (!id) { setDetail(null); return; }
+    const res = await fetch(`${API_BASE}/admin/recordings/${id}`, { headers: authHeaders(password) });
+    if (res.ok) {
+      const d = await res.json();
+      setDetail(d);
+      setBodyDraft(d.synthesis?.body ?? "");
+    }
+  }, [password]);
+
+  useEffect(() => { loadDetail(selected); }, [selected, loadDetail]);
+
+  const call = async (path: string, body?: any, method = "POST") => {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "failed");
+      return d;
+    } catch (e: any) { toast.error(e?.message || "Request failed"); return null; }
+  };
+
+  const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+  const fmtTs = (ms: number) => {
+    const s = Math.floor(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+
+  if (off) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Call Automation</h2>
+        <p className="text-sm text-gray-500">The Call Automation module is off. Enable it in the Modules tab first.</p>
+      </div>
+    );
+  }
+  if (loading && !data) return <p className="text-sm text-gray-500">Loading…</p>;
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Call Automation</h2>
+        <p className="text-sm text-gray-500 max-w-2xl">
+          The weekly call becomes assigned work. Suggestions survive only with
+          a verbatim quote and timestamp from the tape; publishing and every
+          decision stay human.
+        </p>
+        {!data?.assistantConfigured && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2 inline-block">
+            The assistant is not configured (ANTHROPIC_API_KEY) — ingestion and
+            transcripts work; synthesis will refuse honestly.
+          </p>
+        )}
+        {data && data.readyQueue >= data.maxReadyQueue && (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2 inline-block">
+            Backpressure: {data.readyQueue} unpublished syntheses — publish or clear before drafting more.
+          </p>
+        )}
+      </div>
+
+      {/* Ingest */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Add a recording</h3>
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <input placeholder="Title (e.g. Circle Call, July 27)" value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })} className={`${inputCls} flex-1`} />
+            <input placeholder="URL (optional)" value={form.url}
+              onChange={(e) => setForm({ ...form, url: e.target.value })} className={`${inputCls} flex-1`} />
+          </div>
+          <textarea rows={4} placeholder="Paste the transcript — VTT, SRT or plain text. Timestamped cues make the evidence rule sharper."
+            value={form.transcript} onChange={(e) => setForm({ ...form, transcript: e.target.value })}
+            className={`${inputCls} w-full font-mono text-xs`} />
+          <button
+            onClick={async () => {
+              const d = await call("/admin/recordings", form);
+              if (d) { toast.success(`Ingested (${d.segments} segment(s))`); setForm({ title: "", url: "", transcript: "" }); load(); }
+            }}
+            disabled={!form.title.trim()}
+            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+          >
+            Ingest
+          </button>
+        </div>
+      </div>
+
+      {/* Recordings */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Recordings</h3>
+        <div className="space-y-1.5">
+          {(data?.recordings ?? []).map((r: any) => (
+            <button key={r.id} onClick={() => setSelected(selected === r.id ? "" : r.id)}
+              className={`w-full text-left flex items-center justify-between border rounded-lg px-4 py-2.5 text-sm ${selected === r.id ? "border-[#2D5A5A] bg-[#2D5A5A]/5" : "border-gray-200 hover:bg-gray-50"}`}>
+              <span className="font-medium text-gray-900">{r.title} <span className="text-xs text-gray-400">({r.source})</span></span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${r.status === "published" ? "bg-emerald-50 text-emerald-700" : r.status === "synthesized" ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-500"}`}>
+                {r.status}{r.synthesis?.dropped_task_count > 0 ? ` · ${r.synthesis.dropped_task_count} dropped` : ""}
+              </span>
+            </button>
+          ))}
+          {(data?.recordings ?? []).length === 0 && <p className="text-sm text-gray-400">Nothing ingested yet.</p>}
+        </div>
+      </div>
+
+      {/* Detail */}
+      {detail && (
+        <div className="bg-white border border-gray-100 rounded-xl p-5 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h3 className="font-semibold text-gray-900">{detail.recording.title}</h3>
+            {!detail.synthesis && detail.transcript && (
+              <button onClick={async () => { const d = await call(`/admin/recordings/${detail.recording.id}/synthesize`); if (d) { toast.success(`${d.tasks} task(s) kept, ${d.dropped} dropped by the evidence rule`); load(); loadDetail(selected); } }}
+                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Synthesize</button>
+            )}
+            {detail.synthesis && !detail.synthesis.published_at && (
+              <button onClick={async () => { const d = await call(`/admin/syntheses/${detail.synthesis.id}/publish`); if (d) { toast.success(`Published — ${d.notified} role-holder(s) notified`); load(); loadDetail(selected); } }}
+                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Publish to forum</button>
+            )}
+          </div>
+
+          {!detail.transcript && (
+            <p className="text-sm text-gray-400">No transcript yet — paste one via the transcript endpoint or re-ingest with it.</p>
+          )}
+
+          {detail.synthesis && (
+            <>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">AI body (write-once, untouchable)</p>
+                  <div className="text-sm text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3 whitespace-pre-wrap max-h-64 overflow-y-auto">
+                    {detail.synthesis.ai_body}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Your edit (what actually publishes)</p>
+                  <textarea rows={10} value={bodyDraft} onChange={(e) => setBodyDraft(e.target.value)}
+                    disabled={!!detail.synthesis.published_at}
+                    className={`${inputCls} w-full`} />
+                  {!detail.synthesis.published_at && (
+                    <button onClick={async () => { const d = await call(`/admin/syntheses/${detail.synthesis.id}/body`, { body: bodyDraft }, "PUT"); if (d) { toast.success("Saved"); loadDetail(selected); } }}
+                      className="mt-1 text-sm text-[#2D5A5A] font-medium hover:underline">Save edit</button>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Suggested tasks — each one evidenced from the tape
+                  {detail.synthesis.dropped_task_count > 0 && (
+                    <span className="text-amber-700"> · {detail.synthesis.dropped_task_count} suggestion(s) dropped for failing the evidence rule</span>
+                  )}
+                </p>
+                <div className="space-y-2">
+                  {detail.tasks.map((t: any) => (
+                    <div key={t.id} className="border border-gray-200 rounded-lg px-4 py-2.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-gray-900">{t.description}</p>
+                        <span className="flex items-center gap-2">
+                          {t.role_id && <span className="text-xs bg-teal-deep/10 text-teal-deep px-2 py-0.5 rounded-full">{t.role_id}</span>}
+                          {t.status === "suggested" ? (
+                            <>
+                              <button onClick={async () => { const d = await call(`/admin/call-tasks/${t.id}/accept`); if (d) loadDetail(selected); }}
+                                className="text-xs text-emerald-700 font-medium hover:underline">Accept</button>
+                              <button onClick={async () => { const d = await call(`/admin/call-tasks/${t.id}/dismiss`); if (d) loadDetail(selected); }}
+                                className="text-xs text-gray-400 hover:text-red-600">Dismiss</button>
+                            </>
+                          ) : (
+                            <span className={`text-xs ${t.status === "accepted" ? "text-emerald-700" : "text-gray-400"}`}>{t.status}</span>
+                          )}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1 italic">“{t.quote}” — at {fmtTs(t.timestamp_ms)}</p>
+                    </div>
+                  ))}
+                  {detail.tasks.length === 0 && <p className="text-sm text-gray-400">No suggestions survived, or none were made.</p>}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TokensTab({ password }: { password: string }) {
   const [tokens, setTokens] = useState<any[]>([]);
   const [mintCap, setMintCap] = useState<number>(0);
@@ -5322,6 +5537,7 @@ export default function Admin() {
             { key: "library-admin", label: "Library", icon: Inbox },
             { key: "health-admin", label: "Village Health", icon: Activity },
             { key: "exits-admin", label: "Departures", icon: LogOut },
+            { key: "calls-admin", label: "Calls", icon: Calendar },
             { key: "tokens", label: "Tokens", icon: Coins },
             { key: "ledger", label: "Ledger", icon: BarChart3 },
             { key: "variables", label: "Game Mechanics", icon: Activity },
@@ -5454,6 +5670,7 @@ export default function Admin() {
           {activeTab === "library-admin" && <LibraryAdminTab password={password} />}
           {activeTab === "health-admin" && <HealthAdminTab password={password} />}
           {activeTab === "exits-admin" && <ExitsAdminTab password={password} />}
+          {activeTab === "calls-admin" && <CallsAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}

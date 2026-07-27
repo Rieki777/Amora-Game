@@ -211,6 +211,25 @@ export const MODULES: ModuleDef[] = [
     // the shared registry stays import-clean for the client bundle.
   },
   {
+    id: "automation",
+    name: "Call Automation",
+    description:
+      "The weekly call becomes assigned work, not content distribution: recordings in, transcripts kept, an AI synthesis whose every task suggestion carries a verbatim quote and timestamp (or is dropped), published to the forum by a human, with suggestions routed to the roles they name. Nothing publishes or applies itself.",
+    requires: [],
+    recommends: ["forum"],
+    capabilities: [],
+    variableKeys: [],
+    apiPrefixes: ["/api/recordings"],
+    defaultConfig: { youtubeChannelId: "", maxReadyQueue: 15, forumCategory: "village-life" },
+    validateConfig: (c: any) => {
+      if (!c || typeof c !== "object") return "config must be an object";
+      if (c.maxReadyQueue !== undefined && !(Number.isInteger(c.maxReadyQueue) && c.maxReadyQueue >= 1 && c.maxReadyQueue <= 100)) {
+        return "maxReadyQueue must be an integer between 1 and 100";
+      }
+      return null;
+    },
+  },
+  {
     id: "health",
     name: "Village Health",
     description:
