@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import GameDashboard from "@/components/GameDashboard";
 import ProfileJourney from "@/components/ProfileJourney";
 import NotifyPrefsPanel from "@/components/NotifyPrefsPanel";
+import OnchainCard from "@/components/OnchainCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -113,6 +114,12 @@ export default function Profile() {
             {/* S4: the journey in numbers — progression history, flows, ledger */}
             <div className="mb-8">
               <ProfileJourney />
+            </div>
+
+            {/* S47: on-chain holdings — renders nothing until the village
+                turns the economics section on */}
+            <div className="mb-8">
+              <OnchainCard />
             </div>
 
             {/* S16/S18: notification cadence + data rights */}

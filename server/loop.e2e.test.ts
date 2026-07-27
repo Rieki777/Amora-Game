@@ -2006,4 +2006,110 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(rec.json.invariants.problems).toEqual([]);
     expect(rec.json.invariants.ok).toBe(true);
   });
+
+  it("S47: the economics section — proven bindings, fixed point, never zero", async () => {
+    const { createServer: createHttpServer } = await import("http");
+    const { privateKeyToAccount, generatePrivateKey } = await import("viem/accounts");
+
+    // A tiny Base-shaped JSON-RPC stub: decimals() = 18, balanceOf = 0.5
+    // tokens (5e17 wei) — and a kill switch that makes every call fail.
+    let rpcDown = false;
+    let rpcCalls = 0;
+    const DECIMALS_SEL = "0x313ce567";
+    const BALANCE_SEL = "0x70a08231";
+    const rpc = createHttpServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        rpcCalls += 1;
+        if (rpcDown) { res.writeHead(503); res.end("down"); return; }
+        const reply = (id: any, result: string) => {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ jsonrpc: "2.0", id, result }));
+        };
+        try {
+          const msg = JSON.parse(body);
+          const one = Array.isArray(msg) ? msg[0] : msg;
+          if (one.method === "eth_chainId") return reply(one.id, "0x2105");
+          if (one.method === "eth_call") {
+            const data = String(one.params?.[0]?.data ?? "");
+            if (data.startsWith(DECIMALS_SEL)) return reply(one.id, "0x" + (18).toString(16).padStart(64, "0"));
+            if (data.startsWith(BALANCE_SEL)) return reply(one.id, "0x" + BigInt("500000000000000000").toString(16).padStart(64, "0"));
+          }
+          return reply(one.id, "0x");
+        } catch { res.writeHead(400); res.end(); }
+      });
+    });
+    await new Promise<void>((r) => rpc.listen(3782, "127.0.0.1", r));
+
+    try {
+      // Point the platform at the stub and open the section.
+      await api("PUT", "/api/admin/variables/tokens.base_rpc_url", { value: "http://127.0.0.1:3782" }, founderToken);
+      await api("PUT", "/api/admin/variables/tokens.equity_address", { value: "0x1111111111111111111111111111111111111111" }, founderToken);
+      await api("PUT", "/api/admin/variables/tokens.show_economics_section", { value: "true" }, founderToken);
+
+      // UNVERIFIED = NOTHING. An address string proves nothing; before the
+      // signature, the on-chain block is empty — no reads even attempted.
+      const before = await api("GET", "/api/wallet", undefined, peerToken);
+      expect(before.status).toBe(200);
+      expect(before.json.wallet.verifiedAt).toBeNull();
+      expect(before.json.onchain).toBeNull();
+      expect(rpcCalls).toBe(0);
+
+      // The signed-message challenge: sign the EXACT message the server
+      // issued, bind, and the audit trail names the member.
+      const wallet = privateKeyToAccount(generatePrivateKey());
+      const ch = await api("POST", "/api/wallet/challenge", {}, peerToken);
+      expect(ch.status).toBe(200);
+      const goodSig = await wallet.signMessage({ message: ch.json.message });
+      // A signature from the WRONG key is refused…
+      const impostor = privateKeyToAccount(generatePrivateKey());
+      const badSig = await impostor.signMessage({ message: ch.json.message });
+      expect((await api("POST", "/api/wallet/verify", { address: wallet.address, signature: badSig }, peerToken)).status).toBe(400);
+      // …the right one binds…
+      const verified = await api("POST", "/api/wallet/verify", { address: wallet.address, signature: goodSig }, peerToken);
+      expect(verified.status).toBe(200);
+      // …and the nonce was CONSUMED: replaying the same signature fails.
+      expect((await api("POST", "/api/wallet/verify", { address: wallet.address, signature: goodSig }, peerToken)).status).toBe(400);
+      // One wallet, one member: a second member claiming the same address is a 409.
+      const rival = await api("POST", "/api/auth/register", {
+        email: `rival-${PORT}@example.test`, password: "LoopTest123!", name: "Wallet Rival", paths: ["resident"],
+      });
+      const rivalCh = await api("POST", "/api/wallet/challenge", {}, rival.json.token);
+      const rivalSig = await wallet.signMessage({ message: rivalCh.json.message });
+      expect((await api("POST", "/api/wallet/verify", { address: wallet.address, signature: rivalSig }, rival.json.token)).status).toBe(409);
+
+      // FIXED POINT: 5e17 raw at decimals()=18 renders "0.5" — never 0.
+      const fresh = await api("GET", "/api/wallet", undefined, peerToken);
+      expect(fresh.json.onchain.amora.formatted).toBe("0.5");
+      expect(fresh.json.onchain.amora.raw).toBe("500000000000000000");
+      expect(fresh.json.onchain.amora.decimals).toBe(18);
+      expect(fresh.json.onchain.amora.stale).toBe(false);
+      expect(fresh.json.onchain.voice).toBeNull(); // no voice address posted
+      expect(rpcCalls).toBeGreaterThan(0);
+
+      // THE DoD CLAUSE: kill the RPC, age the cache past its read-through
+      // TTL, and the endpoint returns the LAST-KNOWN value marked stale with
+      // when it was true — never zero, and nothing new is written.
+      rpcDown = true;
+      await testDb.conn.query(
+        "UPDATE onchain_balances SET fetched_at = (NOW() - INTERVAL 10 MINUTE) WHERE user_id = ? AND token_slug = 'amora'",
+        [peerId],
+      );
+      const staleRead = await api("GET", "/api/wallet", undefined, peerToken);
+      expect(staleRead.json.onchain.amora.formatted).toBe("0.5");
+      expect(staleRead.json.onchain.amora.stale).toBe(true);
+      expect(new Date(staleRead.json.onchain.amora.fetchedAt).getTime()).toBeLessThan(Date.now() - 5 * 60 * 1000);
+      const [[cacheRow]] = await testDb.conn.query<any[]>(
+        "SELECT raw_balance FROM onchain_balances WHERE user_id = ? AND token_slug = 'amora'", [peerId],
+      );
+      expect(String(cacheRow.raw_balance)).toBe("500000000000000000"); // no zero was ever written
+
+      // The section closes as one switch: variable off → no on-chain block.
+      await api("PUT", "/api/admin/variables/tokens.show_economics_section", { value: "false" }, founderToken);
+      expect((await api("GET", "/api/wallet", undefined, peerToken)).json.onchain).toBeNull();
+    } finally {
+      await new Promise<void>((r) => rpc.close(() => r()));
+    }
+  });
 });

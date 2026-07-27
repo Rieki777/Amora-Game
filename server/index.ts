@@ -43,6 +43,7 @@ import {
   staysOpenState,
   allStays,
 } from "./lib/stays";
+import { createWalletChallenge, readOnchainBalance, verifyWalletSignature } from "./lib/base-reads";
 import {
   LIBRARY_CREDIT,
   LIBRARY_MINT,
@@ -168,7 +169,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s46-material-library";
+const BUILD_MARKER = "2026-07-26-s47-economics-section";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -3950,6 +3951,84 @@ async function startServer() {
     );
     if (!(r as any).affectedRows) return res.status(404).json({ error: "No open suspension with that id" });
     res.json({ success: true });
+  });
+
+  // ── S47: the economics section — wallet binding + Base reads ─────────────
+  // Not module-gated: a member's own wallet binding and ledger balances are
+  // core identity (the on-chain block is variable-gated instead). The
+  // platform only ever READS the chain — Gate B, never a second ledger.
+
+  app.post("/api/wallet/challenge", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (await overLimit(`wallet-challenge:${user.id}`, 10, 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Ten challenges an hour is plenty" });
+    }
+    const host = notifyDeps.origin().replace(/^https?:\/\//, "");
+    res.json(await createWalletChallenge(getPool(), user.id, host));
+  });
+
+  app.post("/api/wallet/verify", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const { address, signature } = req.body ?? {};
+    const host = notifyDeps.origin().replace(/^https?:\/\//, "");
+    const r = await verifyWalletSignature(getPool(), {
+      userId: user.id, address: String(address ?? ""), signature: String(signature ?? ""), host,
+    });
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    try {
+      await members.update(user.id, (u: any) => {
+        u.walletAddress = r.address;
+        u.walletVerifiedAt = new Date().toISOString();
+      });
+    } catch (e: any) {
+      // users_wallet_unique: one wallet, one member — a claimed address is
+      // a conversation, not a crash.
+      if (e?.code === "ER_DUP_ENTRY") {
+        return res.status(409).json({ error: "That wallet is already bound to another member" });
+      }
+      throw e;
+    }
+    void recordEvent(getPool(), {
+      kind: "audit", text: `wallet:verified`, actorUserId: user.id,
+      entityType: "user", entityRef: user.id, audience: "admin",
+    });
+    res.json({ success: true, address: r.address });
+  });
+
+  /**
+   * The economics endpoint. Ledger balances always; the on-chain block only
+   * when the section is enabled AND the binding is VERIFIED — an address
+   * someone merely typed shows nothing. Per token: fresh read, or last-known
+   * marked stale, or null. Never a zero the chain didn't say.
+   */
+  app.get("/api/wallet", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const economicsEnabled = boolVar("tokens.show_economics_section");
+    let onchain: Record<string, any> | null = null;
+    if (economicsEnabled && user.walletVerifiedAt && user.walletAddress) {
+      const contracts = [
+        { slug: "amora", address: stringVar("tokens.equity_address").trim() },
+        { slug: "voice", address: stringVar("tokens.voice_address").trim() },
+      ];
+      onchain = {};
+      for (const c of contracts) {
+        onchain[c.slug] = c.address
+          ? await readOnchainBalance(getPool(), {
+              userId: user.id, walletAddress: user.walletAddress, tokenSlug: c.slug, contractAddress: c.address,
+            })
+          : null;
+      }
+    }
+    res.json({
+      ledger: await balancesFor(getPool(), memberAccount(user.id)),
+      wallet: { address: user.walletAddress ?? null, verifiedAt: user.walletVerifiedAt ?? null },
+      onchain,
+      economicsEnabled,
+      hypha: resolveHyphaLinks(stringVar),
+    });
   });
 
   // ── S41-S46: the material library ────────────────────────────────────────

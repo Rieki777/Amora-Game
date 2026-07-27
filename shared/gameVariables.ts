@@ -752,7 +752,11 @@ export function validateVariable(def: VariableDef, raw: string): string | null {
       return "Must be a valid contract address (0x followed by 40 hex characters), or blank.";
     }
     if (def.key.endsWith("_url") && raw !== "" && !/^https:\/\/\S+$/.test(raw)) {
-      return "Must be an https URL.";
+      // Loopback is exempt: a local RPC node (anvil, hardhat, a test stub)
+      // is http by nature and never crosses a network boundary.
+      if (!/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/\S*)?$/.test(raw)) {
+        return "Must be an https URL (plain http is allowed only for 127.0.0.1/localhost).";
+      }
     }
     return null;
   }
