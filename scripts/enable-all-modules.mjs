@@ -41,6 +41,8 @@ const TARGETS = [
   ["health", "public"],
   ["stays", "public"],
   ["exchange", "public"],
+  ["commerce", "public"],
+  ["network", "public"],
   ["automation", "members"],
 ];
 
@@ -55,6 +57,8 @@ const PROBES = {
   health: "/api/health/summary",
   stays: "/api/stays",
   exchange: "/api/exchange",
+  commerce: "/api/products",
+  network: "/api/network/published",
 };
 
 async function api(method, path, body, token) {
@@ -95,6 +99,24 @@ async function main() {
     process.exit(1);
   }
   const stored = Object.fromEntries(before.json.modules.map((m) => [m.id, m]));
+
+  // TARGETS is a hand-written list, and a hand-written list rots the moment
+  // a module is added without touching this file — which already happened
+  // once: `commerce` and `network` shipped and this script silently skipped
+  // them while still printing "All modules enabled". Compare against what
+  // the SERVER actually has and refuse to claim completeness while any
+  // optional module is unaccounted for.
+  const covered = new Set(TARGETS.map(([id]) => id));
+  const missing = before.json.modules
+    .filter((m) => !m.core && !covered.has(m.id))
+    .map((m) => m.id);
+  if (missing.length) {
+    console.error(
+      `\nThis script does not know about ${missing.length} module(s) the server offers: ${missing.join(", ")}.\n` +
+        `Add them to TARGETS (and PROBES) in scripts/enable-all-modules.mjs — refusing to report success while the list is stale.`,
+    );
+    process.exit(3);
+  }
 
   console.log(`\n${DRY ? "DRY RUN — " : ""}Enabling ${TARGETS.length} module(s) on ${BASE}\n`);
   const results = [];

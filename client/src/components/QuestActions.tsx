@@ -23,10 +23,16 @@ export default function QuestActions({
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
 
+  // This is the conversion CTA for every signed-out visitor on the quests
+  // board — it was a 17px tap target, under WCAG 2.5.8's 24px floor and well
+  // under a comfortable thumb. Now a full-width 44px row.
   if (!signedIn) {
     return (
-      <div className="px-6 py-3 border-t border-border">
-        <Link href="/register" className="text-sm font-semibold text-teal-deep hover:text-teal transition-colors">
+      <div className="px-6 py-1 border-t border-border">
+        <Link
+          href="/register"
+          className="flex items-center min-h-[44px] text-sm font-semibold text-teal-deep hover:text-teal transition-colors"
+        >
           Sign in to claim this quest
         </Link>
       </div>

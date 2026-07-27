@@ -58,8 +58,15 @@ export default function Layout({ children }: LayoutProps) {
             </a>
           </Link>
 
-          {/* Desktop Menu */}
-          <div className="hidden md:flex items-center gap-6">
+          {/* Desktop Menu.
+              Shown from `xl`, not `md`. This nav is ~1250px wide, so between
+              the md breakpoint (768px) and ~1310px it overflowed the viewport
+              and every page on the site scrolled sideways — iPads, small
+              laptops and split-screen windows all landed in that gap. The
+              mobile menu below carries those widths instead; the two
+              breakpoints are a matched pair and must always move together, or
+              some viewport gets no navigation at all. */}
+          <div className="hidden xl:flex items-center gap-3 2xl:gap-6">
             <Link href="/" className="text-white/70 hover:text-white transition-colors text-sm">
               Home
             </Link>
@@ -237,7 +244,7 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           {/* Mobile Menu Button (bell beside it when signed in) */}
-          <div className="md:hidden flex items-center gap-1 text-white">
+          <div className="xl:hidden flex items-center gap-1 text-white">
             {user && <NotificationBell />}
             {/* Icon-only, so it needs a spoken name and a state a screen
                 reader can hear — otherwise it announces as bare "button". */}
@@ -261,7 +268,7 @@ export default function Layout({ children }: LayoutProps) {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              className="md:hidden bg-teal-deep/95 border-t border-white/10 overflow-hidden"
+              className="xl:hidden bg-teal-deep/95 border-t border-white/10 overflow-hidden"
             >
               <div className="container py-4 space-y-3">
                 <Link href="/" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>

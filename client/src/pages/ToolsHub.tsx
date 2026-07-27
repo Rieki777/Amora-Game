@@ -170,7 +170,7 @@ export default function ToolsHub() {
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={() => beacon(tool.id)}
-                            className="ml-auto inline-flex items-center gap-1.5 text-sm font-semibold text-teal-deep hover:text-teal"
+                            className="ml-auto inline-flex items-center gap-1.5 text-sm font-semibold text-teal-deep hover:text-teal min-h-[44px] px-2 -mr-2"
                           >
                             {tool.ctaLabel}
                             <ExternalLink className="w-3.5 h-3.5" />

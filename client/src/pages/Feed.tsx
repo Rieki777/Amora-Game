@@ -124,17 +124,26 @@ export default function Feed() {
                 {item.title && <p className="font-semibold text-foreground text-sm mb-1">{item.title}</p>}
                 <p className="text-sm text-foreground whitespace-pre-wrap">{item.body}</p>
                 {item.imageUrl && <img src={item.imageUrl} alt="" className="rounded-lg mt-2 max-h-72 object-cover" />}
-                <div className="flex items-center gap-4 mt-3">
+                {/* Tap targets clear WCAG 2.5.8's 24px floor: a heart sends a
+                    REAL gift from the sender's budget, so a thumb that misses
+                    by 4px is not a cosmetic problem. Negative margin keeps the
+                    row's visual rhythm while the hit area grows. */}
+                <div className="flex items-center gap-2 mt-2">
                   <button
                     onClick={() => !item.heartedByMe && user && heart(item)}
                     disabled={item.heartedByMe || !user}
                     title={item.heartedByMe ? "Already sent" : `Sends ${data?.heartAmount ?? 1} recognition from your budget`}
-                    className={`inline-flex items-center gap-1.5 text-sm ${item.heartedByMe ? "text-rose-500" : "text-muted-foreground hover:text-rose-500"} disabled:cursor-default`}
+                    aria-label={`${item.heartCount} recognition — ${item.heartedByMe ? "already sent" : "send one"}`}
+                    className={`inline-flex items-center gap-1.5 text-sm min-h-[44px] px-2 -mx-2 ${item.heartedByMe ? "text-rose-500" : "text-muted-foreground hover:text-rose-500"} disabled:cursor-default`}
                   >
                     <Heart className={`w-4 h-4 ${item.heartedByMe ? "fill-rose-500" : ""}`} />
                     {item.heartCount}
                   </button>
-                  <Link href={`/forum/${item.id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+                  <Link
+                    href={`/forum/${item.id}`}
+                    aria-label={`${item.replyCount} replies — open the thread`}
+                    className="inline-flex items-center gap-1.5 text-sm min-h-[44px] px-2 text-muted-foreground hover:text-foreground"
+                  >
                     <MessageCircle className="w-4 h-4" /> {item.replyCount}
                   </Link>
                 </div>
