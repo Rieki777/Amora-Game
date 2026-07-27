@@ -2112,4 +2112,59 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       await new Promise<void>((r) => rpc.close(() => r()));
     }
   });
+
+  it("S48: the command centre — founder economics on the ONE surface", async () => {
+    // Admin-gated like every admin read; a member token is refused.
+    expect((await api("GET", "/api/admin/command-centre", undefined, peerToken)).status).toBe(401);
+    const cc = await api("GET", "/api/admin/command-centre", undefined, founderToken);
+    expect(cc.status).toBe(200);
+
+    // THE SETTLEMENT REPORT the founders carry to Hypha: the split cycle
+    // closed in S27 reports hearts and acknowledgments as SEPARATE columns
+    // that sum to received — channels never blend, and the Sybil-filtered
+    // sender breadth rides along.
+    const splitCycle = cc.json.settlement.find((c: any) => c.totals.some((t: any) => t.received === 7));
+    expect(splitCycle).toBeTruthy();
+    const peerRow = splitCycle.totals.find((t: any) => t.received === 7);
+    expect(peerRow.receivedHearts).toBe(2);
+    expect(peerRow.receivedAcks).toBe(5);
+    expect(peerRow.receivedHearts + peerRow.receivedAcks).toBe(peerRow.received);
+    expect(peerRow.name).toBe("Grateful Peer");
+    expect(peerRow.distinctSenders).toBe(1);
+
+    // Module health mirrors stored intent vs what's actually served.
+    const mods = Object.fromEntries(cc.json.modules.map((m: any) => [m.id, m]));
+    expect(mods.badges.served).toBe("public"); // left on since S36
+    expect(mods.exchange.served).toBe("off");
+    expect(mods.quests.core).toBe(true);
+
+    // The consent queue: submitted work appears; consent clears it.
+    const ccq = await api("POST", "/api/admin/quests", { title: "Sweep the commons", gratitude: "5" }, founderToken);
+    const ccClaim = await api("POST", `/api/game/quests/${ccq.json.id}/claim`, {}, peerToken);
+    expect(ccClaim.status).toBe(200);
+    await api("POST", `/api/game/quests/${ccq.json.id}/submit`, { note: "Swept and raked." }, peerToken);
+    const withPending = await api("GET", "/api/admin/command-centre", undefined, founderToken);
+    expect(withPending.json.pendingConsents.some((p: any) => p.id === ccClaim.json.id)).toBe(true);
+    await api("POST", `/api/admin/quest-claims/${ccClaim.json.id}/consent`, { approve: true, amount: 5 }, founderToken);
+    const afterConsent = await api("GET", "/api/admin/command-centre", undefined, founderToken);
+    expect(afterConsent.json.pendingConsents.some((p: any) => p.id === ccClaim.json.id)).toBe(false);
+
+    // Stale milestones: TIME makes a milestone stale (aged by SQL — no API
+    // can backdate, by design); an EDIT through the API restamps and clears
+    // it; completed milestones never nag, however old.
+    await testDb.conn.query("UPDATE milestones SET updated_at = (NOW() - INTERVAL 20 DAY) WHERE id = 'site-planning'");
+    await testDb.conn.query("UPDATE milestones SET updated_at = (NOW() - INTERVAL 40 DAY) WHERE id = 'land-acquired'");
+    const withStale = await api("GET", "/api/admin/command-centre", undefined, founderToken);
+    const stale = withStale.json.staleMilestones.find((m: any) => m.id === "site-planning");
+    expect(stale).toBeTruthy();
+    expect(stale.daysStale).toBeGreaterThanOrEqual(19);
+    expect(withStale.json.staleMilestones.some((m: any) => m.id === "land-acquired")).toBe(false); // complete
+    const touch = await api("PUT", "/api/admin/milestones/site-planning", { updateNote: "Reviewed at the fireside" }, founderToken);
+    expect(touch.status).toBe(200);
+    expect((await api("GET", "/api/admin/command-centre", undefined, founderToken)).json.staleMilestones.some((m: any) => m.id === "site-planning")).toBe(false);
+
+    // The ledger's own invariants ride along, green, on the founder's desk.
+    expect(cc.json.reconciliation.invariants.ok).toBe(true);
+    expect(cc.json.reconciliation.systemAccounts.length).toBeGreaterThan(0);
+  });
 });

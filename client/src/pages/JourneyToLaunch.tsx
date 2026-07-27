@@ -27,6 +27,7 @@ import {
   StickyNote,
   FileCheck,
   ClipboardList,
+  TrendingUp,
 } from "lucide-react";
 
 // ─── External Resource Links ─────────────────────────────────────────────────
@@ -1197,6 +1198,169 @@ function PasswordGate({ onUnlock }: { onUnlock: (pw: string) => void }) {
   );
 }
 
+// ─── Economics view (S48) ─────────────────────────────────────────────────────
+// Founder economics on the ONE command centre: the settlement report the
+// founders carry to Hypha (hearts and acknowledgments never blended), module
+// health, the consent queue, milestones going quiet, and the ledger's own
+// invariants. Read-and-steer: every action lives on its existing surface.
+
+function EconomicsView({ headers }: { headers: (extra?: Record<string, string>) => Record<string, string> }) {
+  const [data, setData] = useState<any>(null);
+  const [failed, setFailed] = useState(false);
+  const [copiedCycle, setCopiedCycle] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/command-centre", { headers: headers() })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then(setData)
+      .catch(() => setFailed(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const copyForHypha = (cycle: any) => {
+    const lines = [
+      `Cycle ${cycle.cycleNumber} settlement (closed ${cycle.closedAt ? new Date(cycle.closedAt).toLocaleDateString() : "—"})`,
+      ...cycle.totals.map((t: any) =>
+        `${t.name}: ${t.received} received (${t.receivedHearts} hearts + ${t.receivedAcks} acknowledgments) from ${t.distinctSenders} member(s)` +
+        (t.credited ? ` → ${t.credited} ${cycle.poolToken ?? ""} credited` : ""),
+      ),
+      `Pool released: ${cycle.poolCredited} ${cycle.poolToken ?? ""}`,
+    ];
+    navigator.clipboard?.writeText(lines.join("\n"));
+    setCopiedCycle(cycle.cycleNumber);
+    setTimeout(() => setCopiedCycle(null), 2000);
+  };
+
+  if (failed) return <p className="text-sm text-stone-400 italic py-6 text-center">Could not load — are you signed in as an admin?</p>;
+  if (!data) return <p className="text-sm text-stone-400 italic py-6 text-center">Loading…</p>;
+
+  const invariantsOk = !!data.reconciliation?.invariants?.ok;
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Ledger invariants: the same checks boot enforces, on the desk. */}
+      <div className={`rounded-xl border px-5 py-4 ${invariantsOk ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-300"}`}>
+        <p className="text-sm font-semibold text-stone-700">
+          {invariantsOk
+            ? "The economy conserves: every token sums to zero, no drift, no illegal negatives."
+            : "LEDGER INVARIANTS BROKEN — the next deploy will refuse to boot:"}
+        </p>
+        {!invariantsOk && (
+          <ul className="mt-2 text-xs text-red-700 list-disc pl-5">
+            {(data.reconciliation.invariants.problems ?? []).map((p: string, i: number) => <li key={i}>{p}</li>)}
+          </ul>
+        )}
+      </div>
+
+      {/* The settlement report — the one the founders carry to Hypha. */}
+      <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-5">
+        <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wide mb-1">Cycle settlement report</h3>
+        <p className="text-xs text-stone-400 mb-4">
+          Closed lunations only — a member's share of the open cycle is unknowable before close, on purpose.
+          Hearts and written acknowledgments are never blended into one number.
+        </p>
+        {data.settlement.length === 0 && <p className="text-sm text-stone-400 italic">No cycle has closed yet.</p>}
+        <div className="space-y-5">
+          {data.settlement.map((c: any) => (
+            <div key={c.cycleId}>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold text-stone-700">
+                  Cycle {c.cycleNumber}
+                  <span className="text-stone-400 font-normal"> · closed {c.closedAt ? new Date(c.closedAt).toLocaleDateString() : "—"}</span>
+                  {c.poolCredited > 0 && <span className="text-teal-deep font-normal"> · pool released {c.poolCredited} {c.poolToken}</span>}
+                </p>
+                <button onClick={() => copyForHypha(c)} className="text-xs text-teal-deep font-medium hover:underline">
+                  {copiedCycle === c.cycleNumber ? "Copied ✓" : "Copy for Hypha"}
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="text-left text-xs text-stone-400">
+                    <th className="py-1 pr-3">Member</th><th className="py-1 pr-3">Received</th>
+                    <th className="py-1 pr-3">Hearts</th><th className="py-1 pr-3">Acks</th>
+                    <th className="py-1 pr-3">From</th><th className="py-1 pr-3">Credited</th>
+                  </tr></thead>
+                  <tbody>
+                    {c.totals.map((t: any) => (
+                      <tr key={t.userId} className="border-t border-stone-100">
+                        <td className="py-1.5 pr-3 font-medium text-stone-700">{t.name}</td>
+                        <td className="py-1.5 pr-3">{t.received}</td>
+                        <td className="py-1.5 pr-3 text-rose-500">{t.receivedHearts}</td>
+                        <td className="py-1.5 pr-3 text-teal-deep">{t.receivedAcks}</td>
+                        <td className="py-1.5 pr-3 text-stone-500">{t.distinctSenders}</td>
+                        <td className="py-1.5 pr-3">{t.credited > 0 ? `${t.credited} ${c.poolToken ?? ""}` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Module health */}
+        <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-5">
+          <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wide mb-3">Module health</h3>
+          <div className="space-y-1.5">
+            {data.modules.map((m: any) => (
+              <div key={m.id} className="flex items-center justify-between text-sm">
+                <span className="text-stone-600">{m.name}{m.core && <span className="text-[10px] text-stone-400 ml-1">core</span>}</span>
+                <span>
+                  {m.demotedBecause ? (
+                    <span className="text-xs text-red-600 font-semibold">serving OFF — needs {m.demotedBecause.join(", ")}</span>
+                  ) : (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${m.served === "off" ? "bg-stone-100 text-stone-400" : m.served === "public" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                      {m.served}
+                    </span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Pending consents */}
+        <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-5">
+          <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wide mb-1">Waiting on consent</h3>
+          <p className="text-xs text-stone-400 mb-3">Submitted work waiting for the human gate. Act in Admin → Quest Claims.</p>
+          {data.pendingConsents.length === 0 ? (
+            <p className="text-sm text-stone-400 italic">Nothing waiting.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {data.pendingConsents.map((p: any) => (
+                <p key={p.id} className="text-sm text-stone-600">
+                  <span className="font-medium text-stone-700">{p.userName}</span> — {p.questTitle}
+                  {p.submittedAt && <span className="text-xs text-stone-400"> · {new Date(p.submittedAt).toLocaleDateString()}</span>}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Stale milestones */}
+      <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-5">
+        <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wide mb-1">Milestones going quiet</h3>
+        <p className="text-xs text-stone-400 mb-3">Not completed and untouched for 14+ days. Update them in Admin → Build Progress.</p>
+        {data.staleMilestones.length === 0 ? (
+          <p className="text-sm text-stone-400 italic">Everything has been touched recently.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {data.staleMilestones.map((m: any) => (
+              <div key={m.id} className="flex items-center justify-between text-sm">
+                <span className="text-stone-600">{m.title} <span className="text-xs text-stone-400">({m.status})</span></span>
+                <span className="text-xs text-amber-700 font-semibold">{m.daysStale}d quiet</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function JourneyToLaunch() {
@@ -1639,6 +1803,18 @@ export default function JourneyToLaunch() {
                   ) : null;
                 })()
               )}
+            </button>
+            <button
+              onClick={() => setActiveView("economics")}
+              className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+                activeView === "economics"
+                  ? "bg-teal-deep text-white"
+                  : "text-stone-600 hover:bg-stone-100"
+              }`}
+            >
+              <TrendingUp className="w-4 h-4 shrink-0" />
+              <span>Economics</span>
+              {activeView === "economics" && <ChevronRight className="w-3 h-3 ml-auto" />}
             </button>
           </div>
 
@@ -2476,6 +2652,9 @@ export default function JourneyToLaunch() {
                   })()}
                 </div>
               )}
+
+              {/* ── ECONOMICS VIEW (S48): founder economics, read-and-steer ── */}
+              {activeView === "economics" && <EconomicsView headers={journeyHeaders} />}
 
               {/* ── PAGE COPY VIEW ──────────────────────────────────────── */}
               {activePage && (

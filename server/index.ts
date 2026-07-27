@@ -169,7 +169,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s47-economics-section";
+const BUILD_MARKER = "2026-07-26-s48-command-centre";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -4848,6 +4848,119 @@ async function startServer() {
         heldByMembers: Number(memberTotals.find((m) => m.token_type === t.token_type)?.held ?? 0),
         name: tokenDef(t.token_type)?.name ?? t.token_type,
       })),
+    });
+  });
+
+  /**
+   * S48: founder economics for the ONE command centre (/journey-to-launch —
+   * "never a second command centre"). One aggregate read: the settlement
+   * report the founders carry to Hypha (hearts and acknowledgments NEVER
+   * blended into one number), module health, the work waiting on the human
+   * gate, milestones going quiet, and the same ledger invariants boot
+   * enforces — on the founder's desk instead of in a crash log. Read-only:
+   * every ACTION lives on its existing admin surface.
+   */
+  app.get("/api/admin/command-centre", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+
+    // The settlement report: last six CLOSED lunations. Credited amounts
+    // exist only for closed cycles — a share of the open cycle is genuinely
+    // unknowable before close, and this surface never pretends otherwise.
+    const closed = (await cyclesRepo.all())
+      .filter((c: any) => c.status === "closed")
+      .sort((a: any, b: any) => Number(b.cycleNumber) - Number(a.cycleNumber))
+      .slice(0, 6);
+    const dists: DistributionRecord[] = await distributionsRepo.all();
+    const nameCache = new Map<string, string>();
+    const nameOf = async (id: string) => {
+      if (!nameCache.has(id)) nameCache.set(id, (await members.byId(id))?.name ?? "(anonymized)");
+      return nameCache.get(id)!;
+    };
+    const settlement = [];
+    for (const c of closed) {
+      const rows = dists
+        .filter((d) => d.cycleId === c.id)
+        .sort((a, b) => Number(b.received ?? 0) - Number(a.received ?? 0));
+      const totals = [];
+      for (const d of rows) {
+        totals.push({
+          userId: d.userId,
+          name: await nameOf(d.userId),
+          received: Number(d.received ?? 0),
+          receivedHearts: Number((d as any).receivedHearts ?? 0),
+          receivedAcks: Number((d as any).receivedAcks ?? 0),
+          distinctSenders: Number(d.distinctSenders ?? 0),
+          credited: Number(d.credited ?? 0),
+        });
+      }
+      settlement.push({
+        cycleId: c.id,
+        cycleNumber: Number(c.cycleNumber),
+        closedAt: c.closedAt ?? null,
+        poolToken: (rows.find((r) => (r as any).poolToken) as any)?.poolToken ?? null,
+        poolCredited: totals.reduce((n, t) => n + t.credited, 0),
+        totals,
+      });
+    }
+
+    // Module health: stored intent vs what's actually served.
+    const demotions = new Map(moduleDemotions().map((d) => [d.id, d.missing]));
+    const modules = MODULES.map((m) => ({
+      id: m.id,
+      name: m.name,
+      core: !!m.core,
+      lifecycle: storedLifecycle(m.id),
+      served: effectiveLifecycle(m.id),
+      demotedBecause: demotions.get(m.id) ?? null,
+      requires: m.requires,
+      legalReview: !!m.legalReview,
+    }));
+
+    // The human gate's queue: submitted work waiting for consent.
+    const pendingConsents = (await claimsRepo.all())
+      .filter((c) => c.status === "submitted")
+      .map((c) => ({ id: c.id, questId: c.questId, questTitle: c.questTitle, userName: c.userName, submittedAt: c.submittedAt }));
+
+    // Milestones going quiet: 14+ days untouched and not completed.
+    // updatedAt is restamped on every edit precisely so this is honest.
+    // Read from the TABLE, not the boot-time cache: staleness is a property
+    // of wall-clock time over the authoritative rows, and this report must
+    // stay true however long the process has been up.
+    const [staleRows] = await getPool().query<any[]>(
+      "SELECT id, title, status, updated_at FROM milestones " +
+        "WHERE updated_at < (NOW() - INTERVAL 14 DAY) AND LOWER(COALESCE(status,'')) NOT REGEXP 'complete|done' " +
+        "ORDER BY updated_at ASC",
+    );
+    const staleMilestones = staleRows.map((m) => ({
+      id: m.id,
+      title: m.title,
+      status: m.status,
+      updatedAt: new Date(m.updated_at).toISOString(),
+      daysStale: Math.floor((Date.now() - new Date(m.updated_at).getTime()) / 86400000),
+    }));
+
+    const invariants = await checkLedgerInvariants(getPool());
+    const [systems] = await getPool().query<any[]>(
+      "SELECT a.id, a.label, a.faucet, tb.token_type, tb.balance FROM ledger_accounts a " +
+        "LEFT JOIN token_balances tb ON tb.account_id = a.id WHERE a.kind = 'system' ORDER BY a.id, tb.token_type",
+    );
+
+    res.json({
+      settlement,
+      modules,
+      pendingConsents,
+      staleMilestones,
+      reconciliation: {
+        invariants,
+        systemAccounts: systems.map((s) => ({
+          id: s.id,
+          label: s.label,
+          faucet: !!s.faucet,
+          tokenType: s.token_type,
+          balance: s.token_type == null ? null : Number(s.balance),
+          issuedToDate: s.faucet && s.token_type != null && Number(s.balance) < 0 ? -Number(s.balance) : undefined,
+        })),
+      },
     });
   });
 
