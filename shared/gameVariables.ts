@@ -744,6 +744,20 @@ export const VARIABLES: VariableDef[] = [
     max: 10000,
     unit: "entries",
   },
+
+  // ── Platform feedback (S66) ───────────────────────────────────────────────
+  {
+    key: "platform.feedback_relay",
+    category: "Platform",
+    label: "Share bug reports and ideas with the platform team",
+    description:
+      "ON: a copy of each bug/idea submitted here also reaches the ReGen Civics platform team, so fixes and features can ship to every village — content only, never who said it. OFF: feedback stays entirely local; your admins still see all of it in Admin → Feedback. Disclosed on the submission form either way.",
+    type: "integer",
+    default: "1",
+    min: 0,
+    max: 1,
+    unit: "on/off",
+  },
 ];
 
 /** Lookup by key, for validation and defaults. */

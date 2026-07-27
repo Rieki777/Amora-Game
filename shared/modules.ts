@@ -311,6 +311,17 @@ export const MODULES: ModuleDef[] = [
     // openStateCheck attached by the server at boot (needs the pool).
   },
   {
+    id: "network",
+    name: "Village Network",
+    description:
+      "Federation with other villages running this platform: publish your needs and offers to the network, and read what peer villages share. Foundations for co-hiring, shared events and resource pooling. You choose exactly which villages to listen to; publishing an item is an explicit act, and nothing about individual members is ever shared.",
+    requires: [],
+    recommends: [],
+    capabilities: [],
+    variableKeys: [],
+    apiPrefixes: ["/api/network"],
+  },
+  {
     id: "tools",
     name: "Tools Hub",
     description:

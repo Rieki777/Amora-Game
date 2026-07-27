@@ -2709,4 +2709,87 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect((await api("POST", "/api/exchange/swap", { payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 1, clientKey: "k2" }, peerToken)).status).toBe(501);
     await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
   });
+
+  it("S62-S67: the launch round — identity, readiness, write-only secrets, feedback, federation", async () => {
+    // ── S62: the handshake knows who it is, and the launch registry resolves. ──
+    const info = (await api("GET", "/api/platform/info")).json;
+    expect(info.instanceId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(info.version).toMatch(/^\d+\.\d+\.\d+$/);
+
+    const launch = await api("GET", "/api/admin/launch", undefined, founderToken);
+    expect(launch.status).toBe(200);
+    expect(launch.json.items.length).toBeGreaterThan(5);
+    // This deployment has a founder with a login, so identity items read ok…
+    const founderItem = launch.json.items.find((i: any) => i.id === "founder-appointed");
+    expect(founderItem.state).toBe("ok");
+    // …while real-world acts wait for a named human.
+    const backups = launch.json.items.find((i: any) => i.id === "backups-drilled");
+    expect(backups.state).toBe("missing");
+
+    // Confirm a manual item — attributed — and see it flip.
+    const confirmed = await api("POST", "/api/admin/launch/confirm", { id: "backups-drilled", done: true }, founderToken);
+    expect(confirmed.json.status.items.find((i: any) => i.id === "backups-drilled").state).toBe("ok");
+    // A live-checked item refuses hand-confirmation: evidence, not assertion.
+    expect((await api("POST", "/api/admin/launch/confirm", { id: "admin-identities", done: true }, founderToken)).status).toBe(400);
+    // Launch refuses while ANY blocking item is open (stripe-webhook is not
+    // applicable with stays off, but modules/brand items may still be open —
+    // assert on the semantics, not this deployment's exact remainder).
+    const attempt = await api("POST", "/api/admin/launch/launched", undefined, founderToken);
+    const after = (await api("GET", "/api/admin/launch", undefined, founderToken)).json;
+    if (after.blockingOpen > 0) expect(attempt.status).toBe(409);
+    else expect(attempt.json.success).toBe(true);
+
+    // ── S63: a secret goes in, and only its shape comes back. ──
+    const put = await api("PUT", "/api/admin/integrations/resend_api_key", { value: "re_TESTKEY_abcd1234" }, founderToken);
+    expect(put.status).toBe(200);
+    const integ = (await api("GET", "/api/admin/integrations", undefined, founderToken)).json;
+    const resend = integ.secrets.find((s: any) => s.key === "resend_api_key");
+    expect(resend).toMatchObject({ configured: true, source: "admin", last4: "1234" });
+    expect(JSON.stringify(integ)).not.toContain("re_TESTKEY_abcd1234");
+    // The webhook URL a founder pastes into Stripe is the REAL mounted route.
+    expect(integ.stripeWebhookUrl).toContain("/api/webhooks/stripe");
+    // Clear it: env fallback (none here) resumes, so it reads unconfigured.
+    await api("PUT", "/api/admin/integrations/resend_api_key", { value: "" }, founderToken);
+    const cleared = (await api("GET", "/api/admin/integrations", undefined, founderToken)).json;
+    expect(cleared.secrets.find((s: any) => s.key === "resend_api_key").source).not.toBe("admin");
+
+    // ── S66: feedback lands locally whatever the relay does. ──
+    const fb = await api("POST", "/api/feedback", { kind: "idea", title: "Loop test idea", detail: "Enough detail to be a real submission row." }, peerToken);
+    expect(fb.json.success).toBe(true);
+    const queue = (await api("GET", "/api/admin/feedback", undefined, founderToken)).json;
+    const mine = queue.items.find((i: any) => i.title === "Loop test idea");
+    expect(mine).toBeTruthy();
+    expect(mine.status).toBe("new");
+    expect((await api("PUT", `/api/admin/feedback/${mine.id}`, { status: "planned" }, founderToken)).status).toBe(200);
+
+    // ── S67: federation — module-gated, explicit publishing, guarded peers. ──
+    expect((await api("GET", "/api/network/published")).status).toBe(404); // off = invisible
+    expect((await api("PUT", "/api/admin/modules/network/lifecycle", { lifecycle: "public" }, founderToken)).status).toBe(200);
+
+    const pub = await api("POST", "/api/admin/network/share", { type: "need", title: "Two carpenters for the wet season", detail: "Shared cost with a neighbouring village welcome.", contact: "coord@example.org" }, founderToken);
+    expect(pub.json.success).toBe(true);
+    // Published means PUBLIC: no auth, and the payload says who is speaking.
+    const published = await api("GET", "/api/network/published");
+    expect(published.status).toBe(200);
+    expect(published.json.instanceId).toBe(info.instanceId);
+    expect(published.json.items[0]).toMatchObject({ type: "need", title: "Two carpenters for the wet season" });
+    // …and carries no member identity, only what the publisher chose.
+    expect(JSON.stringify(published.json)).not.toContain("created_by");
+
+    // A free-string type is refused — new collaboration kinds are a code review.
+    expect((await api("POST", "/api/admin/network/share", { type: "people-directory", title: "All our members", detail: "Everyone, portably." }, founderToken)).status).toBe(400);
+
+    // The SSRF guard refuses non-https and self-peering before any fetch.
+    const badPeer = await api("POST", "/api/admin/network/peers", { baseUrl: "http://169.254.169.254/latest" }, founderToken);
+    expect(badPeer.status).toBe(400);
+    expect(badPeer.json.error).toContain("https");
+
+    // Close the item, and the public feed no longer carries it.
+    await api("PUT", `/api/admin/network/share/${pub.json.id}`, { status: "closed" }, founderToken);
+    expect((await api("GET", "/api/network/published")).json.items.length).toBe(0);
+
+    // Back to the shipped default: off, invisible.
+    await api("PUT", "/api/admin/modules/network/lifecycle", { lifecycle: "off" }, founderToken);
+    expect((await api("GET", "/api/network/published")).status).toBe(404);
+  });
 });

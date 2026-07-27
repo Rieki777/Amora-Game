@@ -158,6 +158,8 @@ import {
   type Candidate,
 } from "./lib/map";
 import { ensureInstanceIdentity, instanceIdentity, PLATFORM_VERSION } from "./lib/identity";
+import { recordFeedback, relayFeedback } from "./lib/feedback";
+import { addPeer, peerSharedItems, SHARED_ITEM_TYPES, syncPeers } from "./lib/network";
 import {
   allSecretStatuses,
   loadSecrets,
@@ -212,7 +214,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-27-s61-exchange-swap-v2";
+const BUILD_MARKER = "2026-07-28-s66-launch-round";
 
 /**
  * The legal caution card a deployment must accept before internal trading
@@ -1907,6 +1909,28 @@ async function startServer() {
     const r = await reconcileSwapOrders(getPool());
     return `${r.settled} swap(s) settled, ${r.cancelled} cancelled`;
   });
+  // S66: feedback relay — every 15 minutes, while the village keeps it on.
+  // The hub being down costs nothing but a log line; rows wait their turn.
+  registerJob("feedback-relay", 15 * 60 * 1000, async () => {
+    if (numberVar("platform.feedback_relay") !== 1) return;
+    const hubUrl = process.env.FEEDBACK_HUB_URL || "https://hub.regencivics.earth/api/feedback/ingest";
+    const r = await relayFeedback(getPool(), hubUrl, {
+      instanceId: instanceIdentity().instanceId,
+      version: PLATFORM_VERSION,
+      build: BUILD_MARKER,
+      name: mergedConfig().project.name,
+    });
+    if (r.sent > 0) console.log(`[feedback] relayed ${r.sent} item(s) to the hub`);
+  });
+
+  // S67: peer sync — refresh what other villages share, every 6 hours,
+  // only while the network module is on. One dark peer never blocks the rest.
+  registerJob("network-sync", 6 * 60 * 60 * 1000, async () => {
+    if (effectiveLifecycle("network") === "off") return;
+    const r = await syncPeers(getPool());
+    if (r.synced + r.failed > 0) console.log(`[network] synced ${r.synced} peer(s), ${r.failed} failed`);
+  });
+
   registerJob("recording-rss", 6 * 60 * 60 * 1000, async () => {
     if (effectiveLifecycle("automation") === "off") return "automation module off";
     const channelId = String((moduleConfig("automation") as any)?.youtubeChannelId ?? "").trim();
@@ -4359,6 +4383,201 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       console.error("[ASSISTANT:launch]", err);
       res.status(502).json({ error: "assistant-error" });
     }
+  });
+
+  // ── S67: the village network — federation, RSS-posture ───────────────────
+
+  /**
+   * What THIS village shares, as public JSON. Mounted BEFORE the module
+   * gate on purpose: peers read it unauthenticated whenever the module is
+   * on at all, whatever audience the village chose for its own /network
+   * page — "published to the network" means public, or it means nothing.
+   */
+  app.get("/api/network/published", async (_req, res) => {
+    if (effectiveLifecycle("network") === "off") return res.status(404).json({ error: "Not found" });
+    const [rows] = await getPool().query<any[]>(
+      "SELECT id, type, title, detail, contact, created_at, updated_at FROM shared_items " +
+        "WHERE status = 'open' ORDER BY created_at DESC LIMIT 100",
+    );
+    res.json({
+      instanceId: instanceIdentity().instanceId,
+      name: mergedConfig().project.name,
+      version: PLATFORM_VERSION,
+      items: rows.map((r) => ({
+        id: String(r.id), type: String(r.type), title: String(r.title), detail: String(r.detail),
+        contact: r.contact ?? null, createdAt: new Date(r.created_at).toISOString(),
+      })),
+    });
+  });
+
+  app.use("/api/network", requireModule("network"));
+
+  /** The member view: what we share, what peers share, one payload. */
+  app.get("/api/network", async (req, res) => {
+    const [mine] = await getPool().query<any[]>(
+      "SELECT s.*, u.name AS author_name FROM shared_items s LEFT JOIN users u ON u.id = s.created_by " +
+        "ORDER BY s.created_at DESC LIMIT 100",
+    );
+    const viewer = await authedUser(req);
+    const admin = viewer && (viewer.role === "admin" || viewer.role === "founder");
+    res.json({
+      village: mergedConfig().project.name,
+      mine: mine.filter((m) => admin || m.status === "open"),
+      peers: await peerSharedItems(getPool()),
+      types: SHARED_ITEM_TYPES,
+      canManage: !!admin,
+    });
+  });
+
+  /** Publishing is an explicit admin act — an item, not a firehose. */
+  app.post("/api/admin/network/share", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+    if (!actor) return res.status(401).json({ error: "Publishing needs a named admin" });
+    const type = String(req.body?.type ?? "");
+    if (!SHARED_ITEM_TYPES.includes(type as any)) {
+      return res.status(400).json({ error: `type must be one of: ${SHARED_ITEM_TYPES.join(", ")}` });
+    }
+    const title = String(req.body?.title ?? "").trim();
+    const detail = String(req.body?.detail ?? "").trim();
+    if (title.length < 4 || detail.length < 10) return res.status(400).json({ error: "A title and enough detail to act on" });
+    const id = `sh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await getPool().query(
+      "INSERT INTO shared_items (id, type, title, detail, contact, created_by) VALUES (?,?,?,?,?,?)",
+      [id, type, title.slice(0, 200), detail.slice(0, 8000), String(req.body?.contact ?? "").slice(0, 200) || null, actor],
+    );
+    void recordEvent(getPool(), {
+      kind: "audit", text: `network:publish:${type}:${title.slice(0, 60)}`,
+      actorUserId: actor, entityType: "shared_item", entityRef: id, audience: "admin",
+    });
+    res.json({ success: true, id });
+  });
+
+  app.put("/api/admin/network/share/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const status = req.body?.status === "closed" ? "closed" : req.body?.status === "open" ? "open" : null;
+    if (!status) return res.status(400).json({ error: "status must be open or closed" });
+    const [r] = await getPool().query<any>("UPDATE shared_items SET status = ? WHERE id = ?", [status, req.params.id]);
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "no such item" });
+    res.json({ success: true });
+  });
+
+  app.get("/api/admin/network/peers", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [rows] = await getPool().query<any[]>("SELECT * FROM peer_instances ORDER BY name");
+    res.json({ peers: rows });
+  });
+
+  app.post("/api/admin/network/peers", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+    if (!actor) return res.status(401).json({ error: "Peering needs a named admin" });
+    const r = await addPeer(getPool(), {
+      baseUrl: String(req.body?.baseUrl ?? ""),
+      addedBy: actor,
+      selfInstanceId: instanceIdentity().instanceId,
+    });
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `network:peer-added:${r.peer.name}`,
+      actorUserId: actor, entityType: "peer", entityRef: r.peer.id, audience: "admin",
+    });
+    // First sync immediately — an empty "From other villages" panel right
+    // after adding a peer reads as broken, not as pending.
+    void syncPeers(getPool()).catch(() => {});
+    res.json({ success: true, peer: r.peer });
+  });
+
+  app.delete("/api/admin/network/peers/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    await getPool().query("DELETE FROM peer_shared_cache WHERE peer_id = ?", [req.params.id]);
+    const [r] = await getPool().query<any>("DELETE FROM peer_instances WHERE id = ?", [req.params.id]);
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "no such peer" });
+    res.json({ success: true });
+  });
+
+  /** Un-pause a peer (e.g. after an identity change you have verified). */
+  app.post("/api/admin/network/peers/:id/resume", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Resuming after an identity change means ACCEPTING the new identity:
+    // re-read the handshake and store what actually answers there now.
+    const [[peer]] = await getPool().query<any[]>("SELECT * FROM peer_instances WHERE id = ?", [req.params.id]);
+    if (!peer) return res.status(404).json({ error: "no such peer" });
+    try {
+      const info = await (await fetch(`${peer.base_url}/api/platform/info`)).json();
+      if (!info?.instanceId) throw new Error("no handshake");
+      await getPool().query(
+        "UPDATE peer_instances SET status = 'active', instance_id = ?, name = ?, version = ?, last_error = NULL WHERE id = ?",
+        [String(info.instanceId), String(info.name ?? peer.name).slice(0, 120), info.version ?? null, peer.id],
+      );
+      res.json({ success: true });
+    } catch {
+      res.status(502).json({ error: "that address does not answer the handshake right now" });
+    }
+  });
+
+  app.post("/api/admin/network/sync", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    res.json(await syncPeers(getPool()));
+  });
+
+  // ── S66: feedback — the local queue is the feature, the relay is a copy ──
+
+  /** What the submission form needs to disclose, honestly, before anyone types. */
+  app.get("/api/feedback/config", async (_req, res) => {
+    res.json({
+      relayOn: numberVar("platform.feedback_relay") === 1,
+      villageName: mergedConfig().project.name,
+    });
+  });
+
+  app.post("/api/feedback", async (req, res) => {
+    // Same anti-abuse posture as every public form: honeypot + IP limit.
+    if (typeof req.body?.hp === "string" && req.body.hp.length > 0) return res.json({ success: true });
+    if (await overLimit(`feedback:${clientIp(req)}`, 5, 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "That's a lot of feedback for one hour — thank you, and give it a rest" });
+    }
+    const kind = req.body?.kind === "bug" ? "bug" : req.body?.kind === "idea" ? "idea" : null;
+    const title = String(req.body?.title ?? "").trim();
+    const detail = String(req.body?.detail ?? "").trim();
+    if (!kind || title.length < 4 || detail.length < 10) {
+      return res.status(400).json({ error: "Say what kind it is, a short title, and enough detail to act on" });
+    }
+    const user = await authedUser(req);
+    const r = await recordFeedback(getPool(), {
+      kind, title, detail,
+      pageUrl: typeof req.body?.pageUrl === "string" ? req.body.pageUrl : null,
+      submittedBy: user?.id ?? null,
+    });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `feedback:${kind}:${title.slice(0, 60)}`,
+      actorUserId: user?.id ?? null, entityType: "feedback", entityRef: r.id, audience: "admin",
+    });
+    res.json({
+      success: true,
+      id: r.id,
+      shared: numberVar("platform.feedback_relay") === 1,
+    });
+  });
+
+  app.get("/api/admin/feedback", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [rows] = await getPool().query<any[]>(
+      "SELECT f.*, u.name AS submitter_name FROM feedback_items f LEFT JOIN users u ON u.id = f.submitted_by " +
+        "ORDER BY f.created_at DESC LIMIT 300",
+    );
+    res.json({ items: rows, relayOn: numberVar("platform.feedback_relay") === 1 });
+  });
+
+  app.put("/api/admin/feedback/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const status = String(req.body?.status ?? "");
+    if (!["new", "seen", "planned", "done", "declined"].includes(status)) {
+      return res.status(400).json({ error: "unknown status" });
+    }
+    const [r] = await getPool().query<any>("UPDATE feedback_items SET status = ? WHERE id = ?", [status, req.params.id]);
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "no such item" });
+    res.json({ success: true });
   });
 
   /** The one-way founder act. Blocking items must all read ok. */

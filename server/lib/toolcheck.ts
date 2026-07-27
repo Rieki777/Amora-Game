@@ -83,3 +83,29 @@ export async function checkToolLink(rawUrl: string): Promise<LinkCheckResult> {
   if (status === 405) status = await attempt("GET");
   return { ok: status !== null && status < 400, status };
 }
+
+/**
+ * S67: the same guard, exported for the peer registry. Validates an
+ * OUTBOUND base URL (https, public address ranges) without fetching it —
+ * callers do their own fetch afterwards. Same documented rebinding gap,
+ * same reasoning: peer URLs are admin-entered and range-checked.
+ */
+export async function guardOutboundUrl(rawUrl: string): Promise<{ ok: boolean; refused?: string }> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return { ok: false, refused: "not a valid URL" };
+  }
+  if (url.protocol !== "https:") return { ok: false, refused: "https only" };
+  const host = url.hostname;
+  try {
+    const addrs = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true });
+    for (const a of addrs) {
+      if (ipIsPrivate(a.address)) return { ok: false, refused: `resolves to a private address (${a.address})` };
+    }
+  } catch {
+    return { ok: false, refused: "DNS resolution failed" };
+  }
+  return { ok: true };
+}

@@ -5634,6 +5634,97 @@ function WorkWithUsTab({ password }: { password: string }) {
 }
 
 /**
+ * S66: the village's own feedback queue. Everything submitted through
+ * /feedback lands here, whatever the relay is set to — the relay only
+ * controls whether the platform team ALSO sees a copy (content, never
+ * names). Status is a five-state pipeline, same vocabulary as submissions.
+ */
+function FeedbackAdminTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/feedback`, { headers: authHeaders(password) });
+      setData(await res.json());
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+  useEffect(() => { load(); }, [load]);
+
+  const setStatus = async (id: string, status: string) => {
+    const res = await fetch(`${API_BASE}/admin/feedback/${id}`, {
+      method: "PUT",
+      headers: authHeaders(password, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ status }),
+    });
+    if (res.ok) load();
+    else toast.error("Could not update");
+  };
+
+  const STATUSES = ["new", "seen", "planned", "done", "declined"];
+  const badge = (s: string) =>
+    s === "new" ? "bg-amber-50 text-amber-700 border-amber-200"
+    : s === "done" ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+    : s === "declined" ? "bg-gray-100 text-gray-500 border-gray-200"
+    : "bg-blue-50 text-blue-700 border-blue-200";
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Feedback</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Bugs and ideas from your members.{" "}
+          {data?.relayOn
+            ? "The platform relay is ON: a copy of each item (content only, never who) also reaches the ReGen Civics team, so a fix can ship to every village."
+            : "The platform relay is OFF: everything stays local to this village."}{" "}
+          The switch lives in Game Mechanics → platform.feedback_relay.
+        </p>
+      </div>
+      {loading && !data ? (
+        <div className="text-center py-12 text-gray-400">Loading…</div>
+      ) : (data?.items ?? []).length === 0 ? (
+        <p className="text-sm text-gray-400 py-8">Nothing yet — the door is at /feedback (also linked in the footer).</p>
+      ) : (
+        <div className="space-y-3 max-w-3xl">
+          {(data?.items ?? []).map((f: any) => (
+            <div key={f.id} className="bg-white border border-gray-100 rounded-xl p-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900">
+                    <span className={`inline-block text-[10px] font-semibold uppercase tracking-wide rounded-full border px-2 py-0.5 mr-2 ${f.kind === "bug" ? "bg-red-50 text-red-700 border-red-200" : "bg-violet-50 text-violet-700 border-violet-200"}`}>
+                      {f.kind}
+                    </span>
+                    {f.title}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 whitespace-pre-wrap">{f.detail}</p>
+                  <p className="text-[11px] text-gray-400 mt-1.5">
+                    {new Date(f.created_at).toLocaleString()}
+                    {f.submitter_name && ` · from ${f.submitter_name}`}
+                    {f.page_url && ` · at ${f.page_url}`}
+                    {f.relayed_at ? " · relayed to the platform" : data?.relayOn ? " · queued for relay" : " · local only"}
+                  </p>
+                </div>
+                <span className={`text-xs font-medium rounded-full border px-2.5 py-1 ${badge(f.status)}`}>{f.status}</span>
+              </div>
+              <div className="flex gap-1.5 mt-3 flex-wrap">
+                {STATUSES.filter((s) => s !== f.status).map((s) => (
+                  <button key={s} onClick={() => setStatus(f.id, s)}
+                    className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1 hover:bg-gray-100">
+                    → {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * S64: a persistent strip above the admin header, gone the day the village
  * is marked launched. It reads the same /api/admin/launch the journey page
  * renders — one registry, no second opinion about what remains.
@@ -5770,6 +5861,17 @@ export default function Admin() {
           >
             <Inbox className="w-4 h-4" />
             All Forms
+          </button>
+          <button
+            onClick={() => setActiveTab("feedback")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "feedback"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <HelpCircle className="w-4 h-4" />
+            Feedback
           </button>
 
           <div className="px-4 mt-6 mb-4">
@@ -5982,6 +6084,7 @@ export default function Admin() {
           )}
           {activeTab === "email-settings" && <EmailSettingsTab password={password} openIntegrations={() => setActiveTab("integrations")} />}
           {activeTab === "integrations" && <IntegrationsTab password={password} />}
+          {activeTab === "feedback" && <FeedbackAdminTab password={password} />}
           {activeTab === "investor-vault" && <InvestorVaultTab password={password} />}
           {activeTab === "training-modules" && <TrainingModulesTab password={password} />}
           {activeTab === "quest-claims" && <QuestClaimsTab password={password} />}

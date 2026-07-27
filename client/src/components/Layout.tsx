@@ -499,6 +499,11 @@ export default function Layout({ children }: LayoutProps) {
                   </Link>
                 </li>
                 <li>
+                  <Link href="/feedback" className="text-white/70 hover:text-amber transition-colors text-sm">
+                    Report a Bug / Share an Idea
+                  </Link>
+                </li>
+                <li>
                   <Link href="/quests" className="text-white/70 hover:text-amber transition-colors text-sm">
                     Community Quests
                   </Link>
