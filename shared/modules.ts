@@ -237,7 +237,7 @@ export const MODULES: ModuleDef[] = [
     requires: [],
     recommends: ["gratitude", "quests"],
     capabilities: [],
-    variableKeys: [],
+    variableKeys: ["health.alert_change_pct"],
     apiPrefixes: ["/api/health"],
   },
   {

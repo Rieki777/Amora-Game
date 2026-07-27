@@ -745,6 +745,20 @@ export const VARIABLES: VariableDef[] = [
     unit: "entries",
   },
 
+  // ── Health (H7) ───────────────────────────────────────────────────────────
+  {
+    key: "health.alert_change_pct",
+    category: "Health",
+    label: "Alert when a metric moves this much",
+    description:
+      "After a lunation closes, any tracked metric that moved more than this against the previous lunation is flagged to the stewards — in either direction, without judging which is good. 0 turns alerts off.",
+    type: "integer",
+    default: "40",
+    min: 0,
+    max: 500,
+    unit: "%",
+  },
+
   // ── Library (L19) ─────────────────────────────────────────────────────────
   {
     key: "library.intake_stall_days",

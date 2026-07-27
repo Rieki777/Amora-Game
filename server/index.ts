@@ -62,7 +62,7 @@ import {
   videoIdsFromRss,
 } from "./lib/recordings";
 import { chapterCandidates, synthesisSystemPrompt, validateTasks } from "./lib/callSynthesis";
-import { governanceReads, regenEntries, regenTotals, snapshotCycle, snapshotSeries } from "./lib/health";
+import { governanceReads, regenEntries, regenTotals, snapshotCycle, snapshotSeries, thresholdAlerts } from "./lib/health";
 import { REGEN_METRICS, TREND_MIN_LUNATIONS } from "../shared/healthMetrics";
 import {
   LIBRARY_CREDIT,
@@ -8746,6 +8746,28 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           startsAt: String(cycle.startsAt),
           endsAt: String(cycle.endsAt),
         }, eligible);
+        // H7: with this lunation frozen, compare it to the one before and
+        // tell the stewards what moved. Runs INSIDE the same try as the
+        // snapshot on purpose — an alert failure must never unclose a
+        // cycle, and an alert without its snapshot would be nonsense.
+        const pct = numberVar("health.alert_change_pct");
+        if (pct > 0) {
+          const alerts = await thresholdAlerts(getPool(), pct);
+          if (alerts.length > 0) {
+            const lines = alerts
+              .slice(0, 6)
+              .map((a) => `${a.label} ${a.direction} ${Math.abs(a.changePct)}% (${a.previous} → ${a.value})`);
+            await notifyAdmins(
+              "health",
+              `Lunation ${cycle.cycleNumber} moved: ${lines.join("; ")}`,
+              `health-alerts:${cycle.cycleNumber}`,
+            );
+            void recordEvent(getPool(), {
+              kind: "audit", text: `health:alerts:${cycle.cycleNumber}:${alerts.length}`,
+              entityType: "cycle", entityRef: cycle.id, audience: "admin",
+            });
+          }
+        }
       } catch (e) {
         console.error(`[health] snapshot failed for cycle ${cycle.cycleNumber} (close stands)`, e);
         void recordEvent(getPool(), {

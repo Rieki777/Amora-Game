@@ -103,6 +103,106 @@ export async function snapshotCycle(pool: Pool, cycle: SnapshotCycle, eligibleSe
   await insertSnapshot(pool, cycle.cycleNumber, "decisions_opened_cycle", Number(decRow.n), {
     distinctAuthors: Number(decRow.authors),
   });
+
+  // ── H3: the reserved keys, wired to real sources ────────────────────────
+  // Each is wrapped: a module that never shipped in this deployment has no
+  // table, and a missing table must leave the metric ABSENT rather than
+  // recording a zero. Zero means "we measured none"; absent means "we do
+  // not run that" — a dashboard that confuses them lies quietly for months.
+
+  // Library utilization: items that saw a loan this lunation / items owned.
+  try {
+    const [[libRow]] = await pool.query<any[]>(
+      "SELECT (SELECT COUNT(*) FROM library_items WHERE status <> 'written_off') AS items, " +
+        "(SELECT COUNT(DISTINCT item_id) FROM library_loans WHERE created_at >= ? AND created_at < ?) AS loaned",
+      [start, end],
+    );
+    const items = Number(libRow.items);
+    if (items > 0) {
+      const loaned = Number(libRow.loaned);
+      await insertSnapshot(
+        pool, cycle.cycleNumber, "library_utilization_pct",
+        Math.round((loaned / items) * 100),
+        { items, itemsLoaned: loaned },
+      );
+    }
+  } catch { /* library module never ran here */ }
+
+  // Stay occupancy: nights POSTED (slept), never nights booked.
+  try {
+    const [[nightsRow]] = await pool.query<any[]>(
+      "SELECT COALESCE(SUM(amount),0) AS nights FROM token_ledger WHERE source = 'stay_night' AND at >= ? AND at < ?",
+      [start, end],
+    );
+    await insertSnapshot(pool, cycle.cycleNumber, "stay_occupancy_nights", Number(nightsRow.nights));
+  } catch { /* stays never ran here */ }
+
+  // Treasury + faucet issuance, straight from the ledger's own accounts.
+  try {
+    const [treasury] = await pool.query<RowDataPacket[]>(
+      "SELECT token_type, balance FROM token_balances WHERE account_id = 'sys:treasury' AND balance <> 0",
+    );
+    const perToken: Record<string, number> = {};
+    let total = 0;
+    for (const t of treasury) { perToken[String(t.token_type)] = Number(t.balance); total += Number(t.balance); }
+    await insertSnapshot(pool, cycle.cycleNumber, "treasury_balance", total, { perToken });
+
+    // A faucet's NEGATIVE balance is issuance-to-date; report it positive.
+    const [[poolRow]] = await pool.query<any[]>(
+      "SELECT COALESCE(SUM(balance),0) AS b FROM token_balances WHERE account_id = 'sys:gratitude-pool'",
+    );
+    await insertSnapshot(pool, cycle.cycleNumber, "gratitude_pool_issued", Math.abs(Number(poolRow.b)));
+  } catch { /* ledger tables are core; this should not fail */ }
+}
+
+export interface ThresholdAlert {
+  metricKey: string;
+  label: string;
+  direction: "fell" | "rose";
+  value: number;
+  previous: number;
+  changePct: number;
+}
+
+/**
+ * H7 (Wave 1): threshold alerts, computed from the frozen series.
+ *
+ * Deliberately NOT configurable thresholds per metric — a village drowning
+ * in knobs sets none of them. The rule is one sentence: a snapshot metric
+ * that moved more than `pct` against its own previous value is worth a
+ * steward's attention, in either direction. Requires at least two closed
+ * lunations, because a "change" with one data point is a fabrication.
+ *
+ * Direction is reported, never judged: a fall in decisions opened might be
+ * peace or apathy, and the dashboard is not qualified to say which.
+ */
+export async function thresholdAlerts(pool: Pool, pct: number): Promise<ThresholdAlert[]> {
+  const { series } = await snapshotSeries(pool);
+  const out: ThresholdAlert[] = [];
+  for (const m of SNAPSHOT_METRICS) {
+    const points = series[m.key] ?? [];
+    if (points.length < 2) continue;
+    const latest = points[points.length - 1];
+    const prev = points[points.length - 2];
+    // A move away from zero is unbounded as a percentage; report it as a
+    // fact ("0 -> 12") rather than as infinity.
+    if (prev.value === 0) {
+      if (latest.value !== 0) {
+        out.push({ metricKey: m.key, label: m.label, direction: "rose", value: latest.value, previous: 0, changePct: 100 });
+      }
+      continue;
+    }
+    const change = ((latest.value - prev.value) / prev.value) * 100;
+    if (Math.abs(change) >= pct) {
+      out.push({
+        metricKey: m.key, label: m.label,
+        direction: change < 0 ? "fell" : "rose",
+        value: latest.value, previous: prev.value,
+        changePct: Math.round(change),
+      });
+    }
+  }
+  return out;
 }
 
 // -- Reads for the dashboard --------------------------------------------------

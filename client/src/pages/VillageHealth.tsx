@@ -11,6 +11,7 @@ import NotFound from "@/pages/NotFound";
 import { useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
+import { SNAPSHOT_METRICS } from "@shared/healthMetrics";
 import { Activity, CheckCircle2, Circle, Leaf, Moon, Sprout, Users } from "lucide-react";
 
 const headers = (): Record<string, string> => {
@@ -18,15 +19,16 @@ const headers = (): Record<string, string> => {
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
 
-const SNAPSHOT_LABELS: Record<string, string> = {
-  members_total: "Members",
-  members_active_cycle: "Active this cycle",
-  events_total_cycle: "Village events",
-  gratitude_senders_distinct: "Gave recognition",
-  gratitude_recipients_distinct: "Were recognized",
-  quests_consented_cycle: "Quests consented",
-  decisions_opened_cycle: "Decisions opened",
-};
+/**
+ * H3: the tiles come from the SHARED registry, not a local copy. The old
+ * hardcoded map meant every new metric had to be added in two places, and
+ * the one that got forgotten was always the display — a metric collected
+ * for months and shown to nobody. Cards still render only where a value
+ * exists, so a village without the library module sees no library tile.
+ */
+const SNAPSHOT_LABELS: Record<string, string> = Object.fromEntries(
+  SNAPSHOT_METRICS.map((m) => [m.key, m.label]),
+);
 
 export default function VillageHealth() {
   const modules = useModules();

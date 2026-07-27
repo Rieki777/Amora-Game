@@ -73,6 +73,41 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
     description: "Governance threads opened during the lunation; distinct authors ride in meta (authorship concentration is the F13 read).",
   },
 
+  // ── H3 (Wave 1): the reserved keys, claimable at last ─────────────────────
+  // Reserved at S49 and deliberately left unwired: each needed an upstream
+  // source that could not be fabricated. All three now exist — the library
+  // (S41-46), stays (S30-32) and the ledger's system accounts — so these
+  // read real facts or they read nothing. A metric with no source is worse
+  // than a missing metric: it invites a guess.
+  {
+    key: "library_utilization_pct",
+    kind: "snapshot",
+    label: "Library in use",
+    unit: "%",
+    description: "Share of library items that were out on loan at any point in the lunation — how hard the shelves actually work. Meta carries the item and loan counts behind it.",
+  },
+  {
+    key: "stay_occupancy_nights",
+    kind: "snapshot",
+    label: "Nights stayed",
+    unit: "nights",
+    description: "Nights actually posted against stays during the lunation. Counts nights slept, never nights booked.",
+  },
+  {
+    key: "treasury_balance",
+    kind: "snapshot",
+    label: "Treasury holdings",
+    unit: "tokens",
+    description: "What sys:treasury held at close, summed across tokens; the per-token split rides in meta. A time series here is how a village sees its own reserves move.",
+  },
+  {
+    key: "gratitude_pool_issued",
+    kind: "snapshot",
+    label: "Recognition issued to date",
+    unit: "tokens",
+    description: "Total recognition the gratitude faucet has released since the beginning — the faucet's negative balance IS issuance-to-date, read straight from the ledger.",
+  },
+
   // ── Regen: the land's own ledger, steward-recorded ─────────────────────────
   { key: "trees_planted", kind: "regen", label: "Trees planted", unit: "trees", description: "Cumulative plantings, recorded as they happen." },
   { key: "hectares_restored", kind: "regen", label: "Hectares in restoration", unit: "ha", description: "Land under active regeneration." },
