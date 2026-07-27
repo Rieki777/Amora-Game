@@ -33,6 +33,7 @@ export default function Layout({ children }: LayoutProps) {
   const staysModule = useModule("stays");
   const exchangeModule = useModule("exchange");
   const badgesModule = useModule("badges");
+  const libraryModule = useModule("library");
 
   // The bottom tab bar's "More" slot opens this same drawer rather than being a
   // second, separately-maintained menu. No scrolling: the header is sticky, so
@@ -140,6 +141,14 @@ export default function Layout({ children }: LayoutProps) {
               <Link href="/badges" className="text-white/70 hover:text-white transition-colors text-sm">
                 Badges
                 {badgesModule.lifecycle === "preview" && (
+                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
+                )}
+              </Link>
+            )}
+            {libraryModule && (
+              <Link href="/library" className="text-white/70 hover:text-white transition-colors text-sm">
+                Library
+                {libraryModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
                 )}
               </Link>
@@ -294,6 +303,11 @@ export default function Layout({ children }: LayoutProps) {
                 {badgesModule && (
                   <Link href="/badges" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Badges{badgesModule.lifecycle === "preview" ? " (preview)" : ""}
+                  </Link>
+                )}
+                {libraryModule && (
+                  <Link href="/library" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                    Library{libraryModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {forumModule && (

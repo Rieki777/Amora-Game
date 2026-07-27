@@ -65,11 +65,22 @@ export function moduleSoldTokens(): Set<string> {
 }
 
 /**
+ * Tokens that are NEVER listed, whatever an admin clicks: library credits
+ * are backed by shelved items and minted only through guarded intake —
+ * selling them for fiat would sever the backing (S41). Static on purpose,
+ * like the ledger's allow-negative whitelist.
+ */
+export const NEVER_LISTED: ReadonlySet<string> = new Set(["library-credit"]);
+
+/**
  * The write-time firewall. Returns a human refusal or null. Checked again
  * at boot so a hand-edited row can never outlive a deploy.
  */
 export function listingProblem(slug: string, flags: { purchasable: boolean; swappable: boolean }): string | null {
   if (!flags.purchasable && !flags.swappable) return null; // delisting is always legal
+  if (NEVER_LISTED.has(slug)) {
+    return `${slug} is backed by the library's shelves and never trades — its only doors are intake and loans`;
+  }
   const def = tokenDef(slug);
   if (!def) return `"${slug}" is not a registered token`;
   if (def.kind === "recognition") {

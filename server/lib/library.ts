@@ -1,0 +1,449 @@
+/**
+ * The material library (S41-S46): the village's shared tools and goods, on
+ * library credits — a real platform token, non-transferable, never listed
+ * on the exchange. ZERO ledger DDL; four seeded accounts:
+ *
+ *   intake award:  sys:library-mint  -> donor      (library_intake, capped)
+ *   loan escrow:   member            -> sys:library-escrow  (loan:{id}:escrow)
+ *   usage fee:     sys:library-escrow -> sys:library-pool   (loan:{id}:settle:pool)
+ *   deposit back:  sys:library-escrow -> member             (loan:{id}:settle:release)
+ *   admin grant:   sys:library-mint  -> member     (library_manual)
+ *   credit burn:   member            -> sys:library-sink    (library_burn)
+ *
+ * NOT-deferrable invariants this file owns:
+ *   - settleLoan is the SINGLE terminal for every loan ending (closed,
+ *     expired, cancelled, disputed): an atomic claim (UPDATE ... WHERE
+ *     settled_at IS NULL) decides ONE outcome forever, then the keyed legs
+ *     post. A re-settle on a settled loan only REPAIRS: it re-posts the
+ *     stored legs (idempotent keys make that a no-op unless a crash left
+ *     them missing) and changes nothing else.
+ *   - Escrow reconciliation: balance(sys:library-escrow) must equal the sum
+ *     of unsettled loans' escrow_credits TO THE CREDIT. Boot refuses a
+ *     mismatch — a drained or double-released escrow must never normalize.
+ *   - Intake is capped (award <= appraisal x pct, per-member per-cycle cap,
+ *     dual sign-off above the line) because intake is a MINT: the door
+ *     where junk could become currency gets the guards.
+ *   - No non-negative account goes negative here: nothing library-side
+ *     passes allowNegative. Insufficient credits is a refusal, not a debt.
+ */
+import type { Pool, RowDataPacket } from "mysql2/promise";
+import { balanceOf, memberAccount, postTransfer, registerToken, tokenDef } from "./ledger";
+import { numberVar } from "./variables";
+import { cycleIdFor, currentCycle } from "./gratitude-cycles";
+
+export const LIBRARY_CREDIT = "library-credit";
+export const LIBRARY_MINT = "sys:library-mint";
+export const LIBRARY_ESCROW = "sys:library-escrow";
+export const LIBRARY_POOL = "sys:library-pool";
+export const LIBRARY_SINK = "sys:library-sink";
+
+/** Boot registration, unconditional and re-asserted: non-transferable policy. */
+export async function ensureLibraryToken(pool: Pool): Promise<void> {
+  const existing = tokenDef(LIBRARY_CREDIT);
+  if (existing && existing.transferable === false) return;
+  await registerToken(pool, {
+    slug: LIBRARY_CREDIT,
+    name: "Library Credits",
+    kind: "credit",
+    governance: "platform",
+    transferable: false,
+  });
+}
+
+// ── Shapes ───────────────────────────────────────────────────────────────────
+
+export interface LibraryItem {
+  id: string;
+  name: string;
+  description: string | null;
+  categoryId: string | null;
+  photoUrl: string | null;
+  status: "intake_pending" | "available" | "checked_out" | "written_off";
+  healthBp: number;
+  creditValue: number;
+  minStage: string | null;
+  requiresRole: string | null;
+  donorUserId: string | null;
+  intakeSignedBy: string | null;
+}
+
+export interface LibraryLoan {
+  id: string;
+  itemId: string;
+  userId: string;
+  status: "reserved" | "pickup_pending" | "active" | "return_pending" | "closed" | "expired" | "cancelled" | "disputed";
+  escrowCredits: number;
+  dueOn: string | null;
+  wearFee: number | null;
+  damageFee: number | null;
+  settledCycleId: string | null;
+  settledAt: string | null;
+}
+
+const LIVE_LOAN_STATUSES = ["reserved", "pickup_pending", "active", "return_pending"] as const;
+
+function rowToItem(r: RowDataPacket): LibraryItem {
+  return {
+    id: String(r.id), name: String(r.name), description: r.description ?? null,
+    categoryId: r.category_id ?? null, photoUrl: r.photo_url ?? null,
+    status: r.status, healthBp: Number(r.health_bp ?? 10000), creditValue: Number(r.credit_value ?? 0),
+    minStage: r.min_stage ?? null, requiresRole: r.requires_role ?? null,
+    donorUserId: r.donor_user_id ?? null, intakeSignedBy: r.intake_signed_by ?? null,
+  };
+}
+
+function rowToLoan(r: RowDataPacket): LibraryLoan {
+  return {
+    id: String(r.id), itemId: String(r.item_id), userId: String(r.user_id), status: r.status,
+    escrowCredits: Number(r.escrow_credits ?? 0),
+    dueOn: r.due_on ? new Date(r.due_on).toISOString().slice(0, 10) : null,
+    wearFee: r.wear_fee == null ? null : Number(r.wear_fee),
+    damageFee: r.damage_fee == null ? null : Number(r.damage_fee),
+    settledCycleId: r.settled_cycle_id ?? null,
+    settledAt: r.settled_at ? new Date(r.settled_at).toISOString() : null,
+  };
+}
+
+export async function libraryItems(pool: Pool): Promise<LibraryItem[]> {
+  const [rows] = await pool.query<RowDataPacket[]>("SELECT * FROM library_items ORDER BY name");
+  return rows.map(rowToItem);
+}
+
+export async function libraryItemById(pool: Pool, id: string): Promise<LibraryItem | null> {
+  const [rows] = await pool.query<RowDataPacket[]>("SELECT * FROM library_items WHERE id = ?", [id]);
+  return rows[0] ? rowToItem(rows[0]) : null;
+}
+
+export async function libraryLoanById(pool: Pool, id: string): Promise<LibraryLoan | null> {
+  const [rows] = await pool.query<RowDataPacket[]>("SELECT * FROM library_loans WHERE id = ?", [id]);
+  return rows[0] ? rowToLoan(rows[0]) : null;
+}
+
+export async function loansForUser(pool: Pool, userId: string): Promise<LibraryLoan[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT * FROM library_loans WHERE user_id = ? ORDER BY created_at DESC",
+    [userId],
+  );
+  return rows.map(rowToLoan);
+}
+
+export async function itemEvent(pool: Pool, itemId: string, kind: string, detail: string | null, actorUserId: string | null): Promise<void> {
+  await pool.query(
+    "INSERT INTO library_item_events (id, item_id, kind, detail, actor_user_id) VALUES (?,?,?,?,?)",
+    [`lie-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, itemId, kind, detail?.slice(0, 500) ?? null, actorUserId],
+  );
+}
+
+// ── Intake: the mint's front door, guarded ───────────────────────────────────
+
+export interface IntakeInput {
+  name: string;
+  description?: string | null;
+  categoryId?: string | null;
+  appraisal: number;
+  donorUserId: string;
+  minStage?: string | null;
+  requiresRole?: string | null;
+  recordedBy: string | null;
+}
+
+export type IntakeResult =
+  | { ok: true; itemId: string; award: number; pendingSecondSignoff: boolean }
+  | { ok: false; error: string };
+
+/** What the mint has issued to this member this lunation, via intake. */
+async function intakeMintedThisCycle(pool: Pool, userId: string): Promise<number> {
+  const cycle = currentCycle();
+  const [[row]] = await pool.query<any[]>(
+    "SELECT COALESCE(SUM(amount),0) AS s FROM token_ledger WHERE from_account = ? AND to_account = ? " +
+      "AND token_type = ? AND source = 'library_intake' AND at >= ?",
+    [LIBRARY_MINT, memberAccount(userId), LIBRARY_CREDIT, new Date(cycle.startsAt)],
+  );
+  return Number(row.s);
+}
+
+export async function recordIntake(pool: Pool, input: IntakeInput): Promise<IntakeResult> {
+  const appraisal = Math.floor(Number(input.appraisal));
+  if (!(appraisal > 0)) return { ok: false, error: "An appraisal in credits is required" };
+  const pct = Math.max(0, Math.min(100, numberVar("library.intake_award_pct")));
+  const award = Math.floor((appraisal * pct) / 100);
+  const cap = numberVar("library.intake_member_cycle_cap");
+  if (cap > 0 && award > 0) {
+    const already = await intakeMintedThisCycle(pool, input.donorUserId);
+    if (already + award > cap) {
+      return {
+        ok: false,
+        error: `This award would exceed the per-member intake cap for this lunation: ${already} of ${cap} already granted (library.intake_member_cycle_cap)`,
+      };
+    }
+  }
+  const needsSecond = numberVar("library.intake_dual_signoff_over") > 0 && appraisal > numberVar("library.intake_dual_signoff_over");
+  const itemId = `li-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  await pool.query(
+    "INSERT INTO library_items (id, name, description, category_id, status, credit_value, min_stage, requires_role, donor_user_id, intake_signed_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    [
+      itemId, input.name.trim().slice(0, 160), input.description ?? null, input.categoryId ?? null,
+      needsSecond ? "intake_pending" : "available", appraisal,
+      input.minStage ?? null, input.requiresRole ?? null, input.donorUserId, input.recordedBy,
+    ],
+  );
+  await itemEvent(pool, itemId, "intake", `appraised at ${appraisal}, award ${award}${needsSecond ? " (awaiting second sign-off)" : ""}`, input.recordedBy);
+  if (!needsSecond && award > 0) {
+    const r = await postTransfer(pool, {
+      from: LIBRARY_MINT,
+      to: memberAccount(input.donorUserId),
+      tokenType: LIBRARY_CREDIT,
+      amount: award,
+      source: "library_intake",
+      sourceRef: itemId,
+      description: `Intake: ${input.name.trim().slice(0, 100)}`,
+      idempotencyKey: `intake:${itemId}`,
+    });
+    if (!r.ok) return { ok: false, error: r.error ?? "intake award failed" };
+  }
+  return { ok: true, itemId, award: needsSecond ? 0 : award, pendingSecondSignoff: needsSecond };
+}
+
+/** The SECOND steward clears a high-value intake; the first cannot self-approve. */
+export async function approveIntake(pool: Pool, itemId: string, approverId: string): Promise<{ ok: true; award: number } | { ok: false; error: string }> {
+  const item = await libraryItemById(pool, itemId);
+  if (!item) return { ok: false, error: "No such item" };
+  if (item.status !== "intake_pending") return { ok: false, error: `This item is ${item.status}, not awaiting sign-off` };
+  if (item.intakeSignedBy && item.intakeSignedBy === approverId) {
+    return { ok: false, error: "Dual sign-off means a SECOND steward — you recorded this intake" };
+  }
+  const pct = Math.max(0, Math.min(100, numberVar("library.intake_award_pct")));
+  const award = Math.floor((item.creditValue * pct) / 100);
+  const cap = numberVar("library.intake_member_cycle_cap");
+  if (item.donorUserId && cap > 0 && award > 0) {
+    const already = await intakeMintedThisCycle(pool, item.donorUserId);
+    if (already + award > cap) {
+      return { ok: false, error: `This award would exceed the per-member intake cap for this lunation (${already} of ${cap})` };
+    }
+  }
+  await pool.query("UPDATE library_items SET status = 'available' WHERE id = ?", [itemId]);
+  await itemEvent(pool, itemId, "intake_approved", `second sign-off; award ${award}`, approverId);
+  if (item.donorUserId && award > 0) {
+    const r = await postTransfer(pool, {
+      from: LIBRARY_MINT,
+      to: memberAccount(item.donorUserId),
+      tokenType: LIBRARY_CREDIT,
+      amount: award,
+      source: "library_intake",
+      sourceRef: itemId,
+      description: `Intake (dual-signed): ${item.name}`,
+      idempotencyKey: `intake:${itemId}`,
+    });
+    if (!r.ok) return { ok: false, error: r.error ?? "intake award failed" };
+  }
+  return { ok: true, award };
+}
+
+// ── Loans ────────────────────────────────────────────────────────────────────
+
+export function escrowFor(creditValue: number): number {
+  const pct = Math.max(0, numberVar("library.escrow_pct"));
+  // Rounding favors the pool (the village side): ceil what the member locks.
+  return Math.ceil((creditValue * pct) / 100);
+}
+
+export async function reserveItem(
+  pool: Pool,
+  input: { itemId: string; userId: string },
+): Promise<{ ok: true; loanId: string; escrow: number } | { ok: false; status: number; error: string }> {
+  const item = await libraryItemById(pool, input.itemId);
+  if (!item) return { ok: false, status: 404, error: "No such item" };
+  if (item.status !== "available") {
+    return { ok: false, status: 409, error: `"${item.name}" is ${item.status.replace(/_/g, " ")} right now` };
+  }
+  const escrow = escrowFor(item.creditValue);
+  const loanId = `loan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  if (escrow > 0) {
+    // Escrow FIRST, then the row: the member's deposit is never ambiguous.
+    const r = await postTransfer(pool, {
+      from: memberAccount(input.userId),
+      to: LIBRARY_ESCROW,
+      tokenType: LIBRARY_CREDIT,
+      amount: escrow,
+      source: "library_escrow",
+      sourceRef: loanId,
+      description: `Escrow: ${item.name}`,
+      idempotencyKey: `loan:${loanId}:escrow`,
+    });
+    if (!r.ok) {
+      return { ok: false, status: 409, error: `You need ${escrow} library credit(s) in escrow to borrow this — earn them by contributing items or work` };
+    }
+  }
+  await pool.query(
+    "INSERT INTO library_loans (id, item_id, user_id, status, escrow_credits) VALUES (?,?,?,?,?)",
+    [loanId, item.id, input.userId, "reserved", escrow],
+  );
+  await pool.query("UPDATE library_items SET status = 'checked_out' WHERE id = ?", [item.id]);
+  await itemEvent(pool, item.id, "reserved", `loan ${loanId}, escrow ${escrow}`, input.userId);
+  return { ok: true, loanId, escrow };
+}
+
+export async function markPickedUp(pool: Pool, loanId: string, actorId: string | null): Promise<{ ok: boolean; error?: string; dueOn?: string }> {
+  const loan = await libraryLoanById(pool, loanId);
+  if (!loan) return { ok: false, error: "No such loan" };
+  if (loan.status !== "reserved" && loan.status !== "pickup_pending") {
+    return { ok: false, error: `This loan is ${loan.status}` };
+  }
+  const days = Math.max(1, numberVar("library.loan_days_default"));
+  const due = new Date();
+  due.setUTCDate(due.getUTCDate() + days);
+  const dueOn = due.toISOString().slice(0, 10);
+  await pool.query("UPDATE library_loans SET status = 'active', due_on = ? WHERE id = ?", [dueOn, loanId]);
+  await itemEvent(pool, loan.itemId, "picked_up", `due ${dueOn}`, actorId);
+  return { ok: true, dueOn };
+}
+
+export async function markReturned(pool: Pool, loanId: string, actorId: string | null): Promise<{ ok: boolean; error?: string }> {
+  const loan = await libraryLoanById(pool, loanId);
+  if (!loan) return { ok: false, error: "No such loan" };
+  if (loan.status !== "active") return { ok: false, error: `This loan is ${loan.status}, not active` };
+  await pool.query("UPDATE library_loans SET status = 'return_pending' WHERE id = ?", [loanId]);
+  await itemEvent(pool, loan.itemId, "returned", null, actorId);
+  return { ok: true };
+}
+
+export type SettleOutcome = "closed" | "expired" | "cancelled" | "disputed";
+
+export interface SettleLoanResult {
+  ok: boolean;
+  alreadySettled: boolean;
+  outcome?: SettleOutcome;
+  wearFee?: number;
+  damageFee?: number;
+  released?: number;
+  error?: string;
+}
+
+/**
+ * THE single terminal. One atomic claim decides the outcome and fees
+ * forever; the keyed legs post after. First path wins: a competing settle
+ * (double click, second steward, dispute racer) loses the claim and only
+ * REPAIRS — re-posting the stored legs, which the idempotency keys reduce
+ * to no-ops unless a crash between claim and legs left money parked in
+ * escrow. Nothing here can pay twice or pay two different stories.
+ *
+ * Default outcomes ride the variables: a settle WITHOUT explicit fees uses
+ * the computed wear (usage fee % of item value) and ZERO damage — the same
+ * defaults the dispute deadline and return timeout resolve to.
+ */
+export async function settleLoan(
+  pool: Pool,
+  input: { loanId: string; outcome: SettleOutcome; wearFee?: number; damageFee?: number },
+): Promise<SettleLoanResult> {
+  const loan = await libraryLoanById(pool, input.loanId);
+  if (!loan) return { ok: false, alreadySettled: false, error: "No such loan" };
+  const item = await libraryItemById(pool, loan.itemId);
+
+  // Fee policy: cancelled and expired reservations pay nothing (the item
+  // never left); closed pays computed wear by default; disputes default to
+  // computed wear + zero damage (the deadline's honest resolution).
+  const computedWear = item ? Math.ceil((item.creditValue * Math.max(0, numberVar("library.usage_fee_pct"))) / 100) : 0;
+  const zeroFee = input.outcome === "cancelled" || input.outcome === "expired";
+  let wearFee = zeroFee ? 0 : Math.max(0, Math.floor(input.wearFee ?? computedWear));
+  let damageFee = zeroFee ? 0 : Math.max(0, Math.floor(input.damageFee ?? 0));
+  // Escrow is the ceiling: liability beyond it is a human conversation.
+  if (wearFee + damageFee > loan.escrowCredits) {
+    damageFee = Math.max(0, loan.escrowCredits - wearFee);
+    if (wearFee > loan.escrowCredits) { wearFee = loan.escrowCredits; damageFee = 0; }
+  }
+
+  // The atomic claim: exactly one settle ever writes the outcome.
+  const [claim] = await pool.query<any>(
+    "UPDATE library_loans SET status = ?, wear_fee = ?, damage_fee = ?, settled_cycle_id = ?, settled_at = NOW() " +
+      "WHERE id = ? AND settled_at IS NULL",
+    [input.outcome, wearFee, damageFee, cycleIdFor(new Date()), input.loanId],
+  );
+  const won = !!(claim as any).affectedRows;
+  // Losers repair with the STORED story, never their own.
+  const settled = won ? { outcome: input.outcome, wearFee, damageFee } : await (async () => {
+    const l = (await libraryLoanById(pool, input.loanId))!;
+    return { outcome: l.status as SettleOutcome, wearFee: l.wearFee ?? 0, damageFee: l.damageFee ?? 0 };
+  })();
+
+  const fee = Math.min(loan.escrowCredits, settled.wearFee + settled.damageFee);
+  const release = loan.escrowCredits - fee;
+  if (fee > 0) {
+    const r = await postTransfer(pool, {
+      from: LIBRARY_ESCROW, to: LIBRARY_POOL, tokenType: LIBRARY_CREDIT, amount: fee,
+      source: "library_fee", sourceRef: input.loanId,
+      description: `Loan ${settled.outcome}: wear ${settled.wearFee}, damage ${settled.damageFee}`,
+      idempotencyKey: `loan:${input.loanId}:settle:pool`,
+    });
+    if (!r.ok) return { ok: false, alreadySettled: !won, error: r.error };
+  }
+  if (release > 0) {
+    const r = await postTransfer(pool, {
+      from: LIBRARY_ESCROW, to: memberAccount(loan.userId), tokenType: LIBRARY_CREDIT, amount: release,
+      source: "library_release", sourceRef: input.loanId,
+      description: `Escrow released (${settled.outcome})`,
+      idempotencyKey: `loan:${input.loanId}:settle:release`,
+    });
+    if (!r.ok) return { ok: false, alreadySettled: !won, error: r.error };
+  }
+  if (won) {
+    // The item returns to circulation unless it was written off separately.
+    if (item && item.status === "checked_out") {
+      await pool.query("UPDATE library_items SET status = 'available' WHERE id = ? AND status = 'checked_out'", [item.id]);
+    }
+    await itemEvent(pool, loan.itemId, `settled_${settled.outcome}`, `wear ${settled.wearFee}, damage ${settled.damageFee}, released ${release}`, null);
+  }
+  return { ok: true, alreadySettled: !won, outcome: settled.outcome, wearFee: settled.wearFee, damageFee: settled.damageFee, released: release };
+}
+
+// ── Invariants, strikes, red flags ───────────────────────────────────────────
+
+/** balance(sys:library-escrow) === SUM(unsettled escrow). To the credit. */
+export async function escrowReconciliation(pool: Pool): Promise<{ ok: boolean; expected: number; actual: number }> {
+  const [[row]] = await pool.query<any[]>(
+    `SELECT COALESCE(SUM(escrow_credits),0) AS s FROM library_loans WHERE settled_at IS NULL AND status IN (${LIVE_LOAN_STATUSES.map(() => "?").join(",")})`,
+    [...LIVE_LOAN_STATUSES],
+  );
+  const expected = Number(row.s);
+  const actual = await balanceOf(pool, LIBRARY_ESCROW, LIBRARY_CREDIT);
+  return { ok: expected === actual, expected, actual };
+}
+
+export async function assertLibraryInvariants(pool: Pool): Promise<void> {
+  const rec = await escrowReconciliation(pool);
+  if (!rec.ok) {
+    throw new Error(
+      `library escrow reconciliation failed: account holds ${rec.actual} but open loans expect ${rec.expected} — refusing to serve`,
+    );
+  }
+}
+
+/** No-show strikes are DERIVED (counted), never stored counters. */
+export async function noShowStrikes(pool: Pool, userId: string): Promise<number> {
+  const [[row]] = await pool.query<any[]>(
+    "SELECT COUNT(*) AS n FROM library_loans WHERE user_id = ? AND status = 'expired'",
+    [userId],
+  );
+  return Number(row.n);
+}
+
+/**
+ * The supply-vs-backing red flag: outstanding credits (what the mint has
+ * issued and not reclaimed) against the replacement value still on the
+ * shelves. Credits above backing = the intake door leaked.
+ */
+export async function supplyVsBacking(pool: Pool): Promise<{ outstanding: number; backing: number; flagged: boolean }> {
+  const outstanding = -(await balanceOf(pool, LIBRARY_MINT, LIBRARY_CREDIT));
+  const [[row]] = await pool.query<any[]>(
+    "SELECT COALESCE(SUM(credit_value),0) AS s FROM library_items WHERE status <> 'written_off'",
+  );
+  const backing = Number(row.s);
+  return { outstanding, backing, flagged: outstanding > backing };
+}
+
+/** Open economic state (invariant #13): every unsettled loan blocks off. */
+export async function libraryOpenState(pool: Pool): Promise<{ count: number; description: string }> {
+  const [[row]] = await pool.query<any[]>(
+    "SELECT COUNT(*) AS n FROM library_loans WHERE settled_at IS NULL",
+  );
+  return { count: Number(row.n), description: `${row.n} open loan(s)` };
+}

@@ -3485,6 +3485,227 @@ function BadgesAdminTab({ password }: { password: string }) {
   );
 }
 
+/**
+ * S41-S46: the material library's steward desk — intake (the guarded mint),
+ * the loan pipeline with its single terminal, and the invariants made
+ * visible: escrow reconciliation and supply-vs-backing.
+ */
+function LibraryAdminTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [off, setOff] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [players, setPlayers] = useState<any[]>([]);
+  const [intake, setIntake] = useState({ name: "", description: "", categoryId: "", appraisal: "", donorUserId: "", minStage: "" });
+  const [catLabel, setCatLabel] = useState("");
+  const [settleDraft, setSettleDraft] = useState<Record<string, { wear?: string; damage?: string }>>({});
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [lRes, pRes] = await Promise.all([
+        fetch(`${API_BASE}/admin/library`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
+      ]);
+      if (lRes.status === 404) { setOff(true); setLoading(false); return; }
+      setOff(false);
+      setData(await lRes.json());
+      const p = await pRes.json();
+      setPlayers(Array.isArray(p) ? p : []);
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const call = async (path: string, body?: any, method = "POST") => {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "failed");
+      return d;
+    } catch (e: any) { toast.error(e?.message || "Request failed"); return null; }
+  };
+
+  const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+
+  if (off) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Material Library</h2>
+        <p className="text-sm text-gray-500">The Library module is off. Enable it in the Modules tab first.</p>
+      </div>
+    );
+  }
+  if (loading && !data) return <p className="text-sm text-gray-500">Loading…</p>;
+
+  const liveLoans = (data?.loans ?? []).filter((l: any) => !l.settled_at);
+  const doneLoans = (data?.loans ?? []).filter((l: any) => !!l.settled_at);
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Material Library</h2>
+        <p className="text-sm text-gray-500 max-w-2xl">
+          Intake is a mint: awards are capped per member per lunation and
+          high appraisals need a second steward. Every loan ends exactly once,
+          through settle — fees left blank use the computed defaults.
+        </p>
+      </div>
+
+      {/* Invariants panel */}
+      <div className="grid sm:grid-cols-3 gap-3">
+        <div className={`rounded-xl border p-4 ${data?.reconciliation?.ok ? "border-emerald-200 bg-emerald-50/50" : "border-red-300 bg-red-50"}`}>
+          <p className="text-xs text-gray-500 mb-1">Escrow reconciliation</p>
+          <p className="text-sm font-semibold text-gray-900">
+            {data?.reconciliation?.actual} held / {data?.reconciliation?.expected} expected {data?.reconciliation?.ok ? "✓" : "✗ INVESTIGATE"}
+          </p>
+        </div>
+        <div className={`rounded-xl border p-4 ${data?.supply?.flagged ? "border-red-300 bg-red-50" : "border-gray-200"}`}>
+          <p className="text-xs text-gray-500 mb-1">Credits vs backing</p>
+          <p className="text-sm font-semibold text-gray-900">
+            {data?.supply?.outstanding} issued / {data?.supply?.backing} on shelves
+            {data?.supply?.flagged && " — MORE CREDITS THAN SHELVES"}
+          </p>
+        </div>
+        <div className="rounded-xl border border-gray-200 p-4">
+          <p className="text-xs text-gray-500 mb-1">Usage-fee pool</p>
+          <p className="text-sm font-semibold text-gray-900">{data?.poolBalance} credit(s)</p>
+        </div>
+      </div>
+
+      {/* Intake */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Record an intake</h3>
+        <div className="grid sm:grid-cols-3 gap-2 mb-2">
+          <input placeholder="Item name" value={intake.name} onChange={(e) => setIntake({ ...intake, name: e.target.value })} className={inputCls} />
+          <select value={intake.donorUserId} onChange={(e) => setIntake({ ...intake, donorUserId: e.target.value })} className={inputCls}>
+            <option value="">Donor…</option>
+            {players.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <input type="number" min={1} placeholder="Appraisal (credits)" value={intake.appraisal} onChange={(e) => setIntake({ ...intake, appraisal: e.target.value })} className={inputCls} />
+          <input placeholder="Description" value={intake.description} onChange={(e) => setIntake({ ...intake, description: e.target.value })} className={`${inputCls} sm:col-span-2`} />
+          <select value={intake.categoryId} onChange={(e) => setIntake({ ...intake, categoryId: e.target.value })} className={inputCls}>
+            <option value="">Category…</option>
+            {(data?.categories ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </div>
+        <button
+          onClick={async () => {
+            const d = await call("/admin/library/intake", { ...intake, appraisal: Number(intake.appraisal), categoryId: intake.categoryId || null });
+            if (d) {
+              toast.success(d.pendingSecondSignoff ? "Recorded — awaiting a second steward's sign-off" : `Recorded — ${d.award} credit(s) awarded`);
+              setIntake({ name: "", description: "", categoryId: "", appraisal: "", donorUserId: "", minStage: "" });
+              load();
+            }
+          }}
+          disabled={!intake.name.trim() || !intake.donorUserId || !intake.appraisal}
+          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+        >
+          Record intake
+        </button>
+        <div className="mt-3 flex items-end gap-2">
+          <input placeholder="New category label" value={catLabel} onChange={(e) => setCatLabel(e.target.value)} className={inputCls} />
+          <button onClick={async () => { const d = await call("/admin/library/categories", { label: catLabel }); if (d) { setCatLabel(""); load(); } }}
+            disabled={!catLabel.trim()} className="text-sm text-[#2D5A5A] font-medium hover:underline pb-2 disabled:opacity-40">
+            Add category
+          </button>
+        </div>
+      </div>
+
+      {/* Items */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Shelves</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-gray-400">
+              <th className="py-1 pr-3">Item</th><th className="py-1 pr-3">Value</th><th className="py-1 pr-3">Status</th>
+              <th className="py-1 pr-3">Donor</th><th className="py-1" />
+            </tr></thead>
+            <tbody>
+              {(data?.items ?? []).map((i: any) => (
+                <tr key={i.id} className="border-t border-gray-50">
+                  <td className="py-2 pr-3 font-medium text-gray-900">{i.name}</td>
+                  <td className="py-2 pr-3">{i.creditValue}</td>
+                  <td className={`py-2 pr-3 ${i.status === "intake_pending" ? "text-amber-700 font-medium" : ""}`}>{i.status.replace(/_/g, " ")}</td>
+                  <td className="py-2 pr-3 text-gray-500">{players.find((p: any) => p.id === i.donorUserId)?.name ?? "—"}</td>
+                  <td className="py-2 text-right space-x-2 whitespace-nowrap">
+                    {i.status === "intake_pending" && (
+                      <button onClick={async () => { const d = await call(`/admin/library/items/${i.id}/approve`); if (d) { toast.success(`Signed off — ${d.award} credit(s) awarded`); load(); } }}
+                        className="text-xs text-[#2D5A5A] font-medium hover:underline">Second sign-off</button>
+                    )}
+                    {i.status === "available" && (
+                      <button onClick={async () => { if (!window.confirm("Write this item off the shelves?")) return; const d = await call(`/admin/library/items/${i.id}`, { status: "written_off" }, "PUT"); if (d) load(); }}
+                        className="text-xs text-gray-500 hover:text-red-600">Write off</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {(data?.items ?? []).length === 0 && <p className="text-sm text-gray-400 py-3">No items yet.</p>}
+        </div>
+      </div>
+
+      {/* Loans */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Open loans</h3>
+        <div className="space-y-3">
+          {liveLoans.map((l: any) => (
+            <div key={l.id} className="border border-gray-200 rounded-lg p-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="text-sm">
+                  <b>{l.user_name ?? l.user_id}</b> · {l.item_name} · {String(l.status).replace(/_/g, " ")}
+                  {l.due_on && <> · due {new Date(l.due_on).toLocaleDateString()}</>} · escrow {l.escrow_credits}
+                </p>
+                <div className="flex items-center gap-2">
+                  {l.status === "reserved" && (
+                    <button onClick={async () => { const d = await call(`/admin/library/loans/${l.id}/pickup`); if (d) { toast.success(`Picked up — due ${d.dueOn}`); load(); } }}
+                      className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium">Mark picked up</button>
+                  )}
+                  <input type="number" min={0} placeholder="wear" value={settleDraft[l.id]?.wear ?? ""} title="Wear fee (blank = computed default)"
+                    onChange={(e) => setSettleDraft((s) => ({ ...s, [l.id]: { ...(s[l.id] ?? {}), wear: e.target.value } }))} className={`${inputCls} w-16`} />
+                  <input type="number" min={0} placeholder="dmg" value={settleDraft[l.id]?.damage ?? ""} title="Damage fee (blank = 0)"
+                    onChange={(e) => setSettleDraft((s) => ({ ...s, [l.id]: { ...(s[l.id] ?? {}), damage: e.target.value } }))} className={`${inputCls} w-16`} />
+                  {(["closed", "expired", "disputed"] as const).map((o) => (
+                    <button key={o}
+                      onClick={async () => {
+                        const d = await call(`/admin/library/loans/${l.id}/settle`, {
+                          outcome: o, wearFee: settleDraft[l.id]?.wear ?? "", damageFee: settleDraft[l.id]?.damage ?? "",
+                        });
+                        if (d) { toast.success(`Settled ${o}: ${d.released} released, ${(d.wearFee ?? 0) + (d.damageFee ?? 0)} to the pool`); load(); }
+                      }}
+                      className={`text-xs rounded-lg px-2.5 py-1.5 font-medium border ${o === "closed" ? "border-emerald-300 text-emerald-700" : o === "expired" ? "border-amber-300 text-amber-700" : "border-red-300 text-red-600"}`}
+                    >
+                      {o}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+          {liveLoans.length === 0 && <p className="text-sm text-gray-400">Nothing out.</p>}
+        </div>
+        {doneLoans.length > 0 && (
+          <details className="mt-4">
+            <summary className="text-xs text-gray-500 cursor-pointer">Settled loans ({doneLoans.length})</summary>
+            <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+              {doneLoans.map((l: any) => (
+                <p key={l.id} className="text-xs text-gray-500">
+                  {l.user_name ?? l.user_id} · {l.item_name} → {l.status} · wear {l.wear_fee ?? 0} dmg {l.damage_fee ?? 0} · {l.settled_cycle_id}
+                </p>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TokensTab({ password }: { password: string }) {
   const [tokens, setTokens] = useState<any[]>([]);
   const [mintCap, setMintCap] = useState<number>(0);
@@ -4787,6 +5008,7 @@ export default function Admin() {
             { key: "stays-admin", label: "Stays & Payments", icon: Home },
             { key: "exchange-admin", label: "Exchange", icon: TrendingUp },
             { key: "badges-admin", label: "Badges", icon: GraduationCap },
+            { key: "library-admin", label: "Library", icon: Inbox },
             { key: "tokens", label: "Tokens", icon: Coins },
             { key: "ledger", label: "Ledger", icon: BarChart3 },
             { key: "variables", label: "Game Mechanics", icon: Activity },
@@ -4916,6 +5138,7 @@ export default function Admin() {
           {activeTab === "stays-admin" && <StaysAdminTab password={password} />}
           {activeTab === "exchange-admin" && <ExchangeAdminTab password={password} />}
           {activeTab === "badges-admin" && <BadgesAdminTab password={password} />}
+          {activeTab === "library-admin" && <LibraryAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}

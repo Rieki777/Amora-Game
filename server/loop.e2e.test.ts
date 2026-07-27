@@ -1881,4 +1881,129 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // Cleanup: forum off again (badges stays on — its grants are in play).
     await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
   });
+
+  it("S41-S46: the material library — guarded intake, escrowed loans, one terminal", async () => {
+    expect((await api("GET", "/api/library")).status).toBe(404);
+    await api("PUT", "/api/admin/modules/library/lifecycle", { lifecycle: "public" }, founderToken);
+    await api("POST", "/api/admin/library/categories", { label: "Garden Tools" }, founderToken);
+
+    // ── INTAKE, the mint's guarded front door. Under the dual-sign-off line
+    // the donor earns floor(appraisal × 75%) immediately. ──
+    const intake1 = await api("POST", "/api/admin/library/intake",
+      { name: "Wheelbarrow", appraisal: 100, donorUserId: peerId, categoryId: "garden-tools" }, founderToken);
+    expect(intake1.status).toBe(200);
+    expect(intake1.json.award).toBe(75);
+    expect(intake1.json.pendingSecondSignoff).toBe(false);
+    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(75);
+
+    // The per-member per-cycle cap is an AGGREGATE across donations.
+    await api("PUT", "/api/admin/variables/library.intake_member_cycle_cap", { value: "100" }, founderToken);
+    const capped = await api("POST", "/api/admin/library/intake", { name: "Hand Drill", appraisal: 100, donorUserId: peerId }, founderToken);
+    expect(capped.status).toBe(409);
+    expect(String(capped.json.error)).toContain("cap");
+    await api("PUT", "/api/admin/variables/library.intake_member_cycle_cap", { value: "500" }, founderToken);
+
+    // Above the line: recorded, NOTHING minted, and the recorder cannot
+    // self-approve — dual sign-off means a SECOND steward.
+    const big = await api("POST", "/api/admin/library/intake", { name: "Chainsaw", appraisal: 300, donorUserId: peerId }, founderToken);
+    expect(big.json.pendingSecondSignoff).toBe(true);
+    expect(big.json.award).toBe(0);
+    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(75);
+    const selfApprove = await api("POST", `/api/admin/library/items/${big.json.itemId}/approve`, {}, founderToken);
+    expect(selfApprove.status).toBe(409);
+    expect(String(selfApprove.json.error)).toContain("SECOND");
+    await api("PUT", `/api/admin/users/${doerId}/role`, { role: "admin" }, founderToken);
+    const secondSig = await api("POST", `/api/admin/library/items/${big.json.itemId}/approve`, {}, doerToken);
+    expect(secondSig.status).toBe(200);
+    expect(secondSig.json.award).toBe(225);
+    await api("PUT", `/api/admin/users/${doerId}/role`, { role: "member" }, founderToken);
+    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(300);
+
+    // ── LOANS. Escrow is ceil(value × 25%); no credits, no loan — the
+    // refusal names the deposit, and nothing here can go negative. ──
+    const lib = await api("GET", "/api/library", undefined, peerToken);
+    const barrow = lib.json.items.find((i: any) => i.name === "Wheelbarrow");
+    expect(barrow.escrow).toBe(25);
+    const broke = await api("POST", "/api/auth/register", {
+      email: `lib-guest-${PORT}@example.test`, password: "LoopTest123!", name: "Broke Guest", paths: ["resident"],
+    });
+    const refused = await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, broke.json.token);
+    expect(refused.status).toBe(409);
+    expect(String(refused.json.error)).toContain("escrow");
+
+    const reserved = await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, peerToken);
+    expect(reserved.status).toBe(200);
+    expect(reserved.json.escrow).toBe(25);
+    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(275);
+    // The shelf shows one of everything: a second borrower waits.
+    expect((await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, doerToken)).status).toBe(409);
+    // Open loans are open economic state: module-off refuses (invariant #13).
+    expect((await api("PUT", "/api/admin/modules/library/lifecycle", { lifecycle: "off" }, founderToken)).status).toBe(409);
+
+    // The borrower's cancel flows through the SAME single terminal: full release.
+    const cancelled = await api("POST", `/api/library/loans/${reserved.json.loanId}/cancel`, {}, peerToken);
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.json.released).toBe(25);
+    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(300);
+
+    // Full circle: reserve → pickup → return → settle closed with DEFAULT
+    // fees: computed wear = 5% of 100 = 5, zero damage, 20 released.
+    const loan2 = await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, peerToken);
+    expect((await api("POST", `/api/admin/library/loans/${loan2.json.loanId}/pickup`, {}, founderToken)).status).toBe(200);
+    expect((await api("POST", `/api/library/loans/${loan2.json.loanId}/return`, {}, peerToken)).status).toBe(200);
+    const settled = await api("POST", `/api/admin/library/loans/${loan2.json.loanId}/settle`, { outcome: "closed" }, founderToken);
+    expect(settled.status).toBe(200);
+    expect(settled.json.wearFee).toBe(5);
+    expect(settled.json.damageFee).toBe(0);
+    expect(settled.json.released).toBe(20);
+    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(295);
+
+    // THE SINGLE TERMINAL: a second settle with a DIFFERENT story is refused
+    // as already-settled, verifies the stored legs, and pays nothing twice.
+    const again = await api("POST", `/api/admin/library/loans/${loan2.json.loanId}/settle`,
+      { outcome: "disputed", wearFee: 25, damageFee: 25 }, founderToken);
+    expect(again.status).toBe(409);
+    expect(again.json.outcome).toBe("closed"); // the stored story, not the racer's
+    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(295);
+    // The claim stamped the settled cycle in the same statement.
+    const adminLoans = await api("GET", "/api/admin/library", undefined, founderToken);
+    expect(String(adminLoans.json.loans.find((l: any) => l.id === loan2.json.loanId).settled_cycle_id)).toMatch(/^lunar-\d{6}$/);
+
+    // No-show: reserved, never picked up, settled EXPIRED — zero fee, escrow
+    // back, and the strike is DERIVED from the record, never a counter.
+    const loan3 = await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, peerToken);
+    const expired = await api("POST", `/api/admin/library/loans/${loan3.json.loanId}/settle`, { outcome: "expired" }, founderToken);
+    expect(expired.json.released).toBe(25);
+    expect((await api("GET", "/api/library", undefined, peerToken)).json.mine.strikes).toBe(1);
+
+    // Per-item stage gates ride the same ladder as everything else.
+    const saw = (await api("GET", "/api/library", undefined, peerToken)).json.items.find((i: any) => i.name === "Chainsaw");
+    await api("PUT", `/api/admin/library/items/${saw.id}`, { minStage: "co-creator" }, founderToken);
+    const tooEarly = await api("POST", `/api/library/items/${saw.id}/reserve`, {}, peerToken);
+    expect(tooEarly.status).toBe(403);
+    expect(String(tooEarly.json.error)).toContain("co-creator");
+
+    // NEVER LISTED: the exchange refuses library-credit outright — its only
+    // doors are intake and loans; selling it would sever the backing.
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "public" }, founderToken);
+    const listRefused = await api("PUT", "/api/admin/exchange/tokens/library-credit", { purchasable: true }, founderToken);
+    expect(listRefused.status).toBe(409);
+    expect(String(listRefused.json.error)).toContain("shelves");
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
+
+    // The red flag: write the chainsaw off and the mint's issue (300) now
+    // exceeds the shelves' value (100) — the panel says so, loudly.
+    await api("PUT", `/api/admin/library/items/${saw.id}`, { status: "written_off" }, founderToken);
+    const panel = await api("GET", "/api/admin/library", undefined, founderToken);
+    expect(panel.json.supply.outstanding).toBe(300);
+    expect(panel.json.supply.backing).toBe(100);
+    expect(panel.json.supply.flagged).toBe(true);
+    // Escrow reconciliation holds TO THE CREDIT with everything settled.
+    expect(panel.json.reconciliation).toMatchObject({ ok: true, expected: 0, actual: 0 });
+
+    // And the whole economy still conserves, across all four library accounts.
+    const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec.json.invariants.problems).toEqual([]);
+    expect(rec.json.invariants.ok).toBe(true);
+  });
 });

@@ -573,6 +573,91 @@ export const VARIABLES: VariableDef[] = [
     unit: "%",
   },
 
+  // ── Library: the material library's credit economy ───────────────────────
+  {
+    key: "library.intake_award_pct",
+    category: "Library",
+    label: "Intake award, % of appraisal",
+    description:
+      "What a donor earns, as a share of the item's appraised replacement value. Never above 100 — the mint's front door pays at most what the shelf gained.",
+    type: "integer",
+    default: "75",
+    min: 0,
+    max: 100,
+    unit: "%",
+  },
+  {
+    key: "library.intake_member_cycle_cap",
+    category: "Library",
+    label: "Intake credits per member per cycle",
+    description:
+      "The most one member can earn from donations in one lunation. Intake is a mint; this is its per-person throttle. 0 disables the cap.",
+    type: "integer",
+    default: "500",
+    min: 0,
+    max: 100000,
+    unit: "credits",
+  },
+  {
+    key: "library.intake_dual_signoff_over",
+    category: "Library",
+    label: "Dual sign-off above (appraisal)",
+    description:
+      "An item appraised above this needs a SECOND steward's approval before any credits mint. 0 turns the second signature off.",
+    type: "integer",
+    default: "200",
+    min: 0,
+    max: 100000,
+    unit: "credits",
+  },
+  {
+    key: "library.escrow_pct",
+    category: "Library",
+    label: "Borrowing escrow, % of value",
+    description:
+      "The deposit locked while an item is out, as a share of its appraised value. Returned at settle, minus wear and damage.",
+    type: "integer",
+    default: "25",
+    min: 0,
+    max: 200,
+    unit: "%",
+  },
+  {
+    key: "library.usage_fee_pct",
+    category: "Library",
+    label: "Usage fee per loan, % of value",
+    description:
+      "The default wear fee a normal return pays into the library pool — also what a dispute resolves to after its deadline (computed wear, zero damage).",
+    type: "integer",
+    default: "5",
+    min: 0,
+    max: 100,
+    unit: "%",
+  },
+  {
+    key: "library.loan_days_default",
+    category: "Library",
+    label: "Loan length",
+    description: "Days from pickup to due date.",
+    type: "integer",
+    default: "14",
+    min: 1,
+    max: 365,
+    unit: "days",
+  },
+  {
+    key: "library.dispute_deadline_days",
+    category: "Library",
+    label: "Dispute deadline",
+    description:
+      "How long a disputed return may sit before stewards settle it with the default outcome (computed wear, zero damage). A policy contract surfaced in the admin panel; v1 does not auto-settle.",
+    type: "integer",
+    default: "14",
+    min: 1,
+    max: 90,
+    unit: "days",
+  },
+
   // ── Payments: platform-wide fiat guardrails (all fiat modules share) ──────
   {
     key: "payments.purchase_limit_per_order_usd",

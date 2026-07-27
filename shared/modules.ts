@@ -211,6 +211,26 @@ export const MODULES: ModuleDef[] = [
     // the shared registry stays import-clean for the client bundle.
   },
   {
+    id: "library",
+    name: "Material Library",
+    description:
+      "The village's shared tools and goods: donate an item and earn library credits (appraised, capped, dual-signed above a threshold), then borrow against an escrowed deposit. Credits are backed by the shelves and never trade.",
+    requires: [],
+    recommends: [],
+    capabilities: [],
+    variableKeys: [
+      "library.intake_award_pct",
+      "library.intake_member_cycle_cap",
+      "library.intake_dual_signoff_over",
+      "library.escrow_pct",
+      "library.usage_fee_pct",
+      "library.loan_days_default",
+      "library.dispute_deadline_days",
+    ],
+    apiPrefixes: ["/api/library"],
+    // openStateCheck attached by the server at boot: open loans block off.
+  },
+  {
     id: "badges",
     name: "Badges & Skills",
     description:

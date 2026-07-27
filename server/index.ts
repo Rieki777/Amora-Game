@@ -44,6 +44,29 @@ import {
   allStays,
 } from "./lib/stays";
 import {
+  LIBRARY_CREDIT,
+  LIBRARY_MINT,
+  LIBRARY_SINK,
+  approveIntake,
+  assertLibraryInvariants,
+  ensureLibraryToken,
+  escrowFor,
+  escrowReconciliation,
+  itemEvent,
+  libraryItemById,
+  libraryItems,
+  libraryLoanById,
+  libraryOpenState,
+  loansForUser,
+  markPickedUp,
+  markReturned,
+  noShowStrikes,
+  recordIntake,
+  reserveItem,
+  settleLoan,
+  supplyVsBacking,
+} from "./lib/library";
+import {
   addSkill,
   allBadges,
   assertBadgeInvariants,
@@ -145,7 +168,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s40-badges";
+const BUILD_MARKER = "2026-07-26-s46-material-library";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1727,9 +1750,10 @@ async function startServer() {
   // can ask, then prove the economy's invariants hold before serving a single
   // request. A server that boots over a broken ledger normalizes the break.
   await loadTokenRegistry(getPool());
-  // S30: the stay-credit token exists even while the module is off, so a
-  // quest's work-exchange reward can post and wait for the module to open.
+  // S30/S41: module tokens exist even while their modules are off, so
+  // rewards and invariant checks never race an admin's enable click.
   await ensureStayToken(getPool());
+  await ensureLibraryToken(getPool());
   {
     const inv = await checkLedgerInvariants(getPool());
     if (!inv.ok) {
@@ -1773,12 +1797,14 @@ async function startServer() {
   MODULES_BY_ID["stays"].openStateCheck = () => staysOpenState(getPool());
   MODULES_BY_ID["exchange"].openStateCheck = () => exchangeOpenState(getPool());
   MODULES_BY_ID["badges"].openStateCheck = () => badgesOpenState(getPool());
+  MODULES_BY_ID["library"].openStateCheck = () => libraryOpenState(getPool());
 
-  // S33/S37: config firewalls are re-proven at every boot — a hand-edited
-  // listing or badge row can never outlive a deploy. Same posture as the
-  // ledger invariants above.
+  // S33/S37/S42: config and economy firewalls are re-proven at every boot —
+  // a hand-edited listing, badge row, or drained escrow can never outlive a
+  // deploy. Same posture as the ledger invariants above.
   await assertExchangeFirewalls(getPool());
   await assertBadgeInvariants(getPool());
+  await assertLibraryInvariants(getPool());
 
   // S32: stays' settlement + reversal, registered with the trio. Settle is
   // idempotent three ways (provider_ref UNIQUE, stripe_event_id UNIQUE,
@@ -3923,6 +3949,246 @@ async function startServer() {
       [adminActor(req)?.id ?? null, req.params.id],
     );
     if (!(r as any).affectedRows) return res.status(404).json({ error: "No open suspension with that id" });
+    res.json({ success: true });
+  });
+
+  // ── S41-S46: the material library ────────────────────────────────────────
+
+  app.use("/api/library", requireModule("library"));
+  app.use("/api/admin/library", requireModule("library"));
+
+  /** Catalog + the viewer's credits, loans and strikes, one call. */
+  app.get("/api/library", async (req, res) => {
+    const viewer = await authedUser(req);
+    const [cats] = await getPool().query<any[]>("SELECT * FROM library_categories ORDER BY sort_order, label");
+    const items = (await libraryItems(getPool())).filter((i) => i.status !== "intake_pending");
+    let mine: any = null;
+    if (viewer) {
+      const stage = stageIndex(await stageOf(viewer));
+      const roles = roleIdsFor(viewer.id);
+      mine = {
+        balance: await balanceOf(getPool(), memberAccount(viewer.id), LIBRARY_CREDIT),
+        loans: await loansForUser(getPool(), viewer.id),
+        strikes: await noShowStrikes(getPool(), viewer.id),
+        eligible: Object.fromEntries(items.map((i) => {
+          const stageOk = !i.minStage || (stageIndex(i.minStage) >= 0 && stage >= stageIndex(i.minStage));
+          const roleOk = !i.requiresRole || roles.includes(i.requiresRole);
+          return [i.id, stageOk && roleOk];
+        })),
+      };
+    }
+    res.json({
+      categories: cats,
+      items: items.map((i) => ({ ...i, escrow: escrowFor(i.creditValue) })),
+      mine,
+      escrowPct: numberVar("library.escrow_pct"),
+    });
+  });
+
+  /** Reserve: escrow locks first; the refusal names the missing credits. */
+  app.post("/api/library/items/:id/reserve", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to borrow" });
+    if (await overLimit(`library-reserve:${user.id}`, 10, 24 * 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Ten reservations in a day is plenty" });
+    }
+    const item = await libraryItemById(getPool(), req.params.id);
+    if (!item) return res.status(404).json({ error: "No such item" });
+    // Per-item gates ride the same stage/role data as everything else.
+    if (item.minStage) {
+      const floor = stageIndex(item.minStage);
+      if (floor >= 0 && stageIndex(await stageOf(user)) < floor) {
+        return res.status(403).json({ error: `Borrowing "${item.name}" opens at the ${item.minStage} stage` });
+      }
+    }
+    if (item.requiresRole && !roleIdsFor(user.id).includes(item.requiresRole)) {
+      return res.status(403).json({ error: `"${item.name}" is reserved for a role (${item.requiresRole})` });
+    }
+    const r = await reserveItem(getPool(), { itemId: item.id, userId: user.id });
+    if (!r.ok) return res.status(r.status).json({ error: r.error });
+    await notifyAdmins("library", `${user.name ?? "A member"} reserved ${item.name}`, `loan:${r.loanId}:reserved`);
+    res.json({ success: true, loanId: r.loanId, escrow: r.escrow });
+  });
+
+  /** The borrower's own acts: cancel a reservation, flag a return. */
+  app.post("/api/library/loans/:id/cancel", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const loan = await libraryLoanById(getPool(), req.params.id);
+    if (!loan || loan.userId !== user.id) return res.status(404).json({ error: "No such loan" });
+    if (loan.status !== "reserved" && loan.status !== "pickup_pending") {
+      return res.status(409).json({ error: `A ${loan.status} loan cannot be cancelled — return it instead` });
+    }
+    const r = await settleLoan(getPool(), { loanId: loan.id, outcome: "cancelled" });
+    if (!r.ok) return res.status(500).json({ error: r.error });
+    res.json({ success: true, released: r.released });
+  });
+
+  app.post("/api/library/loans/:id/return", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const loan = await libraryLoanById(getPool(), req.params.id);
+    if (!loan || loan.userId !== user.id) return res.status(404).json({ error: "No such loan" });
+    const r = await markReturned(getPool(), loan.id, user.id);
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    await notifyAdmins("library", `${user.name ?? "A member"} returned an item — settle the loan`, `loan:${loan.id}:returned`);
+    res.json({ success: true });
+  });
+
+  /** Admin overview: everything, plus the invariants made visible. */
+  app.get("/api/admin/library", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [cats] = await getPool().query<any[]>("SELECT * FROM library_categories ORDER BY sort_order, label");
+    const items = await libraryItems(getPool());
+    const [loans] = await getPool().query<any[]>(
+      "SELECT l.*, u.name AS user_name, i.name AS item_name FROM library_loans l " +
+        "LEFT JOIN users u ON u.id = l.user_id JOIN library_items i ON i.id = l.item_id ORDER BY l.created_at DESC LIMIT 200",
+    );
+    res.json({
+      categories: cats,
+      items,
+      loans,
+      reconciliation: await escrowReconciliation(getPool()),
+      supply: await supplyVsBacking(getPool()),
+      poolBalance: await balanceOf(getPool(), "sys:library-pool", LIBRARY_CREDIT),
+      disputeDeadlineDays: numberVar("library.dispute_deadline_days"),
+    });
+  });
+
+  app.post("/api/admin/library/categories", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const label = String(req.body?.label ?? "").trim().slice(0, 120);
+    if (!label) return res.status(400).json({ error: "A label is required" });
+    const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || `cat-${Date.now()}`;
+    await getPool().query(
+      "INSERT INTO library_categories (id, label, sort_order) VALUES (?,?,?) ON DUPLICATE KEY UPDATE label = VALUES(label)",
+      [id, label, Number(req.body?.sortOrder) || 0],
+    );
+    res.json({ success: true, id });
+  });
+
+  /** Intake: the mint's guarded front door. */
+  app.post("/api/admin/library/intake", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { name, description, categoryId, appraisal, donorUserId, minStage, requiresRole } = req.body ?? {};
+    if (!String(name ?? "").trim()) return res.status(400).json({ error: "Name the item" });
+    const donor = await members.byId(String(donorUserId ?? ""));
+    if (!donor) return res.status(404).json({ error: "Who donated it? Pick the member" });
+    const r = await recordIntake(getPool(), {
+      name: String(name), description: description ?? null, categoryId: categoryId ?? null,
+      appraisal: Number(appraisal), donorUserId: donor.id,
+      minStage: minStage || null, requiresRole: requiresRole || null,
+      recordedBy: adminActor(req)?.id ?? null,
+    });
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    if (!r.pendingSecondSignoff && r.award > 0) {
+      await notify({
+        userId: donor.id, type: "library",
+        title: `${r.award} library credit(s) for your donation — thank you`,
+        link: "/library", dedupeKey: `intake:${r.itemId}:notify`,
+      });
+    }
+    res.json(r);
+  });
+
+  /** The SECOND steward's signature on a high-value intake. */
+  app.post("/api/admin/library/items/:id/approve", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const r = await approveIntake(getPool(), req.params.id, adminActor(req)?.id ?? "");
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    const item = await libraryItemById(getPool(), req.params.id);
+    if (item?.donorUserId && r.award > 0) {
+      await notify({
+        userId: item.donorUserId, type: "library",
+        title: `${r.award} library credit(s) for your donation — thank you`,
+        link: "/library", dedupeKey: `intake:${item.id}:notify`,
+      });
+    }
+    res.json(r);
+  });
+
+  app.put("/api/admin/library/items/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const item = await libraryItemById(getPool(), req.params.id);
+    if (!item) return res.status(404).json({ error: "No such item" });
+    const { name, description, categoryId, photoUrl, minStage, requiresRole, healthBp, status } = req.body ?? {};
+    if (status !== undefined && !["available", "written_off"].includes(String(status))) {
+      return res.status(400).json({ error: "Status edits here are 'available' or 'written_off' — loans drive the rest" });
+    }
+    if (status === "written_off" || status === "available") {
+      await itemEvent(getPool(), item.id, status === "written_off" ? "written_off" : "restored", null, adminActor(req)?.id ?? null);
+    }
+    await getPool().query(
+      "UPDATE library_items SET name = COALESCE(?, name), description = COALESCE(?, description), " +
+        "category_id = COALESCE(?, category_id), photo_url = COALESCE(?, photo_url), min_stage = ?, requires_role = ?, " +
+        "health_bp = COALESCE(?, health_bp), status = COALESCE(?, status) WHERE id = ?",
+      [name ?? null, description ?? null, categoryId ?? null, photoUrl ?? null,
+        minStage !== undefined ? (minStage || null) : item.minStage,
+        requiresRole !== undefined ? (requiresRole || null) : item.requiresRole,
+        healthBp ?? null, status ?? null, item.id],
+    );
+    res.json({ success: true });
+  });
+
+  app.post("/api/admin/library/loans/:id/pickup", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const r = await markPickedUp(getPool(), req.params.id, adminActor(req)?.id ?? null);
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    res.json({ success: true, dueOn: r.dueOn });
+  });
+
+  /**
+   * THE terminal. One outcome, forever; re-settles only repair. Fees left
+   * blank resolve to the computed defaults (usage-fee wear, zero damage) —
+   * the same defaults a dispute deadline resolves to.
+   */
+  app.post("/api/admin/library/loans/:id/settle", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { outcome, wearFee, damageFee } = req.body ?? {};
+    if (!["closed", "expired", "cancelled", "disputed"].includes(String(outcome))) {
+      return res.status(400).json({ error: "Outcome is closed, expired, cancelled or disputed" });
+    }
+    const loan = await libraryLoanById(getPool(), req.params.id);
+    if (!loan) return res.status(404).json({ error: "No such loan" });
+    const r = await settleLoan(getPool(), {
+      loanId: loan.id,
+      outcome: outcome as any,
+      wearFee: wearFee === undefined || wearFee === null || wearFee === "" ? undefined : Number(wearFee),
+      damageFee: damageFee === undefined || damageFee === null || damageFee === "" ? undefined : Number(damageFee),
+    });
+    if (!r.ok) return res.status(500).json({ error: r.error });
+    if (r.alreadySettled) {
+      return res.status(409).json({ error: `Already settled as ${r.outcome} (wear ${r.wearFee}, damage ${r.damageFee}) — legs verified, nothing paid twice`, ...r });
+    }
+    if ((r.released ?? 0) > 0 || (r.wearFee ?? 0) + (r.damageFee ?? 0) > 0) {
+      await notify({
+        userId: loan.userId, type: "library",
+        title: `Loan settled (${r.outcome}): ${r.released ?? 0} credit(s) released${(r.wearFee ?? 0) + (r.damageFee ?? 0) > 0 ? `, ${(r.wearFee ?? 0) + (r.damageFee ?? 0)} kept for wear/damage` : ""}`,
+        link: "/library", dedupeKey: `loan:${loan.id}:settled`,
+      });
+    }
+    res.json(r);
+  });
+
+  /** Grant or burn credits by hand — audited, refuses overdraft. */
+  app.post("/api/admin/library/adjust", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { userId, credits, note } = req.body ?? {};
+    const amount = Math.floor(Number(credits) || 0);
+    if (!amount) return res.status(400).json({ error: "Credits must be a non-zero integer (negative burns)" });
+    if (!(await members.byId(String(userId ?? "")))) return res.status(404).json({ error: "No such member" });
+    const id = `ladj-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const r = await postTransfer(getPool(), {
+      from: amount > 0 ? LIBRARY_MINT : memberAccount(String(userId)),
+      to: amount > 0 ? memberAccount(String(userId)) : LIBRARY_SINK,
+      tokenType: LIBRARY_CREDIT,
+      amount: Math.abs(amount),
+      source: amount > 0 ? "library_manual" : "library_burn",
+      sourceRef: id,
+      description: String(note ?? "Manual adjustment").slice(0, 255),
+      idempotencyKey: id,
+    });
+    if (!r.ok) return res.status(409).json({ error: r.error });
     res.json({ success: true });
   });
 
