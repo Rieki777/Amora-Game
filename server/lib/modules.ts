@@ -91,6 +91,16 @@ export function moduleOrphans(): string[] {
   return [...orphanIds];
 }
 
+/**
+ * Module ids someone has DECIDED about — a settings row exists, whatever it
+ * says. Launch readiness asks "did a human visit this question?", which is a
+ * different fact from "is anything on": leaving every module off is a valid
+ * launch, but only as a choice, and a row is the fossil of a choice.
+ */
+export function decidedModuleIds(): string[] {
+  return Array.from(settings.keys());
+}
+
 export function moduleDemotions(): Array<{ id: string; missing: string[] }> {
   return Array.from(demoted.entries()).map(([id, missing]) => ({ id, missing }));
 }

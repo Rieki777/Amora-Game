@@ -24,15 +24,19 @@ import crypto from "crypto";
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { numberVar } from "./variables";
 import { recordEvent } from "./events";
+import { secretConfigured, secretValue } from "./secrets";
 
 // ── Configuration ────────────────────────────────────────────────────────────
+// S63: keys resolve through the secrets store — admin-typed first, env
+// fallback — so a founder can connect Stripe without Railway access. Env-only
+// deployments keep working unchanged.
 
 export function stripeConfigured(): boolean {
-  return !!process.env.STRIPE_SECRET_KEY;
+  return secretConfigured("stripe_secret_key");
 }
 
 export function webhookSecretConfigured(): boolean {
-  return !!process.env.STRIPE_WEBHOOK_SECRET;
+  return secretConfigured("stripe_webhook_secret");
 }
 
 // ── Rounding: the treasury never loses to arithmetic ────────────────────────
@@ -62,8 +66,8 @@ export interface CheckoutInput {
 }
 
 export async function createCheckout(input: CheckoutInput): Promise<{ url: string; sessionId: string }> {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) throw new Error("Stripe is not configured (STRIPE_SECRET_KEY)");
+  const key = secretValue("stripe_secret_key");
+  if (!key) throw new Error("Stripe is not configured (set it in Admin → Integrations, or STRIPE_SECRET_KEY)");
   const params = new URLSearchParams();
   params.set("mode", "payment");
   params.set("success_url", input.successUrl);
@@ -171,13 +175,13 @@ export async function handleStripeEvent(
   alertAdmins: (title: string, dedupeKey: string) => Promise<void>,
 ): Promise<{ status: number; body: any }> {
   const started = Date.now();
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  const secret = secretValue("stripe_webhook_secret");
   // FAIL CLOSED. An unsigned event is an anonymous instruction to mint
   // credits; a missing secret is a misconfiguration, not permission. The
   // earlier `if (secret && …)` meant a deployment that never set the secret
   // accepted forged settlements from anyone who knew the URL.
   if (!secret) {
-    await logPayment(pool, { type: "signature", outcome: "sig_fail", detail: "STRIPE_WEBHOOK_SECRET is not set" });
+    await logPayment(pool, { type: "signature", outcome: "sig_fail", detail: "webhook signing secret is not set" });
     await alertAdmins(
       "Stripe webhook rejected: STRIPE_WEBHOOK_SECRET is not configured",
       `payments-nosecret:${new Date().toISOString().slice(0, 13)}`,

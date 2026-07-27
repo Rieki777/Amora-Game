@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake } from "lucide-react";
+import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
@@ -516,33 +516,25 @@ interface EmailConfig {
   steward: string;
   resident: string;
   prosperity: string;
-  resend_api_key: string;
-  assistant_api_key: string;
 }
 
-function EmailSettingsTab({ password }: { password: string }) {
+function EmailSettingsTab({ password, openIntegrations }: { password: string; openIntegrations: () => void }) {
   const [cfg, setCfg] = useState<EmailConfig>({
-    investor: "", steward: "", resident: "", prosperity: "", resend_api_key: "", assistant_api_key: "",
+    investor: "", steward: "", resident: "", prosperity: "",
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [showKey, setShowKey] = useState(false);
-  const [showAiKey, setShowAiKey] = useState(false);
-  const [sources, setSources] = useState<{ resend_from_env?: boolean; assistant_from_env?: boolean }>({});
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/admin/email-config`, { headers: authHeaders(password) });
       const data = await res.json();
-      setSources(data._sources ?? {});
       setCfg({
         investor: data.investor ?? "",
         steward: data.steward ?? "",
         resident: data.resident ?? "",
         prosperity: data.prosperity ?? "",
-        resend_api_key: data.resend_api_key ?? "",
-        assistant_api_key: data.assistant_api_key ?? "",
       });
     } catch {
       toast.error("Failed to load email settings");
@@ -632,54 +624,144 @@ function EmailSettingsTab({ password }: { password: string }) {
           />
 
           <div className="border-t border-gray-100 pt-5">
-            <label className="text-sm font-medium text-gray-700 block mb-1">Resend API Key</label>
-            <div className="relative">
-              <input
-                type={showKey ? "text" : "password"}
-                value={cfg.resend_api_key}
-                onChange={(e) => setCfg({ ...cfg, resend_api_key: e.target.value })}
-                className="w-full px-3 py-2 pr-12 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 font-mono"
-                placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxx"
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey(!showKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <p className="text-xs text-gray-400 mt-1">
-              {sources.resend_from_env
-                ? "✓ A Resend key is provided by the hosting environment — emails are already routing. Type one here only to override it for this project."
-                : "Get a key at resend.com → API Keys. Once saved, emails will route automatically."}
+            <p className="text-sm text-gray-600">
+              API keys (Resend, Anthropic, Stripe) moved to{" "}
+              <button onClick={openIntegrations} className="text-[#2D5A5A] font-medium hover:underline">
+                Integrations
+              </button>{" "}
+              — one place for every third-party connection, and keys never travel
+              back to a browser once saved.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * S63: every third-party key in one place, write-only. The server tells us
+ * whether each is configured, from where (admin vs host env), who set it and
+ * its last four characters — never the value. Typing a new one replaces it;
+ * clearing falls back to the host env var if one exists.
+ */
+function IntegrationsTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/integrations`, { headers: authHeaders(password) });
+      setData(await res.json());
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const put = async (key: string, value: string) => {
+    setBusy(key);
+    try {
+      const res = await fetch(`${API_BASE}/admin/integrations/${key}`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ value }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "failed");
+      toast.success(value.trim() ? "Key saved" : "Key cleared");
+      setDrafts((p) => ({ ...p, [key]: "" }));
+      load();
+    } catch (e: any) { toast.error(e?.message ?? "Failed"); }
+    setBusy("");
+  };
+
+  const CARDS: Array<{ key: string; title: string; unlocks: string; getAt: string; placeholder: string }> = [
+    { key: "stripe_secret_key", title: "Stripe — secret key", unlocks: "Card checkout for stays and the exchange. Without it, card payments answer an honest 503 and the manual path carries.", getAt: "dashboard.stripe.com → Developers → API keys", placeholder: "sk_live_…" },
+    { key: "stripe_webhook_secret", title: "Stripe — webhook signing secret", unlocks: "Settlement. Cards charge but credits never arrive without it — the webhook's signature has nothing to verify against.", getAt: "Stripe → Developers → Webhooks → your endpoint → Signing secret", placeholder: "whsec_…" },
+    { key: "resend_api_key", title: "Resend — email", unlocks: "Every email the village sends: welcomes, receipts, notification digests.", getAt: "resend.com → API Keys", placeholder: "re_…" },
+    { key: "assistant_api_key", title: "Anthropic — the AI guide", unlocks: "Maia: proposal intake and the launch guide. Blank = every form still works, without her.", getAt: "console.anthropic.com", placeholder: "sk-ant-…" },
+  ];
+
+  const statusOf = (key: string) => (data?.secrets ?? []).find((s: any) => s.key === key);
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Integrations</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Third-party connections, one place. Keys are write-only: once saved,
+          the server shows only that a key exists and its last four characters.
+          A key set here beats one from the hosting environment.
+        </p>
+      </div>
+      {loading && !data ? <div className="text-center py-12 text-gray-400">Loading…</div> : (
+        <div className="space-y-5 max-w-2xl">
+          {/* The one value that flows the OTHER way: what to paste into Stripe. */}
+          <div className="bg-[#2D5A5A]/5 border border-[#2D5A5A]/20 rounded-xl p-4">
+            <p className="text-sm font-medium text-gray-900 mb-1">Your Stripe webhook URL</p>
+            <code className="text-xs bg-white border border-gray-200 rounded px-2 py-1 block overflow-x-auto">
+              {data?.stripeWebhookUrl}
+            </code>
+            <p className="text-xs text-gray-500 mt-2">
+              In Stripe: Developers → Webhooks → Add endpoint → paste this URL,
+              subscribe to <code>checkout.session.completed</code>,{" "}
+              <code>charge.refunded</code> and <code>charge.dispute.created</code>,
+              then copy the signing secret into the card below.
             </p>
           </div>
 
-          <div className="border-t border-gray-100 pt-5">
-            <label className="text-sm font-medium text-gray-700 block mb-1">Work With Us — AI guide (Anthropic API key)</label>
-            <div className="relative">
-              <input
-                type={showAiKey ? "text" : "password"}
-                value={cfg.assistant_api_key}
-                onChange={(e) => setCfg({ ...cfg, assistant_api_key: e.target.value })}
-                className="w-full px-3 py-2 pr-12 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 font-mono"
-                placeholder="sk-ant-xxxxxxxxxxxxxxxxxxxx"
-              />
-              <button
-                type="button"
-                onClick={() => setShowAiKey(!showAiKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                {showAiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <p className="text-xs text-gray-400 mt-1">
-              {sources.assistant_from_env
-                ? "✓ An Anthropic key is provided by the hosting environment — the guide is live. Type one here only to override it for this project."
-                : "Powers the guide on the Work With Us page. Blank = the page shows the plain form only (no AI, no cost). Get a key at console.anthropic.com."}
-            </p>
-          </div>
+          {CARDS.map((c) => {
+            const s = statusOf(c.key);
+            return (
+              <div key={c.key} className="bg-white border border-gray-100 rounded-xl p-5">
+                <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+                  <p className="font-semibold text-gray-900">{c.title}</p>
+                  {s?.configured ? (
+                    <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
+                      Connected · ••••{s.last4}
+                      {s.source === "env" ? " · from host env" : s.setBy ? ` · set by ${s.setBy}` : ""}
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
+                      Not connected
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mb-3">{c.unlocks}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={drafts[c.key] ?? ""}
+                    onChange={(e) => setDrafts((p) => ({ ...p, [c.key]: e.target.value }))}
+                    placeholder={s?.configured ? `Replace key (${c.placeholder})` : c.placeholder}
+                    className="flex-1 min-w-[220px] px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+                  />
+                  <button
+                    onClick={() => put(c.key, drafts[c.key] ?? "")}
+                    disabled={busy === c.key || !(drafts[c.key] ?? "").trim()}
+                    className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+                  >
+                    Save
+                  </button>
+                  {s?.source === "admin" && (
+                    <button
+                      onClick={() => { if (window.confirm("Clear this key? If the host environment provides one, it takes over; otherwise this integration disconnects.")) put(c.key, ""); }}
+                      disabled={busy === c.key}
+                      className="text-sm text-gray-500 bg-gray-100 rounded-lg px-3 py-2 font-medium"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400 mt-2">Get it at: {c.getAt}</p>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -5551,11 +5633,60 @@ function WorkWithUsTab({ password }: { password: string }) {
   );
 }
 
+/**
+ * S64: a persistent strip above the admin header, gone the day the village
+ * is marked launched. It reads the same /api/admin/launch the journey page
+ * renders — one registry, no second opinion about what remains.
+ */
+function LaunchBanner({ password }: { password: string }) {
+  const [status, setStatus] = useState<any>(null);
+  useEffect(() => {
+    fetch(`${API_BASE}/admin/launch`, { headers: authHeaders(password) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setStatus)
+      .catch(() => {});
+  }, [password]);
+
+  if (!status || status.launchedAt) return null;
+  const total = (status.items ?? []).length;
+  const done = (status.items ?? []).filter((i: any) => i.state === "ok").length;
+  return (
+    <a
+      href="/journey-to-launch"
+      className="block bg-amber-400 text-teal-950 px-6 py-2.5 text-sm font-medium hover:bg-amber-300 transition-colors"
+    >
+      <span className="font-semibold">🌳 Journey to Launch:</span>{" "}
+      {done} of {total} done
+      {status.blockingOpen > 0 && ` · ${status.blockingOpen} blocking item${status.blockingOpen === 1 ? "" : "s"} open`}
+      {status.blockingOpen === 0 && " · ready when a founder says so"}
+      <span className="float-right">→</span>
+    </a>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────────────────
 
 export default function Admin() {
   const [password, setPassword] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<string>("submissions");
+  // S62: the tab lives in the URL (?tab=x), not in useState. Before this,
+  // no surface anywhere — the launch page, Maia, an email — could point at
+  // a specific admin screen; "go to Integrations" had no address. Same
+  // `activeTab`/`setActiveTab` contract, so the ~35 call sites are untouched,
+  // and back/forward now walk tab history the way a browser should.
+  const [activeTab, setActiveTabState] = useState<string>(
+    () => new URLSearchParams(window.location.search).get("tab") ?? "submissions",
+  );
+  const setActiveTab = useCallback((tab: string) => {
+    setActiveTabState(tab);
+    const p = new URLSearchParams(window.location.search);
+    p.set("tab", tab);
+    window.history.pushState({}, "", `${window.location.pathname}?${p.toString()}`);
+  }, []);
+  useEffect(() => {
+    const onPop = () => setActiveTabState(new URLSearchParams(window.location.search).get("tab") ?? "submissions");
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   // Drives where the setup panel sits in the nav and what it's called: a front
   // door while you're still setting up, ordinary settings once you're done.
   const [setupComplete, setSetupComplete] = useState(false);
@@ -5578,6 +5709,10 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* S64: the journey banner. Every admin sees the road to launch at the
+          top of every admin visit until a founder marks the village launched —
+          then it retires itself. */}
+      <LaunchBanner password={password} />
       <header className="bg-[#2D5A5A] text-white px-6 py-4 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
@@ -5668,6 +5803,17 @@ export default function Admin() {
           >
             <Mail className="w-4 h-4" />
             Email Settings
+          </button>
+          <button
+            onClick={() => setActiveTab("integrations")}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === "integrations"
+                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <KeyRound className="w-4 h-4" />
+            Integrations
           </button>
 
           <div className="px-4 mt-6 mb-4">
@@ -5834,7 +5980,8 @@ export default function Admin() {
               <ContentEditorTab key={key} password={password} sectionKey={key} sectionLabel={label} />
             ) : null
           )}
-          {activeTab === "email-settings" && <EmailSettingsTab password={password} />}
+          {activeTab === "email-settings" && <EmailSettingsTab password={password} openIntegrations={() => setActiveTab("integrations")} />}
+          {activeTab === "integrations" && <IntegrationsTab password={password} />}
           {activeTab === "investor-vault" && <InvestorVaultTab password={password} />}
           {activeTab === "training-modules" && <TrainingModulesTab password={password} />}
           {activeTab === "quest-claims" && <QuestClaimsTab password={password} />}

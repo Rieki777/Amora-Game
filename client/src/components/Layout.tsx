@@ -192,9 +192,13 @@ export default function Layout({ children }: LayoutProps) {
             <Link href="/how-we-create" className="text-white/70 hover:text-white transition-colors text-sm">
               How We Create
             </Link>
-            <Link href="/journey-to-launch" className="text-amber/80 hover:text-amber transition-colors text-sm font-medium">
-              🌳 Launch Plan
-            </Link>
+            {/* Team-only page, team-only link (audit 2026-07-27 flagged it
+                showing to logged-out visitors). */}
+            {user && (user.role === "admin" || user.role === "founder") && (
+              <Link href="/journey-to-launch" className="text-amber/80 hover:text-amber transition-colors text-sm font-medium">
+                🌳 Launch Plan
+              </Link>
+            )}
 
             {user ? (
               <div className="flex items-center gap-3">

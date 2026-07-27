@@ -15,9 +15,12 @@
  *     hundreds of pixels tall while nothing is visible. Without this, the box
  *     itself swallows every tap in the bottom-right of the screen even when the
  *     menu is shut. Interactive children re-enable with pointer-events-auto.
- *  2. A hard floor under the bottom offset: max(safe-area + 8rem, 9rem). Some
- *     iOS Safari cases (PWA mode, embedded web views, landscape) report
- *     env(safe-area-inset-bottom) as 0, which collapsed the FAB into the tab bar.
+ *  2. A hard floor under the bottom offset. Some iOS Safari cases (PWA mode,
+ *     embedded web views, landscape) report env(safe-area-inset-bottom) as 0,
+ *     and without a floor the FAB disappears behind the tab bar entirely.
+ *     The offset rides the safe area so the overlap is the same on every
+ *     device: the trigger's lower edge tucks about 1rem into the bar rather
+ *     than floating a thumb's width above it.
  *  3. Layering: FAB z-[60], scrim z-[55], tab bar z-50. The scrim has to sit
  *     between the two, not over both.
  *  4. Plain tap rows rather than a gesture-driven radial. The gesture version
@@ -115,7 +118,13 @@ export default function MobileFab() {
 
       <div
         className="fixed right-4 z-[60] md:hidden flex flex-col items-end pointer-events-none"
-        style={{ bottom: "max(calc(env(safe-area-inset-bottom, 0px) + 8rem), 9rem)" }}
+        // Tab bar is h-16 (4rem) of content plus the safe-area pad. Offsetting
+        // by that same pad + 3.5rem leaves the trigger's lower edge exactly
+        // 0.5rem over the bar's top edge on EVERY device — the safe area
+        // cancels, so a notched phone and a desktop viewport overlap
+        // identically instead of drifting apart. Anchored in the corner it
+        // belongs in, not hovering a thumb's width above it.
+        style={{ bottom: "max(calc(env(safe-area-inset-bottom, 0px) + 3.5rem), 3.5rem)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
