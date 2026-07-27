@@ -33,6 +33,26 @@ export type Capability =
   | "exchange.manage"; // list tokens, post prices, stock the treasury (role-only)
 
 /**
+ * The canonical list, as a VALUE: badge validation and unlock diffs iterate
+ * it. Adding a capability to the union above without adding it here makes
+ * it ungrantable by badges — keep them in lockstep.
+ */
+export const ALL_CAPABILITIES: Capability[] = [
+  "quest.propose",
+  "quest.consent",
+  "forum.post",
+  "forum.moderate",
+  "proposal.open",
+  "proposal.decide",
+  "map.viewPeople",
+  "map.contact",
+  "feed.announce",
+  "stay.member_rate",
+  "exchange.buy",
+  "exchange.manage",
+];
+
+/**
  * Stage that unlocks each capability by progression alone, referencing the
  * stage ids in gameConfig.ts (visitor, guest, immersant, participant, member,
  * contributor, quest-seeker, initiate, co-creator, role-holder, guide, sage).
@@ -49,9 +69,20 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
 };
 
 /**
- * Given a member's computed stage index and the capabilities their roles grant,
- * decide whether they hold a capability. Pure, so it is unit-testable and runs
- * identically on client and server.
+ * THE ONE GATE (revised S36). Given a member's computed stage index, the
+ * capabilities their roles grant, and the capabilities/denies their badges
+ * carry, decide whether they hold a capability. Pure, so it is unit-testable
+ * and runs identically on client and server.
+ *
+ * Order of authority — this ordering IS the policy (Gate E):
+ *   1. isAdmin           -> true.  The operator can always act.
+ *   2. badgeDenies       -> false. A warning badge's deny beats ROLE and
+ *      stage grants too, not just badge grants: a warning that a role
+ *      trivially overrides is not a warning. Only admin outranks it.
+ *   3. roleCapabilities  -> true.  Appointments.
+ *   4. badgeCapabilities -> true.  Earned/granted badges.
+ *   5. stage unlock      -> true.  The ladder everyone climbs.
+ *   6. otherwise false.
  */
 export function hasCapability(
   cap: Capability,
@@ -59,11 +90,17 @@ export function hasCapability(
     stageIndex: number;
     stageIndexOf: (stageId: string) => number;
     roleCapabilities: readonly string[];
+    /** Capabilities granted by the member's active badges. Default []. */
+    badgeCapabilities?: readonly string[];
+    /** Capabilities DENIED by active warning badges. Default []. */
+    badgeDenies?: readonly string[];
     isAdmin?: boolean;
   },
 ): boolean {
-  if (ctx.isAdmin) return true; // the operator can always act
+  if (ctx.isAdmin) return true;
+  if ((ctx.badgeDenies ?? []).includes(cap)) return false;
   if (ctx.roleCapabilities.includes(cap)) return true;
+  if ((ctx.badgeCapabilities ?? []).includes(cap)) return true;
   const unlockStage = STAGE_UNLOCKS[cap];
   if (unlockStage) {
     const needed = ctx.stageIndexOf(unlockStage);

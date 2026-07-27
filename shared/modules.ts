@@ -211,6 +211,19 @@ export const MODULES: ModuleDef[] = [
     // the shared registry stays import-clean for the client bundle.
   },
   {
+    id: "badges",
+    name: "Badges & Skills",
+    description:
+      "Recognition of who people are and what they can do: self-declared skills, badges earned from settled contribution, granted honors — and warning badges that suspend specific capabilities until resolved. Earned badges never ride applause metrics into permissions.",
+    requires: [],
+    recommends: ["quests"],
+    capabilities: [],
+    variableKeys: [],
+    apiPrefixes: ["/api/badges"],
+    // openStateCheck attached by the server at boot (needs the pool):
+    // standing warnings are live governance and block a silent off.
+  },
+  {
     id: "exchange",
     name: "Exchange",
     description:

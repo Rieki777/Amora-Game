@@ -11,7 +11,7 @@ import multer from "multer";
 import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
-import { hasCapability, type Capability } from "../shared/capabilities";
+import { ALL_CAPABILITIES, hasCapability, type Capability } from "../shared/capabilities";
 import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/variables";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
@@ -43,6 +43,21 @@ import {
   staysOpenState,
   allStays,
 } from "./lib/stays";
+import {
+  addSkill,
+  allBadges,
+  assertBadgeInvariants,
+  awardsFor,
+  badgeById,
+  badgeGrantsFor,
+  badgeProblem,
+  badgesOpenState,
+  evaluateEarnedBadges,
+  removeSkill,
+  skillsFor,
+  upsertAward,
+  BADGE_KINDS,
+} from "./lib/badges";
 import {
   assertExchangeFirewalls,
   createExchangeOrder,
@@ -130,7 +145,7 @@ import {
 const BCRYPT_SALT_ROUNDS = 10;
 
 /** Bumped per shipped session; /health and /api/modules both report it. */
-const BUILD_MARKER = "2026-07-26-s35-exchange-buy-only";
+const BUILD_MARKER = "2026-07-26-s40-badges";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1061,10 +1076,8 @@ async function recordStageEvent(user: any, from: string, to: string, reason: str
   });
 }
 
-/** Every capability the platform knows about, for gates and unlock diffs. */
-const ALL_CAPABILITIES: Capability[] = [
-  "quest.propose", "quest.consent", "forum.post", "forum.moderate", "proposal.open", "proposal.decide",
-];
+// ALL_CAPABILITIES now lives in shared/capabilities.ts (S36): badge
+// validation and the stage-advance unlock diff read the same canonical list.
 
 /**
  * Build the capability context for a member ONCE, then answer any number of
@@ -1074,10 +1087,22 @@ const ALL_CAPABILITIES: Capability[] = [
  * the difference between one COUNT and six.
  */
 async function capabilityCtx(user: any) {
+  // S36: badge grants and denies join the one gate — but only while the
+  // badges module is on. Off = zero queries, zero effect: the gate is
+  // byte-identical to its pre-badges self.
+  let badgeCapabilities: string[] = [];
+  let badgeDenies: string[] = [];
+  if (effectiveLifecycle("badges") !== "off") {
+    const grants = await badgeGrantsFor(getPool(), user.id);
+    badgeCapabilities = grants.capabilities;
+    badgeDenies = grants.denies;
+  }
   return {
     stageIndex: stageIndex(await stageOf(user)),
     stageIndexOf: stageIndex,
     roleCapabilities: roleCapabilitiesFor(user.id),
+    badgeCapabilities,
+    badgeDenies,
     // Admins pass every capability gate (shared/capabilities.ts honors this):
     // real role on the user record, never a parallel permission path.
     isAdmin: user.role === "admin" || user.role === "founder",
@@ -1743,15 +1768,17 @@ async function startServer() {
     isAuthed: async (req) => !!(await authedUser(req as any)),
   });
 
-  // S30/S33: open-state lives on the server (it needs the pool); the shared
-  // registry stays import-clean for the client bundle.
+  // S30/S33/S37: open-state lives on the server (it needs the pool); the
+  // shared registry stays import-clean for the client bundle.
   MODULES_BY_ID["stays"].openStateCheck = () => staysOpenState(getPool());
   MODULES_BY_ID["exchange"].openStateCheck = () => exchangeOpenState(getPool());
+  MODULES_BY_ID["badges"].openStateCheck = () => badgesOpenState(getPool());
 
-  // S33: the exchange firewalls are re-proven at every boot — a hand-edited
-  // listing row (recognition, hypha, second seller) can never outlive a
-  // deploy. Same posture as the ledger invariants above.
+  // S33/S37: config firewalls are re-proven at every boot — a hand-edited
+  // listing or badge row can never outlive a deploy. Same posture as the
+  // ledger invariants above.
   await assertExchangeFirewalls(getPool());
+  await assertBadgeInvariants(getPool());
 
   // S32: stays' settlement + reversal, registered with the trio. Settle is
   // idempotent three ways (provider_ref UNIQUE, stripe_event_id UNIQUE,
@@ -3899,6 +3926,206 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // ── S37-S40: badges & skills ──────────────────────────────────────────────
+
+  app.use("/api/badges", requireModule("badges"));
+  app.use("/api/admin/badges", requireModule("badges"));
+
+  /** Catalog + the viewer's own awards and skills, one call. */
+  app.get("/api/badges", async (req, res) => {
+    const viewer = await authedUser(req);
+    const badges = (await allBadges(getPool())).filter((b) => b.active);
+    let mine: any = null;
+    if (viewer) {
+      const awards = (await awardsFor(getPool(), viewer.id)).filter((a) => !a.expired);
+      mine = { awards, skills: await skillsFor(getPool(), viewer.id) };
+    }
+    res.json({
+      badges: badges.map((b) => ({
+        id: b.id, name: b.name, description: b.description, icon: b.icon, kind: b.kind,
+        // Transparent governance: what a badge grants or denies is public.
+        capabilities: b.capabilities, denies: b.denies, rule: b.rule,
+      })),
+      mine,
+    });
+  });
+
+  /** Self badges are the member's own act; every other kind refuses here. */
+  app.post("/api/badges/:id/claim", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const badge = await badgeById(getPool(), req.params.id);
+    if (!badge || !badge.active) return res.status(404).json({ error: "No such badge" });
+    if (badge.kind !== "self") {
+      return res.status(403).json({ error: `"${badge.name}" is ${badge.kind} — it is not self-declared` });
+    }
+    await upsertAward(getPool(), { badgeId: badge.id, userId: user.id, awardedBy: user.id });
+    res.json({ success: true });
+  });
+
+  app.delete("/api/badges/:id/claim", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const badge = await badgeById(getPool(), req.params.id);
+    if (!badge || badge.kind !== "self") return res.status(404).json({ error: "No such self badge" });
+    await getPool().query("DELETE FROM badge_awards WHERE badge_id = ? AND user_id = ?", [badge.id, user.id]);
+    res.json({ success: true });
+  });
+
+  /** Skills gate nothing — they are searchable facts a member declares. */
+  app.post("/api/badges/skills", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const tag = String(req.body?.tag ?? "").toLowerCase().trim().replace(/\s+/g, "-").slice(0, 40);
+    if (!/^[a-z0-9][a-z0-9-]{1,39}$/.test(tag)) {
+      return res.status(400).json({ error: "A skill is 2-40 characters: letters, numbers, dashes" });
+    }
+    if ((await skillsFor(getPool(), user.id)).length >= 20) {
+      return res.status(409).json({ error: "Twenty skills is a portfolio — retire one to add another" });
+    }
+    await addSkill(getPool(), user.id, tag);
+    res.json({ success: true, skills: await skillsFor(getPool(), user.id) });
+  });
+
+  app.delete("/api/badges/skills/:tag", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    await removeSkill(getPool(), user.id, String(req.params.tag));
+    res.json({ success: true, skills: await skillsFor(getPool(), user.id) });
+  });
+
+  /** Admin overview: badges, every live award with names, engine info. */
+  app.get("/api/admin/badges", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const badges = await allBadges(getPool());
+    const [awards] = await getPool().query<any[]>(
+      "SELECT a.*, u.name AS user_name, b.name AS badge_name, b.kind AS badge_kind FROM badge_awards a " +
+        "LEFT JOIN users u ON u.id = a.user_id JOIN badges b ON b.id = a.badge_id ORDER BY a.updated_at DESC LIMIT 300",
+    );
+    res.json({ badges, awards, kinds: BADGE_KINDS });
+  });
+
+  app.post("/api/admin/badges", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const { name, description, icon, kind, capabilities, denies, rule } = req.body ?? {};
+    if (!String(name ?? "").trim()) return res.status(400).json({ error: "A name is required" });
+    const candidate = {
+      kind: String(kind ?? "granted"),
+      capabilities: Array.isArray(capabilities) ? capabilities.map(String) : [],
+      denies: Array.isArray(denies) ? denies.map(String) : [],
+      rule: rule && typeof rule === "object" ? { metric: rule.metric, threshold: Number(rule.threshold), stackable: !!rule.stackable, maxStack: Number(rule.maxStack) || 1 } : null,
+    };
+    const problem = badgeProblem(candidate as any);
+    if (problem) return res.status(400).json({ error: problem });
+    const id = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || `badge-${Date.now()}`;
+    if (await badgeById(getPool(), id)) return res.status(409).json({ error: `A badge with id "${id}" already exists` });
+    await getPool().query(
+      "INSERT INTO badges (id, name, description, icon, kind, capabilities, denies, rule) VALUES (?,?,?,?,?,?,?,?)",
+      [id, String(name).trim().slice(0, 120), description ?? null, icon ?? null, candidate.kind,
+        JSON.stringify(candidate.capabilities), JSON.stringify(candidate.denies),
+        candidate.rule ? JSON.stringify(candidate.rule) : null],
+    );
+    res.json({ success: true, badge: await badgeById(getPool(), id) });
+  });
+
+  app.put("/api/admin/badges/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const existing = await badgeById(getPool(), req.params.id);
+    if (!existing) return res.status(404).json({ error: "No such badge" });
+    const merged = {
+      name: req.body?.name !== undefined ? String(req.body.name).trim().slice(0, 120) : existing.name,
+      description: req.body?.description !== undefined ? req.body.description : existing.description,
+      icon: req.body?.icon !== undefined ? req.body.icon : existing.icon,
+      kind: req.body?.kind !== undefined ? String(req.body.kind) : existing.kind,
+      capabilities: req.body?.capabilities !== undefined ? (Array.isArray(req.body.capabilities) ? req.body.capabilities.map(String) : []) : existing.capabilities,
+      denies: req.body?.denies !== undefined ? (Array.isArray(req.body.denies) ? req.body.denies.map(String) : []) : existing.denies,
+      rule: req.body?.rule !== undefined
+        ? (req.body.rule ? { metric: req.body.rule.metric, threshold: Number(req.body.rule.threshold), stackable: !!req.body.rule.stackable, maxStack: Number(req.body.rule.maxStack) || 1 } : null)
+        : existing.rule,
+      active: req.body?.active !== undefined ? !!req.body.active : existing.active,
+    };
+    const problem = badgeProblem(merged as any);
+    if (problem) return res.status(400).json({ error: problem });
+    await getPool().query(
+      "UPDATE badges SET name=?, description=?, icon=?, kind=?, capabilities=?, denies=?, rule=?, active=? WHERE id=?",
+      [merged.name, merged.description, merged.icon, merged.kind, JSON.stringify(merged.capabilities),
+        JSON.stringify(merged.denies), merged.rule ? JSON.stringify(merged.rule) : null, merged.active ? 1 : 0, req.params.id],
+    );
+    res.json({ success: true, badge: await badgeById(getPool(), req.params.id) });
+  });
+
+  /**
+   * Award by hand: granted honors, warnings, hypha mirrors. Self is the
+   * member's act and earned is the engine's — both refuse here, on purpose.
+   */
+  app.post("/api/admin/badges/:id/award", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const badge = await badgeById(getPool(), req.params.id);
+    if (!badge) return res.status(404).json({ error: "No such badge" });
+    if (badge.kind === "self" || badge.kind === "earned") {
+      return res.status(403).json({
+        error: badge.kind === "self"
+          ? "Self badges are the member's own declaration — not yours to make"
+          : "Earned badges belong to the engine — adjust the rule, then evaluate",
+      });
+    }
+    const { userId, note, expiresAt } = req.body ?? {};
+    const target = await members.byId(String(userId ?? ""));
+    if (!target) return res.status(404).json({ error: "No such member" });
+    if (badge.kind === "warning" && !String(note ?? "").trim()) {
+      return res.status(400).json({ error: "A warning needs a note — the member deserves to know why" });
+    }
+    const expiry = expiresAt ? new Date(String(expiresAt)) : null;
+    await upsertAward(getPool(), {
+      badgeId: badge.id, userId: target.id, awardedBy: adminActor(req)?.id ?? null,
+      note: note ?? null, expiresAt: expiry && !Number.isNaN(expiry.getTime()) ? expiry : null,
+    });
+    await notify({
+      userId: target.id,
+      type: "badge",
+      title: badge.kind === "warning" ? `A warning was placed: ${badge.name}` : `Badge received: ${badge.name}`,
+      body: note ? String(note).slice(0, 500) : null,
+      link: "/badges",
+      dedupeKey: `award:${badge.id}:${target.id}:${Date.now()}`,
+    });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `badge:${badge.kind}:${badge.id}`, actorUserId: adminActor(req)?.id ?? null,
+      entityType: "user", entityRef: target.id, audience: "admin",
+    });
+    res.json({ success: true });
+  });
+
+  app.delete("/api/admin/badges/:id/award/:userId", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [r] = await getPool().query<any>(
+      "DELETE FROM badge_awards WHERE badge_id = ? AND user_id = ?",
+      [req.params.id, req.params.userId],
+    );
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "No such award" });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `badge:revoke:${req.params.id}`, actorUserId: adminActor(req)?.id ?? null,
+      entityType: "user", entityRef: String(req.params.userId), audience: "admin",
+    });
+    res.json({ success: true });
+  });
+
+  /** The manual evaluate button — same engine the cycle close runs. */
+  app.post("/api/admin/badges/evaluate", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const result = await evaluateEarnedBadges(getPool());
+    for (const t of result.newTiers) {
+      const badge = await badgeById(getPool(), t.badgeId);
+      await notify({
+        userId: t.userId,
+        type: "badge",
+        title: t.tier > 1 ? `Badge upgraded: ${badge?.name ?? t.badgeId} ×${t.tier}` : `Badge earned: ${badge?.name ?? t.badgeId}`,
+        link: "/badges",
+        dedupeKey: `rule:${t.badgeId}:${t.userId}:tier-${t.tier}`,
+      });
+    }
+    res.json(result);
+  });
+
   // ── S33-S35: the exchange, buy-only ─────────────────────────────────────
   // Management is the ONE gate's exchange.manage capability (role grant) or
   // admin — not a second permission system.
@@ -5683,6 +5910,26 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           `A lunar cycle closed: ${totals.length} ${totals.length === 1 ? "member was" : "members were"} acknowledged with ${GAME_CONFIG.currency.nameLower}${poolNote}`,
           { actorUserId: adminActor(req)?.id, entityType: "cycle", entityRef: cycle.id },
         );
+      }
+    }
+    // S38: the earned-badge engine runs after settlement lands — new
+    // distributions may have moved a metric past a threshold. Keyed events
+    // make this a no-op when nothing changed; failures never unclose a cycle.
+    if (closed.length > 0 && effectiveLifecycle("badges") !== "off") {
+      try {
+        const evald = await evaluateEarnedBadges(getPool());
+        for (const t of evald.newTiers) {
+          const badge = await badgeById(getPool(), t.badgeId);
+          await notify({
+            userId: t.userId,
+            type: "badge",
+            title: t.tier > 1 ? `Badge upgraded: ${badge?.name ?? t.badgeId} ×${t.tier}` : `Badge earned: ${badge?.name ?? t.badgeId}`,
+            link: "/badges",
+            dedupeKey: `rule:${t.badgeId}:${t.userId}:tier-${t.tier}`,
+          });
+        }
+      } catch (e) {
+        console.error("[badges] post-close evaluation failed (cycle stays closed)", e);
       }
     }
     res.json({ closed: closed.length, cycles: closed, poolCredited: totalCredited });

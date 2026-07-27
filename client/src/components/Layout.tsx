@@ -32,6 +32,7 @@ export default function Layout({ children }: LayoutProps) {
   const feedModule = useModule("feed");
   const staysModule = useModule("stays");
   const exchangeModule = useModule("exchange");
+  const badgesModule = useModule("badges");
 
   // The bottom tab bar's "More" slot opens this same drawer rather than being a
   // second, separately-maintained menu. No scrolling: the header is sticky, so
@@ -131,6 +132,14 @@ export default function Layout({ children }: LayoutProps) {
               <Link href="/wallet" className="text-white/70 hover:text-white transition-colors text-sm">
                 Wallet
                 {exchangeModule.lifecycle === "preview" && (
+                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
+                )}
+              </Link>
+            )}
+            {badgesModule && (
+              <Link href="/badges" className="text-white/70 hover:text-white transition-colors text-sm">
+                Badges
+                {badgesModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
                 )}
               </Link>
@@ -280,6 +289,11 @@ export default function Layout({ children }: LayoutProps) {
                 {exchangeModule && (
                   <Link href="/wallet" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Wallet{exchangeModule.lifecycle === "preview" ? " (preview)" : ""}
+                  </Link>
+                )}
+                {badgesModule && (
+                  <Link href="/badges" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                    Badges{badgesModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {forumModule && (

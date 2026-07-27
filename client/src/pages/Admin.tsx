@@ -3228,6 +3228,263 @@ function ExchangeAdminTab({ password }: { password: string }) {
   );
 }
 
+/**
+ * S37-S40: badge definitions, hand awards (granted/warning/hypha), and the
+ * earned engine's evaluate button. The firewalls answer in the UI with the
+ * same words the API refuses with.
+ */
+function BadgesAdminTab({ password }: { password: string }) {
+  const CAPS = [
+    "quest.propose", "quest.consent", "forum.post", "forum.moderate", "proposal.open", "proposal.decide",
+    "map.viewPeople", "map.contact", "feed.announce", "stay.member_rate", "exchange.buy", "exchange.manage",
+  ];
+  const METRICS = ["quests_consented", "ledger_earned_total", "gratitude_breadth"];
+  const [data, setData] = useState<any>(null);
+  const [off, setOff] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [players, setPlayers] = useState<any[]>([]);
+  const [form, setForm] = useState<any>({ name: "", description: "", kind: "granted", capabilities: [], denies: [], metric: "quests_consented", threshold: "", stackable: false, maxStack: "1" });
+  const [award, setAward] = useState({ badgeId: "", userId: "", note: "" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [bRes, pRes] = await Promise.all([
+        fetch(`${API_BASE}/admin/badges`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
+      ]);
+      if (bRes.status === 404) { setOff(true); setLoading(false); return; }
+      setOff(false);
+      setData(await bRes.json());
+      const p = await pRes.json();
+      setPlayers(Array.isArray(p) ? p : []);
+    } catch { setData(null); }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const call = async (path: string, body?: any, method = "POST") => {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "failed");
+      return d;
+    } catch (e: any) { toast.error(e?.message || "Request failed"); return null; }
+  };
+
+  const createBadge = async () => {
+    const body: any = {
+      name: form.name, description: form.description, kind: form.kind,
+      capabilities: form.capabilities, denies: form.denies,
+    };
+    if (form.kind === "earned") {
+      body.rule = { metric: form.metric, threshold: Number(form.threshold), stackable: form.stackable, maxStack: Number(form.maxStack) || 1 };
+    }
+    const d = await call("/admin/badges", body);
+    if (d) {
+      toast.success("Badge created");
+      setForm({ name: "", description: "", kind: "granted", capabilities: [], denies: [], metric: "quests_consented", threshold: "", stackable: false, maxStack: "1" });
+      load();
+    }
+  };
+
+  const toggleIn = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+  const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+
+  if (off) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Badges</h2>
+        <p className="text-sm text-gray-500">The Badges module is off. Enable it in the Modules tab first.</p>
+      </div>
+    );
+  }
+  if (loading && !data) return <p className="text-sm text-gray-500">Loading…</p>;
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 mb-1">Badges & Skills</h2>
+          <p className="text-sm text-gray-500 max-w-xl">
+            Self and hypha badges gate nothing; only warnings may deny — and a
+            deny beats role and stage grants (admins excepted). Earned badges
+            ride settled metrics only, and never applause into permissions.
+          </p>
+        </div>
+        <button
+          onClick={async () => { const d = await call("/admin/badges/evaluate"); if (d) { toast.success(`${d.newTiers.length} new tier(s) across ${d.badgesEvaluated} earned badge(s)`); load(); } }}
+          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+        >
+          Evaluate earned badges
+        </button>
+      </div>
+
+      {/* Definitions */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">Badge definitions</h3>
+        <div className="space-y-2 mb-5">
+          {(data?.badges ?? []).map((b: any) => (
+            <div key={b.id} className={`border rounded-lg px-4 py-3 ${b.active ? "border-gray-200" : "border-gray-100 opacity-60"}`}>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">
+                    {b.name} <span className="text-xs text-gray-400">({b.kind})</span>
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {b.kind === "earned" && b.rule ? `at ${b.rule.threshold} ${String(b.rule.metric).replace(/_/g, " ")}${b.rule.stackable ? ` · stacks ×${b.rule.maxStack}` : ""} · ` : ""}
+                    {(b.capabilities ?? []).length ? `grants ${b.capabilities.join(", ")} · ` : ""}
+                    {(b.denies ?? []).length ? `denies ${b.denies.join(", ")} · ` : ""}
+                    {b.description || "no description"}
+                  </p>
+                </div>
+                <button
+                  onClick={async () => { const d = await call(`/admin/badges/${b.id}`, { active: !b.active }, "PUT"); if (d) load(); }}
+                  className="text-xs text-gray-500 hover:text-gray-900"
+                >
+                  {b.active ? "Deactivate" : "Reactivate"}
+                </button>
+              </div>
+            </div>
+          ))}
+          {(data?.badges ?? []).length === 0 && <p className="text-sm text-gray-400">No badges yet.</p>}
+        </div>
+
+        <div className="border-t border-gray-100 pt-4 space-y-3">
+          <div className="grid sm:grid-cols-3 gap-2">
+            <label className="text-xs text-gray-500">Name
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`${inputCls} w-full mt-1`} />
+            </label>
+            <label className="text-xs text-gray-500">Kind
+              <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value, capabilities: [], denies: [] })} className={`${inputCls} w-full mt-1`}>
+                {(data?.kinds ?? ["self", "earned", "granted", "warning", "hypha"]).map((k: string) => <option key={k} value={k}>{k}</option>)}
+              </select>
+            </label>
+            <label className="text-xs text-gray-500">Description
+              <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={`${inputCls} w-full mt-1`} />
+            </label>
+          </div>
+          {form.kind === "earned" && (
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-xs text-gray-500">Metric (settled events only)
+                <select value={form.metric} onChange={(e) => setForm({ ...form, metric: e.target.value })} className={`${inputCls} w-full mt-1`}>
+                  {METRICS.map((m) => <option key={m} value={m}>{m.replace(/_/g, " ")}</option>)}
+                </select>
+              </label>
+              <label className="text-xs text-gray-500">Threshold
+                <input type="number" min={1} value={form.threshold} onChange={(e) => setForm({ ...form, threshold: e.target.value })} className={`${inputCls} w-24 mt-1 block`} />
+              </label>
+              <label className="text-xs text-gray-500 flex items-center gap-1.5 pb-2">
+                <input type="checkbox" checked={form.stackable} onChange={(e) => setForm({ ...form, stackable: e.target.checked })} /> stacks
+              </label>
+              {form.stackable && (
+                <label className="text-xs text-gray-500">Max stack
+                  <input type="number" min={1} value={form.maxStack} onChange={(e) => setForm({ ...form, maxStack: e.target.value })} className={`${inputCls} w-20 mt-1 block`} />
+                </label>
+              )}
+            </div>
+          )}
+          {form.kind !== "self" && form.kind !== "hypha" && form.kind !== "warning" && (
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Grants capabilities</p>
+              <div className="flex flex-wrap gap-1.5">
+                {CAPS.map((c) => (
+                  <button key={c} onClick={() => setForm({ ...form, capabilities: toggleIn(form.capabilities, c) })}
+                    className={`text-xs px-2 py-1 rounded-full border ${form.capabilities.includes(c) ? "bg-[#2D5A5A] text-white border-[#2D5A5A]" : "border-gray-200 text-gray-500"}`}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {form.kind === "warning" && (
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Denies capabilities (beats role and stage grants)</p>
+              <div className="flex flex-wrap gap-1.5">
+                {CAPS.map((c) => (
+                  <button key={c} onClick={() => setForm({ ...form, denies: toggleIn(form.denies, c) })}
+                    className={`text-xs px-2 py-1 rounded-full border ${form.denies.includes(c) ? "bg-red-600 text-white border-red-600" : "border-gray-200 text-gray-500"}`}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <button onClick={createBadge} disabled={!form.name.trim()}
+            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+            Create badge
+          </button>
+        </div>
+      </div>
+
+      {/* Hand awards */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-1">Award a badge</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          Granted, warning and hypha kinds only — self is the member's act,
+          earned is the engine's. Warnings require a note.
+        </p>
+        <div className="flex flex-wrap items-end gap-2 mb-5">
+          <select value={award.badgeId} onChange={(e) => setAward({ ...award, badgeId: e.target.value })} className={inputCls}>
+            <option value="">Badge…</option>
+            {(data?.badges ?? []).filter((b: any) => b.active && !["self", "earned"].includes(b.kind)).map((b: any) => (
+              <option key={b.id} value={b.id}>{b.name} ({b.kind})</option>
+            ))}
+          </select>
+          <select value={award.userId} onChange={(e) => setAward({ ...award, userId: e.target.value })} className={inputCls}>
+            <option value="">Member…</option>
+            {players.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <input placeholder="Note (required for warnings)" value={award.note}
+            onChange={(e) => setAward({ ...award, note: e.target.value })} className={`${inputCls} flex-1 min-w-[160px]`} />
+          <button
+            onClick={async () => { const d = await call(`/admin/badges/${award.badgeId}/award`, { userId: award.userId, note: award.note }); if (d) { toast.success("Awarded"); setAward({ badgeId: "", userId: "", note: "" }); load(); } }}
+            disabled={!award.badgeId || !award.userId}
+            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+          >
+            Award
+          </button>
+        </div>
+
+        <h3 className="font-semibold text-gray-900 mb-2">Current awards</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-gray-400">
+              <th className="py-1 pr-3">Member</th><th className="py-1 pr-3">Badge</th><th className="py-1 pr-3">Tier</th>
+              <th className="py-1 pr-3">By</th><th className="py-1 pr-3">Note</th><th className="py-1 pr-3">Expires</th><th className="py-1" />
+            </tr></thead>
+            <tbody>
+              {(data?.awards ?? []).map((a: any) => (
+                <tr key={a.id} className={`border-t border-gray-50 ${a.badge_kind === "warning" ? "bg-red-50/50" : ""}`}>
+                  <td className="py-2 pr-3 font-medium text-gray-900">{a.user_name ?? "(anonymized)"}</td>
+                  <td className="py-2 pr-3">{a.badge_name} <span className="text-xs text-gray-400">({a.badge_kind})</span></td>
+                  <td className="py-2 pr-3">{a.count > 1 ? `×${a.count}` : "—"}</td>
+                  <td className="py-2 pr-3 text-gray-500">{a.awarded_by ? "steward" : "engine"}</td>
+                  <td className="py-2 pr-3 text-gray-500">{a.note ?? ""}</td>
+                  <td className="py-2 pr-3 text-gray-500">{a.expires_at ? new Date(a.expires_at).toLocaleDateString() : "—"}</td>
+                  <td className="py-2 text-right">
+                    <button onClick={async () => {
+                      if (!window.confirm("Revoke this badge?")) return;
+                      const d = await call(`/admin/badges/${a.badge_id}/award/${a.user_id}`, undefined, "DELETE");
+                      if (d) load();
+                    }} className="text-xs text-gray-500 hover:text-red-600">Revoke</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {(data?.awards ?? []).length === 0 && <p className="text-sm text-gray-400 py-3">No awards yet.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TokensTab({ password }: { password: string }) {
   const [tokens, setTokens] = useState<any[]>([]);
   const [mintCap, setMintCap] = useState<number>(0);
@@ -4529,6 +4786,7 @@ export default function Admin() {
             { key: "tools-admin", label: "Tools", icon: Handshake },
             { key: "stays-admin", label: "Stays & Payments", icon: Home },
             { key: "exchange-admin", label: "Exchange", icon: TrendingUp },
+            { key: "badges-admin", label: "Badges", icon: GraduationCap },
             { key: "tokens", label: "Tokens", icon: Coins },
             { key: "ledger", label: "Ledger", icon: BarChart3 },
             { key: "variables", label: "Game Mechanics", icon: Activity },
@@ -4657,6 +4915,7 @@ export default function Admin() {
           {activeTab === "tools-admin" && <ToolsAdminTab password={password} />}
           {activeTab === "stays-admin" && <StaysAdminTab password={password} />}
           {activeTab === "exchange-admin" && <ExchangeAdminTab password={password} />}
+          {activeTab === "badges-admin" && <BadgesAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}

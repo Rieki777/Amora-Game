@@ -62,6 +62,7 @@ import Forum from "./pages/Forum";
 import Feed from "./pages/Feed";
 import Stay from "./pages/Stay";
 import Wallet from "./pages/Wallet";
+import Badges from "./pages/Badges";
 
 function Router() {
   const [location] = useLocation();
@@ -84,6 +85,7 @@ function Router() {
       <Route path="/feed" component={Feed} />
       <Route path="/stay" component={Stay} />
       <Route path="/wallet" component={Wallet} />
+      <Route path="/badges" component={Badges} />
       <Route path="/forum" component={Forum} />
       <Route path="/forum/:id" component={Forum} />
       <Route path="/propose-quest" component={ProposeQuest} />

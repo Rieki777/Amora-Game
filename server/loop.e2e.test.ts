@@ -1786,4 +1786,99 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
     expect(rec.json.invariants.problems).toEqual([]);
   });
+
+  it("S36-S40: badges — the gate's new rows, the engine on settled events, warnings that bite", async () => {
+    expect((await api("GET", "/api/badges")).status).toBe(404);
+    await api("PUT", "/api/admin/modules/badges/lifecycle", { lifecycle: "public" }, founderToken);
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "public" }, founderToken);
+
+    // ── The definition firewalls, at write time (and re-proven at boot by
+    // the same predicate): unknown keys, gate-less kinds, denies outside
+    // warnings, and THE recognition firewall. ──
+    expect((await api("POST", "/api/admin/badges", { name: "Bad Cap", kind: "granted", capabilities: ["nope.cap"] }, founderToken)).status).toBe(400);
+    expect((await api("POST", "/api/admin/badges", { name: "Selfish", kind: "self", capabilities: ["forum.post"] }, founderToken)).status).toBe(400);
+    expect((await api("POST", "/api/admin/badges", { name: "Sneaky", kind: "granted", denies: ["forum.post"] }, founderToken)).status).toBe(400);
+    const laundered = await api("POST", "/api/admin/badges", {
+      name: "Beloved", kind: "earned", capabilities: ["quest.consent"], rule: { metric: "gratitude_breadth", threshold: 2 },
+    }, founderToken);
+    expect(laundered.status).toBe(400);
+    expect(String(laundered.json.error)).toContain("recognition");
+    // A capability-FREE earned badge on breadth is honor, not power: legal.
+    const appreciatedRes = await api("POST", "/api/admin/badges", { name: "Appreciated", kind: "earned", rule: { metric: "gratitude_breadth", threshold: 1 } }, founderToken);
+    expect(appreciatedRes.status).toBe(200);
+    const appreciated = appreciatedRes.json.badge;
+
+    const selfBadge = (await api("POST", "/api/admin/badges", { name: "Composter", kind: "self", description: "I compost" }, founderToken)).json.badge;
+    const voice = (await api("POST", "/api/admin/badges", { name: "Voice", kind: "granted", capabilities: ["forum.post"] }, founderToken)).json.badge;
+    const cooling = (await api("POST", "/api/admin/badges", { name: "Cooling Off", kind: "warning", denies: ["forum.post", "forum.moderate"] }, founderToken)).json.badge;
+    const questDoer = (await api("POST", "/api/admin/badges", { name: "Quest Doer", kind: "earned", rule: { metric: "quests_consented", threshold: 1, stackable: true, maxStack: 5 } }, founderToken)).json.badge;
+
+    // Authorities stay separate: self is the member's act, earned the engine's.
+    expect((await api("POST", `/api/badges/${selfBadge.id}/claim`, {}, peerToken)).status).toBe(200);
+    expect((await api("POST", `/api/admin/badges/${selfBadge.id}/award`, { userId: peerId }, founderToken)).status).toBe(403);
+    expect((await api("POST", `/api/admin/badges/${questDoer.id}/award`, { userId: doerId }, founderToken)).status).toBe(403);
+    // A warning without a note refuses — the member deserves the why.
+    expect((await api("POST", `/api/admin/badges/${cooling.id}/award`, { userId: doerId }, founderToken)).status).toBe(400);
+
+    // ── A BADGE GRANT through the live gate: a fresh guest (below member)
+    // cannot post; the Voice badge opens exactly that door. ──
+    const guest = await api("POST", "/api/auth/register", {
+      email: `badge-guest-${PORT}@example.test`, password: "LoopTest123!", name: "Badge Guest", paths: ["resident"],
+    });
+    expect((await api("POST", "/api/forum/threads", { category: "village-life", kind: "post", body: "hello?" }, guest.json.token)).status).toBe(403);
+    await api("POST", `/api/admin/badges/${voice.id}/award`, { userId: guest.json.user.id, note: "Welcome voice" }, founderToken);
+    const guestPost = await api("POST", "/api/forum/threads", { category: "village-life", kind: "post", body: "hello! (by badge)" }, guest.json.token);
+    expect(guestPost.status).toBe(200);
+
+    // ── GATE E, LIVE: the warning denies forum.post AND forum.moderate for
+    // the DOER — who holds co-creator stage and the founders-circle role.
+    // Deny beats stage, deny beats the role grant; only admin outranks. ──
+    const thread = await api("POST", "/api/forum/threads", { category: "village-life", title: "Rhythm check", body: "How are the mornings going?" }, peerToken);
+    expect(thread.status).toBe(200);
+    expect((await api("POST", `/api/forum/threads/${thread.json.id}/moderate`, { action: "lock" }, doerToken)).status).toBe(200);
+    await api("POST", `/api/forum/threads/${thread.json.id}/moderate`, { action: "unlock" }, doerToken);
+    await api("POST", `/api/admin/badges/${cooling.id}/award`, { userId: doerId, note: "Heated week — pause and breathe" }, founderToken);
+    expect((await api("POST", "/api/forum/threads", { category: "village-life", kind: "post", body: "silenced?" }, doerToken)).status).toBe(403); // deny beats stage
+    expect((await api("POST", `/api/forum/threads/${thread.json.id}/moderate`, { action: "lock" }, doerToken)).status).toBe(403); // deny beats ROLE
+    // The founder (admin) still moderates: admin outranks every deny.
+    expect((await api("POST", `/api/forum/threads/${thread.json.id}/moderate`, { action: "lock" }, founderToken)).status).toBe(200);
+    await api("POST", `/api/forum/threads/${thread.json.id}/moderate`, { action: "unlock" }, founderToken);
+
+    // Standing warnings are open state: the module refuses to switch off.
+    const offBlocked = await api("PUT", "/api/admin/modules/badges/lifecycle", { lifecycle: "off" }, founderToken);
+    expect(offBlocked.status).toBe(409);
+    expect(String(offBlocked.json.error)).toContain("warning");
+
+    // Revoke → the doer's voice returns. Warnings suspend, never brand.
+    await api("DELETE", `/api/admin/badges/${cooling.id}/award/${doerId}`, undefined, founderToken);
+    expect((await api("POST", "/api/forum/threads", { category: "village-life", kind: "post", body: "back — and calmer" }, doerToken)).status).toBe(200);
+
+    // ── THE ENGINE, settled events only. The doer has at least two consented
+    // quests; the peer's settled distributions carry Sybil-filtered breadth. ──
+    const evald = await api("POST", "/api/admin/badges/evaluate", {}, founderToken);
+    expect(evald.status).toBe(200);
+    expect(evald.json.newTiers.some((t: any) => t.badgeId === questDoer.id && t.userId === doerId && t.tier === 2)).toBe(true);
+    expect(evald.json.newTiers.some((t: any) => t.badgeId === appreciated.id && t.userId === peerId)).toBe(true);
+    // Idempotent by keyed events: a second run mints NOTHING new.
+    expect((await api("POST", "/api/admin/badges/evaluate", {}, founderToken)).json.newTiers).toEqual([]);
+    // The stack tier was RECOMPUTED to the metric, never incremented.
+    const doerBadges = await api("GET", "/api/badges", undefined, doerToken);
+    const doerAward = doerBadges.json.mine.awards.find((a: any) => a.badgeId === questDoer.id);
+    expect(doerAward.count).toBeGreaterThanOrEqual(2);
+    expect(doerAward.count).toBeLessThanOrEqual(5); // maxStack caps the ladder
+    // The bell heard about the earned tier, exactly once (keyed dedupe).
+    const doerBell = await api("GET", "/api/notifications", undefined, doerToken);
+    expect(doerBell.json.notifications.some((n: any) => n.type === "badge")).toBe(true);
+
+    // ── Skills: declared, deduped, removable — and they gate NOTHING. ──
+    expect((await api("POST", "/api/badges/skills", { tag: "Carpentry " }, peerToken)).status).toBe(200);
+    const dupSkill = await api("POST", "/api/badges/skills", { tag: "carpentry" }, peerToken);
+    expect(dupSkill.status).toBe(200); // absorbed, not doubled
+    expect(dupSkill.json.skills.filter((s: string) => s === "carpentry").length).toBe(1);
+    expect((await api("POST", "/api/badges/skills", { tag: "!" }, peerToken)).status).toBe(400);
+    expect((await api("DELETE", "/api/badges/skills/carpentry", undefined, peerToken)).status).toBe(200);
+
+    // Cleanup: forum off again (badges stays on — its grants are in play).
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
+  });
 });
