@@ -36,7 +36,14 @@ is verifiable in code today; where a claim matters, the enforcing file is named.
    mechanism — `hasCapability()` is THE ONE GATE, order of authority: admin → badgeDenies → role →
    badgeCapabilities → stage (a warning badge's deny beats role and stage; only admin outranks it).
 3. **New game variables**: add `VariableDef`s to `shared/gameVariables.ts` with platform defaults.
-   If a rule of the game is a literal in code, it belongs here instead.
+   If a rule of the game is a literal in code, it belongs here instead. **Wire it in the same
+   change.** A registered variable nothing reads is a lie with a save button — an admin sets it,
+   believes the village behaves differently, and tells members so. Three were found in one sweep
+   (`village.pulse_max_entries` had a hard-coded 30 beside it). If the behaviour genuinely cannot
+   be built yet, make the write path REFUSE a non-default value and say why, as
+   `stay.credit_expiry_days` does. And when you wire a knob that was previously dead, set its
+   default to the value that was already being served — turning a setting on must not silently
+   change what every existing village sees.
 4. **Migration**: next-numbered `drizzle/00NN_<name>.sql`. The custom runner
    (`server/db/migrate.ts`) auto-applies at boot, fail-loud, recorded in `_migrations_applied`.
    Obey its parser: statements split on end-of-line semicolons after comment lines are stripped
@@ -50,9 +57,15 @@ is verifiable in code today; where a claim matters, the enforcing file is named.
    movement goes through `postTransfer` / `postTransferPair` (`server/lib/ledger.ts`) with an
    idempotency key per leg; use a `PairGuard` for limits that must be checked under the pair's lock.
 7. **Fiat**: never a second webhook or checkout path. Register
-   `registerPaymentHandlers(moduleId, {settle, reversal})` with `server/lib/payments.ts` (raw-body
-   HMAC, event-level dedupe on `stripe_event_id`, mechanical reversal that claws back and
+   `registerPaymentHandlers(moduleId, {settle, reversal, renew})` with `server/lib/payments.ts`
+   (raw-body HMAC, event-level dedupe on `stripe_event_id`, mechanical reversal that claws back and
    auto-suspends). Rounding favours the treasury: ceil what the member pays, floor what they receive.
+   **Read `docs/ARCHITECTURE.md` §3.8 "What a settle handler has to get right" before writing one** —
+   six rules, each learned by getting it wrong, and a handler that ignores any of them takes money
+   without delivering or delivers twice. In short: the period key comes from Stripe and never from a
+   counter; "completed" is not "paid"; record money → deliver → mark settled, in that order; mark it
+   in ONE statement; reverse only what was actually delivered; a renewal re-asks checkout's questions
+   and never throws.
 8. **Spines, not bespoke plumbing**: public activity via `moduleActivity()` (the preview-leak guard —
    nothing lands on the Pulse below `members`); history via `recordEvent()` (`server/lib/events.ts`,
    never throws into the caller); notifications via `server/lib/notify.ts` with a stable
@@ -106,6 +119,11 @@ is verifiable in code today; where a claim matters, the enforcing file is named.
 | Every module ships OFF; absent row = off | `storedLifecycle` default; boot reconciliation demotes (serves OFF, never bricks) when a hard dep is off |
 | No village's brand in platform code | `scripts/check-brand-refs.mjs` fails CI (see §5) |
 | Cycles close by human act; seasons roll compute-on-read | Scheduler host header, `server/lib/scheduler.ts` — do not "helpfully" add either |
+| A cap that lives outside the ledger is enforced INSIDE the transaction | `PairGuard` (`postTransferPair`) and `TransferGuard` (`postTransfer`). Reading a running total, deciding, then posting several awaits later is check-then-act — two callers read the same stale total and both proceed. Found twice: swap caps and the per-cycle mint cap |
+| Every module that holds outstanding value has an `openStateCheck` | Attached at boot in `server/index.ts`. Commerce was the last one missing it: turning it off unmounts the webhook, so an in-flight bank debit had nowhere to land |
+| Measured facts are retracted, never deleted | Regen entries (0040) carry `retracted_at`/`retraction_note`/`superseded_by` and drop out of totals. The village carries these numbers to funders — a figure that can vanish without trace is one nobody outside can audit |
+| Anonymisation covers rows the users-table tombstone does not reach | `anonymizeMember`. Most identity here is a JOIN and de-attributes for free; what does not is anything that RESTATES the person (skill tags in a public directory) or keeps a live CHANNEL open (push subscriptions, thread subscriptions) |
+| "Export everything" means every domain | `/api/profile/export`. It said "everything the village holds about me" and returned eleven of nineteen |
 
 ## 4. The gate — run before every commit
 
@@ -116,11 +134,28 @@ pnpm build                          # vite + esbuild -> dist/ (BEFORE test: the 
 pnpm test                           # vitest run — whole suite, no -t filters
 ```
 
-CI (`.github/workflows/ci.yml`) runs exactly: Typecheck → Brand guard → Build → Test → Bundle
-report → Dependency audit (`pnpm audit --prod --audit-level high`, `continue-on-error: true` —
-non-blocking by design). DB-backed suites need `TEST_DATABASE_URL` (scratch schema — the S5
-harness DROPs/CREATEs `village_test`; never the app schema); without it they **skip loudly**, which
-is not a pass. After deploy: `node scripts/smoke-all-modules.mjs --base … --email … --password …`
+CI (`.github/workflows/ci.yml`) runs exactly: Typecheck → Brand guard → Build → Test → **Bundle
+budget** → **Dependency audit** — the last two BLOCK now, having been advisory for a long time.
+
+- The bundle budget caps the main JS at `MAX_MAIN_JS_KB` (1400 KB; ~1345 KB today). When it goes
+  red, split a route (`React.lazy` on `/admin` is the obvious first cut) rather than raising the
+  number — a village on rural mobile data pays for every kilobyte.
+- `pnpm audit --prod --audit-level high` blocks. An advisory with an upstream fix is FIXED. One
+  without a fix goes in `package.json` → `pnpm.auditConfig.ignoreGhsas` **and**
+  `docs/SECURITY_ADVISORIES.md` with its reachability reasoning; one without the other is not
+  allowed, because an unexplained suppression looks like diligence. Before accepting anything,
+  check whether the package is load-bearing at all — the first pass here deleted `axios`, a direct
+  dependency with thirteen high advisories that no file imported.
+
+DB-backed suites need `TEST_DATABASE_URL` (scratch schema — the S5 harness DROPs/CREATEs
+`village_test`; never the app schema); without it they **skip loudly**, which is not a pass.
+
+A migration that ALTERs a populated table gets
+`node scripts/verify-migration-on-data.mjs <first-new-prefix>` — it applies everything up to the
+cut, seeds awkward rows, then applies the rest, because production applies migrations at boot,
+fail-loud, to tables full of real data.
+
+After deploy: `node scripts/smoke-all-modules.mjs --base … --email … --password …`
 (47 checks, ends by asserting per-token conservation).
 
 ## 5. White-label rules
@@ -163,8 +198,37 @@ is not a pass. After deploy: `node scripts/smoke-all-modules.mjs --base … --em
 | Stale `dist/` | The loop test boots `dist/index.js` — without a fresh `pnpm build` you are testing yesterday's server |
 | Missing `timezone: 'Z'` on a new mysql2 connection | Timestamps shift six hours; lunar-cycle boundaries drift. Every connection sets it (`server/db/migrate.ts` header) |
 | Seeding module lifecycle or every-variable rows in migrations | Freezes defaults forever — both stores are delta-only by design |
+| Enabling a module before its hard dependency | Boot reconciliation demotes it straight back to off and the routes 404. `feed` requires `forum`. In a test this reads as an unrelated failure three assertions later |
+| `railway up` and the build marker | `railway up` uploads a tarball with no git metadata, so `__BUILD_SHA__` falls back to the literal `dev` and `/health` cannot tell you which commit is live. Verify functionally: fetch `/`, take the hashed `/assets/index-*.js` name, grep the bundle for a string only the new code contains. A container serving at all also proves boot migrations applied, since they are fail-loud |
+| An `onClick` on an SVG shape | Mouse-only: no focus, no keyboard, nothing announced. Needs `role="button"`, `tabIndex={0}`, an `aria-label` and an Enter/Space handler — the village map shipped this way and could not be used without a mouse |
+| A `title` attribute as the only label on a touch surface | `title` is a hover tooltip and a phone has no hover. An icon-only control needs a real label and, if it must stay icon-only, a press-and-hold affordance (see `AdminNav` and `client/src/lib/gestures.ts`) |
+| A 44px tap-target rule that lists `button` but not `a[href]` | Every link keeps whatever hit area its text gives it, and individual small targets get raised one at a time forever instead of the rule being fixed once. Exclude prose links (`p a`, `li a`) or paragraphs stack invisible boxes |
 
-## 7. Boot order (what a fork's server proves before serving)
+## 7. Finishing a feature — the half-built failure mode
+
+The gate proves the code compiles, builds and passes. It does not prove the feature EXISTS for
+anyone. A sweep of this codebase found the same shape over and over: a server that writes and no
+reader, an API that supports a parameter no client sends, a queue of raw ids no human could act on.
+Every one passed CI for months.
+
+Before calling a feature done, answer all five:
+
+1. **Does something read what this writes?** `module_events` recorded every lifecycle change and had
+   no reader anywhere. The library's item journal appended on every intake, pickup and settlement and
+   was never read back. A write-only table is a feature nobody has.
+2. **Does the client send what the server accepts?** The feed supported `?tag`, `?kind` and `?before`
+   from the day it shipped; the page sent none of them, so it was frozen at the newest twenty items.
+3. **Can a human act on what the endpoint returns?** The moderation queue returned `thread_id` and
+   `reporter_id`. That is why no surface was ever built on it — join the title and the name, or the
+   endpoint stays theoretical.
+4. **Can the person who should do this actually do it?** Logging the land's measurements was
+   admin-only, so the land steward either never recorded anything or was handed admin. When a task
+   belongs to a role, it needs a capability, not a password.
+5. **Is every number on the screen real?** A profile rendered "Coming Soon", "Exploring" and "0"
+   styled exactly like the live metrics beside them. Numbers that cannot change teach people not to
+   trust the ones that can. Show the real figure or say plainly that it is not built.
+
+## 8. Boot order (what a fork's server proves before serving)
 
 Migrations apply (fail-loud) → token registry loads from the `tokens` table → module tokens ensured
 → `checkLedgerInvariants` (refuses to serve on any violation; the healthy log line is

@@ -1,0 +1,429 @@
+<title>The village coordination platform — what's built</title>
+<style>
+  :root {
+    --paper:    #EDF0EC;
+    --surface:  #F6F8F5;
+    --ink:      #12211E;
+    --slate:    #57685F;
+    --rule:     #C7D0CA;
+    --verdigris:#2F7F6F;
+    --brass:    #9C7B3F;
+    --off:      #9AA8A0;
+
+    --mono: ui-monospace, "SFMono-Regular", "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+
+    --step--1: clamp(.75rem, .72rem + .15vw, .82rem);
+    --step-0:  clamp(1rem, .96rem + .2vw, 1.09rem);
+    --step-1:  clamp(1.25rem, 1.15rem + .5vw, 1.5rem);
+    --step-2:  clamp(1.6rem, 1.4rem + 1vw, 2.2rem);
+    --step-3:  clamp(2.1rem, 1.6rem + 2.4vw, 3.6rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:    #0C1614;
+      --surface:  #12211E;
+      --ink:      #DFE7E1;
+      --slate:    #92A69C;
+      --rule:     #26382F;
+      --verdigris:#57BFA6;
+      --brass:    #C9A55E;
+      --off:      #4A5A52;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#0C1614; --surface:#12211E; --ink:#DFE7E1; --slate:#92A69C;
+    --rule:#26382F; --verdigris:#57BFA6; --brass:#C9A55E; --off:#4A5A52;
+  }
+  :root[data-theme="light"] {
+    --paper:#EDF0EC; --surface:#F6F8F5; --ink:#12211E; --slate:#57685F;
+    --rule:#C7D0CA; --verdigris:#2F7F6F; --brass:#9C7B3F; --off:#9AA8A0;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: var(--step-0);
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .plate {
+    border-top: 1px solid var(--rule);
+    padding: clamp(2.5rem, 6vw, 5.5rem) clamp(1.1rem, 4vw, 3rem);
+  }
+  .plate:first-of-type { border-top: 0; }
+  .inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 7.5rem 1fr;
+    gap: clamp(1.2rem, 3vw, 3rem);
+  }
+  @media (max-width: 44rem) { .inner { grid-template-columns: 1fr; gap: 1.1rem; } }
+
+  /* The surveyor's margin: plate number + hairline. */
+  .gutter {
+    font-family: var(--mono);
+    font-size: var(--step--1);
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--slate);
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+  }
+  .gutter .no { color: var(--verdigris); font-weight: 600; }
+  .gutter hr { width: 100%; border: 0; border-top: 1px solid var(--rule); margin: .1rem 0 0; }
+  @media (max-width: 44rem) { .gutter { flex-direction: row; align-items: center; gap: .8rem; } .gutter hr { flex: 1; } }
+
+  .body { min-width: 0; }
+  .prose { max-width: 62ch; }
+
+  h1, h2, h3 { font-family: var(--mono); font-weight: 600; text-wrap: balance; margin: 0; }
+  h1 { font-size: var(--step-3); line-height: 1.04; letter-spacing: -.02em; }
+  h2 { font-size: var(--step-2); line-height: 1.12; letter-spacing: -.01em; }
+  h3 { font-size: var(--step-0); letter-spacing: .1em; text-transform: uppercase; color: var(--verdigris); }
+  p { margin: 0 0 1em; }
+  p:last-child { margin-bottom: 0; }
+  .lede { font-size: var(--step-1); line-height: 1.45; color: var(--ink); }
+  .muted { color: var(--slate); }
+  strong { font-weight: 600; }
+
+  .stack   { display: flex; flex-direction: column; gap: 1.4rem; }
+  .stack-s { display: flex; flex-direction: column; gap: .7rem; }
+
+  /* Data figures */
+  .figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+  .fig { background: var(--surface); padding: 1rem 1.1rem; }
+  .fig .n { font-family: var(--mono); font-size: var(--step-2); font-variant-numeric: tabular-nums; line-height: 1; display: block; }
+  .fig .l { font-family: var(--mono); font-size: var(--step--1); letter-spacing: .1em; text-transform: uppercase; color: var(--slate); display: block; margin-top: .5rem; }
+
+  /* Switchboard */
+  .board { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .6rem; }
+  .mod {
+    text-align: left; cursor: pointer; font: inherit; color: inherit;
+    background: var(--surface); border: 1px solid var(--rule); border-left: 3px solid var(--off);
+    padding: .8rem .9rem; display: grid; gap: .3rem; transition: border-color .12s, background .12s;
+  }
+  .mod:hover { border-color: var(--verdigris); }
+  .mod:focus-visible { outline: 2px solid var(--verdigris); outline-offset: 2px; }
+  .mod[aria-pressed="true"] { border-left-color: var(--verdigris); }
+  .mod[data-core="1"] { cursor: default; border-left-color: var(--brass); }
+  .mod .top { display: flex; align-items: baseline; justify-content: space-between; gap: .6rem; }
+  .mod .nm { font-family: var(--mono); font-size: var(--step--1); letter-spacing: .06em; text-transform: uppercase; }
+  .mod .st { font-family: var(--mono); font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--off); }
+  .mod[aria-pressed="true"] .st { color: var(--verdigris); }
+  .mod[data-core="1"] .st { color: var(--brass); }
+  .mod .ds { font-size: .88rem; line-height: 1.45; color: var(--slate); }
+  .tally { font-family: var(--mono); font-size: var(--step--1); letter-spacing: .1em; text-transform: uppercase; color: var(--slate); }
+  .tally b { color: var(--verdigris); font-variant-numeric: tabular-nums; }
+
+  /* Lists */
+  .rows { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+  .row { background: var(--surface); padding: .95rem 1.1rem; display: grid; grid-template-columns: 12rem 1fr; gap: 1rem; }
+  @media (max-width: 40rem) { .row { grid-template-columns: 1fr; gap: .25rem; } }
+  .row dt { font-family: var(--mono); font-size: var(--step--1); letter-spacing: .06em; text-transform: uppercase; color: var(--verdigris); }
+  .row dd { margin: 0; color: var(--ink); }
+
+  .refuse { border-left: 3px solid var(--brass); padding-left: 1.1rem; }
+
+  .tag { font-family: var(--mono); font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; color: var(--brass); }
+
+  a { color: var(--verdigris); text-underline-offset: 3px; }
+  code { font-family: var(--mono); font-size: .88em; background: var(--surface); border: 1px solid var(--rule); padding: .05em .35em; }
+
+  footer { border-top: 1px solid var(--rule); padding: 2.5rem clamp(1.1rem,4vw,3rem) 4rem; }
+</style>
+
+<section class="plate">
+  <div class="inner">
+    <div class="gutter"><span class="no">Plate 01</span><hr /><span>Cover</span></div>
+    <div class="body stack">
+      <p class="tag">Coordination infrastructure for land-based community</p>
+      <h1>A village runs on<br />agreements, not apps.</h1>
+      <div class="prose">
+        <p class="lede">This is the software underneath one: who holds which role, what work is
+        owed, what value moved, what the land actually did this season — one system, sixteen
+        parts, and you choose which of them exist.</p>
+        <p class="muted">Built for and with a regenerative village in Costa Rica, then extracted
+        so any land project can run its own. Not a SaaS tenant. Your own deployment, your own
+        database, your own copy of the code.</p>
+      </div>
+      <div class="figs">
+        <div class="fig"><span class="n">16</span><span class="l">modules</span></div>
+        <div class="fig"><span class="n">4</span><span class="l">always on</span></div>
+        <div class="fig"><span class="n">12</span><span class="l">your call</span></div>
+        <div class="fig"><span class="n">1</span><span class="l">village live</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="plate">
+  <div class="inner">
+    <div class="gutter"><span class="no">Plate 02</span><hr /><span>The problem</span></div>
+    <div class="body stack">
+      <h2>Nine tools, none of which know each other.</h2>
+      <div class="prose stack-s">
+        <p>Most projects coordinate across a chat, a spreadsheet, a shared drive, a form builder,
+        a payment link, a calendar, a group thread, and somebody's memory. Each one works. None of
+        them knows that the person who ran the water system for six months is the same person
+        asking to move onto the land.</p>
+        <p>So contribution goes unrecorded, roles live in one founder's head, money arrives with
+        no trace of what it bought, and the honest question — <em>what has this person actually
+        given, and what have we given back?</em> — has no answer anyone can look up.</p>
+        <p class="muted">The gap is not features. It is that nothing holds the whole picture.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="plate">
+  <div class="inner">
+    <div class="gutter"><span class="no">Plate 03</span><hr /><span>Configure</span></div>
+    <div class="body stack">
+      <h2>Build your village. Switch off the rest.</h2>
+      <div class="prose">
+        <p>Every optional module ships <strong>off</strong>. Turning one on is a deliberate act,
+        recorded with who did it and when. Turning one off is refused while it still holds value
+        somebody is owed — settle first, then close the door.</p>
+        <p class="muted">Tap to see what a village that runs only what it needs looks like.</p>
+      </div>
+      <div class="board" id="board"></div>
+      <p class="tally" aria-live="polite" id="tally"></p>
+    </div>
+  </div>
+</section>
+
+<section class="plate">
+  <div class="inner">
+    <div class="gutter"><span class="no">Plate 04</span><hr /><span>Value</span></div>
+    <div class="body stack">
+      <h2>A ledger that cannot quietly be wrong.</h2>
+      <div class="prose">
+        <p>Recognition, credits and every village token move through one ledger with one rule:
+        for each token, all balances sum to zero. Value is never created by a line of code — it
+        comes out of a named source and lands in a named account, and both are visible.</p>
+      </div>
+      <dl class="rows">
+        <div class="row"><dt>Conservation</dt><dd>Asserted at every boot. If the books do not balance, the server refuses to start rather than serve a number it cannot stand behind.</dd></div>
+        <div class="row"><dt>Balances</dt><dd>Recomputed from the entries, never incremented. There is no counter to drift.</dd></div>
+        <div class="row"><dt>Every movement</dt><dd>Carries an idempotency key, so a retried request is the same act, not a second one.</dd></div>
+        <div class="row"><dt>A trade</dt><dd>Is exactly two legs in one transaction — both, or neither. No half-applied swap exists.</dd></div>
+        <div class="row"><dt>Recognition</dt><dd>Is earned, full stop. It can never be bought, and the code has no path to sell it.</dd></div>
+      </dl>
+      <p class="muted prose">The point is not that the software is careful. It is that when a
+      member asks where their contribution went, someone can answer with a record instead of a
+      recollection.</p>
+    </div>
+  </div>
+</section>
+
+<section class="plate">
+  <div class="inner">
+    <div class="gutter"><span class="no">Plate 05</span><hr /><span>Authority</span></div>
+    <div class="body stack">
+      <h2>One answer to “who may do this?”</h2>
+      <div class="prose">
+        <p>Permission is decided in a single place, in a fixed order, so authority can be reasoned
+        about instead of discovered: <strong>admin, then a standing warning, then an appointed
+        role, then an earned badge, then how far along someone is.</strong></p>
+        <p>The order matters. A warning badge outranks a role and a stage — a person under review
+        loses the specific thing under review and keeps everything else. Only an admin outranks a
+        warning. Nothing else in the system is allowed to invent its own permission check.</p>
+      </div>
+      <dl class="rows">
+        <div class="row"><dt>Stages</dt><dd>The path from guest to co-creator, with capabilities that unlock along the way.</dd></div>
+        <div class="row"><dt>Roles</dt><dd>Appointed seats with terms — the water keeper, the kitchen steward — visible on the village map with the open ones marked.</dd></div>
+        <div class="row"><dt>Badges</dt><dd>Earned from settled contribution, or granted as honours. Earned ones can't be handed out.</dd></div>
+        <div class="row"><dt>Leaving</dt><dd>A member can go: what they are owed is enumerated and settled, their record anonymised, the ledger left intact.</dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section class="plate">
+  <div class="inner">
+    <div class="gutter"><span class="no">Plate 06</span><hr /><span>Money</span></div>
+    <div class="body stack">
+      <h2>Four doors money comes in by.</h2>
+      <div class="prose">
+        <p>All of them ride one payment path — one webhook, verified against the raw body, deduped
+        per event, with mechanical reversals. A refund or a chargeback claws back exactly what that
+        charge delivered, and only if it was actually delivered.</p>
+      </div>
+      <dl class="rows">
+        <div class="row"><dt>Payments</dt><dd>Products you define: application fees, donations, deposits and down payments, waitlist seats, recurring memberships, token packs.</dd></div>
+        <div class="row"><dt>Stays</dt><dd>Accommodation priced in credits — bought, or earned through work-exchange quests. One credit hosts one night.</dd></div>
+        <div class="row"><dt>Exchange</dt><dd>Members buy the village's own tokens from a stocked treasury. Token-to-token trading exists and stays off until a village turns it on deliberately.</dd></div>
+        <div class="row"><dt>Library</dt><dd>Donate a tool and earn credits; borrow against a deposit held in escrow. The credits are backed by what is on the shelf.</dd></div>
+      </dl>
+      <div class="refuse prose">
+        <p class="tag">The line that does not move</p>
+        <p><strong>Money flows in. Tokens never flow out.</strong> There is no path in this
+        software to sell a village token back for cash, and building one is not a setting. Equity
+        and voice live where they belong — governed elsewhere, shown here read-only, never traded.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="plate">
+  <div class="inner">
+    <div class="gutter"><span class="no">Plate 07</span><hr /><span>The land</span></div>
+    <div class="body stack">
+      <h2>The land keeps its own ledger.</h2>
+      <div class="prose">
+        <p>Trees planted, hectares under care, water retained — absolute counts, recorded by the
+        people who walked the site, never a leaderboard. Alongside them, a snapshot of the
+        village's vital signs frozen at the close of every lunar cycle, so a season can be
+        compared to the one before it rather than to a feeling.</p>
+        <p>A wrong reading is <strong>withdrawn, not deleted</strong>: it stops counting, the
+        reason is attached, and the correction stays visible. These numbers go to funders. A
+        figure that can vanish without trace is a figure nobody outside can audit.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="plate">
+  <div class="inner">
+    <div class="gutter"><span class="no">Plate 08</span><hr /><span>Together</span></div>
+    <div class="body stack">
+      <h2>Villages that can find each other.</h2>
+      <div class="prose">
+        <p>Every deployment can publish what it needs and what it has spare, and read what peer
+        villages publish. One project's idle excavator and another's unfilled week of masonry are
+        the same problem twice, unsolved only because nobody could see both.</p>
+        <p class="muted">You choose exactly what leaves your instance. Federation is opt-in, and
+        a village that shares nothing loses nothing.</p>
+      </div>
+      <dl class="rows">
+        <div class="row"><dt>Guide</dt><dd>An assistant that knows this village — its roles, its open seats, its stage of setup — and is grounded in regenerative organising, sociocracy, nonviolent communication and trust structures.</dd></div>
+        <div class="row"><dt>Weekly calls</dt><dd>A recording goes in; assigned work comes out. Every suggested task carries a verbatim quote and timestamp, or it is dropped.</dd></div>
+        <div class="row"><dt>Feedback</dt><dd>What breaks in your village can reach the people maintaining the platform — content only, never who said it, and switchable off.</dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section class="plate">
+  <div class="inner">
+    <div class="gutter"><span class="no">Plate 09</span><hr /><span>Going live</span></div>
+    <div class="body stack">
+      <h2>The road to launch is a checklist, not a mystery.</h2>
+      <div class="prose">
+        <p>A readiness page reads your live deployment and tells you what still stands between you
+        and opening the doors: the keys not set, the sending domain not verified, the first founder
+        not created, the terms of leaving not yet written. Some items the software checks itself.
+        Some only a human can confirm, and it says so.</p>
+        <p><strong>“Launched” is something a founder declares</strong> — never something the
+        software decides on their behalf.</p>
+      </div>
+      <div class="figs">
+        <div class="fig"><span class="n">159</span><span class="l">automated tests</span></div>
+        <div class="fig"><span class="n">40</span><span class="l">schema migrations</span></div>
+        <div class="fig"><span class="n">0</span><span class="l">brand names in platform code</span></div>
+      </div>
+      <p class="muted prose">The last figure is enforced mechanically: a guard fails the build if
+      one village's name appears where the platform's code lives. That is what makes this yours
+      rather than a skin on somebody else's.</p>
+    </div>
+  </div>
+</section>
+
+<section class="plate">
+  <div class="inner">
+    <div class="gutter"><span class="no">Plate 10</span><hr /><span>Honestly</span></div>
+    <div class="body stack">
+      <h2>What this is not.</h2>
+      <div class="prose stack-s">
+        <p><strong>It is not a currency scheme.</strong> Tokens here buy nights, tools and access
+        inside one village. They are not investments, they do not leave, and the software will not
+        help you pretend otherwise.</p>
+        <p><strong>It is not finished.</strong> Some things are deliberately unbuilt pending legal
+        advice — expiring member credits, for one, where the setting exists and the platform
+        refuses to accept a value rather than promise something it will not do.</p>
+        <p><strong>It is not hosted for you.</strong> You run it. That is the point: your database,
+        your keys, your members' data, and a copy of the source you can read, change, or walk away
+        with.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="inner">
+    <div class="gutter"><span class="no">End</span><hr /></div>
+    <div class="body stack-s prose">
+      <h3>If you are building one</h3>
+      <p>The most useful next step is a conversation about your project — what you already run,
+      what you would switch on first, and what you would never want software to touch.</p>
+      <p class="muted">Amora, in Costa Rica, is the first village live on it.
+        <a href="https://amora.regencivics.earth">amora.regencivics.earth</a></p>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // The switchboard: the platform's whole thesis is that modules are optional,
+  // so the one interactive moment is choosing them. Core four cannot be turned
+  // off — the same rule the server enforces.
+  var MODULES = [
+    { id: "quests",      name: "Quests",          core: 1, d: "Post work, claim it, submit it, release recognition when it's done." },
+    { id: "gratitude",   name: "Gratitude",       core: 1, d: "Recognition sends, lunar cycles, and the value pool shared at each close." },
+    { id: "progression", name: "Stages & Roles",  core: 1, d: "The path from guest to co-creator, and the seats people are appointed to." },
+    { id: "profiles",    name: "Profiles",        core: 1, d: "Who someone is here: handles, journey, balances, their own ledger." },
+    { id: "map",         name: "Village Map",     on: 1,   d: "The living org chart — circles, the roles orbiting them, and which seats are open." },
+    { id: "forum",       name: "Forum & Decisions", on: 1, d: "Threads by theme, mentions, moderation, and proposals with recorded outcomes." },
+    { id: "feed",        name: "Village Feed",    on: 1,   d: "The everyday stream, where a tap of appreciation is a real gift from your budget." },
+    { id: "stays",       name: "Stays",           on: 1,   d: "Rooms priced in credits, bought or earned through work exchange." },
+    { id: "library",     name: "Material Library", on: 1,  d: "Shared tools and goods: donate to earn credits, borrow against a deposit." },
+    { id: "health",      name: "Village Health",  on: 1,   d: "Vital signs each cycle, the land's regeneration ledger, and season goals." },
+    { id: "commerce",    name: "Payments",        on: 1,   d: "Fees, donations, deposits, waitlists, memberships — every payment you issue." },
+    { id: "exchange",    name: "Exchange",        d: "Buy village tokens from a stocked treasury. Trading is a separate, deliberate decision." },
+    { id: "badges",      name: "Badges & Skills", on: 1,   d: "What people can do, earned from settled contribution — and warnings that suspend it." },
+    { id: "automation",  name: "Call Automation", d: "The weekly call becomes assigned work, each task quoting the moment it came from." },
+    { id: "network",     name: "Village Network", d: "Publish needs and offers to peer villages; read what they publish." },
+    { id: "tools",       name: "Tools Hub",       on: 1,   d: "One place to find the chat, the documents, the governance space." }
+  ];
+
+  var board = document.getElementById("board");
+  var tally = document.getElementById("tally");
+
+  function render() {
+    var on = MODULES.filter(function (m) { return m.core || m.on; }).length;
+    tally.innerHTML = "Running <b>" + on + "</b> of 16 &nbsp;·&nbsp; " +
+      (on === 4 ? "the four that cannot be switched off"
+                : (on - 4) + " chosen, " + (12 - (on - 4)) + " left closed");
+  }
+
+  MODULES.forEach(function (m) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "mod";
+    if (m.core) { b.dataset.core = "1"; b.disabled = true; }
+    b.setAttribute("aria-pressed", m.core || m.on ? "true" : "false");
+    b.innerHTML =
+      '<span class="top"><span class="nm"></span><span class="st"></span></span>' +
+      '<span class="ds"></span>';
+    b.querySelector(".nm").textContent = m.name;
+    b.querySelector(".ds").textContent = m.d;
+    var st = b.querySelector(".st");
+    function label() { st.textContent = m.core ? "always" : (m.on ? "on" : "off"); }
+    label();
+    b.addEventListener("click", function () {
+      if (m.core) return;
+      m.on = m.on ? 0 : 1;
+      b.setAttribute("aria-pressed", m.on ? "true" : "false");
+      label();
+      render();
+    });
+    board.appendChild(b);
+  });
+  render();
+</script>
