@@ -15,7 +15,10 @@ export default defineConfig({
     // S5: load .env so TEST_DATABASE_URL reaches the DB-backed suites locally
     // (CI sets it as a job env var; both paths land in process.env).
     setupFiles: ["dotenv/config"],
-    include: ["server/**/*.test.ts", "shared/**/*.test.ts"],
+    // Client tests are pure-logic only (no jsdom, see above): helpers like
+    // the nav's gesture thresholds, which are far easier to check against
+    // numbers than by waving a thumb at a phone.
+    include: ["server/**/*.test.ts", "shared/**/*.test.ts", "client/**/*.test.ts"],
     // The end-to-end loop test builds and boots the server, so it needs room.
     testTimeout: 120_000,
     hookTimeout: 180_000,

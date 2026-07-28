@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
-import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
+import { holdCancelled, swipeIntent } from "@/lib/gestures";
 
 const API_BASE = "/api";
 const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
@@ -18,6 +20,315 @@ const CONTENT_SECTIONS = [
   { key: "circles", label: "Circles", icon: Circle },
   { key: "roles", label: "Roles", icon: Users2 },
 ] as const;
+
+/**
+ * The admin nav, as data.
+ *
+ * It used to be ~11k characters of hand-copied <button> blocks, which is why
+ * it could only ever be one width: every one of the thirty-odd items would
+ * have had to learn about collapsing separately. One list renders once, and
+ * the rail below decides how wide to draw it.
+ *
+ * `setup` moves: a front door while the village is still being set up, an
+ * ordinary settings row once it is done.
+ */
+type NavItem = { key: string; label: string; icon: LucideIcon };
+type NavGroup = { title: string; items: NavItem[] };
+
+function navGroups(setupComplete: boolean): NavGroup[] {
+  return [
+    ...(setupComplete ? [] : [{
+      title: "Start here",
+      items: [{ key: "setup", label: "Make This Yours", icon: Sparkles }],
+    }]),
+    {
+      title: "Submissions",
+      items: [
+        { key: "submissions", label: "All Forms", icon: Inbox },
+        { key: "feedback", label: "Feedback", icon: HelpCircle },
+        { key: "products", label: "Payments", icon: Handshake },
+      ],
+    },
+    { title: "Content", items: CONTENT_SECTIONS.map(s => ({ ...s })) },
+    {
+      title: "Notifications",
+      items: [
+        { key: "email-settings", label: "Email Settings", icon: Mail },
+        { key: "integrations", label: "Integrations", icon: KeyRound },
+      ],
+    },
+    { title: "Documents", items: [{ key: "investor-vault", label: "Investor Vault", icon: FileText }] },
+    { title: "Training", items: [{ key: "training-modules", label: "Modules", icon: GraduationCap }] },
+    {
+      title: "The Game",
+      items: [
+        { key: "quest-claims", label: "Quest Claims", icon: Sparkles },
+        { key: "players", label: "Players", icon: Users },
+        { key: "game-roles", label: "Game Roles", icon: Users2 },
+        { key: "modules", label: "Modules", icon: Sparkles },
+        { key: "circles-map", label: "Circles & Map", icon: Circle },
+        { key: "tools-admin", label: "Tools", icon: Handshake },
+        { key: "stays-admin", label: "Stays & Payments", icon: Home },
+        { key: "exchange-admin", label: "Exchange", icon: TrendingUp },
+        { key: "badges-admin", label: "Badges", icon: GraduationCap },
+        { key: "library-admin", label: "Library", icon: Inbox },
+        { key: "health-admin", label: "Village Health", icon: Activity },
+        { key: "exits-admin", label: "Departures", icon: LogOut },
+        { key: "calls-admin", label: "Calls", icon: Calendar },
+        { key: "tokens", label: "Tokens", icon: Coins },
+        { key: "ledger", label: "Ledger", icon: BarChart3 },
+        { key: "variables", label: "Game Mechanics", icon: Activity },
+        { key: "season", label: "Season", icon: Circle },
+      ],
+    },
+    {
+      title: "Site Content",
+      items: [
+        { key: "settings", label: "Settings", icon: Coins },
+        { key: "work-with-us", label: "Work With Us", icon: Handshake },
+        { key: "faqs", label: "FAQs", icon: HelpCircle },
+        { key: "milestones", label: "Build Progress", icon: Activity },
+        { key: "visit-config", label: "Visit Program", icon: Calendar },
+        { key: "investor-summary", label: "Investor Summary", icon: BarChart3 },
+      ],
+    },
+    ...(setupComplete ? [{
+      title: "Settings",
+      items: [{ key: "setup", label: "Project Settings", icon: Sparkles }],
+    }] : []),
+  ];
+}
+
+/**
+ * The nav rail.
+ *
+ * Thirty-odd items at a fixed 224px ate more than half a phone screen and
+ * left the actual settings in a column too narrow to read — the reason this
+ * exists. Collapsed it is a 56px strip of icons that still navigate in one
+ * tap, so narrowing costs nothing.
+ *
+ * Expanded, the two sizes behave differently on purpose. On a wide screen it
+ * sits in the layout and pushes the content across. On a phone there is no
+ * room to push anything, so it floats over the content with a backdrop and
+ * closes itself the moment you choose something — the pattern every mobile
+ * drawer uses, because the alternative is squeezing the page to nothing.
+ */
+function AdminNav({
+  groups, activeTab, onSelect, open, setOpen,
+}: {
+  groups: NavGroup[];
+  activeTab: string;
+  onSelect: (key: string) => void;
+  open: boolean;
+  setOpen: (v: boolean) => void;
+}) {
+  const choose = (key: string) => {
+    onSelect(key);
+    // Only the floating drawer gets out of the way; a docked rail stays put.
+    if (open && window.innerWidth < 1024) setOpen(false);
+  };
+
+  /**
+   * TWO WAYS TO LEARN AN ICON, NEITHER OF WHICH IS `title`.
+   *
+   * `title` is a hover tooltip, and a touch screen has no hover — on a phone
+   * the collapsed rail was thirty unlabelled glyphs with no way to ask what
+   * any of them meant. So:
+   *
+   *   press and hold  → that one icon says its name
+   *   swipe right     → the whole rail slides open and they all do
+   *
+   * A hold is a question, not an answer, so the click it would otherwise
+   * fire on release is swallowed: asking "what is this?" must never navigate
+   * somewhere you did not choose.
+   */
+  const HOLD_MS = 350;
+  const [tip, setTip] = useState<{ label: string; top: number; left: number } | null>(null);
+  const holdTimer = useRef<number | null>(null);
+  const swallowClick = useRef(false);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  const clearHold = () => {
+    if (holdTimer.current !== null) {
+      window.clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+  };
+  const startHold = (e: React.TouchEvent<HTMLButtonElement>, label: string) => {
+    swallowClick.current = false;
+    const t = e.touches[0];
+    touchStart.current = { x: t.clientX, y: t.clientY };
+    // Read the rect NOW: the nav scrolls on its own axis, so by the time the
+    // timer fires the button may have moved under the finger.
+    const r = e.currentTarget.getBoundingClientRect();
+    clearHold();
+    holdTimer.current = window.setTimeout(() => {
+      swallowClick.current = true;
+      setTip({ label, top: r.top + r.height / 2, left: r.right + 8 });
+    }, HOLD_MS);
+  };
+  const moveHold = (e: React.TouchEvent) => {
+    const s = touchStart.current;
+    if (!s) return;
+    const t = e.touches[0];
+    // A finger that travels is scrolling or swiping, not asking.
+    if (holdCancelled(t.clientX - s.x, t.clientY - s.y)) clearHold();
+  };
+  const endHold = () => {
+    clearHold();
+    // Linger, so a label that appeared under the fingertip is still there to
+    // read once the finger lifts off it.
+    if (tip) window.setTimeout(() => setTip(null), 900);
+  };
+
+  // Swipe anywhere on the rail: right opens, left closes.
+  const swipeStart = (e: React.TouchEvent) => {
+    // Every touch clears the flag, so a swallow can only ever apply to the
+    // click of the gesture that set it. Without this, a swipe-to-open would
+    // arm the flag and the next honest tap would silently do nothing.
+    swallowClick.current = false;
+    const t = e.touches[0];
+    touchStart.current = { x: t.clientX, y: t.clientY };
+  };
+  const swipeEnd = (e: React.TouchEvent) => {
+    const s = touchStart.current;
+    touchStart.current = null;
+    if (!s) return;
+    const t = e.changedTouches[0];
+    const intent = swipeIntent(t.clientX - s.x, t.clientY - s.y);
+    if (!intent) return;
+    clearHold();
+    swallowClick.current = true;
+    setTip(null);
+    setOpen(intent === "open");
+  };
+
+  /**
+   * Neither gesture announces itself, so say it once.
+   *
+   * Only on a touch screen (a mouse has hover and does not swipe), only
+   * while the rail is actually collapsed, and only until it is dismissed or
+   * eight seconds pass. Then never again.
+   */
+  const [hint, setHint] = useState(
+    () => !open
+      && typeof window !== "undefined"
+      && window.matchMedia("(hover: none)").matches
+      && !localStorage.getItem("admin.navHintSeen"),
+  );
+  const dismissHint = useCallback(() => {
+    setHint(false);
+    localStorage.setItem("admin.navHintSeen", "1");
+  }, []);
+  useEffect(() => {
+    if (!hint) return;
+    const t = window.setTimeout(dismissHint, 8000);
+    return () => window.clearTimeout(t);
+  }, [hint, dismissHint]);
+  useEffect(() => {
+    if (open && hint) dismissHint(); // they found it; stop explaining
+  }, [open, hint, dismissHint]);
+
+  return (
+    <>
+      {hint && (
+        <button
+          onClick={dismissHint}
+          className="fixed z-50 left-16 bottom-6 max-w-[15rem] rounded-xl bg-gray-900 px-3 py-2.5 text-left text-xs leading-relaxed text-white shadow-xl"
+        >
+          Hold an icon to see its name, or swipe right to slide the whole menu
+          out.
+          <span className="mt-1 block text-white/60">Tap to dismiss</span>
+        </button>
+      )}
+      {tip && (
+        // Fixed, not absolute: the rail scrolls vertically, which clips its
+        // own overflow, so a label parked inside it would be cut off at 56px.
+        <div
+          role="tooltip"
+          style={{ top: tip.top, left: tip.left }}
+          className="fixed z-50 -translate-y-1/2 pointer-events-none rounded-lg bg-gray-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg"
+        >
+          {tip.label}
+        </div>
+      )}
+      {open && (
+        <button
+          aria-label="Close menu"
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+        />
+      )}
+      <nav
+        onTouchStart={swipeStart}
+        onTouchEnd={swipeEnd}
+        className={`${open ? "fixed z-40 top-0 bottom-0 left-0 w-64 shadow-2xl lg:static lg:shadow-none lg:w-56" : "w-14"} ` +
+          "min-h-[calc(100vh-60px)] bg-white border-r border-gray-200 py-3 flex-shrink-0 overflow-y-auto transition-[width] duration-150"}
+      >
+        <button
+          onClick={() => {
+            // A swipe that started on this button already did the toggling.
+            if (swallowClick.current) { swallowClick.current = false; return; }
+            setOpen(!open);
+          }}
+          aria-expanded={open}
+          aria-label={open ? "Collapse menu" : "Expand menu"}
+          title={open ? "Collapse menu" : "Expand menu"}
+          className={`flex items-center gap-2 mb-2 py-2.5 text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-[#2D5A5A] transition-colors ${
+            open ? "w-full px-4" : "w-full justify-center px-0"
+          }`}
+        >
+          {open ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeftOpen className="w-5 h-5" />}
+          {open && <span>Menu</span>}
+        </button>
+
+        {groups.map((group) => (
+          <div key={group.title}>
+            {open ? (
+              <div className="px-4 mt-5 mb-2">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">{group.title}</p>
+              </div>
+            ) : (
+              // Collapsed, a group title has nowhere to go, but the grouping
+              // is still what makes thirty icons findable — so it becomes a
+              // rule instead of disappearing.
+              <div className="mx-3 my-2 border-t border-gray-100" />
+            )}
+            {group.items.map(({ key, label, icon: Icon }) => {
+              const active = activeTab === key;
+              return (
+                <button
+                  key={`${group.title}:${key}`}
+                  onClick={() => {
+                    if (swallowClick.current) { swallowClick.current = false; return; }
+                    choose(key);
+                  }}
+                  onTouchStart={open ? undefined : (e) => startHold(e, label)}
+                  onTouchMove={open ? undefined : moveHold}
+                  onTouchEnd={open ? undefined : endHold}
+                  onTouchCancel={open ? undefined : endHold}
+                  title={label}
+                  aria-label={label}
+                  aria-current={active ? "page" : undefined}
+                  className={`w-full flex items-center text-sm font-medium transition-colors ${
+                    open ? "gap-3 px-4 py-2.5" : "justify-center px-0 py-3"
+                  } ${
+                    active
+                      ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                      : "text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  <Icon className={open ? "w-4 h-4 flex-shrink-0" : "w-5 h-5"} />
+                  {open && <span className="truncate">{label}</span>}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </nav>
+    </>
+  );
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -6136,6 +6447,19 @@ export default function Admin() {
   // door while you're still setting up, ordinary settings once you're done.
   const [setupComplete, setSetupComplete] = useState(false);
 
+  // The nav rail's width, remembered. Phones and small tablets start
+  // collapsed — 224px of menu on a 390px screen left the settings themselves
+  // in a column too narrow to read — and anything laptop-sized starts open,
+  // where there is room for both. A stored choice beats both defaults.
+  const [navOpen, setNavOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem("admin.navOpen");
+    if (saved !== null) return saved === "1";
+    return window.innerWidth >= 1024;
+  });
+  useEffect(() => {
+    localStorage.setItem("admin.navOpen", navOpen ? "1" : "0");
+  }, [navOpen]);
+
   useEffect(() => {
     if (!password) return;
     fetch(`${API_BASE}/admin/brand`, { headers: authHeaders(password) })
@@ -6178,268 +6502,19 @@ export default function Admin() {
       </header>
 
       <div className="flex">
-        <nav className="w-56 min-h-[calc(100vh-60px)] bg-white border-r border-gray-200 py-6 flex-shrink-0">
-          <div className="px-4 mb-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
-              {setupComplete ? "Submissions" : "Start Here"}
-            </p>
-          </div>
-          {/* Pinned at the top while setup is unfinished; once it's done it drops
-              to the bottom with the other settings and loses the urgency styling. */}
-          {!setupComplete && (
-            <button
-              onClick={() => setActiveTab("setup")}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold transition-colors ${
-                activeTab === "setup"
-                  ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                  : "text-[#2D5A5A] hover:bg-gray-50"
-              }`}
-            >
-              <Sparkles className="w-4 h-4" />
-              Make This Yours
-            </button>
-          )}
+        <AdminNav
+          groups={navGroups(setupComplete)}
+          activeTab={activeTab}
+          onSelect={setActiveTab}
+          open={navOpen}
+          setOpen={setNavOpen}
+        />
 
-          {!setupComplete && (
-            <div className="px-4 mt-6 mb-4">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Submissions</p>
-            </div>
-          )}
-          <button
-            onClick={() => setActiveTab("submissions")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "submissions"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <Inbox className="w-4 h-4" />
-            All Forms
-          </button>
-          <button
-            onClick={() => setActiveTab("feedback")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "feedback"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <HelpCircle className="w-4 h-4" />
-            Feedback
-          </button>
-          <button
-            onClick={() => setActiveTab("products")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "products"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <Handshake className="w-4 h-4" />
-            Payments
-          </button>
-
-          <div className="px-4 mt-6 mb-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Content</p>
-          </div>
-          {CONTENT_SECTIONS.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-                activeTab === key
-                  ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                  : "text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              {label}
-            </button>
-          ))}
-
-          <div className="px-4 mt-6 mb-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Notifications</p>
-          </div>
-          <button
-            onClick={() => setActiveTab("email-settings")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "email-settings"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <Mail className="w-4 h-4" />
-            Email Settings
-          </button>
-          <button
-            onClick={() => setActiveTab("integrations")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "integrations"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <KeyRound className="w-4 h-4" />
-            Integrations
-          </button>
-
-          <div className="px-4 mt-6 mb-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Documents</p>
-          </div>
-          <button
-            onClick={() => setActiveTab("investor-vault")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "investor-vault"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            Investor Vault
-          </button>
-
-          <div className="px-4 mt-6 mb-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Training</p>
-          </div>
-          <button
-            onClick={() => setActiveTab("training-modules")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "training-modules"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <GraduationCap className="w-4 h-4" />
-            Modules
-          </button>
-
-          <div className="px-4 mt-6 mb-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">The Game</p>
-          </div>
-          {[
-            { key: "quest-claims", label: "Quest Claims", icon: Sparkles },
-            { key: "players", label: "Players", icon: Users },
-            { key: "game-roles", label: "Game Roles", icon: Users2 },
-            { key: "modules", label: "Modules", icon: Sparkles },
-            { key: "circles-map", label: "Circles & Map", icon: Circle },
-            { key: "tools-admin", label: "Tools", icon: Handshake },
-            { key: "stays-admin", label: "Stays & Payments", icon: Home },
-            { key: "exchange-admin", label: "Exchange", icon: TrendingUp },
-            { key: "badges-admin", label: "Badges", icon: GraduationCap },
-            { key: "library-admin", label: "Library", icon: Inbox },
-            { key: "health-admin", label: "Village Health", icon: Activity },
-            { key: "exits-admin", label: "Departures", icon: LogOut },
-            { key: "calls-admin", label: "Calls", icon: Calendar },
-            { key: "tokens", label: "Tokens", icon: Coins },
-            { key: "ledger", label: "Ledger", icon: BarChart3 },
-            { key: "variables", label: "Game Mechanics", icon: Activity },
-            { key: "season", label: "Season", icon: Circle },
-          ].map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-                activeTab === key
-                  ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                  : "text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              {label}
-            </button>
-          ))}
-
-          <div className="px-4 mt-6 mb-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Site Content</p>
-          </div>
-          <button
-            onClick={() => setActiveTab("settings")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "settings"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <Coins className="w-4 h-4" />
-            Settings
-          </button>
-          <button
-            onClick={() => setActiveTab("work-with-us")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "work-with-us"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <Handshake className="w-4 h-4" />
-            Work With Us
-          </button>
-          <button
-            onClick={() => setActiveTab("faqs")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "faqs"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <HelpCircle className="w-4 h-4" />
-            FAQs
-          </button>
-          <button
-            onClick={() => setActiveTab("milestones")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "milestones"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <Activity className="w-4 h-4" />
-            Build Progress
-          </button>
-          <button
-            onClick={() => setActiveTab("visit-config")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "visit-config"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <Calendar className="w-4 h-4" />
-            Visit Program
-          </button>
-          <button
-            onClick={() => setActiveTab("investor-summary")}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === "investor-summary"
-                ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            Investor Summary
-          </button>
-
-          {setupComplete && (
-            <>
-              <div className="px-4 mt-6 mb-4">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Settings</p>
-              </div>
-              <button
-                onClick={() => setActiveTab("setup")}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
-                  activeTab === "setup"
-                    ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
-                    : "text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                <Sparkles className="w-4 h-4" />
-                Project Settings
-              </button>
-            </>
-          )}
-        </nav>
-
-        <main className="flex-1 p-8 max-w-4xl">
+        {/* min-w-0 lets a flex child actually shrink — without it a wide
+            table inside sets the floor and the page scrolls sideways. The
+            padding steps down on small screens, where 32px a side was a
+            tenth of the width. */}
+        <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 max-w-4xl">
           {activeTab === "setup" && <SetupWizard password={password} onOpenTab={setActiveTab} />}
           {activeTab === "submissions" && <SubmissionsTab password={password} />}
           {CONTENT_SECTIONS.map(({ key, label }) =>
