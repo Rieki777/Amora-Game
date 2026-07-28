@@ -31,6 +31,7 @@ import {
   TREASURY,
 } from "./lib/ledger";
 import type { TransferGuard } from "./lib/ledger";
+import { installCrashHandlers, reportError, wireErrorReporting } from "./lib/errors";
 import {
   STAY_CREDIT,
   ensureStayToken,
@@ -1978,6 +1979,20 @@ async function assistantDailyCapReached(max: number): Promise<boolean> {
 }
 
 async function startServer() {
+  /*
+   * PY6: crashes get somewhere before anything else can crash.
+   *
+   * Wired FIRST, ahead of migrations, because a boot that dies on a failed
+   * migration or a broken ledger invariant is exactly the crash nobody was
+   * watching for — the deployment simply never came up, and the only trace
+   * was a log line in a stream with no reader.
+   */
+  wireErrorReporting({
+    notifyAdmins: (title, dedupeKey) => notifyAdmins("payments_alert", title, dedupeKey),
+    instanceLabel: mergedConfig().project.name,
+  });
+  installCrashHandlers();
+
   // S6: schema migrations apply themselves at boot, through the same engine
   // the CLI and the test harness use. This removes the deploy-ordering trap
   // forever: code that needs a column can never run before the column exists,
@@ -3404,7 +3419,7 @@ async function startServer() {
         id: t.id,
         kind: t.kind,
         title: t.title,
-        body: String(t.body).slice(0, 600),
+        body: String(t.body).slice(0, Math.max(120, numberVar("feed.max_post_length"))),
         meta,
         imageUrl: t.image_url,
         heartCount: Number(t.heart_count),
@@ -3416,14 +3431,34 @@ async function startServer() {
     });
     // System items: the village's own milestones. 'gratitude' rows excluded —
     // the feed must not echo the hearts it creates.
-    const events = (await recentEvents(getPool(), "public", 20))
-      .filter((e) => ["quest", "stage", "season", "cycle", "join"].includes(e.kind))
-      .map((e) => ({ itemType: "system" as const, id: e.id, kind: e.kind, body: e.text, at: e.at }));
+    const weaveEvents = numberVar("feed.show_system_events") === 1;
+    const events = weaveEvents
+      ? (await recentEvents(getPool(), "public", 20))
+          .filter((e) => ["quest", "stage", "season", "cycle", "join"].includes(e.kind))
+          .map((e) => ({ itemType: "system" as const, id: e.id, kind: e.kind, body: e.text, at: e.at }))
+      : [];
     const merged = [...posts, ...events]
       .sort((a, b) => b.at.localeCompare(a.at))
       .filter((i) => (req.query.kind ? (req.query.kind === "system" ? i.itemType === "system" : i.itemType === "post" && (i as any).kind === req.query.kind) : true))
       .slice(0, 20);
-    res.json({ categorySlug: slug, heartAmount: numberVar("feed.heart_amount"), items: merged });
+    /*
+     * The cursor for the next page, handed back rather than left for the
+     * client to work out. `before` has been supported since the feed shipped
+     * and nothing ever sent it, so the page was permanently frozen at the
+     * newest twenty items and older posts were unreachable — the village's
+     * memory ended three weeks back.
+     *
+     * It is derived from POSTS only. System events are re-read fresh each
+     * time and paging on a merged timestamp would skip posts whenever an
+     * event happened to sort between them.
+     */
+    const oldestPost = posts.length ? posts[posts.length - 1].at : null;
+    res.json({
+      categorySlug: slug,
+      heartAmount: numberVar("feed.heart_amount"),
+      items: merged,
+      nextBefore: threadRows.length === 20 ? oldestPost : null,
+    });
   });
 
   /**
@@ -3854,11 +3889,36 @@ async function startServer() {
   app.get("/api/admin/forum/reports", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const status = ["open", "resolved", "dismissed"].includes(String(req.query.status)) ? String(req.query.status) : "open";
+    /*
+     * Joined, not raw ids. This endpoint returned thread_id and reporter_id
+     * and nothing else, which is why no admin surface was ever built on it:
+     * a queue of opaque identifiers is not something a steward can act on.
+     * The title, the reporter and whether the thread is ALREADY hidden are
+     * what turn a row into a decision.
+     */
     const [rows] = await getPool().query<any[]>(
-      "SELECT id, thread_id, reply_id, reporter_id, severity, reason, status, created_at FROM forum_reports WHERE status = ? ORDER BY created_at DESC LIMIT 200",
+      "SELECT r.id, r.thread_id, r.reply_id, r.severity, r.reason, r.status, r.created_at, " +
+        "t.title AS thread_title, t.hidden_at, u.name AS reporter_name " +
+        "FROM forum_reports r " +
+        "LEFT JOIN forum_threads t ON t.id = r.thread_id " +
+        "LEFT JOIN users u ON u.id = r.reporter_id " +
+        "WHERE r.status = ? ORDER BY r.created_at DESC LIMIT 200",
       [status],
     );
-    res.json(rows);
+    res.json(rows.map((r) => ({
+      id: String(r.id),
+      threadId: String(r.thread_id),
+      threadTitle: r.thread_title ?? "(deleted thread)",
+      replyId: r.reply_id ?? null,
+      severity: String(r.severity),
+      reason: r.reason ?? null,
+      status: String(r.status),
+      // Soft reports auto-hide past the threshold, so a steward opening this
+      // queue needs to know the thread may already be dark.
+      alreadyHidden: !!r.hidden_at,
+      reporter: r.reporter_name ?? "a member",
+      at: new Date(r.created_at).toISOString(),
+    })));
   });
 
   app.put("/api/admin/forum/reports/:id", async (req, res) => {
@@ -6163,14 +6223,28 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   });
 
   /** Stewards record the land's numbers: absolute counts, audit-attributed. */
+  /**
+   * Log a measurement of the land.
+   *
+   * Admin OR the `health.record` capability. The people who walk the site and
+   * count what is actually there — the land steward, the water crew — are
+   * rarely the people holding the admin password, and requiring one to do the
+   * other meant either nothing got recorded or admin got handed out to make it
+   * possible. The path stays under /api/admin for continuity; the gate is what
+   * changed.
+   */
   app.post("/api/admin/health/regen", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const recorder = await authedUser(req);
+    const mayRecord = (await isAdmin(req))
+      || (recorder ? hasCapability("health.record", await capabilityCtx(recorder)) : false);
+    if (!mayRecord) return res.status(401).json({ error: "Unauthorized" });
     const { metricKey, value, unit, note } = req.body ?? {};
     const def = REGEN_METRICS.find((m) => m.key === String(metricKey ?? ""));
     if (!def) return res.status(400).json({ error: `Unknown regen metric — pick one of: ${REGEN_METRICS.map((m) => m.key).join(", ")}` });
     const v = Number(value);
     if (!Number.isFinite(v) || v <= 0) return res.status(400).json({ error: "A positive value is required" });
-    const actor = adminActor(req)?.id ?? null;
+    // Whoever it was — admin or capability holder — the reading is signed.
+    const actor = adminActor(req)?.id ?? recorder?.id ?? null;
     if (!actor) return res.status(401).json({ error: "Unauthorized" });
     const id = `regen-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     await getPool().query(
@@ -6457,6 +6531,66 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   app.post("/api/admin/exchange/reconcile", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     res.json({ result: await runExchangeReconcile() });
+  });
+
+  /**
+   * An item's provenance (L-series). Every intake, approval, reservation,
+   * pickup, return and settlement already appended to `library_item_events` —
+   * and nothing ever read them back, so the journal was write-only.
+   *
+   * It answers the questions a shared shelf actually generates: who gave this,
+   * who has had it, what state did it come back in, why is the deposit gone.
+   * A borrower can see the history of the thing they are holding; the donor's
+   * identity is admin-only, because "who gave the expensive drill" is a
+   * different question from "has this drill been looked after".
+   */
+  app.get("/api/library/items/:id/history", async (req, res) => {
+    const viewer = await authedUser(req);
+    if (!viewer) return res.status(401).json({ error: "Sign in first" });
+    const item = await libraryItemById(getPool(), req.params.id);
+    if (!item) return res.status(404).json({ error: "No such item" });
+    const admin = await isAdmin(req);
+    const [rows] = await getPool().query<any[]>(
+      "SELECT e.kind, e.detail, e.at, u.name AS actor_name FROM library_item_events e " +
+        "LEFT JOIN users u ON u.id = e.actor_user_id WHERE e.item_id = ? ORDER BY e.at ASC, e.id ASC",
+      [req.params.id],
+    );
+    res.json({
+      item: { id: item.id, name: item.name, status: item.status },
+      events: rows.map((r) => ({
+        kind: String(r.kind),
+        detail: r.detail ?? null,
+        at: new Date(r.at).toISOString(),
+        actor: admin ? (r.actor_name ?? null) : null,
+      })),
+    });
+  });
+
+  /**
+   * MF4: the module's own history.
+   *
+   * `module_events` recorded every lifecycle flip and config change and had no
+   * reader anywhere in the codebase. "Who turned the exchange off, and when?"
+   * is the first question asked when a module is unexpectedly dark, and the
+   * answer already existed — it just had no door.
+   */
+  app.get("/api/admin/modules/:id/events", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!MODULES_BY_ID[req.params.id]) return res.status(404).json({ error: "No such module" });
+    const [rows] = await getPool().query<any[]>(
+      "SELECT e.kind, e.from_value, e.to_value, e.at, u.name AS by_name FROM module_events e " +
+        "LEFT JOIN users u ON u.id = e.by_user_id WHERE e.module_id = ? ORDER BY e.at DESC LIMIT 100",
+      [req.params.id],
+    );
+    res.json({
+      events: rows.map((r) => ({
+        kind: String(r.kind),
+        from: r.from_value ?? null,
+        to: r.to_value ?? null,
+        at: new Date(r.at).toISOString(),
+        by: r.by_name ?? null,
+      })),
+    });
   });
 
   /** The SECOND steward's signature on a high-value intake. */
@@ -6810,7 +6944,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       title: badge.kind === "warning" ? `A warning was placed: ${badge.name}` : `Badge received: ${badge.name}`,
       body: note ? String(note).slice(0, 500) : null,
       link: "/badges",
-      dedupeKey: `award:${badge.id}:${target.id}:${Date.now()}`,
+      // Stable, like every other producer. With Date.now() in it the key was
+      // unique per call, so the notify spine's whole dedupe guarantee was off
+      // for this one path: a re-run of an award — a double-click, a retried
+      // request — told the member twice that they had been given a badge, or
+      // twice that a warning had been placed on them.
+      dedupeKey: `award:${badge.id}:${target.id}`,
     });
     // B5: a re-issued WARNING is its own audit fact, with the running count
     // in the text — the trail an indefinitely-renewed silencing would leave.
@@ -9687,7 +9826,9 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Village pulse: public activity feed (S11: reads the event spine; the
   // legacy {id, type, text, at} shape is preserved for the client).
   app.get("/api/game/pulse", async (_req, res) => {
-    const events = await recentEvents(getPool(), "public", 30);
+    // village.pulse_max_entries was an admin knob nothing read — the 30 here
+    // was hard-coded, so the setting did exactly nothing however it was set.
+    const events = await recentEvents(getPool(), "public", Math.max(10, numberVar("village.pulse_max_entries")));
     res.json(events.map((e) => ({ id: e.id, type: e.kind, text: e.text, at: e.at })));
   });
 

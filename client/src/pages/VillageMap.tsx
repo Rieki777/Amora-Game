@@ -124,11 +124,31 @@ function MapCanvas({ data, onSelect }: { data: MapData; onSelect: (s: any) => vo
         return (
           <g key={pos.id} opacity={forming ? 0.45 : 1}>
             <line x1={layout.center.x} y1={layout.center.y} x2={pos.x} y2={pos.y} className="stroke-border" strokeDasharray="3 5" />
+            {/*
+              An SVG shape with an onClick is a mouse-only control: it takes
+              no focus, answers no key, and is invisible to a screen reader.
+              The map is how this village explains who holds what — the one
+              picture a new member is pointed at — and it could only be used
+              by someone holding a mouse.
+
+              role + tabIndex put it in the tab order; Enter and Space are
+              what a button answers to, so they select here too; the label
+              says what the shape is, since a circle announces nothing.
+            */}
             <circle
               cx={pos.x} cy={pos.y} r={pos.r}
-              className="fill-teal/10 stroke-teal-deep/50 cursor-pointer hover:fill-teal/20 transition-colors"
+              className="fill-teal/10 stroke-teal-deep/50 cursor-pointer hover:fill-teal/20 transition-colors focus:outline-none focus-visible:stroke-teal-deep"
               strokeWidth={2}
+              role="button"
+              tabIndex={0}
+              aria-label={`${c?.name ?? pos.id}${forming ? ", still forming" : ""} — open this circle`}
               onClick={() => onSelect({ kind: "circle", id: pos.id })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect({ kind: "circle", id: pos.id });
+                }
+              }}
             />
             <text x={pos.x} y={pos.y - pos.r - 8} textAnchor="middle" className="fill-foreground text-[15px] font-semibold pointer-events-none">
               {c?.name ?? pos.id}
@@ -141,7 +161,20 @@ function MapCanvas({ data, onSelect }: { data: MapData; onSelect: (s: any) => vo
             {pos.roles.map((rp) => {
               const role = roleById(rp.id);
               return (
-                <g key={rp.id} className="cursor-pointer" onClick={() => onSelect({ kind: "role", id: rp.id })}>
+                <g
+                  key={rp.id}
+                  className="cursor-pointer focus:outline-none"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${role?.name ?? rp.id}${rp.vacant ? " — nobody holds this yet, open call" : ""}`}
+                  onClick={() => onSelect({ kind: "role", id: rp.id })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelect({ kind: "role", id: rp.id });
+                    }
+                  }}
+                >
                   <circle
                     cx={rp.x} cy={rp.y} r={11}
                     className={rp.vacant ? "fill-white stroke-muted-foreground" : "fill-teal-deep stroke-white"}

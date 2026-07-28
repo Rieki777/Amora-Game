@@ -3403,4 +3403,58 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(rec2.json.invariants.problems).toEqual([]);
     await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
   });
+
+  it("Waves C+D: write-only journals get readers, and the feed reaches past today", async () => {
+    // Earlier blocks leave these off; every module this touches is opened
+    // here and closed at the end, so the block does not depend on what ran
+    // before it. ORDER MATTERS: the feed is a lens over forum threads and
+    // hard-requires forum, so enabling it first gets it demoted straight
+    // back to off.
+    //
+    // The two forum flips below also give MF4 something to read.
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "members" }, founderToken);
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "public" }, founderToken);
+    await api("PUT", "/api/admin/modules/feed/lifecycle", { lifecycle: "public" }, founderToken);
+
+    // ── MF4: the module's own history had no door. ──
+    // Every lifecycle flip was recorded and nothing could read it, so "who
+    // turned this off, and when?" had no answer.
+    const hist = await api("GET", "/api/admin/modules/forum/events", undefined, founderToken);
+    expect(hist.status).toBe(200);
+    expect(hist.json.events.length).toBeGreaterThanOrEqual(2);
+    expect(hist.json.events[0].to).toBe("public");
+    expect((await api("GET", "/api/admin/modules/not-a-module/events", undefined, founderToken)).status).toBe(404);
+
+    // ── The feed can be read past its newest page. ──
+    // `?before` was supported from the start and never sent, so the village's
+    // memory ended at twenty items.
+    const feed = await api("GET", "/api/feed", undefined, peerToken);
+    expect(feed.status).toBe(200);
+    expect(feed.json).toHaveProperty("nextBefore"); // the cursor exists at all
+    // And the filter the page now sends is honoured.
+    const onlySystem = await api("GET", "/api/feed?kind=system", undefined, peerToken);
+    expect(onlySystem.status).toBe(200);
+    expect((onlySystem.json.items ?? []).every((i: any) => i.itemType === "system")).toBe(true);
+
+    // ── A steward can log the land's numbers without being an admin. ──
+    // It was admin-only, so either nothing got recorded or admin was handed
+    // out to make it possible.
+    await api("PUT", "/api/admin/modules/health/lifecycle", { lifecycle: "public" }, founderToken);
+    const asPeer = await api("POST", "/api/admin/health/regen", { metricKey: "trees_planted", value: 12 }, peerToken);
+    expect(asPeer.status).toBe(401); // no capability yet — the gate is real
+    expect((await api("PUT", "/api/admin/modules/health/lifecycle", { lifecycle: "off" }, founderToken)).status).toBe(200);
+
+    // ── The moderation queue answers with something a human can act on. ──
+    const reports = await api("GET", "/api/admin/forum/reports?status=open", undefined, founderToken);
+    expect(reports.status).toBe(200);
+    expect(Array.isArray(reports.json)).toBe(true);
+    for (const r of reports.json) {
+      // Raw ids were why no surface was ever built on this.
+      expect(r).toHaveProperty("threadTitle");
+      expect(r).toHaveProperty("reporter");
+      expect(r).toHaveProperty("alreadyHidden");
+    }
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
+    await api("PUT", "/api/admin/modules/feed/lifecycle", { lifecycle: "off" }, founderToken);
+  });
 });

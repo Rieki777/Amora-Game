@@ -324,18 +324,29 @@ export default function Profile() {
                       <Sprout className="w-6 h-6" />
                       Business Venture
                     </h3>
-                    <div className="grid md:grid-cols-3 gap-4">
+                    {/*
+                      This block used to render three fixed strings — "Coming
+                      Soon", "Exploring", "0" — styled exactly like the live
+                      metrics elsewhere on the page. Nothing behind them
+                      existed, so every prosperity creator saw the same numbers
+                      and had no way to know they were decoration. Numbers that
+                      cannot change are worse than no numbers: they teach
+                      people not to trust the ones that can.
+
+                      Recognition IS real and already loaded, so it stays. The
+                      rest says plainly that the venture surface is not built.
+                    */}
+                    <div className="grid md:grid-cols-2 gap-4">
                       <div className="bg-purple-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Business Name</p>
-                        <p className="text-2xl font-bold text-purple-600">Coming Soon</p>
+                        <p className="text-sm text-gray-600 mb-1">Recognition received</p>
+                        <p className="text-2xl font-bold text-purple-600">{user.recognitionBalance ?? 0}</p>
                       </div>
-                      <div className="bg-purple-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">ARI Tier</p>
-                        <p className="text-2xl font-bold text-purple-600">Exploring</p>
-                      </div>
-                      <div className="bg-purple-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Gratitude Generated</p>
-                        <p className="text-2xl font-bold text-purple-600">0</p>
+                      <div className="bg-gray-50 border border-dashed border-gray-200 p-4 rounded-lg">
+                        <p className="text-sm text-gray-600 mb-1">Your venture</p>
+                        <p className="text-sm text-gray-500">
+                          Not set up yet. Venture details and revenue-share tiers arrive with the
+                          prosperity module — until then, tell the stewards what you are building.
+                        </p>
                       </div>
                     </div>
                   </motion.div>

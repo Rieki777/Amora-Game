@@ -40,6 +40,7 @@ function ThreadList() {
   const [composing, setComposing] = useState(false);
   const [draft, setDraft] = useState({ title: "", body: "", category: "", kind: "discussion" });
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const load = () => {
     const qs = category ? `?category=${category}` : "";
@@ -57,8 +58,13 @@ function ThreadList() {
   }, []);
   useEffect(load, [category]);
 
+  // The in-flight guard the reply and decide buttons already had. Without it
+  // an impatient second click on a slow network started a second thread, and
+  // the author had no way to tell which of the two the village would answer.
   const post = () => {
+    if (busy) return;
     setError("");
+    setBusy(true);
     fetch("/api/forum/threads", { method: "POST", headers: headers(), body: JSON.stringify(draft) })
       .then(async (r) => {
         const d = await r.json();
@@ -67,7 +73,8 @@ function ThreadList() {
         setDraft({ title: "", body: "", category: "", kind: "discussion" });
         load();
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(e.message))
+      .finally(() => setBusy(false));
   };
 
   return (
@@ -121,9 +128,9 @@ function ThreadList() {
                 placeholder="Say it. Mention people with @handle."
                 className="w-full text-sm border border-border rounded-lg px-3 py-2" />
               {error && <p className="text-xs text-red-600">{error}</p>}
-              <button onClick={post} disabled={!draft.body.trim() || !draft.category}
+              <button onClick={post} disabled={busy || !draft.body.trim() || !draft.category}
                 className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
-                Post
+                {busy ? "Posting…" : "Post"}
               </button>
             </div>
           )}

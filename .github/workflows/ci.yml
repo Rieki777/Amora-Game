@@ -59,16 +59,38 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Bundle report
-        # Advisory: watch the SPA bundle as 11 modules land (plan rule 2.5).
+      - name: Bundle budget
+        # A report nobody reads is not a guard. The plan called for a threshold
+        # "as a two-line change; do the splitting when the line goes red" — so
+        # here is the line. It is a RATCHET on the main JS bundle: growth is
+        # normal as modules land, silent doubling is not, and a village on a
+        # phone in rural Costa Rica pays for every kilobyte.
+        #
+        # When this fails, the fix is usually code-splitting the admin bundle
+        # (React.lazy on the /admin route), not raising the number.
+        env:
+          MAX_MAIN_JS_KB: 1400
         run: |
           echo "## Bundle sizes" >> "$GITHUB_STEP_SUMMARY"
           ls -la dist/public/assets/ | awk '{print $5, $9}' | while read size name; do
             [ -n "$name" ] && echo "- $name: $((size/1024)) KB" >> "$GITHUB_STEP_SUMMARY"
           done
+          main=$(ls -l dist/public/assets/index-*.js | awk '{print $5}' | sort -nr | head -1)
+          main_kb=$((main/1024))
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Main JS: ${main_kb} KB (budget ${MAX_MAIN_JS_KB} KB)" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$main_kb" -gt "$MAX_MAIN_JS_KB" ]; then
+            echo "::error::Main JS bundle is ${main_kb} KB, over the ${MAX_MAIN_JS_KB} KB budget. Split a route rather than raising the budget."
+            exit 1
+          fi
 
-      - name: Dependency audit (advisory)
-        # Non-blocking on purpose: an upstream advisory must not freeze deploys;
-        # it must be VISIBLE. Revisit blocking-level before Block 6 (fiat).
-        continue-on-error: true
+      - name: Dependency audit
+        # BLOCKING as of the commerce work. It was advisory with a note saying
+        # "revisit before Block 6 (fiat)" — fiat shipped long ago and three
+        # funds-bearing modules are live, so a high-severity advisory now stops
+        # the deploy instead of scrolling past in a collapsed log.
+        #
+        # If an advisory has no upstream fix, add a documented `pnpm.overrides`
+        # or an explicit ignore with a dated reason — do not re-add
+        # continue-on-error.
         run: pnpm audit --prod --audit-level high

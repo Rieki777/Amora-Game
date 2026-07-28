@@ -512,8 +512,14 @@ button, a, [role="button"], input, textarea, select, summary {
    Includes Radix checkbox/radio/switch, whose visuals stay small by design;
    the ::after overlay gives them a full 44x44 tap zone without resizing them.
    Add .no-touch-extend to opt an element out (e.g. tightly packed rows). */
+/* a[href] belongs in this list. It was missing, so every LINK on the site —
+   including the ones that are the only way forward on a page — kept whatever
+   hit area its text happened to give it, while every button got 44px. That is
+   why individual small tap targets kept being raised one at a time: the
+   general rule had a hole in it. */
 @media (pointer: coarse) {
   button:not([disabled]):not(.no-touch-extend),
+  a[href]:not(.no-touch-extend),
   [role="button"]:not([aria-disabled="true"]):not(.no-touch-extend),
   [role="checkbox"]:not([aria-disabled="true"]):not(.no-touch-extend),
   [role="radio"]:not([aria-disabled="true"]):not(.no-touch-extend),
@@ -521,6 +527,7 @@ button, a, [role="button"], input, textarea, select, summary {
     position: relative;
   }
   button:not([disabled]):not(.no-touch-extend)::after,
+  a[href]:not(.no-touch-extend)::after,
   [role="button"]:not([aria-disabled="true"]):not(.no-touch-extend)::after,
   [role="checkbox"]:not([aria-disabled="true"]):not(.no-touch-extend)::after,
   [role="radio"]:not([aria-disabled="true"]):not(.no-touch-extend)::after,
@@ -534,6 +541,15 @@ button, a, [role="button"], input, textarea, select, summary {
     min-width: 44px;
     width: max(100%, 44px);
     height: max(100%, 44px);
+  }
+  /* …except links inside running text. A 44px overlay on every inline link
+     in a paragraph would stack invisible boxes over the words above and
+     below, and a tap meant for the sentence would land on the link. Prose
+     links are read, not aimed at; standalone links are aimed at. */
+  p a[href]::after,
+  li a[href]::after,
+  .prose a[href]::after {
+    content: none;
   }
 }
 

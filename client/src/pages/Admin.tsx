@@ -22,6 +22,165 @@ const CONTENT_SECTIONS = [
 ] as const;
 
 /**
+ * Forum moderation, which had no surface at all.
+ *
+ * Three endpoints have existed since the forum shipped — the report queue,
+ * resolving a report, and hiding or locking a thread — and not one of them had
+ * a caller anywhere in the client. Meanwhile the server auto-hides a thread
+ * once enough people softly report it. So the village could silence a
+ * conversation on its own, and the stewards had no way to see that it had
+ * happened, why, or how to put it back. Moderation that only ever removes is
+ * not moderation.
+ */
+function ForumModerationTab({ password }: { password: string }) {
+  const [status, setStatus] = useState<"open" | "resolved" | "dismissed">("open");
+  const [reports, setReports] = useState<any[] | null>(null);
+  const [busy, setBusy] = useState<string>("");
+
+  const load = useCallback(() => {
+    setReports(null);
+    fetch(`${API_BASE}/admin/forum/reports?status=${status}`, { headers: authHeaders(password) })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setReports)
+      .catch(() => setReports([]));
+  }, [password, status]);
+  useEffect(load, [load]);
+
+  const act = async (url: string, body: any, okMsg: string, key: string) => {
+    setBusy(key);
+    try {
+      const res = await fetch(url, {
+        method: url.includes("/reports/") ? "PUT" : "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Failed");
+      toast.success(okMsg);
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-display font-bold text-gray-900">Moderation</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          What the village has flagged, and what it has already hidden on its own.
+          Hiding is always reversible — nothing here deletes anyone's words.
+        </p>
+      </div>
+
+      <div className="flex gap-2">
+        {(["open", "resolved", "dismissed"] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatus(s)}
+            aria-pressed={status === s}
+            className={`text-sm rounded-lg px-3 py-1.5 border capitalize transition-colors ${
+              status === s
+                ? "bg-[#2D5A5A] text-white border-[#2D5A5A]"
+                : "bg-white text-gray-600 border-gray-200 hover:border-[#2D5A5A]/40"
+            }`}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {reports === null && <p className="text-sm text-gray-400">Loading…</p>}
+      {reports?.length === 0 && (
+        <p className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-xl p-6">
+          Nothing {status}. A quiet queue is the good outcome.
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {(reports ?? []).map((r) => (
+          <div key={r.id} className="bg-white border border-gray-100 rounded-xl p-4">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <p className="font-medium text-gray-900 break-words">{r.threadTitle}</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {r.severity === "hard" ? "Serious report" : "Flagged"} by {r.reporter} ·{" "}
+                  {new Date(r.at).toLocaleDateString()}
+                  {r.replyId ? " · on a reply" : ""}
+                </p>
+                {r.reason && <p className="text-sm text-gray-600 mt-2 break-words">"{r.reason}"</p>}
+              </div>
+              {r.alreadyHidden && (
+                <span className="text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1 shrink-0">
+                  Auto-hidden
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-50">
+              <a
+                href={`/forum/${r.threadId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-[#2D5A5A] border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50"
+              >
+                Read it
+              </a>
+              {r.alreadyHidden ? (
+                <button
+                  disabled={busy === r.id}
+                  onClick={() => act(`${API_BASE}/forum/threads/${r.threadId}/moderate`, { action: "restore" }, "Back in the open", r.id)}
+                  className="text-xs text-emerald-700 border border-emerald-200 rounded-lg px-2.5 py-1.5 hover:bg-emerald-50 disabled:opacity-40"
+                >
+                  Put it back
+                </button>
+              ) : (
+                <button
+                  disabled={busy === r.id}
+                  onClick={() => {
+                    const reason = window.prompt("Why is this being hidden? The author is told.");
+                    if (reason === null) return;
+                    act(`${API_BASE}/forum/threads/${r.threadId}/moderate`, { action: "hide", reason }, "Hidden", r.id);
+                  }}
+                  className="text-xs text-red-600 border border-red-200 rounded-lg px-2.5 py-1.5 hover:bg-red-50 disabled:opacity-40"
+                >
+                  Hide it
+                </button>
+              )}
+              <button
+                disabled={busy === r.id}
+                onClick={() => act(`${API_BASE}/forum/threads/${r.threadId}/moderate`, { action: "lock" }, "Locked to new replies", r.id)}
+                className="text-xs text-gray-600 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-40"
+              >
+                Lock replies
+              </button>
+              {status === "open" && (
+                <>
+                  <button
+                    disabled={busy === r.id}
+                    onClick={() => act(`${API_BASE}/admin/forum/reports/${r.id}`, { status: "resolved" }, "Marked handled", r.id)}
+                    className="text-xs text-[#2D5A5A] border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-40"
+                  >
+                    Handled
+                  </button>
+                  <button
+                    disabled={busy === r.id}
+                    onClick={() => act(`${API_BASE}/admin/forum/reports/${r.id}`, { status: "dismissed" }, "Dismissed", r.id)}
+                    className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-40"
+                  >
+                    Nothing wrong here
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * The admin nav, as data.
  *
  * It used to be ~11k characters of hand-copied <button> blocks, which is why
@@ -46,6 +205,7 @@ function navGroups(setupComplete: boolean): NavGroup[] {
       items: [
         { key: "submissions", label: "All Forms", icon: Inbox },
         { key: "feedback", label: "Feedback", icon: HelpCircle },
+        { key: "forum-moderation", label: "Moderation", icon: Users2 },
         { key: "products", label: "Payments", icon: Handshake },
       ],
     },
@@ -6541,6 +6701,7 @@ export default function Admin() {
           {activeTab === "email-settings" && <EmailSettingsTab password={password} openIntegrations={() => setActiveTab("integrations")} />}
           {activeTab === "integrations" && <IntegrationsTab password={password} />}
           {activeTab === "feedback" && <FeedbackAdminTab password={password} />}
+          {activeTab === "forum-moderation" && <ForumModerationTab password={password} />}
           {activeTab === "products" && <ProductsAdminTab password={password} />}
           {activeTab === "investor-vault" && <InvestorVaultTab password={password} />}
           {activeTab === "training-modules" && <TrainingModulesTab password={password} />}

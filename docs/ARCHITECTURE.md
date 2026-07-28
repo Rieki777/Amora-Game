@@ -704,7 +704,28 @@ fork, but drop the row deliberately when you do it.
    six hours (`server/db/migrate.ts:7-10`). The engine, the pool and the
    harness all set it — so must any new connection.
 8. **`AUTH_TOKEN_SECRET` unset degrades silently** to per-process sessions:
-   every restart logs everyone out (`FORK_RUNBOOK.md` env table).
+   every restart logs everyone out. It is now a blocking launch requirement
+   (`session-secret`) rather than only a console warning.
+9. **A limit read outside the transaction that enforces it is not a limit.**
+   Read the total, decide, post three awaits later, and a concurrent request
+   reads the same stale total and also decides yes. This has been found twice
+   — swap caps (fixed with `PairGuard`) and the per-cycle mint cap (fixed with
+   `TransferGuard`). Any new cap that lives outside the ledger goes in a
+   guard, under the lock that already orders the writes.
+10. **A dependent module enabled before its dependency is demoted straight
+    back to off.** `feed` hard-requires `forum`; enabling feed first looks
+    like it worked and leaves the routes 404ing. Enable dependencies first —
+    including in tests, where this reads as an unrelated failure.
+11. **`railway up` stamps the build marker `-dev`.** The SHA comes from
+    `RAILWAY_GIT_COMMIT_SHA` or `git rev-parse`, and a `railway up` tarball
+    has neither, so `/health` cannot confirm which commit is live after one.
+    Verify functionally instead: fetch `/` for the hashed asset name and grep
+    the bundle for a string only the new code contains.
+12. **A knob nothing reads is a lie with a save button.** Three were found in
+    one sweep: `village.pulse_max_entries` (route used a hard-coded 30),
+    `stay.credit_expiry_days` and `stay.credits_transferable` (no enforcement
+    exists, deliberately — see §5). Either wire a variable when you register
+    it, or make the write path refuse a value and say why.
 
 ---
 
@@ -744,7 +765,18 @@ pnpm build                        # vite build + esbuild server bundle — BEFOR
 pnpm test                         # vitest run, the FULL suite, loop included
 ```
 
-CI adds an advisory bundle-size report and a non-blocking `pnpm audit`.
+CI adds two steps that BLOCK, both of which used to be advisory:
+
+- **Bundle budget** — the main JS bundle must stay under `MAX_MAIN_JS_KB`
+  (1400 KB today; it currently runs ~1345 KB). When it goes red the fix is
+  splitting a route, usually `React.lazy` on `/admin`, not raising the number.
+  A village on a phone on rural mobile data pays for every kilobyte.
+- **`pnpm audit --prod --audit-level high`** — blocking since the commerce
+  hardening. Advisories with no upstream fix that have been checked for
+  reachability are listed in `package.json` under `pnpm.auditConfig.ignoreGhsas`
+  AND explained in `docs/SECURITY_ADVISORIES.md`; an entry in one without the
+  other is not allowed. The first pass of this removed `axios` — a direct
+  dependency carrying thirteen high advisories that no file imported.
 Pushing `main` deploys production, so the gate is the release process:
 nothing merges red, and nothing green is assumed to work until the loop has
 closed against the artefact that ships.

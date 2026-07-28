@@ -236,7 +236,11 @@ export const MODULES: ModuleDef[] = [
       "The village's vital signs: per-lunation snapshots frozen at each cycle close, the land's own regeneration ledger (trees, water, hectares — absolute counts, never leaderboards), and season goals. Snapshot COLLECTION runs from the day this ships; turn the dashboard on once a few lunations of history exist.",
     requires: [],
     recommends: ["gratitude", "quests"],
-    capabilities: [],
+    // The people who count the trees are rarely the people who hold the admin
+    // password. Logging a measurement was admin-only, which meant either the
+    // land steward never recorded anything or somebody handed out admin to
+    // make it possible — the exact trade the capability gate exists to avoid.
+    capabilities: ["health.record"],
     variableKeys: ["health.alert_change_pct"],
     apiPrefixes: ["/api/health"],
   },

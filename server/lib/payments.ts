@@ -25,6 +25,7 @@ import type { Pool, RowDataPacket } from "mysql2/promise";
 import { numberVar } from "./variables";
 import { recordEvent } from "./events";
 import { secretConfigured, secretValue } from "./secrets";
+import { reportError } from "./errors";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 // S63: keys resolve through the secrets store — admin-typed first, env
@@ -427,7 +428,10 @@ export async function handleStripeEvent(
     }
     await logPayment(pool, { module: moduleId || null, orderId: orderId || null, type, outcome: "settle_error", detail: String(e?.message ?? e) });
     await alertAdmins(`Payment settle handler FAILED for ${moduleId}:${orderId}`, `payments-settleerr:${moduleId}:${orderId}`);
-    console.error("[payments] settle error", e);
+    // The loudest path in the system also goes to the error sink, so a
+    // village that has wired one hears about a failed settlement wherever
+    // they actually watch — not only inside the app they may not be in.
+    await reportError(e, { where: "a payment settlement", detail: { module: moduleId, order: orderId, event: type } });
     // 500 so Stripe retries — the ledger keys make retries safe.
     return { status: 500, body: { error: "settle failed; will retry" } };
   }

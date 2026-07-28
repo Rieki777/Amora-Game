@@ -31,7 +31,8 @@ export type Capability =
   | "stay.member_rate" // book accommodation at the member price, not the guest one
   | "exchange.buy" // buy listed tokens for fiat
   | "exchange.swap" // trade one village token for another at posted prices
-  | "exchange.manage"; // list tokens, post prices, stock the treasury (role-only)
+  | "exchange.manage" // list tokens, post prices, stock the treasury (role-only)
+  | "health.record"; // log the land's own measurements (trees, water, hectares)
 
 /**
  * The canonical list, as a VALUE: badge validation and unlock diffs iterate
@@ -52,6 +53,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "exchange.buy",
   "exchange.swap",
   "exchange.manage",
+  "health.record",
 ];
 
 /**

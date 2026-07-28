@@ -1,8 +1,14 @@
 /**
- * Exchange v1 (S33-S35): BUY-ONLY. Members buy platform tokens for fiat
- * through the trio; the tokens come out of a stocked treasury, never out of
- * thin air. Swapping is a shipped CONTRACT (the flag and column exist) with
- * no engine until v2 — trading_enabled in module config throws a 501, loudly.
+ * The exchange. Members buy platform tokens for fiat through the trio, and
+ * may trade one village token for another; the tokens come out of a stocked
+ * treasury, never out of thin air, and fiat only ever flows IN — nothing here
+ * ever sells a token back for money.
+ *
+ * v1 (S33-S35) was buy-only, and this header said swapping was "a shipped
+ * CONTRACT with no engine until v2". The engine landed in S57-S61 — see
+ * `swapProblem` and the swap-order normaliser below, and `postTransferPair`
+ * in the ledger, which is what makes a two-legged trade atomic. Trading is
+ * still OFF by default and opens only behind a version-stamped legal card.
  *
  * The firewalls, enforced at WRITE time and re-proven at BOOT:
  *   - recognition-kind tokens are never purchasable or swappable — gratitude

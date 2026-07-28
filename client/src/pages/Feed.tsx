@@ -30,13 +30,47 @@ export default function Feed() {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
 
+  // The feed's own filters, and the page beyond the newest twenty.
+  //
+  // `?tag`, `?kind` and `?before` have been supported by the API since the
+  // feed shipped, and the page never sent any of them: it was frozen at the
+  // twenty most recent items, so the village's memory ended a few weeks back
+  // and there was no way to read further. `items` accumulates across pages;
+  // `nextBefore` is null once the server has nothing older.
+  const [kind, setKind] = useState<string>("");
+  const [tag, setTag] = useState<string>("");
+  const [more, setMore] = useState<string | null>(null);
+  const [older, setOlder] = useState<any[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const query = (before?: string) => {
+    const p = new URLSearchParams();
+    if (kind) p.set("kind", kind);
+    if (tag.trim()) p.set("tag", tag.trim().toLowerCase());
+    if (before) p.set("before", before);
+    return p.toString() ? `/api/feed?${p}` : "/api/feed";
+  };
+
   const load = () => {
-    fetch("/api/feed", { headers: headers() })
+    setOlder([]); // a changed filter starts a new list, not an appended one
+    fetch(query(), { headers: headers() })
       .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
+      .then((d) => { setData(d); setMore(d?.nextBefore ?? null); })
       .catch(() => {});
   };
-  useEffect(() => { if (feedModule) load(); }, [feedModule?.id]);
+  const loadMore = () => {
+    if (!more || loadingMore) return;
+    setLoadingMore(true);
+    fetch(query(more), { headers: headers() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        setOlder((prev) => [...prev, ...(d?.items ?? [])]);
+        setMore(d?.nextBefore ?? null);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  };
+  useEffect(() => { if (feedModule) load(); }, [feedModule?.id, kind, tag]);
 
   if (modules.loaded && !feedModule) return <NotFound />;
 
@@ -94,7 +128,38 @@ export default function Feed() {
             </div>
           )}
 
-          {(data?.items ?? []).map((item: any) => {
+          {/* The filters the API always understood and the page never sent. */}
+          {data && (
+            <div className="flex flex-wrap items-center gap-2 px-1">
+              {[
+                { v: "", label: "Everything" },
+                { v: "post", label: "Posts" },
+                { v: "system", label: "Village happenings" },
+              ].map((f) => (
+                <button
+                  key={f.v || "all"}
+                  onClick={() => setKind(f.v)}
+                  aria-pressed={kind === f.v}
+                  className={`text-xs rounded-full px-3 py-1.5 border transition-colors ${
+                    kind === f.v
+                      ? "bg-[#2D5A5A] text-white border-[#2D5A5A]"
+                      : "bg-white text-muted-foreground border-border hover:border-[#2D5A5A]/40"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+              <input
+                value={tag}
+                onChange={(e) => setTag(e.target.value)}
+                placeholder="filter by tag"
+                aria-label="Filter the feed by tag"
+                className="text-xs border border-border rounded-full px-3 py-1.5 w-36"
+              />
+            </div>
+          )}
+
+          {[...(data?.items ?? []), ...older].map((item: any) => {
             if (item.itemType === "system") {
               const Icon = SYSTEM_ICON[item.kind] ?? Sparkles;
               return (
@@ -150,8 +215,21 @@ export default function Feed() {
               </div>
             );
           })}
-          {data && data.items.length === 0 && (
-            <p className="text-center text-sm text-muted-foreground py-12">Quiet so far — share the first moment.</p>
+          {data && data.items.length === 0 && older.length === 0 && (
+            <p className="text-center text-sm text-muted-foreground py-12">
+              {kind || tag ? "Nothing matches that filter." : "Quiet so far — share the first moment."}
+            </p>
+          )}
+          {more && (
+            <div className="pt-2 text-center">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="text-sm text-[#2D5A5A] border border-border rounded-lg px-4 py-2 hover:bg-[#2D5A5A]/5 disabled:opacity-40"
+              >
+                {loadingMore ? "Looking further back…" : "Show older"}
+              </button>
+            </div>
           )}
         </div>
       </section>

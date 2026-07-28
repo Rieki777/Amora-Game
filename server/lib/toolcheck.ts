@@ -98,10 +98,18 @@ export async function checkToolLink(rawUrl: string): Promise<LinkCheckResult> {
  * which range-checked the first host and then dialled wherever a redirect
  * pointed, including private addresses).
  */
-export async function guardedFetchJson(rawUrl: string, timeoutMs = 10_000): Promise<any> {
+export async function guardedFetchJson(
+  rawUrl: string,
+  timeoutMs = 10_000,
+  // POST is opt-in and goes through the SAME guard and the same pinned dial.
+  // A second, simpler helper for "just send this JSON somewhere" is how the
+  // SSRF that toolcheck exists to close comes back: the outbound calls that
+  // most need pinning are the ones to an address an admin typed in.
+  opts?: { method?: "GET" | "POST"; body?: unknown },
+): Promise<any> {
   const guard = await guardOutboundUrl(rawUrl);
   if (!guard.ok) throw new Error(guard.refused ?? "refused");
-  return dialPinnedJson(rawUrl, timeoutMs);
+  return dialPinnedJson(rawUrl, timeoutMs, 0, opts?.method ?? "GET", opts?.body);
 }
 
 /**
@@ -122,7 +130,13 @@ export async function guardedFetchJson(rawUrl: string, timeoutMs = 10_000): Prom
  * Bounded at 1 MB: a peer that answers with a gigabyte is a peer that takes
  * this village's memory down.
  */
-async function dialPinnedJson(rawUrl: string, timeoutMs: number, hops = 0): Promise<any> {
+async function dialPinnedJson(
+  rawUrl: string,
+  timeoutMs: number,
+  hops = 0,
+  method: "GET" | "POST" = "GET",
+  body?: unknown,
+): Promise<any> {
   if (hops > 5) throw new Error("too many redirects");
   const url = new URL(rawUrl);
   if (url.protocol !== "https:") throw new Error("https only");
@@ -133,12 +147,18 @@ async function dialPinnedJson(rawUrl: string, timeoutMs: number, hops = 0): Prom
   if (addrs.some((a) => ipIsPrivate(a.address))) throw new Error("resolves to a private address");
   const vetted = addrs[0];
 
+  const payload = method === "POST" && body !== undefined ? JSON.stringify(body) : null;
   const res = await new Promise<{ status: number; location: string | null; body: string }>((resolve, reject) => {
     const req = https.request(
       {
         protocol: "https:", hostname: host, port: url.port || 443,
-        path: url.pathname + url.search, method: "GET", timeout: timeoutMs, servername: host,
-        headers: { Accept: "application/json" },
+        path: url.pathname + url.search, method, timeout: timeoutMs, servername: host,
+        headers: {
+          Accept: "application/json",
+          ...(payload
+            ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
+            : {}),
+        },
         lookup: (_h: string, _o: any, cb: (e: Error | null, a: string | LookupAddress[], f?: number) => void) => {
           cb(null, vetted.address, (vetted as any).family === 6 ? 6 : 4);
         },
@@ -160,14 +180,18 @@ async function dialPinnedJson(rawUrl: string, timeoutMs: number, hops = 0): Prom
     );
     req.on("timeout", () => req.destroy(new Error("timeout")));
     req.on("error", reject);
+    if (payload) req.write(payload);
     req.end();
   });
 
   if (res.status >= 300 && res.status < 400 && res.location) {
-    return dialPinnedJson(new URL(res.location, url).toString(), timeoutMs, hops + 1);
+    return dialPinnedJson(new URL(res.location, url).toString(), timeoutMs, hops + 1, method, body);
   }
   if (res.status < 200 || res.status >= 300) throw new Error(String(res.status));
-  return JSON.parse(res.body);
+  // A webhook that answers 200 with an empty body (Slack says "ok") is a
+  // success, not a parse error.
+  if (!res.body.trim()) return null;
+  try { return JSON.parse(res.body); } catch { return res.body.slice(0, 500); }
 }
 
 async function dialPinned(rawUrl: string, method: "HEAD" | "GET", hops = 0): Promise<{ status: number }> {

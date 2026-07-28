@@ -438,6 +438,30 @@ export const VARIABLES: VariableDef[] = [
     default: "village-life",
   },
   {
+    key: "feed.show_system_events",
+    category: "Feed",
+    label: "Weave the village's own milestones into the feed",
+    description:
+      "On, the feed mixes what the village DID — quests consented, seasons turning, people arriving — " +
+      "in among what people wrote. Off, it is only posts. A young village usually wants this on, because " +
+      "a feed with three posts and no events reads as abandoned.",
+    type: "boolean",
+    default: "true",
+  },
+  {
+    key: "feed.max_post_length",
+    category: "Feed",
+    label: "How much of a long post the feed shows",
+    description:
+      "Posts longer than this are cut off in the feed with the rest behind the post itself. Nothing is " +
+      "deleted — this only decides how much of a long piece takes over the page.",
+    type: "integer",
+    default: "600",
+    min: 120,
+    max: 4000,
+    unit: "characters",
+  },
+  {
     key: "feed.heart_amount",
     category: "Feed",
     label: "Recognition each heart sends",
@@ -749,11 +773,17 @@ export const VARIABLES: VariableDef[] = [
     key: "village.pulse_max_entries",
     category: "Village",
     label: "Village Pulse length",
-    description: "How many recent events the public activity feed keeps before the oldest fall away.",
+    description:
+      "How many recent happenings the public activity feed shows. Nothing is deleted — this is " +
+      "how far back the page reaches, not how much the village keeps.",
     type: "integer",
-    default: "500",
+    // Was 500, described as a retention limit, and read by nothing: the route
+    // served a hard-coded 30 however the knob was set. Now the route reads it,
+    // so the default is the number that was actually being served — turning a
+    // dead setting on must not silently change what every village sees.
+    default: "30",
     min: 10,
-    max: 10000,
+    max: 200,
     unit: "entries",
   },
 

@@ -22,6 +22,7 @@
  *    migrating it here would re-introduce the stale-banner bug it fixed.
  */
 import type { Pool } from "mysql2/promise";
+import { reportError } from "./errors";
 
 interface Job {
   name: string;
@@ -57,7 +58,11 @@ async function tick(pool: Pool) {
       } catch (e: any) {
         const summary = `FAILED: ${String(e?.message ?? e)}`.slice(0, 255);
         await pool.query("UPDATE scheduled_jobs SET last_result = ? WHERE job = ?", [summary, job.name]);
-        console.error(`[scheduler] ${job.name} ${summary}`);
+        // A job that fails every hour used to write the same row and print
+        // the same line to a log nobody reads. These are the jobs that settle
+        // library loans, sweep abandoned checkouts and relay feedback — a
+        // silent one is a village quietly losing a service it thinks it has.
+        await reportError(e, { where: `the ${job.name} job`, detail: { job: job.name } });
       }
     } catch (e) {
       console.error(`[scheduler] tick error for ${job.name}`, e);
