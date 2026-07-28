@@ -4525,9 +4525,25 @@ function HealthAdminTab({ password }: { password: string }) {
     } catch (e: any) { toast.error(e?.message || "Failed"); }
   };
 
-  const remove = async (id: string) => {
-    if (!window.confirm("Remove this entry?")) return;
-    await fetch(`${API_BASE}/admin/health/regen/${id}`, { method: "DELETE", headers: authHeaders(password) });
+  // Withdraw, not delete. These readings go out to funders and to Hypha, so a
+  // wrong one is corrected in the open — the entry stays visible, marked, with
+  // the reason attached, and stops counting toward any total.
+  const retract = async (id: string) => {
+    const note = window.prompt(
+      "Why is this reading being withdrawn?\n\nIt stays on the record, marked as withdrawn, and stops counting toward the totals.",
+    );
+    if (note === null) return;
+    if (!note.trim()) { toast.error("A reason is required"); return; }
+    const res = await fetch(`${API_BASE}/admin/health/regen/${id}/retract`, {
+      method: "POST",
+      headers: authHeaders(password, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ note: note.trim() }),
+    });
+    if (!res.ok) {
+      toast.error((await res.json().catch(() => ({})))?.error || "Could not withdraw it");
+      return;
+    }
+    toast.success("Withdrawn — it no longer counts toward the totals");
     load();
   };
 
@@ -4604,7 +4620,7 @@ function HealthAdminTab({ password }: { password: string }) {
                 {new Date(e.recordedAt).toLocaleDateString()} — <b>{e.value} {e.unit}</b> {metrics.find((m) => m.key === e.metricKey)?.label?.toLowerCase() ?? e.metricKey}
                 {e.note ? <span className="text-gray-400"> · {e.note}</span> : null}
               </span>
-              <button onClick={() => remove(e.id)} className="text-xs text-gray-400 hover:text-red-600">Remove</button>
+              <button onClick={() => retract(e.id)} className="text-xs text-gray-400 hover:text-red-600">Withdraw</button>
             </div>
           ))}
           {(data?.entries ?? []).length === 0 && <p className="text-sm text-gray-400">Nothing recorded yet.</p>}

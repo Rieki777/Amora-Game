@@ -209,7 +209,31 @@ function validateLeg(input: TransferInput): { tokenType: string; amount: number 
   return { tokenType, amount };
 }
 
-export async function postTransfer(pool: Pool, input: TransferInput): Promise<TransferResult> {
+/**
+ * A veto that runs INSIDE a single transfer's transaction, after the accounts
+ * are locked FOR UPDATE and before the ledger row is written.
+ *
+ * Same shape and same reason as {@link PairGuard}, for the same class of bug:
+ * a limit that lives OUTSIDE the ledger — a per-cycle mint cap, for one — is
+ * check-then-act when the caller reads the running total, decides, and posts
+ * several awaits later. A concurrent request reads the same stale total and
+ * also decides yes, and the cap is quietly exceeded with every individual
+ * request looking lawful.
+ *
+ * Running the check under the lock that already orders the writes makes
+ * deciding and writing one atomic step. The accounts are locked before the
+ * guard runs, so two posts moving the same token between the same accounts
+ * are serialised and the second one reads the first one's committed row.
+ *
+ * Return a human-readable reason to refuse, or null to proceed.
+ */
+export type TransferGuard = (conn: PoolConnection) => Promise<string | null>;
+
+export async function postTransfer(
+  pool: Pool,
+  input: TransferInput,
+  guard?: TransferGuard,
+): Promise<TransferResult> {
   const checked = validateLeg(input);
   if ("error" in checked) return { ok: false, duplicate: false, toBalance: 0, error: checked.error };
   const { tokenType, amount } = checked;
@@ -237,6 +261,15 @@ export async function postTransfer(pool: Pool, input: TransferInput): Promise<Tr
       await conn.rollback();
       const missing = !fromAcct ? input.from : input.to;
       return { ok: false, duplicate: false, toBalance: 0, error: `account "${missing}" does not exist` };
+    }
+
+    // The veto, under the lock the accounts are already holding.
+    if (guard) {
+      const refusal = await guard(conn);
+      if (refusal) {
+        await conn.rollback();
+        return { ok: false, duplicate: false, toBalance: 0, error: refusal };
+      }
     }
 
     try {

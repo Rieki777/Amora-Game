@@ -82,8 +82,10 @@ describe("settleCycle", () => {
     );
     expect(rows).toEqual([
       // S27 added the channel split; kind-less legacy entries count as acks.
-      { userId: "b", received: 10, receivedHearts: 0, receivedAcks: 10, distinctSenders: 2 },
-      { userId: "a", received: 7, receivedHearts: 0, receivedAcks: 7, distinctSenders: 1 },
+      // `receivedEligible` equals `received` here because no eligibility set
+      // was passed — ungated, every amount counts toward the pool.
+      { userId: "b", received: 10, receivedEligible: 10, receivedHearts: 0, receivedAcks: 10, distinctSenders: 2 },
+      { userId: "a", received: 7, receivedEligible: 7, receivedHearts: 0, receivedAcks: 7, distinctSenders: 1 },
     ]);
   });
 

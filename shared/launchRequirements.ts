@@ -212,6 +212,35 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     runbookAnchor: "domain",
   },
   {
+    id: "session-secret",
+    group: "reach",
+    title: "Set a stable session secret",
+    why:
+      "Without AUTH_TOKEN_SECRET the server invents a new signing key every time it starts. " +
+      "Nothing looks broken — until a deploy silently signs everyone out, or a second copy of the " +
+      "service starts and members are logged out at random depending on which one answers. It fails " +
+      "safe rather than open, so no forged login is possible; it just quietly makes sessions unreliable.",
+    severity: "blocking",
+    checkKey: "session-secret",
+    fixAt: "/admin?tab=integrations",
+    fixLabel: "Set it in the environment",
+    runbookAnchor: "env",
+  },
+  {
+    id: "exit-policy-terms",
+    group: "reach",
+    title: "Write your exit policy's actual terms",
+    why:
+      "Every village ships with a placeholder that says the terms are still to be decided by the " +
+      "community — honest on day one, a broken promise once people have contributed real value and " +
+      "money. Someone leaving needs to know how their contribution is honoured BEFORE they need to know.",
+    severity: "blocking",
+    checkKey: "exit-policy-terms",
+    fixAt: "/admin?tab=settings",
+    fixLabel: "Write the terms",
+    runbookAnchor: "exit-policy",
+  },
+  {
     id: "backups-drilled",
     group: "reach",
     title: "Take one backup and restore it once",

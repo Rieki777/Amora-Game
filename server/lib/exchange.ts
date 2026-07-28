@@ -682,6 +682,68 @@ export async function reconcileSwapOrders(pool: Pool): Promise<{ settled: number
 }
 
 /**
+ * The other reaper: abandoned CARD checkouts (X4).
+ *
+ * A fiat purchase inserts its order as `pending` BEFORE the Stripe Checkout
+ * session opens, so every closed tab leaves one behind and nothing ever
+ * cleared them. That is not merely untidy. Both blockers that read this table
+ * are kind-agnostic — `exchangeOpenState` refuses to turn the module off while
+ * any order is pending, and the exit enumerator refuses to release a member
+ * with one — so a single abandoned checkout could keep the exchange
+ * permanently un-disableable and hold someone in the village indefinitely.
+ * Nobody would connect the two.
+ *
+ * Two rules make releasing safe:
+ *
+ *  - Never touch an order with ledger legs. Tokens moved means it was paid,
+ *    whatever the row says; that is a settle bug, not an abandonment, and it
+ *    is left alone and reported rather than quietly cancelled.
+ *  - Wait longer than Stripe will. A Checkout session stays payable for about
+ *    24 hours, so a shorter window could cancel an order while the member is
+ *    still on the payment page — taking their money against a cancelled
+ *    order. Hence hours, a 48-hour default, and a floor enforced here rather
+ *    than trusted to whoever edits the variable.
+ *
+ * `client_key` is cleared with the status for the same reason the swap reaper
+ * clears it: a key still attached to a dead order refuses the member's retry.
+ */
+export const ORDER_EXPIRY_FLOOR_HOURS = 25;
+
+export async function releaseAbandonedFiatOrders(
+  pool: Pool,
+  expiryHours: number,
+): Promise<{ released: number; skipped: string[] }> {
+  if (expiryHours <= 0) return { released: 0, skipped: [] };
+  const hours = Math.max(ORDER_EXPIRY_FLOOR_HOURS, Math.floor(expiryHours));
+  const [stale] = await pool.query<RowDataPacket[]>(
+    "SELECT id FROM exchange_orders WHERE kind = 'fiat_purchase' AND status = 'pending' " +
+      "AND created_at < (NOW() - INTERVAL ? HOUR)",
+    [hours],
+  );
+  let released = 0;
+  const skipped: string[] = [];
+  for (const row of stale) {
+    const id = String(row.id);
+    const [[legs]] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS n FROM token_ledger WHERE source = 'exchange_purchase' AND source_ref = ?",
+      [id],
+    );
+    if (Number(legs.n) > 0) {
+      // Paid in the ledger, pending on the row. Releasing it would erase the
+      // only record that the member is owed something.
+      skipped.push(id);
+      continue;
+    }
+    await pool.query(
+      "UPDATE exchange_orders SET status = 'cancelled', client_key = NULL WHERE id = ? AND status = 'pending'",
+      [id],
+    );
+    released += 1;
+  }
+  return { released, skipped };
+}
+
+/**
  * Automated authority may NARROW the market and never widen it. A listing
  * that no longer passes its own firewall (a token that has since been
  * faucet-issued, say) is delisted loudly at boot rather than crashing a

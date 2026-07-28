@@ -30,6 +30,7 @@ import {
   tokenDef,
   TREASURY,
 } from "./lib/ledger";
+import type { TransferGuard } from "./lib/ledger";
 import {
   STAY_CREDIT,
   ensureStayToken,
@@ -124,6 +125,7 @@ import {
   quoteSwap,
   type SwapQuote,
   reconcileSwapOrders,
+  releaseAbandonedFiatOrders,
   repairTaintedListings,
   setPrice,
   settingsFor,
@@ -288,7 +290,27 @@ const CIRCLES_SEED_FILE = path.join(SEEDS_DIR, "circles-seed.json");
 /** Ledger of one-shot data fixes already applied to this deployment's volume. */
 // migrations.json retired in S12 — the runOnce ledger is app_config 'data-migrations'.
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me";
+/**
+ * The bootstrap password — used ONCE, to create a deployment's first founder,
+ * and inert afterwards.
+ *
+ * The fallback is a placeholder, and a placeholder that authenticates is not a
+ * fallback, it is a published credential: a fork that deploys without setting
+ * this hands its founder account to anyone who has read the source. So the
+ * literal is named here and refused at the door below, rather than left to be
+ * noticed. Unset behaves the same way — there is no password that works by
+ * accident.
+ */
+const PLACEHOLDER_ADMIN_PASSWORD = "change-me";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || PLACEHOLDER_ADMIN_PASSWORD;
+/**
+ * Only the placeholder is refused — deliberately not a strength rule. What is
+ * dangerous here is a credential ANYONE CAN READ IN THE SOURCE, not a short
+ * one; a village that has chosen its own bootstrap word has made a decision,
+ * and quietly overriding it would lock a founder out of their own deployment
+ * at the exact moment they need break-glass access.
+ */
+const adminPasswordIsUsable = ADMIN_PASSWORD !== PLACEHOLDER_ADMIN_PASSWORD;
 /**
  * Signing secret for member auth tokens. Tokens used to be unsigned base64 JSON,
  * which meant anyone could mint one for any user id (see encodeToken below).
@@ -1673,6 +1695,43 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<voi
   const holders = loadRoleHolders().filter((h) => h.userId !== target.id);
   await roleHoldersRepo.replaceAll(holders);
 
+  /*
+   * THE TRACES A TOMBSTONE DOES NOT COVER.
+   *
+   * Most identity here is a join: forum posts and quest claims carry only an
+   * `author_id`, so once the user row becomes a tombstone they read as "a
+   * departed member" for free. The rows below are the ones that do NOT work
+   * that way — they either restate the person independently of the users
+   * table, or they keep a live channel open to them after they have gone.
+   *
+   * Value rows stay, as always: the ledger, gratitude, claims, loans, orders
+   * and badge awards are the village's record of what happened and what is
+   * owed, and deleting those would break the conservation proof.
+   */
+  // Claims a person made ABOUT THEMSELVES, published in a searchable
+  // directory that joins straight back to users. Nothing else republishes
+  // them, so nothing else would ever remove them.
+  await pool.query("DELETE FROM skill_tags WHERE user_id = ?", [target.id]);
+  // A live push endpoint is a route to somebody's phone. Leaving it meant a
+  // "deleted" member could still be buzzed by the village they left.
+  await pool.query("DELETE FROM push_subscriptions WHERE user_id = ?", [target.id]);
+  // Same reasoning, quieter channel: an unmuted thread subscription keeps
+  // generating notifications for an account that no longer exists.
+  await pool.query("DELETE FROM forum_subscriptions WHERE user_id = ?", [target.id]);
+  // The proof-of-ownership challenge tying a wallet address to this person.
+  await pool.query("DELETE FROM wallet_challenges WHERE user_id = ?", [target.id]);
+  // Free text they wrote, in their own words. The row is kept — the funnel
+  // it belongs to is a real metric — but the sentence goes, and so does the
+  // attribution, because a question can identify its asker on its own.
+  await pool.query(
+    "UPDATE concierge_queries SET query = '[removed with the member]', user_id = NULL WHERE user_id = ?",
+    [target.id],
+  );
+  await pool.query(
+    "UPDATE contact_requests SET message = '[removed with the member]' WHERE from_user_id = ?",
+    [target.id],
+  );
+
   await members.update(target.id, (u: any) => {
     u.name = anon;
     u.email = `deleted-${u.id}@anonymized.invalid`;
@@ -1979,11 +2038,32 @@ async function startServer() {
   // S59: the reaper, not a settler. It never executes a swap — it only
   // resolves orders whose legs already tell the truth, and refuses to guess
   // when a swap somehow has exactly one leg.
-  registerJob("exchange-reconcile", 60 * 60 * 1000, async () => {
+  /**
+   * The hourly reaper, also runnable on demand:
+   * POST /api/admin/exchange/reconcile. An admin who has just watched a
+   * member fail to leave should not have to wait out the interval to clear
+   * the order that is holding them.
+   */
+  async function runExchangeReconcile(): Promise<string> {
     if (effectiveLifecycle("exchange") === "off") return "exchange module off";
     const r = await reconcileSwapOrders(getPool());
-    return `${r.settled} swap(s) settled, ${r.cancelled} cancelled`;
-  });
+    // X4: abandoned card checkouts, released on the same pass. A pending
+    // order blocks disabling the module AND blocks that member's exit, so
+    // leaving them to accumulate quietly wedges two unrelated things.
+    const f = await releaseAbandonedFiatOrders(getPool(), numberVar("exchange.order_expiry_hours"));
+    if (f.skipped.length) {
+      // Tokens moved but the row never settled. That is a settle failure, and
+      // silently cancelling it would erase the member's claim.
+      await notifyAdmins(
+        "payment",
+        `${f.skipped.length} exchange order(s) hold ledger entries but are still marked pending — they were NOT released: ${f.skipped.slice(0, 5).join(", ")}`,
+        `exchange-stuckorders:${new Date().toISOString().slice(0, 10)}`,
+      );
+    }
+    return `${r.settled} swap(s) settled, ${r.cancelled} cancelled, ${f.released} abandoned checkout(s) released` +
+      (f.skipped.length ? `, ${f.skipped.length} stuck and reported` : "");
+  }
+  registerJob("exchange-reconcile", 60 * 60 * 1000, runExchangeReconcile);
   // S66: feedback relay — every 15 minutes, while the village keeps it on.
   // The hub being down costs nothing but a log line; rows wait their turn.
   registerJob("feedback-relay", 15 * 60 * 1000, async () => {
@@ -2145,6 +2225,20 @@ async function startServer() {
   MODULES_BY_ID["exchange"].openStateCheck = () => exchangeOpenState(getPool());
   MODULES_BY_ID["badges"].openStateCheck = () => badgesOpenState(getPool());
   MODULES_BY_ID["library"].openStateCheck = () => libraryOpenState(getPool());
+  /*
+   * Commerce was the only funds-bearing module without one. Turning it off
+   * unmounts the checkout AND the webhook route, so a purchase that had been
+   * paid for but not yet settled — a bank debit still clearing, a renewal
+   * mid-flight, a retry Stripe has queued — would have had nowhere to land,
+   * and no admin would have been warned. Settle first, then close the door.
+   */
+  MODULES_BY_ID["commerce"].openStateCheck = async () => {
+    const [[row]] = await getPool().query<any[]>(
+      "SELECT COUNT(*) AS n FROM product_purchases WHERE status = 'pending'",
+    );
+    const n = Number(row.n);
+    return { count: n, description: `${n} product purchase(s) still awaiting payment` };
+  };
 
   // S33/S37/S42: config and economy firewalls are re-proven at every boot —
   // a hand-edited listing, badge row, or drained escrow can never outlive a
@@ -2964,6 +3058,18 @@ async function startServer() {
     }
     const { password, email, name } = req.body ?? {};
     if (!password || !email) return res.status(400).json({ error: "password and email required" });
+    // Refuse BEFORE comparing. A deployment that never set ADMIN_PASSWORD is
+    // running on a value printed in the source, and this route creates the
+    // founder — the one account that can do everything. Say so plainly rather
+    // than answering "Unauthorized" to a password that is technically right.
+    if (!adminPasswordIsUsable) {
+      console.error("[bootstrap] refused: ADMIN_PASSWORD is unset or still the placeholder");
+      return res.status(503).json({
+        error:
+          "This deployment has no bootstrap password set, so there is nothing to authenticate against. " +
+          "Set ADMIN_PASSWORD to a value of your own in the environment, redeploy, and try again.",
+      });
+    }
     if (!secretEquals(String(password), ADMIN_PASSWORD)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -4835,6 +4941,23 @@ async function startServer() {
           ? { state: "ok" as const, detail: `${dated.length} season${dated.length === 1 ? "" : "s"} on the calendar` }
           : { state: "missing" as const, detail: "No dated seasons — cycles and settlement have no calendar to hang from" };
       },
+      // Both of these were already machine-observable and simply never asked.
+      "session-secret": () =>
+        process.env.AUTH_TOKEN_SECRET
+          ? { state: "ok" as const, detail: "Sessions survive restarts and extra replicas" }
+          : {
+              state: "missing" as const,
+              detail: "Signing with a random per-process key — every restart logs everyone out",
+            },
+      "exit-policy-terms": () => {
+        const p: any = exitPolicyRepo.get();
+        return p && !p.placeholder
+          ? { state: "ok" as const, detail: "The terms are written" }
+          : {
+              state: "missing" as const,
+              detail: "Still the shipped placeholder — members are told the terms are yet to be decided",
+            };
+      },
     },
   };
 
@@ -6062,10 +6185,46 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     res.json({ success: true, id });
   });
 
-  app.delete("/api/admin/health/regen/:id", async (req, res) => {
+  /**
+   * RETRACT, DON'T DELETE (0040).
+   *
+   * This was a hard DELETE, against a module contract that says regen entries
+   * are append-only and "nothing is ever edited or deleted". These rows are
+   * the land's measured record, and the village carries their totals to
+   * funders and to Hypha — a figure that can vanish without trace is a figure
+   * nobody outside can audit, and the moment it would quietly disappear is
+   * the moment it was inconvenient.
+   *
+   * So a mistaken entry is marked retracted, with who and why, and an
+   * optional pointer to the reading that replaces it. The number stops
+   * counting toward totals; the fact that it was once claimed does not.
+   */
+  app.post("/api/admin/health/regen/:id/retract", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const [r] = await getPool().query<any>("DELETE FROM regen_entries WHERE id = ?", [req.params.id]);
-    if (!(r as any).affectedRows) return res.status(404).json({ error: "No such entry" });
+    const actor = adminActor(req)?.id ?? null;
+    if (!actor) return res.status(401).json({ error: "Unauthorized" });
+    const note = String(req.body?.note ?? "").trim();
+    if (!note) {
+      return res.status(400).json({ error: "Say why this reading is being withdrawn — a correction without a reason is just a deletion" });
+    }
+    const supersededBy = req.body?.supersededBy ? String(req.body.supersededBy) : null;
+    if (supersededBy) {
+      const [[replacement]] = await getPool().query<any[]>(
+        "SELECT id FROM regen_entries WHERE id = ?", [supersededBy],
+      );
+      if (!replacement) return res.status(400).json({ error: "The replacement entry does not exist" });
+      if (supersededBy === req.params.id) return res.status(400).json({ error: "An entry cannot supersede itself" });
+    }
+    const [r] = await getPool().query<any>(
+      "UPDATE regen_entries SET retracted_at = NOW(), retracted_by = ?, retraction_note = ?, superseded_by = ? " +
+        "WHERE id = ? AND retracted_at IS NULL",
+      [actor, note.slice(0, 500), supersededBy, req.params.id],
+    );
+    if (!(r as any).affectedRows) return res.status(404).json({ error: "No such entry, or it was already retracted" });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `health:regen:retracted:${req.params.id}`,
+      actorUserId: actor, entityType: "regen_entry", entityRef: req.params.id, audience: "admin",
+    });
     res.json({ success: true });
   });
 
@@ -6292,6 +6451,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   app.post("/api/admin/library/sweep", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     res.json(await runLibrarySweep());
+  });
+
+  /** The exchange reaper on demand — see runExchangeReconcile. */
+  app.post("/api/admin/exchange/reconcile", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    res.json({ result: await runExchangeReconcile() });
   });
 
   /** The SECOND steward's signature on a high-value intake. */
@@ -7304,6 +7469,55 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   });
 
   /**
+   * THE PER-CYCLE MINT CAP, ENFORCED WHERE IT CANNOT BE RACED.
+   *
+   * Two doors mint from `sys:mint` — stocking the treasury and hand-minting to
+   * a member — and both used to read the cycle's running total, compare it,
+   * and then post several awaits later. Two admins clicking at once both read
+   * the same stale total, both decide there is room, and both post: the cap is
+   * exceeded while every individual request looks lawful, and nothing
+   * downstream notices because conservation still holds.
+   *
+   * "Caps fail closed" is a platform invariant, so this runs as a ledger guard
+   * instead — inside the transaction, after `sys:mint` and the destination are
+   * locked FOR UPDATE. Any two mints of the same token contend on the same
+   * `sys:mint` row, so they serialise, and the second one counts the first
+   * one's committed row. Deciding and writing become one step.
+   *
+   * The same guard covers both doors on purpose: two doors with one cap.
+   */
+  function mintCapGuard(slug: string, amt: number): TransferGuard {
+    const cap = numberVar("ledger.admin_mint_cycle_cap");
+    const since = new Date(currentCycle().startsAt);
+    return async (conn) => {
+      // Re-read the cap inside the guard: an admin may have lowered it
+      // between the request arriving and the lock being granted, and the
+      // lower number is the one the village decided on.
+      if (cap <= 0) return "Minting is disabled (ledger.admin_mint_cycle_cap is 0)";
+      const [[row]] = await conn.query<any[]>(
+        "SELECT COALESCE(SUM(amount), 0) AS minted FROM token_ledger " +
+          "WHERE from_account = 'sys:mint' AND token_type = ? AND at >= ?",
+        [slug, since],
+      );
+      const minted = Number(row?.minted ?? 0);
+      if (minted + amt > cap) {
+        return `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`;
+      }
+      return null;
+    };
+  }
+
+  /** What the cap has left, for the pre-flight refusals and the response. */
+  async function mintedThisCycle(slug: string): Promise<number> {
+    const [[row]] = await getPool().query<any[]>(
+      "SELECT COALESCE(SUM(amount), 0) AS minted FROM token_ledger " +
+        "WHERE from_account = 'sys:mint' AND token_type = ? AND at >= ?",
+      [slug, new Date(currentCycle().startsAt)],
+    );
+    return Number(row?.minted ?? 0);
+  }
+
+  /*
    * Stock the treasury: sys:mint -> sys:treasury, under the SAME per-cycle
    * aggregate mint cap as hand-mints — stocking IS minting, and two doors
    * with one cap beats two doors with two.
@@ -7318,12 +7532,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     if (amt < 1) return res.status(400).json({ error: "A positive amount is required" });
     const cap = numberVar("ledger.admin_mint_cycle_cap");
     if (cap <= 0) return res.status(403).json({ error: "Minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
-    const cycle = currentCycle();
-    const [[mintedRow]] = await getPool().query<any[]>(
-      "SELECT COALESCE(SUM(amount), 0) AS minted FROM token_ledger WHERE from_account = 'sys:mint' AND token_type = ? AND at >= ?",
-      [slug, new Date(cycle.startsAt)],
-    );
-    const minted = Number(mintedRow?.minted ?? 0);
+    // A courteous pre-flight so the admin gets a 409 with numbers instead of
+    // a bare refusal. It is NOT the enforcement — the guard below is.
+    const minted = await mintedThisCycle(slug);
     if (minted + amt > cap) {
       return res.status(409).json({
         error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`,
@@ -7339,9 +7550,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       source: "exchange_stock",
       sourceRef: actor ?? undefined,
       description: `Treasury stocked for the exchange`,
-      idempotencyKey: `xstock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    });
-    if (!r.ok) return res.status(400).json({ error: r.error });
+      // A caller-supplied key makes a double-submitted form one stocking
+      // instead of two; without one, each request is its own deliberate act.
+      idempotencyKey: String(req.body?.requestId ?? "").trim()
+        ? `xstock:${slug}:${String(req.body.requestId).trim().slice(0, 60)}`
+        : `xstock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    }, mintCapGuard(slug, amt));
+    if (!r.ok) return res.status(r.error?.includes("mint cap") ? 409 : 400).json({ error: r.error });
     void recordEvent(getPool(), {
       kind: "audit", text: `exchange:stock:${amt}:${slug}`,
       actorUserId: actor, entityType: "token", entityRef: slug, audience: "admin",
@@ -7423,13 +7638,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
     const cap = numberVar("ledger.admin_mint_cycle_cap");
     if (cap <= 0) return res.status(403).json({ error: "Manual minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
-    const cycle = currentCycle();
-    const [[mintedRow]] = await getPool().query<any[]>(
-      "SELECT COALESCE(SUM(amount), 0) AS minted FROM token_ledger " +
-        "WHERE from_account = 'sys:mint' AND token_type = ? AND at >= ?",
-      [slug, new Date(cycle.startsAt)],
-    );
-    const minted = Number(mintedRow?.minted ?? 0);
+    // Pre-flight for a readable refusal; the guard on the post is the rule.
+    const minted = await mintedThisCycle(slug);
     if (minted + amt > cap) {
       return res.status(409).json({
         error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`,
@@ -7447,9 +7657,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       source: "admin_mint",
       sourceRef: adminActor(req)?.id,
       description: String(reason).trim().slice(0, 500),
-      idempotencyKey: `admin_mint:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    });
-    if (!r.ok) return res.status(400).json({ error: r.error });
+      idempotencyKey: String(req.body?.requestId ?? "").trim()
+        ? `admin_mint:${slug}:${String(req.body.requestId).trim().slice(0, 60)}`
+        : `admin_mint:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    }, mintCapGuard(slug, amt));
+    if (!r.ok) return res.status(r.error?.includes("mint cap") ? 409 : 400).json({ error: r.error });
     // Recognition minted by hand still updates the profile's cached balance.
     if (slug === "gratitude") {
       await members.update(target.id, (u: any) => { u.recognitionBalance = r.toBalance; });
@@ -9048,14 +9260,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const eligible = await eligibleSenderIds();
     for (const cycle of due) {
       const totals = settleCycle(entries, cycle.id, eligible);
-      const totalReceived = totals.reduce((n, t) => n + t.received, 0);
+      // Split by ELIGIBLE recognition, not the raw total: value follows the
+      // same Sybil filter the breadth metric answers to. `t.received` stays
+      // the honest figure for reporting.
+      const totalReceived = totals.reduce((n, t) => n + t.receivedEligible, 0);
       let cycleCredited = 0;
       for (const t of totals) {
         // Pool share ∝ recognition received this lunation. floor() keeps the
         // remainder in the pool rather than minting dust.
         let credited = 0;
         if (poolSize > 0 && totalReceived > 0) {
-          credited = Math.floor((t.received / totalReceived) * poolSize);
+          credited = Math.floor((t.receivedEligible / totalReceived) * poolSize);
           if (credited > 0) {
             // Value flows from the cycle-pool faucet (S7): the pool's negative
             // balance is the total value ever released, in one query.
@@ -9287,6 +9502,35 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const raw = req.body?.value;
     if (raw === undefined || raw === null) return res.status(400).json({ error: "A value is required" });
+    /*
+     * A KNOB THAT CANNOT ACT MUST NOT ACCEPT A VALUE.
+     *
+     * Two stays variables are shipped policy with no enforcement behind them
+     * (V2_PLAN ranks 66, S1+S2) and both are deliberately legal-blocked: the
+     * plan says in terms not to write the expiry sweep before Gate F blesses
+     * it, because "the default of 0 is what keeps the platform out of
+     * escheatment, and building the mechanism creates pressure to use it".
+     *
+     * That reasoning holds. What does not hold is the form silently accepting
+     * "365 days" and leaving an admin believing credits expire when nothing
+     * will ever sweep them — a belief they might pass on to members. Until
+     * the mechanism exists, the honest answer is to refuse the change and say
+     * why, rather than to store a number nobody reads.
+     */
+    const unenforced: Record<string, string> = {
+      "stay.credit_expiry_days":
+        "Credits cannot expire yet — nothing sweeps them, so any value here would be a promise the platform does not keep. " +
+        "Expiring member-held value is a legal question (gift-certificate and escheatment rules) that has to be answered before the sweep is written, not after. Leave it at 0.",
+      "stay.credits_transferable":
+        "Credit transfers between members are not built, and turning this on would not enable them. " +
+        "Freely transferable credits also drift toward regulated e-money, which is a decision to take with counsel before the surface exists.",
+    };
+    const blocked = unenforced[req.params.key];
+    if (blocked) {
+      const v = String(raw).trim().toLowerCase();
+      const isOff = v === "0" || v === "false" || v === "";
+      if (!isOff) return res.status(409).json({ error: blocked });
+    }
     const result = await setVariable(getPool(), req.params.key, String(raw));
     if (!result.ok) return res.status(400).json({ error: result.error });
     if (result.previous !== result.value) {
@@ -9538,6 +9782,21 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       "SELECT type, title, body, link, is_read, created_at FROM notifications WHERE user_id = ?",
       [user.id],
     );
+    /*
+     * "EVERYTHING THE VILLAGE HOLDS ABOUT ME" HAS TO MEAN EVERYTHING.
+     *
+     * The button says exactly that, and the document used to answer with
+     * eleven of nineteen domains. The eight it left out were not incidental —
+     * stays, purchases, borrowed items, badges earned, forum writing, who was
+     * introduced to whom, wallet balances, and the record of leaving. Someone
+     * exercising a data right, or simply trying to keep their own history,
+     * would have had no way to know the file was partial.
+     *
+     * One query per domain, all keyed on the member, all read-only.
+     */
+    const pool = getPool();
+    const mine = async (sql: string, params: any[] = [user.id]) =>
+      (await pool.query<any[]>(sql, params))[0];
     const exportDoc = {
       exportedAt: new Date().toISOString(),
       platform: mergedConfig().project.name,
@@ -9552,6 +9811,28 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       submissions: submissionsRepo.all().filter((s: any) => s.userId === user.id),
       notifications: notifRows,
       preferences: resolveNotifyPrefs(user.prefs),
+      stays: await mine("SELECT * FROM stays WHERE user_id = ?"),
+      stayPurchases: await mine("SELECT * FROM stay_purchases WHERE user_id = ?"),
+      exchangeOrders: await mine("SELECT * FROM exchange_orders WHERE user_id = ?"),
+      productPurchases: await mine("SELECT * FROM product_purchases WHERE user_id = ?"),
+      fiatCharges: await mine(
+        "SELECT module, order_id, amount_minor, currency, status, paid_at FROM fiat_charges WHERE user_id = ?",
+      ),
+      libraryLoans: await mine("SELECT * FROM library_loans WHERE user_id = ?"),
+      itemsDonated: await mine("SELECT * FROM library_items WHERE donor_user_id = ?"),
+      badges: await mine(
+        "SELECT a.*, b.name AS badge_name FROM badge_awards a JOIN badges b ON b.id = a.badge_id WHERE a.user_id = ?",
+      ),
+      skillTags: await mine("SELECT tag FROM skill_tags WHERE user_id = ?"),
+      forumThreads: await mine("SELECT * FROM forum_threads WHERE author_id = ?"),
+      forumReplies: await mine("SELECT * FROM forum_replies WHERE author_id = ?"),
+      // Both directions: an introduction is a fact about two people, and each
+      // of them is entitled to their own half of it.
+      introductionsSent: await mine("SELECT * FROM contact_requests WHERE from_user_id = ?"),
+      introductionsReceived: await mine("SELECT * FROM contact_requests WHERE to_user_id = ?"),
+      conciergeQueries: await mine("SELECT query, created_at FROM concierge_queries WHERE user_id = ?"),
+      onchainBalances: await mine("SELECT * FROM onchain_balances WHERE user_id = ?"),
+      exits: await mine("SELECT * FROM exits WHERE user_id = ?"),
     };
     res.setHeader("Content-Disposition", `attachment; filename="my-data-${user.id}.json"`);
     res.json(exportDoc);

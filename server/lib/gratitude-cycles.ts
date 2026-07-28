@@ -125,6 +125,19 @@ export interface SettleTotals {
    * metrics — and badges later escalate breadth into capabilities.
    */
   distinctSenders: number;
+  /**
+   * Recognition received FROM ELIGIBLE SENDERS ONLY — the number the value
+   * pool is split by.
+   *
+   * `received` above is the honest total of what people sent, and the founders
+   * carry that figure and its channel split to Hypha, so it stays whole. But
+   * splitting real value pro-rata by it meant the Sybil filter guarded
+   * breadth and not money: an alt farm's recognition was refused a place in
+   * `distinctSenders` one line later while still enlarging its owner's share
+   * of the pool. Filtering the metric and not the payout protects the
+   * leaderboard and leaves the treasury open.
+   */
+  receivedEligible: number;
 }
 
 export function settleCycle(
@@ -135,22 +148,28 @@ export function settleCycle(
   const inCycle = entries.filter((e) => e.cycleId === cycleId);
   const byRecipient = new Map<
     string,
-    { received: number; hearts: number; acks: number; senders: Set<string> }
+    { received: number; eligible: number; hearts: number; acks: number; senders: Set<string> }
   >();
   for (const e of inCycle) {
     if (!e.toId) continue;
-    const row = byRecipient.get(e.toId) ?? { received: 0, hearts: 0, acks: 0, senders: new Set<string>() };
+    const row = byRecipient.get(e.toId) ?? { received: 0, eligible: 0, hearts: 0, acks: 0, senders: new Set<string>() };
     const amount = Number(e.amount) || 0;
     row.received += amount;
     if (e.kind === "heart") row.hearts += amount;
     else row.acks += amount;
-    if (!eligibleSenders || eligibleSenders.has(e.fromId)) row.senders.add(e.fromId);
+    // One eligibility test, applied to BOTH the breadth metric and the
+    // amount that will decide a share of real value.
+    if (!eligibleSenders || eligibleSenders.has(e.fromId)) {
+      row.senders.add(e.fromId);
+      row.eligible += amount;
+    }
     byRecipient.set(e.toId, row);
   }
   return Array.from(byRecipient.entries())
     .map(([userId, r]) => ({
       userId,
       received: r.received,
+      receivedEligible: r.eligible,
       receivedHearts: r.hearts,
       receivedAcks: r.acks,
       distinctSenders: r.senders.size,

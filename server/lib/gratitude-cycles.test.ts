@@ -27,7 +27,7 @@ describe("settleCycle", () => {
       "lunar-000100",
     );
     expect(totals).toEqual([
-      { userId: "recipient", received: 8, receivedHearts: 3, receivedAcks: 5, distinctSenders: 3 },
+      { userId: "recipient", received: 8, receivedEligible: 8, receivedHearts: 3, receivedAcks: 5, distinctSenders: 3 },
     ]);
   });
 
@@ -37,7 +37,7 @@ describe("settleCycle", () => {
     expect(totals[0].receivedHearts).toBe(0);
   });
 
-  it("Sybil rule: ineligible senders still move VALUE but never count as breadth", () => {
+  it("Sybil rule: an ineligible sender counts toward neither breadth nor the pool", () => {
     const totals = settleCycle(
       [
         entry({ fromId: "member-1", amount: 5 }),
@@ -47,11 +47,30 @@ describe("settleCycle", () => {
       "lunar-000100",
       new Set(["member-1"]),
     );
-    // The received total is untouched — the pool weights on amounts, and
-    // amounts came from real budgets. Only BREADTH is filtered, because
-    // breadth is what badges later escalate into capabilities.
+    // `received` stays the honest record of what was sent — the founders
+    // carry that figure and its channel split to Hypha, so it is never
+    // rewritten.
     expect(totals[0].received).toBe(7);
+    // But the pool splits on `receivedEligible`, and so does breadth.
+    //
+    // This corrects an earlier reading of the rule, which filtered breadth
+    // alone on the grounds that "amounts came from real budgets". The budgets
+    // are real; the accounts are not. Eligibility here means having consented
+    // on a quest or reached member stage, so a farm of do-nothing alts is
+    // exactly what it excludes — and paying out on their sends would have let
+    // signing up N times enlarge one member's share of real value while the
+    // leaderboard beside it stayed correctly unimpressed.
+    expect(totals[0].receivedEligible).toBe(5);
     expect(totals[0].distinctSenders).toBe(1);
+  });
+
+  it("with no eligibility set at all, every amount counts (the ungated default)", () => {
+    const totals = settleCycle(
+      [entry({ fromId: "x", amount: 3 }), entry({ fromId: "y", amount: 4 })],
+      "lunar-000100",
+    );
+    expect(totals[0].received).toBe(7);
+    expect(totals[0].receivedEligible).toBe(7);
   });
 
   it("without an eligibility set, behaves exactly as before", () => {

@@ -261,8 +261,51 @@ export async function reserveItem(
   }
   const escrow = escrowFor(item.creditValue);
   const loanId = `loan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+  /*
+   * CLAIM THE SHELF FIRST, THEN TAKE THE DEPOSIT.
+   *
+   * This used to post escrow, then insert the loan, then update the item —
+   * three separate autocommits. Two things went wrong with that.
+   *
+   * The availability check above is a read; the write that acts on it came
+   * four statements later. Two members tapping "borrow" on the last hammer
+   * both read `available`, both paid escrow, and both got a loan — for one
+   * hammer. Claiming the row with a CONDITIONAL update inside a transaction
+   * makes exactly one of them win, and the loser never pays.
+   *
+   * And escrow-first meant a crash before the loan row left the member's
+   * credits sitting in `sys:library_escrow` with nothing pointing at them:
+   * value gone, no record of why, nothing to refund against. Claiming first
+   * inverts the failure — a crash now leaves a visible `reserved` loan whose
+   * escrow was never taken, which reads as "this loan is owed a deposit"
+   * instead of "these credits vanished". The member is never out of pocket
+   * for a step that did not finish.
+   */
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [claim]: any = await conn.query(
+      "UPDATE library_items SET status = 'checked_out' WHERE id = ? AND status = 'available'",
+      [item.id],
+    );
+    if (!claim.affectedRows) {
+      await conn.rollback();
+      return { ok: false, status: 409, error: `Someone just borrowed "${item.name}" — it is no longer on the shelf` };
+    }
+    await conn.query(
+      "INSERT INTO library_loans (id, item_id, user_id, status, escrow_credits) VALUES (?,?,?,?,?)",
+      [loanId, item.id, input.userId, "reserved", escrow],
+    );
+    await conn.commit();
+  } catch (e) {
+    try { await conn.rollback(); } catch { /* already gone */ }
+    throw e;
+  } finally {
+    conn.release();
+  }
+
   if (escrow > 0) {
-    // Escrow FIRST, then the row: the member's deposit is never ambiguous.
     const r = await postTransfer(pool, {
       from: memberAccount(input.userId),
       to: LIBRARY_ESCROW,
@@ -274,14 +317,14 @@ export async function reserveItem(
       idempotencyKey: `loan:${loanId}:escrow`,
     });
     if (!r.ok) {
+      // They cannot afford it, so hand the item straight back to the shelf.
+      // Compensating, not a rollback: the ledger post owns its own
+      // transaction and cannot join the one above.
+      await pool.query("DELETE FROM library_loans WHERE id = ?", [loanId]);
+      await pool.query("UPDATE library_items SET status = 'available' WHERE id = ?", [item.id]);
       return { ok: false, status: 409, error: `You need ${escrow} library credit(s) in escrow to borrow this — earn them by contributing items or work` };
     }
   }
-  await pool.query(
-    "INSERT INTO library_loans (id, item_id, user_id, status, escrow_credits) VALUES (?,?,?,?,?)",
-    [loanId, item.id, input.userId, "reserved", escrow],
-  );
-  await pool.query("UPDATE library_items SET status = 'checked_out' WHERE id = ?", [item.id]);
   await itemEvent(pool, item.id, "reserved", `loan ${loanId}, escrow ${escrow}`, input.userId);
   return { ok: true, loanId, escrow };
 }

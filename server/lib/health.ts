@@ -242,11 +242,25 @@ export interface RegenEntry {
   note: string | null;
   recordedBy: string;
   recordedAt: string;
+  /** Set once a steward withdraws this reading; it then counts toward nothing. */
+  retractedAt?: string | null;
+  retractionNote?: string | null;
+  /** The corrected reading that replaced it, when there is one. */
+  supersededBy?: string | null;
 }
 
-export async function regenEntries(pool: Pool, limit = 100): Promise<RegenEntry[]> {
+/**
+ * Retracted entries stay in the table and out of both of these (0040).
+ *
+ * Withdrawing a reading is a visible act, not an erasure — but a withdrawn
+ * number must stop counting the instant it is withdrawn, or the impact tiles
+ * keep reporting a figure the village has already disowned. `includeRetracted`
+ * exists for the admin surface that shows the correction history.
+ */
+export async function regenEntries(pool: Pool, limit = 100, includeRetracted = false): Promise<RegenEntry[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT * FROM regen_entries ORDER BY recorded_at DESC, id DESC LIMIT ?",
+    `SELECT * FROM regen_entries ${includeRetracted ? "" : "WHERE retracted_at IS NULL "}` +
+      "ORDER BY recorded_at DESC, id DESC LIMIT ?",
     [limit],
   );
   return rows.map((r) => ({
@@ -257,13 +271,17 @@ export async function regenEntries(pool: Pool, limit = 100): Promise<RegenEntry[
     note: r.note ?? null,
     recordedBy: String(r.recorded_by),
     recordedAt: new Date(r.recorded_at).toISOString(),
+    retractedAt: r.retracted_at ? new Date(r.retracted_at).toISOString() : null,
+    retractionNote: r.retraction_note ?? null,
+    supersededBy: r.superseded_by ?? null,
   }));
 }
 
 /** Absolute cumulative totals per regen metric - the impact tiles. */
 export async function regenTotals(pool: Pool): Promise<Record<string, { total: number; unit: string; entries: number }>> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT metric_key, SUM(value) AS total, MAX(unit) AS unit, COUNT(*) AS n FROM regen_entries GROUP BY metric_key",
+    "SELECT metric_key, SUM(value) AS total, MAX(unit) AS unit, COUNT(*) AS n FROM regen_entries " +
+      "WHERE retracted_at IS NULL GROUP BY metric_key",
   );
   const out: Record<string, { total: number; unit: string; entries: number }> = {};
   for (const r of rows) out[String(r.metric_key)] = { total: Number(r.total), unit: String(r.unit), entries: Number(r.n) };

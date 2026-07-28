@@ -2281,10 +2281,24 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const audit = await api("GET", "/api/admin/audit", undefined, founderToken);
     expect(audit.json.some((r: any) => String(r.action).includes("health/regen"))).toBe(true);
 
-    // Delete removes exactly one entry; the earlier total survives.
-    const toDelete = regen.json.entries.find((e: any) => e.note?.includes("nursery"));
-    expect((await api("DELETE", `/api/admin/health/regen/${toDelete.id}`, undefined, founderToken)).status).toBe(200);
+    // A wrong reading is WITHDRAWN, not deleted. It stops counting and stays
+    // on the record — these numbers go to funders, so a figure that can vanish
+    // without trace is a figure nobody outside can audit.
+    const wrong = regen.json.entries.find((e: any) => e.note?.includes("nursery"));
+    // A withdrawal without a reason is just a deletion wearing a hat.
+    expect((await api("POST", `/api/admin/health/regen/${wrong.id}/retract`, {}, founderToken)).status).toBe(400);
+    expect((await api("POST", `/api/admin/health/regen/${wrong.id}/retract`,
+      { note: "Double-counted with the south slope sweep" }, founderToken)).status).toBe(200);
     expect((await api("GET", "/api/health/regen")).json.totals.trees_planted.total).toBe(1400);
+    // The row is still there — withdrawn, with its reason, not erased.
+    const [[kept]] = await testDb.conn.query<any[]>(
+      "SELECT retracted_at, retraction_note FROM regen_entries WHERE id = ?", [wrong.id],
+    );
+    expect(kept.retracted_at).not.toBeNull();
+    expect(kept.retraction_note).toContain("Double-counted");
+    // Withdrawing twice changes nothing.
+    expect((await api("POST", `/api/admin/health/regen/${wrong.id}/retract`,
+      { note: "again" }, founderToken)).status).toBe(404);
 
     // Close the module again: prod parity (collection keeps running anyway).
     await api("PUT", "/api/admin/modules/health/lifecycle", { lifecycle: "off" }, founderToken);
@@ -3320,5 +3334,73 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // The books still balance after the machine settled a loan.
     const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
     expect(rec.json.invariants.problems).toEqual([]);
+  });
+
+  it("Wave A: the mint cap holds under a stampede, and abandoned checkouts stop wedging exits", async () => {
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "public" }, founderToken);
+
+    // ── THE CAP IS A CAP, NOT A SUGGESTION. ──
+    // Both mint doors used to read the cycle total, decide, and post several
+    // awaits later, so simultaneous admins each saw room that only one of
+    // them actually had. "Caps fail closed" is a platform invariant; this
+    // fires ten stockings at once against a cap of 30 and counts the ledger.
+    expect((await api("POST", "/api/admin/tokens", { slug: "cap-tok", name: "Cap Token", kind: "credit", transferable: false }, founderToken)).status).toBe(200);
+    const capBefore = (await api("GET", "/api/admin/variables", undefined, founderToken)).status;
+    expect(capBefore).toBe(200);
+    expect((await api("PUT", "/api/admin/variables/ledger.admin_mint_cycle_cap", { value: "30" }, founderToken)).status).toBe(200);
+
+    const stampede = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        api("POST", "/api/admin/exchange/stock", { tokenSlug: "cap-tok", amount: 10 }, founderToken)),
+    );
+    const accepted = stampede.filter(r => r.status === 200).length;
+    const refused = stampede.filter(r => r.status === 409).length;
+    expect(accepted + refused).toBe(10);          // nothing crashed
+    const [[minted]] = await testDb.conn.query<any[]>(
+      "SELECT COALESCE(SUM(amount),0) AS n FROM token_ledger WHERE from_account = 'sys:mint' AND token_type = 'cap-tok'",
+    );
+    // The ledger is the witness. Before the guard this could reach 100.
+    expect(Number(minted.n)).toBeLessThanOrEqual(30);
+    expect(Number(minted.n)).toBe(accepted * 10);
+
+    // ── AN ABANDONED CHECKOUT MUST NOT HOLD SOMEONE IN THE VILLAGE. ──
+    // A pending order blocks disabling the exchange AND blocks that member's
+    // exit — the same row, two unrelated things wedged.
+    const oldOrder = `xo-abandoned-${Date.now()}`;
+    await testDb.conn.query(
+      "INSERT INTO exchange_orders (id, receipt_no, user_id, token_slug, quantity, price_minor_each, amount_minor, kind, status, created_at) " +
+        "VALUES (?, 88801, ?, 'cap-tok', 1, 100, 100, 'fiat_purchase', 'pending', NOW() - INTERVAL 5 DAY)",
+      [oldOrder, peerId],
+    );
+    // A fresh one, inside the window, must survive: the member may still be
+    // on Stripe's payment page and cancelling would strand their money.
+    const freshOrder = `xo-fresh-${Date.now()}`;
+    await testDb.conn.query(
+      "INSERT INTO exchange_orders (id, receipt_no, user_id, token_slug, quantity, price_minor_each, amount_minor, kind, status) " +
+        "VALUES (?, 88802, ?, 'cap-tok', 1, 100, 100, 'fiat_purchase', 'pending')",
+      [freshOrder, peerId],
+    );
+    const sweep = await api("POST", "/api/admin/exchange/reconcile", {}, founderToken);
+    expect(sweep.status).toBe(200);
+    const orderStatus = async (id: string) => (await testDb.conn.query<any[]>(
+      "SELECT status, client_key FROM exchange_orders WHERE id = ?", [id],
+    ))[0][0];
+    expect((await orderStatus(oldOrder)).status).toBe("cancelled");
+    expect((await orderStatus(oldOrder)).client_key).toBe(null); // retry is possible
+    expect((await orderStatus(freshOrder)).status).toBe("pending");
+
+    // ── A KNOB THAT CANNOT ACT REFUSES A VALUE. ──
+    // Credit expiry is deliberately unbuilt (escheatment is a Gate F
+    // question). Accepting "365" would have an admin believing credits
+    // expire when nothing sweeps them.
+    const lie = await api("PUT", "/api/admin/variables/stay.credit_expiry_days", { value: "365" }, founderToken);
+    expect(lie.status).toBe(409);
+    expect(lie.json.error).toContain("nothing sweeps them");
+    // Zero is still settable — the honest value stays reachable.
+    expect((await api("PUT", "/api/admin/variables/stay.credit_expiry_days", { value: "0" }, founderToken)).status).toBe(200);
+
+    const rec2 = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec2.json.invariants.problems).toEqual([]);
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
   });
 });

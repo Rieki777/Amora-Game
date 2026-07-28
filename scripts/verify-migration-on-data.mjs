@@ -107,19 +107,33 @@ for (const f of files.slice(cutAt)) {
   console.log(`  ok ${f}`);
 }
 
-// The rows must still be there and must still say what they said.
-const [[log]] = await conn.query("SELECT COUNT(*) AS n, SUM(handled_at IS NOT NULL) AS handled FROM payments_log");
+// The seeded rows must still be there, and must still say what they said.
+//
+// Deliberately cut-agnostic: which migrations ran BEFORE the seed depends on
+// the cut, so anything a specific migration backfills is not assertable here.
+// What is always true is that an ALTER must not drop rows or rewrite values.
+const [[log]] = await conn.query("SELECT COUNT(*) AS n FROM payments_log");
 const [[chg]] = await conn.query("SELECT COUNT(*) AS n FROM fiat_charges WHERE status = 'reversed'");
-await conn.query("INSERT INTO fiat_charges (id, user_id, module, order_id, amount_minor) VALUES ('fch-3',NULL,'commerce','ord-3#pi_3',700)");
-const [[anon]] = await conn.query("SELECT COUNT(*) AS n FROM fiat_charges WHERE user_id IS NULL");
+const [[pur]] = await conn.query("SELECT COUNT(*) AS n FROM product_purchases");
+const problems = [];
+if (Number(log.n) !== 2) problems.push(`payments_log holds ${log.n} row(s), expected the 2 seeded`);
+if (Number(chg.n) !== 1) problems.push(`fiat_charges lost the 'reversed' status (${chg.n} rows carry it)`);
+if (Number(pur.n) !== 2) problems.push(`product_purchases holds ${pur.n} row(s), expected the 2 seeded`);
 
-console.log(`\npayments_log: ${log.n} row(s), ${log.handled} backfilled as handled`);
-console.log(`fiat_charges: ${chg.n} still reversed, ${anon.n} anonymous row(s) accepted`);
-if (Number(log.n) !== 2 || Number(log.handled) !== 2 || Number(chg.n) !== 1 || Number(anon.n) !== 1) {
-  console.error("data did not survive the migrations as expected");
+// Widened columns must actually accept the wider value now.
+try {
+  await conn.query("INSERT INTO fiat_charges (id, user_id, module, order_id, amount_minor) VALUES ('fch-3',NULL,'commerce','ord-3#pi_3',700)");
+} catch (e) {
+  problems.push(`fiat_charges still refuses an anonymous charge: ${e.message}`);
+}
+
+console.log(`\npayments_log: ${log.n} row(s) · fiat_charges: ${chg.n} reversed · product_purchases: ${pur.n} row(s)`);
+if (problems.length) {
+  console.error("\ndata did not survive the migrations:");
+  for (const p of problems) console.error("  - " + p);
   process.exit(1);
 }
-console.log("\nall migrations apply cleanly to populated tables.");
+console.log("\nall migrations apply cleanly to populated tables, and no seeded row was lost.");
 
 await conn.end();
 const cleanup = await mysql.createConnection(base);

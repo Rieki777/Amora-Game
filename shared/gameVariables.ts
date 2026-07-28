@@ -671,6 +671,18 @@ export const VARIABLES: VariableDef[] = [
     unit: "bps",
   },
   {
+    key: "exchange.order_expiry_hours",
+    category: "Exchange",
+    label: "Abandoned card checkouts are released after",
+    description:
+      "A card purchase reserves an order the moment checkout opens, before the member has paid. If they close the tab, that order stays pending forever — and a pending order blocks BOTH turning the exchange off and letting that member leave the village. This is how long to wait before releasing one. Keep it comfortably above 24 hours: a Stripe checkout session stays payable that long, and releasing an order someone is still paying for would strand their money. 0 disables the release.",
+    type: "integer",
+    default: "48",
+    min: 0,
+    max: 720,
+    unit: "hours",
+  },
+  {
     key: "exchange.swap_fiat_hold_days",
     category: "Exchange",
     label: "Card-bought tokens settle before they can be swapped",
