@@ -91,6 +91,20 @@ export async function checkToolLink(rawUrl: string): Promise<LinkCheckResult> {
 }
 
 /**
+ * The guarded JSON fetch, for any caller that must reach an admin-entered
+ * host. Same pinned dialer, same per-hop re-validation — exported so the
+ * peer registry cannot quietly grow a second, unguarded fetch path (it did:
+ * server/lib/network.ts used bare global fetch with redirects followed,
+ * which range-checked the first host and then dialled wherever a redirect
+ * pointed, including private addresses).
+ */
+export async function guardedFetchJson(rawUrl: string, timeoutMs = 10_000): Promise<any> {
+  const guard = await guardOutboundUrl(rawUrl);
+  if (!guard.ok) throw new Error(guard.refused ?? "refused");
+  return dialPinnedJson(rawUrl, timeoutMs);
+}
+
+/**
  * T2: one request to ONE vetted address.
  *
  * `lookup` is the seam that closes DNS rebinding. Node calls it instead of
@@ -103,6 +117,59 @@ export async function checkToolLink(rawUrl: string): Promise<LinkCheckResult> {
  * same guard before it is dialled — an open redirect on a public host can
  * no longer bounce the checker into a private range.
  */
+/**
+ * Same pinning and per-hop guarding, but reads the body and parses JSON.
+ * Bounded at 1 MB: a peer that answers with a gigabyte is a peer that takes
+ * this village's memory down.
+ */
+async function dialPinnedJson(rawUrl: string, timeoutMs: number, hops = 0): Promise<any> {
+  if (hops > 5) throw new Error("too many redirects");
+  const url = new URL(rawUrl);
+  if (url.protocol !== "https:") throw new Error("https only");
+  const host = url.hostname;
+  const addrs = net.isIP(host)
+    ? [{ address: host, family: net.isIPv6(host) ? 6 : 4 }]
+    : await dns.lookup(host, { all: true });
+  if (addrs.some((a) => ipIsPrivate(a.address))) throw new Error("resolves to a private address");
+  const vetted = addrs[0];
+
+  const res = await new Promise<{ status: number; location: string | null; body: string }>((resolve, reject) => {
+    const req = https.request(
+      {
+        protocol: "https:", hostname: host, port: url.port || 443,
+        path: url.pathname + url.search, method: "GET", timeout: timeoutMs, servername: host,
+        headers: { Accept: "application/json" },
+        lookup: (_h: string, _o: any, cb: (e: Error | null, a: string | LookupAddress[], f?: number) => void) => {
+          cb(null, vetted.address, (vetted as any).family === 6 ? 6 : 4);
+        },
+      },
+      (r) => {
+        let body = "";
+        let size = 0;
+        r.on("data", (c) => {
+          size += c.length;
+          if (size > 1_000_000) { req.destroy(new Error("response too large")); return; }
+          body += c;
+        });
+        r.on("end", () => resolve({
+          status: r.statusCode ?? 0,
+          location: typeof r.headers.location === "string" ? r.headers.location : null,
+          body,
+        }));
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", reject);
+    req.end();
+  });
+
+  if (res.status >= 300 && res.status < 400 && res.location) {
+    return dialPinnedJson(new URL(res.location, url).toString(), timeoutMs, hops + 1);
+  }
+  if (res.status < 200 || res.status >= 300) throw new Error(String(res.status));
+  return JSON.parse(res.body);
+}
+
 async function dialPinned(rawUrl: string, method: "HEAD" | "GET", hops = 0): Promise<{ status: number }> {
   if (hops > 5) throw new Error("too many redirects");
   const url = new URL(rawUrl);

@@ -368,6 +368,18 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
       setParseError("Invalid JSON: " + e.message);
       return;
     }
+    // Blank list entries are trimmed HERE, not while typing — see the
+    // "one per line" textarea's comment. Typing must never rewrite what
+    // you just typed.
+    if (Array.isArray(parsed)) {
+      for (const card of parsed) {
+        if (card && typeof card === "object") {
+          for (const [k, v] of Object.entries(card)) {
+            if (Array.isArray(v)) card[k] = v.filter((x) => String(x ?? "").trim() !== "");
+          }
+        }
+      }
+    }
     setSaving(true);
     try {
       await fetch(`${API_BASE}/admin/content/${sectionKey}`, {
@@ -540,7 +552,13 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
                           <textarea
                             rows={Math.max(3, (Array.isArray(card[key]) ? card[key].length : 3))}
                             value={Array.isArray(card[key]) ? card[key].join("\n") : String(card[key] ?? "")}
-                            onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value.split("\n").filter(Boolean); })}
+                            // NO .filter(Boolean): dropping empty lines means
+                            // the moment you press Enter to start a new item,
+                            // the trailing blank vanishes, the value
+                            // re-serializes identically, and the cursor jumps
+                            // to the end — you can never actually add a line.
+                            // Blanks are trimmed once, on save, not on keypress.
+                            onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value.split("\n"); })}
                             className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-none"
                           />
                         ) : kind === "long" ? (

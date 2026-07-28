@@ -89,7 +89,12 @@ export async function launchStatus(pool: Pool, deps: LaunchDeps): Promise<Launch
   for (const req of LAUNCH_REQUIREMENTS) {
     // A requirement for a module this village does not run is not a
     // requirement — it is a distraction wearing a checkbox.
-    if (req.appliesWhenModule && deps.moduleLifecycle(req.appliesWhenModule) === "off") continue;
+    // Required while ANY of the named modules is on: one piece of setup can
+    // serve several modules, and it is needed if even one of them runs.
+    if (req.appliesWhenModule) {
+      const gatingModules = Array.isArray(req.appliesWhenModule) ? req.appliesWhenModule : [req.appliesWhenModule];
+      if (gatingModules.every((m) => deps.moduleLifecycle(m) === "off")) continue;
+    }
 
     if (req.checkKey.startsWith("manual:")) {
       const confirm = state.manualConfirms[req.id];

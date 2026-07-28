@@ -630,7 +630,7 @@ export async function swapCycleUsage(
  * converted into something the village cannot claw back.
  */
 export async function swappableBalance(
-  pool: Pool,
+  pool: Pool | PoolConnection,
   userId: string,
   slug: string,
   holdDays: number,

@@ -58,8 +58,17 @@ export interface LaunchRequirement {
   fixAt: string;
   /** Label for the fix link ("Open Integrations", "Railway dashboard"). */
   fixLabel: string;
-  /** Only require this while the named module is non-off. Absent = always. */
-  appliesWhenModule?: string;
+  /**
+   * Only require this while at least ONE of the named modules is non-off.
+   * Absent = always required.
+   *
+   * A list, not a single id, because several modules can depend on the same
+   * piece of setup: stays, exchange and commerce all settle through the one
+   * Stripe spine, and gating the Stripe requirements on `stays` alone told a
+   * commerce-only village it was 100% launch-ready while no payment it took
+   * could ever settle.
+   */
+  appliesWhenModule?: string | string[];
   /** Docs anchor in FORK_RUNBOOK.md for the long-form instructions. */
   runbookAnchor?: string;
 }
@@ -142,7 +151,7 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     checkKey: "stripe-keys",
     fixAt: "/admin?tab=integrations",
     fixLabel: "Open Integrations",
-    appliesWhenModule: "stays",
+    appliesWhenModule: ["stays", "exchange", "commerce"],
     runbookAnchor: "stripe",
   },
   {
@@ -154,7 +163,7 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     checkKey: "stripe-webhook",
     fixAt: "/admin?tab=integrations",
     fixLabel: "Open Integrations",
-    appliesWhenModule: "stays",
+    appliesWhenModule: ["stays", "exchange", "commerce"],
     runbookAnchor: "stripe-webhook",
   },
   {

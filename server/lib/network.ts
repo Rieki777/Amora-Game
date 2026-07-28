@@ -22,21 +22,21 @@
  */
 import { randomUUID } from "crypto";
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { guardOutboundUrl } from "./toolcheck";
+import { guardedFetchJson, guardOutboundUrl } from "./toolcheck";
 
 export const SHARED_ITEM_TYPES = ["need", "offer"] as const;
 export type SharedItemType = (typeof SHARED_ITEM_TYPES)[number];
 
+/**
+ * Every outbound call to a peer goes through the PINNED dialer, never bare
+ * fetch. Bare fetch follows redirects with a fresh resolution per hop, so a
+ * peer URL that passes the range check can redirect the request to
+ * 169.254.169.254 and the answer lands in this village's peer cache — where
+ * members read it. guardedFetchJson re-resolves and re-range-checks every
+ * hop against the address actually dialled, and bounds the body.
+ */
 async function fetchJson(url: string, timeoutMs = 10_000): Promise<any> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
-    if (!res.ok) throw new Error(`${res.status}`);
-    return await res.json();
-  } finally {
-    clearTimeout(timer);
-  }
+  return guardedFetchJson(url, timeoutMs);
 }
 
 /** Add a peer: guard the URL, shake its hand, learn who it is. */

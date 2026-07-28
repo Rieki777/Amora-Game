@@ -41,7 +41,7 @@ export default function Contribute() {
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [manual, setManual] = useState<{ name: string; text: string; receiptNo: number } | null>(null);
+  const [manual, setManual] = useState<{ name: string; text: string; receiptNo: number; url?: string } | null>(null);
 
   useEffect(() => {
     if (!commerce) return;
@@ -67,8 +67,13 @@ export default function Contribute() {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "Could not start that");
         if (d.kind === "stripe") window.location.href = d.url;
-        else if (d.kind === "zeffy") { setManual({ name: p.name, text: d.note, receiptNo: d.receiptNo }); window.open(d.url, "_blank", "noopener"); }
-        else setManual({ name: p.name, text: d.instructions, receiptNo: d.receiptNo });
+        else if (d.kind === "zeffy") {
+          // NOT window.open: this runs after a network round trip, outside
+          // the click's task, and WebKit blocks that unconditionally — the
+          // giver would tap "Give via Zeffy" and watch nothing happen. Show
+          // the link instead, so it is always reachable and always visible.
+          setManual({ name: p.name, text: d.note, receiptNo: d.receiptNo, url: d.url });
+        } else setManual({ name: p.name, text: d.instructions, receiptNo: d.receiptNo });
       })
       .catch((e) => setError(e.message))
       .finally(() => setBusy(""));
@@ -94,7 +99,17 @@ export default function Contribute() {
             <div className="bg-card border border-teal-deep/30 rounded-xl p-5">
               <p className="font-semibold text-foreground text-sm mb-1">{manual.name} — receipt #{manual.receiptNo}</p>
               <p className="text-sm text-muted-foreground whitespace-pre-wrap">{manual.text}</p>
-              <button onClick={() => setManual(null)} className="text-xs text-teal-deep font-medium mt-3 hover:underline">Done</button>
+              {manual.url && (
+                <a
+                  href={manual.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="inline-flex items-center gap-1.5 mt-3 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Continue to Zeffy
+                </a>
+              )}
+              <button onClick={() => setManual(null)} className="block text-xs text-teal-deep font-medium mt-3 hover:underline">Done</button>
             </div>
           )}
 

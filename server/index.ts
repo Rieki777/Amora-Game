@@ -168,6 +168,7 @@ import { ensureInstanceIdentity, instanceIdentity, PLATFORM_VERSION } from "./li
 import { recordFeedback, relayFeedback } from "./lib/feedback";
 import { addPeer, peerSharedItems, SHARED_ITEM_TYPES, syncPeers } from "./lib/network";
 import { corpusTitles, loadKnowledgeCorpus, relevantCorpus, relevantSyntheses } from "./lib/knowledge";
+import { guardedFetchJson } from "./lib/toolcheck";
 import {
   allSecretStatuses,
   loadSecrets,
@@ -1366,6 +1367,10 @@ function seasonState() {
     ...(current ?? {}),
     current,
     upcoming,
+    /** The whole dated calendar, in order. /seasonal-festivals renders the
+     *  year's turning from this; without it that page had a heading and an
+     *  empty space where the seasons should be. */
+    seasons: sorted,
     /** True when every configured season is in the past — admin needs to add one. */
     needsNextSeason: ended || (!current && !upcoming),
     daysLeft: current ? Math.max(0, daysBetween(today, current.endsOn)) : 0,
@@ -2181,17 +2186,49 @@ async function startServer() {
     );
     if (!row) throw new Error(`no product purchase "${purchaseId}" — refusing to settle into thin air`);
     const obj = event?.data?.object ?? {};
-    const pi = obj.payment_intent ? String(obj.payment_intent) : null;
     const subId = obj.subscription ? String(obj.subscription) : null;
+    // A subscription's FIRST event carries no payment_intent (Stripe puts it
+    // on the invoice), so falling back to the invoice/session id is what
+    // keeps a charge record — and therefore a disputable trail — existing at
+    // all for recurring products. Without it a chargeback matched nothing
+    // and the granted tokens stayed granted.
+    const chargeRef = obj.payment_intent
+      ? String(obj.payment_intent)
+      : obj.invoice
+        ? `inv:${String(obj.invoice)}`
+        : obj.id
+          ? `evt:${String(obj.id)}`
+          : null;
+
+    // THE PERIOD. Every keyed side effect below is scoped to it, and it is
+    // derived from the event, never from a counter that a retry can inflate:
+    // Stripe's invoice number for renewals, 1 for the first period.
+    const period = Math.max(1, Number(obj.lines?.data?.[0]?.period?.start ? row.periods_paid + 1 : row.periods_paid + 1));
+    const periodKey = subId && obj.invoice ? `inv${String(obj.invoice)}` : `p${period}`;
+
+    // Idempotent by the same discipline the rest of the platform uses: a
+    // redelivered event must move nothing twice. periods_paid only advances
+    // when this exact charge has not been recorded before.
+    const [[already]] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS n FROM token_ledger WHERE source = 'product_grant' AND idempotency_key = ?",
+      [`pp:${purchaseId}:grant:${periodKey}`],
+    );
+    const firstTimeForThisPeriod = Number(already.n) === 0;
+
     await pool.query(
-      "UPDATE product_purchases SET status = 'paid', paid_at = COALESCE(paid_at, NOW()), periods_paid = periods_paid + 1, " +
+      "UPDATE product_purchases SET status = 'paid', paid_at = COALESCE(paid_at, NOW()), " +
+        (firstTimeForThisPeriod ? "periods_paid = periods_paid + 1, " : "") +
         "stripe_subscription_id = COALESCE(?, stripe_subscription_id) WHERE id = ?",
       [subId, purchaseId],
     );
-    if (row.user_id && pi) {
+    if (row.user_id && chargeRef) {
+      // One charge row PER PERIOD: the unique key is (module, order_id), so
+      // reusing the purchase id for every renewal overwrote the previous
+      // period's payment reference and left only the newest disputable.
       await recordFiatCharge(pool, {
-        userId: String(row.user_id), module: "commerce", orderId: purchaseId,
-        amountMinor: Number(row.amount_minor), paymentIntentId: pi,
+        userId: String(row.user_id), module: "commerce",
+        orderId: `${purchaseId}#${periodKey}`,
+        amountMinor: Number(row.amount_minor), paymentIntentId: chargeRef,
       });
     }
     if (row.token_slug && row.token_amount && row.user_id) {
@@ -2200,7 +2237,7 @@ async function startServer() {
         tokenType: String(row.token_slug), amount: Number(row.token_amount),
         source: "product_grant", sourceRef: purchaseId,
         description: `${row.product_name} — receipt #${row.receipt_no}`,
-        idempotencyKey: `pp:${purchaseId}:grant:${Number(row.periods_paid) + 1}`,
+        idempotencyKey: `pp:${purchaseId}:grant:${periodKey}`,
       });
       if (!r.ok && !r.duplicate) {
         // Money arrived and the grant failed — the loudest alarm we have.
@@ -2216,7 +2253,7 @@ async function startServer() {
       await notify({
         userId: String(row.user_id), type: "payment",
         title: `Receipt #${row.receipt_no}: ${row.product_name}`,
-        link: "/contribute", dedupeKey: `pp:${purchaseId}:notify:${Number(row.periods_paid) + 1}`,
+        link: "/contribute", dedupeKey: `pp:${purchaseId}:notify:${periodKey}`,
       });
     }
   }
@@ -2227,32 +2264,39 @@ async function startServer() {
     // recurring token grants (e.g. monthly credits with a membership) post
     // under a period-scoped idempotency key so a replayed invoice is a no-op.
     renew: async (orderId, event) => settleProductPurchase(orderId, event),
-    reversal: async (orderId, _event) => {
+    reversal: async (orderRef, event) => {
       const pool = getPool();
+      // The charge row carries `<purchaseId>#<periodKey>` so a dispute names
+      // exactly ONE billed period. A dispute is scoped to one Stripe charge;
+      // clawing back every period a subscription ever billed would take back
+      // months the member never disputed and leave them deep in debt.
+      const [purchaseId, periodKey = "p1"] = String(orderRef).split("#");
       const [[row]] = await pool.query<any[]>(
         "SELECT pp.*, p.token_slug, p.token_amount, p.name AS product_name FROM product_purchases pp JOIN payment_products p ON p.id = pp.product_id WHERE pp.id = ?",
-        [orderId],
+        [purchaseId],
       );
       if (!row) return;
-      await pool.query("UPDATE product_purchases SET status = 'reversed' WHERE id = ?", [orderId]);
-      // MECHANICAL: claw back exactly what was granted, negative balances
-      // included — the same posture as stays. Humans are notified after.
+      // Only a full reversal of the ONLY period closes the purchase; a
+      // disputed month of a live subscription leaves it paid.
+      if (Number(row.periods_paid) <= 1) {
+        await pool.query("UPDATE product_purchases SET status = 'reversed' WHERE id = ?", [purchaseId]);
+      }
+      // MECHANICAL: claw back exactly what that period granted, negative
+      // balances included — the same posture as stays. Humans told after.
       if (row.token_slug && row.token_amount && row.user_id) {
-        for (let period = 1; period <= Number(row.periods_paid); period++) {
-          await postTransfer(pool, {
-            from: memberAccount(String(row.user_id)), to: TREASURY,
-            tokenType: String(row.token_slug), amount: Number(row.token_amount),
-            source: "payment_reversal", sourceRef: orderId,
-            description: `Reversal: ${row.product_name}`,
-            idempotencyKey: `pp:${orderId}:reversal:${period}`,
-            allowNegative: true,
-          });
-        }
+        await postTransfer(pool, {
+          from: memberAccount(String(row.user_id)), to: TREASURY,
+          tokenType: String(row.token_slug), amount: Number(row.token_amount),
+          source: "payment_reversal", sourceRef: purchaseId,
+          description: `Reversal: ${row.product_name} (${periodKey})`,
+          idempotencyKey: `pp:${purchaseId}:reversal:${periodKey}`,
+          allowNegative: true,
+        });
       }
       await notifyAdmins(
         "payment",
-        `Payment reversed: ${row.product_name} (receipt #${row.receipt_no})${row.token_slug ? " — granted tokens clawed back" : ""}`,
-        `product-reversal:${orderId}`,
+        `Payment reversed: ${row.product_name} (receipt #${row.receipt_no}, ${periodKey})${row.token_slug ? ` — ${row.token_amount} ${row.token_slug} clawed back` : ""}`,
+        `product-reversal:${purchaseId}:${periodKey}`,
       );
     },
   });
@@ -4764,6 +4808,21 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     }
     // Token packs are sold from STOCK — honesty before charging, as ever.
     if (p.token_slug && p.token_amount) {
+      // A grant needs somebody to grant TO. Without this, a logged-out
+      // visitor could be charged for a pack whose tokens are then skipped
+      // (the settle path grants only when user_id is set) — money taken,
+      // nothing delivered, and no receipt to complain with.
+      if (!user) {
+        return res.status(401).json({ error: "Sign in first — tokens need an account to land in" });
+      }
+      // The exchange's firewalls answer HERE too. Otherwise a product is a
+      // side door around a revoked caution card, a warning badge's deny, or
+      // the recognition/Hypha refusals: same token, different route.
+      const problem = purchaseProblem(String(p.token_slug));
+      if (problem) return res.status(409).json({ error: problem });
+      if (!hasCapability("exchange.buy", await capabilityCtx(user))) {
+        return res.status(403).json({ error: "Buying tokens opens at the member stage" });
+      }
       const stock = await treasuryStock(getPool());
       if ((stock[p.token_slug] ?? 0) < Number(p.token_amount)) {
         return res.status(409).json({ error: "The village is out of stock on that pack — ask the stewards to restock" });
@@ -4778,12 +4837,23 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
     // Zeffy/manual products never touch Stripe: record the intent, hand over
     // the village's own instructions, reconcile by hand (X2 as ratified).
-    const receiptNo = await nextProductReceipt();
+    // receipt_no carries a UNIQUE index (0036), so a lost race is a refused
+    // insert rather than two purchases quietly sharing one receipt number.
+    // Retry a few times: under contention the next MAX is simply higher.
     const orderId = `pp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await getPool().query(
-      "INSERT INTO product_purchases (id, product_id, user_id, payer_email, amount_minor, receipt_no) VALUES (?,?,?,?,?,?)",
-      [orderId, p.id, user?.id ?? null, payerEmail || null, amountMinor, receiptNo],
-    );
+    let receiptNo = 0;
+    for (let attempt = 1; ; attempt++) {
+      receiptNo = await nextProductReceipt();
+      try {
+        await getPool().query(
+          "INSERT INTO product_purchases (id, product_id, user_id, payer_email, amount_minor, receipt_no) VALUES (?,?,?,?,?,?)",
+          [orderId, p.id, user?.id ?? null, payerEmail || null, amountMinor, receiptNo],
+        );
+        break;
+      } catch (e: any) {
+        if (e?.code !== "ER_DUP_ENTRY" || attempt >= 5) throw e;
+      }
+    }
     if (p.provider === "zeffy") {
       return res.json({ kind: "zeffy", url: p.zeffy_url, receiptNo, note: "Zeffy payments are confirmed by the stewards once they reconcile — usually within a day." });
     }
@@ -5022,7 +5092,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const [[peer]] = await getPool().query<any[]>("SELECT * FROM peer_instances WHERE id = ?", [req.params.id]);
     if (!peer) return res.status(404).json({ error: "no such peer" });
     try {
-      const info = await (await fetch(`${peer.base_url}/api/platform/info`)).json();
+      // Guarded, like every other peer call — a resume must not be the one
+      // door that dials an unvetted redirect.
+      const info = await guardedFetchJson(`${peer.base_url}/api/platform/info`);
       if (!info?.instanceId) throw new Error("no handshake");
       await getPool().query(
         "UPDATE peer_instances SET status = 'active', instance_id = ?, name = ?, version = ?, last_error = NULL WHERE id = ?",
@@ -5062,11 +5134,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       return res.status(400).json({ error: "Say what kind it is, a short title, and enough detail to act on" });
     }
     const user = await authedUser(req);
+    // The disclosure the form showed IS the consent, so it is recorded with
+    // the item rather than re-derived from the setting at relay time.
+    const mayRelay = numberVar("platform.feedback_relay") === 1;
     const r = await recordFeedback(getPool(), {
       kind, title, detail,
       pageUrl: typeof req.body?.pageUrl === "string" ? req.body.pageUrl : null,
       submittedBy: user?.id ?? null,
-    });
+    }, mayRelay);
     void recordEvent(getPool(), {
       kind: "audit", text: `feedback:${kind}:${title.slice(0, 60)}`,
       actorUserId: user?.id ?? null, entityType: "feedback", entityRef: r.id, audience: "admin",
@@ -6825,6 +6900,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
     /** The binding check. Runs under the same treasury lock that orders the writes. */
     const capGuard = async (conn: any): Promise<string | null> => {
+      // The chargeback hold binds HERE too. Checked only up front, two
+      // concurrent swaps both saw the same un-held balance and both
+      // converted card-bought tokens — exactly the conversion the hold
+      // exists to prevent while a chargeback could still land.
+      const holdNow = await swappableBalance(conn, user.id, quote.payToken, numberVar("exchange.swap_fiat_hold_days"));
+      if (holdNow.swappable < quote.payQuantity) {
+        return `${holdNow.held} of your ${tokenDef(quote.payToken)?.name ?? quote.payToken} are still settling from a card purchase`;
+      }
       const t = await swapCycleUsage(conn, quote.receiveToken, cycleStart);
       if (t + quote.receiveQuantity > receiveSettings.maxSwapOutPerCycle) {
         return `this lunation's swap allowance for ${tokenDef(quote.receiveToken)?.name ?? quote.receiveToken} is spent (${Math.max(0, receiveSettings.maxSwapOutPerCycle - t)} left)`;
@@ -9092,9 +9175,26 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.post("/api/admin/roles/:id/holders", async (req, res) => {
     const actorUser = await authedUser(req);
-    const mayAppoint = (await isAdmin(req)) ||
-      (!!actorUser && hasCapability("proposal.decide", await capabilityCtx(actorUser)));
-    if (!mayAppoint) return res.status(401).json({ error: "Appointing needs the village's decision capability" });
+    const isAdminActor = await isAdmin(req);
+    const mayDecide = !!actorUser && hasCapability("proposal.decide", await capabilityCtx(actorUser));
+    if (!isAdminActor && !mayDecide) {
+      return res.status(401).json({ error: "Appointing needs the village's decision capability" });
+    }
+    // TWO GUARDS on the non-admin path, because `proposal.decide` is the
+    // power to RECORD what a village decided — not to decide it alone:
+    //  1. No self-appointment. Seating yourself is the one move that needs
+    //     no conspiracy, and it converts a recording capability into a
+    //     self-service promotion.
+    //  2. No removals. Un-seating other stewards is how a captured account
+    //     would clear the room; taking a seat away stays an admin act.
+    if (!isAdminActor) {
+      if (String(req.body?.userId ?? "") === actorUser!.id) {
+        return res.status(403).json({ error: "Recording a decision is not appointing yourself — ask an admin, or another decider" });
+      }
+      if (req.body?.action === "remove") {
+        return res.status(403).json({ error: "Removing a role holder is an admin act" });
+      }
+    }
     // Attribution names the REAL appointer. Before F5 every seat was
     // granted by "admin"; now a steward who appoints is recorded as
     // themselves, which is the point of moving this out of the admin

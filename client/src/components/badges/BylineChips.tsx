@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from "react";
 import { Award } from "lucide-react";
+import { authToken } from "@/lib/gameApi";
 
 type Chip = { id: string; name: string; kind: string };
 
@@ -19,7 +20,13 @@ const inflight = new Map<string, Promise<Chip[]>>();
 function fetchChips(userId: string): Promise<Chip[]> {
   if (cache.has(userId)) return Promise.resolve(cache.get(userId)!);
   if (inflight.has(userId)) return inflight.get(userId)!;
-  const p = fetch(`/api/badges/of/${encodeURIComponent(userId)}`)
+  // The badges module is usually `members`, not `public`, so an unauthenticated
+  // request 404s and every chip silently vanishes for signed-in members —
+  // which looked exactly like "nobody has pinned any badges".
+  const t = authToken();
+  const p = fetch(`/api/badges/of/${encodeURIComponent(userId)}`, {
+    headers: t ? { Authorization: `Bearer ${t}` } : {},
+  })
     .then((r) => (r.ok ? r.json() : { badges: [] }))
     .then((d) => {
       const chips = (d.badges ?? []).filter((b: Chip & { featured?: boolean }) => (b as any).featured).slice(0, 3);

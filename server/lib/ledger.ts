@@ -502,7 +502,7 @@ async function postTransferPairOnce(
 // ── Reads ───────────────────────────────────────────────────────────────────
 
 /** Cached balance of one account for one token. */
-export async function balanceOf(pool: Pool, accountId: string, tokenType: TokenType = PLATFORM_TOKEN): Promise<number> {
+export async function balanceOf(pool: Pool | PoolConnection, accountId: string, tokenType: TokenType = PLATFORM_TOKEN): Promise<number> {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = ?",
     [accountId, tokenType],

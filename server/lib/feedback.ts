@@ -35,10 +35,15 @@ export function feedbackFingerprint(kind: string, title: string, detail: string)
   return createHash("sha256").update(normalized).digest("hex").slice(0, 40);
 }
 
-export async function recordFeedback(pool: Pool, input: FeedbackInput): Promise<{ id: string }> {
+export async function recordFeedback(
+  pool: Pool,
+  input: FeedbackInput,
+  /** The relay state AT CAPTURE — the promise the form made to this person. */
+  mayRelay: boolean,
+): Promise<{ id: string }> {
   const id = `fb-${Date.now()}-${randomUUID().slice(0, 8)}`;
   await pool.query(
-    "INSERT INTO feedback_items (id, kind, title, detail, page_url, submitted_by, fingerprint) VALUES (?,?,?,?,?,?,?)",
+    "INSERT INTO feedback_items (id, kind, title, detail, page_url, submitted_by, fingerprint, may_relay) VALUES (?,?,?,?,?,?,?,?)",
     [
       id,
       input.kind,
@@ -47,6 +52,7 @@ export async function recordFeedback(pool: Pool, input: FeedbackInput): Promise<
       input.pageUrl ? String(input.pageUrl).slice(0, 500) : null,
       input.submittedBy ?? null,
       feedbackFingerprint(input.kind, input.title, input.detail),
+      mayRelay ? 1 : 0,
     ],
   );
   return { id };
@@ -71,8 +77,12 @@ export async function relayFeedback(
   identity: RelayIdentity,
 ): Promise<{ sent: number }> {
   const [rows] = await pool.query<RowDataPacket[]>(
+    // may_relay = 1 is the consent recorded when the item was CAPTURED.
+    // Anything submitted while the relay was off stays home forever, even
+    // if the relay is switched on later — the form promised that, and a
+    // setting changing afterwards does not un-promise it.
     "SELECT id, kind, title, detail, page_url, fingerprint, created_at FROM feedback_items " +
-      "WHERE relayed_at IS NULL ORDER BY created_at ASC LIMIT 50",
+      "WHERE relayed_at IS NULL AND may_relay = 1 ORDER BY created_at ASC LIMIT 50",
   );
   if (rows.length === 0) return { sent: 0 };
 
