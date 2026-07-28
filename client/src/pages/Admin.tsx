@@ -833,9 +833,22 @@ function IntegrationsTab({ password }: { password: string }) {
             </code>
             <p className="text-xs text-gray-500 mt-2">
               In Stripe: Developers → Webhooks → Add endpoint → paste this URL,
-              subscribe to <code>checkout.session.completed</code>,{" "}
-              <code>charge.refunded</code> and <code>charge.dispute.created</code>,
-              then copy the signing secret into the card below.
+              subscribe to all five events below, then copy the signing secret
+              into the card below.
+            </p>
+            <ul className="text-xs text-gray-500 mt-2 space-y-1">
+              <li><code>checkout.session.completed</code> — a purchase is made</li>
+              <li><code>checkout.session.async_payment_succeeded</code> — a bank
+                transfer or direct debit clears, days later</li>
+              <li><code>invoice.paid</code> — a subscription renews for another period</li>
+              <li><code>charge.refunded</code> — money is given back</li>
+              <li><code>charge.dispute.created</code> — a buyer charges back</li>
+            </ul>
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+              Miss <code>invoice.paid</code> and recurring products keep charging
+              people every month while delivering only the first one. Miss{" "}
+              <code>checkout.session.async_payment_succeeded</code> and anyone
+              paying by bank transfer is charged and never receives anything.
             </p>
           </div>
 

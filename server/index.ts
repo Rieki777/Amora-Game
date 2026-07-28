@@ -199,6 +199,7 @@ import {
   createCheckout,
   floorTokens,
   handleStripeEvent,
+  isSuspended,
   recordFiatCharge,
   registerPaymentHandlers,
   stripeConfigured,
@@ -1604,6 +1605,14 @@ async function runRetentionSweep(): Promise<string> {
     );
     if (r.affectedRows) parts.push(`${r.affectedRows} notification(s)`);
   }
+  // payments_log grows one row per Stripe event forever, and nothing ever
+  // read a row older than the retry window. Rows still awaiting handled_at
+  // are exempt at any age — those are the abandoned claims the webhook needs
+  // to find, and deleting one would hide a settle that never finished.
+  const [pl]: any = await getPool().query(
+    "DELETE FROM payments_log WHERE handled_at IS NOT NULL AND at < (NOW() - INTERVAL 400 DAY) LIMIT 5000",
+  );
+  if (pl.affectedRows) parts.push(`${pl.affectedRows} payment log row(s)`);
   return parts.length ? `swept ${parts.join(", ")}` : "nothing due";
 }
 
@@ -1870,9 +1879,37 @@ async function overLimit(bucket: string, max: number, windowMs: number): Promise
     return false;
   }
 }
+/**
+ * How many proxies sit in front of this process. One on Railway, Fly, Render
+ * and most PaaS; raise it if a fork puts its own CDN or load balancer ahead
+ * of the platform's. Zero means the socket address IS the client.
+ */
+const TRUSTED_PROXY_HOPS = Math.max(0, Number(process.env.TRUSTED_PROXY_HOPS ?? 1) || 0);
+
+/**
+ * The caller's address, as far as anything we control can vouch for it.
+ *
+ * X-Forwarded-For grows left to right: each proxy APPENDS the address it
+ * received the request from. So the rightmost entries are written by our own
+ * infrastructure and the leftmost is whatever the original client sent —
+ * which anyone can forge. Reading `split(",")[0]` therefore took the one
+ * value in the header that is entirely attacker-controlled, and every rate
+ * limit keyed on it (checkout attempts, sign-in throttling, the assistant's
+ * cost cap, the abuse guard) could be reset to zero by changing a header.
+ *
+ * Counting in from the RIGHT by the number of proxies we actually run lands
+ * on the address our own edge observed. Extra entries the client pre-seeded
+ * sit to the left of it and are ignored.
+ */
 function clientIp(req: express.Request): string {
-  const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string" && fwd) return fwd.split(",")[0].trim();
+  const raw = req.headers["x-forwarded-for"];
+  const chain = (Array.isArray(raw) ? raw.join(",") : String(raw ?? ""))
+    .split(",").map(s => s.trim()).filter(Boolean);
+  if (chain.length && TRUSTED_PROXY_HOPS > 0) {
+    // Fewer entries than hops means the header did not come through the
+    // chain we expect; the leftmost is then the least-bad answer available.
+    return chain[Math.max(0, chain.length - TRUSTED_PROXY_HOPS)];
+  }
   return req.socket.remoteAddress ?? "unknown";
 }
 // Global daily call cap for the AI assistant, so a key can't run away with cost.
@@ -2180,58 +2217,137 @@ async function startServer() {
   async function settleProductPurchase(purchaseId: string, event: any | null): Promise<void> {
     const pool = getPool();
     const [[row]] = await pool.query<any[]>(
-      "SELECT pp.*, p.token_slug, p.token_amount, p.name AS product_name, p.kind AS product_kind, p.recurring " +
+      "SELECT pp.*, p.token_slug, p.token_amount, p.name AS product_name, p.kind AS product_kind, p.recurring, p.active " +
         "FROM product_purchases pp JOIN payment_products p ON p.id = pp.product_id WHERE pp.id = ?",
       [purchaseId],
     );
     if (!row) throw new Error(`no product purchase "${purchaseId}" — refusing to settle into thin air`);
     const obj = event?.data?.object ?? {};
     const subId = obj.subscription ? String(obj.subscription) : null;
-    // A subscription's FIRST event carries no payment_intent (Stripe puts it
-    // on the invoice), so falling back to the invoice/session id is what
-    // keeps a charge record — and therefore a disputable trail — existing at
-    // all for recurring products. Without it a chargeback matched nothing
-    // and the granted tokens stayed granted.
-    const chargeRef = obj.payment_intent
-      ? String(obj.payment_intent)
-      : obj.invoice
-        ? `inv:${String(obj.invoice)}`
-        : obj.id
-          ? `evt:${String(obj.id)}`
-          : null;
 
-    // THE PERIOD. Every keyed side effect below is scoped to it, and it is
-    // derived from the event, never from a counter that a retry can inflate:
-    // Stripe's invoice number for renewals, 1 for the first period.
-    const period = Math.max(1, Number(obj.lines?.data?.[0]?.period?.start ? row.periods_paid + 1 : row.periods_paid + 1));
-    const periodKey = subId && obj.invoice ? `inv${String(obj.invoice)}` : `p${period}`;
+    /**
+     * THE PERIOD KEY — the identity of the one charge this event is about.
+     *
+     * It comes ENTIRELY from Stripe's own identifiers, never from
+     * periods_paid. That distinction is the whole fix: the payments layer
+     * deletes its dedupe row when a handler throws, so Stripe redelivers a
+     * failed settle. Keying off the counter meant attempt 2 computed a
+     * DIFFERENT key from attempt 1, found no prior grant, incremented again
+     * and granted again — the exact double-pay the key exists to prevent.
+     * An invoice id is the same on every redelivery; a counter is not.
+     *
+     * Precedence: invoice (subscriptions — one per period) > payment_intent
+     * (one-time) > event id (last resort) > "manual" (a steward confirming
+     * a cash or Zeffy payment, where there is no event and exactly one
+     * period by construction).
+     */
+    // Where the invoice id lives depends on what the event object IS. On a
+    // checkout session it is `obj.invoice`; on an invoice.paid event the
+    // object is the invoice itself, so the id is `obj.id` and `obj.invoice`
+    // is undefined. Reading only `obj.invoice` made a subscription's first
+    // period fall through to its payment_intent — a different key from the
+    // session that opened the same period, so month one billed twice.
+    const isInvoice = obj.object === "invoice"
+      || String(event?.type ?? "").startsWith("invoice.");
+    const invoiceId = isInvoice ? obj.id : obj.invoice;
+    const periodKey = invoiceId
+      ? `inv_${String(invoiceId)}`
+      : obj.payment_intent
+        ? `pi_${String(obj.payment_intent)}`
+        : event?.id
+          ? `evt_${String(event.id)}`
+          : "manual";
 
-    // Idempotent by the same discipline the rest of the platform uses: a
-    // redelivered event must move nothing twice. periods_paid only advances
-    // when this exact charge has not been recorded before.
-    const [[already]] = await pool.query<any[]>(
-      "SELECT COUNT(*) AS n FROM token_ledger WHERE source = 'product_grant' AND idempotency_key = ?",
-      [`pp:${purchaseId}:grant:${periodKey}`],
-    );
-    const firstTimeForThisPeriod = Number(already.n) === 0;
+    // The charge reference stored for the dispute path. Same source, so a
+    // chargeback on any period resolves back to that period's grant.
+    // NULL, not a stand-in. This column exists so a chargeback can find the
+    // charge it belongs to; a fabricated value can never match a real
+    // dispute, and writing one would overwrite the true intent when the two
+    // events for a subscription's first period arrive in the other order.
+    const chargeRef = obj.payment_intent ? String(obj.payment_intent) : null;
 
+    // Idempotent for EVERY product shape — token-granting or not, member or
+    // anonymous — by asking the row which charges it has already settled.
+    // A counter cannot answer that; a list of Stripe-derived keys can.
+    const settledBefore: string[] = Array.isArray(row.settled_periods)
+      ? row.settled_periods
+      : typeof row.settled_periods === "string"
+        ? (() => { try { return JSON.parse(row.settled_periods) ?? []; } catch { return []; } })()
+        : [];
+    const firstTimeForThisPeriod = !settledBefore.includes(periodKey);
+
+    /**
+     * A RENEWAL is any period after the first, and it re-runs this exact
+     * body — which means every gate that stood at checkout is absent here.
+     * A subscription signed a year ago kept minting tokens after the product
+     * was retired, after the token was reclassified as unsellable, and after
+     * the buyer was suspended for a chargeback, because nothing on this path
+     * ever asked again.
+     *
+     * A refusal does NOT throw. Stripe already took the money and would
+     * redeliver forever; the honest outcome is to bank the money, withhold
+     * the goods, and put a human on it.
+     */
+    const isRenewal = firstTimeForThisPeriod && Number(row.periods_paid) >= 1;
+    let refusal: string | null = null;
+    if (isRenewal) {
+      if (!row.active) refusal = "the product is no longer active";
+      else if (row.token_slug) refusal = purchaseProblem(String(row.token_slug));
+      if (!refusal && row.user_id && await isSuspended(pool, String(row.user_id))) {
+        refusal = "the buyer's purchasing is suspended";
+      }
+    }
+
+    // The settled list and the counter move together, and only for a charge
+    // never seen before. Written BEFORE the grant so a crash between them
+    // leaves a settled-but-ungranted period the admin alarm names, rather
+    // than an ungranted period that silently settles twice.
+    // ORDER MATTERS, and this is the order:
+    //
+    //   1. record that money arrived  (true the moment Stripe says so)
+    //   2. deliver what it bought     (may fail — out of stock)
+    //   3. mark the period settled    (only once 1 and 2 both hold)
+    //
+    // Marking settled BEFORE the grant would make a failed grant permanent:
+    // the redelivery would see the period already settled, skip, and the
+    // member would never receive what they paid for. This way a redelivery
+    // retries the grant, and the stable period key makes a SUCCESSFUL
+    // retry a ledger duplicate rather than a second payout.
+    // `status <> 'reversed' OR ?` — a redelivery of an already-settled
+    // period must not quietly flip a reversed purchase back to paid. A
+    // genuinely NEW period may: that is a fresh charge that really did
+    // succeed, and a subscription can survive one disputed month.
     await pool.query(
       "UPDATE product_purchases SET status = 'paid', paid_at = COALESCE(paid_at, NOW()), " +
-        (firstTimeForThisPeriod ? "periods_paid = periods_paid + 1, " : "") +
-        "stripe_subscription_id = COALESCE(?, stripe_subscription_id) WHERE id = ?",
-      [subId, purchaseId],
+        "stripe_subscription_id = COALESCE(?, stripe_subscription_id) " +
+        "WHERE id = ? AND (status <> 'reversed' OR ?)",
+      [subId, purchaseId, firstTimeForThisPeriod ? 1 : 0],
     );
-    if (row.user_id && chargeRef) {
-      // One charge row PER PERIOD: the unique key is (module, order_id), so
-      // reusing the purchase id for every renewal overwrote the previous
-      // period's payment reference and left only the newest disputable.
-      await recordFiatCharge(pool, {
-        userId: String(row.user_id), module: "commerce",
-        orderId: `${purchaseId}#${periodKey}`,
-        amountMinor: Number(row.amount_minor), paymentIntentId: chargeRef,
-      });
-    }
-    if (row.token_slug && row.token_amount && row.user_id) {
+    // One charge row PER PERIOD: the unique key is (module, order_id), so
+    // reusing the purchase id for every renewal overwrote the previous
+    // period's payment reference and left only the newest disputable.
+    //
+    // Unconditional since 0039. It used to be guarded on `row.user_id`,
+    // because the column was NOT NULL — which meant a fee or donation bought
+    // without an account wrote no charge row at all, and fiat_charges is the
+    // only place a payment intent is ever mapped back to an order. Those
+    // purchases were the likeliest to be disputed and the only ones that
+    // could not be.
+    await recordFiatCharge(pool, {
+      userId: row.user_id ? String(row.user_id) : null, module: "commerce",
+      orderId: `${purchaseId}#${periodKey}`,
+      amountMinor: Number(row.amount_minor), paymentIntentId: chargeRef,
+    });
+    if (refusal) {
+      // Banked, not delivered. Loud, and settled below so Stripe stops
+      // retrying a decision rather than a failure.
+      await notifyAdmins(
+        "payment",
+        `Renewal charged but NOT delivered: ${row.product_name} (${purchaseId}, ${periodKey}) — ${refusal}. ` +
+          `Cancel the subscription in Stripe and refund this period.`,
+        `product-renewrefused:${purchaseId}:${periodKey}`,
+      );
+    } else if (row.token_slug && row.token_amount && row.user_id) {
       const r = await postTransfer(pool, {
         from: TREASURY, to: memberAccount(String(row.user_id)),
         tokenType: String(row.token_slug), amount: Number(row.token_amount),
@@ -2241,13 +2357,29 @@ async function startServer() {
       });
       if (!r.ok && !r.duplicate) {
         // Money arrived and the grant failed — the loudest alarm we have.
+        // Thrown, so the period stays unsettled and a retry can heal it.
         await notifyAdmins(
           "payment",
           `Product grant FAILED after payment: ${row.product_name} (${purchaseId}) — ${r.error}. Restock and re-run, or refund.`,
-          `product-grantfail:${purchaseId}`,
+          `product-grantfail:${purchaseId}:${periodKey}`,
         );
         throw new Error(`token grant failed: ${r.error}`);
       }
+    }
+    if (firstTimeForThisPeriod) {
+      // ONE statement, so the row lock makes it atomic. The old shape read
+      // the array up top and wrote the whole thing back down here; two
+      // deliveries interleaving between those points each wrote a list
+      // missing the other's key, and the counter — an unconditional +1 —
+      // drifted away from the list it is supposed to summarise. The NOT
+      // JSON_CONTAINS clause is what makes the increment conditional, so
+      // the two can no longer disagree.
+      await pool.query(
+        "UPDATE product_purchases SET periods_paid = periods_paid + 1, " +
+          "settled_periods = JSON_ARRAY_APPEND(COALESCE(settled_periods, JSON_ARRAY()), '$', ?) " +
+          "WHERE id = ? AND NOT JSON_CONTAINS(COALESCE(settled_periods, JSON_ARRAY()), JSON_QUOTE(?))",
+        [periodKey, purchaseId, periodKey],
+      );
     }
     if (row.user_id) {
       await notify({
@@ -2281,10 +2413,35 @@ async function startServer() {
       if (Number(row.periods_paid) <= 1) {
         await pool.query("UPDATE product_purchases SET status = 'reversed' WHERE id = ?", [purchaseId]);
       }
+      /**
+       * CLAW BACK ONLY WHAT WAS ACTUALLY GRANTED.
+       *
+       * Settle records the fiat charge BEFORE attempting the grant, on
+       * purpose — money arriving is true the moment Stripe says so. That
+       * leaves a real window where a disputable charge row exists and no
+       * tokens were ever handed over: the grant failed on empty stock, the
+       * admin alarm said "restock and re-run, or refund", and either the
+       * buyer disputes or the village refunds. Both land here.
+       *
+       * Clawing back regardless drove the member to a NEGATIVE balance for
+       * tokens they never held, and handed the treasury stock that was never
+       * issued — sellable to the next buyer. Neither boot invariant catches
+       * it: conservation still nets to zero, and `payment_reversal` is on
+       * the allow-negative list precisely so this posting cannot be refused.
+       *
+       * The settled list is the record of what was delivered. Absent key,
+       * absent grant, nothing to take back.
+       */
+      const settled: string[] = Array.isArray(row.settled_periods)
+        ? row.settled_periods
+        : typeof row.settled_periods === "string"
+          ? (() => { try { return JSON.parse(row.settled_periods) ?? []; } catch { return []; } })()
+          : [];
+      const wasDelivered = settled.includes(periodKey);
       // MECHANICAL: claw back exactly what that period granted, negative
       // balances included — the same posture as stays. Humans told after.
-      if (row.token_slug && row.token_amount && row.user_id) {
-        await postTransfer(pool, {
+      if (wasDelivered && row.token_slug && row.token_amount && row.user_id) {
+        const claw = await postTransfer(pool, {
           from: memberAccount(String(row.user_id)), to: TREASURY,
           tokenType: String(row.token_slug), amount: Number(row.token_amount),
           source: "payment_reversal", sourceRef: purchaseId,
@@ -2292,10 +2449,18 @@ async function startServer() {
           idempotencyKey: `pp:${purchaseId}:reversal:${periodKey}`,
           allowNegative: true,
         });
+        // Checked, like stays and exchange do. Reporting a clawback that
+        // never posted is worse than failing: the humans stand down.
+        if (!claw.ok && !claw.duplicate) throw new Error(`reversal clawback failed: ${claw.error}`);
       }
       await notifyAdmins(
         "payment",
-        `Payment reversed: ${row.product_name} (receipt #${row.receipt_no}, ${periodKey})${row.token_slug ? ` — ${row.token_amount} ${row.token_slug} clawed back` : ""}`,
+        `Payment reversed: ${row.product_name} (receipt #${row.receipt_no}, ${periodKey})` +
+          (row.token_slug
+            ? wasDelivered
+              ? ` — ${row.token_amount} ${row.token_slug} clawed back`
+              : ` — nothing to claw back; this period was charged but never delivered`
+            : ""),
         `product-reversal:${purchaseId}:${periodKey}`,
       );
     },
@@ -2465,7 +2630,32 @@ async function startServer() {
    * NEVER behind requireModule — in-flight orders must settle even when
    * their module was just disabled (#13).
    */
+  /**
+   * An IN-MEMORY bucket, deliberately not the `rate_hits` one.
+   *
+   * This route is public, unauthenticated, and sits ahead of every other
+   * guard, and each rejected request used to cost three database writes —
+   * two log rows plus a notification — so a stranger with a loop could turn
+   * one cheap POST into sustained write load on the database the whole
+   * village runs on. Counting in a Map costs nothing and needs no DB to say
+   * no, which is exactly what an amplification guard must not depend on.
+   *
+   * The cap is far above real Stripe traffic (a busy renewal day is a few
+   * dozen events a minute) and a 429 is retried by Stripe like any other
+   * non-2xx, so a genuine burst is delayed rather than lost.
+   */
+  const WEBHOOK_MAX_PER_MIN = 300;
+  const webhookHits = new Map<string, { n: number; resetAt: number }>();
   app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), async (req, res) => {
+    const now = Date.now();
+    const who = clientIp(req);
+    const slot = webhookHits.get(who);
+    if (!slot || slot.resetAt < now) {
+      if (webhookHits.size > 5000) webhookHits.clear(); // bounded, never a leak
+      webhookHits.set(who, { n: 1, resetAt: now + 60_000 });
+    } else if (++slot.n > WEBHOOK_MAX_PER_MIN) {
+      return res.status(429).json({ error: "too many webhook deliveries; retry shortly" });
+    }
     const out = await handleStripeEvent(
       getPool(),
       req.body as Buffer,

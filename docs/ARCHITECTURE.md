@@ -372,11 +372,60 @@ Built once (S32), consumed by every fiat module. Three responsibilities:
    one module are theater." (Note: here a 0 variable disables that cap;
    the fail-closed-zero rule belongs to *swap* caps — §3.10.)
 
-Modules plug in via `registerPaymentHandlers(moduleId, {settle, reversal})`;
-stays and exchange register at boot (`server/index.ts:2007, 2062`). Settle
-handlers throw when the order does not exist ("refusing to settle into thin
-air") and when the treasury is under-stocked — out of stock surfaces via
-webhook retries, never a mint.
+Modules plug in via `registerPaymentHandlers(moduleId, {settle, reversal,
+renew})`; stays, exchange and commerce register at boot. Settle handlers
+throw when the order does not exist ("refusing to settle into thin air") and
+when the treasury is under-stocked — out of stock surfaces via webhook
+retries, never a mint.
+
+#### What a settle handler has to get right
+
+Six rules, each of which was learned by getting it wrong. Any new fiat module
+inherits all six.
+
+1. **The period key comes from Stripe, never from a counter.** A failed
+   dispatch releases the dedupe claim, so attempt 2 must compute the SAME key
+   as attempt 1 or it will look like a fresh charge and pay out twice.
+   Precedence is invoice id → payment intent → event id. Note *where* the
+   invoice id lives: on a checkout session it is `obj.invoice`, but on an
+   `invoice.paid` event the object IS the invoice, so it is `obj.id`.
+2. **Completed is not paid.** `checkout.session.completed` arrives with
+   `payment_status: "unpaid"` for SEPA, ACH and Boleto, sometimes days before
+   the money moves. Deliver on `paid`/`no_payment_required`;
+   `checkout.session.async_payment_succeeded` brings the confirmation.
+3. **Money in, then goods, then the mark.** Record the charge, attempt
+   delivery, and only then record the period as settled. Marking first makes
+   a failed delivery permanent; a retry would skip it and the member never
+   receives what they paid for.
+4. **Mark it in one statement.** `JSON_ARRAY_APPEND … WHERE NOT
+   JSON_CONTAINS` under the row lock. Reading a JSON array in one query and
+   writing it back in another loses keys when two deliveries interleave, and
+   the counter beside it drifts out of agreement with the list.
+5. **Reversal claws back only what was delivered.** Because rule 3 records
+   the money before the goods, a charge row can exist with nothing granted
+   behind it. Clawing back anyway drives the member negative for tokens they
+   never held and hands the treasury stock nobody issued — and no boot
+   invariant catches it, since conservation still nets to zero and
+   `payment_reversal` is on the allow-negative list.
+6. **A renewal re-asks checkout's questions.** The renew handler runs the
+   same body months later: re-check that the product is active, the token
+   still legally sellable, the buyer not suspended. A refusal banks the money
+   and withholds the goods with a loud admin alert — it must NOT throw, or
+   Stripe retries a decision forever.
+
+A partial `charge.refunded` is not a reversal: compare `amount_refunded` to
+`amount` and treat anything less than the whole as money moving, not a
+purchase unwinding.
+
+#### Claim versus completion
+
+`payments_log.stripe_event_id` is UNIQUE and the row is written *before* the
+work, so a replay is a no-op. But a claim is not a completion: if the handler
+throws the claim is deleted and Stripe retries, while if the **process dies**
+nothing deletes it and the retry is answered "duplicate" for work that never
+happened. `handled_at` (0038) separates the two — an unstamped claim past
+`CLAIM_GRACE_MINUTES` is abandoned and the next delivery is allowed through.
+The retention sweep never deletes an unstamped row, at any age.
 
 ### 3.9 Data lifecycle — retention, export, anonymisation, exit
 

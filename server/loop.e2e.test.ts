@@ -2931,6 +2931,317 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     await api("PUT", "/api/admin/modules/commerce/lifecycle", { lifecycle: "off" }, founderToken);
   });
 
+  it("S69 hardening: retries heal, renewals stack, a dispute takes back ONE period", async () => {
+    await api("PUT", "/api/admin/modules/commerce/lifecycle", { lifecycle: "public" }, founderToken);
+    // Treasury stocking lives behind the exchange module, which earlier
+    // blocks leave off; commerce sells FROM that stock either way.
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "public" }, founderToken);
+
+    const { createHmac } = await import("crypto");
+    /** Post a signed Stripe event, the way the real webhook arrives. */
+    const hook = async (payload: any) => {
+      const body = JSON.stringify(payload);
+      const at = Math.floor(Date.now() / 1000);
+      const sig = `t=${at},v1=${createHmac("sha256", "whsec_looptest").update(`${at}.${body}`).digest("hex")}`;
+      const r = await fetch(`${BASE}/api/webhooks/stripe`, {
+        method: "POST", body,
+        headers: { "Content-Type": "application/json", "stripe-signature": sig },
+      });
+      return { status: r.status, json: await r.json().catch(() => ({})) };
+    };
+    const byId = async (id: string) => {
+      const [[r]] = await testDb.conn.query<any[]>(
+        "SELECT * FROM product_purchases WHERE id = ?", [id],
+      );
+      return r;
+    };
+    const grantLegs = async (pid: string) => {
+      const [rows] = await testDb.conn.query<any[]>(
+        "SELECT idempotency_key FROM token_ledger WHERE source = 'product_grant' AND source_ref = ?", [pid],
+      );
+      return rows.length;
+    };
+
+    // ── A RETRY AFTER A FAILED GRANT MUST HEAL, NOT DOUBLE-PAY. ──
+    // Empty the treasury of a token, sell a pack of it, and let the first
+    // settle fail. The period must stay UNSETTLED so a redelivery can
+    // finish the job once the stewards restock — and must then grant once.
+    expect((await api("POST", "/api/admin/tokens", { slug: "pack-tok", name: "Pack Token", kind: "credit", transferable: false }, founderToken)).status).toBe(200);
+    const pack = await api("POST", "/api/admin/products", {
+      kind: "token_pack", name: "Retry pack", amountMinor: 1000, tokenSlug: "pack-tok", tokenAmount: 4, active: true,
+    }, founderToken);
+    expect(pack.json.success).toBe(true);
+    // Deliberately DON'T stock it. The treasury is not a faucet, so the
+    // grant cannot go negative and fails on its own — the real
+    // crash-after-payment, reached without hand-editing any ledger row.
+    // No STRIPE_SECRET_KEY in this harness on purpose (checkout refuses
+    // loudly), so the purchase row is inserted as real checkout would leave
+    // it and the SIGNED webhook does the rest — the same shape stays uses.
+    const buyId = `pp-retry-${Date.now()}`;
+    await testDb.conn.query(
+      "INSERT INTO product_purchases (id, product_id, user_id, amount_minor, receipt_no) VALUES (?,?,?,1000,9101)",
+      [buyId, pack.json.id, peerId],
+    );
+    const buy = { id: buyId };
+
+    const failEvent = {
+      id: "evt_retry_1", type: "checkout.session.completed",
+      data: { object: { id: "cs_retry", payment_intent: "pi_retry_1", metadata: { module: "commerce", orderId: String(buy.id) } } },
+    };
+    expect((await hook(failEvent)).status).toBe(500); // the grant failed, loudly
+    let after = await byId(buyId);
+    expect(Number(after.periods_paid)).toBe(0);      // NOT settled — retryable
+    expect(await grantLegs(String(buy.id))).toBe(0);
+
+    // Stock it, redeliver the SAME event: it heals and grants exactly once.
+    expect((await api("POST", "/api/admin/exchange/stock", { tokenSlug: "pack-tok", amount: 4 }, founderToken)).status).toBe(200);
+    expect((await hook(failEvent)).status).toBe(200);
+    after = await byId(buyId);
+    expect(Number(after.periods_paid)).toBe(1);
+    expect(await grantLegs(String(buy.id))).toBe(1);
+
+    // A THIRD delivery changes nothing: the period key is Stripe's, not a
+    // counter, so it is already in settled_periods.
+    expect((await hook({ ...failEvent, id: "evt_retry_1b" })).status).toBe(200);
+    after = await byId(buyId);
+    expect(Number(after.periods_paid)).toBe(1);
+    expect(await grantLegs(String(buy.id))).toBe(1);
+
+    // ── SUBSCRIPTIONS: the first period must be DISPUTABLE. ──
+    const sub = await api("POST", "/api/admin/products", {
+      kind: "membership", name: "Monthly pack", amountMinor: 500, recurring: "month",
+      tokenSlug: "pack-tok", tokenAmount: 1, active: true,
+    }, founderToken);
+    expect((await api("POST", "/api/admin/exchange/stock", { tokenSlug: "pack-tok", amount: 10 }, founderToken)).status).toBe(200);
+    const subBuyId = `pp-sub-${Date.now()}`;
+    await testDb.conn.query(
+      "INSERT INTO product_purchases (id, product_id, user_id, amount_minor, receipt_no) VALUES (?,?,?,500,9102)",
+      [subBuyId, sub.json.id, peerId],
+    );
+    const subBuy = { id: subBuyId };
+
+    // checkout.session.completed for a subscription carries NO payment
+    // intent — Stripe puts it on the invoice.
+    await hook({
+      id: "evt_sub_cs", type: "checkout.session.completed",
+      data: { object: { id: "cs_sub", subscription: "sub_1", invoice: "in_1", metadata: { module: "commerce", orderId: String(subBuy.id) } } },
+    });
+    // The invoice for that SAME period then arrives, carrying the intent.
+    // Same period key, so no second grant — but now a chargeback can match.
+    await hook({
+      id: "evt_sub_inv1", type: "invoice.paid",
+      data: { object: { id: "in_1", payment_intent: "pi_sub_1", billing_reason: "subscription_create", subscription_details: { metadata: { module: "commerce", orderId: String(subBuy.id) } } } },
+    });
+    let subAfter = await byId(subBuyId);
+    expect(Number(subAfter.periods_paid)).toBe(1);
+    expect(await grantLegs(String(subBuy.id))).toBe(1);
+    const [[charge1]] = await testDb.conn.query<any[]>(
+      "SELECT stripe_payment_intent_id FROM fiat_charges WHERE order_id LIKE ? LIMIT 1", [`${subBuy.id}#%`],
+    );
+    expect(charge1.stripe_payment_intent_id).toBe("pi_sub_1"); // disputable
+
+    // Month two: a real renewal grants a second period.
+    await hook({
+      id: "evt_sub_inv2", type: "invoice.paid",
+      data: { object: { id: "in_2", payment_intent: "pi_sub_2", billing_reason: "subscription_cycle", subscription_details: { metadata: { module: "commerce", orderId: String(subBuy.id) } } } },
+    });
+    subAfter = await byId(subBuyId);
+    expect(Number(subAfter.periods_paid)).toBe(2);
+    expect(await grantLegs(String(subBuy.id))).toBe(2);
+    const balBefore = (await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["pack-tok"].balance;
+
+    // ── A DISPUTE ON MONTH ONE TAKES BACK MONTH ONE. ONE. ──
+    expect((await hook({
+      id: "evt_dispute_1", type: "charge.dispute.created",
+      data: { object: { id: "ch_1", payment_intent: "pi_sub_1" } },
+    })).status).toBe(200);
+    const balAfter = (await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["pack-tok"].balance;
+    expect(balBefore - balAfter).toBe(1); // one period's tokens, not two
+    const [reversals] = await testDb.conn.query<any[]>(
+      "SELECT idempotency_key FROM token_ledger WHERE source = 'payment_reversal' AND source_ref = ?", [subBuy.id],
+    );
+    expect(reversals.length).toBe(1);
+    // A live subscription with a disputed month stays paid, not reversed.
+    subAfter = await byId(subBuyId);
+    expect(subAfter.status).toBe("paid");
+
+    // ── THE SAME TWO EVENTS, DELIVERED BACKWARDS. ──
+    // Stripe promises delivery, never order. The invoice can land before the
+    // session that opened it; that must still be ONE period, and the real
+    // payment intent must survive the session's arrival, or a chargeback
+    // later has nothing to match on.
+    const oooId = `pp-ooo-${Date.now()}`;
+    await testDb.conn.query(
+      "INSERT INTO product_purchases (id, product_id, user_id, amount_minor, receipt_no) VALUES (?,?,?,500,9103)",
+      [oooId, sub.json.id, peerId],
+    );
+    await hook({
+      id: "evt_ooo_inv", type: "invoice.paid",
+      data: { object: { id: "in_ooo", payment_intent: "pi_ooo", billing_reason: "subscription_create", subscription_details: { metadata: { module: "commerce", orderId: oooId } } } },
+    });
+    await hook({
+      id: "evt_ooo_cs", type: "checkout.session.completed",
+      data: { object: { id: "cs_ooo", subscription: "sub_ooo", invoice: "in_ooo", metadata: { module: "commerce", orderId: oooId } } },
+    });
+    const oooAfter = await byId(oooId);
+    expect(Number(oooAfter.periods_paid)).toBe(1);
+    expect(await grantLegs(oooId)).toBe(1);
+    const [[oooCharge]] = await testDb.conn.query<any[]>(
+      "SELECT stripe_payment_intent_id FROM fiat_charges WHERE order_id LIKE ? LIMIT 1", [`${oooId}#%`],
+    );
+    expect(oooCharge.stripe_payment_intent_id).toBe("pi_ooo"); // not nulled
+
+    // ── A DISPUTE ON A PERIOD THAT WAS NEVER DELIVERED TAKES NOTHING. ──
+    // Settle banks the money before it tries to deliver, so there is a real
+    // window holding a disputable charge and no tokens. Clawing back anyway
+    // drove the member negative for tokens they never had and handed the
+    // treasury stock nobody ever issued — sellable to the next buyer, and
+    // invisible to both boot invariants.
+    expect((await api("POST", "/api/admin/tokens", { slug: "void-tok", name: "Void Token", kind: "credit", transferable: false }, founderToken)).status).toBe(200);
+    const voidProd = await api("POST", "/api/admin/products", {
+      kind: "token_pack", name: "Undeliverable pack", amountMinor: 800, tokenSlug: "void-tok", tokenAmount: 3, active: true,
+    }, founderToken);
+    const voidId = `pp-void-${Date.now()}`;
+    await testDb.conn.query(
+      "INSERT INTO product_purchases (id, product_id, user_id, amount_minor, receipt_no) VALUES (?,?,?,800,9104)",
+      [voidId, voidProd.json.id, peerId],
+    );
+    // Never stocked, so the grant cannot succeed: money in, nothing out.
+    expect((await hook({
+      id: "evt_void_cs", type: "checkout.session.completed",
+      data: { object: { id: "cs_void", payment_intent: "pi_void", metadata: { module: "commerce", orderId: voidId } } },
+    })).status).toBe(500);
+    const voidRow = await byId(voidId);
+    expect(Number(voidRow.periods_paid)).toBe(0);
+    // The charge IS on file — that is what makes the dispute findable.
+    const [[voidCharge]] = await testDb.conn.query<any[]>(
+      "SELECT stripe_payment_intent_id FROM fiat_charges WHERE order_id LIKE ? LIMIT 1", [`${voidId}#%`],
+    );
+    expect(voidCharge.stripe_payment_intent_id).toBe("pi_void");
+    expect((await hook({
+      id: "evt_void_dispute", type: "charge.dispute.created",
+      data: { object: { id: "ch_void", payment_intent: "pi_void" } },
+    })).status).toBe(200);
+    const [voidClaw] = await testDb.conn.query<any[]>(
+      "SELECT id FROM token_ledger WHERE source = 'payment_reversal' AND source_ref = ?", [voidId],
+    );
+    expect(voidClaw.length).toBe(0);                 // nothing was delivered
+    const [[voidBal]] = await testDb.conn.query<any[]>(
+      "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = 'void-tok'", [`mem:${peerId}`],
+    );
+    expect(Number(voidBal?.balance ?? 0)).toBe(0);   // never driven negative
+
+    // ── A PARTIAL REFUND IS NOT A REVERSAL. ──
+    // $1 back on a $5 charge used to claw back the whole period and wipe the
+    // charge from the member's spend caps.
+    const clawsBefore = (await testDb.conn.query<any[]>(
+      "SELECT id FROM token_ledger WHERE source = 'payment_reversal' AND source_ref = ?", [subBuyId],
+    ))[0].length;
+    const partial = await hook({
+      id: "evt_partial", type: "charge.refunded",
+      data: { object: { id: "ch_partial", payment_intent: "pi_sub_2", amount: 500, amount_refunded: 100 } },
+    });
+    expect(partial.json.partial).toBe(true);
+    const clawsAfter = (await testDb.conn.query<any[]>(
+      "SELECT id FROM token_ledger WHERE source = 'payment_reversal' AND source_ref = ?", [subBuyId],
+    ))[0].length;
+    expect(clawsAfter).toBe(clawsBefore);
+    const [[stillPaid]] = await testDb.conn.query<any[]>(
+      "SELECT status FROM fiat_charges WHERE stripe_payment_intent_id = 'pi_sub_2' LIMIT 1",
+    );
+    expect(stillPaid.status).toBe("paid");
+
+    // ── A REFUND THE VILLAGE ITSELF ISSUED MUST NOT SUSPEND THE BUYER. ──
+    // fiat_charges.status was missing from the lookup's SELECT, so the
+    // "we did this on purpose" flag read undefined and every village refund
+    // blocked the member from buying anything, anywhere, until a manual lift.
+    // The DELTA, not the count: the two disputes above suspended this member
+    // on purpose, and that part works.
+    const countSuspensions = async () => (await testDb.conn.query<any[]>(
+      "SELECT id FROM payment_suspensions WHERE user_id = ? AND lifted_at IS NULL", [peerId],
+    ))[0].length;
+    const suspendedBefore = await countSuspensions();
+    await testDb.conn.query("UPDATE fiat_charges SET status = 'reversed' WHERE stripe_payment_intent_id = 'pi_sub_2'");
+    expect((await hook({
+      id: "evt_village_refund", type: "charge.refunded",
+      data: { object: { id: "ch_village", payment_intent: "pi_sub_2", amount: 500, amount_refunded: 500 } },
+    })).status).toBe(200);
+    expect(await countSuspensions()).toBe(suspendedBefore);
+
+    // ── AN ANONYMOUS PURCHASE IS STILL A REFUNDABLE ONE. ──
+    // fiat_charges.user_id was NOT NULL, so a donation or fee bought without
+    // an account wrote no charge row at all — and that table is the only
+    // map from a Stripe payment intent back to an order.
+    const anonProd = await api("POST", "/api/admin/products", {
+      kind: "donation", name: "Anonymous gift", amountMinor: 2500, audience: "public", active: true,
+    }, founderToken);
+    const anonId = `pp-anon-${Date.now()}`;
+    await testDb.conn.query(
+      "INSERT INTO product_purchases (id, product_id, user_id, payer_email, amount_minor, receipt_no) VALUES (?,?,NULL,?,2500,9105)",
+      [anonId, anonProd.json.id, "passerby@example.org"],
+    );
+    expect((await hook({
+      id: "evt_anon_cs", type: "checkout.session.completed",
+      data: { object: { id: "cs_anon", payment_intent: "pi_anon", metadata: { module: "commerce", orderId: anonId } } },
+    })).status).toBe(200);
+    const [[anonCharge]] = await testDb.conn.query<any[]>(
+      "SELECT user_id, stripe_payment_intent_id FROM fiat_charges WHERE order_id LIKE ? LIMIT 1", [`${anonId}#%`],
+    );
+    expect(anonCharge.user_id).toBe(null);
+    expect(anonCharge.stripe_payment_intent_id).toBe("pi_anon");
+    // And the dispute now finds it instead of alerting into the void.
+    const anonDispute = await hook({
+      id: "evt_anon_dispute", type: "charge.dispute.created",
+      data: { object: { id: "ch_anon", payment_intent: "pi_anon" } },
+    });
+    expect(anonDispute.json.unmatched).toBeUndefined();
+    expect((await byId(anonId)).status).toBe("reversed");
+
+    // ── COMPLETED IS NOT PAID. ──
+    // Bank debits fire checkout.session.completed with payment_status
+    // "unpaid" days before the money moves.
+    const slowId = `pp-slow-${Date.now()}`;
+    await testDb.conn.query(
+      "INSERT INTO product_purchases (id, product_id, user_id, amount_minor, receipt_no) VALUES (?,?,?,2500,9106)",
+      [slowId, anonProd.json.id, peerId],
+    );
+    const pending = await hook({
+      id: "evt_slow_cs", type: "checkout.session.completed",
+      data: { object: { id: "cs_slow", payment_status: "unpaid", payment_intent: "pi_slow", metadata: { module: "commerce", orderId: slowId } } },
+    });
+    expect(pending.json.pending).toBe(true);
+    expect(Number((await byId(slowId)).periods_paid)).toBe(0);
+    // Days later the bank confirms, and the same session settles for real.
+    expect((await hook({
+      id: "evt_slow_ok", type: "checkout.session.async_payment_succeeded",
+      data: { object: { id: "cs_slow", payment_status: "paid", payment_intent: "pi_slow", metadata: { module: "commerce", orderId: slowId } } },
+    })).status).toBe(200);
+    expect(Number((await byId(slowId)).periods_paid)).toBe(1);
+
+    // ── A RENEWAL RE-ASKS THE QUESTIONS CHECKOUT ASKED. ──
+    // Retiring a product stopped new sales and did nothing about the
+    // subscriptions already running against it, which kept minting monthly.
+    // Lift the disputes' suspensions first, or the refusal below would be
+    // the suspension check firing and the retirement check would go untested.
+    await testDb.conn.query("UPDATE payment_suspensions SET lifted_at = NOW() WHERE user_id = ?", [peerId]);
+    expect((await api("PUT", `/api/admin/products/${sub.json.id}`, { active: false }, founderToken)).status).toBe(200);
+    const grantsBeforeRenew = await grantLegs(subBuyId);
+    expect((await hook({
+      id: "evt_sub_inv3", type: "invoice.paid",
+      data: { object: { id: "in_3", payment_intent: "pi_sub_3", billing_reason: "subscription_cycle", subscription_details: { metadata: { module: "commerce", orderId: subBuyId } } } },
+    })).status).toBe(200);
+    // Money banked (Stripe took it; pretending otherwise helps nobody)...
+    expect(Number((await byId(subBuyId)).periods_paid)).toBe(3);
+    // ...goods withheld, and an admin told to cancel and refund.
+    expect(await grantLegs(subBuyId)).toBe(grantsBeforeRenew);
+
+    // The books balance after payments, grants, renewals and a clawback.
+    const rec2 = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec2.json.invariants.problems).toEqual([]);
+    await api("PUT", "/api/admin/modules/commerce/lifecycle", { lifecycle: "off" }, founderToken);
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
+  });
+
   it("L9: library credits sell ONLY behind the caution card — and never, ever swap", async () => {
     // The library module is on from S41-46; exchange back on for listings.
     await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "public" }, founderToken);

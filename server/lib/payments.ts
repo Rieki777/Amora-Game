@@ -188,6 +188,37 @@ export async function logPayment(pool: Pool, e: PaymentsLogEntry): Promise<boole
 }
 
 /**
+ * How long a claimed-but-unfinished event waits before another delivery is
+ * allowed to pick it up. Long enough that two deliveries racing each other
+ * in the normal case never both run; short enough that Stripe's retry
+ * schedule (which runs for days) still heals a crashed settle.
+ */
+const CLAIM_GRACE_MINUTES = 10;
+
+/** True when a prior claim on this event exists but never finished. */
+async function claimIsAbandoned(pool: Pool, eventId: string): Promise<boolean> {
+  try {
+    const [rows] = await pool.query<RowDataPacket[]>(
+      "SELECT 1 FROM payments_log WHERE stripe_event_id = ? AND handled_at IS NULL " +
+        `AND at < (NOW() - INTERVAL ${CLAIM_GRACE_MINUTES} MINUTE) LIMIT 1`,
+      [eventId],
+    );
+    return rows.length > 0;
+  } catch {
+    return false; // unreadable log: treat the replay as a replay, not a retry
+  }
+}
+
+/** Stamp the claim as finished. Only a completed dispatch reaches this. */
+async function markEventHandled(pool: Pool, eventId: string): Promise<void> {
+  try {
+    await pool.query("UPDATE payments_log SET handled_at = NOW() WHERE stripe_event_id = ?", [eventId]);
+  } catch (err) {
+    console.error("[payments] could not stamp handled_at", err);
+  }
+}
+
+/**
  * The one webhook entry point, called by the S13 seam with the RAW body.
  * Verifies, dedupes at event level, dispatches by event type + metadata.
  */
@@ -233,11 +264,40 @@ export async function handleStripeEvent(
   // Event-level dedupe: the unique stripe_event_id makes a replay a no-op.
   if (eventId) {
     const fresh = await logPayment(pool, { stripeEventId: eventId, module: moduleId || null, orderId: orderId || null, type, outcome: "ok", latencyMs: Date.now() - started });
-    if (!fresh) return { status: 200, body: { received: true, duplicate: true } };
+    // A claim is not a completion. If the previous attempt finished, this is
+    // a genuine replay and we stop. If it did not — the process died between
+    // claiming and finishing, so nothing deleted the claim and no alarm
+    // fired — then answering "duplicate" would strand the purchase forever.
+    // Past the grace window, an unfinished claim is an abandoned one and the
+    // event runs again; the handlers are idempotent on their period keys, so
+    // a rerun that turns out to be redundant costs nothing.
+    if (!fresh && !(await claimIsAbandoned(pool, eventId))) {
+      return { status: 200, body: { received: true, duplicate: true } };
+    }
   }
 
-  try {
-    if (type === "checkout.session.completed") {
+  const dispatch = async (): Promise<{ status: number; body: any }> => {
+    if (type === "checkout.session.completed" || type === "checkout.session.async_payment_succeeded") {
+      /**
+       * COMPLETED IS NOT PAID.
+       *
+       * For delayed-notification methods — SEPA debit, ACH, Boleto, some
+       * bank redirects — Stripe fires `checkout.session.completed` the
+       * moment the customer finishes the form, with `payment_status:
+       * "unpaid"`, and only days later confirms with
+       * `checkout.session.async_payment_succeeded` (or fails). Settling on
+       * the first event handed over tokens, credits and waitlist places for
+       * money that had not moved and might never arrive.
+       *
+       * So: deliver on `paid` (or `no_payment_required`, a legitimately free
+       * or fully-discounted session), and wait otherwise. The async success
+       * event carries the same session and lands right back here.
+       */
+      const payStatus = String(obj?.payment_status ?? "paid");
+      if (payStatus !== "paid" && payStatus !== "no_payment_required") {
+        await logPayment(pool, { module: moduleId || null, orderId: orderId || null, type, outcome: "ok", detail: `awaiting payment (${payStatus})` });
+        return { status: 200, body: { received: true, pending: true } };
+      }
       const handler = moduleId ? settleHandlers.get(moduleId) : undefined;
       if (!handler) {
         await logPayment(pool, { module: moduleId || null, orderId: orderId || null, type, outcome: moduleId ? "no_handler" : "no_order" });
@@ -256,12 +316,13 @@ export async function handleStripeEvent(
       const subMeta = obj?.subscription_details?.metadata ?? obj?.lines?.data?.[0]?.metadata ?? {};
       const renewModule = String(subMeta.module ?? "");
       const renewOrder = String(subMeta.orderId ?? "");
-      // billing_reason distinguishes the first invoice (already settled via
-      // checkout) from true renewals — double-granting period one would be
-      // a quiet mint.
-      if (String(obj?.billing_reason ?? "") === "subscription_create") {
-        return { status: 200, body: { received: true, firstPeriod: true } };
-      }
+      // The first invoice is NOT skipped, even though checkout.session
+      // already settled that period. Both events carry the same invoice id,
+      // so the period key is identical and the settle is idempotent — but
+      // only the INVOICE carries a payment_intent, and without it the
+      // period has no charge reference a chargeback can ever match. Letting
+      // both converge is what makes a subscription's first period
+      // disputable at all; skipping it left the opening month unrefundable.
       const renew = renewModule ? renewHandlers.get(renewModule) : undefined;
       if (!renew || !renewOrder) {
         await logPayment(pool, { module: renewModule || null, orderId: renewOrder || null, type, outcome: renewModule ? "no_handler" : "no_order" });
@@ -274,8 +335,13 @@ export async function handleStripeEvent(
     if (type === "charge.dispute.created" || type === "charge.refunded") {
       // Map the payment intent back to the module order via fiat_charges.
       const pi = String(obj?.payment_intent ?? obj?.id ?? "");
+      // `status` HAS to be in this list. It was not, so `row.status` was
+      // undefined, `villageInitiated` below could never be true, and every
+      // refund the village itself issued suspended the member's purchasing
+      // across every fiat module — punishing them for our own decision, with
+      // only a manual lift to undo it.
       const [rows] = await pool.query<RowDataPacket[]>(
-        "SELECT module, order_id, user_id FROM fiat_charges WHERE stripe_payment_intent_id = ? LIMIT 1",
+        "SELECT module, order_id, user_id, status FROM fiat_charges WHERE stripe_payment_intent_id = ? LIMIT 1",
         [pi],
       );
       if (!rows[0]) {
@@ -284,6 +350,34 @@ export async function handleStripeEvent(
         return { status: 200, body: { received: true, unmatched: true } };
       }
       const row = rows[0];
+      /**
+       * A PARTIAL refund is not a reversal.
+       *
+       * Stripe fires `charge.refunded` for any refund, including a $5
+       * goodwill gesture on a $500 charge. Treating that as a full reversal
+       * clawed back the entire period's tokens, marked the whole charge
+       * reversed — erasing it from the member's spend caps — and, for a
+       * single-period purchase, closed it outright. The member lost
+       * everything they bought because the village gave a little back.
+       *
+       * Only a refund that returns the WHOLE amount undoes the purchase.
+       * Anything less is money moving, not a purchase unwinding, so it is
+       * recorded and a human is told.
+       */
+      const chargeTotal = Number(obj?.amount ?? 0);
+      const refundedSoFar = Number(obj?.amount_refunded ?? 0);
+      const partial = type === "charge.refunded"
+        && chargeTotal > 0 && refundedSoFar > 0 && refundedSoFar < chargeTotal;
+      if (partial) {
+        await logPayment(pool, { stripeEventId: eventId || undefined, module: String(row.module), orderId: String(row.order_id), type, outcome: "ok", detail: `partial refund ${refundedSoFar}/${chargeTotal}` });
+        await alertAdmins(
+          `Partial refund on ${row.module} order ${row.order_id}: ${refundedSoFar} of ${chargeTotal} returned. ` +
+            `Nothing was clawed back — settle the difference by hand if the purchase should unwind.`,
+          `payments-partialrefund:${row.module}:${row.order_id}`,
+        );
+        await recordEvent(pool, { kind: "audit", text: `payments:partial_refund:${row.module}:${row.order_id}`, entityType: "user", entityRef: String(row.user_id), audience: "admin" });
+        return { status: 200, body: { received: true, partial: true } };
+      }
       // A refund the VILLAGE issued already marked the charge reversed (the
       // admin refund-hold runs first, by design). Suspending the member for
       // a refund we chose to give them would be punishing them for our own
@@ -293,21 +387,37 @@ export async function handleStripeEvent(
       const reversal = reversalHandlers.get(String(row.module));
       if (reversal) await reversal(String(row.order_id), event);
       await pool.query("UPDATE fiat_charges SET status = 'reversed' WHERE module = ? AND order_id = ?", [row.module, row.order_id]);
-      const suspend = type === "charge.dispute.created" || !villageInitiated;
+      // No member behind an anonymous charge, so there is nobody to
+      // suspend — the reversal above still runs and the alert still fires.
+      const suspend = (type === "charge.dispute.created" || !villageInitiated) && !!row.user_id;
       if (suspend) {
         await suspendPurchasing(pool, String(row.user_id), `${type} on ${row.module}:${row.order_id}`, `${row.module}:${row.order_id}`);
       }
+      const why = suspend
+        ? " — buyer suspended pending review"
+        : !row.user_id
+          ? " — bought without an account; nobody to suspend"
+          : " — the village issued this refund; no suspension";
       await alertAdmins(
-        `Payment ${type === "charge.refunded" ? "refund" : "DISPUTE"}: ${row.module} order ${row.order_id}` +
-          (suspend ? " — buyer suspended pending review" : " — the village issued this refund; no suspension"),
+        `Payment ${type === "charge.refunded" ? "refund" : "DISPUTE"}: ${row.module} order ${row.order_id}${why}`,
         `payments-dispute:${row.module}:${row.order_id}`,
       );
-      await recordEvent(pool, { kind: "audit", text: `payments:${type}:${row.module}:${row.order_id}`, entityType: "user", entityRef: String(row.user_id), audience: "admin" });
+      await recordEvent(pool, {
+        kind: "audit", text: `payments:${type}:${row.module}:${row.order_id}`,
+        ...(row.user_id ? { entityType: "user" as const, entityRef: String(row.user_id) } : {}),
+        audience: "admin",
+      });
       return { status: 200, body: { received: true } };
     }
 
     // Everything else: acknowledged, logged, ignored.
     return { status: 200, body: { received: true, ignored: type } };
+  };
+
+  try {
+    const out = await dispatch();
+    if (eventId) await markEventHandled(pool, eventId);
+    return out;
   } catch (e: any) {
     // Release the event-level dedupe claim: a FAILED dispatch must stay
     // retryable, or one transient error would orphan the order forever.
@@ -327,12 +437,22 @@ export async function handleStripeEvent(
 
 export async function recordFiatCharge(
   pool: Pool,
-  c: { userId: string; module: string; orderId: string; amountMinor: number; currency?: string; paymentIntentId?: string | null },
+  // userId is nullable (0039): a fee, donation or waitlist place bought by
+  // someone who never signed in still needs a charge row, or the dispute
+  // path has nothing to match the payment intent against.
+  c: { userId: string | null; module: string; orderId: string; amountMinor: number; currency?: string; paymentIntentId?: string | null },
 ): Promise<void> {
   await pool.query(
     "INSERT INTO fiat_charges (id, user_id, module, order_id, amount_minor, currency, stripe_payment_intent_id) VALUES (?,?,?,?,?,?,?) " +
-      "ON DUPLICATE KEY UPDATE amount_minor = VALUES(amount_minor), stripe_payment_intent_id = VALUES(stripe_payment_intent_id)",
-    [`fch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, c.userId, c.module, c.orderId, c.amountMinor, c.currency ?? "usd", c.paymentIntentId ?? null],
+      // COALESCE, not a plain overwrite: a subscription's first period is
+      // recorded twice — once from the checkout session, which carries no
+      // payment intent, and once from the invoice, which does. Stripe does
+      // not promise those arrive in that order, and a later NULL must never
+      // erase a known intent or the dispute path loses its only handle on
+      // the charge.
+      "ON DUPLICATE KEY UPDATE amount_minor = VALUES(amount_minor), " +
+      "stripe_payment_intent_id = COALESCE(VALUES(stripe_payment_intent_id), stripe_payment_intent_id)",
+    [`fch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, c.userId ?? null, c.module, c.orderId, c.amountMinor, c.currency ?? "usd", c.paymentIntentId ?? null],
   );
 }
 
