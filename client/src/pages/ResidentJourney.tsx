@@ -390,12 +390,17 @@ export default function ResidentJourney() {
                       onClick={() => setExpandedStep(isExpanded ? null : step.id)}
                     >
                       <div className="flex items-start gap-3">
+                        {/* A checkbox, named and stateful — see ProsperityJourney. */}
                         <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={isCompleted}
+                          aria-label={`${step.title} — mark as ${isCompleted ? "not done" : "done"}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleStep(step.id);
                           }}
-                          className="flex-shrink-0 mt-0.5"
+                          className="flex-shrink-0 mt-0.5 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
                         >
                           <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
                             {isCompleted ? (

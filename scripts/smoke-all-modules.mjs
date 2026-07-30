@@ -154,7 +154,30 @@ const cc = await api("GET", "/api/admin/command-centre", undefined, founder);
 check("command centre aggregates", cc.status === 200 && Array.isArray(cc.json.modules), `${cc.status}`);
 check("ledger invariants green", cc.json.reconciliation.invariants.ok === true, JSON.stringify(cc.json.reconciliation.invariants.problems));
 const info = await api("GET", "/api/platform/info");
-check("platform handshake", info.status === 200 && info.json.modules.length === 14, `${info.json.modules?.length}`);
+// Cross-checked against the server's OWN module list rather than a literal.
+// This said `=== 14` and quietly rotted the moment commerce and network
+// landed, failing a green platform on a stale magic number — the exact class
+// of test that trains people to ignore a red run. The real contract is that
+// the public handshake publishes every module this instance is running, so
+// that is what gets asserted.
+const adminModules = await api("GET", "/api/admin/modules", undefined, founder);
+// `served`, not `lifecycle`: served is what the instance is actually running
+// (it accounts for dependency demotion and for core modules always being on),
+// and the handshake publishes what is running.
+const runningIds = (adminModules.json?.modules ?? [])
+  .filter((m) => m.served !== "off")
+  .map((m) => m.id)
+  .sort();
+const handshakeIds = (info.json?.modules ?? [])
+  .map((m) => (typeof m === "string" ? m : m.id))
+  .sort();
+check(
+  "platform handshake publishes exactly the running modules",
+  info.status === 200
+    && handshakeIds.length > 0
+    && JSON.stringify(handshakeIds) === JSON.stringify(runningIds),
+  `handshake=[${handshakeIds.join(",")}] running=[${runningIds.join(",")}]`,
+);
 
 console.log("\nâ”€â”€ ECONOMY CLOSING ASSERTION â”€â”€");
 const rec2 = await api("GET", "/api/admin/ledger/reconciliation", undefined, founder);

@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation } from "wouter";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -24,6 +24,82 @@ function ScrollToTop() {
     }
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [location]);
+  return null;
+}
+
+/**
+ * The page's name, in the browser and to a screen reader.
+ *
+ * Every one of the twenty-six routes served the single <title> baked into
+ * index.html, so this whole application announced itself as one page. Three
+ * separate costs: a screen reader reads the title on navigation, so every
+ * move sounded identical and gave no confirmation anything had happened; a
+ * member with several tabs open could not tell them apart; and the title was
+ * a hardcoded village name in a platform that is supposed to be forkable.
+ *
+ * The village's own name comes from the live config, so a fork's title is
+ * the fork's name with no code change. The page part is a plain map — a
+ * route that gains a page adds a line, and one that does not falls back to
+ * the village name alone rather than to a lie.
+ */
+const PAGE_TITLES: Record<string, string> = {
+  "/": "", // the home page is the village itself; no prefix
+  "/journey-to-launch": "Journey to launch",
+  "/project-history": "What we have built",
+  "/feedback": "Feedback",
+  "/network": "Village network",
+  "/contribute": "Contribute",
+  "/seasonal-festivals": "Seasonal festivals",
+  "/investor": "Investor journey",
+  "/steward": "Steward journey",
+  "/resident": "Resident journey",
+  "/prosperity": "Prosperity journey",
+  "/love-letter": "Love letter",
+  "/circles": "Circles",
+  "/quests": "Quests",
+  "/propose-quest": "Propose a quest",
+  "/roles": "Roles",
+  "/forum": "Forum",
+  "/feed": "Village feed",
+  "/map": "Village map",
+  "/stay": "Stays",
+  "/library": "Material library",
+  "/badges": "Badges & skills",
+  "/health": "Village health",
+  "/exchange": "Exchange",
+  "/wallet": "Wallet",
+  "/profile": "My profile",
+  "/profiles": "Members",
+  "/login": "Sign in",
+  "/set-password": "Choose a password",
+  "/exit-policy": "Leaving well",
+  "/tools": "Tools",
+  "/admin": "Village settings",
+};
+
+function PageTitle() {
+  const [location] = useLocation();
+  const [village, setVillage] = useState<string>("");
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/game/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive) setVillage(d?.project?.name ?? ""); })
+      .catch(() => { /* keep whatever index.html shipped */ });
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!village) return;
+    // Longest matching prefix, so /forum/123 still reads as the forum.
+    const match = Object.keys(PAGE_TITLES)
+      .filter((p) => p === "/" ? location === "/" : location.startsWith(p))
+      .sort((a, b) => b.length - a.length)[0];
+    const page = match ? PAGE_TITLES[match] : "";
+    document.title = page ? `${page} · ${village}` : village;
+  }, [location, village]);
+
   return null;
 }
 import Home from "./pages/Home";
@@ -77,6 +153,7 @@ function Router() {
   return (
     <>
     <ScrollToTop />
+      <PageTitle />
     <ErrorBoundary key={location}>
     <Switch>
       <Route path="/" component={Home} />

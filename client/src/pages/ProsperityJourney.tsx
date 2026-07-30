@@ -343,12 +343,25 @@ export default function ProsperityJourney() {
                       onClick={() => setExpandedStep(isExpanded ? null : step.id)}
                     >
                       <div className="flex items-start gap-4">
+                        {/*
+                          This is a CHECKBOX, not a button: it records whether
+                          someone has done this step of their own journey. It
+                          shipped as a nameless 24px button with no state
+                          exposed, so a screen reader announced "button" and
+                          never said which step or whether it was done — on one
+                          of the three pages a new member is walked through
+                          first. Same fix in ResidentJourney and StewardJourney.
+                        */}
                         <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={isCompleted}
+                          aria-label={`${step.title} — mark as ${isCompleted ? "not done" : "done"}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleStep(step.id);
                           }}
-                          className="flex-shrink-0 mt-0.5"
+                          className="flex-shrink-0 mt-0.5 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-gold"
                         >
                           <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
                             {isCompleted ? (

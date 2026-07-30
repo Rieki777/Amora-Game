@@ -3293,7 +3293,24 @@ async function startServer() {
         name: m.name,
         description: m.description,
         core: !!m.core,
-        lifecycle: storedLifecycle(m.id),
+        /*
+         * `lifecycle` is the CONFIGURED value and `served` is what is actually
+         * being served — they differ when a module is demoted for a missing
+         * dependency, and the admin UI needs both to say "you configured this
+         * as public, but it requires X".
+         *
+         * Core modules have no stored row, because they cannot be configured,
+         * so the raw store answered "off" for the four modules that are always
+         * on and can never be turned off. The UI happens not to be misled (it
+         * branches on `core` first and prints "always on"), but the field was
+         * still false, and anything reading it without knowing about `core`
+         * got the wrong answer — the smoke suite's own handshake assertion
+         * fell into exactly that within minutes of meeting this payload.
+         *
+         * A field that lies is a trap regardless of who currently steps around
+         * it. Core reports the truth.
+         */
+        lifecycle: m.core ? "public" : storedLifecycle(m.id),
         served: effectiveLifecycle(m.id),
         demotedBecause: demotions.get(m.id) ?? null,
         requires: m.requires,
@@ -9996,7 +10013,40 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.use(express.static(staticPath));
 
-  app.get("*", (_req, res, next) => {
+  /*
+   * THE FALLBACK HAS TO KNOW WHAT IT IS NOT.
+   *
+   * This served index.html, status 200, for absolutely every unmatched path.
+   * Client-side routing needs that for real page URLs, but two families of
+   * path are never page URLs, and answering them with HTML caused three
+   * separate failures that all looked like success:
+   *
+   *  - `/api/anything-misspelled` returned HTML with a 200. A client doing
+   *    `res.json()` then threw an opaque parse error, and every monitor and
+   *    uptime check read the endpoint as healthy. A removed or renamed route
+   *    could not be told apart from a working one.
+   *
+   *  - `/assets/images/missing.png` returned HTML with a 200, so a broken
+   *    image failed silently and could be cached as fine.
+   *
+   *  - Worst: after a deploy, a member holding a cached index.html requests
+   *    the PREVIOUS bundle hash — `/assets/index-OLD.js`. Serving HTML as
+   *    JavaScript is a syntax error and a white screen, with a 200 status so
+   *    nothing anywhere reports it. On the flaky rural connections this
+   *    platform is for, stale caches are the normal case, not the edge one.
+   *
+   * A 404 lets each of those be seen: fetch clients get an honest status,
+   * broken assets show as broken, and a browser asking for a bundle that no
+   * longer exists gets an error a reload can fix rather than a blank page.
+   */
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: `No such endpoint: ${req.method} ${req.path}` });
+  });
+  app.get("/assets/*", (req, res) => {
+    res.status(404).type("text/plain").send(`Not found: ${req.path}`);
+  });
+
+  app.get("*", (_req, res) => {
     const indexPath = path.join(staticPath, "index.html");
     res.sendFile(indexPath, (err) => {
       if (err) {
