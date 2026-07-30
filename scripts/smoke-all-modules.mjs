@@ -164,8 +164,14 @@ const adminModules = await api("GET", "/api/admin/modules", undefined, founder);
 // `served`, not `lifecycle`: served is what the instance is actually running
 // (it accounts for dependency demotion and for core modules always being on),
 // and the handshake publishes what is running.
+// Rank >= members, matching what the handshake now publishes. `preview` is a
+// lifecycle for a founder to LOOK at a module; announcing it to peers and the
+// public internet is what preview exists to avoid, so the handshake filters it
+// and this assertion has to filter the same way or it goes red on a village
+// that is legitimately previewing something.
+const RANK = { off: 0, preview: 1, members: 2, public: 3 };
 const runningIds = (adminModules.json?.modules ?? [])
-  .filter((m) => m.served !== "off")
+  .filter((m) => RANK[m.served] >= RANK.members)
   .map((m) => m.id)
   .sort();
 const handshakeIds = (info.json?.modules ?? [])

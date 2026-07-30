@@ -2698,7 +2698,7 @@ function GameRolesTab({ password }: { password: string }) {
     setLoading(true);
     try {
       const [rRes, pRes] = await Promise.all([
-        fetch(`${API_BASE}/roles`),
+        fetch(`${API_BASE}/roles`, { headers: authHeaders(password) }),
         fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
       ]);
       const r = await rRes.json();
@@ -2986,7 +2986,7 @@ function CirclesMapTab({ password }: { password: string }) {
       setOff(false);
       setCircles(await cRes.json());
       const [rRes, ctRes, uRes] = await Promise.all([
-        fetch(`${API_BASE}/roles`),
+        fetch(`${API_BASE}/roles`, { headers: authHeaders(password) }),
         fetch(`${API_BASE}/admin/map/contact-log`, { headers: authHeaders(password) }),
         fetch(`${API_BASE}/admin/map/concierge-log?unmatched=1`, { headers: authHeaders(password) }),
       ]);
@@ -3169,7 +3169,7 @@ function ToolsAdminTab({ password }: { password: string }) {
     try {
       const [tRes, rRes] = await Promise.all([
         fetch(`${API_BASE}/admin/tools`, { headers: authHeaders(password) }),
-        fetch(`${API_BASE}/roles`),
+        fetch(`${API_BASE}/roles`, { headers: authHeaders(password) }),
       ]);
       if (tRes.status === 404) { setOff(true); setLoading(false); return; }
       setOff(false);
@@ -4810,7 +4810,7 @@ function ExitsAdminTab({ password }: { password: string }) {
       const [eRes, pRes, rRes] = await Promise.all([
         fetch(`${API_BASE}/admin/exits`, { headers: authHeaders(password) }),
         fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
-        fetch(`${API_BASE}/roles`),
+        fetch(`${API_BASE}/roles`, { headers: authHeaders(password) }),
       ]);
       const e = await eRes.json();
       setData(e);

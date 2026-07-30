@@ -4331,6 +4331,19 @@ async function startServer() {
    * Every query is logged; matched_kind='none' rows are the founders'
    * role-creation demand signal.
    */
+  /*
+   * The concierge is a MAP feature that happens to live under /api/assistant.
+   *
+   * `app.use("/api/map", requireModule("map"))` gates everything under that
+   * prefix, and this route is not under it — so it answered with circle names,
+   * role descriptions and routing suggestions drawn from the map's own data
+   * while the map module was switched off. A module that is off must be
+   * invisible; that is the whole contract of the lifecycle.
+   *
+   * Gated by exact path, not by the /api/assistant prefix: the other assistant
+   * routes belong to no module and must stay reachable.
+   */
+  app.use("/api/assistant/coordinate", requireModule("map"));
   app.post("/api/assistant/coordinate", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to ask the concierge" });
@@ -5056,7 +5069,11 @@ async function startServer() {
       instanceId: instanceIdentity().instanceId,
       version: PLATFORM_VERSION,
       build: BUILD_MARKER,
-      modules: MODULES.filter((m) => m.core || effectiveLifecycle(m.id) !== "off").map((m) => ({
+      // Same rank floor as /api/network/published: the public handshake
+      // announces what this village RUNS, and a module in `preview` is one a
+      // founder is still looking at. Announcing it to peers and the open
+      // internet is exactly what preview is supposed to avoid.
+      modules: MODULES.filter((m) => m.core || LIFECYCLE_RANK[effectiveLifecycle(m.id)] >= LIFECYCLE_RANK.members).map((m) => ({
         id: m.id,
         lifecycle: m.core ? "public" : effectiveLifecycle(m.id),
       })),
@@ -5480,7 +5497,19 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
    * page — "published to the network" means public, or it means nothing.
    */
   app.get("/api/network/published", async (_req, res) => {
-    if (effectiveLifecycle("network") === "off") return res.status(404).json({ error: "Not found" });
+    /*
+     * `preview` is not `on`. This tested `!== "off"`, which let a village that
+     * had only PREVIEWED the network module already publish its needs and
+     * offers to every peer and to the open internet. Preview exists so a
+     * founder can look at a module before the village lives with it; a
+     * lifecycle that leaks the moment it is opened is not a preview.
+     *
+     * `members` is the first rank that means "this village is actually running
+     * this", so that is the floor for anything that leaves the instance.
+     */
+    if (LIFECYCLE_RANK[effectiveLifecycle("network")] < LIFECYCLE_RANK.members) {
+      return res.status(404).json({ error: "Not found" });
+    }
     const [rows] = await getPool().query<any[]>(
       "SELECT id, type, title, detail, contact, created_at, updated_at FROM shared_items " +
         "WHERE status = 'open' ORDER BY created_at DESC LIMIT 100",
@@ -9428,10 +9457,24 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ success: true, entry: { ...outcome.entry, amount: undefined }, budget: outcome.budget });
   });
 
-  // Gratitude: public wall (messages and names only; amounts stay private)
+  /**
+   * The public wall: written appreciations only.
+   *
+   * `.slice(-60)` ran BEFORE any kind filter, so whatever the last sixty
+   * gratitude rows happened to be went out — and a HEART is a gratitude row
+   * whose message is the body of the feed post it was tapped on. In a village
+   * whose feed is members-only, that put member-only prose on an endpoint with
+   * no authentication at all, and the busier the feed the more of the wall it
+   * became.
+   *
+   * Filtering first also matches the documented `feed.hearts_on_wall` default
+   * of false: a tap is a gesture, not a message, and it was never meant to be
+   * quoted here.
+   */
   app.get("/api/game/gratitude/wall", async (_req, res) => {
     const log = await gratitudeRepo.all();
     const wall = log
+      .filter((g) => g.kind !== "heart")
       .slice(-60)
       .reverse()
       .map((g) => ({ id: g.id, from: firstName(g.fromName), to: firstName(g.toName), message: g.message, at: g.at }));
@@ -9865,22 +9908,46 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     });
   });
 
-  // Roles, public: who holds what, so the village can see its own shape.
-  app.get("/api/roles", async (_req, res) => {
+  /**
+   * The village's SHAPE is public. WHO fills it is not.
+   *
+   * This served every role together with the id and name of everyone holding
+   * it, to anyone, with no auth and no module gate — while the map module
+   * publishes exactly the same fact behind the `map.viewPeople` capability.
+   * One endpoint honoured the village's decision about its own visibility and
+   * the other quietly contradicted it, so an outsider could enumerate the
+   * whole leadership of any village running this.
+   *
+   * The structure — what roles exist, what they can do, how many seats are
+   * filled, which are open — stays open, because that is what lets someone
+   * decide whether to approach a village at all. Names need the capability.
+   */
+  app.get("/api/roles", async (req, res) => {
+    const viewer = await authedUser(req);
+    const maySeePeople = (await isAdmin(req))
+      || (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
     const allMembers = await members.all();
     const holders = loadRoleHolders();
     const nameOf = (id: string) => firstName(allMembers.find((u: any) => u.id === id)?.name ?? "Member");
     res.json(
       loadRoles()
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-        .map((r) => ({
-          id: r.id,
-          name: r.name,
-          description: r.description ?? "",
-          capabilities: r.capabilities ?? [],
-          minStage: r.minStage ?? null,
-          holders: holders.filter((h) => h.roleId === r.id).map((h) => ({ userId: h.userId, name: nameOf(h.userId) })),
-        })),
+        .map((r) => {
+          const seated = holders.filter((h) => h.roleId === r.id);
+          return {
+            id: r.id,
+            name: r.name,
+            description: r.description ?? "",
+            capabilities: r.capabilities ?? [],
+            minStage: r.minStage ?? null,
+            // Additive, and always present: a page can show "2 of 3 seats
+            // filled · 1 open call" without knowing anybody's name.
+            holderCount: seated.length,
+            holders: maySeePeople
+              ? seated.map((h) => ({ userId: h.userId, name: nameOf(h.userId) }))
+              : [],
+          };
+        }),
     );
   });
 
