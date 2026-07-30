@@ -1021,6 +1021,43 @@ async function ensureDataFiles() {
   await runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
   await runOnce("founding-team-in-progress", markFoundingTeamInProgress);
   await runOnce("backfill-member-handles", backfillMemberHandles);
+  await runOnce("membership-grants-from-email-match", freezeEmailMatchedMemberships);
+}
+
+/**
+ * Convert every membership that CURRENTLY holds on the old email-string match
+ * into an explicit `membershipGranted` flag, once, before the new rule applies.
+ *
+ * `hasMembership` no longer trusts a self-typed email, because that made
+ * membership self-grantable by one public request. But a village already
+ * running this has real members whose only record is exactly such a match, and
+ * silently demoting them — losing their capabilities and halving their
+ * gratitude budget mid-cycle — would be a worse harm than the hole.
+ *
+ * So the state that exists today is written down as a decision, and everything
+ * after this is either an attributed signing or a steward's explicit grant.
+ * Recorded in the runOnce ledger, so it cannot re-promote anyone later.
+ */
+async function freezeEmailMatchedMemberships(): Promise<void> {
+  const submissions: any[] = submissionsRepo.all();
+  const signedEmails = new Set(
+    submissions
+      .filter((s) => s.type === "membership-508")
+      .map((s) => String(s.data?.email ?? "").toLowerCase())
+      .filter(Boolean),
+  );
+  if (!signedEmails.size) return;
+  let promoted = 0;
+  for (const u of (await members.all()) as any[]) {
+    if (u.membershipGranted) continue;
+    const email = String(u.email ?? "").toLowerCase();
+    if (!email || !signedEmails.has(email)) continue;
+    // Only for people who really are here — never a tombstone.
+    if (email.endsWith("@anonymized.invalid")) continue;
+    await members.update(u.id, (m: any) => { m.membershipGranted = true; });
+    promoted += 1;
+  }
+  console.log(`[MIGRATION] membership frozen as an explicit grant for ${promoted} member(s)`);
 }
 
 /**
@@ -1458,13 +1495,36 @@ function firstName(name: string): string {
   return String(name ?? "").trim().split(/\s+/)[0] || "Someone";
 }
 
+/**
+ * IS THIS PERSON A MEMBER?
+ *
+ * This used to answer yes if ANY membership submission carried a `data.email`
+ * string equal to theirs. `POST /api/forms/submit` is public, takes an
+ * arbitrary `type`, and never verified that the email in the body belonged to
+ * whoever sent it — so one unauthenticated request promoted an account to
+ * `member`, and `membershipGranted` was read here and written NOWHERE, which
+ * meant that unverified string match WAS the whole test.
+ *
+ * The stage is not cosmetic. `member` unlocks exchange.buy, exchange.swap,
+ * stay.member_rate, forum.post and map.contact, and doubles the gratitude
+ * multiplier — which doubles that account's weight in the lunar value-pool
+ * split. So the same request could enrich the sender, and, aimed at somebody
+ * else's address, promote a person who never asked to be promoted.
+ *
+ * Two answers now count, both unforgeable:
+ *   - an ATTRIBUTED signing: the submission carries the userId the server
+ *     stamped from a valid token, so the signer proved who they were;
+ *   - an EXPLICIT grant: a steward set `membershipGranted`, which is what
+ *     that flag was always for.
+ *
+ * A self-typed email string is no longer one of them. The boot migration
+ * below converts today's email-matched members into explicit grants first, so
+ * closing this demotes nobody who is legitimately here.
+ */
 function hasMembership(user: any): boolean {
   if (user.membershipGranted) return true;
   const submissions: any[] = submissionsRepo.all();
-  const email = String(user.email ?? "").toLowerCase();
-  return submissions.some(
-    (s) => s.type === "membership-508" && String(s.data?.email ?? "").toLowerCase() === email
-  );
+  return submissions.some((s) => s.type === "membership-508" && s.userId && s.userId === user.id);
 }
 
 
