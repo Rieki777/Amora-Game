@@ -210,6 +210,29 @@ function validateLeg(input: TransferInput): { tokenType: string; amount: number 
 }
 
 /**
+ * Did this exact posting ever land?
+ *
+ * The ledger's idempotency key is the only durable record that value actually
+ * moved, so it is also the only honest answer to "was this delivered?" — a
+ * status column on an order row is not, because the fiat modules set status
+ * BEFORE attempting delivery, on purpose: money arriving is true the moment
+ * the provider says so.
+ *
+ * That ordering leaves a real window holding a disputable charge and nothing
+ * granted, and every reversal handler has to ask this question before clawing
+ * anything back. It lives here rather than in a route so all of them ask it
+ * the same way, against the same table, with no chance of a caller inventing
+ * a looser test.
+ */
+export async function ledgerEntryExists(pool: Pool, idempotencyKey: string): Promise<boolean> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT 1 FROM token_ledger WHERE idempotency_key = ? LIMIT 1",
+    [idempotencyKey],
+  );
+  return rows.length > 0;
+}
+
+/**
  * A veto that runs INSIDE a single transfer's transaction, after the accounts
  * are locked FOR UPDATE and before the ledger row is written.
  *

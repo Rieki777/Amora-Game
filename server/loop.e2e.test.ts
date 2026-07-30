@@ -3457,4 +3457,65 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
     await api("PUT", "/api/admin/modules/feed/lifecycle", { lifecycle: "off" }, founderToken);
   });
+
+  it("rule 5 holds for EVERY fiat module: no clawback of what was never delivered", async () => {
+    // The commerce handler learned this the hard way; a thirteen-lens audit
+    // then found stays and exchange doing exactly what commerce used to.
+    // Settle records the money BEFORE delivering, on purpose, so a failed
+    // delivery leaves a real disputable charge with nothing behind it — and
+    // `payment_reversal` is on the allow-negative list precisely so the
+    // clawback cannot be refused. Conservation still nets to zero, so no boot
+    // invariant catches a member driven negative for what they never got.
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "public" }, founderToken);
+
+    const { createHmac } = await import("crypto");
+    const hook = async (payload: any) => {
+      const body = JSON.stringify(payload);
+      const at = Math.floor(Date.now() / 1000);
+      const sig = `t=${at},v1=${createHmac("sha256", "whsec_looptest").update(`${at}.${body}`).digest("hex")}`;
+      const r = await fetch(`${BASE}/api/webhooks/stripe`, {
+        method: "POST", body,
+        headers: { "Content-Type": "application/json", "stripe-signature": sig },
+      });
+      return { status: r.status, json: await r.json().catch(() => ({})) };
+    };
+
+    // An exchange order that was charged and NEVER delivered: the row says
+    // paid (settle sets that first) and no leg-1 ledger row exists.
+    expect((await api("POST", "/api/admin/tokens", { slug: "undeliv-tok", name: "Undelivered", kind: "credit", transferable: false }, founderToken)).status).toBe(200);
+    const orderId = `xo-undeliv-${Date.now()}`;
+    await testDb.conn.query(
+      "INSERT INTO exchange_orders (id, receipt_no, user_id, token_slug, quantity, price_minor_each, amount_minor, kind, status) " +
+        "VALUES (?, 88810, ?, 'undeliv-tok', 25, 100, 2500, 'fiat_purchase', 'paid')",
+      [orderId, peerId],
+    );
+    await testDb.conn.query(
+      "INSERT INTO fiat_charges (id, user_id, module, order_id, amount_minor, stripe_payment_intent_id) " +
+        "VALUES ('fch-undeliv', ?, 'exchange', ?, 2500, 'pi_undeliv')",
+      [peerId, orderId],
+    );
+
+    expect((await hook({
+      id: "evt_undeliv_dispute", type: "charge.dispute.created",
+      data: { object: { id: "ch_undeliv", payment_intent: "pi_undeliv" } },
+    })).status).toBe(200);
+
+    // Nothing clawed back, and the member is NOT negative for tokens they
+    // never held. Before the fix this posted 25 out of an empty balance.
+    const [claw] = await testDb.conn.query<any[]>(
+      "SELECT id FROM token_ledger WHERE source = 'payment_reversal' AND source_ref = ?", [orderId],
+    );
+    expect(claw.length).toBe(0);
+    const [[bal]] = await testDb.conn.query<any[]>(
+      "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = 'undeliv-tok'", [`mem:${peerId}`],
+    );
+    expect(Number(bal?.balance ?? 0)).toBe(0);
+    // The order is still marked as disputed — the money really was taken back.
+    const [[row]] = await testDb.conn.query<any[]>("SELECT status FROM exchange_orders WHERE id = ?", [orderId]);
+    expect(row.status).toBe("disputed");
+
+    const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
+    expect(rec.json.invariants.problems).toEqual([]);
+    await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
+  });
 });

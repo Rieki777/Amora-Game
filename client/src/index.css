@@ -553,6 +553,32 @@ button, a, [role="button"], input, textarea, select, summary {
   }
 }
 
+/*
+ * Honour "reduce motion". A WCAG 2.2.2 Level A requirement, and there was not
+ * one prefers-reduced-motion rule anywhere against 341 animation props and
+ * several `repeat: Infinity` loops.
+ *
+ * For someone with a vestibular disorder, migraine, or motion sensitivity, a
+ * page that pans, scales and loops indefinitely is not merely annoying — it
+ * causes nausea and can end the session. The quest board and the village map
+ * are among the heaviest, which means the two pages a member most needs.
+ *
+ * Transitions are kept alive at 1ms rather than removed, because Framer
+ * Motion's `animate` sets the FINAL style through the transition: killing it
+ * outright can leave an element stuck at its initial opacity: 0 and blank the
+ * content. 1ms arrives immediately and still settles on the end state.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Bottom safe area (iPhone home indicator) utility. */
 .safe-area-pb {
   padding-bottom: env(safe-area-inset-bottom);

@@ -23,6 +23,7 @@ import {
   CYCLE_POOL_FAUCET,
   entriesForMember,
   loadTokenRegistry,
+  ledgerEntryExists,
   memberAccount,
   MINT_FAUCET,
   postTransfer,
@@ -2615,6 +2616,30 @@ async function startServer() {
       const p = rows[0];
       if (!p) return; // the trio already logged no_order and alerted
       const refund = String(event?.type ?? "") === "charge.refunded";
+      /*
+       * CLAW BACK ONLY WHAT LANDED (ARCHITECTURE.md §3.8 rule 5).
+       *
+       * Settle records the fiat charge before minting the credits, so a mint
+       * that threw — an under-stocked treasury, a crash — leaves a real,
+       * disputable charge row with nothing granted behind it. Clawing back
+       * regardless drove the member to a NEGATIVE credit balance for nights
+       * they were never given, and `payment_reversal` is on the allow-negative
+       * list precisely so that posting cannot be refused. Conservation still
+       * nets to zero, so no boot invariant catches it.
+       *
+       * Commerce got this guard when the bug was found there. Stays and
+       * exchange did not, and the ordinary trigger is not an exotic race: it
+       * is an admin refunding an order that failed to deliver.
+       */
+      if (!(await ledgerEntryExists(pool, `ord:${orderId}:leg1`))) {
+        await pool.query("UPDATE stay_purchases SET status = ? WHERE id = ?", [refund ? "refunded" : "disputed", orderId]);
+        await notifyAdmins(
+          "payment",
+          `Stay order ${orderId} was ${refund ? "refunded" : "disputed"} but never delivered any credits — nothing was clawed back. Check why the mint failed.`,
+          `stay-reversal-undelivered:${orderId}`,
+        );
+        return;
+      }
       const claw = await postTransfer(pool, {
         from: memberAccount(String(p.user_id)),
         to: MINT_FAUCET,
@@ -2664,6 +2689,21 @@ async function startServer() {
       const order = await exchangeOrderById(pool, orderId);
       if (!order) return; // the trio already logged no_order and alerted
       const refund = String(event?.type ?? "") === "charge.refunded";
+      /*
+       * Same rule 5 as stays above. The order row is no help here either:
+       * settle sets status='paid' BEFORE settleExchangeOrder runs, so a
+       * treasury that could not cover the order still leaves a 'paid' row.
+       * The leg-1 ledger key is the only record that tokens moved.
+       */
+      if (!(await ledgerEntryExists(pool, `ord:${orderId}:leg1`))) {
+        await pool.query("UPDATE exchange_orders SET status = ? WHERE id = ? AND kind = 'fiat_purchase'", [refund ? "refunded" : "disputed", orderId]);
+        await notifyAdmins(
+          "payment",
+          `Exchange order ${orderId} was ${refund ? "refunded" : "disputed"} but never delivered any ${order.token_slug} — nothing was clawed back. The treasury was probably short when it settled.`,
+          `exchange-reversal-undelivered:${orderId}`,
+        );
+        return;
+      }
       const claw = await postTransfer(pool, {
         from: memberAccount(String(order.user_id)),
         to: TREASURY,
@@ -2843,9 +2883,17 @@ async function startServer() {
     submissions.push(entry);
     await submissionsRepo.replaceAll(submissions);
 
-    const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "amora.regencivics.earth";
-    const proto = req.headers["x-forwarded-proto"] ?? "https";
-    const origin = `${proto}://${host}`;
+    /*
+     * The origin comes from OUR configuration, never from the request.
+     *
+     * These two routes built it from `x-forwarded-host` — a header the caller
+     * writes — and interpolated the result into a link inside an email the
+     * village sends. Anyone could therefore make the village email its own
+     * admins, or an investor, a link pointing at a host of the attacker's
+     * choosing, wearing the village's name and arriving from its real domain.
+     * Every other email link in the codebase already used this helper.
+     */
+    const origin = notifyDeps.origin();
     const applicantName = (data as any)?.name ?? (data as any)?.firstName ?? (data as any)?.email ?? "Anonymous";
 
     // Fire-and-forget notifications
@@ -8508,11 +8556,27 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(investorDocsRepo.all());
   });
 
-  app.post("/api/admin/investor-docs/upload", upload.single("file"), async (req, res) => {
-    if (!(await isAdmin(req))) {
-      if (req.file) fs.unlinkSync(path.join(UPLOADS_DIR, req.file.filename));
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+  /**
+   * Authorise BEFORE multer, not after.
+   *
+   * This ran `upload.single("file")` first and only then checked isAdmin,
+   * deleting the file on refusal. The delete meant nothing persisted, so this
+   * was never unauthenticated storage — but it did mean any anonymous caller
+   * could make the server write up to 50 MB to the village's shared volume,
+   * as fast as it could send, on a route whose whole purpose is admin-only.
+   * On a small mounted volume that is a disk-fill away from a village that
+   * cannot receive a form submission, and the cleanup itself is best-effort:
+   * if the process dies between write and unlink, the bytes stay.
+   *
+   * A gate in front of the parser costs nothing and refuses before the first
+   * byte is written.
+   */
+  const adminOnly = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    next();
+  };
+
+  app.post("/api/admin/investor-docs/upload", adminOnly, upload.single("file"), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: "Missing file" });
     }
@@ -8611,9 +8675,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     await submissionsRepo.replaceAll(submissions);
 
     const docs: any[] = investorDocsRepo.all();
-    const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "amora.regencivics.earth";
-    const proto = req.headers["x-forwarded-proto"] ?? "https";
-    const origin = `${proto}://${host}`;
+    /*
+     * The origin comes from OUR configuration, never from the request.
+     *
+     * These two routes built it from `x-forwarded-host` — a header the caller
+     * writes — and interpolated the result into a link inside an email the
+     * village sends. Anyone could therefore make the village email its own
+     * admins, or an investor, a link pointing at a host of the attacker's
+     * choosing, wearing the village's name and arriving from its real domain.
+     * Every other email link in the codebase already used this helper.
+     */
+    const origin = notifyDeps.origin();
 
     // Email the investor with download links
     const cfg = getEmailConfig();

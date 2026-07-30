@@ -38,7 +38,7 @@
   "drizzle/0006_token_registry.sql": 1,
   "server/base-reads.test.ts": 2,
   "server/db/harness.test.ts": 2,
-  "server/index.ts": 27,
+  "server/index.ts": 25,
   "server/ledger.test.ts": 3,
   "server/loop.e2e.test.ts": 13
 }
