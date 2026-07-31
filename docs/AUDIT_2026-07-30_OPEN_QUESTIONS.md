@@ -1,9 +1,36 @@
 # Open questions from the audit execution session (2026-07-31)
 
+> **STATUS: ANSWERED.** Rye answered all thirteen the same day; the decisions
+> and what was done with each are recorded inline below, marked **DECIDED**.
+> The one question still genuinely open is Q1 (the contrast work), parked by
+> Rye's own choice until the post-Amora fork-foundation work.
+
 Batches B1–B18 landed on branch `audit-2026-07-30-batches-b1-b18`
 (commit `da6d0d0`). What follows is everything that was **deliberately not
 decided**, plus the settings that were made tunable and the ones that are
 still literals in code and might not want to be.
+
+## Decisions log (Rye, 2026-07-31)
+
+| # | Decision | Done |
+|---|---|---|
+| 1 | **Parked.** Contrast work waits for the post-Amora fork/palette work. | Nothing shipped; still `text-white/70` etc. |
+| 2 | **Ship it.** Overlay carries Amora; play.amora.cr SEO loss accepted (the game lives at amora.regencivics.earth). | Shipped: neutral `client/index.html`, config-driven shell, Amora defaults in `gameConfig.ts`. |
+| 3 | **Confirmed** — forks never carry Amora elements. | Logo / tab icon / site URLs / footer copy now Setup-Wizard fields; `AmoraLogo.tsx` deleted. |
+| 4 | `quest.allow_zero_consent` stays default off. | No change. |
+| 5 | Login per-account cap 10/15min is comfortable. | No change. |
+| 6 | Set-password TTL stays 60 min in code. | No change. |
+| 7 | Session length → tunable. | `auth.session_days` (default 30), read at validation time. |
+| 8 | Email cap → tunable. | `notify.daily_email_cap` (default 20). |
+| 9 | **Confirmed** — three failed boots stop the deployment. | Already shipped in B1. |
+| 10 | Solo-founder self-consent window. | `quest.self_consent_until_members` (default 6): an ADMIN may self-consent while the village has fewer members than this; each use leaves an audit row. Stewards never may. |
+| 11 | Say "sign out everywhere". | Header + drawer copy renamed. |
+| 12 | In-flight claim links dying on deploy: accepted. | — |
+| 13 | Badge kind change → warn-and-proceed. | 409 names the stakes; a retry with `confirmKindChange: true` proceeds, with an audit row. (No admin UI edits kind today, so the contract is API-level.) |
+
+Also shipped on the same answers: the **Riverside setup card** on the Calls
+admin tab (the webhook URL to paste into Riverside, copy button, header name,
+secret state — plus `riversideWebhookUrl` in the integrations payload).
 
 The house rule for this list: anything a village could reasonably want
 different belongs in Admin, not in a constant. Where that was obviously true

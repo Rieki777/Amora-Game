@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModule } from "@/modules/ModuleProvider";
 import NotificationBell from "@/components/NotificationBell";
-import AmoraLogo, { AmoraHeartLogo } from "./AmoraLogo";
+import { useGameConfig } from "@/lib/gameApi";
 import MobileTabBar from "./mobile/MobileTabBar";
 import MobileFab from "./mobile/MobileFab";
 
@@ -26,6 +26,15 @@ export default function Layout({ children }: LayoutProps) {
   const [mobilePathsOpen, setMobilePathsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
+  // The shell's identity — logo, name, outside links, footer copy — comes
+  // from the live config, never from literals: this is what makes a fork's
+  // shell the fork's without touching a component. While config is loading
+  // the logo boxes reserve their height (64px header / 90px footer) so the
+  // page never shifts on first paint, and outside links simply don't render.
+  const cfg = useGameConfig();
+  const siteUrl = String(cfg?.project?.siteUrl ?? "").trim();
+  const eventsUrl = String(cfg?.project?.eventsUrl ?? "").trim();
+  const villageName = String(cfg?.project?.name ?? "").trim();
   const toolsModule = useModule("tools");
   const mapModule = useModule("map");
   const forumModule = useModule("forum");
@@ -60,9 +69,25 @@ export default function Layout({ children }: LayoutProps) {
               nested <a> is invalid markup: the browser closes the outer one
               early and leaves an EMPTY focusable link as the first stop in
               the tab order on every page — a keyboard or screen-reader user
-              meets an unnamed link before anything else on the site. */}
-          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <AmoraLogo variant="beige" height={64} />
+              meets an unnamed link before anything else on the site.
+              The logo itself comes from the brand config: the fixed 64px box
+              holds the space while it loads, so nothing shifts. */}
+          <Link
+            href="/"
+            aria-label={villageName ? `${villageName} — home` : "Home"}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            style={{ minHeight: "64px" }}
+          >
+            {cfg?.images?.logo ? (
+              <img
+                src={cfg.images.logo}
+                alt={villageName || "Village logo"}
+                style={{ height: "64px", width: "auto" }}
+                draggable={false}
+              />
+            ) : (
+              <span style={{ height: "64px", display: "inline-block" }} aria-hidden="true" />
+            )}
           </Link>
 
           {/* Desktop Menu.
@@ -243,9 +268,11 @@ export default function Layout({ children }: LayoutProps) {
                   onClick={logout}
                   className="text-white/50 hover:text-white transition-colors pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:-m-2"
                   // title is a hover tooltip and a phone has no hover, so an
-                  // icon-only control needs a real name as well.
-                  aria-label="Sign out"
-                  title="Sign out"
+                  // icon-only control needs a real name as well. "Everywhere"
+                  // is honest, not decorative: tokenVersion is the only
+                  // revocation lever, so this ends the session on every device.
+                  aria-label="Sign out everywhere"
+                  title="Sign out everywhere"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
@@ -257,14 +284,16 @@ export default function Layout({ children }: LayoutProps) {
               </Link>
             )}
 
-            <a
-              href="https://amora.cr"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-sm"
-            >
-              Main Site
-            </a>
+            {siteUrl && (
+              <a
+                href={siteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-sm"
+              >
+                Main Site
+              </a>
+            )}
           </div>
 
           {/* Mobile Menu Button (bell beside it when signed in) */}
@@ -395,7 +424,7 @@ export default function Layout({ children }: LayoutProps) {
                       onClick={logout}
                       className="block text-white/50 hover:text-white transition-colors text-sm py-2 text-left"
                     >
-                      Sign Out
+                      Sign Out Everywhere
                     </button>
                   </>
                 ) : (
@@ -403,14 +432,16 @@ export default function Layout({ children }: LayoutProps) {
                     Sign In / Register
                   </Link>
                 )}
-                <a
-                  href="https://amora.cr"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-center"
-                >
-                  Main Site
-                </a>
+                {siteUrl && (
+                  <a
+                    href={siteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-center"
+                  >
+                    Main Site
+                  </a>
+                )}
               </div>
             </motion.div>
           )}
@@ -428,12 +459,20 @@ export default function Layout({ children }: LayoutProps) {
           <div className="grid md:grid-cols-5 gap-12 mb-12">
             {/* Brand */}
             <div className="md:col-span-1">
-              <div className="flex items-center gap-2 mb-4">
-                <AmoraHeartLogo variant="beige" height={90} />
+              {/* 90px box reserved while config loads — same rule as the header. */}
+              <div className="flex items-center gap-2 mb-4" style={{ minHeight: "90px" }}>
+                {cfg?.images?.heartLogo && (
+                  <img
+                    src={cfg.images.heartLogo}
+                    alt={villageName || "Village mark"}
+                    style={{ height: "90px", width: "auto" }}
+                    draggable={false}
+                  />
+                )}
               </div>
-              <p className="text-white/70 text-sm leading-relaxed">
-                A regenerative village in Costa Rica where all beings belong and thrive.
-              </p>
+              {cfg?.project?.footerBlurb && (
+                <p className="text-white/70 text-sm leading-relaxed">{cfg.project.footerBlurb}</p>
+              )}
             </div>
 
             {/* Your Journey */}
@@ -585,36 +624,30 @@ export default function Layout({ children }: LayoutProps) {
             <div>
               <h4 className="font-display text-lg font-semibold mb-4">Connect</h4>
               <ul className="space-y-2">
-                <li>
-                  <a
-                    href="https://amora.cr"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-white/70 hover:text-amber transition-colors text-sm"
-                  >
-                    Main Website
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="https://amora.cr/events/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-white/70 hover:text-amber transition-colors text-sm"
-                  >
-                    Events
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="https://amora.cr/event/discover-amora-webinar-qa/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-white/70 hover:text-amber transition-colors text-sm"
-                  >
-                    Community Calls
-                  </a>
-                </li>
+                {siteUrl && (
+                  <li>
+                    <a
+                      href={siteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-white/70 hover:text-amber transition-colors text-sm"
+                    >
+                      Main Website
+                    </a>
+                  </li>
+                )}
+                {eventsUrl && (
+                  <li>
+                    <a
+                      href={eventsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-white/70 hover:text-amber transition-colors text-sm"
+                    >
+                      Events
+                    </a>
+                  </li>
+                )}
                 <li>
                   <Link href="/profile" className="text-white/70 hover:text-amber transition-colors text-sm">
                     My Village Profile
@@ -626,7 +659,7 @@ export default function Layout({ children }: LayoutProps) {
 
           <div className="border-t border-white/20 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-white/50 text-sm">
-              © {new Date().getFullYear()} Amora. All rights reserved.
+              © {new Date().getFullYear()}{villageName ? ` ${villageName}.` : ""} All rights reserved.
             </p>
             <div className="flex items-center gap-2 text-white/50 text-sm">
               <TreePine className="w-4 h-4" />

@@ -86,7 +86,26 @@ function PageTitle() {
     let alive = true;
     fetch("/api/game/config")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (alive) setVillage(d?.project?.name ?? ""); })
+      .then((d) => {
+        if (!alive) return;
+        setVillage(d?.project?.name ?? "");
+        // The tab ICON is identity too. index.html ships a neutral platform
+        // favicon (a static file cannot know which village it serves); this
+        // swaps in the village's own the moment config arrives, same
+        // pattern as the title below.
+        const favicon = String(d?.images?.favicon ?? "").trim();
+        if (favicon) {
+          for (const rel of ["icon", "apple-touch-icon"]) {
+            let link = document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
+            if (!link) {
+              link = document.createElement("link");
+              link.rel = rel;
+              document.head.appendChild(link);
+            }
+            link.href = favicon;
+          }
+        }
+      })
       .catch(() => { /* keep whatever index.html shipped */ });
     return () => { alive = false; };
   }, []);

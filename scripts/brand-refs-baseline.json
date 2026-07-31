@@ -1,7 +1,5 @@
 {
-  "client/index.html": 8,
-  "client/src/components/AmoraLogo.tsx": 17,
-  "client/src/components/Layout.tsx": 5,
+  "client/src/components/Layout.tsx": 1,
   "client/src/components/OnchainCard.tsx": 3,
   "client/src/components/WhyCostaRica.tsx": 2,
   "client/src/index.css": 4,

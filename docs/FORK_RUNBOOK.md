@@ -88,9 +88,18 @@ two from the admin panel and almost never touches the first.
   `mergedConfig()` and served at `/api/game/config`. A blank field inherits
   the platform default, so a fork overrides only what differs.
 - **Wizard order:** Identity (project + village name, tagline, currency
-  name) → Pictures (uploaded, sharp-compressed, never hotlinked) →
-  Numbers (dues, budgets — these write game variables) → Content (page
-  copy, FAQs) → Go live.
+  name, main-site / events URLs, footer introduction) → Pictures (uploaded,
+  sharp-compressed, never hotlinked — including the header logo, footer mark
+  and browser tab icon, all live with no deploy) → Numbers (dues, budgets —
+  these write game variables) → Content (page copy, FAQs) → Go live.
+- **The shell is overlay-driven.** The header logo, tab icon, footer mark,
+  footer introduction, "Main Site"/"Events" links and copyright name all come
+  from the brand config; a blank `siteUrl` renders NO outside links rather
+  than a dead one. `client/index.html` is deliberately NEUTRAL — no village
+  name, no canonical URL, no og:image — because it is served byte-for-byte
+  to every deployment; the client repaints title and favicon from live
+  config. A fork that wants crawler-visible metadata (og:image, canonical)
+  adds it in its own fork where those values are actually true.
 - **NOT overlayable** (code-level edits, deliberately): the stage ladder and
   its ids, the path definitions, season cadence semantics. Those are game
   DESIGN; changing them is a fork of the game, not a re-skin.

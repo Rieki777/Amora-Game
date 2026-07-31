@@ -181,6 +181,18 @@ export const VARIABLES: VariableDef[] = [
     type: "boolean",
     default: "false",
   },
+  {
+    key: "quest.self_consent_until_members",
+    category: "Quests",
+    label: "Founder may self-consent below this many members",
+    description:
+      "Consent normally needs a second person to witness the work — nobody may consent to their own claim. But a founder building alone has nobody to ask, so while the village has FEWER than this many members, an admin or founder may consent to their own claims. Once the village reaches this size, the witness rule applies to everyone, admins included. 0 means self-consent is never allowed, even for a founder alone.",
+    type: "integer",
+    default: "6",
+    min: 0,
+    max: 1000,
+    unit: "members",
+  },
 
   // ── Governance: the informal step before Hypha ────────────────────────────
   {
@@ -326,6 +338,32 @@ export const VARIABLES: VariableDef[] = [
 
   // ── Data lifecycle (S18). Every fork inherits this posture — Gate F's
   //    legal scope includes data protection (Costa Rica Law 8968). ──────────
+  // ── Sessions & email delivery ─────────────────────────────────────────────
+  {
+    key: "auth.session_days",
+    category: "Accounts & sessions",
+    label: "Signed-in session length",
+    description:
+      "How long a sign-in lasts before the member has to sign in again. Applies to sessions started AFTER a change — existing sessions keep the length they were minted with. Shorter is safer on shared devices; longer is kinder on personal phones.",
+    type: "integer",
+    default: "30",
+    min: 1,
+    max: 365,
+    unit: "days",
+  },
+  {
+    key: "notify.daily_email_cap",
+    category: "Accounts & sessions",
+    label: "Most emails one member receives per day",
+    description:
+      "Over this many notification emails in a rolling 24 hours, further ones stay in-app only (the notification itself is never lost — only the email is skipped). A ceiling on noisy days, not a quota: raise it for a large, busy village.",
+    type: "integer",
+    default: "20",
+    min: 1,
+    max: 200,
+    unit: "per day",
+  },
+
   // ── Abuse guards: throttles on the public writers ─────────────────────────
   // Per-IP unless stated. These are ceilings on ABUSE, not on members: keep
   // them generous — a whole village behind one NAT shares each IP bucket.

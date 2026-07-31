@@ -334,6 +334,9 @@ if (!process.env.AUTH_TOKEN_SECRET) {
       "logins will not survive a restart, and auth will break if this service runs more than one replica.",
   );
 }
+// Fallback only: the live value is the auth.session_days game variable,
+// read at validation time so an admin change takes effect without a deploy
+// (for tokens minted after it — the mint stamp is what is compared).
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const DEFAULT_EMAIL_CONFIG = {
@@ -439,9 +442,9 @@ const DEFAULT_INVESTOR_SUMMARY = {
 // values until they change them. This is what makes a new project live-editable
 // from the browser without a code deploy. Merged over GAME_CONFIG on read.
 const DEFAULT_BRAND = {
-  project: { name: "", tagline: "", memberName: "", location: "" },
+  project: { name: "", tagline: "", memberName: "", location: "", siteUrl: "", eventsUrl: "", footerBlurb: "" },
   currency: { name: "", nameLower: "" },
-  images: { hero: "", investorHero: "", residentHero: "", stewardHero: "", prosperityHero: "", masterPlanHero: "" },
+  images: { hero: "", investorHero: "", residentHero: "", stewardHero: "", prosperityHero: "", masterPlanHero: "", logo: "", heartLogo: "", favicon: "" },
   // Setup Wizard progress — projects tick these off as they make the site theirs.
   setup: { identity: false, images: false, numbers: false, content: false, technical: false },
 };
@@ -932,7 +935,11 @@ function decodeToken(token: string): { userId: string; email: string; timestamp:
 
     const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
     if (!decoded.userId || !decoded.email || typeof decoded.timestamp !== "number") return null;
-    if (Date.now() - decoded.timestamp > TOKEN_TTL_MS) return null;
+    // Session length is a village choice (auth.session_days), applied at
+    // validation: shortening it retires old sessions early, lengthening it
+    // extends them. Guarded so a broken read never yields an immortal token.
+    const ttlMs = Math.max(1, Math.min(365, numberVar("auth.session_days") || 30)) * 24 * 60 * 60 * 1000;
+    if (Date.now() - decoded.timestamp > (ttlMs || TOKEN_TTL_MS)) return null;
     return decoded;
   } catch {
     return null;
@@ -1241,6 +1248,12 @@ function mergedConfig() {
       memberName: pick(brand.project.memberName, p.memberName),
       location: pick(brand.project.location, p.location),
       adminPath: p.adminPath,
+      // Blank INHERITS the platform default, like every overlay field. A fork
+      // that wants NO outside links clears the gameConfig default too — the
+      // shell hides any link whose URL is empty.
+      siteUrl: pick((brand.project as any).siteUrl, p.siteUrl),
+      eventsUrl: pick((brand.project as any).eventsUrl, p.eventsUrl),
+      footerBlurb: pick((brand.project as any).footerBlurb, p.footerBlurb),
     },
     currency: {
       name: pick(brand.currency.name, c.name),
@@ -1253,6 +1266,9 @@ function mergedConfig() {
       stewardHero: pick(brand.images.stewardHero, i.stewardHero),
       prosperityHero: pick(brand.images.prosperityHero, i.prosperityHero),
       masterPlanHero: pick(brand.images.masterPlanHero, i.masterPlanHero),
+      logo: pick((brand.images as any).logo, i.logo),
+      heartLogo: pick((brand.images as any).heartLogo, i.heartLogo),
+      favicon: pick((brand.images as any).favicon, i.favicon),
     },
   };
 }
@@ -6374,6 +6390,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       // The Riverside webhook fails CLOSED without its secret; the card must
       // say so or a live integration silently stops ingesting after deploy.
       riversideSecretConfigured: secretConfigured("riverside_webhook_secret"),
+      riversideWebhookUrl: `${notifyDeps.origin()}/api/webhooks/riverside`,
     });
   });
 
@@ -7545,18 +7562,31 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     // retroactively re-interprets every existing award: a self-claimed badge
     // reclassified to "granted" hands its holders whatever capabilities the
     // new definition carries, and badgeProblem's self-badge capability ban
-    // never fires because it only sees the post-merge shape. Reclassify by
-    // revoking first, or by creating a new badge.
+    // never fires because it only sees the post-merge shape.
+    //
+    // Warn-and-proceed, not a hard block (Rye, 2026-07-31): the first PUT
+    // answers 409 naming the stakes; a second with confirmKindChange: true
+    // goes through, attributed. What may never happen is the change landing
+    // SILENTLY — that is the defect, not the change itself.
     if (merged.kind !== existing.kind) {
       const [[awards]] = await getPool().query<any[]>(
         "SELECT COUNT(*) AS n FROM badge_awards WHERE badge_id = ?",
         [req.params.id],
       );
       const n = Number(awards.n);
-      if (n > 0) {
+      if (n > 0 && req.body?.confirmKindChange !== true) {
         return res.status(409).json({
-          error: `This badge has ${n} award(s) made under its current kind ("${existing.kind}"). Revoke them first, or create a new badge — changing the kind would silently rewrite what those awards granted.`,
+          error: `This badge has ${n} award(s) made under its current kind ("${existing.kind}"). Changing it to "${merged.kind}" re-interprets what every one of those awards grants. Confirm to proceed anyway.`,
           awards: n,
+          requiresConfirmation: true,
+        });
+      }
+      if (n > 0) {
+        void recordEvent(getPool(), {
+          kind: "audit",
+          text: `badge:kind-changed:${req.params.id}:${existing.kind}->${merged.kind}:${n}-awards`,
+          actorUserId: (await authedUser(req))?.id ?? adminActor(req)?.id ?? null,
+          entityType: "badge", entityRef: req.params.id, audience: "admin",
         });
       }
     }
@@ -8865,6 +8895,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       // What each key UNLOCKS, and the one value a founder must copy the
       // other direction: the webhook URL Stripe needs to be told about.
       stripeWebhookUrl: `${origin}/api/webhooks/stripe`,
+      // Same shape for Riverside: the founder copies this URL into
+      // Riverside's webhook settings and sets the shared secret both there
+      // (as the x-riverside-secret header) and here.
+      riversideWebhookUrl: `${origin}/api/webhooks/riverside`,
       stripeConfigured: stripeConfigured(),
       webhookSecretConfigured: webhookSecretConfigured(),
       emailConfigured: !!secretValue("resend_api_key"),
@@ -9832,11 +9866,31 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // NO SELF-CONSENT — load-bearing, not decorative. Consent mints
     // recognition from the faucet, grants stay credits and advances stages;
     // without this guard, widening the gate to role-holders would let a
-    // steward claim a quest, submit it and pay themselves. Admins are held to
-    // it too: the founder password should not be a way around it either.
+    // steward claim a quest, submit it and pay themselves.
+    //
+    // ONE exception, deliberately narrow (Rye, 2026-07-31): a founder
+    // building alone has nobody to witness anything, so while the village
+    // has FEWER than quest.self_consent_until_members members, an ADMIN may
+    // consent to their own claims. The moment the village reaches that size
+    // the witness rule applies to everyone, admins included. Stewards never
+    // get the exception — role authority is not founder authority — and
+    // tombstoned members do not count toward the size.
     if (claim.userId === actor.userId) {
-      return res.status(403).json({
-        error: "You cannot consent to your own claim — someone else has to witness the work.",
+      const soloWindow = Math.max(0, numberVar("quest.self_consent_until_members"));
+      const livingMembers = (await members.all()).filter((u: any) => u.email).length;
+      const soloFounder = actor.isAdminActor && livingMembers < soloWindow;
+      if (!soloFounder) {
+        return res.status(403).json({
+          error: "You cannot consent to your own claim — someone else has to witness the work.",
+        });
+      }
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `quest:self-consent:solo-founder:${claim.id}`,
+        actorUserId: actor.userId,
+        entityType: "quest_claim",
+        entityRef: claim.id,
+        audience: "admin",
       });
     }
     if (approve === false) {

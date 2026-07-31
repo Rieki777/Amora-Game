@@ -24,7 +24,14 @@
  *    speculative implementation of surfaces that don't exist yet.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
+import { numberVar } from "./variables";
 
+/**
+ * Fallback only — the live ceiling is the notify.daily_email_cap game
+ * variable, read per check so an admin change needs no deploy. The variables
+ * cache serves platform defaults before boot loads overrides, so this path
+ * never throws.
+ */
 export const DAILY_EMAIL_CAP = 20;
 /** Digest looks back this many days for unread, un-emailed rows. */
 export const DIGEST_LOOKBACK_DAYS = 3;
@@ -143,7 +150,7 @@ async function underDailyCap(pool: Pool, userId: string): Promise<boolean> {
     "SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND emailed_at >= (NOW() - INTERVAL 1 DAY)",
     [userId],
   );
-  return Number(row?.n ?? 0) < DAILY_EMAIL_CAP;
+  return Number(row?.n ?? 0) < Math.max(1, numberVar("notify.daily_email_cap") || DAILY_EMAIL_CAP);
 }
 
 function emailShell(projectName: string, inner: string): string {

@@ -5253,17 +5253,53 @@ function CallsAdminTab({ password }: { password: string }) {
             transcripts work; synthesis will refuse honestly.
           </p>
         )}
-        {data && data.riversideSecretConfigured === false && (
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2 inline-block">
-            The Riverside webhook secret is not set, so incoming Riverside
-            deliveries are being discarded. Set it under Integrations and
-            configure Riverside to send the same value as the
-            x-riverside-secret header.
-          </p>
-        )}
         {data && data.readyQueue >= data.maxReadyQueue && (
           <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2 inline-block">
             Backpressure: {data.readyQueue} unpublished syntheses — publish or clear before drafting more.
+          </p>
+        )}
+      </div>
+
+      {/* Riverside setup: where recordings get POSTED so they can be
+          transcribed. Always visible — a founder needs the URL to configure
+          Riverside, and the secret state to know why nothing is arriving. */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-1">Riverside — automatic ingestion</h3>
+        <p className="text-sm text-gray-500 mb-3 max-w-2xl">
+          Point Riverside's webhook at this village and every finished call arrives here on its
+          own, ready to transcribe and synthesize. In Riverside, add a webhook with this URL and
+          set the shared secret as the <code className="text-xs bg-gray-100 px-1 rounded">x-riverside-secret</code> header.
+        </p>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <code className="text-xs bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 select-all">
+            {data?.riversideWebhookUrl ?? "…"}
+          </code>
+          <button
+            type="button"
+            onClick={() => {
+              if (data?.riversideWebhookUrl) {
+                navigator.clipboard?.writeText(data.riversideWebhookUrl).then(
+                  () => toast.success("Webhook URL copied"),
+                  () => toast.error("Couldn't copy — select and copy the URL by hand"),
+                );
+              }
+            }}
+            className="text-xs text-[#2D5A5A] font-medium hover:underline"
+          >
+            Copy
+          </button>
+        </div>
+        {data?.riversideSecretConfigured ? (
+          <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 inline-block">
+            Shared secret is set — deliveries carrying the matching
+            x-riverside-secret header are ingested.
+          </p>
+        ) : (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block">
+            No shared secret is set, so every delivery to this URL is being
+            discarded. Set <span className="font-medium">Riverside webhook secret</span> under
+            Integrations, then give Riverside the same value as the
+            x-riverside-secret header.
           </p>
         )}
       </div>
@@ -6261,6 +6297,9 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
           {brandField("project", "location", "Location", defaults.project.location)}
           {brandField("currency", "name", "Recognition currency name", defaults.currency.name)}
           {brandField("currency", "nameLower", "Currency, lowercase (in a sentence)", defaults.currency.nameLower)}
+          {brandField("project", "siteUrl", "Main website URL (blank = no outside links)", (defaults.project as any).siteUrl ?? "")}
+          {brandField("project", "eventsUrl", "Events page URL (optional)", (defaults.project as any).eventsUrl ?? "")}
+          {brandField("project", "footerBlurb", "Footer introduction (one sentence)", (defaults.project as any).footerBlurb ?? "")}
         </div>
         <button onClick={() => saveBrand("identity", { project: brand.project, currency: brand.currency })} disabled={savingSection === "identity"} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
           {savingSection === "identity" ? "Saving..." : "Save identity"}
@@ -6276,11 +6315,14 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
           {imageField("stewardHero", "Steward hero")}
           {imageField("prosperityHero", "Prosperity hero")}
           {imageField("masterPlanHero", "Master plan hero")}
+          {imageField("logo", "Header logo (~64px tall, transparent)")}
+          {imageField("heartLogo", "Footer mark (~90px tall, transparent)")}
+          {imageField("favicon", "Browser tab icon (square)")}
         </div>
         <button onClick={() => saveBrand("images", { images: brand.images })} disabled={savingSection === "images"} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
           {savingSection === "images" ? "Saving..." : "Save pictures"}
         </button>
-        <p className="text-xs text-gray-400 mt-2">The social-share image and browser favicon are set at build time in <code>client/index.html</code> (see Go live).</p>
+        <p className="text-xs text-gray-400 mt-2">The logo, footer mark and tab icon apply live — no deploy. Crawler-facing metadata (og:image, canonical URL) stays neutral in <code>client/index.html</code>; a fork that wants it adds it in its own fork.</p>
       </Section>
 
       <Section id="numbers" n={3} title="Numbers" subtitle="The editable figures on your site.">
