@@ -26,6 +26,7 @@ import {
   rowToProposal,
   validateChangeSet,
 } from "./lib/mechanics";
+import { buildMechanicsHandoff, extractMechanicsMarker } from "./lib/hypha-bridge";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
   allTokens,
@@ -10530,7 +10531,35 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         console.error("[badges] post-close evaluation failed (cycle stays closed)", e);
       }
     }
-    res.json({ closed: closed.length, cycles: closed, poolCredited: totalCredited });
+    // GOVERNANCE APPLIES AT THE BOUNDARY (bridge phase). Verified proposals
+    // whose change-set touches any cycle-timed dial held for this moment: the
+    // closing cycle settled under the OLD rules just now, and the next one
+    // opens under the new — never a basis change mid-flight. Only when a
+    // cycle actually closed (a boundary actually crossed), only while the
+    // founder's auto-apply brake is off. Failures never unclose a cycle.
+    let governanceApplied = 0;
+    if (closed.length > 0 && boolVar("governance.auto_apply_enabled")) {
+      try {
+        const [pending] = await getPool().query<any[]>(
+          "SELECT * FROM mechanics_proposals WHERE status = 'passed_verified' ORDER BY verified_at, id",
+        );
+        for (const row of pending) {
+          const p = rowToProposal(row as any);
+          const result = await applyMechanicsProposal(p, adminActor(req)?.id ?? null);
+          if (result.applied.length > 0) governanceApplied += 1;
+          if (result.failed.length > 0) {
+            await notifyAdmins(
+              "governance",
+              `A verified proposal could not fully apply at cycle close: ${p.title} (${result.failed.length} change(s) refused)`,
+              `gmp:${p.id}:apply-failed`,
+            );
+          }
+        }
+      } catch (e) {
+        console.error("[governance] cycle-close apply failed (cycle stays closed)", e);
+      }
+    }
+    res.json({ closed: closed.length, cycles: closed, poolCredited: totalCredited, governanceApplied });
   });
 
   /**
@@ -11052,14 +11081,21 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * all hold. Every applied key gets a governance-sourced ledger row carrying
    * the proposal marker + Hypha reference.
    */
-  app.post("/api/admin/mechanics/proposals/:id/apply", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const p = await proposalById(getPool(), req.params.id);
-    if (!p) return res.status(404).json({ error: "Not found" });
-    if (p.status !== "to_hypha" && p.status !== "passed_claimed") {
-      return res.status(409).json({ error: `A ${p.status.replace("_", " ")} proposal cannot be applied` });
-    }
-    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+  /**
+   * THE ONE APPLY. Three callers — the admin's Verify & apply, the hub's
+   * verified callback, and the cycle close (for sets holding cycle-timed
+   * dials) — all land here, so what "applying a proposal" means can never
+   * fork. Revalidates every change against the CURRENT registry (a key can
+   * be gone, demoted from the open ring, or out of bounds since the vote),
+   * writes through setVariable so bounds and the delta store hold, and
+   * stamps governance-sourced amendment-ledger rows with the proposal
+   * reference. Idempotent: an already-applied proposal returns cleanly.
+   */
+  async function applyMechanicsProposal(
+    p: { id: string; title: string; changeSet: any[]; proposerUserId: string; hyphaRef: string | null; status: string },
+    actor: string | null,
+  ): Promise<{ ok: boolean; applied: string[]; failed: Array<{ key: string; problem: string }> }> {
+    if (p.status === "applied") return { ok: true, applied: [], failed: [] };
     const proposalRef = `gm:${p.id}${p.hyphaRef ? ` ${p.hyphaRef}` : ""}`.slice(0, 255);
     const applied: string[] = [];
     const failed: Array<{ key: string; problem: string }> = [];
@@ -11092,15 +11128,165 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         dedupeKey: `gmp:${p.id}:applied`,
       });
     }
-    if (failed.length > 0) {
-      return res.status(applied.length ? 207 : 409).json({
-        error: applied.length
+    return { ok: failed.length === 0, applied, failed };
+  }
+
+  /** A set holding ANY cycle-timed dial applies as a whole at cycle close —
+   *  atomicity beats promptness (the sticky-split lesson, generalized). */
+  const changeSetWaitsForCycleClose = (changeSet: any[]): boolean =>
+    changeSet.some((c) => {
+      const def = VARIABLES_BY_KEY[c.key];
+      return def ? applyTimingOf(def) === "cycle-close" : false;
+    });
+
+  app.post("/api/admin/mechanics/proposals/:id/apply", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const p = await proposalById(getPool(), req.params.id);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    if (p.status !== "to_hypha" && p.status !== "passed_claimed" && p.status !== "passed_verified") {
+      return res.status(409).json({ error: `A ${p.status.replace(/_/g, " ")} proposal cannot be applied` });
+    }
+    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+    const result = await applyMechanicsProposal(p, actor);
+    if (result.failed.length > 0) {
+      return res.status(result.applied.length ? 207 : 409).json({
+        error: result.applied.length
           ? "Applied partially — some changes no longer fit the current registry"
           : "Nothing could be applied — the registry has moved since the vote",
-        applied, failed,
+        applied: result.applied, failed: result.failed,
       });
     }
-    res.json({ success: true, applied });
+    res.json({ success: true, applied: result.applied });
+  });
+
+  /**
+   * The governance hub's callback — how a vote's outcome comes home
+   * (bridge phase). The ReGen hub runs ONE Alchemy listener on Base for
+   * every fork; when a ProposalExecuted carrying a `[gm:<id>]` marker
+   * lands, the hub POSTs here with the shared secret. Same posture as the
+   * Riverside webhook: FAIL CLOSED (no secret configured or mismatched =
+   * inert 200 discard, a probe learns nothing), idempotent on replays.
+   *
+   * A verified PASS upgrades the proposal to passed_verified, then:
+   *   auto-apply ON  + all-instant set        -> applies now
+   *   auto-apply ON  + any cycle-timed dial   -> holds for the next cycle
+   *                                              close (the whole set)
+   *   auto-apply OFF (the founder's brake)    -> holds for a human
+   * A verified FAIL closes the proposal as failed. Either way the proposer
+   * and the stewards hear about it.
+   */
+  app.post("/api/webhooks/mechanics-governance", async (req, res) => {
+    {
+      const now = Date.now();
+      const who = `gov:${clientIp(req)}`;
+      const slot = webhookHits.get(who);
+      if (!slot || slot.resetAt < now) {
+        if (webhookHits.size > 5000) webhookHits.clear();
+        webhookHits.set(who, { n: 1, resetAt: now + 60_000 });
+      } else if (++slot.n > WEBHOOK_MAX_PER_MIN) {
+        return res.status(429).json({ error: "too many deliveries; retry shortly" });
+      }
+    }
+    const expected = secretValue("governance_hub_secret");
+    const presented = String(req.headers["x-governance-hub-secret"] ?? "");
+    if (!expected || !presented || !secretEquals(presented, expected)) {
+      return res.json({
+        received: true,
+        discarded: "unauthenticated: set the governance hub secret in Admin → Integrations",
+      });
+    }
+    const marker = extractMechanicsMarker(String(req.body?.marker ?? req.body?.title ?? ""));
+    const outcome = String(req.body?.outcome ?? "");
+    if (!marker || (outcome !== "passed" && outcome !== "failed")) {
+      return res.status(400).json({ error: "marker (carrying [gm:…]) and outcome passed|failed are required" });
+    }
+    const p = await proposalById(getPool(), marker);
+    if (!p) return res.json({ received: true, discarded: `no proposal for marker gm:${marker}` });
+    if (p.status === "applied" || p.status === "failed") {
+      return res.json({ received: true, idempotent: true, status: p.status });
+    }
+    if (p.status !== "to_hypha" && p.status !== "passed_claimed" && p.status !== "passed_verified") {
+      return res.json({ received: true, discarded: `proposal is ${p.status}, not awaiting an outcome` });
+    }
+    const txHash = String(req.body?.txHash ?? "").slice(0, 100) || null;
+    const hyphaRef = String(req.body?.url ?? req.body?.hyphaProposalId ?? p.hyphaRef ?? "").slice(0, 500) || null;
+    if (outcome === "failed") {
+      await getPool().query(
+        "UPDATE mechanics_proposals SET status = 'failed', verified_at = NOW(), tx_hash = ?, hypha_ref = COALESCE(?, hypha_ref) WHERE id = ?",
+        [txHash, hyphaRef, p.id],
+      );
+      await notify({
+        userId: p.proposerUserId, type: "governance",
+        title: `The vote did not pass: ${p.title}`,
+        link: "/game-mechanics", dedupeKey: `gmp:${p.id}:failed`,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit", text: `gmp:failed:${p.id}`, entityType: "mechanics_proposal", entityRef: p.id, audience: "admin",
+      });
+      return res.json({ received: true, status: "failed" });
+    }
+    await getPool().query(
+      "UPDATE mechanics_proposals SET status = 'passed_verified', verified_at = NOW(), tx_hash = ?, hypha_ref = COALESCE(?, hypha_ref) WHERE id = ?",
+      [txHash, hyphaRef, p.id],
+    );
+    void recordEvent(getPool(), {
+      kind: "audit", text: `gmp:verified:${p.id}${txHash ? `:${txHash}` : ""}`,
+      entityType: "mechanics_proposal", entityRef: p.id, audience: "admin",
+    });
+    const fresh = await proposalById(getPool(), p.id);
+    if (!fresh) return res.json({ received: true, status: "passed_verified" });
+    if (!boolVar("governance.auto_apply_enabled")) {
+      await notifyAdmins(
+        "governance",
+        `Verified on-chain but auto-apply is off — apply by hand: ${p.title}`,
+        `gmp:${p.id}:frozen`,
+      );
+      return res.json({ received: true, status: "passed_verified", held: "auto-apply is off" });
+    }
+    if (changeSetWaitsForCycleClose(fresh.changeSet)) {
+      await notify({
+        userId: p.proposerUserId, type: "governance",
+        title: `Verified — your proposal applies at the next cycle close: ${p.title}`,
+        link: "/game-mechanics", dedupeKey: `gmp:${p.id}:verified-waiting`,
+      });
+      return res.json({ received: true, status: "passed_verified", held: "applies at next cycle close" });
+    }
+    const result = await applyMechanicsProposal(fresh, null);
+    return res.json({ received: true, status: result.ok ? "applied" : "passed_verified", applied: result.applied, failed: result.failed });
+  });
+
+  /**
+   * The handoff: the pre-filled Hypha link plus the canonical document,
+   * always together — the copy is the fallback for DHO create pages that do
+   * not read prefill params yet, and the [gm:] marker in the title is the
+   * thread the outcome follows home.
+   */
+  app.get("/api/game/mechanics/proposals/:id/handoff", async (req, res) => {
+    const p = await proposalById(getPool(), req.params.id);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    const proposer = await members.byId(p.proposerUserId);
+    const backers = await backerCounts(getPool(), [p.id]);
+    const markdown = proposalMarkdown({
+      id: p.id,
+      title: p.title,
+      rationale: p.rationale,
+      changeSet: p.changeSet,
+      villageName: mergedConfig().project.name,
+      proposerName: proposer ? firstName(proposer.name) : "A departed member",
+      supports: backers.get(p.id)?.supports ?? 0,
+      createdAt: p.createdAt,
+    });
+    const links = resolveHyphaLinks(stringVar);
+    res.json({
+      ...buildMechanicsHandoff({
+        orgUrl: links.orgUrl,
+        proposalsUrl: links.links.proposals,
+        proposalId: p.id,
+        proposalTitle: p.title,
+        markdown,
+      }),
+      markdown,
+    });
   });
 
   /**

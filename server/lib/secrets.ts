@@ -29,6 +29,7 @@ export const SECRET_KEYS = [
   "resend_api_key",
   "assistant_api_key",
   "riverside_webhook_secret",
+  "governance_hub_secret",
 ] as const;
 export type SecretKey = (typeof SECRET_KEYS)[number];
 
@@ -39,6 +40,7 @@ const ENV_FALLBACK: Record<SecretKey, string> = {
   resend_api_key: "RESEND_API_KEY",
   assistant_api_key: "ANTHROPIC_API_KEY",
   riverside_webhook_secret: "RIVERSIDE_WEBHOOK_SECRET",
+  governance_hub_secret: "GOVERNANCE_HUB_SECRET",
 };
 
 interface StoredSecret {

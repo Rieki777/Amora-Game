@@ -92,7 +92,7 @@ interface Proposal {
   id: string;
   title: string;
   rationale: string;
-  status: "draft" | "open" | "withdrawn" | "to_hypha" | "passed_claimed" | "applied";
+  status: "draft" | "open" | "withdrawn" | "to_hypha" | "passed_claimed" | "passed_verified" | "failed" | "applied";
   hyphaRef: string | null;
   createdAt: string;
   proposer: string;
@@ -117,6 +117,8 @@ const STATUS_COPY: Record<Proposal["status"], { label: string; cls: string }> = 
   withdrawn: { label: "withdrawn", cls: "bg-stone-100 text-stone-500" },
   to_hypha: { label: "at Hypha for the vote", cls: "bg-sky-50 text-sky-700" },
   passed_claimed: { label: "passed — awaiting verification", cls: "bg-violet-50 text-violet-700" },
+  passed_verified: { label: "verified on-chain — applying", cls: "bg-violet-50 text-violet-700" },
+  failed: { label: "did not pass", cls: "bg-stone-100 text-stone-500" },
   applied: { label: "applied", cls: "bg-teal-deep/10 text-teal-deep" },
 };
 
@@ -335,12 +337,41 @@ export default function GameMechanics() {
     }
   };
 
+  /** Copy ALWAYS, then open Hypha when the village has one configured — the
+   *  clipboard is the fallback for create pages that don't read prefill
+   *  params yet, and the [gm:] marker in the title is the thread home. */
+  const continueToHypha = async (id: string) => {
+    try {
+      const res = await fetch(`/api/game/mechanics/proposals/${id}/handoff`);
+      const d = await res.json();
+      await navigator.clipboard.writeText(d.markdown).catch(() => {});
+      if (d.configured && d.url) {
+        window.open(d.url, "_blank", "noopener,noreferrer");
+        setFeedback({
+          ok: true,
+          text: `Hypha opened and the document is on your clipboard. Make sure the proposal title carries ${d.title.slice(0, 24)}… — that marker is how the outcome finds its way back.`,
+        });
+      } else {
+        setFeedback({
+          ok: true,
+          text: "Document copied. This village has no Hypha configured yet — a founder sets it under Admin → Game Mechanics → Hypha.",
+        });
+      }
+    } catch {
+      setFeedback({ ok: false, text: "Couldn't prepare the handoff — try again." });
+    }
+  };
+
   const villageName = cfg?.project?.name ?? "";
   const categories = snapshot ? Array.from(new Set(snapshot.variables.map((v) => v.category))) : [];
   const backedIds = new Set((standing?.backed ?? []).filter((b) => b.kind === "support").map((b) => b.proposalId));
   const isAdminViewer = user?.role === "admin" || user?.role === "founder";
-  const activeProposals = proposals.filter((p) => p.status !== "withdrawn" && p.status !== "applied");
-  const settledProposals = proposals.filter((p) => p.status === "withdrawn" || p.status === "applied");
+  const activeProposals = proposals.filter(
+    (p) => p.status !== "withdrawn" && p.status !== "applied" && p.status !== "failed",
+  );
+  const settledProposals = proposals.filter(
+    (p) => p.status === "withdrawn" || p.status === "applied" || p.status === "failed",
+  );
 
   return (
     <Layout>
@@ -607,6 +638,15 @@ export default function GameMechanics() {
                           >
                             <Copy className="w-3.5 h-3.5" /> Copy for Hypha
                           </button>
+                          {(p.status === "open" || p.status === "to_hypha") && (
+                            <button
+                              type="button"
+                              onClick={() => continueToHypha(p.id)}
+                              className="inline-flex items-center gap-1.5 text-sm text-teal-deep font-medium hover:underline"
+                            >
+                              Continue to Hypha ↗
+                            </button>
+                          )}
                           {user && p.status === "open" && (
                             <button
                               type="button"
@@ -631,7 +671,7 @@ export default function GameMechanics() {
                               It passed on Hypha
                             </button>
                           )}
-                          {isAdminViewer && (p.status === "to_hypha" || p.status === "passed_claimed") && (
+                          {isAdminViewer && (p.status === "to_hypha" || p.status === "passed_claimed" || p.status === "passed_verified") && (
                             <button
                               type="button"
                               onClick={() => {

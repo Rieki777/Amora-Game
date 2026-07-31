@@ -334,14 +334,34 @@ planes.
    governance cooldown) and never edited after — what is voted on is what was
    checked. Lifecycle: draft → open (in-game sensing, support threshold) →
    to_hypha (the canonical markdown document carries the `[gm:<id>]` marker
-   and a machine-readable change-set block) → passed_claimed (proposer
-   reports, with the Hypha reference) → applied. The apply step is ADMIN
-   (verify-then-apply) this phase and becomes the bridge's verified webhook
-   next; either way it revalidates against the CURRENT registry, writes
-   through `setVariable`, and stamps governance-sourced amendment-ledger rows
-   with the proposal reference. Supports/sponsorships are keyed INSERT
-   IGNOREs — no read-modify-write. Proposals are rate-limited per member per
-   cycle (`governance.proposals_per_member_per_cycle`).
+   and a machine-readable change-set block) → passed_claimed (the proposer's
+   word) or **passed_verified** (the governance hub's signed callback) or
+   **failed** → applied. Supports/sponsorships are keyed INSERT IGNOREs — no
+   read-modify-write. Proposals are rate-limited per member per cycle
+   (`governance.proposals_per_member_per_cycle`).
+
+   **The bridge (game-amora side).** `server/lib/hypha-bridge.ts` is THE ONE
+   HOME for action-bearing Hypha URLs (read-only deep links stay in
+   shared/hypha.ts — regen-civics' never-hand-roll-a-hypha-URL rule,
+   imported): the handoff endpoint returns a pre-filled create-agreement URL
+   derived from `hypha.org_url` PLUS the canonical markdown, and the client
+   always copies before it opens — prefill params are hints until a DHO's
+   create page reads them; the `[gm:<id>]` marker in the TITLE is the
+   contract. Outcomes come home through
+   `POST /api/webhooks/mechanics-governance`: the ReGen hub runs ONE Alchemy
+   listener on Base for all forks and relays ProposalExecuted outcomes with
+   the shared `governance_hub_secret` (fail closed, inert-200 discard,
+   idempotent on replays — the Riverside posture). A verified pass runs THE
+   ONE APPLY (`applyMechanicsProposal`, shared by the admin button, the
+   webhook and the cycle close): it revalidates against the CURRENT registry
+   and writes through `setVariable`; instant sets apply immediately; a set
+   touching ANY cycle-timed dial holds — atomically, the whole set — for the
+   next REAL cycle close, so the closing cycle settles under the old rules
+   and the next opens under the new. `governance.auto_apply_enabled`
+   (founder-held) is the emergency brake: off = verified passes hold for a
+   human. Verification metadata (verified_at, tx_hash) lives on the proposal
+   (drizzle/0044); the amendment ledger's proposal_ref carries `gm:<id>` plus
+   the Hypha reference.
 4. **Module structural config — `module_settings.config`.** Validated JSON
    per module (`validateConfig`), seeded from `defaultConfig` — forum
    categories, tools categories, the exchange's `tradingEnabled` +

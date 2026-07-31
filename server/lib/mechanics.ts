@@ -222,7 +222,7 @@ export interface ProposalRow {
   rationale: string;
   changeSet: ProposedChange[];
   proposerUserId: string;
-  status: "draft" | "open" | "withdrawn" | "to_hypha" | "passed_claimed" | "applied";
+  status: "draft" | "open" | "withdrawn" | "to_hypha" | "passed_claimed" | "passed_verified" | "failed" | "applied";
   hyphaRef: string | null;
   createdAt: string;
   updatedAt: string;

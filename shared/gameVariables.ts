@@ -293,6 +293,16 @@ export const VARIABLES: VariableDef[] = [
     unit: "supporters",
   },
   {
+    key: "governance.auto_apply_enabled",
+    category: "Governance",
+    label: "Apply verified proposals automatically",
+    description:
+      "When on, a proposal verified as passed on-chain applies itself: instantly for instant dials, at the next cycle close when the set touches any cycle-timed dial (the whole set waits together — a set applies atomically or not at all). Turning this OFF is the founder's emergency brake: verified proposals hold, stewards are notified, and applying becomes a human act until it is turned back on. Founder-held on purpose.",
+    type: "boolean",
+    default: "true",
+    ring: "founder",
+  },
+  {
     key: "governance.change_cooldown_days",
     category: "Governance",
     label: "Cooldown after a governed rule change",
