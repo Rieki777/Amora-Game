@@ -562,6 +562,11 @@ export default function Layout({ children }: LayoutProps) {
                     optional module, so an ungated link would be a dead end on
                     a fresh fork. /exit-policy is core and always reachable. */}
                 <li>
+                  <Link href="/game-mechanics" className="text-white/70 hover:text-amber transition-colors text-sm">
+                    Game Mechanics
+                  </Link>
+                </li>
+                <li>
                   <Link href="/exit-policy" className="text-white/70 hover:text-amber transition-colors text-sm">
                     Leaving Well
                   </Link>

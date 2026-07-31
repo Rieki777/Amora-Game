@@ -288,6 +288,39 @@ planes.
    the override so the fork keeps inheriting future platform defaults
    (variables.ts:94–99). Readers are synchronous against the boot-loaded
    cache; unknown keys throw — "a typo must not read as 0" (37–41).
+
+   **The registry is THE single source of truth for game mechanics**
+   (Game Mechanics initiative, Rye 2026-07-31). Three additions carry that:
+
+   - **Rings.** Every def resolves to a ring (`ringOf`): `open` (Ring 2 —
+     community-governable ceiling, the domain of the coming Hypha proposal
+     loop) or `founder` (Ring 1 — legal posture, infrastructure, privacy,
+     abuse guards). Ring 0 — the constitution — is not in the registry at
+     all: it is code-enforced law, published in plain language from
+     `shared/constitution.ts`. Bounds (min/max) are Ring 0: governance moves
+     a value within its bounds, never the bounds.
+   - **Generated defs.** Per-stage mechanics (`progression.multiplier.<id>`,
+     `progression.quests_for.<id>`, `progression.unlock.<capability>`) are
+     GENERATED from `GAME_CONFIG.stages` and `STAGE_UNLOCKS` at module load,
+     defaults equal to the previously-hardcoded config values — a fork that
+     edits its ladder gets matching variables automatically, and an
+     untouched village behaves identically. Duplicate keys throw at import.
+   - **The amendment ledger** (`mechanics_changes`, drizzle/0042). Delta-only
+     storage deletes history by design, so every change writes an
+     append-only row — key, old, new (NULL = the platform default at the
+     time), actor, source (`admin | governance | platform`), and a
+     `proposal_ref` the Hypha loop will stamp with the on-chain proposal id.
+     `recordMechanicsChange()` is the one writer. Public surface:
+     `GET /api/game/mechanics` (constitution + every visible variable with
+     ring/bounds/apply-timing) and `GET /api/game/mechanics/history`.
+
+   Migrated INTO the registry under this doctrine: stage multipliers and
+   quest thresholds (out of gameConfig behaviour-space), the STAGE_UNLOCKS
+   table (as overridable choice variables threaded through
+   `capabilityCtx.stageUnlockOverrides` — the gate's order of authority is
+   untouched; only step 5's lookup is parameterized), the Work With Us
+   acceptance award (out of the content document, one-shot runOnce), the
+   stays/library daily caps, and the donation checkout ceiling.
 4. **Module structural config — `module_settings.config`.** Validated JSON
    per module (`validateConfig`), seeded from `defaultConfig` — forum
    categories, tools categories, the exchange's `tradingEnabled` +

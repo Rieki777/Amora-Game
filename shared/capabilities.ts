@@ -103,14 +103,23 @@ export function hasCapability(
     /** Capabilities DENIED by active warning badges. Default []. */
     badgeDenies?: readonly string[];
     isAdmin?: boolean;
+    /**
+     * Per-village overrides of STAGE_UNLOCKS, sourced from the variables
+     * registry (progression.unlock.*) — the Game Mechanics initiative made
+     * the unlock table itself a mechanic. Absent key = platform default;
+     * the value "none" disables the stage path for that capability (roles
+     * and badges still grant it). The GATE's order of authority is
+     * unchanged: this only parameterizes step 5.
+     */
+    stageUnlockOverrides?: Partial<Record<Capability, string>>;
   },
 ): boolean {
   if (ctx.isAdmin) return true;
   if ((ctx.badgeDenies ?? []).includes(cap)) return false;
   if (ctx.roleCapabilities.includes(cap)) return true;
   if ((ctx.badgeCapabilities ?? []).includes(cap)) return true;
-  const unlockStage = STAGE_UNLOCKS[cap];
-  if (unlockStage) {
+  const unlockStage = ctx.stageUnlockOverrides?.[cap] ?? STAGE_UNLOCKS[cap];
+  if (unlockStage && unlockStage !== "none") {
     const needed = ctx.stageIndexOf(unlockStage);
     if (needed >= 0 && ctx.stageIndex >= needed) return true;
   }

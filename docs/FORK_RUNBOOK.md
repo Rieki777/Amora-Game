@@ -55,6 +55,29 @@ revocation lever there is, so **signing out, or setting a new password, ends
 every session on every device**. Per-session sign-out would need a sessions
 table.
 
+## Game mechanics: rings, the public snapshot, the amendment ledger
+
+Every mechanic lives in the variables registry (`shared/gameVariables.ts`) —
+the single source of truth. Each variable carries a **ring**: `open` dials are
+the community-governable surface (the coming Hypha proposal loop operates only
+on these); `founder` dials (infrastructure, legal posture, privacy windows,
+abuse guards) stay admin-held. The **constitution** (`shared/constitution.ts`)
+is the plain-language list of what no vote can change — shown at the top of
+the public page; edits there change copy, never enforcement.
+
+Two public, unauthenticated endpoints serve the whole story:
+`GET /api/game/mechanics` (constitution + every variable of every running
+module, with ring, bounds, default, current value, and when a change takes
+effect) and `GET /api/game/mechanics/history` (the amendment ledger: every
+change with actor first-name, source, and — once the governance loop lands —
+the Hypha proposal reference). Everything is deliberately visible: rule sets
+are how future players compare forks.
+
+The per-stage mechanics (`progression.multiplier.*`, `progression.quests_for.*`,
+`progression.unlock.*`) are generated from your stage ladder in
+`shared/gameConfig.ts` — edit the ladder and the registry follows at next
+deploy, with your config values as the defaults.
+
 ## Tunable abuse guards
 
 The throttles are game variables (Admin → Game Mechanics → *Abuse guards*), so

@@ -32,6 +32,26 @@ Also shipped on the same answers: the **Riverside setup card** on the Calls
 admin tab (the webhook URL to paste into Riverside, copy button, header name,
 secret state — plus `riversideWebhookUrl` in the integrations payload).
 
+## Game Mechanics initiative decisions (Rye, 2026-07-31, second round)
+
+From the answers to `docs/GAME_MECHANICS_AUDIT_2026-07-31.md` Part E:
+
+| decision | done in the foundation commit |
+|---|---|
+| A3 mechanics migrate INTO the registry — it is the single source of truth | Stage multipliers, quest thresholds, STAGE_UNLOCKS, accept award, daily caps, donation ceiling migrated + wired; module-config structural JSON (categories etc.) stays put by design |
+| Rings: platform sets the ceiling, founder opts underneath | `ring` on every def (`ringOf`), 47 open / 18 founder on a fresh village; per-village founder demotion of open dials is bridge-phase work |
+| Chain: Base via Alchemy only; EOSIO docs are outdated (maybe later) | Recorded; the bridge port targets the existing Base webhook receiver |
+| ONE listener at the ReGen hub, maintained for all forks | Architecture decision recorded; hub service is bridge-phase work |
+| Who may propose: a Game setting; base = any member; founders narrow by role/tier | Ideas delivered; implementation is page/bridge-phase (`mechanics.propose` capability through the one gate) |
+| Passed changes wait for the next cycle; apply cadence itself a founder variable | `applyTiming` (instant vs cycle-close) on every def now; the cadence variable and apply step land with the bridge |
+| Founder freeze switch on auto-apply | Bridge-phase (would be an unwired knob today) |
+| Change-sets with atomic apply | Bridge-phase; amendment ledger schema already fits (one row per key, shared proposal_ref groups a set) |
+| Proposers link a Base wallet + Hypha account (like regen-civics) | game-amora already has signed-nonce wallet verification; linking UX is page-phase |
+| Fork constitutions visible via the hub directory | `/api/game/mechanics` is the handshake-ready surface |
+| Everything visible to everyone | Public endpoints are anonymous; preview modules stay hidden (existence rule) |
+| Cooldown-between-changes is itself a variable | Bridge-phase (unwired today) |
+| Amendment history behind an explore button | `/api/game/mechanics/history` serves it; page renders it next phase |
+
 The house rule for this list: anything a village could reasonably want
 different belongs in Admin, not in a constant. Where that was obviously true
 it was done and is listed under "Now tunable". Where it needs Rye's judgement

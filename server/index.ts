@@ -14,6 +14,8 @@ import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { ALL_CAPABILITIES, hasCapability, STAGE_UNLOCKS, type Capability } from "../shared/capabilities";
 import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/variables";
+import { applyTimingOf, ringOf, VARIABLES_BY_KEY } from "../shared/gameVariables";
+import { CONSTITUTION } from "../shared/constitution";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
   allTokens,
@@ -1058,6 +1060,7 @@ async function ensureDataFiles() {
   //   ledger-opening-balances — seeded the JSON ledger; the MySQL ledger
   //     carries those rows forward via the 0009 backfill.
   await runOnce("canonicalize-regen-units", canonicalizeRegenUnits);
+  await runOnce("accept-award-to-registry", migrateAcceptAwardToRegistry);
   await runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
   await runOnce("founding-team-in-progress", markFoundingTeamInProgress);
   await runOnce("backfill-member-handles", backfillMemberHandles);
@@ -1114,6 +1117,33 @@ async function runOnce(id: string, fn: () => void | Promise<void>) {
     console.log(`[MIGRATION] applied ${id}`);
   } catch (e) {
     console.error(`[MIGRATION] ${id} failed (continuing)`, e);
+  }
+}
+
+/**
+ * gratitude.proposal_accept_award used to live as `acceptGratitude` inside
+ * the Work With Us content document. It is recognition ISSUANCE, so it moved
+ * to the variables registry (bounds, admin visibility, the mechanics page,
+ * the amendment ledger). This one-shot carries a village's customized
+ * document value into the registry so behaviour does not change on deploy;
+ * an untouched document (default 100 = the registry default) writes nothing.
+ */
+async function migrateAcceptAwardToRegistry() {
+  const stored = workWithUsRepo.get() as any;
+  const docValue = stored?.acceptGratitude;
+  if (docValue === undefined || docValue === null) return;
+  const n = Math.max(0, Math.floor(Number(docValue) || 0));
+  const def = VARIABLES_BY_KEY["gratitude.proposal_accept_award"];
+  if (!def || String(n) === def.default) return;
+  const r = await setVariable(getPool(), "gratitude.proposal_accept_award", String(n));
+  if (r.ok) {
+    await recordMechanicsChange(
+      "gratitude.proposal_accept_award", r, null, "platform", null,
+      "Migrated from the Work With Us content document into the variables registry",
+    );
+    console.log(`[MIGRATION] acceptGratitude ${n} moved from work-with-us doc to the registry`);
+  } else {
+    console.error(`[MIGRATION] acceptGratitude ${docValue} could not move to the registry: ${r.error}`);
   }
 }
 
@@ -1369,14 +1399,17 @@ function roleCapabilitiesFor(userId: string): string[] {
  */
 async function recordStageEvent(user: any, from: string, to: string, reason: string) {
   if (stageIndex(to) <= stageIndex(from)) return;
+  const unlockOverrides = stageUnlockOverridesFromVars();
   const before = new Set(
     ALL_CAPABILITIES.filter((c) => hasCapability(c, {
       stageIndex: stageIndex(from), stageIndexOf: stageIndex, roleCapabilities: roleCapabilitiesFor(user.id),
+      stageUnlockOverrides: unlockOverrides,
     })),
   );
   const unlocked = ALL_CAPABILITIES.filter(
     (c) => !before.has(c) && hasCapability(c, {
       stageIndex: stageIndex(to), stageIndexOf: stageIndex, roleCapabilities: roleCapabilitiesFor(user.id),
+      stageUnlockOverrides: unlockOverrides,
     }),
   );
   // An append, not a whole-table rewrite: the old snapshot→push→replaceAll
@@ -1415,6 +1448,71 @@ async function recordStageEvent(user: any, from: string, to: string, reason: str
  * query, and paying it once per request instead of once per capability is
  * the difference between one COUNT and six.
  */
+/**
+ * A stage as SERVED: the config shape with its economics overlaid from the
+ * registry. gameConfig's gratitudeMultiplier became the DEFAULT of a
+ * generated variable (progression.multiplier.<id>), so serving the raw
+ * config object would show a number the game no longer plays by the moment
+ * a village tunes it — a fake number styled like a real one.
+ */
+function servedStage(stageId: string) {
+  const s = getStage(stageId);
+  return { ...s, gratitudeMultiplier: Math.max(0, numberVar(`progression.multiplier.${s.id}`)) };
+}
+
+/**
+ * The amendment ledger's ONE writer. Every mechanics change — admin edit,
+ * routed legacy field, platform migration, and (next phase) a passed Hypha
+ * proposal — lands here or it did not happen. No-ops (value unchanged) write
+ * nothing. Never throws into the caller: like recordEvent, the ledger is a
+ * trace of a change that already happened.
+ */
+async function recordMechanicsChange(
+  key: string,
+  result: { value?: string; previous?: string },
+  actorUserId: string | null,
+  source: "admin" | "governance" | "platform",
+  proposalRef?: string | null,
+  note?: string | null,
+): Promise<void> {
+  if (result.value === result.previous) return;
+  try {
+    const def = VARIABLES_BY_KEY[key];
+    await getPool().query(
+      "INSERT INTO mechanics_changes (id, config_key, old_value, new_value, actor_user_id, source, proposal_ref, note) VALUES (?,?,?,?,?,?,?,?)",
+      [
+        `mech-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        key,
+        // NULL means "the platform default at the time" — the row records
+        // the village's act, not a snapshot of the platform's defaults.
+        result.previous === def?.default ? null : result.previous ?? null,
+        result.value === def?.default ? null : result.value ?? null,
+        actorUserId,
+        source,
+        proposalRef ?? null,
+        note ?? null,
+      ],
+    );
+  } catch (e) {
+    console.error(`[mechanics] amendment ledger write failed for ${key} (change stands)`, e);
+  }
+}
+
+/**
+ * The village's stage-unlock table, resolved from the variables registry
+ * (progression.unlock.* — generated defs whose defaults ARE the platform's
+ * STAGE_UNLOCKS, so an untouched village behaves identically). One map,
+ * built per call from the synchronous variables cache; every ctx builder
+ * uses this so the gate and the unlock-diff notifications cannot disagree.
+ */
+function stageUnlockOverridesFromVars(): Partial<Record<Capability, string>> {
+  const out: Partial<Record<Capability, string>> = {};
+  for (const cap of Object.keys(STAGE_UNLOCKS) as Capability[]) {
+    out[cap] = stringVar(`progression.unlock.${cap}`);
+  }
+  return out;
+}
+
 async function capabilityCtx(user: any) {
   // S36: badge grants and denies join the one gate — but only while the
   // badges module is on. Off = zero queries, zero effect: the gate is
@@ -1432,6 +1530,7 @@ async function capabilityCtx(user: any) {
     roleCapabilities: roleCapabilitiesFor(user.id),
     badgeCapabilities,
     badgeDenies,
+    stageUnlockOverrides: stageUnlockOverridesFromVars(),
     // Admins pass every capability gate (shared/capabilities.ts honors this):
     // real role on the user record, never a parallel permission path.
     isAdmin: user.role === "admin" || user.role === "founder",
@@ -1645,7 +1744,9 @@ function computeStage(user: any, consentedQuests: number): string {
       case "account": ok = true; break; // having a user record implies an account
       case "training-complete": ok = trainingComplete(user); break;
       case "membership": ok = hasMembership(user); break;
-      case "quests": ok = consentedQuests >= stage.rule.min; break;
+      // The threshold reads the registry (progression.quests_for.<stage>,
+      // default = the config min), so climbing speed is village-tunable.
+      case "quests": ok = consentedQuests >= Math.max(1, numberVar(`progression.quests_for.${stage.id}`)); break;
       case "granted": ok = grantedIdx >= idx; break;
     }
     if (ok && idx > stageIndex(earned)) earned = stage.id;
@@ -1668,7 +1769,10 @@ const gratitudeDeps: GratitudeDeps = {
   get pool() { return getPool(); },
   log: gratitudeRepo,
   members,
-  stageMultiplierFor: async (user: any) => getStage(await stageOf(user)).gratitudeMultiplier,
+  // The per-stage multiplier is a registry variable now (generated defs whose
+  // defaults are the gameConfig ladder values, so untouched villages see no
+  // change) — the ladder's SHAPE stays identity, its ECONOMICS became data.
+  stageMultiplierFor: async (user: any) => Math.max(0, numberVar(`progression.multiplier.${await stageOf(user)}`)),
 };
 
 function gratitudeBudget(user: any) {
@@ -1997,7 +2101,10 @@ async function applyAcceptReward(entry: any): Promise<boolean> {
     (entry.userId ? await members.byId(entry.userId) : null) ??
     (email ? await members.byEmail(email) : null);
   if (!match) return false; // not a registered member; nothing to fold in
-  const amount = Number(getWorkWithUs().acceptGratitude) || 0;
+  // Registry, not the content document: this is recognition ISSUANCE, and it
+  // sat in Work With Us page copy with no bounds and no mechanics visibility.
+  // A runOnce migrated any customized document value into the variable.
+  const amount = Math.max(0, numberVar("gratitude.proposal_accept_award"));
   // Through the ledger, never `+=`: this was the one recognition credit in
   // the repo that assigned the cache without a post, so the balance it
   // granted was phantom — invisible to /api/game/ledger and wiped by the
@@ -5158,7 +5265,7 @@ async function startServer() {
     if (audience === "guest" && !boolVar("stay.guest_booking_enabled")) {
       return res.status(403).json({ error: "Stay requests are open to members right now — write to the village instead" });
     }
-    if (await overLimit(`stay-request:${user.id}`, 5, 24 * 60 * 60 * 1000)) {
+    if (await overLimit(`stay-request:${user.id}`, Math.max(1, numberVar("stay.request_daily_cap")), 24 * 60 * 60 * 1000)) {
       return res.status(429).json({ error: "Five stay requests in a day is plenty — the stewards will reply" });
     }
     const { accommodationId, arriveOn, notes } = req.body ?? {};
@@ -5771,7 +5878,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       if (amountMinor < Number(p.min_amount_minor)) {
         return res.status(400).json({ error: `The minimum for this is ${(Number(p.min_amount_minor) / 100).toFixed(2)}` });
       }
-      if (amountMinor > 5_000_000) return res.status(400).json({ error: "That amount needs a conversation, not a checkout — write to the village" });
+      if (amountMinor > Math.max(1, numberVar("payments.donation_max_usd")) * 100) return res.status(400).json({ error: "That amount needs a conversation, not a checkout — write to the village" });
     }
     const payerEmail = user?.email ?? (typeof req.body?.email === "string" ? req.body.email.trim().slice(0, 200) : "");
     if (!user && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(payerEmail)) {
@@ -7071,7 +7178,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   app.post("/api/library/items/:id/reserve", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to borrow" });
-    if (await overLimit(`library-reserve:${user.id}`, 10, 24 * 60 * 60 * 1000)) {
+    if (await overLimit(`library-reserve:${user.id}`, Math.max(1, numberVar("library.reserve_daily_cap")), 24 * 60 * 60 * 1000)) {
       return res.status(429).json({ error: "Ten reservations in a day is plenty" });
     }
     const item = await libraryItemById(getPool(), req.params.id);
@@ -9073,7 +9180,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.put("/api/admin/work-with-us-config", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
-    await workWithUsRepo.put({ ...getWorkWithUs(), ...req.body });
+    // acceptGratitude moved to the variables registry (it is recognition
+    // issuance, not page copy). An old client still sending it gets routed
+    // there — through validation and the mechanics ledger — never stored in
+    // the document where nothing reads it anymore.
+    const { acceptGratitude, ...rest } = req.body as any;
+    if (acceptGratitude !== undefined) {
+      const r = await setVariable(getPool(), "gratitude.proposal_accept_award", String(acceptGratitude));
+      if (!r.ok) return res.status(400).json({ error: r.error });
+      await recordMechanicsChange("gratitude.proposal_accept_award", r, (await authedUser(req))?.id ?? adminActor(req)?.id ?? null, "admin");
+    }
+    await workWithUsRepo.put({ ...getWorkWithUs(), ...rest });
     res.json({ success: true });
   });
 
@@ -10093,7 +10210,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const claims = await claimsRepo.forUser(user.id);
     const ctx = await capabilityCtx(user);
     res.json({
-      stage: getStage(stageId),
+      stage: servedStage(stageId),
       stageIndex: stageIndex(stageId),
       stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
       gratitude: { balance: user.recognitionBalance ?? 0, budget: await gratitudeBudget(user) },
@@ -10418,7 +10535,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const stageId = await stageOf(user);
     const ctx = await capabilityCtx(user);
     res.json({
-      stage: getStage(stageId),
+      stage: servedStage(stageId),
       stageIndex: stageIndex(stageId),
       capabilities: ALL_CAPABILITIES.filter((c) => hasCapability(c, ctx)),
       roles: roleIdsFor(user.id),
@@ -10560,9 +10677,109 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const result = await setVariable(getPool(), req.params.key, String(raw));
     if (!result.ok) return res.status(400).json({ error: result.error });
     if (result.previous !== result.value) {
-      await addActivity("settings", `A game rule changed: ${req.params.key} is now ${result.value}`, { actorUserId: adminActor(req)?.id, entityType: "variable", entityRef: req.params.key });
+      const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+      await recordMechanicsChange(req.params.key, result, actor, "admin");
+      await addActivity("settings", `A game rule changed: ${req.params.key} is now ${result.value}`, { actorUserId: actor, entityType: "variable", entityRef: req.params.key });
     }
     res.json(result);
+  });
+
+  /**
+   * THE PUBLIC GAME MECHANICS SNAPSHOT (Game Mechanics initiative, 2026-07-31).
+   *
+   * Everything, visible to everyone — members, visitors, and people deciding
+   * which village's rules they want to live under. Three layers, in the order
+   * the page renders them:
+   *   constitution — Ring 0, the laws no vote can change (plain language);
+   *   variables    — every mechanic with its ring (open = community-governable
+   *                  ceiling, founder = founder-held), bounds, default,
+   *                  current value, and when a change takes effect;
+   *   modules      — which parts of the game this village is running.
+   * Variables of OFF modules are omitted the same way Admin omits them: a
+   * dial for a game the village is not playing is noise, not transparency.
+   */
+  app.get("/api/game/mechanics", async (_req, res) => {
+    // Rank test, not an off test: a module at PREVIEW is invisible to
+    // non-admins everywhere else (the identical-404 rule), and this page is
+    // anonymous — listing a preview module's dials would leak what the
+    // village is trying before it decided. Same idiom as /api/platform/info.
+    const hiddenKeys = new Set(
+      MODULES.filter(
+        (m) => !m.core && LIFECYCLE_RANK[effectiveLifecycle(m.id)] < LIFECYCLE_RANK.members,
+      ).flatMap((m) => m.variableKeys),
+    );
+    res.json({
+      constitution: CONSTITUTION,
+      variables: allVariables()
+        .filter((v) => !hiddenKeys.has(v.key))
+        .map((v) => ({
+          key: v.key,
+          category: v.category,
+          label: v.label,
+          description: v.description,
+          type: v.type,
+          unit: v.unit ?? null,
+          min: v.min ?? null,
+          max: v.max ?? null,
+          choices: v.choices ?? null,
+          default: v.default,
+          value: v.value,
+          parsed: v.parsed,
+          isDefault: v.isDefault,
+          ring: ringOf(v),
+          applyTiming: applyTimingOf(v),
+        })),
+      modules: MODULES.filter(
+        (m) => m.core || LIFECYCLE_RANK[effectiveLifecycle(m.id)] >= LIFECYCLE_RANK.members,
+      ).map((m) => ({
+        id: m.id,
+        name: m.name,
+        core: !!m.core,
+      })),
+    });
+  });
+
+  /**
+   * The amendment history — public, newest first. Actor names are first
+   * names only (the platform's standard privacy posture for public
+   * surfaces); proposal_ref carries the Hypha proposal id / tx hash once
+   * the governance loop lands, so every amendment can point at its vote.
+   */
+  app.get("/api/game/mechanics/history", async (req, res) => {
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 200));
+    const [rows] = await getPool().query<any[]>(
+      "SELECT id, config_key, old_value, new_value, actor_user_id, source, proposal_ref, note, at " +
+        "FROM mechanics_changes ORDER BY at DESC, id DESC LIMIT ?",
+      [limit],
+    );
+    const names = new Map<string, string>();
+    for (const r of rows) {
+      if (r.actor_user_id && !names.has(r.actor_user_id)) {
+        const u = await members.byId(r.actor_user_id);
+        names.set(r.actor_user_id, u ? firstName(u.name) : "A departed member");
+      }
+    }
+    res.json(
+      rows.map((r) => {
+        const def = VARIABLES_BY_KEY[String(r.config_key)];
+        return {
+          id: String(r.id),
+          key: String(r.config_key),
+          label: def?.label ?? r.config_key,
+          // NULL stored = "the platform default at the time"; resolve to the
+          // CURRENT default for display, marked so the page can say so.
+          from: r.old_value ?? def?.default ?? null,
+          fromWasDefault: r.old_value == null,
+          to: r.new_value ?? def?.default ?? null,
+          toIsDefault: r.new_value == null,
+          by: r.actor_user_id ? names.get(String(r.actor_user_id)) : null,
+          source: String(r.source),
+          proposalRef: r.proposal_ref ?? null,
+          note: r.note ?? null,
+          at: r.at instanceof Date ? r.at.toISOString() : String(r.at),
+        };
+      }),
+    );
   });
 
   /**
