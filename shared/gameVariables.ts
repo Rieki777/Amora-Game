@@ -247,11 +247,11 @@ export const VARIABLES: VariableDef[] = [
   {
     key: "governance.hypha_threshold",
     category: "Governance",
-    label: "In-app tokens needed to take a proposal to Hypha",
+    label: "Earned recognition to qualify as a proposer",
     description:
-      "Following the ReGen Civics model: in-app tokens are earned recognition, not currency, and reaching this threshold is what qualifies a member to take a proposal to Hypha where real tokens are minted. Set to 0 to let anyone propose.",
+      "Earned recognition a member needs before they can OPEN mechanics proposals and sponsor others' drafts (below it, they can still draft — a qualified member's sponsorship opens a draft). The base posture is 0: any member may propose. Raise it to ask for earned standing first. Admins and founders always qualify.",
     type: "integer",
-    default: "1000",
+    default: "0",
     min: 0,
     max: 10000000,
     unit: "Gratitude",
@@ -266,6 +266,42 @@ export const VARIABLES: VariableDef[] = [
     default: "7",
     min: 1,
     max: 90,
+    unit: "days",
+  },
+  {
+    key: "governance.proposals_per_member_per_cycle",
+    category: "Governance",
+    label: "Mechanics proposals per member per cycle",
+    description:
+      "How many game-rule change proposals one member may open per cycle. A ceiling on flooding, not on participation — supporting and sponsoring other proposals is never limited.",
+    type: "integer",
+    default: "5",
+    min: 1,
+    max: 100,
+    unit: "per cycle",
+  },
+  {
+    key: "governance.proposal_support_threshold",
+    category: "Governance",
+    label: "Supporters before a proposal can go to Hypha",
+    description:
+      "How many members must support a mechanics proposal in-game before it can be taken to Hypha for the binding vote. The sensing step: proposals gather perspectives here first, and only what the village actually wants reaches the chain. 0 turns the gate off — any open proposal can go straight to Hypha.",
+    type: "integer",
+    default: "0",
+    min: 0,
+    max: 10000,
+    unit: "supporters",
+  },
+  {
+    key: "governance.change_cooldown_days",
+    category: "Governance",
+    label: "Cooldown after a governed rule change",
+    description:
+      "After a dial is changed by a passed proposal, this many days must pass before a new proposal may move that same dial again. Prevents rule-thrash and vote fatigue. 0 turns the cooldown off.",
+    type: "integer",
+    default: "0",
+    min: 0,
+    max: 365,
     unit: "days",
   },
 

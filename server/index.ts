@@ -13,9 +13,19 @@ import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { ALL_CAPABILITIES, hasCapability, STAGE_UNLOCKS, type Capability } from "../shared/capabilities";
-import { allVariables, boolVar, numberVar, setVariable, stringVar } from "./lib/variables";
+import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } from "./lib/variables";
 import { applyTimingOf, ringOf, VARIABLES_BY_KEY } from "../shared/gameVariables";
 import { CONSTITUTION } from "../shared/constitution";
+import {
+  backerCounts,
+  displayChangeValue,
+  proposalById,
+  proposalMarkdown,
+  proposalsOpenedSince,
+  proposerStanding,
+  rowToProposal,
+  validateChangeSet,
+} from "./lib/mechanics";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
   allTokens,
@@ -10780,6 +10790,317 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         };
       }),
     );
+  });
+
+  // ── Mechanics proposals: propose-on-the-page ──────────────────────────────
+
+  /** The viewer's proposer standing, resolved through the one gate + earned
+   *  recognition. The page uses this for honest affordances, the routes for
+   *  enforcement — same function, so the button and the door always agree. */
+  async function mechanicsStandingFor(user: any) {
+    const ctx = await capabilityCtx(user);
+    return proposerStanding(
+      hasCapability("mechanics.propose", ctx),
+      (ctx.badgeDenies ?? []).includes("mechanics.propose"),
+      Number(user.recognitionBalance ?? 0),
+      Math.max(0, numberVar("governance.hypha_threshold")),
+      ctx.isAdmin,
+    );
+  }
+
+  const serveProposal = async (p: any, backers: Map<string, { supports: number; sponsors: string[] }>) => {
+    const proposer = await members.byId(p.proposerUserId);
+    const b = backers.get(p.id) ?? { supports: 0, sponsors: [] };
+    return {
+      id: p.id,
+      title: p.title,
+      rationale: p.rationale,
+      status: p.status,
+      hyphaRef: p.hyphaRef,
+      createdAt: p.createdAt,
+      proposer: proposer ? firstName(proposer.name) : "A departed member",
+      supports: b.supports,
+      sponsors: b.sponsors.length,
+      changes: p.changeSet.map((c: any) => {
+        const def = VARIABLES_BY_KEY[c.key];
+        return {
+          key: c.key,
+          label: def?.label ?? c.key,
+          from: c.from,
+          fromDisplay: displayChangeValue(c.key, c.from),
+          to: c.to,
+          toDisplay: displayChangeValue(c.key, c.to),
+          applyTiming: def ? applyTimingOf(def) : "instant",
+          // Honest context for voters: the baseline can move under an open
+          // proposal (another proposal passed, an admin acted). Show it.
+          currentValue: def ? rawValue(c.key) : null,
+        };
+      }),
+    };
+  };
+
+  /** Everything, to everyone — including withdrawn and applied: the record
+   *  of what the village considered is part of the record. */
+  app.get("/api/game/mechanics/proposals", async (_req, res) => {
+    const [rows] = await getPool().query<any[]>(
+      "SELECT * FROM mechanics_proposals ORDER BY created_at DESC, id DESC LIMIT 200",
+    );
+    const proposals = rows.map(rowToProposal);
+    const backers = await backerCounts(getPool(), proposals.map((p) => p.id));
+    res.json(await Promise.all(proposals.map((p) => serveProposal(p, backers))));
+  });
+
+  /** The viewer's own standing + which proposals they already back. */
+  app.get("/api/game/mechanics/standing", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const standing = await mechanicsStandingFor(user);
+    const [rows] = await getPool().query<any[]>(
+      "SELECT proposal_id, kind FROM mechanics_proposal_backers WHERE user_id = ?",
+      [user.id],
+    );
+    res.json({
+      ...standing,
+      supportThreshold: Math.max(0, numberVar("governance.proposal_support_threshold")),
+      backed: rows.map((r) => ({ proposalId: String(r.proposal_id), kind: String(r.kind) })),
+    });
+  });
+
+  app.post("/api/game/mechanics/proposals", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to propose a change to the game" });
+    const standing = await mechanicsStandingFor(user);
+    if (standing.denied) {
+      return res.status(403).json({ error: "A standing warning currently suspends your proposal rights — talk to a steward" });
+    }
+    // Rate limit rides the CYCLE, like the economy it governs.
+    const cycleStart = new Date(currentCycle().startsAt);
+    const opened = await proposalsOpenedSince(getPool(), user.id, cycleStart);
+    const cap = Math.max(1, numberVar("governance.proposals_per_member_per_cycle"));
+    if (opened >= cap) {
+      return res.status(429).json({ error: `You have opened ${opened} proposal(s) this cycle — the village's ceiling is ${cap}. Supporting others' proposals is never limited.` });
+    }
+    const title = String(req.body?.title ?? "").trim().slice(0, 200);
+    const rationale = String(req.body?.rationale ?? "").trim().slice(0, 8000);
+    if (!title) return res.status(400).json({ error: "Give the proposal a title" });
+    if (!rationale) return res.status(400).json({ error: "Say why — the village votes on reasons, not numbers" });
+    const cooldown = Math.max(0, numberVar("governance.change_cooldown_days"));
+    const { problems, normalized } = await validateChangeSet(
+      getPool(),
+      Array.isArray(req.body?.changes) ? req.body.changes : [],
+      rawValue,
+      cooldown,
+    );
+    if (problems.length) return res.status(400).json({ error: "The change-set has problems", problems });
+    const id = `gmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const status = standing.qualified ? "open" : "draft";
+    await getPool().query(
+      "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status) VALUES (?,?,?,?,?,?)",
+      [id, title, rationale, JSON.stringify(normalized), user.id, status],
+    );
+    if (status === "open") {
+      await addActivity("governance", `${firstName(user.name)} proposed a change to the game's rules: ${title}`, {
+        actorUserId: user.id, entityType: "mechanics_proposal", entityRef: id,
+      });
+    }
+    res.json({
+      id,
+      status,
+      message:
+        status === "open"
+          ? "Your proposal is open — the village can now weigh in."
+          : "Saved as a draft: you are below the proposer bar, so it opens as soon as a qualified member sponsors it.",
+    });
+  });
+
+  app.post("/api/game/mechanics/proposals/:id/support", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to support a proposal" });
+    const p = await proposalById(getPool(), req.params.id);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    if (p.status !== "open") return res.status(409).json({ error: `This proposal is ${p.status.replace("_", " ")}, not open for support` });
+    // INSERT IGNORE: one support per member, idempotent, race-free.
+    await getPool().query(
+      "INSERT IGNORE INTO mechanics_proposal_backers (proposal_id, user_id, kind) VALUES (?,?,'support')",
+      [p.id, user.id],
+    );
+    const backers = await backerCounts(getPool(), [p.id]);
+    res.json({ success: true, supports: backers.get(p.id)?.supports ?? 0 });
+  });
+
+  /** Sponsorship: a QUALIFIED member co-signs a below-the-bar draft, which
+   *  opens it. The on-ramp — proposing is something the village teaches. */
+  app.post("/api/game/mechanics/proposals/:id/sponsor", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const standing = await mechanicsStandingFor(user);
+    if (!standing.qualified) return res.status(403).json({ error: "Sponsoring a draft takes full proposer standing" });
+    const p = await proposalById(getPool(), req.params.id);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    if (p.status !== "draft") return res.status(409).json({ error: `This proposal is ${p.status.replace("_", " ")}, not a draft awaiting sponsorship` });
+    if (p.proposerUserId === user.id) return res.status(403).json({ error: "A draft needs someone ELSE's standing behind it" });
+    await getPool().query(
+      "INSERT IGNORE INTO mechanics_proposal_backers (proposal_id, user_id, kind) VALUES (?,?,'sponsor')",
+      [p.id, user.id],
+    );
+    await getPool().query("UPDATE mechanics_proposals SET status = 'open' WHERE id = ? AND status = 'draft'", [p.id]);
+    await notify({
+      userId: p.proposerUserId,
+      type: "governance",
+      title: `${firstName(user.name)} sponsored your proposal — it is now open`,
+      body: p.title,
+      link: "/game-mechanics",
+      actorUserId: user.id,
+      dedupeKey: `gmp:${p.id}:sponsored`,
+    });
+    await addActivity("governance", `A proposed rule change opened for sensing: ${p.title}`, {
+      actorUserId: user.id, entityType: "mechanics_proposal", entityRef: p.id,
+    });
+    res.json({ success: true });
+  });
+
+  app.post("/api/game/mechanics/proposals/:id/withdraw", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const p = await proposalById(getPool(), req.params.id);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    const mayWithdraw = p.proposerUserId === user.id || (await isAdmin(req));
+    if (!mayWithdraw) return res.status(403).json({ error: "Only the proposer or an admin can withdraw a proposal" });
+    if (p.status !== "draft" && p.status !== "open") {
+      return res.status(409).json({ error: `A ${p.status.replace("_", " ")} proposal is already past withdrawing` });
+    }
+    await getPool().query("UPDATE mechanics_proposals SET status = 'withdrawn' WHERE id = ? AND status IN ('draft','open')", [p.id]);
+    res.json({ success: true });
+  });
+
+  /** The canonical document — one rendering for the page, the clipboard and
+   *  (next phase) the bridge, so what is voted on is what was checked. */
+  app.get("/api/game/mechanics/proposals/:id/document", async (req, res) => {
+    const p = await proposalById(getPool(), req.params.id);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    const proposer = await members.byId(p.proposerUserId);
+    const backers = await backerCounts(getPool(), [p.id]);
+    res.json({
+      markdown: proposalMarkdown({
+        id: p.id,
+        title: p.title,
+        rationale: p.rationale,
+        changeSet: p.changeSet,
+        villageName: mergedConfig().project.name,
+        proposerName: proposer ? firstName(proposer.name) : "A departed member",
+        supports: backers.get(p.id)?.supports ?? 0,
+        createdAt: p.createdAt,
+      }),
+    });
+  });
+
+  app.post("/api/game/mechanics/proposals/:id/to-hypha", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const p = await proposalById(getPool(), req.params.id);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    if (p.proposerUserId !== user.id && !(await isAdmin(req))) {
+      return res.status(403).json({ error: "Only the proposer takes their proposal to the vote" });
+    }
+    if (p.status !== "open") return res.status(409).json({ error: `This proposal is ${p.status.replace("_", " ")}, not open` });
+    const threshold = Math.max(0, numberVar("governance.proposal_support_threshold"));
+    const backers = await backerCounts(getPool(), [p.id]);
+    const supports = backers.get(p.id)?.supports ?? 0;
+    if (supports < threshold) {
+      return res.status(409).json({
+        error: `The village asks for ${threshold} supporter(s) before a proposal goes to the vote — this one has ${supports}. Gather more sensing first.`,
+        supports, threshold,
+      });
+    }
+    await getPool().query("UPDATE mechanics_proposals SET status = 'to_hypha' WHERE id = ? AND status = 'open'", [p.id]);
+    await notifyAdmins("governance", `A mechanics proposal went to Hypha for the vote: ${p.title}`, `gmp:${p.id}:to-hypha`);
+    res.json({ success: true });
+  });
+
+  /** "I'm back — it passed." Records the claim and the Hypha reference; a
+   *  human verifies on Hypha and applies this phase, the Alchemy webhook
+   *  verifies next phase. The claim is never itself the apply. */
+  app.post("/api/game/mechanics/proposals/:id/passed", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const p = await proposalById(getPool(), req.params.id);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    if (p.proposerUserId !== user.id && !(await isAdmin(req))) {
+      return res.status(403).json({ error: "Only the proposer reports their proposal's outcome" });
+    }
+    if (p.status !== "to_hypha") return res.status(409).json({ error: `This proposal is ${p.status.replace("_", " ")} — only one taken to Hypha can be reported passed` });
+    const ref = String(req.body?.ref ?? "").trim().slice(0, 500);
+    if (!ref) return res.status(400).json({ error: "Paste the Hypha proposal link (or id) so the pass can be verified" });
+    await getPool().query(
+      "UPDATE mechanics_proposals SET status = 'passed_claimed', hypha_ref = ? WHERE id = ? AND status = 'to_hypha'",
+      [ref, p.id],
+    );
+    await notifyAdmins(
+      "governance",
+      `A passed mechanics proposal awaits verification and apply: ${p.title}`,
+      `gmp:${p.id}:passed-claimed`,
+    );
+    res.json({ success: true, message: "Recorded. A steward verifies the pass on Hypha and applies the changes — every one lands on the public amendment ledger with your proposal's reference." });
+  });
+
+  /**
+   * The apply step — ADMIN this phase, the verified Alchemy webhook next.
+   * Revalidates every change against the CURRENT registry (the registry may
+   * have evolved since the vote: a key can be gone, demoted from the open
+   * ring, or the value now out of bounds), then writes through the one
+   * variable path so bounds, the delta-only store and the amendment ledger
+   * all hold. Every applied key gets a governance-sourced ledger row carrying
+   * the proposal marker + Hypha reference.
+   */
+  app.post("/api/admin/mechanics/proposals/:id/apply", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const p = await proposalById(getPool(), req.params.id);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    if (p.status !== "to_hypha" && p.status !== "passed_claimed") {
+      return res.status(409).json({ error: `A ${p.status.replace("_", " ")} proposal cannot be applied` });
+    }
+    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+    const proposalRef = `gm:${p.id}${p.hyphaRef ? ` ${p.hyphaRef}` : ""}`.slice(0, 255);
+    const applied: string[] = [];
+    const failed: Array<{ key: string; problem: string }> = [];
+    for (const c of p.changeSet) {
+      const def = VARIABLES_BY_KEY[c.key];
+      if (!def) { failed.push({ key: c.key, problem: "This dial no longer exists in the registry" }); continue; }
+      if (ringOf(def) !== "open") { failed.push({ key: c.key, problem: "This dial is no longer community-governable" }); continue; }
+      const r = await setVariable(getPool(), c.key, c.to);
+      if (!r.ok) { failed.push({ key: c.key, problem: r.error ?? "refused" }); continue; }
+      await recordMechanicsChange(
+        c.key, r, actor, "governance", proposalRef,
+        // The vote was on target values; if the baseline drifted since, the
+        // ledger says so rather than hiding it.
+        c.from !== r.previous ? `Baseline moved between proposal (${c.from}) and apply (${r.previous})` : null,
+      );
+      applied.push(c.key);
+    }
+    if (applied.length > 0) {
+      await getPool().query("UPDATE mechanics_proposals SET status = 'applied' WHERE id = ?", [p.id]);
+      await addActivity("governance", `The village's rules changed by passed proposal: ${p.title}`, {
+        actorUserId: actor, entityType: "mechanics_proposal", entityRef: p.id,
+      });
+      await notify({
+        userId: p.proposerUserId,
+        type: "governance",
+        title: `Your proposal was applied: ${p.title}`,
+        body: failed.length ? `${applied.length} change(s) applied; ${failed.length} could not be (see the ledger).` : null,
+        link: "/game-mechanics",
+        actorUserId: actor,
+        dedupeKey: `gmp:${p.id}:applied`,
+      });
+    }
+    if (failed.length > 0) {
+      return res.status(applied.length ? 207 : 409).json({
+        error: applied.length
+          ? "Applied partially — some changes no longer fit the current registry"
+          : "Nothing could be applied — the registry has moved since the vote",
+        applied, failed,
+      });
+    }
+    res.json({ success: true, applied });
   });
 
   /**

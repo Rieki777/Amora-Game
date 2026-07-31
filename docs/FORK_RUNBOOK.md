@@ -78,6 +78,21 @@ The per-stage mechanics (`progression.multiplier.*`, `progression.quests_for.*`,
 `shared/gameConfig.ts` — edit the ladder and the registry follows at next
 deploy, with your config values as the defaults.
 
+**Members change the rules from the page.** Community dials are editable in
+place on `/game-mechanics`: staged changes become a proposal (title +
+rationale), which gathers in-game support, goes to your Hypha for the binding
+vote (the copy carries a `[gm:…]` marker — keep it in the Hypha proposal
+title), and is applied by an admin after verifying the pass ("Verify & apply"
+on the proposal card; automated on-chain verification is the next phase).
+Who may propose is yours to tune: the base is ANY MEMBER
+(`progression.unlock.mechanics.propose`, default member); raise the rung, set
+it to role/badge-only, require earned recognition
+(`governance.hypha_threshold`), demand in-game supporters before the vote
+(`governance.proposal_support_threshold`), cool changed dials down
+(`governance.change_cooldown_days`), and cap proposals per member per cycle
+(`governance.proposals_per_member_per_cycle`). Members below the bar can
+always draft; a qualified member's sponsorship opens the draft.
+
 ## Tunable abuse guards
 
 The throttles are game variables (Admin → Game Mechanics → *Abuse guards*), so

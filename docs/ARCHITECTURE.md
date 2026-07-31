@@ -321,6 +321,27 @@ planes.
    untouched; only step 5's lookup is parameterized), the Work With Us
    acceptance award (out of the content document, one-shot runOnce), the
    stays/library daily caps, and the donation checkout ceiling.
+
+   **Mechanics proposals** (`server/lib/mechanics.ts` + `mechanics_proposals`
+   / `mechanics_proposal_backers`, drizzle/0043) are how the community moves
+   Ring-2 dials: any member stages changes on the public page; who may OPEN a
+   proposal is itself part of the game — the `mechanics.propose` capability
+   through the one gate (stage rung tunable, role/badge grantable, badge-deny
+   suspendable) composed with `governance.hypha_threshold` earned standing
+   (admins bypass the bar, never a deny). Below the bar, members DRAFT and a
+   qualified member's sponsorship opens it. A change-set is validated as a
+   WHOLE at creation (open-ring only, bounds, no-ops, ≤12 keys, per-key
+   governance cooldown) and never edited after — what is voted on is what was
+   checked. Lifecycle: draft → open (in-game sensing, support threshold) →
+   to_hypha (the canonical markdown document carries the `[gm:<id>]` marker
+   and a machine-readable change-set block) → passed_claimed (proposer
+   reports, with the Hypha reference) → applied. The apply step is ADMIN
+   (verify-then-apply) this phase and becomes the bridge's verified webhook
+   next; either way it revalidates against the CURRENT registry, writes
+   through `setVariable`, and stamps governance-sourced amendment-ledger rows
+   with the proposal reference. Supports/sponsorships are keyed INSERT
+   IGNOREs — no read-modify-write. Proposals are rate-limited per member per
+   cycle (`governance.proposals_per_member_per_cycle`).
 4. **Module structural config — `module_settings.config`.** Validated JSON
    per module (`validateConfig`), seeded from `defaultConfig` — forum
    categories, tools categories, the exchange's `tradingEnabled` +

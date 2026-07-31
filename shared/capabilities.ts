@@ -32,7 +32,8 @@ export type Capability =
   | "exchange.buy" // buy listed tokens for fiat
   | "exchange.swap" // trade one village token for another at posted prices
   | "exchange.manage" // list tokens, post prices, stock the treasury (role-only)
-  | "health.record"; // log the land's own measurements (trees, water, hectares)
+  | "health.record" // log the land's own measurements (trees, water, hectares)
+  | "mechanics.propose"; // propose a change to the game's own rules (Game Mechanics)
 
 /**
  * The canonical list, as a VALUE: badge validation and unlock diffs iterate
@@ -54,6 +55,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "exchange.swap",
   "exchange.manage",
   "health.record",
+  "mechanics.propose",
 ];
 
 /**
@@ -74,6 +76,13 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   // deployment-level trading switch and fail-closed caps, and a higher stage
   // floor would only show more members a door they cannot open.
   "exchange.swap": "member",
+  // The base posture (Rye, 2026-07-31): ANY MEMBER may propose a change to
+  // the game's rules. Founders narrow it by moving this rung (the generated
+  // progression.unlock variable), setting it to "none" and granting through
+  // roles or badges, or requiring earned recognition on top
+  // (governance.hypha_threshold). A warning badge's deny suspends it — the
+  // remedy for misuse that is short of anything harsher.
+  "mechanics.propose": "member",
 };
 
 /**
