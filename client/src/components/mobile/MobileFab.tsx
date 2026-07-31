@@ -21,8 +21,10 @@
  *     The offset rides the safe area so the overlap is the same on every
  *     device: the trigger's lower edge tucks about 1rem into the bar rather
  *     than floating a thumb's width above it.
- *  3. Layering: FAB z-[60], scrim z-[55], tab bar z-50. The scrim has to sit
- *     between the two, not over both.
+ *  3. Layering: modal sheets z-[70], FAB z-[60], scrim z-[55], tab bar z-50.
+ *     The scrim has to sit between the FAB and the bar, not over both — and a
+ *     modal has to clear all three, or the tab bar sits on top of the sheet's
+ *     own buttons (the village map's node card shipped that way at z-50).
  *  4. Plain tap rows rather than a gesture-driven radial. The gesture version
  *     did not survive iOS Safari.
  */

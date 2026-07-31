@@ -248,6 +248,25 @@ badges module is non-off — off means the gate is byte-identical to its
 pre-badges self. Modules extend the union; they never invent a second
 mechanism.
 
+**A declared capability that no route enforces is not a capability.**
+`quest.consent` was granted by the seeded steward-circle role and displayed
+to members as authority they held, while both consent routes asked only
+`isAdmin` — so every unit of recognition a village released came from
+whoever held the founder password, which is the single-founder bottleneck
+this whole system exists to prevent. Consent now admits admin OR
+`hasCapability("quest.consent", …)`, and two things ride with that widening
+because releasing value is not an ordinary action: **no self-consent** (for
+admins too — consent mints from the faucet, grants stay credits and advances
+stages, so witnessing your own work must be structurally impossible), and an
+explicit `recordEvent` audit row for non-admin actors, since the `/api/admin`
+audit middleware only attributes callers `adminActor()` populates.
+
+The same shape applies to appointments: a non-admin holder of
+`proposal.decide` may only seat someone into a role whose every capability
+they already hold themselves. Without that, the no-self-appointment guard was
+one hop from useless — register a second account (open, unverified), seat it
+higher, have it seat you.
+
 ### 3.4 The five config planes
 
 Each plane exists for a different kind of fact. Do not move facts between
@@ -680,6 +699,13 @@ fork, but drop the row deliberately when you do it.
    splitting (`server/db/migrate.ts:30-42`) — but only full comment lines.
    Migration 0015 was cut in half by `-- …live in game_variables;`. Keep
    comments off statement tails; never end a comment line with `;`.
+   **And a shipped migration file is never edited** — not a style rule, a
+   hard invariant. A file that fails part-way records its progress in
+   `_migrations_partial` and RESUMES at that statement on the next boot
+   (without which a mid-file failure replays already-applied DDL on every
+   boot and bricks the deployment permanently). Editing a partially-applied
+   file therefore resumes at the wrong offset. Correct a shipped migration
+   with a NEW numbered file.
 2. **PowerShell `Set-Content -Encoding utf8` double-encodes.** UTF-8 text
    written through it becomes mojibake; several section rules in
    `server/index.ts` still carry the scars (`â”€â”€ Seasons â”€â”€`,

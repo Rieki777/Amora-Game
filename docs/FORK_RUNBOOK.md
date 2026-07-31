@@ -26,13 +26,44 @@ what, where, what breaks without it.
 | `ANTHROPIC_BASE_URL` | (optional, dev/CI) points the assistant at a stub instead of api.anthropic.com | Defaults to the real API |
 | `RESEND_API_KEY` | Transactional email. **S63: settable from Admin → Integrations instead** — admin-typed beats env, masked on read. | Emails silently skipped (logged) |
 | ↳ *sender domain* | **Every fork must verify its sender domain in Resend (resend.com/domains: SPF + DKIM records in the domain's DNS).** Resend returns 200 on unverified domains and delivers NOTHING — email death is silent. **Amora handoff item (Rye, 2026-07-26): `amora.cr` is unverified and only its team can add the DNS records — verify it during handoff.** | Claim links & notifications never arrive |
+| `EMAIL_FROM` | The `From:` address every village email leaves under — `name@example.org` or `Village Name <name@example.org>`. **Settable from Admin → Email config instead** (admin-typed beats this env var, and a malformed value there is refused at the door). Must be on the domain verified in Resend, or the send 200s and delivers nothing. **Set this during any fork's provisioning** — otherwise mail goes out under the platform's fallback sender, which is the first village's domain. | Falls back to the platform's own sender address |
 | `FRONTEND_URL` | CORS origin | Cross-origin API calls fail |
 | `STRIPE_SECRET_KEY` | (S32) Stripe API key (`sk_live_…`) — powers card checkout for every fiat module (stays, exchange). **S63: settable from Admin → Integrations instead — no Railway access needed.** **Amora handoff item (Rye, 2026-07-26): the Amora team creates its own Stripe account and connects it during handoff** — until then card checkout answers an honest 503 and manual payments carry stays. | Card checkout disabled (503); manual payment path still works |
 | `STRIPE_WEBHOOK_SECRET` | (S32) Signing secret (`whsec_…`) for the ONE webhook endpoint `POST /api/webhooks/stripe`. **S63: settable from Admin → Integrations, which also displays the exact URL to paste into Stripe.** Create the endpoint in the Stripe dashboard (Developers → Webhooks) pointing at `https://<your-domain>/api/webhooks/stripe`, subscribe to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `invoice.paid`, `charge.refunded`, `charge.dispute.created`, then copy its signing secret here. **All five matter**: `invoice.paid` is how every recurring product renews (without it a subscription charges the member forever and delivers only the first period), and `checkout.session.async_payment_succeeded` is how delayed-notification methods — SEPA debit, ACH, Boleto — confirm days later (without it those purchases never settle at all, because `completed` arrives `unpaid` and is correctly ignored). **Amora handoff item (Rye, 2026-07-26): create the endpoint + set this secret together with `STRIPE_SECRET_KEY` — a missing secret means unsigned events are processed only in dev shapes; a wrong one rejects every settlement with `sig_fail` alerts to admins.** Test with `stripe listen --forward-to` before go-live. | Settlements unverified or rejected; orders never credit |
-| `FEEDBACK_HUB_URL` | (S66, optional) where the feedback relay POSTs — defaults to the ReGen Civics hub. The relay is ON by default (`platform.feedback_relay` game variable), sends CONTENT only (never who submitted), queues locally and retries while the hub is unreachable; turning it off keeps everything in Admin → Feedback, local-only. | Default hub endpoint used |
+| `RIVERSIDE_WEBHOOK_SECRET` | Shared secret for `POST /api/webhooks/riverside` (automation module). **Settable from Admin → Integrations instead** — admin-typed beats env, masked on read. The webhook **fails closed**: without a configured secret, or without a matching `x-riverside-secret` header on the delivery, every payload is discarded with an inert 200 (the automation admin card shows a warning while unset). Configure Riverside to send the same value as the `x-riverside-secret` header. | Riverside deliveries are silently discarded until the secret is set |
+| `FEEDBACK_HUB_URL` | (S66, optional) **must be `https://` and publicly resolvable** — the relay now dials through the pinned-IP guard, which refuses plain http and any private/loopback/CGNAT address. A self-hosted hub on a VPC-internal or `http://` address will simply never receive anything (rows stay queued locally, no data is lost, one log line per attempt). Where the feedback relay POSTs — defaults to the ReGen Civics hub. The relay is ON by default (`platform.feedback_relay` game variable), sends CONTENT only (never who submitted), queues locally and retries while the hub is unreachable; turning it off keeps everything in Admin → Feedback, local-only. | Default hub endpoint used |
 | `ERROR_WEBHOOK_URL` | (optional, PY6) an HTTPS endpoint that receives a JSON POST when something crashes — a Slack or Discord incoming webhook, a Sentry store URL, or your own collector. Admins are ALWAYS notified in-app regardless; this puts the same alert where your team actually looks. Deduped to one alert per distinct failure per hour, and dialled through the pinned-IP guard like every other outbound call. | Crashes are still logged and still alert admins in-app, but nothing reaches an external channel |
 | `TRUSTED_PROXY_HOPS` | (optional, default `1`) how many proxies sit in front of this process. `X-Forwarded-For` grows left to right, so the client's real address is the Nth entry from the RIGHT, where N is this number — and everything to its left is caller-supplied and forgeable. Every rate limit (checkout attempts, sign-in throttling, the assistant's cost cap, the abuse guard) keys on the result. `1` is correct on Railway, Fly and Render; raise it if the fork puts its own CDN or load balancer in front; `0` means no proxy and the socket address is used directly. | A value too LOW trusts a forged header and lets one caller bypass every rate limit; too HIGH buckets unrelated visitors together and throttles innocents |
 | `TEST_DATABASE_URL` | (dev/CI only, local .env) scratch-schema MySQL for DB-backed tests — the harness DROPs/CREATEs `village_test`; never point it at the app schema | DB suites skip loudly |
+
+## Account recovery
+
+Members can reset their own password: **"Forgot your password?"** on `/login` →
+`/forgot-password` → a one-hour, single-use link. The route answers the same
+200 for every address, known or not, so it cannot be used to discover who is a
+member — which also means a fork with an unverified sender domain shows the
+same success page while nothing is delivered. **Verify the sender domain
+before launch** (see `RESEND_API_KEY` above); recovery depends on it.
+
+Two admin levers sit beside it, for the member whose address on file is wrong:
+`POST /api/admin/users/:id/send-password-link` (emails a link, never returns
+it; a plain admin may not target a founder) and the existing
+`POST /api/admin/users/:id/revoke-sessions`.
+
+Note the session semantics, because members notice: `tokenVersion` is the only
+revocation lever there is, so **signing out, or setting a new password, ends
+every session on every device**. Per-session sign-out would need a sessions
+table.
+
+## Tunable abuse guards
+
+The throttles are game variables (Admin → Game Mechanics → *Abuse guards*), so
+a village can loosen or tighten them without a deploy: registrations per IP
+per hour, failed sign-ins per IP and **per account** per 15 minutes (successful
+sign-ins never count against either), password-reset requests per IP per hour,
+and investor-packet requests per IP per hour. Every bucket is per-IP unless it
+says per-account, so **one shared village connection is one bucket** — set them
+above the size of a gathering, not to the size of one person's usage.
 
 ## Seeds & per-deployment data
 

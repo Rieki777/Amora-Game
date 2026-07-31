@@ -282,8 +282,12 @@ async function metricValues(pool: Pool, metric: string): Promise<Map<string, num
   if (metric === "gratitude_breadth") {
     // CONSUMES the settlement's Sybil-filtered distinct_senders — the widest
     // breadth reached in any settled cycle. Never re-derived from raw sends.
+    // Closed cycles only: the sticky-split close persists distribution rows
+    // BEFORE the cycle flips to closed, and a badge must never be granted
+    // from a settlement that has not actually settled.
     const [rows] = await pool.query<RowDataPacket[]>(
-      "SELECT user_id, MAX(distinct_senders) AS v FROM gratitude_distributions GROUP BY user_id",
+      "SELECT d.user_id, MAX(d.distinct_senders) AS v FROM gratitude_distributions d " +
+        "JOIN gratitude_cycles c ON c.id = d.cycle_id AND c.status = 'closed' GROUP BY d.user_id",
     );
     return new Map(rows.map((r) => [String(r.user_id), Number(r.v)]));
   }

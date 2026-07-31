@@ -649,8 +649,25 @@ export async function swappableBalance(
       "AND paid_at > (NOW() - INTERVAL ? DAY)",
     [userId, slug, holdDays],
   );
-  const held = Number(row.held);
-  const clearsAt = row.latest ? new Date(new Date(row.latest).getTime() + holdDays * 86400000).toISOString() : null;
+  // Commerce token packs are card money too: every token-granting product is
+  // forced onto the Stripe path, so a `product_grant` ledger row is by
+  // construction a recent card purchase. Without this leg the chargeback
+  // hold had a side door — buy the pack in commerce, swap immediately.
+  // Works on Pool or PoolConnection alike, so the in-transaction capGuard
+  // read stays serialized behind the same treasury lock.
+  const [[grants]] = await pool.query<any[]>(
+    "SELECT COALESCE(SUM(amount),0) AS held, MAX(at) AS latest FROM token_ledger " +
+      "WHERE to_account = ? AND token_type = ? AND source = 'product_grant' " +
+      "AND at > (NOW() - INTERVAL ? DAY)",
+    [memberAccount(userId), slug, holdDays],
+  );
+  const held = Number(row.held) + Number(grants.held);
+  const latestTimes = [row.latest, grants.latest]
+    .filter(Boolean)
+    .map((d: any) => new Date(d).getTime());
+  const clearsAt = latestTimes.length
+    ? new Date(Math.max(...latestTimes) + holdDays * 86400000).toISOString()
+    : null;
   return { balance, held, swappable: Math.max(0, balance - held), clearsAt };
 }
 

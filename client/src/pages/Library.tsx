@@ -71,8 +71,8 @@ export default function Library() {
 
       <section className="py-8 bg-background">
         <div className="container max-w-3xl space-y-6">
-          {notice && <p className="text-sm text-teal-deep bg-teal-deep/10 rounded-lg px-4 py-2.5">{notice}</p>}
-          {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
+          {notice && <p role="status" className="text-sm text-teal-deep bg-teal-deep/10 rounded-lg px-4 py-2.5">{notice}</p>}
+          {error && <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
 
           {user && data?.mine && (
             <div className="bg-card border border-border rounded-xl p-5">

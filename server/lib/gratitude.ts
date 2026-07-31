@@ -39,10 +39,12 @@ export async function budgetFor(deps: GratitudeDeps, user: any): Promise<Gratitu
     numberVar("gratitude.base_budget") * (await deps.stageMultiplierFor(user)),
   );
   const cycleId = cycleIdFor(new Date());
-  const log = await deps.log.all();
-  const spent = log
-    .filter((g) => g.fromId === user.id && g.cycleId === cycleId)
-    .reduce((acc, g) => acc + (g.amount ?? 0), 0);
+  // One indexed SUM, not a full-table read. This loaded EVERY gratitude row
+  // ever written — into memory, on every heart tap, budget check and send —
+  // and the wall/journal/export routes still use all() because they genuinely
+  // want the rows. Semantics preserved exactly: all kinds, no kind filter
+  // (feed.heart_amount can be > 0, and there is only one budget).
+  const spent = await deps.log.spentInCycle(user.id, cycleId);
   return { total, spent, remaining: Math.max(0, total - spent), cycleId };
 }
 
@@ -97,10 +99,10 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
   // Two caps, one budget (S27): hearts and acknowledgments each carry their
   // own per-recipient per-cycle ceiling, and the refusal NAMES which cap
   // fired — a silent 409 teaches nothing.
-  const log = await deps.log.all();
-  const already = log.filter(
-    (g) => g.fromId === user.id && g.toId === recipient.id && g.cycleId === budget.cycleId && g.kind === kind,
-  ).length;
+  // Indexed COUNT, and this one IS kind-filtered — the two aggregates differ
+  // on purpose (see the repo interface): one budget across all kinds, but a
+  // separate per-recipient ceiling per kind.
+  const already = await deps.log.countPair(user.id, recipient.id, budget.cycleId, kind);
   if (kind === "heart") {
     const heartCap = numberVar("feed.max_hearts_per_recipient_per_cycle");
     if (already >= heartCap) {

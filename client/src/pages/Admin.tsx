@@ -222,6 +222,7 @@ function navGroups(setupComplete: boolean): NavGroup[] {
     {
       title: "The Game",
       items: [
+        { key: "quests-admin", label: "Quests", icon: Sparkles },
         { key: "quest-claims", label: "Quest Claims", icon: Sparkles },
         { key: "players", label: "Players", icon: Users },
         { key: "game-roles", label: "Game Roles", icon: Users2 },
@@ -2456,10 +2457,17 @@ function QuestClaimsTab({ password }: { password: string }) {
         headers: authHeaders(password, { "Content-Type": "application/json" }),
         body: JSON.stringify({ approve, amount: amounts[id] ?? 50 }),
       });
-      if (!res.ok) throw new Error();
+      // Surface what the server actually said. The refusals here are the
+      // informative ones — no self-consent, work not submitted yet, amount
+      // outside what the board advertises — and "Action failed" taught the
+      // steward nothing about which rule they had just met.
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Action failed");
+      }
       toast.success(approve ? "Consented and credited" : "Declined");
       load();
-    } catch { toast.error("Action failed"); }
+    } catch (e: any) { toast.error(e?.message || "Action failed"); }
   };
 
   const pending = claims.filter((c) => c.status === "submitted");
@@ -2524,6 +2532,150 @@ function QuestClaimsTab({ password }: { password: string }) {
               </p>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The quest LIBRARY, not the claims on it.
+ *
+ * Full CRUD existed on the server from the beginning and no admin surface
+ * ever called it, so the only quests a village could ever have were the
+ * seeded ones — carrying the seed's own copy, including the founding
+ * village's name — and the Setup Wizard pointed at the claims tab as if that
+ * were where you edit them. Everything here is live to members immediately;
+ * there is no deploy in the loop.
+ */
+function QuestsTab({ password }: { password: string }) {
+  const [quests, setQuests] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState<Record<string, any>>({});
+  const [adding, setAdding] = useState({ title: "", description: "", gratitude: "", circle: "" });
+  const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/quests`);
+      const data = await res.json();
+      setQuests(Array.isArray(data) ? data : []);
+    } catch { setQuests([]); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const call = async (path: string, body?: unknown, method = "POST") => {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => null);
+        throw new Error(b?.error || "That did not work");
+      }
+      return await res.json();
+    } catch (e: any) {
+      toast.error(e?.message || "That did not work");
+      return null;
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Quests</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          The board members see. Edits are live immediately — no deploy. A quest with claims in
+          flight cannot be deleted until those claims are consented or declined.
+        </p>
+      </div>
+
+      <div className="bg-white border border-gray-100 rounded-xl p-5 mb-6">
+        <h3 className="font-semibold text-gray-900 mb-3">Post a quest</h3>
+        <div className="grid sm:grid-cols-4 gap-2 items-end">
+          <label className="text-xs text-gray-500">Title
+            <input value={adding.title} onChange={(e) => setAdding({ ...adding, title: e.target.value })} className={`${inputCls} w-full mt-1`} />
+          </label>
+          <label className="text-xs text-gray-500">What it asks for
+            <input value={adding.description} onChange={(e) => setAdding({ ...adding, description: e.target.value })} className={`${inputCls} w-full mt-1`} />
+          </label>
+          <label className="text-xs text-gray-500">Reward (e.g. 50 or 50-100)
+            <input value={adding.gratitude} onChange={(e) => setAdding({ ...adding, gratitude: e.target.value })} className={`${inputCls} w-full mt-1`} />
+          </label>
+          <button
+            onClick={async () => {
+              if (!adding.title.trim()) return toast.error("Give it a title");
+              const d = await call("/admin/quests", adding);
+              if (d) { toast.success("Posted"); setAdding({ title: "", description: "", gratitude: "", circle: "" }); load(); }
+            }}
+            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+          >
+            Post quest
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400">Loading…</div>
+      ) : quests.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">No quests on the board yet.</div>
+      ) : (
+        <div className="space-y-3">
+          {quests.map((q: any) => {
+            const d = draft[q.id] ?? q;
+            const dirty = JSON.stringify({ t: d.title, de: d.description, g: d.gratitude, s: d.status })
+              !== JSON.stringify({ t: q.title, de: q.description, g: q.gratitude, s: q.status });
+            return (
+              <div key={q.id} className="bg-white border border-gray-100 rounded-xl p-4">
+                <div className="grid sm:grid-cols-4 gap-2 items-end">
+                  <label className="text-xs text-gray-500">Title
+                    <input value={d.title ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, title: e.target.value } })} className={`${inputCls} w-full mt-1`} />
+                  </label>
+                  <label className="text-xs text-gray-500">What it asks for
+                    <input value={d.description ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, description: e.target.value } })} className={`${inputCls} w-full mt-1`} />
+                  </label>
+                  <label className="text-xs text-gray-500">Reward
+                    <input value={d.gratitude ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, gratitude: e.target.value } })} className={`${inputCls} w-full mt-1`} />
+                  </label>
+                  <label className="text-xs text-gray-500">Status
+                    <select value={d.status ?? "Open"} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, status: e.target.value } })} className={`${inputCls} w-full mt-1`}>
+                      <option value="Open">Open</option>
+                      <option value="Closed">Closed</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="flex items-center gap-3 mt-3">
+                  <button
+                    disabled={!dirty}
+                    onClick={async () => {
+                      const r = await call(`/admin/quests/${q.id}`, {
+                        title: d.title, description: d.description, gratitude: d.gratitude, status: d.status,
+                      }, "PUT");
+                      if (r) { toast.success("Saved"); setDraft({ ...draft, [q.id]: undefined }); load(); }
+                    }}
+                    className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm(`Delete "${q.title}"? Members will no longer see it.`)) return;
+                      const r = await call(`/admin/quests/${q.id}`, undefined, "DELETE");
+                      if (r) { toast.success("Deleted"); load(); }
+                    }}
+                    className="text-sm text-red-500 hover:text-red-600"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -3509,7 +3661,15 @@ function StaysAdminTab({ password }: { password: string }) {
           {(data?.accommodations ?? []).map((a: any) => (
             <div key={a.id} className={`border rounded-lg p-4 ${a.active ? "border-gray-200" : "border-gray-100 opacity-60"}`}>
               <div className="flex items-center justify-between mb-2">
-                <p className="font-medium text-gray-900">{a.name} {!a.active && <span className="text-xs text-gray-400">(inactive)</span>}</p>
+                <p className="font-medium text-gray-900">
+                  {a.name} {!a.active && <span className="text-xs text-gray-400">(inactive)</span>}
+                  {/* Capacity was recorded and never shown anywhere. A flag,
+                      not a block: whoever activates a stay is the one who
+                      knows whether the room is really full. */}
+                  <span className={`ml-2 text-xs font-normal ${a.overCapacity ? "text-amber-700" : "text-gray-400"}`}>
+                    {a.activeStays ?? 0} of {a.capacity} {a.overCapacity ? "— over capacity" : "in residence"}
+                  </span>
+                </p>
                 <button
                   onClick={async () => { const d = await post(`/admin/stays/accommodations/${a.id}`, { active: !a.active }, "PUT"); if (d) load(); }}
                   className="text-xs text-gray-500 hover:text-gray-900"
@@ -3541,12 +3701,24 @@ function StaysAdminTab({ password }: { password: string }) {
             </div>
           ))}
         </div>
-        <div className="mt-4 border-t border-gray-100 pt-4 grid sm:grid-cols-3 gap-2 items-end">
+        {/* Capacity has to be settable here, or the over-capacity flag on the
+            rooms above is permanently lit for every multi-bed space (the form
+            hard-coded 1) and stewards learn to ignore it — worse than no flag. */}
+        <div className="mt-4 border-t border-gray-100 pt-4 grid sm:grid-cols-4 gap-2 items-end">
           <label className="text-xs text-gray-500">Room name
             <input value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} className={`${inputCls} w-full mt-1`} />
           </label>
           <label className="text-xs text-gray-500">Description
             <input value={roomForm.description} onChange={(e) => setRoomForm({ ...roomForm, description: e.target.value })} className={`${inputCls} w-full mt-1`} />
+          </label>
+          <label className="text-xs text-gray-500">Sleeps
+            <input
+              type="number"
+              min={1}
+              value={roomForm.capacity}
+              onChange={(e) => setRoomForm({ ...roomForm, capacity: Math.max(1, Number(e.target.value) || 1) })}
+              className={`${inputCls} w-full mt-1`}
+            />
           </label>
           <button onClick={addRoom} className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Add room</button>
         </div>
@@ -4180,7 +4352,7 @@ function BadgesAdminTab({ password }: { password: string }) {
   const [loading, setLoading] = useState(true);
   const [players, setPlayers] = useState<any[]>([]);
   const [form, setForm] = useState<any>({ name: "", description: "", kind: "granted", capabilities: [], denies: [], metric: "quests_consented", threshold: "", stackable: false, maxStack: "1" });
-  const [award, setAward] = useState({ badgeId: "", userId: "", note: "" });
+  const [award, setAward] = useState({ badgeId: "", userId: "", note: "", days: "" });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -4378,8 +4550,31 @@ function BadgesAdminTab({ password }: { password: string }) {
           </select>
           <input placeholder="Note (required for warnings)" value={award.note}
             onChange={(e) => setAward({ ...award, note: e.target.value })} className={`${inputCls} flex-1 min-w-[160px]`} />
+          {/* Expiry was fully built server-side — the route parses expiresAt,
+              the column stores it, a sweep lifts it — and no UI ever sent
+              one, so every warning badge was permanent and the sweep never
+              fired. Blank still means permanent. */}
+          <input
+            type="number"
+            min={1}
+            placeholder="Days"
+            title="Days until this lapses. Blank = permanent."
+            aria-label="Days until this award expires"
+            value={award.days}
+            onChange={(e) => setAward({ ...award, days: e.target.value })}
+            className={`${inputCls} w-24`}
+          />
           <button
-            onClick={async () => { const d = await call(`/admin/badges/${award.badgeId}/award`, { userId: award.userId, note: award.note }); if (d) { toast.success("Awarded"); setAward({ badgeId: "", userId: "", note: "" }); load(); } }}
+            onClick={async () => {
+              const d = await call(`/admin/badges/${award.badgeId}/award`, {
+                userId: award.userId,
+                note: award.note,
+                expiresAt: award.days
+                  ? new Date(Date.now() + Number(award.days) * 86400000).toISOString()
+                  : undefined,
+              });
+              if (d) { toast.success("Awarded"); setAward({ badgeId: "", userId: "", note: "", days: "" }); load(); }
+            }}
             disabled={!award.badgeId || !award.userId}
             className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
           >
@@ -5056,6 +5251,14 @@ function CallsAdminTab({ password }: { password: string }) {
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2 inline-block">
             The assistant is not configured (ANTHROPIC_API_KEY) — ingestion and
             transcripts work; synthesis will refuse honestly.
+          </p>
+        )}
+        {data && data.riversideSecretConfigured === false && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2 inline-block">
+            The Riverside webhook secret is not set, so incoming Riverside
+            deliveries are being discarded. Set it under Integrations and
+            configure Riverside to send the same value as the
+            x-riverside-secret header.
           </p>
         )}
         {data && data.readyQueue >= data.maxReadyQueue && (
@@ -5997,7 +6200,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
     { tab: "visit-config", label: "Visit program", hint: "Visit types, logistics, and booking copy." },
     { tab: "investor-summary", label: "Investor summary", hint: "The plain-language money facts on the investor page." },
     { tab: "season", label: "Season", hint: "The current season banner (name, theme, dates)." },
-    { tab: "quest-claims", label: "Quests", hint: "Your quest library is seeded; review and reward completions here." },
+    { tab: "quests-admin", label: "Quests", hint: "Seeded starter quests — rewrite, add or remove them here so the board is yours." },
   ];
 
   const Section = ({ id, n, title, subtitle, children }: any) => (
@@ -6705,6 +6908,7 @@ export default function Admin() {
           {activeTab === "products" && <ProductsAdminTab password={password} />}
           {activeTab === "investor-vault" && <InvestorVaultTab password={password} />}
           {activeTab === "training-modules" && <TrainingModulesTab password={password} />}
+          {activeTab === "quests-admin" && <QuestsTab password={password} />}
           {activeTab === "quest-claims" && <QuestClaimsTab password={password} />}
           {activeTab === "players" && <PlayersTab password={password} />}
           {activeTab === "game-roles" && <GameRolesTab password={password} />}

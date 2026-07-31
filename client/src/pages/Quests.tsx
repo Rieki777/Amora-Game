@@ -108,12 +108,18 @@ export default function Quests() {
   const { user } = useAuth();
   const [claims, setClaims] = useState<Record<string, QuestClaim>>({});
   const [quests, setQuests] = useState<Quest[]>([]);
+  const [boardFailed, setBoardFailed] = useState(false);
 
   useEffect(() => {
     fetch("/api/quests")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`quests ${r.status}`);
+        return r.json();
+      })
       .then((d) => { if (Array.isArray(d)) setQuests(d); })
-      .catch(() => { /* the empty state renders; the board is not load-bearing */ });
+      // A swallowed failure used to render as "no quests match those
+      // filters" — an outage presented as a fact about the village.
+      .catch(() => setBoardFailed(true));
   }, []);
 
   const refreshClaims = () => {
@@ -197,7 +203,10 @@ export default function Quests() {
       </section>
 
       {/* Filters */}
-      <section className="sticky top-[64px] z-30 bg-background/95 backdrop-blur border-b border-border py-4 shadow-sm">
+      {/* The nav is 96px tall (a 64px logo inside container py-4), not 64 —
+          so the filter bar used to park 32px BEHIND an opaque, higher-z
+          header, hiding two thirds of the first filter row. top-24 = 6rem. */}
+      <section className="sticky top-24 z-30 bg-background/95 backdrop-blur border-b border-border py-4 shadow-sm">
         <div className="container">
           <div className="flex flex-wrap gap-2 items-center mb-3">
             <Filter className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -332,7 +341,13 @@ export default function Quests() {
           {filtered.length === 0 && (
             <div className="text-center py-16 text-muted-foreground">
               <Compass className="w-12 h-12 mx-auto mb-4 opacity-30" />
-              <p>No quests match those filters. Try a different combination.</p>
+              <p>
+                {boardFailed
+                  ? "The quest board couldn't be loaded just now — reload to try again."
+                  : quests.length === 0
+                    ? "There are no quests on the board yet."
+                    : "No quests match those filters. Try a different combination."}
+              </p>
             </div>
           )}
 

@@ -21,6 +21,7 @@
  */
 import { createHash, randomUUID } from "crypto";
 import type { Pool, RowDataPacket } from "mysql2/promise";
+import { guardedFetchJson } from "./toolcheck";
 
 export interface FeedbackInput {
   kind: "bug" | "idea";
@@ -101,29 +102,25 @@ export async function relayFeedback(
     })),
   };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
   try {
-    const res = await fetch(hubUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      console.error(`[feedback] hub answered ${res.status} — ${rows.length} item(s) stay queued`);
-      return { sent: 0 };
-    }
+    // Through the PINNED dialer, not bare fetch. FEEDBACK_HUB_URL is read
+    // straight from the environment with no scheme or range validation, and
+    // this payload carries up to 8000 characters of member-written detail
+    // per item — the one outbound call in the tree that both trusts an
+    // operator-set address and ships village content to it. guardedFetchJson
+    // is https-only, refuses private/loopback/CGNAT ranges, and re-guards
+    // every redirect hop against the address actually dialled.
+    await guardedFetchJson(hubUrl, 10_000, { method: "POST", body: payload });
     await pool.query(
       `UPDATE feedback_items SET relayed_at = NOW() WHERE id IN (${rows.map(() => "?").join(",")})`,
       rows.map((r) => r.id),
     );
     return { sent: rows.length };
   } catch (e: any) {
-    // Unreachable hub is EXPECTED sometimes. Quiet log, natural retry.
-    console.error(`[feedback] relay skipped: ${String(e?.message ?? e).slice(0, 120)}`);
+    // Unreachable hub is EXPECTED sometimes, and so is a refused URL. Either
+    // way: quiet log, rows stay queued, natural retry. The hub is a listener,
+    // never a dependency — nothing here may escape into the caller.
+    console.error(`[feedback] relay skipped: ${String(e?.message ?? e).slice(0, 120)} — ${rows.length} item(s) stay queued`);
     return { sent: 0 };
-  } finally {
-    clearTimeout(timer);
   }
 }

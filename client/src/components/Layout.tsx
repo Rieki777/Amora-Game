@@ -35,6 +35,10 @@ export default function Layout({ children }: LayoutProps) {
   const badgesModule = useModule("badges");
   const libraryModule = useModule("library");
   const healthModule = useModule("health");
+  // Footer-only (see the note by the desktop nav: it is already ~1250px wide
+  // and two more header links reopen the sideways-scroll bug below xl).
+  const commerceModule = useModule("commerce");
+  const networkModule = useModule("network");
 
   // The bottom tab bar's "More" slot opens this same drawer rather than being a
   // second, separately-maintained menu. No scrolling: the header is sticky, so
@@ -52,10 +56,13 @@ export default function Layout({ children }: LayoutProps) {
       {/* Navigation */}
       <nav className="sticky top-0 z-50 bg-teal-deep text-white shadow-lg">
         <div className="container py-4 flex items-center justify-between">
-          <Link href="/">
-            <a className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-              <AmoraLogo variant="beige" height={64} />
-            </a>
+          {/* One anchor, not two. wouter's Link renders the <a> itself, so a
+              nested <a> is invalid markup: the browser closes the outer one
+              early and leaves an EMPTY focusable link as the first stop in
+              the tab order on every page — a keyboard or screen-reader user
+              meets an unnamed link before anything else on the site. */}
+          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <AmoraLogo variant="beige" height={64} />
           </Link>
 
           {/* Desktop Menu.
@@ -72,19 +79,37 @@ export default function Layout({ children }: LayoutProps) {
             </Link>
 
             {/* Your Path Dropdown */}
+            {/* Hover was the ONLY way to open this: the button had no
+                onClick, so Enter and Space fired a click with no listener and
+                the four path links never entered the tab order at all. The
+                keyboard-correct twin lives in the mobile block, which is
+                display:none at this width — so no code path covered a
+                keyboard user on a desktop screen. Escape closes, because a
+                click-toggle that a mouse user cannot re-open (the pointer is
+                still inside the wrapper, so no fresh mouseenter fires) needs
+                a second way out. */}
             <div
               ref={dropdownRef}
               className="relative"
               onMouseEnter={() => setPathsOpen(true)}
               onMouseLeave={() => setPathsOpen(false)}
+              onKeyDown={(e) => { if (e.key === "Escape") setPathsOpen(false); }}
             >
-              <button className="flex items-center gap-1 text-white/70 hover:text-white transition-colors text-sm">
+              <button
+                type="button"
+                onClick={() => setPathsOpen((v) => !v)}
+                aria-expanded={pathsOpen}
+                aria-haspopup="true"
+                aria-controls="paths-menu"
+                className="flex items-center gap-1 text-white/70 hover:text-white transition-colors text-sm"
+              >
                 Your Path
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${pathsOpen ? "rotate-180" : ""}`} />
               </button>
               <AnimatePresence>
                 {pathsOpen && (
                   <motion.div
+                    id="paths-menu"
                     initial={{ opacity: 0, y: -6 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
@@ -210,26 +235,25 @@ export default function Layout({ children }: LayoutProps) {
             {user ? (
               <div className="flex items-center gap-3">
                 <NotificationBell />
-                <Link href="/profile">
-                  <a className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
-                    <User className="w-4 h-4" />
-                    <span>{user.name.split(" ")[0]}</span>
-                  </a>
+                <Link href="/profile" className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
+                  <User className="w-4 h-4" />
+                  <span>{user.name.split(" ")[0]}</span>
                 </Link>
                 <button
                   onClick={logout}
                   className="text-white/50 hover:text-white transition-colors pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:-m-2"
+                  // title is a hover tooltip and a phone has no hover, so an
+                  // icon-only control needs a real name as well.
+                  aria-label="Sign out"
                   title="Sign out"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
               </div>
             ) : (
-              <Link href="/login">
-                <a className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
-                  <User className="w-4 h-4" />
-                  Sign In
-                </a>
+              <Link href="/login" className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
+                <User className="w-4 h-4" />
+                Sign In
               </Link>
             )}
 
@@ -493,6 +517,23 @@ export default function Layout({ children }: LayoutProps) {
                     Our Team
                   </Link>
                 </li>
+                {/* Three pages the app mounted and then linked from nowhere.
+                    The module-gated two must stay gated: both render NotFound
+                    when their module is off, which is the default for every
+                    optional module, so an ungated link would be a dead end on
+                    a fresh fork. /exit-policy is core and always reachable. */}
+                <li>
+                  <Link href="/exit-policy" className="text-white/70 hover:text-amber transition-colors text-sm">
+                    Leaving Well
+                  </Link>
+                </li>
+                {networkModule && (
+                  <li>
+                    <Link href="/network" className="text-white/70 hover:text-amber transition-colors text-sm">
+                      Village Network
+                    </Link>
+                  </li>
+                )}
               </ul>
             </div>
 
@@ -515,6 +556,13 @@ export default function Layout({ children }: LayoutProps) {
                     Community Quests
                   </Link>
                 </li>
+                {commerceModule && (
+                  <li>
+                    <Link href="/contribute" className="text-white/70 hover:text-amber transition-colors text-sm">
+                      Contribute
+                    </Link>
+                  </li>
+                )}
                 <li>
                   <Link href="/housing" className="text-white/70 hover:text-amber transition-colors text-sm">
                     Housing

@@ -50,12 +50,14 @@ async function api(
   route: string,
   body?: unknown,
   auth?: string,
+  extraHeaders?: Record<string, string>,
 ): Promise<{ status: number; json: any }> {
   const res = await fetch(BASE + route, {
     method,
     headers: {
       "Content-Type": "application/json",
       ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+      ...(extraHeaders ?? {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -101,6 +103,9 @@ beforeAll(async () => {
       // sets the key through the admin surface when it wants a call.
       ANTHROPIC_API_KEY: "",
       ANTHROPIC_BASE_URL: "http://127.0.0.1:3783",
+      // The Riverside webhook fails closed without a secret; the loop sends
+      // the matching header and proves both the accept and the discard path.
+      RIVERSIDE_WEBHOOK_SECRET: "loop-test-riverside",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -797,6 +802,43 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     peerToken = relogin.json.token;
     const recovered = await api("GET", "/api/profile", undefined, peerToken);
     expect(recovered.status).toBe(200);
+  });
+
+  it("signing out actually ends the session, server-side", async () => {
+    // Before this route existed, logout was three client-only statements: the
+    // token stayed valid for its full 30-day life, so anyone holding a copy
+    // stayed signed in after the member believed they had left.
+    const live = await api("GET", "/api/profile", undefined, peerToken);
+    expect(live.status).toBe(200);
+
+    const anon = await api("POST", "/api/auth/logout");
+    expect(anon.status).toBe(401);
+
+    const out = await api("POST", "/api/auth/logout", {}, peerToken);
+    expect(out.status).toBe(200);
+
+    // The replayed token is dead…
+    const replay = await api("GET", "/api/profile", undefined, peerToken);
+    expect(replay.status).toBe(401);
+    // …and nobody else's session was touched.
+    const doerStill = await api("GET", "/api/profile", undefined, doerToken);
+    expect(doerStill.status).toBe(200);
+
+    // Signing back in works (and restores the token later steps rely on).
+    const relogin = await api("POST", "/api/auth/login", { email: peer.email, password: peer.password });
+    expect(relogin.status).toBe(200);
+    peerToken = relogin.json.token;
+    expect((await api("GET", "/api/profile", undefined, peerToken)).status).toBe(200);
+  });
+
+  it("account recovery exists, and never says whether an address is a member", async () => {
+    // The same 200 body for a real member and for an address nobody holds:
+    // this route must not become an account-existence oracle.
+    const known = await api("POST", "/api/auth/forgot-password", { email: peer.email });
+    const unknown = await api("POST", "/api/auth/forgot-password", { email: `nobody-${PORT}@example.test` });
+    expect(known.status).toBe(200);
+    expect(unknown.status).toBe(200);
+    expect(known.json).toEqual(unknown.json);
   });
 
   it("S2: handles exist, are member-editable, and cannot collide", async () => {
@@ -2439,10 +2481,18 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const recId = ingested.json.recording.id;
     expect(ingested.json.recording.status).toBe("transcribed");
 
+    // The webhook fails CLOSED: without the shared secret nothing writes,
+    // and the answer stays the inert 200 shape a probe learns nothing from.
+    const riverHeaders = { "x-riverside-secret": "loop-test-riverside" };
+    const unsigned = await api("POST", "/api/webhooks/riverside", { id: "riv-0", title: "Unsigned Call" });
+    expect(unsigned.status).toBe(200);
+    expect(String(unsigned.json.discarded ?? "")).toContain("unauthenticated");
+    expect(unsigned.json.fresh).toBeUndefined();
+
     // The webhook is idempotent on (source, external_id): a redelivery is a no-op.
-    const w1 = await api("POST", "/api/webhooks/riverside", { id: "riv-1", title: "Riverside Call" });
+    const w1 = await api("POST", "/api/webhooks/riverside", { id: "riv-1", title: "Riverside Call" }, undefined, riverHeaders);
     expect(w1.json.fresh).toBe(true);
-    const w2 = await api("POST", "/api/webhooks/riverside", { id: "riv-1", title: "Riverside Call (again)" });
+    const w2 = await api("POST", "/api/webhooks/riverside", { id: "riv-1", title: "Riverside Call (again)" }, undefined, riverHeaders);
     expect(w2.json.fresh).toBe(false);
     expect(w2.json.recordingId).toBe(w1.json.recordingId);
 

@@ -16,7 +16,12 @@ interface WallEntry {
 export default function GratitudeWall() {
   const { user } = useAuth();
   const [wall, setWall] = useState<WallEntry[]>([]);
-  const [me, setMe] = useState<GameMe | null>(null);
+  // undefined = not loaded (or the load failed); null = loaded, no game state.
+  // fetchGameMe returns null for BOTH a 500 and a real absence, so without
+  // this distinction a failed fetch rendered as a factual claim about the
+  // member's standing ("your budget unlocks as you progress") when in truth
+  // they may have had a full budget all along.
+  const [me, setMe] = useState<GameMe | null | undefined>(undefined);
   const [currency, setCurrency] = useState("Gratitude");
   const [form, setForm] = useState({ toEmail: "", amount: 10, message: "" });
   const [sending, setSending] = useState(false);
@@ -86,8 +91,10 @@ export default function GratitudeWall() {
                   <span className="text-sm text-stone-500">
                     <span className="font-semibold text-teal-deep">{budget.remaining}</span> / {budget.total} left this cycle
                   </span>
-                ) : (
+                ) : budget && budget.total <= 0 ? (
                   <span className="text-xs text-stone-400 italic">Your sending budget unlocks as you progress</span>
+                ) : (
+                  <span className="text-xs text-stone-400 italic">We couldn't load your budget — reload to see it</span>
                 )}
               </div>
               <div className="grid md:grid-cols-[1fr_110px] gap-3 mb-3">
@@ -103,6 +110,9 @@ export default function GratitudeWall() {
                   type="number"
                   min={1}
                   required
+                  // Derived from the live currency name, not hardcoded: a fork
+                  // that renames its recognition token gets the right label.
+                  aria-label={`Amount of ${currency.toLowerCase()} to send`}
                   value={form.amount}
                   onChange={(e) => setForm({ ...form, amount: parseInt(e.target.value) || 1 })}
                   className="px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-teal-deep"
@@ -117,7 +127,16 @@ export default function GratitudeWall() {
                 className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-teal-deep resize-y mb-3"
               />
               {feedback && (
-                <p className={`text-sm mb-3 ${feedback.ok ? "text-teal-deep" : "text-red-600"}`}>{feedback.text}</p>
+                <p
+                  // Announced, not merely displayed: the result of a submit is
+                  // the one thing a screen-reader user must not have to go
+                  // hunting for. alert (assertive) for a failure, status for a
+                  // success — never on anything that re-renders per keystroke.
+                  role={feedback.ok ? "status" : "alert"}
+                  className={`text-sm mb-3 ${feedback.ok ? "text-teal-deep" : "text-red-600"}`}
+                >
+                  {feedback.text}
+                </p>
               )}
               {/* A spent budget is a real state, not an error to discover
                   after clicking: say so, and stop offering the button. */}
@@ -126,9 +145,14 @@ export default function GratitudeWall() {
                   You've given your whole budget this cycle — it refills when the lunar cycle turns.
                 </p>
               )}
+              {/* An UNKNOWN budget no longer disables Send: the server's own
+                  guard is the authority on whether a send is allowed, and
+                  refusing locally on a failed fetch told the member a lie
+                  about their standing. Paired with the explicit "couldn't
+                  load" caption above, so the state is never silent. */}
               <button
                 type="submit"
-                disabled={sending || !budget || budget.total <= 0 || budget.remaining <= 0}
+                disabled={sending || (!!budget && (budget.total <= 0 || budget.remaining <= 0))}
                 className="inline-flex items-center gap-2 bg-teal-deep text-white font-semibold px-5 py-2.5 rounded-xl hover:bg-teal disabled:opacity-50 transition-colors"
               >
                 <Send className="w-4 h-4" /> {sending ? "Sending..." : "Send"}

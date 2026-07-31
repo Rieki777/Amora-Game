@@ -6,7 +6,7 @@
  */
 import Layout from "@/components/Layout";
 import NotFound from "@/pages/NotFound";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { layoutMap, type LayoutCircle } from "@shared/mapLayout";
 import { authToken } from "@/lib/gameApi";
@@ -111,7 +111,11 @@ function MapCanvas({ data, onSelect }: { data: MapData; onSelect: (s: any) => vo
   const roleById = (id: string) => data.roles.find((r) => r.id === id);
 
   return (
-    <svg viewBox={`0 0 ${layout.width} ${layout.height}`} className="w-full max-h-[78vh]" role="img" aria-label="Village map">
+    // group, NOT img: role="img" has ARIA's presentational-children
+    // characteristic, so every circle and role-seat button inside this SVG
+    // was pruned from the accessibility tree — the whole desktop map
+    // announced as a single unlabelled graphic with nothing operable in it.
+    <svg viewBox={`0 0 ${layout.width} ${layout.height}`} className="w-full max-h-[78vh]" role="group" aria-label="Village map">
       {/* Village heart */}
       <circle cx={layout.center.x} cy={layout.center.y} r={46} className="fill-teal-deep" />
       <text x={layout.center.x} y={layout.center.y + 5} textAnchor="middle" className="fill-white text-[16px] font-semibold">
@@ -259,6 +263,19 @@ function NodeCard({ data, selected, onClose }: { data: MapData; selected: { kind
   const [message, setMessage] = useState("");
   const [note, setNote] = useState("");
   const [status, setStatus] = useState("");
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = `node-card-title-${selected.kind}-${selected.id}`;
+
+  // Move focus INTO the card on open and put it back where it came from on
+  // close. Both entry points (an SVG node, the concierge's match button) are
+  // covered by capturing whatever had focus at mount. Without this the card
+  // opens with focus still on the page behind it: Escape does nothing, and a
+  // keyboard user has to tab through the whole map to reach the close button.
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+    return () => previous?.focus?.();
+  }, []);
 
   const role = selected.kind === "role" ? data.roles.find((r) => r.id === selected.id) : null;
   const circle = selected.kind === "circle"
@@ -302,14 +319,32 @@ function NodeCard({ data, selected, onClose }: { data: MapData; selected: { kind
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30" onClick={onClose}>
-      <div className="bg-white w-full md:max-w-md rounded-t-2xl md:rounded-2xl p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    // z-[70] puts the sheet above the mobile tab bar and the FAB (see the
+    // layering ladder in MobileFab.tsx) — at z-50 the bar sat ON TOP of the
+    // sheet's primary actions. The bottom padding clears the bar band plus
+    // the home indicator so no control lands underneath it.
+    // Escape only fires while focus is inside the overlay, which is why the
+    // focus-move-on-open below is load-bearing rather than a nicety.
+    <div
+      className="fixed inset-0 z-[70] flex items-end md:items-center justify-center bg-black/30"
+      onClick={onClose}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="bg-white w-full md:max-w-md rounded-t-2xl md:rounded-2xl p-6 pb-[calc(1.5rem+4rem+env(safe-area-inset-bottom,0px))] md:pb-6 max-h-[80vh] overflow-y-auto focus:outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-start justify-between mb-3">
           <div>
-            <h3 className="font-display text-lg font-bold text-gray-900">{role?.name ?? circle?.name}</h3>
+            <h3 id={titleId} className="font-display text-lg font-bold text-gray-900">{role?.name ?? circle?.name}</h3>
             {role && circle && <p className="text-xs text-teal-deep">{circle.name}</p>}
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
         </div>
         <p className="text-sm text-gray-600 mb-4">{role?.description || circle?.purpose || ""}</p>
 

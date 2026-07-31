@@ -19,7 +19,7 @@
  * alerts humans; ending a stay is a human act about a human situation.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { MINT_FAUCET, memberAccount, postTransfer, registerToken, tokenDef } from "./ledger";
+import { ledgerEntryExists, MINT_FAUCET, memberAccount, postTransfer, registerToken, tokenDef } from "./ledger";
 import { numberVar } from "./variables";
 
 export const STAY_CREDIT = "stay-credit";
@@ -296,6 +296,50 @@ export async function mintStayCredits(
     description: input.description,
     idempotencyKey: input.idempotencyKey,
   });
+}
+
+/**
+ * The stays counterpart to the exchange's abandoned-checkout reaper.
+ *
+ * A card purchase inserts its row as `pending` BEFORE the Stripe session
+ * opens, so every closed tab leaves one behind and nothing ever cleared it —
+ * and `staysOpenState` below counts pending purchases, so one abandoned
+ * checkout could keep the module permanently un-disableable and hold a
+ * departing member in the village. Same two rules as the exchange reaper:
+ *
+ *  - Never touch a row whose ledger leg exists. Credits moved means it was
+ *    paid whatever the row says; that is a settle bug to report, not an
+ *    abandonment to cancel.
+ *  - Wait longer than Stripe will (~24h of session life), enforced by the
+ *    shared floor in code rather than trusted to whoever edits the variable.
+ *
+ * Scoped to provider='stripe': manual and Zeffy rows are reconciled by a
+ * steward by hand and can legitimately sit pending for days.
+ */
+export async function releaseAbandonedStayPurchases(
+  pool: Pool,
+  expiryHours: number,
+  floorHours: number,
+): Promise<{ released: number; skipped: string[] }> {
+  if (expiryHours <= 0) return { released: 0, skipped: [] };
+  const hours = Math.max(floorHours, Math.floor(expiryHours));
+  const [stale] = await pool.query<RowDataPacket[]>(
+    "SELECT id FROM stay_purchases WHERE provider = 'stripe' AND status = 'pending' " +
+      "AND created_at < (NOW() - INTERVAL ? HOUR)",
+    [hours],
+  );
+  let released = 0;
+  const skipped: string[] = [];
+  for (const row of stale) {
+    const id = String(row.id);
+    if (await ledgerEntryExists(pool, `ord:${id}:leg1`)) {
+      skipped.push(id);
+      continue;
+    }
+    await pool.query("UPDATE stay_purchases SET status = 'cancelled' WHERE id = ? AND status = 'pending'", [id]);
+    released += 1;
+  }
+  return { released, skipped };
 }
 
 /** Open economic state that blocks disabling the module (invariant #13). */

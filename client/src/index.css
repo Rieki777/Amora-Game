@@ -500,7 +500,11 @@ button, a, [role="button"], input, textarea, select, summary {
    on focus; desktop keeps the compact size. Checkboxes, radios, ranges,
    color pickers, and file inputs are excluded since font-size does not
    apply to them. */
-@media (max-width: 767px) {
+/* Keyed on the DEVICE, not the viewport: iOS zooms on focus for any input
+   under 16px, and a tablet in landscape is well past 767px while still being
+   the device that does it. `and (hover: none)` keeps touchscreen laptops out,
+   where the dense desktop layouts are correct. */
+@media (pointer: coarse) and (hover: none) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
   textarea,
   select {

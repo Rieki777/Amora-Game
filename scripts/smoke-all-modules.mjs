@@ -20,7 +20,7 @@ async function api(method, path, body, token) {
   return { status: res.status, json };
 }
 function check(name, ok, detail = "") {
-  results.push(`${ok ? "  âœ“" : "  âœ—"} ${name}${ok ? "" : `  â† ${detail}`}`);
+  results.push(`${ok ? "  ✓" : "  ✗"} ${name}${ok ? "" : `  ← ${detail}`}`);
   if (!ok) fails += 1;
 }
 
@@ -34,26 +34,26 @@ const aT = alice.json.token, bT = bob.json.token;
 const aId = alice.json.user.id, bId = bob.json.user.id;
 check("register two members", alice.status === 200 && bob.status === 200);
 
-console.log("\nâ”€â”€ QUESTS + GRATITUDE (core loop) â”€â”€");
+console.log("\n── QUESTS + GRATITUDE (core loop) ──");
 const quests = await api("GET", "/api/quests", undefined, aT);
 const q = (Array.isArray(quests.json) ? quests.json : quests.json.quests).find((x) => !x.minStage && !x.requiresRole);
 const claim = await api("POST", `/api/game/quests/${q.id}/claim`, {}, aT);
 check("claim a quest", claim.status === 200, `${claim.status} ${JSON.stringify(claim.json).slice(0,120)}`);
 await api("POST", `/api/game/quests/${q.id}/submit`, { note: "Planted the beds." }, aT);
-// Consent inside what the board advertises â€” the range IS the contract.
+// Consent inside what the board advertises — the range IS the contract.
 const advertised = Number(String(q.gratitude).match(/\d+/)?.[0] ?? 25);
 const consent = await api("POST", `/api/admin/quest-claims/${claim.json.id}/consent`, { approve: true, amount: advertised }, founder);
 check("admin consent releases value", consent.status === 200, `${consent.status} ${JSON.stringify(consent.json).slice(0,140)}`);
 const grat = await api("POST", "/api/game/gratitude/send", { toEmail: `bob-${RUN}@village.test`, amount: 5, message: "Thanks for the fence" }, aT);
 check("gratitude send", grat.status === 200, `${grat.status} ${JSON.stringify(grat.json).slice(0,120)}`);
 
-console.log("\nâ”€â”€ MAP â”€â”€");
+console.log("\n── MAP ──");
 const map = await api("GET", "/api/map", undefined, aT);
 check("map returns circles + roles", map.status === 200 && (map.json.roles?.length ?? 0) > 0);
 const concierge = await api("POST", "/api/assistant/coordinate", { query: "I want to help with gardens and permaculture" }, aT);
 check("concierge routes deterministically", concierge.status === 200 && concierge.json.method === "deterministic", `${concierge.status} ${concierge.json?.method}`);
 
-console.log("\nâ”€â”€ FORUM + FEED â”€â”€");
+console.log("\n── FORUM + FEED ──");
 await api("PUT", `/api/admin/players/${aId}/stage`, { stageId: "member" }, founder);
 await api("PUT", `/api/admin/players/${bId}/stage`, { stageId: "co-creator" }, founder);
 const thread = await api("POST", "/api/forum/threads", { category: "village-life", title: "Sunday harvest", body: "Who is in for the harvest?", tags: ["harvest"] }, aT);
@@ -66,12 +66,12 @@ check("heart moves real budget", heart.status === 200 && heart.json.heartCount =
 const feed = await api("GET", "/api/feed", undefined, aT);
 check("feed shows posts + system items", feed.status === 200 && feed.json.items.length > 0);
 
-console.log("\nâ”€â”€ TOOLS â”€â”€");
+console.log("\n── TOOLS ──");
 const tool = await api("POST", "/api/admin/tools", { name: `Village Chat ${RUN}`, purpose: "Where we talk", url: "https://example.org/chat", category: "communication", visibility: "public" }, founder);
 check("add a tool", tool.status === 200, `${tool.status} ${JSON.stringify(tool.json).slice(0,120)}`);
 check("tool visible publicly", (await api("GET", "/api/tools")).json.tools.some(t => t.name === `Village Chat ${RUN}`));
 
-console.log("\nâ”€â”€ BADGES â”€â”€");
+console.log("\n── BADGES ──");
 const selfB = await api("POST", "/api/admin/badges", { name: `Composter ${RUN}`, kind: "self", description: "I compost" }, founder);
 const earnedB = await api("POST", "/api/admin/badges", { name: `Quest Doer ${RUN}`, kind: "earned", rule: { metric: "quests_consented", threshold: 1, stackable: true, maxStack: 5 } }, founder);
 check("create self + earned badges", selfB.status === 200 && earnedB.status === 200, `${selfB.status}/${earnedB.status}`);
@@ -80,7 +80,7 @@ const evald = await api("POST", "/api/admin/badges/evaluate", {}, founder);
 check("earned engine awards from settled events", evald.status === 200 && evald.json.newTiers.length > 0, JSON.stringify(evald.json).slice(0,150));
 check("skills declare + dedupe", (await api("POST", "/api/badges/skills", { tag: "carpentry" }, bT)).status === 200);
 
-console.log("\nâ”€â”€ LIBRARY â”€â”€");
+console.log("\n── LIBRARY ──");
 await api("POST", "/api/admin/library/categories", { label: `Garden Tools ${RUN}` }, founder);
 const intake = await api("POST", "/api/admin/library/intake", { name: `Wheelbarrow ${RUN}`, appraisal: 100, donorUserId: aId, categoryId: null }, founder);
 check("intake awards credits", intake.status === 200 && intake.json.award === 75, `${intake.status} ${JSON.stringify(intake.json)}`);
@@ -95,7 +95,7 @@ check("settle returns escrow minus wear", settle.status === 200 && settle.json.r
 const libAdmin = await api("GET", "/api/admin/library", undefined, founder);
 check("escrow reconciles", libAdmin.json.reconciliation.ok === true, JSON.stringify(libAdmin.json.reconciliation));
 
-console.log("\nâ”€â”€ STAYS â”€â”€");
+console.log("\n── STAYS ──");
 const room = await api("POST", "/api/admin/stays/accommodations", { name: `Garden Cabin ${RUN}`, description: "Under the mangoes", capacity: 2 }, founder);
 await api("PUT", `/api/admin/stays/accommodations/${room.json.id}/prices`, { prices: [
   { tokenType: "stay-credit", audience: "guest", amountMinor: 2 },
@@ -112,7 +112,7 @@ const nights = await api("POST", "/api/admin/stays/post-nights", {}, founder);
 check("nightly posting runs", nights.status === 200, JSON.stringify(nights.json));
 check("card checkout refuses honestly without Stripe", (await api("POST", "/api/stays/checkout", { accommodationId: room.json.id, nights: 2 }, bT)).status === 503);
 
-console.log("\nâ”€â”€ EXCHANGE â”€â”€");
+console.log("\n── EXCHANGE ──");
 await api("POST", "/api/admin/tokens", { slug: `village-credit-${RUN}`, name: `Village Credits ${RUN}`, kind: "credit", transferable: false }, founder);
 check("recognition refuses listing", (await api("PUT", "/api/admin/exchange/tokens/gratitude", { purchasable: true }, founder)).status === 409);
 check("library-credit never lists", (await api("PUT", "/api/admin/exchange/tokens/library-credit", { purchasable: true }, founder)).status === 409);
@@ -127,21 +127,21 @@ const market = await api("GET", "/api/exchange", undefined, bT);
 check("market lists with price + stock", market.json.listings.some(l => l.slug === VC && l.inStock && l.priceMinor === 500), JSON.stringify(market.json.listings));
 check("swap answers 501 (v2 contract)", (await api("POST", "/api/exchange/swap", {}, bT)).status === 501);
 
-console.log("\nâ”€â”€ HEALTH â”€â”€");
+console.log("\n── HEALTH ──");
 const regen = await api("POST", "/api/admin/health/regen", { metricKey: "trees_planted", value: 1400, note: "Reforestation sweep" }, founder);
 check("record regen entry", regen.status === 200, `${regen.status}`);
 const summary = await api("GET", "/api/health/summary");
 check("health summary is honest about sparse data", summary.status === 200 && summary.json.trendsUnlocked === false, JSON.stringify({ l: summary.json.lunationsCollected, t: summary.json.trendsUnlocked }));
 check("regen totals public", (await api("GET", "/api/health/regen")).json.totals.trees_planted.total >= 1400);
 
-console.log("\nâ”€â”€ AUTOMATION â”€â”€");
+console.log("\n── AUTOMATION ──");
 const vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:09.000\nWelcome to the circle.\n\n00:01:00.000 --> 00:01:10.000\nThe founders circle should repair the water pump.";
 const rec = await api("POST", "/api/admin/recordings", { title: `Circle Call ${RUN}`, transcript: vtt }, founder);
 check("ingest recording + transcript", rec.status === 200 && rec.json.segments === 2, JSON.stringify(rec.json).slice(0,120));
 check("synthesis refuses honestly without a key", (await api("POST", `/api/admin/recordings/${rec.json.recording.id}/synthesize`, {}, founder)).status === 503);
 check("members never see the admin pipeline", (await api("GET", "/api/admin/recordings", undefined, aT)).status === 401);
 
-console.log("\nâ”€â”€ EXIT (F12) â”€â”€");
+console.log("\n── EXIT (F12) ──");
 check("exit policy is published", (await api("GET", "/api/exit-policy")).json.policy.voluntary.noticePeriodDays > 0);
 const exitOpen = await api("POST", "/api/profile/request-exit", { password: "Member123!" }, bT);
 check("member opens own departure", exitOpen.status === 200, `${exitOpen.status} ${JSON.stringify(exitOpen.json).slice(0,120)}`);
@@ -149,7 +149,7 @@ const resolveBlocked = await api("POST", `/api/admin/exits/${exitOpen.json.exit.
 check("resolve refuses with blocking domains named", resolveBlocked.status === 409 && resolveBlocked.json.blocking.length > 0, JSON.stringify(resolveBlocked.json).slice(0,200));
 await api("POST", `/api/admin/exits/${exitOpen.json.exit.id}/cancel`, {}, founder);
 
-console.log("\nâ”€â”€ COMMAND CENTRE + PLATFORM â”€â”€");
+console.log("\n── COMMAND CENTRE + PLATFORM ──");
 const cc = await api("GET", "/api/admin/command-centre", undefined, founder);
 check("command centre aggregates", cc.status === 200 && Array.isArray(cc.json.modules), `${cc.status}`);
 check("ledger invariants green", cc.json.reconciliation.invariants.ok === true, JSON.stringify(cc.json.reconciliation.invariants.problems));
@@ -185,12 +185,12 @@ check(
   `handshake=[${handshakeIds.join(",")}] running=[${runningIds.join(",")}]`,
 );
 
-console.log("\nâ”€â”€ ECONOMY CLOSING ASSERTION â”€â”€");
+console.log("\n── ECONOMY CLOSING ASSERTION ──");
 const rec2 = await api("GET", "/api/admin/ledger/reconciliation", undefined, founder);
 check("conservation holds across every token", rec2.json.invariants.ok === true, JSON.stringify(rec2.json.invariants.problems));
 
 console.log("\n" + results.join("\n"));
-console.log(`\n${fails === 0 ? "ALL GREEN" : fails + " FAILURE(S)"} â€” ${results.length} checks\n`);
+console.log(`\n${fails === 0 ? "ALL GREEN" : fails + " FAILURE(S)"} — ${results.length} checks\n`);
 process.exit(fails === 0 ? 0 : 1);
 
 

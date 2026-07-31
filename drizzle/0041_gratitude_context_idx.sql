@@ -1,0 +1,11 @@
+-- Indexes for the two reads that used to load the whole gratitude log.
+--
+-- The budget SUM and the per-pair COUNT are both served by the existing
+-- gratitude_from_cycle_idx (from_id, cycle_id). What had no index at all is
+-- the heart_count recompute, which selects by (context_ref, kind) on every
+-- heart tap -- a full scan of the busiest table in the schema.
+--
+-- Purely additive: no column changes, no data rewritten. Note the house rule
+-- above all others in this directory -- a comment line must never end in a
+-- semicolon, or the runner cuts the following statement in half
+CREATE INDEX `gratitude_context_idx` ON `gratitude_log` (`context_ref`, `kind`);

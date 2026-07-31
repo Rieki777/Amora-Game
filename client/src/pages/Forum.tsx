@@ -1,7 +1,7 @@
 ﻿/**
  * The Forum (S24-S26): threads by category, @mentions on handles, thread
  * follows, community reporting, and the decision primitive. Bodies render as
- * TEXT (React escapes) â€” there is no HTML pipeline to sanitize.
+ * TEXT (React escapes) — there is no HTML pipeline to sanitize.
  */
 import Layout from "@/components/Layout";
 import BylineChips from "@/components/badges/BylineChips";
@@ -111,7 +111,7 @@ function ThreadList() {
               <div className="flex gap-2">
                 <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}
                   className="text-sm border border-border rounded-lg px-2 py-2 bg-white">
-                  <option value="">Categoryâ€¦</option>
+                  <option value="">Category…</option>
                   {categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
                 <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
@@ -155,7 +155,7 @@ function ThreadList() {
               </Link>
             ))}
             {threads.length === 0 && (
-              <p className="text-center text-sm text-muted-foreground py-12">No threads yet â€” start the first one.</p>
+              <p className="text-center text-sm text-muted-foreground py-12">No threads yet — start the first one.</p>
             )}
           </div>
         </div>
@@ -232,12 +232,12 @@ function ThreadView({ id }: { id: string }) {
       <Layout>
         <div className="container max-w-2xl py-24 text-center text-muted-foreground">
           This thread was hidden by moderation.
-          <div className="mt-4"><Link href="/forum" className="text-teal-deep font-medium">â† Back to the forum</Link></div>
+          <div className="mt-4"><Link href="/forum" className="text-teal-deep font-medium">← Back to the forum</Link></div>
         </div>
       </Layout>
     );
   }
-  if (!thread) return <Layout><div className="container py-24 text-center text-muted-foreground">Loadingâ€¦</div></Layout>;
+  if (!thread) return <Layout><div className="container py-24 text-center text-muted-foreground">Loading…</div></Layout>;
 
   const decided = thread.kind === "decision" && thread.meta?.status === "decided";
 
@@ -245,7 +245,7 @@ function ThreadView({ id }: { id: string }) {
     <Layout>
       <section className="py-10 bg-background">
         <div className="container max-w-3xl space-y-5">
-          <Link href="/forum" className="text-xs text-muted-foreground hover:text-foreground">â† All threads</Link>
+          <Link href="/forum" className="text-xs text-muted-foreground hover:text-foreground">← All threads</Link>
           <div className="bg-card border border-border rounded-2xl p-6">
             <div className="flex items-center gap-2 mb-1">
               {thread.pinnedAt && <Pin className="w-4 h-4 text-amber-600" />}
@@ -375,7 +375,7 @@ function ThreadView({ id }: { id: string }) {
           {user && !thread.lockedAt && (
             <div className="bg-card border border-border rounded-xl p-4 space-y-2">
               <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3}
-                placeholder="Replyâ€¦ mention people with @handle."
+                placeholder="Reply… mention people with @handle."
                 className="w-full text-sm border border-border rounded-lg px-3 py-2" />
               <button onClick={() => act(`/api/forum/threads/${id}/replies`, { body: reply })} disabled={busy || !reply.trim()}
                 className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">

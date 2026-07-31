@@ -29,11 +29,24 @@ export default function Wallet() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
+  // "Loading", "loaded and genuinely empty" and "the request failed" are
+  // three different facts. Collapsing them made a 500 or a dropped connection
+  // render as "Nothing yet" — telling a member who holds tokens that they
+  // hold none, in the one place they come to check.
+  const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
+
   const load = () => {
+    setStatus("loading");
     fetch("/api/exchange", { headers: headers() })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
-      .catch(() => {});
+      .then((r) => {
+        if (!r.ok) throw new Error(`exchange ${r.status}`);
+        return r.json();
+      })
+      .then((d) => {
+        setData(d);
+        setStatus("ready");
+      })
+      .catch(() => setStatus("failed"));
   };
   useEffect(() => {
     if (exchangeModule) load();
@@ -75,8 +88,8 @@ export default function Wallet() {
 
       <section className="py-8 bg-background">
         <div className="container max-w-2xl space-y-6">
-          {notice && <p className="text-sm text-teal-deep bg-teal-deep/10 rounded-lg px-4 py-2.5">{notice}</p>}
-          {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
+          {notice && <p role="status" className="text-sm text-teal-deep bg-teal-deep/10 rounded-lg px-4 py-2.5">{notice}</p>}
+          {error && <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
 
           {user && (
             <div className="bg-card border border-border rounded-xl p-5">
@@ -84,7 +97,16 @@ export default function Wallet() {
                 <WalletIcon className="w-4 h-4 text-teal-deep" />
                 <p className="font-semibold text-foreground text-sm">Your balances</p>
               </div>
-              {Object.keys(balances).length === 0 ? (
+              {status === "loading" ? (
+                <p className="text-sm text-muted-foreground">Loading your balances…</p>
+              ) : status === "failed" ? (
+                <p className="text-sm text-muted-foreground">
+                  Couldn't load your balances.{" "}
+                  <button type="button" onClick={load} className="text-teal-deep font-medium hover:underline">
+                    Retry
+                  </button>
+                </p>
+              ) : Object.keys(balances).length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nothing yet — contribution is where value starts.</p>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -104,9 +126,11 @@ export default function Wallet() {
               <Coins className="w-4 h-4 text-teal-deep" />
               <p className="font-semibold text-foreground text-sm">The exchange</p>
             </div>
-            {(data?.listings ?? []).length === 0 && (
+            {status === "failed" ? (
+              <p className="text-sm text-muted-foreground">Couldn't load the exchange just now.</p>
+            ) : status === "ready" && (data?.listings ?? []).length === 0 ? (
               <p className="text-sm text-muted-foreground">Nothing is listed for purchase right now.</p>
-            )}
+            ) : null}
             <div className="space-y-3">
               {(data?.listings ?? []).map((l: any) => (
                 <div key={l.slug} className="flex items-center gap-3 border border-border rounded-lg px-4 py-3">

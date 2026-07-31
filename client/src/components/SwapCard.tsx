@@ -162,13 +162,16 @@ export default function SwapCard({ pairs, onDone }: { pairs: SwapPair[]; onDone:
       </p>
 
       {receipt && (
-        <p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-4 py-2.5 mb-4">
+        <p role="status" className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-4 py-2.5 mb-4">
           {receipt.replay ? "Already done" : "Swapped"} — receipt #{receipt.receiptNo}: {receipt.payQuantity}{" "}
           {payTokens.find((p) => p.payToken === receipt.payToken)?.payTokenName ?? receipt.payToken} for{" "}
           {receipt.receiveQuantity} {options.find((o) => o.receiveToken === receipt.receiveToken)?.receiveTokenName ?? receipt.receiveToken}.
         </p>
       )}
-      {error && <p className="text-sm text-amber-800 bg-amber-50 rounded-lg px-4 py-2.5 mb-4">{error}</p>}
+      {/* The stale-quote refusal lands here and changes the price the member
+          is about to accept — announcing it is the difference between an
+          informed confirm and a surprise. */}
+      {error && <p role="alert" className="text-sm text-amber-800 bg-amber-50 rounded-lg px-4 py-2.5 mb-4">{error}</p>}
 
       <div className="space-y-3">
         <div>

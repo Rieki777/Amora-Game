@@ -2,6 +2,7 @@
 // on Railway the real environment always wins over the file.
 import "dotenv/config";
 import express from "express";
+import compression from "compression";
 import { createServer } from "http";
 import path from "path";
 import fs from "fs";
@@ -36,6 +37,7 @@ import { installCrashHandlers, reportError, wireErrorReporting } from "./lib/err
 import {
   STAY_CREDIT,
   ensureStayToken,
+  releaseAbandonedStayPurchases,
   listAccommodations,
   mintStayCredits,
   nightsRemaining,
@@ -126,6 +128,7 @@ import {
   purchaseProblem,
   quoteSwap,
   type SwapQuote,
+  ORDER_EXPIRY_FLOOR_HOURS,
   reconcileSwapOrders,
   releaseAbandonedFiatOrders,
   repairTaintedListings,
@@ -178,6 +181,7 @@ import {
   loadSecrets,
   putSecret,
   SECRET_KEYS,
+  secretConfigured,
   secretValue,
   type SecretKey,
 } from "./lib/secrets";
@@ -341,7 +345,19 @@ const DEFAULT_EMAIL_CONFIG = {
   // Anthropic API key for the "Work With Us" guide. Blank = the AI persona is
   // dormant and the site shows the plain form instead. No key, no cost.
   assistant_api_key: "",
+  // The From: address every village email leaves under. Blank inherits
+  // EMAIL_FROM, then the platform's last-resort literal — so an existing
+  // deployment changes nothing, and a fork can set its own sender from Admin
+  // without a deploy. Must be `addr@dom.tld` or `Name <addr@dom.tld>`.
+  sender: "",
 };
+
+/** `addr@dom.tld` or `Name <addr@dom.tld>` — anything else is not sendable. */
+function validEmailSender(v: string): boolean {
+  const s = v.trim();
+  if (!s) return false;
+  return /^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(s) || /^[^<>]+<[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+>$/.test(s);
+}
 
 const FAQ_PATHWAYS = ["investor", "steward", "resident", "prosperity"] as const;
 type FaqPathway = (typeof FAQ_PATHWAYS)[number];
@@ -929,13 +945,29 @@ function decodeToken(token: string): { userId: string; email: string; timestamp:
  * purpose field so one can never be replayed as the other, and a hard expiry.
  */
 const SET_PASSWORD_TTL_MS = 60 * 60 * 1000;
-function makeSetPasswordToken(userId: string): string {
+
+/**
+ * A fingerprint of the account's password state at mint time. Including it
+ * makes the token SINGLE-USE without a nonce table: setting a password
+ * changes the hash, so the fingerprint no longer matches and a replayed link
+ * is refused. Stateless, which is how this route is written; an empty hash
+ * (a claim-pending account) fingerprints just as well as a real one.
+ */
+function passwordFingerprint(passwordHash: string | null | undefined): string {
+  return crypto.createHash("sha256").update(String(passwordHash ?? "")).digest("hex").slice(0, 16);
+}
+function makeSetPasswordToken(userId: string, currentPasswordHash: string | null | undefined): string {
   const payload = Buffer.from(
-    JSON.stringify({ userId, purpose: "set-password", exp: Date.now() + SET_PASSWORD_TTL_MS }),
+    JSON.stringify({
+      userId,
+      purpose: "set-password",
+      pw: passwordFingerprint(currentPasswordHash),
+      exp: Date.now() + SET_PASSWORD_TTL_MS,
+    }),
   ).toString("base64url");
   return `${payload}.${signTokenPayload(payload)}`;
 }
-function readSetPasswordToken(token: string): { userId: string } | null {
+function readSetPasswordToken(token: string): { userId: string; pw: string | null } | null {
   try {
     const dot = token.lastIndexOf(".");
     if (dot < 1 || dot === token.length - 1) return null;
@@ -947,7 +979,7 @@ function readSetPasswordToken(token: string): { userId: string } | null {
     const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
     if (decoded.purpose !== "set-password" || !decoded.userId) return null;
     if (typeof decoded.exp !== "number" || Date.now() > decoded.exp) return null;
-    return { userId: decoded.userId };
+    return { userId: decoded.userId, pw: typeof decoded.pw === "string" ? decoded.pw : null };
   } catch {
     return null;
   }
@@ -1018,6 +1050,7 @@ async function ensureDataFiles() {
   //     table never had.
   //   ledger-opening-balances — seeded the JSON ledger; the MySQL ledger
   //     carries those rows forward via the 0009 backfill.
+  await runOnce("canonicalize-regen-units", canonicalizeRegenUnits);
   await runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
   await runOnce("founding-team-in-progress", markFoundingTeamInProgress);
   await runOnce("backfill-member-handles", backfillMemberHandles);
@@ -1074,6 +1107,26 @@ async function runOnce(id: string, fn: () => void | Promise<void>) {
     console.log(`[MIGRATION] applied ${id}`);
   } catch (e) {
     console.error(`[MIGRATION] ${id} failed (continuing)`, e);
+  }
+}
+
+/**
+ * The regen entry unit is written from the registry now, but rows recorded
+ * while it came from the request body carry whatever was typed — and
+ * regenTotals labels each metric's SUM with MAX(unit), so one "ha" among a
+ * thousand "hectares" mislabels the whole total the village shows funders.
+ * The unit is a denormalised label, not a measured value, so correcting it
+ * does not touch the retract-don't-delete contract (which is about values).
+ */
+async function canonicalizeRegenUnits() {
+  for (const def of REGEN_METRICS) {
+    const [r]: any = await getPool().query(
+      "UPDATE regen_entries SET unit = ? WHERE metric_key = ? AND unit <> ?",
+      [def.unit, def.key, def.unit],
+    );
+    if (r.affectedRows) {
+      console.log(`[MIGRATION] canonicalized ${r.affectedRows} ${def.key} unit label(s) to "${def.unit}"`);
+    }
   }
 }
 
@@ -1253,6 +1306,26 @@ function loadRoleHolders(): RoleHolderRow[] {
   return roleHoldersRepo.all();
 }
 
+/**
+ * Serializes every role_holders snapshot→mutate→replaceAll cycle. replaceAll
+ * yields to the event loop before it swaps the cache, so two overlapping
+ * writers would both snapshot the pre-write array and the later replaceAll
+ * would erase the earlier write from both DB and cache — and role_holders is
+ * an input to the ONE capability gate, so a lost row is lost authority. A
+ * promise chain suffices because this process is the only writer (the S12
+ * single-writer assumption). Keep slow side effects (mail, notifications)
+ * OUTSIDE the closure: the lock should cover the write, not an SMTP round trip.
+ */
+let roleHolderWrites: Promise<void> = Promise.resolve();
+function withRoleHolderLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = roleHolderWrites.then(fn);
+  roleHolderWrites = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 /** Role ids a member holds. */
 function roleIdsFor(userId: string): string[] {
   return loadRoleHolders().filter((r) => r.userId === userId).map((r) => r.roleId);
@@ -1280,7 +1353,6 @@ function roleCapabilitiesFor(userId: string): string[] {
  */
 async function recordStageEvent(user: any, from: string, to: string, reason: string) {
   if (stageIndex(to) <= stageIndex(from)) return;
-  const events: any[] = stageEventsRepo.all();
   const before = new Set(
     ALL_CAPABILITIES.filter((c) => hasCapability(c, {
       stageIndex: stageIndex(from), stageIndexOf: stageIndex, roleCapabilities: roleCapabilitiesFor(user.id),
@@ -1291,7 +1363,12 @@ async function recordStageEvent(user: any, from: string, to: string, reason: str
       stageIndex: stageIndex(to), stageIndexOf: stageIndex, roleCapabilities: roleCapabilitiesFor(user.id),
     }),
   );
-  events.push({
+  // An append, not a whole-table rewrite: the old snapshot→push→replaceAll
+  // both raced concurrent crossings (the later write deleted the earlier
+  // row) and silently discarded progression history past 2000 rows. History
+  // is retained in full now; growth is bounded in practice by one row per
+  // member per forward crossing.
+  await stageEventsRepo.insert({
     id: `stage-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     userId: user.id,
     fromStage: from,
@@ -1300,7 +1377,6 @@ async function recordStageEvent(user: any, from: string, to: string, reason: str
     reason,
     at: new Date().toISOString(),
   });
-  await stageEventsRepo.replaceAll(events.slice(-2000));
   await addActivity("stage", `${firstName(user.name)} advanced to ${getStage(to).name}`, { actorUserId: user.id, entityType: "stage", entityRef: to });
   await notify({
     userId: user.id,
@@ -1675,6 +1751,30 @@ async function runRetentionSweep(): Promise<string> {
       (s: any) => s.status === "new" || !s.submittedAt || new Date(s.submittedAt) >= cutoff,
     );
     if (keep.length !== before.length) {
+      // The ROW is swept but its uploaded file was not: a proposal's
+      // attachment (CVs, portfolios, ID scans on some forks) outlived by
+      // years the record that pointed at it, unreferenced and undeletable
+      // through any UI. Delete the file with the row that named it.
+      //
+      // path.basename is mandatory, not defensive: the value originates in a
+      // public request body, and UPLOADS_DIR also holds brand images and the
+      // investor vault — a `../` or a neighbouring filename must not be able
+      // to reach them. Each unlink is isolated so one missing file cannot
+      // abort the sweep, and a filename any KEPT row still references is
+      // left alone.
+      const keptFiles = new Set(
+        keep.map((s: any) => String(s?.data?.attachment ?? "").trim()).filter(Boolean),
+      );
+      const dropped = before.filter((s: any) => !keep.includes(s));
+      for (const row of dropped) {
+        const name = String((row as any)?.data?.attachment ?? "").trim();
+        if (!name || keptFiles.has(name)) continue;
+        try {
+          fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(name)));
+        } catch {
+          /* already gone, or never written — the row still goes */
+        }
+      }
       await submissionsRepo.replaceAll(keep);
       parts.push(`${before.length - keep.length} submission(s)`);
     }
@@ -1713,7 +1813,9 @@ async function runRetentionSweep(): Promise<string> {
  *  - token_ledger descriptions that carried their first name → generic
  *    (keyed by structured refs, never string matching);
  *  - submissions they authored: PII keys inside data scrubbed, row kept;
- *  - their notifications deleted; notifications they acted in de-attributed;
+ *  - their notifications deleted; notifications they acted in de-attributed
+ *    AND text-scrubbed (the title and body restate the person independently
+ *    of the actor id — see the statement itself);
  *  - tool clicks de-attributed; active role appointments end;
  *  - PUBLIC pulse lines naming them are deleted; ADMIN audit rows are kept
  *    (id-only, retained as the legal record — Law 8968 permits retention
@@ -1734,7 +1836,14 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<voi
   await pool.query("UPDATE gratitude_log SET to_name = ? WHERE to_id = ?", [anon, target.id]);
   await pool.query("UPDATE quest_claims SET user_name = ? WHERE user_id = ?", [anon, target.id]);
   await pool.query("DELETE FROM notifications WHERE user_id = ?", [target.id]);
-  await pool.query("UPDATE notifications SET actor_user_id = NULL WHERE actor_user_id = ?", [target.id]);
+  // De-attribution is not enough: the TEXT restates the person. A restorative
+  // intake notification carries "A private intake from <their full name>" in
+  // the title and up to 2000 characters of their message in the body, and
+  // nulling the actor id leaves every word of that in the steward's inbox.
+  await pool.query(
+    "UPDATE notifications SET actor_user_id = NULL, title = 'A message from a departed member', body = NULL WHERE actor_user_id = ?",
+    [target.id],
+  );
   await pool.query("UPDATE tool_clicks SET user_id = NULL WHERE user_id = ?", [target.id]);
   await pool.query("DELETE FROM health_events WHERE audience = 'public' AND actor_user_id = ?", [target.id]);
 
@@ -1754,8 +1863,10 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<voi
   }
   if (scrubbed) await submissionsRepo.replaceAll(submissions);
 
-  const holders = loadRoleHolders().filter((h) => h.userId !== target.id);
-  await roleHoldersRepo.replaceAll(holders);
+  await withRoleHolderLock(async () => {
+    const holders = loadRoleHolders().filter((h) => h.userId !== target.id);
+    await roleHoldersRepo.replaceAll(holders);
+  });
 
   /*
    * THE TRACES A TOMBSTONE DOES NOT COVER.
@@ -1871,6 +1982,28 @@ async function applyAcceptReward(entry: any): Promise<boolean> {
     (email ? await members.byEmail(email) : null);
   if (!match) return false; // not a registered member; nothing to fold in
   const amount = Number(getWorkWithUs().acceptGratitude) || 0;
+  // Through the ledger, never `+=`: this was the one recognition credit in
+  // the repo that assigned the cache without a post, so the balance it
+  // granted was phantom — invisible to /api/game/ledger and wiped by the
+  // next recompute. The entry id keys the post, so a re-accept credits once.
+  // amount 0 still logs the contribution (postTransfer refuses zero legs).
+  let newBalance: number | null = null;
+  if (amount > 0) {
+    const credit = await postTransfer(getPool(), {
+      from: RECOGNITION_FAUCET,
+      to: memberAccount(match.id),
+      amount,
+      source: "proposal_accepted",
+      sourceRef: entry.id,
+      description: "Work With Us proposal accepted",
+      idempotencyKey: `proposal_accepted:${entry.id}`,
+    });
+    if (!credit.ok) {
+      console.error(`[submissions] accept credit failed for submission ${entry.id}: ${credit.error}`);
+      return false;
+    }
+    newBalance = credit.toBalance;
+  }
   const updated = await members.update(match.id, (u: any) => {
     u.contributions = u.contributions ?? [];
     u.contributions.push({
@@ -1880,7 +2013,7 @@ async function applyAcceptReward(entry: any): Promise<boolean> {
       recognitionEarned: amount,
       date: new Date().toISOString(),
     });
-    u.recognitionBalance = (u.recognitionBalance ?? 0) + amount;
+    if (newBalance != null) u.recognitionBalance = newBalance;
   });
   if (!updated) return false;
   await addActivity("proposal", `${firstName(updated.name)}'s proposal was welcomed into the village`, { actorUserId: updated.id, entityType: "submission", entityRef: entry.id });
@@ -1913,6 +2046,28 @@ function buildSubmissionEmailHtml(type: string, data: Record<string, unknown>, a
 </div></body></html>`;
 }
 
+/**
+ * The From: address, resolved across the config planes: admin-typed sender
+ * (Admin → Email config) beats EMAIL_FROM, which beats the platform's
+ * last-resort literal. An admin value that is not a sendable address is
+ * skipped loudly rather than used — Resend accepts a malformed From: and
+ * delivers nothing, which is the silent email death this whole path exists
+ * to avoid.
+ */
+function resolvedEmailSender(): string {
+  const typed = String(getEmailConfig().sender ?? "").trim();
+  if (typed) {
+    if (validEmailSender(typed)) return typed;
+    console.error(`[RESEND] configured sender "${typed}" is not a valid address — falling back`);
+  }
+  const env = String(process.env.EMAIL_FROM ?? "").trim();
+  if (env) {
+    if (validEmailSender(env)) return env;
+    console.error(`[RESEND] EMAIL_FROM "${env}" is not a valid address — falling back`);
+  }
+  return "Amora Site <notifications@amora.cr>";
+}
+
 async function sendResendEmail(opts: { to: string[]; subject: string; html: string; from?: string; replyTo?: string }): Promise<void> {
   const cfg = getEmailConfig();
   if (!cfg.resend_api_key) {
@@ -1937,7 +2092,11 @@ async function sendResendEmail(opts: { to: string[]; subject: string; html: stri
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: opts.from ?? "Amora Site <notifications@amora.cr>",
+        // Admin-typed sender first, then the env var, then the platform's
+        // last-resort literal. A malformed admin value is IGNORED rather than
+        // sent (a bad From: kills every email silently), and says so in the
+        // log so the founder can find it.
+        from: opts.from ?? resolvedEmailSender(),
         to,
         subject: opts.subject,
         html: opts.html,
@@ -2000,6 +2159,41 @@ async function overLimit(bucket: string, max: number, windowMs: number): Promise
     return false;
   }
 }
+
+/**
+ * Check-only half of overLimit: counts, never inserts. For guards where the
+ * hit is recorded separately (login records only on credential FAILURE, so a
+ * correct sign-in never spends anyone's budget). Fail-open like overLimit.
+ */
+async function atLimit(bucket: string, max: number, windowMs: number): Promise<boolean> {
+  try {
+    const pool = getPool();
+    const since = new Date(Date.now() - windowMs);
+    const [[row]] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS n FROM rate_hits WHERE bucket = ? AND at > ?",
+      [bucket, since],
+    );
+    return Number(row?.n ?? 0) >= max;
+  } catch (e) {
+    console.error("[abuse-guard] check failed (failing open)", e);
+    return false;
+  }
+}
+
+/** Record-only half: call when the guarded event actually happened. */
+async function recordHit(bucket: string): Promise<void> {
+  try {
+    const pool = getPool();
+    await pool.query("INSERT INTO rate_hits (bucket, at) VALUES (?, CURRENT_TIMESTAMP(3))", [bucket]);
+    // Opportunistic sweep (~1% of calls): the table stays a day deep, forever.
+    if (Math.random() < 0.01) {
+      void pool.query("DELETE FROM rate_hits WHERE at < (NOW() - INTERVAL 1 DAY) LIMIT 5000").catch(() => {});
+    }
+  } catch (e) {
+    console.error("[abuse-guard] record failed", e);
+  }
+}
+
 /**
  * How many proxies sit in front of this process. One on Railway, Fly, Render
  * and most PaaS; raise it if a fork puts its own CDN or load balancer ahead
@@ -2103,9 +2297,71 @@ async function startServer() {
   // S31: hourly sweep; acts only once the UTC hour passes stay.autopay_post_hour.
   // Keyed ledger legs make reruns and catch-up idempotent by construction.
   registerJob("stay-nightly", 60 * 60 * 1000, async () => {
-    if (effectiveLifecycle("stays") === "off") return "stays module off";
+    // The abandoned-checkout sweep runs BEFORE the module check on purpose:
+    // a pending purchase is exactly what blocks turning stays off, so a
+    // demoted module must not be able to wedge the sweep that would unwedge
+    // it. (The nightly POSTING below stays module-gated, as it should.)
+    const abandoned = await releaseAbandonedStayPurchases(
+      getPool(),
+      numberVar("exchange.order_expiry_hours"),
+      ORDER_EXPIRY_FLOOR_HOURS,
+    );
+    if (abandoned.skipped.length) {
+      // Credits moved but the row never settled: a settle failure, not an
+      // abandonment. Cancelling it would erase the member's claim.
+      await notifyAdmins(
+        "payment",
+        `${abandoned.skipped.length} stay purchase(s) hold ledger entries but are still marked pending — they were NOT released: ${abandoned.skipped.slice(0, 5).join(", ")}`,
+        `stay-stuckpurchases:${new Date().toISOString().slice(0, 10)}`,
+      );
+    }
+    const abandonedNote = abandoned.released ? `, ${abandoned.released} abandoned purchase(s) released` : "";
+    if (effectiveLifecycle("stays") === "off") return `stays module off${abandonedNote}`;
     const r = await runNightlyPosting(getPool(), stayPostingHooks());
-    return `${r.swept} stay(s) swept, ${r.posted} night(s) posted${r.stopped ? `, ${r.stopped} past grace` : ""}`;
+    return `${r.swept} stay(s) swept, ${r.posted} night(s) posted${r.stopped ? `, ${r.stopped} past grace` : ""}${abandonedNote}`;
+  });
+
+  /**
+   * The commerce counterpart. product_purchases had no reaper at all: the
+   * only two status writes in the tree are 'paid' and 'reversed', so every
+   * closed checkout tab left a pending row that nothing could ever clear.
+   * Same rules as the other two reapers — the shared 25-hour floor (a Stripe
+   * session stays payable ~24h), skip anything with a charge behind it, and
+   * scope to Stripe because manual rows are reconciled by hand.
+   */
+  registerJob("commerce-reap", 60 * 60 * 1000, async () => {
+    const hours = Math.max(ORDER_EXPIRY_FLOOR_HOURS, Math.floor(numberVar("exchange.order_expiry_hours")));
+    const [stale] = await getPool().query<any[]>(
+      "SELECT id FROM product_purchases WHERE provider = 'stripe' AND status = 'pending' " +
+        "AND created_at < (NOW() - INTERVAL ? HOUR)",
+      [hours],
+    );
+    let released = 0;
+    const skipped: string[] = [];
+    for (const row of stale) {
+      const id = String(row.id);
+      // Commerce records each settled period as order_id '<purchaseId>#<key>'
+      // (index.ts recordFiatCharge, the commerce settle handler), so any row
+      // with that prefix means money was taken against this purchase.
+      const [[charge]] = await getPool().query<any[]>(
+        "SELECT COUNT(*) AS n FROM fiat_charges WHERE module = 'commerce' AND order_id LIKE ?",
+        [`${id}#%`],
+      );
+      if (Number(charge.n) > 0) { skipped.push(id); continue; }
+      await getPool().query(
+        "UPDATE product_purchases SET status = 'cancelled' WHERE id = ? AND status = 'pending'",
+        [id],
+      );
+      released += 1;
+    }
+    if (skipped.length) {
+      await notifyAdmins(
+        "payment",
+        `${skipped.length} product purchase(s) have charges recorded but are still marked pending — they were NOT released: ${skipped.slice(0, 5).join(", ")}`,
+        `commerce-stuckpurchases:${new Date().toISOString().slice(0, 10)}`,
+      );
+    }
+    return `${released} abandoned product purchase(s) released${skipped.length ? `, ${skipped.length} stuck and reported` : ""}`;
   });
   // S53: the YouTube RSS diff — no API key, purely ADDITIVE inserts of
   // pipeline-internal rows (idempotent on video id). Synthesis and
@@ -2283,7 +2539,9 @@ async function startServer() {
     }
     return `${entries.length} in feed, ${fresh} new`;
   });
-  startScheduler(getPool());
+  // startScheduler is deliberately NOT called here: arming the tick is the
+  // last thing boot does (immediately before server.listen), so a failure in
+  // any later boot stage can never leave a live scheduler on a dead server.
 
   // S13: the module framework — load lifecycle state, reconcile the
   // dependency graph loudly (demotions serve as OFF, never brick), and
@@ -2930,7 +3188,6 @@ async function startServer() {
     }
     // Attribution: if a valid member token is present, stamp who submitted.
     const submitter = await authedUser(req);
-    const submissions: any[] = submissionsRepo.all();
     const entry: any = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       type,
@@ -2940,8 +3197,10 @@ async function startServer() {
       submittedAt: new Date().toISOString(),
     };
     if (submitter) { entry.userId = submitter.id; entry.userName = submitter.name; }
-    submissions.push(entry);
-    await submissionsRepo.replaceAll(submissions);
+    // One INSERT, not snapshot→push→replaceAll: two concurrent public
+    // submissions used to race, and the later whole-table rewrite deleted
+    // the earlier member's row. Same append pattern as raise-hand.
+    await submissionsRepo.insert(entry);
 
     /*
      * The origin comes from OUR configuration, never from the request.
@@ -3054,20 +3313,32 @@ async function startServer() {
     });
     const sortedDataKeys = Array.from(allDataKeys).sort();
     
+    /*
+     * Every cell in this file came from a PUBLIC, unauthenticated form, keys
+     * included — and a spreadsheet treats a cell starting with = + - @ (or a
+     * tab/CR) as a FORMULA. Excel and Sheets then offer the admin opening
+     * this export a one-click "enable content" path into DDE and remote
+     * fetches. Neutralise with a leading apostrophe BEFORE the quote-doubling
+     * (the other order escapes the apostrophe wrongly for values containing
+     * quotes), and apply it to the header row too — those keys are
+     * attacker-chosen and were not even quote-doubled.
+     */
+    const csvCell = (s: string) => `"${(/^[=+\-@\t\r]/.test(s) ? "'" + s : s).replace(/"/g, '""')}"`;
+
     // Build CSV header
     const headers = ['id', 'type', 'submittedAt', ...sortedDataKeys];
-    const csvLines: string[] = [headers.map((h) => `"${h}"`).join(',')];
-    
+    const csvLines: string[] = [headers.map(csvCell).join(',')];
+
     // Build CSV rows
     submissions.forEach((s) => {
       const row = [
-        `"${s.id}"`,
-        `"${s.type}"`,
-        `"${s.submittedAt}"`,
+        csvCell(String(s.id ?? '')),
+        csvCell(String(s.type ?? '')),
+        csvCell(String(s.submittedAt ?? '')),
         ...sortedDataKeys.map((key) => {
           const value = s.data?.[key];
           const strValue = typeof value === 'object' ? JSON.stringify(value) : String(value ?? '');
-          return `"${strValue.replace(/"/g, '""')}"`;
+          return csvCell(strValue);
         }),
       ];
       csvLines.push(row.join(','));
@@ -3113,6 +3384,15 @@ async function startServer() {
 
   // Auth: Register
   app.post("/api/auth/register", async (req, res) => {
+    // FIRST statement, before the exists-by-email check, so the throttle also
+    // bounds the account-enumeration oracle (409 vs 200 answers "is this
+    // address a member?"). Per-IP and admin-tunable: a village onboarding
+    // gathering behind one NAT shares a bucket, so the default is above
+    // login's. overLimit fails open on DB trouble — an outage never blocks
+    // registration.
+    if (await overLimit(`register:${clientIp(req)}`, Math.max(1, numberVar("abuse.register_per_ip_hourly")), 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Too many attempts. Try again in a few minutes." });
+    }
     const { name, email, password, paths } = req.body;
     if (!name || !email || !password || !paths || !Array.isArray(paths)) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -3144,16 +3424,32 @@ async function startServer() {
   // Auth: Login
   app.post("/api/auth/login", async (req, res) => {
     // Throttled (S1): before admins were real users this endpoint was the one
-    // unthrottled password oracle in the app.
-    if (await overLimit(`login:${clientIp(req)}`, 10, 15 * 60 * 1000)) {
-      return res.status(429).json({ error: "Too many attempts. Try again in a few minutes." });
-    }
+    // unthrottled password oracle in the app. Two buckets now, both
+    // check-only up front and recorded ONLY on credential failure, so a
+    // correct sign-in never consumes anyone's budget: a per-IP ceiling
+    // (loose — one village NAT is one address) and a per-ACCOUNT ceiling
+    // (tight — this is the brute-force bound an IP pool cannot dodge). They
+    // must move together: raising the IP cap without the account bucket
+    // would loosen the only per-target defence.
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: "Missing email or password" });
     }
+    // Normalized the way members.byEmail compares (case-insensitively), so
+    // case variants of one address share one bucket.
+    const normEmail = String(email).trim().toLowerCase();
+    const ipBucket = `login-ip:${clientIp(req)}`;
+    const acctBucket = `login-acct:${normEmail}`;
+    if (
+      (await atLimit(ipBucket, Math.max(1, numberVar("abuse.login_ip_per_quarter_hour")), 15 * 60 * 1000)) ||
+      (await atLimit(acctBucket, Math.max(1, numberVar("abuse.login_account_per_quarter_hour")), 15 * 60 * 1000))
+    ) {
+      return res.status(429).json({ error: "Too many attempts. Try again in a few minutes." });
+    }
     const user = await members.byEmail(email);
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
+      await recordHit(ipBucket);
+      await recordHit(acctBucket);
       return res.status(401).json({ error: "Invalid credentials" });
     }
     // Transparent upgrade: if the user is still on a legacy SHA256 hash, re-hash with bcrypt
@@ -3216,7 +3512,7 @@ async function startServer() {
       // password cannot log in and cannot ask for a reset. Re-running bootstrap
       // (break-glass path) re-sends a fresh claim link for exactly that case.
       if (!user.passwordHash) {
-        const claim = makeSetPasswordToken(user.id);
+        const claim = makeSetPasswordToken(user.id, user.passwordHash);
         claimUrl = `${(process.env.FRONTEND_URL || "").replace(/\/$/, "")}/set-password?token=${encodeURIComponent(claim)}`;
         try {
           await sendResendEmail({
@@ -3246,7 +3542,7 @@ async function startServer() {
         joinedAt: new Date().toISOString(),
       };
       await members.add(user);
-      const claim = makeSetPasswordToken(userId);
+      const claim = makeSetPasswordToken(userId, "");
       claimUrl = `${(process.env.FRONTEND_URL || "").replace(/\/$/, "")}/set-password?token=${encodeURIComponent(claim)}`;
       try {
         await sendResendEmail({
@@ -3277,6 +3573,74 @@ async function startServer() {
     res.json({ success: true, userId: user.id, emailed, ...(claimUrl ? { claimUrl } : {}) });
   });
 
+  /**
+   * Account recovery. Before this route the platform had none: a member who
+   * forgot their password had no path back in, because the only set-password
+   * token minter lived inside the one-shot founder bootstrap.
+   *
+   * Deliberately NOT an account-existence oracle: every outcome — unknown
+   * address, claim-pending account, tombstone, successful send — answers the
+   * same 200 with the same body. The copy stays honest about delivery
+   * ("if an account exists, a link is on its way") because a fork whose
+   * sender domain is unverified gets a 200 from the provider and delivers
+   * nothing; that failure is logged loudly here so it is findable.
+   */
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    const sameAnswer = {
+      success: true,
+      message: "If an account exists for that address, a link to set a new password is on its way.",
+    };
+    if (await overLimit(`forgot:${clientIp(req)}`, Math.max(1, numberVar("abuse.password_reset_per_ip_hourly")), 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Too many attempts. Try again in a few minutes." });
+    }
+    const email = String(req.body?.email ?? "").trim();
+    if (!email) return res.status(400).json({ error: "An email address is required" });
+    // Per-address bucket too: without it, one address can be mail-bombed
+    // from a pool of IPs.
+    if (await overLimit(`forgot-acct:${email.toLowerCase()}`, 5, 60 * 60 * 1000)) {
+      return res.json(sameAnswer);
+    }
+    const user = await members.byEmail(email);
+    // A tombstone has no password and no name; a claim-pending account has no
+    // password either. Neither should receive a reset — bootstrap covers the
+    // second and the first is gone on purpose.
+    if (user?.passwordHash) {
+      const claim = makeSetPasswordToken(user.id, user.passwordHash);
+      const claimUrl = `${notifyDeps.origin()}/set-password?token=${encodeURIComponent(claim)}`;
+      try {
+        await sendResendEmail({
+          to: [user.email],
+          subject: "Set a new password",
+          html: `<p>Someone asked to set a new password for your account on ${escapeHtml(mergedConfig().project.name)}.</p>
+<p><a href="${escapeHtml(claimUrl)}">Set a new password</a> (link expires in 60 minutes, and works once).</p>
+<p>If the button does nothing, paste this into your browser:<br>${escapeHtml(claimUrl)}</p>
+<p>If this wasn't you, nothing has changed — you can ignore this message.</p>`,
+        });
+      } catch (e) {
+        console.error(`[auth] password-reset email FAILED for ${user.id} — the member got a 200 and no link`, e);
+      }
+      void recordEvent(getPool(), {
+        kind: "audit", text: "auth:password-reset-requested",
+        actorUserId: user.id, entityType: "user", entityRef: user.id, audience: "admin",
+      });
+    }
+    res.json(sameAnswer);
+  });
+
+  /**
+   * Sign out. tokenVersion is the only revocation lever there is (no session
+   * table exists), so this is all-sessions-or-nothing: signing out on one
+   * device signs the member out everywhere. That is stated in the client copy
+   * rather than hidden — the alternative, leaving a "logged out" token alive
+   * on a shared machine, is worse.
+   */
+  app.post("/api/auth/logout", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    await members.update(user.id, (u: any) => { u.tokenVersion = (u.tokenVersion ?? 0) + 1; });
+    res.json({ success: true });
+  });
+
   /** Claim a created account (or later: reset) by setting a password. */
   app.post("/api/auth/set-password", async (req, res) => {
     if (await overLimit(`setpw:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
@@ -3290,11 +3654,72 @@ async function startServer() {
     if (!claim) return res.status(401).json({ error: "This link is invalid or has expired" });
     const user = await members.byId(claim.userId);
     if (!user) return res.status(404).json({ error: "Account not found" });
+    // SINGLE USE. The token carries a fingerprint of the password state it
+    // was minted against; writing a new password invalidates it, so a link
+    // that leaks (mail archive, forwarded thread, shared browser) cannot be
+    // replayed inside its hour to take the account back.
+    if (claim.pw !== null && claim.pw !== passwordFingerprint(user.passwordHash)) {
+      return res.status(401).json({ error: "This link has already been used. Ask for a new one." });
+    }
     const hash = await hashPassword(String(password));
-    const fresh = await members.update(user.id, (u: any) => { u.passwordHash = hash; });
+    // Bump tokenVersion in the SAME update: setting a password ends every
+    // session that existed before it. That is the semantics account recovery
+    // needs — a stolen password must not survive the reset that answers it.
+    const fresh = await members.update(user.id, (u: any) => {
+      u.passwordHash = hash;
+      u.tokenVersion = (u.tokenVersion ?? 0) + 1;
+    });
     if (!fresh) return res.status(404).json({ error: "Account not found" });
     const authTokenStr = encodeToken(fresh.id, fresh.email, fresh.tokenVersion ?? 0);
     res.json({ success: true, token: authTokenStr, user: publicUser(fresh) });
+  });
+
+  /**
+   * Admin-initiated recovery, for the member who cannot receive the self-serve
+   * reset (wrong address on file, mailbox lost). It EMAILS the link and never
+   * returns it: whoever holds a set-password link is that member on their next
+   * click, so returning it in the response would make every admin able to
+   * become any member with one request and no trace on the member's side.
+   *
+   * A plain admin may not target a founder — otherwise the weaker role resets
+   * the stronger one's password and inherits the deployment.
+   */
+  app.post("/api/admin/users/:id/send-password-link", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const actor = (req as any).adminUser;
+    const target = await members.byId(req.params.id);
+    if (!target) return res.status(404).json({ error: "Not found" });
+    if (target.role === "founder" && actor?.role !== "founder") {
+      return res.status(403).json({ error: "Only a founder can send a founder a password link" });
+    }
+    if (!target.email) return res.status(409).json({ error: "That account has no address to send to" });
+    const claim = makeSetPasswordToken(target.id, target.passwordHash);
+    const claimUrl = `${notifyDeps.origin()}/set-password?token=${encodeURIComponent(claim)}`;
+    let emailed = true;
+    try {
+      await sendResendEmail({
+        to: [target.email],
+        subject: "Set a new password",
+        html: `<p>An administrator of ${escapeHtml(mergedConfig().project.name)} sent you a link to set a new password.</p>
+<p><a href="${escapeHtml(claimUrl)}">Set a new password</a> (link expires in 60 minutes, and works once).</p>
+<p>If the button does nothing, paste this into your browser:<br>${escapeHtml(claimUrl)}</p>`,
+      });
+    } catch (e) {
+      emailed = false;
+      console.error(`[auth] admin password link FAILED to send for ${target.id}`, e);
+    }
+    // This is the one admin action that can produce member-attributed
+    // activity, so it leaves its own audit row rather than relying on the
+    // generic /api/admin middleware.
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: `auth:admin-password-link:${target.id}`,
+      actorUserId: (await authedUser(req))?.id ?? adminActor(req)?.id ?? null,
+      entityType: "user",
+      entityRef: target.id,
+      audience: "admin",
+    });
+    res.json({ success: true, emailed });
   });
 
   /** Revoke every session a member holds (S1's tokenVersion lever). */
@@ -4130,8 +4555,15 @@ async function startServer() {
   app.post("/api/admin/circles", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const { id, name } = req.body ?? {};
-    const slug = String(id ?? name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-    if (!slug || !String(name ?? "").trim()) return res.status(400).json({ error: "A name (and slug) is required" });
+    // A name in any non-Latin script slugifies to "" — so a village writing
+    // Russian, Japanese or Arabic could not create a circle AT ALL, and the
+    // admin form offers no slug field to work around it. Fall back to a
+    // generated id, and cap at the varchar(64) the PK actually is (names
+    // allow 120, so a long ASCII name overflowed it too).
+    const slug =
+      String(id ?? name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) ||
+      `circle-${Date.now().toString(36)}`;
+    if (!String(name ?? "").trim()) return res.status(400).json({ error: "A name is required" });
     if (circlesRepo.all().some((c: any) => c.id === slug)) return res.status(409).json({ error: "That circle already exists" });
     const circle = {
       id: slug,
@@ -4790,7 +5222,21 @@ async function startServer() {
     const [purchases] = await getPool().query<any[]>(
       "SELECT * FROM stay_purchases ORDER BY created_at DESC LIMIT 200",
     );
-    res.json({ accommodations, stays: withNames, purchases });
+    // `capacity` was written, editable and read into the row type — and then
+    // used for no decision and no display anywhere in the codebase. A flag,
+    // not a block: refusing a booking contradicts the module's design (stays
+    // are activated by a human, who is the one who knows whether the room
+    // really is full). Additive fields only, so no client is broken by them.
+    const activeByAcc = new Map<string, number>();
+    for (const s of stays) {
+      if (s.status === "ended" || s.status === "cancelled") continue;
+      activeByAcc.set(s.accommodationId, (activeByAcc.get(s.accommodationId) ?? 0) + 1);
+    }
+    const accommodationsWithLoad = accommodations.map((a) => {
+      const activeStays = activeByAcc.get(a.id) ?? 0;
+      return { ...a, activeStays, overCapacity: activeStays > a.capacity };
+    });
+    res.json({ accommodations: accommodationsWithLoad, stays: withNames, purchases });
   });
 
   app.post("/api/admin/stays/accommodations", async (req, res) => {
@@ -5868,8 +6314,37 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
    * Idempotent on (source, external_id): redelivery is a no-op.
    */
   app.post("/api/webhooks/riverside", async (req, res) => {
+    // Same in-memory bucket discipline as the Stripe webhook: a flood of
+    // fresh ids from one address gets a 429 instead of a table of junk rows.
+    {
+      const now = Date.now();
+      const who = `riv:${clientIp(req)}`;
+      const slot = webhookHits.get(who);
+      if (!slot || slot.resetAt < now) {
+        if (webhookHits.size > 5000) webhookHits.clear(); // bounded, never a leak
+        webhookHits.set(who, { n: 1, resetAt: now + 60_000 });
+      } else if (++slot.n > WEBHOOK_MAX_PER_MIN) {
+        return res.status(429).json({ error: "too many webhook deliveries; retry shortly" });
+      }
+    }
     if (LIFECYCLE_RANK[effectiveLifecycle("automation")] < LIFECYCLE_RANK.preview) {
       return res.json({ received: true, discarded: "automation module is off" });
+    }
+    // Fail CLOSED: this webhook wrote attacker-supplied recordings and
+    // transcripts with no authentication at all. An unconfigured secret is a
+    // misconfiguration, not permission — nothing writes until a founder sets
+    // the secret (Admin → Integrations, or RIVERSIDE_WEBHOOK_SECRET) and
+    // Riverside is configured to send it. The response stays the inert 200
+    // shape on purpose: this endpoint never errors into a provider retry
+    // storm, and a probe learns nothing from the answer.
+    const expected = secretValue("riverside_webhook_secret");
+    const presented = String(req.headers["x-riverside-secret"] ?? "");
+    if (!expected || !presented || !secretEquals(presented, expected)) {
+      return res.json({
+        received: true,
+        discarded:
+          "unauthenticated: set the Riverside webhook secret in Admin → Integrations and send it as the x-riverside-secret header",
+      });
     }
     const { id, title, url, durationS, transcript } = req.body ?? {};
     if (!id || !String(title ?? "").trim()) return res.status(400).json({ error: "id and title required" });
@@ -5896,6 +6371,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       readyQueue: Number(queue.n),
       maxReadyQueue: Number((moduleConfig("automation") as any)?.maxReadyQueue ?? 15),
       assistantConfigured: !!(getEmailConfig().assistant_api_key || process.env.ANTHROPIC_API_KEY),
+      // The Riverside webhook fails CLOSED without its secret; the card must
+      // say so or a live integration silently stops ingesting after deploy.
+      riversideSecretConfigured: secretConfigured("riverside_webhook_secret"),
     });
   });
 
@@ -6401,13 +6879,18 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const actor = adminActor(req)?.id ?? recorder?.id ?? null;
     if (!actor) return res.status(401).json({ error: "Unauthorized" });
     const id = `regen-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    // The unit comes from the REGISTRY, never the request body. A free-text
+    // unit made totals meaningless: regenTotals does MAX(unit) per metric to
+    // label the sum, so one entry typed "ha" against a registry of "hectares"
+    // relabels every hectare the village ever recorded. Canonical by
+    // construction is the only version of this that stays true.
     await getPool().query(
       "INSERT INTO regen_entries (id, metric_key, value, unit, note, recorded_by) VALUES (?,?,?,?,?,?)",
-      [id, def.key, v, String(unit ?? def.unit).slice(0, 32), note ? String(note).slice(0, 2000) : null, actor],
+      [id, def.key, v, def.unit, note ? String(note).slice(0, 2000) : null, actor],
     );
     // The pulse can always fall back to land state: regen entries are public
     // by nature (through the preview-leak guard like everything module-borne).
-    await moduleActivity("health", "regen", `The land's ledger grew: ${v} ${String(unit ?? def.unit)} ${def.label.toLowerCase()}`, {
+    await moduleActivity("health", "regen", `The land's ledger grew: ${v} ${def.unit} ${def.label.toLowerCase()}`, {
       actorUserId: actor, entityType: "regen", entityRef: id,
     });
     res.json({ success: true, id });
@@ -7058,11 +7541,36 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     };
     const problem = badgeProblem(merged as any);
     if (problem) return res.status(400).json({ error: problem });
+    // KIND IS THE AUTHORITY EACH AWARD WAS MADE UNDER. Flipping it
+    // retroactively re-interprets every existing award: a self-claimed badge
+    // reclassified to "granted" hands its holders whatever capabilities the
+    // new definition carries, and badgeProblem's self-badge capability ban
+    // never fires because it only sees the post-merge shape. Reclassify by
+    // revoking first, or by creating a new badge.
+    if (merged.kind !== existing.kind) {
+      const [[awards]] = await getPool().query<any[]>(
+        "SELECT COUNT(*) AS n FROM badge_awards WHERE badge_id = ?",
+        [req.params.id],
+      );
+      const n = Number(awards.n);
+      if (n > 0) {
+        return res.status(409).json({
+          error: `This badge has ${n} award(s) made under its current kind ("${existing.kind}"). Revoke them first, or create a new badge — changing the kind would silently rewrite what those awards granted.`,
+          awards: n,
+        });
+      }
+    }
     await getPool().query(
       "UPDATE badges SET name=?, description=?, icon=?, kind=?, capabilities=?, denies=?, rule=?, active=? WHERE id=?",
       [merged.name, merged.description, merged.icon, merged.kind, JSON.stringify(merged.capabilities),
         JSON.stringify(merged.denies), merged.rule ? JSON.stringify(merged.rule) : null, merged.active ? 1 : 0, req.params.id],
     );
+    // Every AWARD leaves a trail; the DEFINITION they answer to did not.
+    void recordEvent(getPool(), {
+      kind: "audit", text: `badge:edit:${req.params.id}`,
+      actorUserId: (await authedUser(req))?.id ?? adminActor(req)?.id ?? null,
+      entityType: "badge", entityRef: req.params.id, audience: "admin",
+    });
     res.json({ success: true, badge: await badgeById(getPool(), req.params.id) });
   });
 
@@ -8317,11 +8825,19 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       return res.status(401).json({ error: "Unauthorized" });
     }
     const current = getEmailConfig();
+    // Refuse a malformed sender at the door rather than storing something
+    // that silently kills every email. Blank clears it (back to EMAIL_FROM).
+    if (typeof req.body.sender === "string" && req.body.sender.trim() && !validEmailSender(req.body.sender)) {
+      return res.status(400).json({
+        error: 'The sender must look like "name@example.org" or "Village Name <name@example.org>".',
+      });
+    }
     const next = {
       investor: typeof req.body.investor === "string" ? req.body.investor.trim() : current.investor,
       steward: typeof req.body.steward === "string" ? req.body.steward.trim() : current.steward,
       resident: typeof req.body.resident === "string" ? req.body.resident.trim() : current.resident,
       prosperity: typeof req.body.prosperity === "string" ? req.body.prosperity.trim() : current.prosperity,
+      sender: typeof req.body.sender === "string" ? req.body.sender.trim() : current.sender,
       // Keys deliberately absent: they live in the secrets store. An old
       // client still sending them gets routed there, attributed, below.
       resend_api_key: "",
@@ -8748,20 +9264,25 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // Public: gated investor doc request
   app.post("/api/investor-docs/request", async (req, res) => {
+    // Unthrottled, this was a free lead-spam channel AND an email cannon (it
+    // sends the packet to any address given). Cap is admin-tunable; the
+    // bucket is per-IP, so keep it generous enough for a shared NAT.
+    if (await overLimit(`investor-docs:${clientIp(req)}`, Math.max(1, numberVar("abuse.investor_docs_per_ip_hourly")), 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Too many requests. Please try again shortly." });
+    }
     const { name, email, accredited } = req.body ?? {};
     if (!name || !email || typeof accredited !== "boolean") {
       return res.status(400).json({ error: "Missing required fields" });
     }
-    // Save lead
-    const submissions: any[] = submissionsRepo.all();
+    // Save lead — one INSERT, not snapshot→push→replaceAll (the whole-table
+    // rewrite raced concurrent writers and dropped rows).
     const entry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       type: "investor-doc-request",
       data: { name, email, accredited: accredited ? "yes" : "no" },
       submittedAt: new Date().toISOString(),
     };
-    submissions.push(entry);
-    await submissionsRepo.replaceAll(submissions);
+    await submissionsRepo.insert(entry);
 
     const docs: any[] = investorDocsRepo.all();
     /*
@@ -9177,8 +9698,26 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.delete("/api/admin/quests/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // SETTLE FIRST, the same rule openStateCheck applies to modules: a claim
+    // in flight is work someone is doing or has already submitted, and
+    // deleting the quest out from under it strands the claim (badges and
+    // health both still join against it) with nothing left to consent.
+    const open = (await claimsRepo.all()).filter(
+      (c) => c.questId === req.params.id && (c.status === "claimed" || c.status === "submitted"),
+    );
+    if (open.length) {
+      return res.status(409).json({
+        error: `${open.length} member(s) have this quest in flight. Consent or decline those claims first — deleting it now would strand their work.`,
+        openClaims: open.length,
+      });
+    }
     const removed = await questsRepo.remove(req.params.id);
     if (!removed) return res.status(404).json({ error: "Not found" });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `quest:deleted:${req.params.id}`,
+      actorUserId: (await authedUser(req))?.id ?? adminActor(req)?.id ?? null,
+      entityType: "quest", entityRef: req.params.id, audience: "admin",
+    });
     res.json({ success: true });
   });
 
@@ -9248,18 +9787,58 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   // Quests: team consent (value release is always human-gated)
+  /**
+   * THE consent gate, for both routes below.
+   *
+   * `quest.consent` was declared in shared/capabilities.ts, granted by the
+   * seeded steward-circle role, and shown to members on their own progression
+   * screen as a capability they hold — and enforced by nothing: both routes
+   * asked only `isAdmin`. So every unit of recognition in a village was
+   * released by whoever holds the founder password, which is precisely the
+   * single-founder bottleneck the capability system exists to prevent.
+   *
+   * Extends the ONE gate rather than inventing a second: hasCapability over
+   * capabilityCtx, so a warning badge's deny still beats the role grant and
+   * only admin outranks it.
+   */
+  async function consentActor(
+    req: express.Request,
+  ): Promise<{ ok: true; userId: string | null; isAdminActor: boolean } | { ok: false; status: number; error: string }> {
+    if (await isAdmin(req)) {
+      return { ok: true, userId: (await authedUser(req))?.id ?? adminActor(req)?.id ?? null, isAdminActor: true };
+    }
+    const viewer = await authedUser(req);
+    if (!viewer) return { ok: false, status: 401, error: "Unauthorized" };
+    if (!hasCapability("quest.consent", await capabilityCtx(viewer))) {
+      return { ok: false, status: 403, error: "Consenting to finished work is for stewards" };
+    }
+    return { ok: true, userId: viewer.id, isAdminActor: false };
+  }
+
   app.get("/api/admin/quest-claims", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const actor = await consentActor(req);
+    if (!actor.ok) return res.status(actor.status).json({ error: actor.error });
     const claims = await claimsRepo.all();
     claims.sort((a, b) => new Date(b.claimedAt ?? 0).getTime() - new Date(a.claimedAt ?? 0).getTime());
     res.json(claims);
   });
 
   app.post("/api/admin/quest-claims/:id/consent", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const actor = await consentActor(req);
+    if (!actor.ok) return res.status(actor.status).json({ error: actor.error });
     const { approve, amount } = req.body ?? {};
     const claim = await claimsRepo.byId(req.params.id);
     if (!claim) return res.status(404).json({ error: "Not found" });
+    // NO SELF-CONSENT — load-bearing, not decorative. Consent mints
+    // recognition from the faucet, grants stay credits and advances stages;
+    // without this guard, widening the gate to role-holders would let a
+    // steward claim a quest, submit it and pay themselves. Admins are held to
+    // it too: the founder password should not be a way around it either.
+    if (claim.userId === actor.userId) {
+      return res.status(403).json({
+        error: "You cannot consent to your own claim — someone else has to witness the work.",
+      });
+    }
     if (approve === false) {
       const declined = await claimsRepo.update(claim.id, (c) => {
         c.status = "declined";
@@ -9272,9 +9851,19 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           title: `Your claim on "${declined.questTitle}" was released`,
           body: "The claim was declined or cleared — the quest is open again.",
           link: "/quests",
-          actorUserId: adminActor(req)?.id,
+          // The real actor, admin or steward: adminActor() only populates for
+          // password/admin callers, so a steward's decision was anonymous.
+          actorUserId: actor.userId,
           dedupeKey: `quest:${declined.id}:declined`,
         });
+        // The /api/admin audit middleware attributes isAdmin actors only, so
+        // a steward's decision would otherwise leave no trail at all.
+        if (!actor.isAdminActor) {
+          void recordEvent(getPool(), {
+            kind: "audit", text: `quest:declined:${declined.id}`,
+            actorUserId: actor.userId, entityType: "quest_claim", entityRef: declined.id, audience: "admin",
+          });
+        }
       }
       return res.json(declined);
     }
@@ -9300,6 +9889,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const range = parseRewardRange(consentedQuest?.gratitude);
     const capMode = stringVar("quest.consent_cap_mode");
     const granted = requested;
+    // Consent at 0 used to "succeed" while the failed ledger post zeroed the
+    // member's CACHED balance — the worst of both worlds. Now it is refused
+    // unless the village has explicitly opted into "acknowledged, no
+    // recognition" (quest.allow_zero_consent), in which case the claim
+    // completes with no ledger movement and the balance is left alone.
+    if (granted <= 0 && !boolVar("quest.allow_zero_consent")) {
+      return res.status(400).json({
+        error:
+          "Consent releases value — the amount must be at least 1. To allow consenting at zero (acknowledged, no recognition), enable 'Allow consenting at zero' in Admin → Variables → Quests.",
+      });
+    }
     if (capMode === "posted") {
       if (!range.valid) {
         return res.status(409).json({
@@ -9340,16 +9940,31 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       // retried or double-clicked consent credits exactly once, and the balance
       // column is RECOMPUTED from the ledger rather than incremented. S7:
       // recognition issues from the faucet account, so issuance is visible.
-      const credit = await postTransfer(getPool(), {
-        from: RECOGNITION_FAUCET,
-        to: memberAccount(consented.userId),
-        amount: granted,
-        source: "quest_consent",
-        sourceRef: consented.id,
-        description: `Quest consented: ${consented.questTitle}`,
-        idempotencyKey: `quest_consent:${consented.id}`,
-      });
-      const after = await members.update(claimant.id, (u: any) => { u.recognitionBalance = credit.toBalance; });
+      // At granted === 0 (allow_zero_consent) there is nothing to post and
+      // nothing to recompute: the cache write is skipped entirely — the old
+      // code assigned the failed post's toBalance (0) and wiped the member.
+      let after: any = claimant;
+      if (granted > 0) {
+        const credit = await postTransfer(getPool(), {
+          from: RECOGNITION_FAUCET,
+          to: memberAccount(consented.userId),
+          amount: granted,
+          source: "quest_consent",
+          sourceRef: consented.id,
+          description: `Quest consented: ${consented.questTitle}`,
+          idempotencyKey: `quest_consent:${consented.id}`,
+        });
+        if (!credit.ok) {
+          // The claim has already flipped; say so honestly instead of
+          // answering 200 with a wiped cache. The ledger key makes a later
+          // repair-post safe.
+          console.error(`[quests] consent credit failed for claim ${consented.id}: ${credit.error}`);
+          return res.status(500).json({
+            error: `The claim was marked consented but the credit could not be posted: ${credit.error}`,
+          });
+        }
+        after = await members.update(claimant.id, (u: any) => { u.recognitionBalance = credit.toBalance; });
+      }
       // S31 work-exchange (F2 firewall): a quest may ALSO carry stay credits,
       // released by the same human consent — a separate column, a separate
       // token, the same claim-keyed idempotency. Never blended with recognition.
@@ -9381,9 +9996,19 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         type: "quest_consented",
         title: `Your quest was consented: ${consented.questTitle} (+${granted})`,
         link: "/profile",
-        actorUserId: adminActor(req)?.id,
+        // The real actor, admin or steward (see the declines branch above).
+        actorUserId: actor.userId,
         dedupeKey: `quest:${consented.id}:consented`,
       });
+      // Releasing value must always be attributable. The /api/admin audit
+      // middleware only stamps isAdmin actors, so a steward's consent — the
+      // whole point of widening this gate — needs its own row.
+      if (!actor.isAdminActor) {
+        void recordEvent(getPool(), {
+          kind: "audit", text: `quest:consented:${consented.id}:${granted}`,
+          actorUserId: actor.userId, entityType: "quest_claim", entityRef: consented.id, audience: "admin",
+        });
+      }
       if (after) {
         const stageAfter = await stageOf(after);
         if (stageBefore) await recordStageEvent(after, stageBefore, stageAfter, `quest consented: ${consented.questTitle}`);
@@ -9595,33 +10220,22 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       // same Sybil filter the breadth metric answers to. `t.received` stays
       // the honest figure for reporting.
       const totalReceived = totals.reduce((n, t) => n + t.receivedEligible, 0);
-      let cycleCredited = 0;
+      // STICKY SPLIT: persist the WHOLE computed split before any value
+      // moves, then post from what was persisted. A close that failed
+      // half-way used to re-split a pool that was already partly out the
+      // door from LIVE data that had drifted — the ledger keys silently kept
+      // the first amounts while the report rows took the second, and the two
+      // never agreed again. The distributions repo is add-if-absent, so a
+      // retry finds the first run's basis and converges. (Rows now exist for
+      // a cycle that is not yet closed; every reader that must only see
+      // settled cycles filters on the cycle's closed status — the public
+      // report always did, and the badge breadth metric now does.)
       for (const t of totals) {
         // Pool share ∝ recognition received this lunation. floor() keeps the
         // remainder in the pool rather than minting dust.
-        let credited = 0;
-        if (poolSize > 0 && totalReceived > 0) {
-          credited = Math.floor((t.receivedEligible / totalReceived) * poolSize);
-          if (credited > 0) {
-            // Value flows from the cycle-pool faucet (S7): the pool's negative
-            // balance is the total value ever released, in one query.
-            const r = await postTransfer(getPool(), {
-              from: CYCLE_POOL_FAUCET,
-              to: memberAccount(t.userId),
-              tokenType: poolToken,
-              amount: credited,
-              source: "gratitude_pool",
-              sourceRef: cycle.id,
-              description: `Cycle pool share: ${t.received} recognition from ${t.distinctSenders} ${t.distinctSenders === 1 ? "person" : "people"}`,
-              idempotencyKey: `gratitude_pool:${cycle.cycleNumber}:${t.userId}`,
-            });
-            if (!r.ok) {
-              return res.status(500).json({ error: `pool distribution failed: ${r.error}` });
-            }
-            if (!r.duplicate) { totalCredited += credited; cycleCredited += credited; }
-          }
-        }
-        // Idempotent on (cycleId, userId): a re-run updates, never doubles.
+        const credited = poolSize > 0 && totalReceived > 0
+          ? Math.floor((t.receivedEligible / totalReceived) * poolSize)
+          : 0;
         await distributionsRepo.add({
           id: `dist-${cycle.cycleNumber}-${t.userId}`,
           cycleId: cycle.id,
@@ -9634,6 +10248,29 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           poolToken: poolSize > 0 ? poolToken : null,
           createdAt: new Date().toISOString(),
         } as DistributionRecord);
+      }
+      const persisted = (await distributionsRepo.all()).filter((d) => d.cycleId === cycle.id);
+      let cycleCredited = 0;
+      for (const d of persisted) {
+        const share = Number(d.credited ?? 0);
+        if (share > 0) {
+          // Value flows from the cycle-pool faucet (S7): the pool's negative
+          // balance is the total value ever released, in one query.
+          const r = await postTransfer(getPool(), {
+            from: CYCLE_POOL_FAUCET,
+            to: memberAccount(d.userId),
+            tokenType: (d as any).poolToken ?? poolToken,
+            amount: share,
+            source: "gratitude_pool",
+            sourceRef: cycle.id,
+            description: `Cycle pool share: ${d.received} recognition from ${d.distinctSenders} ${d.distinctSenders === 1 ? "person" : "people"}`,
+            idempotencyKey: `gratitude_pool:${cycle.cycleNumber}:${d.userId}`,
+          });
+          if (!r.ok) {
+            return res.status(500).json({ error: `pool distribution failed: ${r.error}` });
+          }
+          if (!r.duplicate) { totalCredited += share; cycleCredited += share; }
+        }
       }
       const record: CycleRecord = { ...cycle, status: "closed", closedAt: new Date().toISOString() };
       await cyclesRepo.upsert(record);
@@ -9687,7 +10324,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           : "";
         await addActivity(
           "cycle",
-          `A lunar cycle closed: ${totals.length} ${totals.length === 1 ? "member was" : "members were"} acknowledged with ${GAME_CONFIG.currency.nameLower}${poolNote}`,
+          `A lunar cycle closed: ${totals.length} ${totals.length === 1 ? "member was" : "members were"} acknowledged with ${mergedConfig().currency.nameLower}${poolNote}`,
           { actorUserId: adminActor(req)?.id, entityType: "cycle", entityRef: cycle.id },
         );
       }
@@ -9786,7 +10423,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       balance: summed,
       cachedBalance: user.recognitionBalance ?? 0,
       inSync: summed === (user.recognitionBalance ?? 0),
-      currency: GAME_CONFIG.currency.name,
+      // The village's OWN word for its recognition, not the platform default:
+      // a fork that renamed its currency in the Setup Wizard had /gratitude
+      // saying "Seeds" while the profile ledger beside it still said
+      // "Gratitude". mergedConfig() is synchronous over the boot-loaded cache.
+      currency: mergedConfig().currency.name,
       balances,
       entries: entries.map((e) => ({
         tokenType: e.tokenType,
@@ -9965,7 +10606,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.post("/api/admin/roles/:id/holders", async (req, res) => {
     const actorUser = await authedUser(req);
     const isAdminActor = await isAdmin(req);
-    const mayDecide = !!actorUser && hasCapability("proposal.decide", await capabilityCtx(actorUser));
+    const actorCtx = actorUser ? await capabilityCtx(actorUser) : null;
+    const mayDecide = !!actorCtx && hasCapability("proposal.decide", actorCtx);
     if (!isAdminActor && !mayDecide) {
       return res.status(401).json({ error: "Appointing needs the village's decision capability" });
     }
@@ -9976,12 +10618,30 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     //     self-service promotion.
     //  2. No removals. Un-seating other stewards is how a captured account
     //     would clear the room; taking a seat away stays an admin act.
+    //  3. No appointing ABOVE yourself. The first two guards blocked seating
+    //     yourself directly, but not the two-hop version: seat a second
+    //     account you control into a more powerful role, then have IT seat
+    //     you. Registration is open and unverified, so the second account
+    //     costs one request. A decider may only seat someone into a role
+    //     whose every capability they already hold themselves — checked
+    //     through hasCapability, so badge denies and stage floors still
+    //     apply, and never as a parallel permission path.
     if (!isAdminActor) {
       if (String(req.body?.userId ?? "") === actorUser!.id) {
         return res.status(403).json({ error: "Recording a decision is not appointing yourself — ask an admin, or another decider" });
       }
       if (req.body?.action === "remove") {
         return res.status(403).json({ error: "Removing a role holder is an admin act" });
+      }
+      const targetRole = loadRoles().find((r) => r.id === req.params.id);
+      const beyond = (targetRole?.capabilities ?? []).filter(
+        (c: string) => !hasCapability(c as any, actorCtx!),
+      );
+      if (beyond.length) {
+        return res.status(403).json({
+          error: `That role carries authority you do not hold yourself (${beyond.join(", ")}) — an admin has to make this appointment.`,
+          missing: beyond,
+        });
       }
     }
     // Attribution names the REAL appointer. Before F5 every seat was
@@ -10009,34 +10669,46 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       }
     }
 
-    let holders = loadRoleHolders();
-    if (action === "add") {
-      if (!holders.some((h) => h.roleId === role.id && h.userId === userId)) {
-        holders.push({
-          id: `rh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          roleId: role.id,
-          userId,
-          // S1 made this a real person instead of the string "admin".
-          grantedBy: appointer ?? "admin",
-          grantedAt: new Date().toISOString(),
-        });
-        await addActivity("role", `${firstName(member.name)} joined the ${role.name}`, { actorUserId: appointer, entityType: "role", entityRef: role.id });
-        await notify({
-          userId: member.id,
-          type: "role_appointed",
-          title: `You were appointed to the ${role.name}`,
-          body: role.description ? String(role.description).slice(0, 140) : null,
-          link: "/roles",
-          actorUserId: appointer,
-          // Keyed on the holder row: a re-appointment after removal notifies again.
-          dedupeKey: `role:${holders[holders.length - 1]?.id ?? `${role.id}:${userId}`}`,
-        });
+    // The snapshot→mutate→replaceAll cycle runs under the role-holder lock so
+    // concurrent appointments cannot erase each other; the pulse line and the
+    // notification (which can sit on an SMTP round trip) run AFTER the write,
+    // so a failed write never announces an appointment that did not happen.
+    let appointedHolderId: string | null = null;
+    const finalHolders = await withRoleHolderLock(async () => {
+      let holders = loadRoleHolders();
+      if (action === "add") {
+        if (!holders.some((h) => h.roleId === role.id && h.userId === userId)) {
+          const row = {
+            id: `rh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            roleId: role.id,
+            userId,
+            // S1 made this a real person instead of the string "admin".
+            grantedBy: appointer ?? "admin",
+            grantedAt: new Date().toISOString(),
+          };
+          holders.push(row);
+          appointedHolderId = row.id;
+        }
+      } else {
+        holders = holders.filter((h) => !(h.roleId === role.id && h.userId === userId));
       }
-    } else {
-      holders = holders.filter((h) => !(h.roleId === role.id && h.userId === userId));
+      await roleHoldersRepo.replaceAll(holders);
+      return holders;
+    });
+    if (appointedHolderId) {
+      await addActivity("role", `${firstName(member.name)} joined the ${role.name}`, { actorUserId: appointer, entityType: "role", entityRef: role.id });
+      await notify({
+        userId: member.id,
+        type: "role_appointed",
+        title: `You were appointed to the ${role.name}`,
+        body: role.description ? String(role.description).slice(0, 140) : null,
+        link: "/roles",
+        actorUserId: appointer,
+        // Keyed on the holder row: a re-appointment after removal notifies again.
+        dedupeKey: `role:${appointedHolderId}`,
+      });
     }
-    await roleHoldersRepo.replaceAll(holders);
-    res.json({ roleId: role.id, userId, action, holders: holders.filter((h) => h.roleId === role.id).length });
+    res.json({ roleId: role.id, userId, action, holders: finalHolders.filter((h) => h.roleId === role.id).length });
   });
 
   // Village pulse: public activity feed (S11: reads the event spine; the
@@ -10210,6 +10882,22 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       ? path.resolve(__dirname, "public")
       : path.resolve(__dirname, "..", "dist", "public");
 
+  /*
+   * Two separate mounts, and the split is the whole point.
+   *
+   * The bundle shipped uncompressed (~1.55 MB on the wire) with
+   * `Cache-Control: max-age=0` on every content-hashed asset, so a member on
+   * rural mobile data re-downloaded the entire app on every visit. gzip takes
+   * that to roughly a quarter, and hashed filenames are by definition
+   * immutable — a year-long cache on /assets is free.
+   *
+   * What must NOT happen is putting maxAge on the bare static mount below:
+   * serve-static's `index` option means that handler also serves `/`, and an
+   * immutable year on index.html pins members to a dead bundle hash — the
+   * stale-index white screen the comment further down exists to prevent.
+   */
+  app.use(compression());
+  app.use("/assets", express.static(path.join(staticPath, "assets"), { maxAge: "1y", immutable: true }));
   app.use(express.static(staticPath));
 
   /*
@@ -10271,9 +10959,25 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   console.log(`[startup] staticPath exists=${staticExists}`);
   console.log(`[startup] index.html exists=${indexExists}`);
   console.log(`[startup] PORT=${port}`);
+  // Arm the scheduler tick only now that every boot stage has succeeded and
+  // every registerJob call above has run. See the note at the old call site.
+  startScheduler(getPool());
   server.listen(port, "0.0.0.0", () => {
     console.log(`[startup] Server listening on 0.0.0.0:${port}`);
   });
 }
 
-startServer().catch(console.error);
+// A failed boot must be fatal, not a log line: the scheduler timer used to be
+// armed before the failure point, so a caught rejection left a half-up process
+// that never served yet kept running jobs that move value. Exit inside 2s —
+// safely under the scheduler's 15s first tick — and let the platform's restart
+// policy make the outage visible instead of silent.
+startServer().catch((e) => {
+  console.error("[startup] refusing to serve:", e);
+  // exitCode covers the drain path (an early failure leaves nothing on the
+  // event loop, so the unref'd timer below would never fire and the process
+  // would exit 0); the timer covers the keep-alive path (an open pool or
+  // socket would otherwise hold a broken process up forever).
+  process.exitCode = 1;
+  setTimeout(() => process.exit(1), 2000).unref();
+});

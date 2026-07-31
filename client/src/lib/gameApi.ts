@@ -1,7 +1,13 @@
 // Platform game API client. All project-specific naming comes from /api/game/config.
 import { useEffect, useState } from "react";
 
-const TOKEN_KEY = "amora-auth-token";
+/**
+ * The ONE localStorage key for the session token. Exported so nothing else
+ * re-types the literal: eight hand-written copies is eight chances for a
+ * fork's rename to miss one and split the session in half (a page reading a
+ * key nothing writes reads as permanently signed out).
+ */
+export const TOKEN_KEY = "amora-auth-token";
 
 export interface BrandImages {
   hero?: string;

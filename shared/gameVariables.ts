@@ -172,6 +172,15 @@ export const VARIABLES: VariableDef[] = [
     type: "boolean",
     default: "true",
   },
+  {
+    key: "quest.allow_zero_consent",
+    category: "Quests",
+    label: "Allow consenting at zero",
+    description:
+      "When on, a claim can be consented with an amount of 0 — 'acknowledged, no recognition'. The claim completes and any stay-credit reward still releases, but no recognition moves. When off, consent must release at least 1.",
+    type: "boolean",
+    default: "false",
+  },
 
   // ── Governance: the informal step before Hypha ────────────────────────────
   {
@@ -317,6 +326,70 @@ export const VARIABLES: VariableDef[] = [
 
   // ── Data lifecycle (S18). Every fork inherits this posture — Gate F's
   //    legal scope includes data protection (Costa Rica Law 8968). ──────────
+  // ── Abuse guards: throttles on the public writers ─────────────────────────
+  // Per-IP unless stated. These are ceilings on ABUSE, not on members: keep
+  // them generous — a whole village behind one NAT shares each IP bucket.
+  {
+    key: "abuse.register_per_ip_hourly",
+    category: "Abuse guards",
+    label: "Registrations per IP per hour",
+    description:
+      "How many account registrations one IP address may attempt per hour. Also bounds how fast an outsider can probe which email addresses belong to members. An onboarding gathering behind one shared connection counts as one IP, so keep this comfortably above the size of a signup circle.",
+    type: "integer",
+    default: "30",
+    min: 1,
+    max: 1000,
+    unit: "per hour",
+  },
+  {
+    key: "abuse.login_ip_per_quarter_hour",
+    category: "Abuse guards",
+    label: "Failed logins per IP per 15 minutes",
+    description:
+      "How many FAILED sign-in attempts one IP address may make per 15 minutes. Successful sign-ins never count. The per-account limit below is the real brute-force bound; this one only caps bulk abuse from a single address, so it can stay loose.",
+    type: "integer",
+    default: "30",
+    min: 1,
+    max: 1000,
+    unit: "per 15 min",
+  },
+  {
+    key: "abuse.login_account_per_quarter_hour",
+    category: "Abuse guards",
+    label: "Failed logins per account per 15 minutes",
+    description:
+      "How many FAILED sign-in attempts any one account may receive per 15 minutes, from all addresses combined — the bound an attacker with many IPs cannot dodge. Successful sign-ins never count. Anyone who knows an address can briefly lock that account out by failing on purpose, so do not set this too low.",
+    type: "integer",
+    default: "10",
+    min: 1,
+    max: 100,
+    unit: "per 15 min",
+  },
+  {
+    key: "abuse.password_reset_per_ip_hourly",
+    category: "Abuse guards",
+    label: "Password-reset requests per IP per hour",
+    description:
+      "How many 'forgot password' requests one IP address may make per hour. Each one can send an email, so this bounds using the village as a mail cannon. A separate per-address limit always applies as well, so one member cannot be mail-bombed from many addresses.",
+    type: "integer",
+    default: "10",
+    min: 1,
+    max: 200,
+    unit: "per hour",
+  },
+  {
+    key: "abuse.investor_docs_per_ip_hourly",
+    category: "Abuse guards",
+    label: "Investor-packet requests per IP per hour",
+    description:
+      "How many investor document requests one IP address may make per hour. Each request stores a lead and emails the packet to the address given, so unthrottled it doubles as a spam cannon. Several genuine investors behind one corporate network share a bucket — keep this above 1.",
+    type: "integer",
+    default: "3",
+    min: 1,
+    max: 100,
+    unit: "per hour",
+  },
+
   {
     key: "retention.submissions_days",
     category: "Data lifecycle",

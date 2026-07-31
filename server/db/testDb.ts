@@ -54,6 +54,9 @@ export async function provisionTestDb(): Promise<TestDb> {
   u.pathname = `/${TEST_SCHEMA}`;
   const url = u.toString();
   const conn = await mysql.createConnection({ uri: url, timezone: "Z" });
+  // Same session pin as the pool and the migration engine: the scratch schema
+  // must not be the one place NOW() means something else.
+  await conn.query("SET time_zone = '+00:00'");
   const result = await applyPending(conn);
   if (result.failed) {
     await conn.end();

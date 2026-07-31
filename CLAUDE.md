@@ -108,6 +108,9 @@ time so `/health` cannot report a build that isn't running.
   (`splitStatements`, `server/db/migrate.ts`). A `--` comment ending in `;` once cut a
   statement in half (migration 0015). Comment lines are now stripped first, but keep `--`
   comments on their own lines and never end one with `;`.
+- **A shipped migration file is never edited.** A part-applied file resumes at its
+  recorded statement offset (`_migrations_partial`) instead of replaying DDL, so editing
+  one that has run anywhere resumes at the wrong place. Fix forward with a new file.
 - **PowerShell**: `Set-Content -Encoding utf8` double-encodes non-ASCII. Write files with
   the Write/Edit tools, never shell redirection.
 - **MySQL UNIQUE indexes exempt NULLs** — a nullable column in a unique key admits infinite

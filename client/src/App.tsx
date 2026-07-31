@@ -72,6 +72,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/profiles": "Members",
   "/login": "Sign in",
   "/set-password": "Choose a password",
+  "/forgot-password": "Set a new password",
   "/exit-policy": "Leaving well",
   "/tools": "Tools",
   "/admin": "Village settings",
@@ -123,6 +124,7 @@ import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import SetPassword from "./pages/SetPassword";
+import ForgotPassword from "./pages/ForgotPassword";
 import GoodNeighbor from "./pages/GoodNeighbor";
 import JourneyToLaunch from "./pages/JourneyToLaunch";
 import ProjectHistory from "./pages/ProjectHistory";
@@ -195,6 +197,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/set-password" component={SetPassword} />
+      <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/good-neighbor" component={GoodNeighbor} />
       <Route path="/steward-rights" component={StewardRights} />
       <Route path="/resident-rights" component={ResidentRights} />
