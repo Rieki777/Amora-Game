@@ -21,6 +21,7 @@ import {
   CircleDot,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import CircleScene from "@/components/CircleScene";
 
 interface CircleEntry {
   id: string;
@@ -33,6 +34,8 @@ interface CircleEntry {
   focus: string[];
   icon?: string;
   color?: string;
+  /** Optional scene override (motif id or /api/uploads/…); keywords otherwise. */
+  scene?: string;
 }
 
 /** Icon names a card may reference; anything unknown falls back to CircleDot. */
@@ -58,8 +61,13 @@ function CircleCard({ circle, expanded, onToggle, index }: {
     >
       <button
         onClick={onToggle}
-        className="w-full text-left bg-card hover:bg-card/80 transition-colors p-6 rounded-xl border border-border"
+        className="w-full text-left bg-card hover:bg-card/80 transition-colors rounded-xl border border-border overflow-hidden"
       >
+        {/* The circle's scene: foundation art chosen by what the circle is
+            about (shared/circleScenes.ts), drawn in the village's own palette
+            via the tone tokens. Decorative — the name below carries meaning. */}
+        <CircleScene circle={circle} />
+        <div className="p-6">
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-4 flex-1">
             <div className={`w-12 h-12 ${color} rounded-lg flex items-center justify-center flex-shrink-0 mt-1`}>
@@ -79,6 +87,7 @@ function CircleCard({ circle, expanded, onToggle, index }: {
           <ChevronDown
             className={`w-5 h-5 text-muted-foreground transition-transform flex-shrink-0 ${expanded ? "rotate-180" : ""}`}
           />
+        </div>
         </div>
       </button>
 

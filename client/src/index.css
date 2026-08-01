@@ -82,14 +82,21 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   
-  /* Amora Brand Colors - EXACT values from Official Brand Guidelines */
-  --color-teal-deep: #157f7d;      /* Official primary deep teal */
-  --color-teal: #7fb8ac;           /* Official seafoam teal */
-  --color-teal-light: #3a9896;     /* Medium teal - AA contrast with white */
-  --color-aqua: #83a7ad;           /* Official blue-gray teal */
-  --color-aqua-light: #c6dde0;     /* Very light aqua */
-  --color-cream: #efe8d7;          /* Official warm cream/beige */
-  --color-amber: #ecb163;          /* Official golden amber accent */
+  /* The brand tone layer. Each historical colour name now resolves through a
+     runtime --tone-* variable, with the original hex as the FALLBACK — so an
+     untouched deployment renders pixel-identically to before, and a village
+     that picks a seed colour in Admin → Look re-themes every one of these at
+     once via /api/brand/theme.css (derivation in shared/brandTokens.ts, every
+     pairing WCAG-measured before it ships). The var() indirection survives
+     @theme inline because the reference itself is what gets inlined into the
+     generated utilities — same mechanism as the shadcn block above. */
+  --color-teal-deep: var(--tone-brand, #157f7d);
+  --color-teal: var(--tone-brand-soft, #7fb8ac);
+  --color-teal-light: var(--tone-brand-mid, #3a9896);
+  --color-aqua: var(--tone-mist, #83a7ad);
+  --color-aqua-light: var(--tone-mist-light, #c6dde0);
+  --color-cream: var(--tone-cream, #efe8d7);
+  --color-amber: var(--tone-sun, #ecb163);
   --color-gray-light: #f2f2f2;     /* Official light gray */
   /* UI accent colors - warm tones, dark enough for white text (WCAG AA) */
   --color-gold: #a06b1c;           /* Warm amber-gold - 6.2:1 contrast vs white */

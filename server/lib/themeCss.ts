@@ -29,7 +29,13 @@
  * bundle's <link> after this one, and load order must not decide who wins.
  */
 
+import { deriveTheme } from "../../shared/brandTokens";
+
 export interface BrandThemeFields {
+  /** The three founder decisions (docs/DESIGN_TOKENS_SPEC.md §3.1). */
+  seed?: string;
+  character?: string;
+  place?: string;
   /** URL of a CSS file carrying the village's @font-face declarations. */
   fontImportUrl?: string;
   /** Full font-family stacks; blank = keep the platform default. */
@@ -105,9 +111,19 @@ export function buildThemeCss(theme: BrandThemeFields | null | undefined): strin
   }
 
   const vars: string[] = [];
-  const display = sanitizeFontStack(theme.fontDisplay);
-  const body = sanitizeFontStack(theme.fontBody);
-  const accent = sanitizeFontStack(theme.fontAccent);
+
+  // The palette: everything derives from (seed, character). deriveTheme's
+  // output is our own hex — no sanitising needed — and its absence is the
+  // neutral fork emitting nothing. The card also implies a type pairing,
+  // which an EXPLICIT font choice below always beats.
+  const derived = deriveTheme(theme.seed, theme.character);
+  if (derived) {
+    for (const [k, v] of Object.entries(derived.vars)) vars.push(`  ${k}: ${v};`);
+  }
+
+  const display = sanitizeFontStack(theme.fontDisplay) ?? (derived ? derived.fonts.display : null);
+  const body = sanitizeFontStack(theme.fontBody) ?? (derived ? derived.fonts.body : null);
+  const accent = sanitizeFontStack(theme.fontAccent) ?? (derived ? derived.fonts.accent : null);
   if (display) vars.push(`  --font-display: ${display};`);
   if (body) vars.push(`  --font-body: ${body};`);
   if (accent) vars.push(`  --font-accent: ${accent};`);

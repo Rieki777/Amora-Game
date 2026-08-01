@@ -484,7 +484,7 @@ const DEFAULT_BRAND = {
   // brings its own font hosts a CSS file with the @font-face (their server,
   // their volume, their licence), points fontImportUrl at it, and names the
   // face first in fontDisplay. Emitted — sanitised — by /api/brand/theme.css.
-  theme: { fontImportUrl: "", fontDisplay: "", fontBody: "", fontAccent: "", fontFaceName: "", fontFaceUrl: "" },
+  theme: { seed: "", character: "", place: "", fontImportUrl: "", fontDisplay: "", fontBody: "", fontAccent: "", fontFaceName: "", fontFaceUrl: "" },
 };
 
 // "Work With Us" content — editable per project so the exchange types, the intro,
