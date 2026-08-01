@@ -7,6 +7,37 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ModuleProvider } from "./modules/ModuleProvider";
+import { chooseLanding, getPreference, recordVisit, wasMapAvailable } from "./lib/landing";
+
+/**
+ * After two visits, "/" means the map (client/src/lib/landing.ts has the
+ * rules; an explicit member choice always wins). The redirect happens here,
+ * synchronously, before Home renders — deciding after the module catalogue
+ * loads would flash the welcome page and then yank it away. The price of
+ * deciding early is that map availability is one visit stale (cached by the
+ * map page itself); the safe direction is built in, because a stale "not
+ * available" just means the welcome page.
+ *
+ * `useState` initialiser, not `useEffect`: the visit must be counted exactly
+ * once per page load, before first paint, and effects run twice in dev
+ * StrictMode.
+ */
+function useLanding(): "home" | "map" {
+  const [landing] = useState(() => {
+    const visits = recordVisit();
+    return chooseLanding({ visits, preference: getPreference(), mapAvailable: wasMapAvailable() });
+  });
+  return landing;
+}
+
+function LandingRoute() {
+  const landing = useLanding();
+  const [, navigate] = useLocation();
+  useEffect(() => {
+    if (landing === "map") navigate("/map", { replace: true });
+  }, [landing, navigate]);
+  return landing === "home" ? <Home /> : null;
+}
 
 function ScrollToTop() {
   const [location] = useLocation();
@@ -223,7 +254,7 @@ function Router() {
     <ErrorBoundary key={location}>
     <Suspense fallback={<PageLoading />}>
     <Switch>
-      <Route path="/" component={Home} />
+      <Route path="/" component={LandingRoute} />
       <Route path="/journey-to-launch" component={JourneyToLaunch} />
       <Route path="/project-history" component={ProjectHistory} />
       <Route path="/feedback" component={Feedback} />

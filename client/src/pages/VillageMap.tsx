@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { layoutMap, type LayoutCircle } from "@shared/mapLayout";
 import { authToken } from "@/lib/gameApi";
+import { getPreference, rememberMapAvailable, setPreference } from "@/lib/landing";
 import { ChevronDown, Compass, Hand, Mail, Search, X } from "lucide-react";
 
 interface MapRole {
@@ -52,6 +53,14 @@ export default function VillageMap() {
       .catch((status) => { if (status === 401) setDenied(true); });
   }, [mapModule?.id]);
 
+  // Cache visibility for the landing decision on the NEXT visit (landing.ts).
+  // Recorded from the viewer's own catalogue, so "available" means available
+  // to this person, not merely enabled — a member's map does not leak into a
+  // signed-out visitor's landing.
+  useEffect(() => {
+    if (modules.loaded) rememberMapAvailable(Boolean(mapModule));
+  }, [modules.loaded, mapModule?.id]);
+
   if (modules.loaded && !mapModule) return <NotFound />;
 
   return (
@@ -63,6 +72,7 @@ export default function VillageMap() {
             Circles of care, the roles that hold them, and the seats waiting for
             someone like you.
           </p>
+          <LandingToggle />
         </div>
       </section>
 
@@ -488,5 +498,38 @@ function ConciergeBar({ onPick }: { onPick: (kind: string, id: string) => void }
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The consent line for "the map is now your home page".
+ *
+ * The automatic switch (landing.ts) happens on the third visit without
+ * asking — which is only acceptable if the way back is visible AT the place
+ * you were brought to, at the moment it first happens. A setting buried in a
+ * profile page would make the switch feel like a hijack; a single sentence
+ * right under the title makes it feel like a door someone left open.
+ *
+ * Both choices write an explicit preference, which outranks the visit count
+ * forever — including "map", so choosing to stay stops being implicit.
+ */
+function LandingToggle() {
+  const [pref, setPref] = useState(() => getPreference());
+  if (pref === "home") return null; // they chose the welcome page; honour it quietly
+  return (
+    <p className="mt-4 text-xs text-muted-foreground">
+      {pref === "map" ? (
+        <>The map is your home page.{" "}</>
+      ) : (
+        <>Returning visitors land here.{" "}</>
+      )}
+      <button
+        type="button"
+        className="underline underline-offset-2 hover:text-foreground"
+        onClick={() => { setPreference("home"); setPref("home"); }}
+      >
+        Show me the welcome page instead
+      </button>
+    </p>
   );
 }
