@@ -6058,7 +6058,7 @@ function VariablesTab({ password }: { password: string }) {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search dials — try a word from the name, key or description…"
+            placeholder="Search dials: a word from the name, key or description"
             aria-label="Search game variables"
             className="w-full border border-gray-200 rounded-xl pl-3 pr-9 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/30"
           />
@@ -6076,7 +6076,7 @@ function VariablesTab({ password }: { password: string }) {
         {search && !loading && (
           <p className="text-xs text-gray-500 mt-1.5" role="status">
             {filtered.length === 0
-              ? `Nothing matches "${search}" — try one word, or part of a key like "gratitude" or "quest".`
+              ? `Nothing matches "${search}". Try one word, or part of a key like "gratitude" or "quest".`
               : `${filtered.length} of ${vars.length} dial${filtered.length === 1 ? "" : "s"} match`}
           </p>
         )}
