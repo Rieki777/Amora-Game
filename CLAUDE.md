@@ -20,13 +20,14 @@ code carries no village's brand — that rule is enforced mechanically (see Gate
 `MODULES_MASTER_PLAN.md` Part 1 is known-stale; never trust it over code. The repo skill lives
 in `.claude/skills/`.
 
-## Gates — all four before calling anything done
+## Gates — all five before calling anything done
 
 ```
 pnpm check                          # tsc --noEmit
 pnpm build                          # vite client + esbuild server -> dist/
 pnpm test                           # vitest run — see loop-test rules first
 node scripts/check-brand-refs.mjs   # brand ratchet
+node scripts/check-voice.mjs        # house writing rules on shipped copy
 ```
 
 The build marker is stamped from the git SHA by `scripts/build-server.mjs` — never hand-edit
@@ -117,6 +118,26 @@ time so `/health` cannot report a build that isn't running.
   duplicates. Dedupe columns must be NOT NULL.
 - **BigInt literals** (`123n`) break the build target. Use `BigInt("...")`.
 - **`vitest -t`** breaks the order-dependent loop test. Run whole files.
+- **A copy change can break a test by capitalization alone.** Assertions use `toContain`
+  on a phrase; turning an em-dash into a period capitalizes the next word and the match
+  dies. Grep test files CASE-SENSITIVELY before editing any string, and reach for a colon
+  or a comma when the asserted phrase would otherwise start a new sentence.
+
+## House voice
+
+`scripts/check-voice.mjs` holds shipped language to the writing rules in
+`second-brain/90 Voice Profile/Rye Voice Profile.md`: no em-dashes or en-dashes (hyphens are
+fine), no contrast framing (`not X but Y`, `rather than`), no AI filler vocabulary, no
+rhetorical-question openers used as filler, no passive inspiration.
+
+It parses every file with the TypeScript compiler and reads ONLY real copy: JSX text and
+string or template literals. Comments, identifiers, imports and className soup are invisible
+to it, which is why it can be a hard gate instead of a warning. Attribute and property names
+that carry machinery rather than prose (`className`, `href`, `slug`, `icon`, and the rest of
+`NON_COPY_KEYS`) are skipped, and tests are exempt. `--json` emits a worklist.
+
+A genuine false positive takes an inline `voice-ok: <reason>`; waivers are counted and
+printed so they stay honest. New copy is born clean.
 
 ## White-label discipline
 

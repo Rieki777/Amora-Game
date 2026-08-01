@@ -53,6 +53,13 @@ jobs:
         # would travel with it.
         run: node scripts/check-brand-refs.mjs
 
+      - name: Voice guard
+        # Shipped language follows the house writing rules (the Rye Voice
+        # Profile). It reads only JSX text and string literals, parsed with
+        # the TypeScript compiler, so comments and classNames cannot trip it.
+        # A genuine false positive takes an inline `voice-ok: <reason>`.
+        run: node scripts/check-voice.mjs
+
       - name: Build
         run: pnpm build
 
