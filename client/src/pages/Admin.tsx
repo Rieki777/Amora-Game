@@ -5925,6 +5925,7 @@ function VariablesTab({ password }: { password: string }) {
   const [loading, setLoading] = useState(true);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -5963,8 +5964,22 @@ function VariablesTab({ password }: { password: string }) {
     setSaving(null);
   };
 
+  // Search across everything a founder might remember a dial by: its label,
+  // key, description, category, unit — even a choice's wording. Every
+  // space-separated term must match somewhere, so "gratitude cap" narrows
+  // rather than widens.
+  const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = (v: any): boolean => {
+    if (terms.length === 0) return true;
+    const hay = [
+      v.label, v.key, v.description, v.category, v.unit ?? "", v.value ?? "",
+      ...(Array.isArray(v.choices) ? v.choices.map((c: any) => `${c.label} ${c.hint ?? ""}`) : []),
+    ].join(" ").toLowerCase();
+    return terms.every((t) => hay.includes(t));
+  };
+  const filtered = vars.filter(matches);
   const byCategory: Record<string, any[]> = {};
-  for (const v of vars) (byCategory[v.category] ??= []).push(v);
+  for (const v of filtered) (byCategory[v.category] ??= []).push(v);
 
   return (
     <div>
@@ -5977,6 +5992,35 @@ function VariablesTab({ password }: { password: string }) {
         </p>
       </div>
       <IntegrateDaoPanel password={password} onAssigned={load} />
+      <div className="mb-6">
+        <div className="relative max-w-md">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search dials — try a word from the name, key or description…"
+            aria-label="Search game variables"
+            className="w-full border border-gray-200 rounded-xl pl-3 pr-9 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/30"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm px-1"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        {search && !loading && (
+          <p className="text-xs text-gray-500 mt-1.5" role="status">
+            {filtered.length === 0
+              ? `Nothing matches "${search}" — try one word, or part of a key like "gratitude" or "quest".`
+              : `${filtered.length} of ${vars.length} dial${filtered.length === 1 ? "" : "s"} match`}
+          </p>
+        )}
+      </div>
       {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
         <div className="space-y-8">
           {Object.entries(byCategory).map(([cat, list]) => (
