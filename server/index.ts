@@ -484,6 +484,7 @@ const DEFAULT_BRAND = {
   // brings its own font hosts a CSS file with the @font-face (their server,
   // their volume, their licence), points fontImportUrl at it, and names the
   // face first in fontDisplay. Emitted — sanitised — by /api/brand/theme.css.
+  identityPack: { description: "", never: "", references: [] as Array<{url:string;thumbUrl?:string}>, rightsAck: undefined as undefined | { at: string } },
   theme: { seed: "", character: "", place: "", fontImportUrl: "", fontDisplay: "", fontBody: "", fontAccent: "", fontFaceName: "", fontFaceUrl: "" },
 };
 
@@ -1349,6 +1350,8 @@ function getBrand() {
     // added to DEFAULT_BRAND but not listed here is silently dropped on every
     // read — theme was stored fine and vanished before it reached theme.css.
     theme: { ...DEFAULT_BRAND.theme, ...((b as any).theme ?? {}) },
+    // Same drop-on-read trap as theme: getBrand REBUILDS from named sections.
+    identityPack: { ...DEFAULT_BRAND.identityPack, ...((b as any).identityPack ?? {}) },
   };
 }
 
@@ -10094,6 +10097,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       // stylesheet, never an injected one. Rejecting at write time too would
       // mean two sanitisers to keep in agreement forever.
       theme: { ...(current as any).theme, ...(req.body.theme ?? {}) },
+      identityPack: { ...(current as any).identityPack, ...(req.body.identityPack ?? {}) },
     };
     await brandRepo.put(next);
     res.json({ success: true, brand: next });

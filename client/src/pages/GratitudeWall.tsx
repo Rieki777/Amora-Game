@@ -4,6 +4,7 @@ import { gameFetch, fetchGameMe, GameMe } from "@/lib/gameApi";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { Heart, Send, Sparkles } from "lucide-react";
+import CycleClock from "@/components/CycleClock";
 
 interface WallEntry {
   id: string;
@@ -83,6 +84,8 @@ export default function GratitudeWall() {
 
       <section className="bg-stone-50 py-14">
         <div className="container max-w-2xl mx-auto px-4">
+          {/* The clock the economy runs on: lunation, season, the four turnings. */}
+          <div className="mb-10"><CycleClock /></div>
           {user ? (
             <form onSubmit={send} className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6 mb-10">
               <div className="flex items-center justify-between mb-4">
@@ -94,7 +97,7 @@ export default function GratitudeWall() {
                 ) : budget && budget.total <= 0 ? (
                   <span className="text-xs text-stone-400 italic">Your sending budget unlocks as you progress</span>
                 ) : (
-                  <span className="text-xs text-stone-400 italic">We couldn't load your budget — reload to see it</span>
+                  <span className="text-xs text-stone-400 italic">We couldn't load your budget, reload to see it</span>
                 )}
               </div>
               <div className="grid md:grid-cols-[1fr_110px] gap-3 mb-3">
@@ -142,7 +145,7 @@ export default function GratitudeWall() {
                   after clicking: say so, and stop offering the button. */}
               {budget && budget.remaining <= 0 && budget.total > 0 && (
                 <p className="text-sm text-amber-700 mb-3">
-                  You've given your whole budget this cycle — it refills when the lunar cycle turns.
+                  You've given your whole budget this cycle. It refills when the lunar cycle turns.
                 </p>
               )}
               {/* An UNKNOWN budget no longer disables Send: the server's own

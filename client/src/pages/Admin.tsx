@@ -9,6 +9,7 @@ import { holdCancelled, swipeIntent } from "@/lib/gestures";
 const API_BASE = "/api";
 import TypographyPanel from "@/components/TypographyPanel";
 import LookPanel from "@/components/LookPanel";
+import IdentityPackPanel from "@/components/IdentityPackPanel";
 const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
 
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
@@ -6533,6 +6534,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
             Self-contained component — see client/src/components/TypographyPanel.tsx. */}
         <LookPanel password={password} />
         <TypographyPanel password={password} />
+        <IdentityPackPanel password={password} />
       </Section>
 
       <Section id="numbers" n={3} title="Numbers" subtitle="The editable figures on your site.">
