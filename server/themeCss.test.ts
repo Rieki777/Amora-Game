@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildThemeCss, sanitizeFontStack, sanitizeImportUrl } from "./lib/themeCss";
+import { buildThemeCss, fontFormatOf, sanitizeFontName, sanitizeFontStack, sanitizeImportUrl } from "./lib/themeCss";
 
 describe("theme.css emission", () => {
   it("emits nothing for an untouched fork", () => {
@@ -23,6 +23,40 @@ describe("theme.css emission", () => {
 
   it("accepts a same-origin uploads path", () => {
     expect(sanitizeImportUrl("/api/uploads/brand-123-abcde.css")).toBe("/api/uploads/brand-123-abcde.css");
+  });
+
+  describe("uploaded font packages", () => {
+    it("emits a complete @font-face for an uploaded file", () => {
+      const css = buildThemeCss({
+        fontFaceName: "Village Hand",
+        fontFaceUrl: "/api/uploads/brand-font-123-abcde.woff2",
+      });
+      expect(css).toContain('font-family: "Village Hand";');
+      expect(css).toContain('src: url("/api/uploads/brand-font-123-abcde.woff2") format("woff2");');
+      expect(css).toContain("font-display: swap;");
+    });
+
+    it("emits NOTHING for half a declaration", () => {
+      // A name without a file, or a file without a name, would LOOK
+      // configured while silently rendering the fallback.
+      expect(buildThemeCss({ fontFaceName: "Village Hand" })).toBe("");
+      expect(buildThemeCss({ fontFaceUrl: "/api/uploads/brand-font-1-a.woff2" })).toBe("");
+      // Unknown extension: no format hint, no declaration.
+      expect(buildThemeCss({ fontFaceName: "X", fontFaceUrl: "/api/uploads/brand-font-1-a.css" })).toBe("");
+    });
+
+    it("derives the format browsers want from the extension", () => {
+      expect(fontFormatOf("/api/uploads/a.woff2")).toBe("woff2");
+      expect(fontFormatOf("/api/uploads/a.ttf")).toBe("truetype");
+      expect(fontFormatOf("/api/uploads/a.otf")).toBe("opentype");
+      expect(fontFormatOf("/api/uploads/a.exe")).toBeNull();
+    });
+
+    it("rejects a family name that could escape its quotes", () => {
+      expect(sanitizeFontName('A"; } body { display:none } @font-face { font-family: "B')).toBeNull();
+      expect(sanitizeFontName("Village Hand")).toBe("Village Hand");
+      expect(sanitizeFontName("  ")).toBeNull();
+    });
   });
 
   describe("hostile input is discarded whole, never repaired", () => {

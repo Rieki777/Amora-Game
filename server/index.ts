@@ -14,7 +14,7 @@ import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { ALL_CAPABILITIES, hasCapability, STAGE_UNLOCKS, type Capability } from "../shared/capabilities";
 import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } from "./lib/variables";
-import { buildThemeCss } from "./lib/themeCss";
+import { buildThemeCss, sanitizeFontName } from "./lib/themeCss";
 import { applyTimingOf, ringOf, VARIABLES_BY_KEY } from "../shared/gameVariables";
 import { CONSTITUTION } from "../shared/constitution";
 import {
@@ -467,22 +467,22 @@ const DEFAULT_BRAND = {
   // brings its own font hosts a CSS file with the @font-face (their server,
   // their volume, their licence), points fontImportUrl at it, and names the
   // face first in fontDisplay. Emitted — sanitised — by /api/brand/theme.css.
-  theme: { fontImportUrl: "", fontDisplay: "", fontBody: "", fontAccent: "" },
+  theme: { fontImportUrl: "", fontDisplay: "", fontBody: "", fontAccent: "", fontFaceName: "", fontFaceUrl: "" },
 };
 
 // "Work With Us" content — editable per project so the exchange types, the intro,
 // and the AI guide's name/greeting aren't hardcoded to Amora.
 const DEFAULT_WORK_WITH_US = {
   intro:
-    "We grow through the people who bring their gifts to us. We welcome ideas, offerings, and ventures — a garden, a piece of infrastructure, a service, a craft, a program, or something we haven't yet imagined. Propose it here.",
+    "We grow through the people who bring their gifts to us. We welcome ideas, offerings, and ventures: a garden, a piece of infrastructure, a service, a craft, a program, or something we haven't yet imagined. Propose it here.",
   assistantName: "Maia",
   assistantGreeting:
-    "Hi, I'm {name} — I help people shape their offering to the village. There's no wrong way to start. What are you dreaming of bringing?",
+    "Hi, I'm {name}. I help people shape their offering to the village. There's no wrong way to start. What are you dreaming of bringing?",
   reciprocityOptions: [
-    { value: "Financial - Cash", title: "Financial — Cash", desc: "A direct payment for your work, materials, or service — upfront, on milestones, or on completion." },
-    { value: "Tokens", title: "Tokens", desc: "Value held within the community ecosystem — credit you can use at the café and across the village." },
-    { value: "Joint Venture", title: "Joint Venture", desc: "You operate autonomously, and the community holds a share — e.g. 10% of revenue in exchange for rent or water infrastructure." },
-    { value: "Memorandum of Understanding", title: "Memorandum of Understanding", desc: "A clear, living exchange of contribution — e.g. you grow vegetables, share some harvest, and add to the beauty of the land." },
+    { value: "Financial - Cash", title: "Financial: Cash", desc: "A direct payment for your work, materials, or service: upfront, on milestones, or on completion." },
+    { value: "Tokens", title: "Tokens", desc: "Value held within the community ecosystem, credit you can use at the café and across the village." },
+    { value: "Joint Venture", title: "Joint Venture", desc: "You operate autonomously, and the community holds a share. For example, 10% of revenue in exchange for rent or water infrastructure." },
+    { value: "Memorandum of Understanding", title: "Memorandum of Understanding", desc: "A clear, living exchange of contribution. For example, you grow vegetables, share some harvest, and add to the beauty of the land." },
   ],
   // Gratitude credited to a signed-in member when their proposal is accepted.
   acceptGratitude: 100,
@@ -9360,7 +9360,88 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     });
   });
 
-  // â”€â”€ Investor Document Vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
+  // ── Village font package: upload + licence acknowledgment ────────────────
+  // The foundation catalogue (shared/fontCatalog.ts) is all-OFL and always
+  // safe. A village whose identity needs its OWN face uploads it here — and
+  // the licence acknowledgment is not a checkbox ritual: fonts are the most
+  // commonly pirated asset on the web, "free to download" almost never means
+  // "licensed for web embedding", and this platform learned that the hard way
+  // when its own heading font arrived from a free-fonts aggregator with no
+  // licence at all. The village that chose the font carries the licence; the
+  // ack records who accepted that, and when.
+  const FONT_MAGIC: Array<{ ext: string; check: (b: Buffer) => boolean }> = [
+    { ext: ".woff2", check: (b) => b.length > 4 && b.toString("ascii", 0, 4) === "wOF2" },
+    { ext: ".woff", check: (b) => b.length > 4 && b.toString("ascii", 0, 4) === "wOFF" },
+    { ext: ".ttf", check: (b) => b.length > 4 && (b.readUInt32BE(0) === 0x00010000 || b.toString("ascii", 0, 4) === "true") },
+    { ext: ".otf", check: (b) => b.length > 4 && b.toString("ascii", 0, 4) === "OTTO" },
+  ];
+
+  const fontUpload = multer({
+    storage: multer.memoryStorage(),
+    // Real webfonts are tens of KB; 5 MB admits any full TTF while refusing
+    // the "I zipped my whole font folder" mistake.
+    limits: { fileSize: 5 * 1024 * 1024 },
+  });
+
+  app.post("/api/admin/brand/font", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    fontUpload.single("file")(req, res, async (err: any) => {
+      if (err) return res.status(400).json({ error: err.message || "Upload failed" });
+      if (!req.file) return res.status(400).json({ error: "Missing file" });
+
+      // The acknowledgment gates the write, not just the UI.
+      if (String(req.body?.licenceAck) !== "true") {
+        return res.status(400).json({
+          error:
+            "Please confirm your project holds a licence to embed this font on the web. " +
+            "\"Free to download\" usually covers personal desktop use only. Web embedding is a separate right.",
+        });
+      }
+
+      const family = sanitizeFontName(req.body?.family);
+      if (!family) {
+        return res.status(400).json({ error: "Font name must be letters, digits, spaces or hyphens (e.g. \"Village Hand\")." });
+      }
+
+      // Trust the bytes, not the filename: this file is served publicly from
+      // our origin, so a renamed HTML file wearing .woff2 must die here.
+      const magic = FONT_MAGIC.find((m) => m.check(req.file!.buffer));
+      if (!magic) {
+        return res.status(400).json({ error: "Not a recognisable font file. Upload a .woff2 (best), .woff, .ttf or .otf." });
+      }
+
+      const filename = `brand-font-${Date.now()}-${Math.random().toString(36).slice(2, 7)}${magic.ext}`;
+      try {
+        if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+        fs.writeFileSync(path.join(UPLOADS_DIR, filename), req.file.buffer);
+      } catch {
+        return res.status(500).json({ error: "Could not save the font" });
+      }
+
+      // Activate in one step: uploading a font and then finding nothing
+      // changed is a support ticket. The face lands FIRST in the display
+      // stack (the role a brand font almost always is); Admin can move it to
+      // body/accent by editing the stacks afterwards.
+      const url = `/api/uploads/${filename}`;
+      const current = getBrand();
+      const admin = await authedUser(req);
+      const next = {
+        ...current,
+        theme: {
+          ...current.theme,
+          fontFaceName: family,
+          fontFaceUrl: url,
+          fontDisplay: `"${family}", ${current.theme.fontDisplay || '"Raleway", system-ui, sans-serif'}`,
+          // The record that makes the ack mean something later.
+          fontLicenceAck: { family, by: admin?.name ?? "admin", at: new Date().toISOString(), file: filename },
+        },
+      };
+      await brandRepo.put(next);
+      res.json({ success: true, url, family, activated: "display" });
+    });
+  });
+
+  // ── Investor Document Vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
 
   const upload = multer({
     storage: multer.diskStorage({
@@ -9470,6 +9551,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     ".gif": "image/gif",
     ".avif": "image/avif",
     ".pdf": "application/pdf",
+    // Village font packages (Admin → Typography). Inert binary formats — the
+    // upload endpoint verifies magic bytes, so a .woff2 here IS a woff2.
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
   };
   app.get("/api/uploads/:filename", async (req, res) => {
     const safe = path.basename(req.params.filename);
@@ -9491,9 +9578,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       // ~50 KB/s links this platform is built for, that is the difference
       // between a page that loads and one that doesn't.
       //
-      // Images only. PDFs and unknown types fall through deliberately — see
-      // below.
-      if (type.startsWith("image/")) {
+      // Images and fonts. PDFs and unknown types fall through deliberately —
+      // see below. A font is render-blocking-adjacent: a conditional request
+      // per page load on the village's display face is a visible re-flow tax.
+      if (type.startsWith("image/") || type.startsWith("font/")) {
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       } else {
         // Investor documents and the like live behind a request-and-email gate.

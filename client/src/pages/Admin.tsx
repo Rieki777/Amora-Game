@@ -7,6 +7,7 @@ import { authToken } from "@/lib/gameApi";
 import { holdCancelled, swipeIntent } from "@/lib/gestures";
 
 const API_BASE = "/api";
+import TypographyPanel from "@/components/TypographyPanel";
 const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
 
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
@@ -6437,7 +6438,10 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
         <button onClick={() => saveBrand("images", { images: brand.images })} disabled={savingSection === "images"} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
           {savingSection === "images" ? "Saving..." : "Save pictures"}
         </button>
-        <p className="text-xs text-gray-400 mt-2">The logo, footer mark and tab icon apply live — no deploy. Crawler-facing metadata (og:image, canonical URL) stays neutral in <code>client/index.html</code>; a fork that wants it adds it in its own fork.</p>
+        <p className="text-xs text-gray-400 mt-2">The logo, footer mark and tab icon apply live, no deploy. Crawler-facing metadata (og:image, canonical URL) stays neutral in <code>client/index.html</code>; a fork that wants it adds it in its own fork.</p>
+        {/* Typography lives with Pictures: both are "how the village looks".
+            Self-contained component — see client/src/components/TypographyPanel.tsx. */}
+        <TypographyPanel password={password} />
       </Section>
 
       <Section id="numbers" n={3} title="Numbers" subtitle="The editable figures on your site.">

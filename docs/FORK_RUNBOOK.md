@@ -140,14 +140,18 @@ two from the admin panel and almost never touches the first.
   to every deployment; the client repaints title and favicon from live
   config. A fork that wants crawler-visible metadata (og:image, canonical)
   adds it in its own fork where those values are actually true.
-- **Fonts:** the platform self-hosts three OFL families (@fontsource, latin
+- **Fonts:** the platform self-hosts an all-OFL catalogue (@fontsource, latin
   subset, bundled with content hashes — no request ever leaves the origin for
-  a typeface). A village's own brand font is deployment data, not platform
-  code: host a CSS file carrying the `@font-face` (your own site or volume,
-  your licence), set `brand.theme.fontImportUrl` to it and name the face
-  first in `brand.theme.fontDisplay` — `/api/brand/theme.css` emits both,
-  sanitised, and the whole site re-typesets with no deploy. Blank fields =
-  the neutral defaults.
+  a typeface; offerings in `shared/fontCatalog.ts`). Admin → Make This Yours →
+  Typography picks heading/body/accent faces with live previews, or uploads
+  the village's own font file (.woff2 best; magic-byte-verified, stored in the
+  uploads volume, served immutable) behind a **web-embedding licence
+  acknowledgment** that gates the server and is recorded with who/when —
+  "free to download" almost never includes web embedding, and the village
+  that chooses a font carries its licence. Power path: set
+  `brand.theme.fontImportUrl` to a hosted CSS file carrying `@font-face`.
+  `/api/brand/theme.css` emits everything, sanitised; blank fields = neutral
+  defaults; changes apply live with no deploy.
 - **NOT overlayable** (code-level edits, deliberately): the stage ladder and
   its ids, the path definitions, season cadence semantics. Those are game
   DESIGN; changing them is a fork of the game, not a re-skin.

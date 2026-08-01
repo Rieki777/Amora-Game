@@ -36,6 +36,14 @@ export interface BrandThemeFields {
   fontDisplay?: string;
   fontBody?: string;
   fontAccent?: string;
+  /**
+   * An UPLOADED font package (Admin → Typography): the file lands in the
+   * uploads volume behind a licence acknowledgment, and these two fields make
+   * it a real face. Both must be present and clean or neither is emitted —
+   * half a @font-face is a name that silently renders in the fallback.
+   */
+  fontFaceName?: string;
+  fontFaceUrl?: string;
 }
 
 /** A stack is names, quotes, commas, hyphens, digits, spaces — nothing else. */
@@ -60,12 +68,41 @@ export function sanitizeImportUrl(value: unknown): string | null {
   return v;
 }
 
+/** A family NAME (not a stack): letters, digits, spaces, hyphens. */
+const FONT_NAME_OK = /^[A-Za-z0-9][A-Za-z0-9 -]{0,78}$/;
+
+export function sanitizeFontName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const v = value.trim();
+  return FONT_NAME_OK.test(v) ? v : null;
+}
+
+/** The format() hint browsers want, from the file extension. */
+export function fontFormatOf(url: string): string | null {
+  const ext = url.toLowerCase().match(/\.(woff2|woff|ttf|otf)$/)?.[1];
+  if (!ext) return null;
+  return { woff2: "woff2", woff: "woff", ttf: "truetype", otf: "opentype" }[ext] ?? null;
+}
+
 export function buildThemeCss(theme: BrandThemeFields | null | undefined): string {
   if (!theme) return "";
   const parts: string[] = [];
 
+  // @import must precede every other rule — CSS discards it otherwise.
   const importUrl = sanitizeImportUrl(theme.fontImportUrl);
   if (importUrl) parts.push(`@import url("${importUrl}");`);
+
+  // The uploaded package. All three pieces — clean name, clean URL, known
+  // format — or nothing: a partial declaration would LOOK configured while
+  // rendering the fallback, which is the worst of both.
+  const faceName = sanitizeFontName(theme.fontFaceName);
+  const faceUrl = sanitizeImportUrl(theme.fontFaceUrl);
+  const faceFormat = faceUrl ? fontFormatOf(faceUrl) : null;
+  if (faceName && faceUrl && faceFormat) {
+    parts.push(
+      `@font-face {\n  font-family: "${faceName}";\n  src: url("${faceUrl}") format("${faceFormat}");\n  font-weight: 100 900;\n  font-display: swap;\n}`,
+    );
+  }
 
   const vars: string[] = [];
   const display = sanitizeFontStack(theme.fontDisplay);

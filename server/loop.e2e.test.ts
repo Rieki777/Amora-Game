@@ -29,7 +29,16 @@ import os from "os";
 import path from "path";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
 
-const PORT = 3781;
+/**
+ * UNIQUE PER PROCESS, like the scratch schema (see testDb.ts). This was a
+ * fixed 3781, and on 2026-08-01 two parallel sessions ran this suite at
+ * once: the second server's bind failed quietly, its health check succeeded
+ * against the FIRST session's server, and every request thereafter hit a
+ * database in a different state — 43 failures of pure noise, including a
+ * game variable reading 'hypha-mirror' in a schema where nothing had ever
+ * set it. A shared fixed port is a shared mutable global with extra steps.
+ */
+const PORT = 3781 + (process.pid % 2000);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "loop-test-admin";
 

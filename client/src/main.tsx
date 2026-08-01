@@ -37,4 +37,34 @@ import "@fontsource/raleway/latin-700.css";
 import "@fontsource/kalam/latin-400.css";
 import "@fontsource/kalam/latin-700.css";
 
+/*
+ * The FOUNDATION CATALOGUE beyond the defaults (shared/fontCatalog.ts) — the
+ * fonts a village can pick in Admin → Typography. All OFL. Declaring a
+ * @font-face costs nothing at runtime: the browser downloads a file only
+ * when an element actually renders in that family, so unchosen offerings are
+ * a few hundred bytes of CSS, not font traffic. Display faces carry
+ * 400–700; the body face carries the full working range; accents 400+700;
+ * Marcellus is a single-weight face by design.
+ */
+import "@fontsource/josefin-sans/latin-400.css";
+import "@fontsource/josefin-sans/latin-500.css";
+import "@fontsource/josefin-sans/latin-600.css";
+import "@fontsource/josefin-sans/latin-700.css";
+import "@fontsource/cormorant-garamond/latin-400.css";
+import "@fontsource/cormorant-garamond/latin-500.css";
+import "@fontsource/cormorant-garamond/latin-600.css";
+import "@fontsource/cormorant-garamond/latin-700.css";
+import "@fontsource/playfair-display/latin-400.css";
+import "@fontsource/playfair-display/latin-500.css";
+import "@fontsource/playfair-display/latin-600.css";
+import "@fontsource/playfair-display/latin-700.css";
+import "@fontsource/marcellus/latin-400.css";
+import "@fontsource/nunito-sans/latin-300.css";
+import "@fontsource/nunito-sans/latin-400.css";
+import "@fontsource/nunito-sans/latin-500.css";
+import "@fontsource/nunito-sans/latin-600.css";
+import "@fontsource/nunito-sans/latin-700.css";
+import "@fontsource/caveat/latin-400.css";
+import "@fontsource/caveat/latin-700.css";
+
 createRoot(document.getElementById("root")!).render(<App />);
