@@ -3305,7 +3305,31 @@ async function startServer() {
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
   app.get("/health", async (_req, res) => {
-    res.json({ status: "ok", build: BUILD_MARKER, timestamp: new Date().toISOString() });
+    // The uploads volume had no gauge at all: no byte count, no file count,
+    // nothing on this probe. It fills silently — every hero photo retried in
+    // the wizard leaves its predecessor behind forever — and the first sign
+    // of a full volume would have been every upload failing at once. This is
+    // a synchronous directory walk, but the volume is flat (no recursion) and
+    // the railway probe cadence is minutes, not milliseconds.
+    //
+    // Deliberately a REPORT, not a reclaim. An orphan sweep was specced and
+    // then refuted by review: the investor vault stamps filenames from the
+    // uploaded file's own name, which the reference scan could not see, so
+    // the sweep would have deleted live cap tables. Measurement first;
+    // deletion only behind the amendments in docs/DESIGN_TOKENS_SPEC.md §A1.
+    let uploads: { files: number; mb: number } | undefined;
+    try {
+      const entries = fs.readdirSync(UPLOADS_DIR, { withFileTypes: true });
+      let bytes = 0;
+      let files = 0;
+      for (const e of entries) {
+        if (!e.isFile()) continue;
+        files += 1;
+        try { bytes += fs.statSync(path.join(UPLOADS_DIR, e.name)).size; } catch { /* raced a delete */ }
+      }
+      uploads = { files, mb: Math.round(bytes / (1024 * 1024)) };
+    } catch { /* volume not mounted yet: report nothing rather than a zero that reads as healthy */ }
+    res.json({ status: "ok", build: BUILD_MARKER, timestamp: new Date().toISOString(), uploads });
   });
 
   // Form Submission
