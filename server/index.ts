@@ -297,6 +297,11 @@ const QUESTS_SEED_FILE = path.join(SEEDS_DIR, "quests-seed.json");
 // activity.json + admin-audit.json retired in S11 (health_events, server/lib/events.ts).
 const ROLES_SEED_FILE = path.join(SEEDS_DIR, "roles-seed.json");
 const CIRCLES_SEED_FILE = path.join(SEEDS_DIR, "circles-seed.json");
+// The org-chart refresh (2026-08): the public Roles / Circles / Team pages went
+// data-driven, reading the `roles`, `circles`, and `team` content sections. The
+// current org structure ships as a seed and is applied once by runOnce below;
+// after that, the content admin editor is the source of truth.
+const ORG_CHART_SEED_FILE = path.join(SEEDS_DIR, "org-chart-2026-08.json");
 // gratitude-cycles.json / gratitude-distributions.json retired in S8 (MySQL).
 // token-ledger.json retired in S7 — the ledger lives in MySQL (server/lib/ledger.ts).
 
@@ -1084,6 +1089,28 @@ async function ensureDataFiles() {
   await runOnce("founding-team-in-progress", markFoundingTeamInProgress);
   await runOnce("backfill-member-handles", backfillMemberHandles);
   await runOnce("membership-grants-from-email-match", freezeEmailMatchedMemberships);
+  await runOnce("org-chart-2026-08", applyOrgChartRefresh);
+}
+
+/**
+ * The 2026-08 org restructure: the public Roles, Circles, and Team pages now
+ * render from the `roles`, `circles`, and `team` content sections instead of
+ * hardcoded page copy. This one-shot writes the restructured org chart (from
+ * the seed file, a declared brand home) into the live content document so the
+ * pages have data on the deploy that ships them. It REPLACES the legacy
+ * `roles` and `circles` sections — their old shapes had no renderer anymore —
+ * and runs exactly once, so every later edit made in the admin editor sticks.
+ */
+async function applyOrgChartRefresh(): Promise<void> {
+  if (!fs.existsSync(ORG_CHART_SEED_FILE)) return;
+  const seed = JSON.parse(fs.readFileSync(ORG_CHART_SEED_FILE, "utf-8"));
+  if (!seed || typeof seed !== "object") return;
+  const content = contentRepo.get() ?? {};
+  for (const key of ["roles", "circles", "team"] as const) {
+    if (Array.isArray(seed[key])) content[key] = seed[key];
+  }
+  await contentRepo.put(content);
+  console.log("[MIGRATION] org chart content refreshed (roles / circles / team)");
 }
 
 /**

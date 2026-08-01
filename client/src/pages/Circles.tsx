@@ -1,16 +1,12 @@
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Users, 
-  ArrowRight, 
-  Heart, 
-  Home, 
-  Sparkles, 
-  TreePine, 
-  Building, 
-  Leaf, 
-  Calendar,
+import {
+  Users,
+  ArrowRight,
+  Home,
+  Building,
+  Leaf,
   Zap,
   ChevronDown,
   Stethoscope,
@@ -18,103 +14,154 @@ import {
   Palette,
   DollarSign,
   Users2,
-  Lightbulb
+  Lightbulb,
+  Building2,
+  Briefcase,
+  Handshake,
+  CircleDot,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-const circles = [
-  {
-    name: "Permaculture Council",
-    subtitle: "Land Stewardship & Food Systems",
-    description: "Cares for the land through regenerative agriculture, landscaping, and ecological restoration.",
-    icon: Leaf,
-    color: "bg-sage",
-    textDark: false,
-    domain: "Food systems, regenerative agriculture, landscaping, land stewardship",
-    members: "Residents involved in farming, gardening, and land management",
-    focus: ["Regenerative Agriculture", "Water & Energy Systems", "Wildlife & Ecosystem Care"]
-  },
-  {
-    name: "Education Council",
-    subtitle: "Learning & Development",
-    description: "Supports children's education, adult learning, and knowledge sharing across the community.",
-    icon: BookOpen,
-    color: "bg-teal",
-    textDark: false,
-    domain: "Children's education, adult learning, knowledge sharing",
-    members: "Parents, teachers, educational facilitators",
-    focus: ["Children's School", "Adult Learning Programs", "Knowledge Sharing"]
-  },
-  {
-    name: "Culture & Arts Council",
-    subtitle: "Creative Expression",
-    description: "Cultivates artistic expression, musical events, and cultural programming for the community.",
-    icon: Palette,
-    color: "bg-amber",
-    textDark: true,
-    domain: "Musical events, artistic expression, cultural programming",
-    members: "Artists, musicians, event organizers, cultural enthusiasts",
-    focus: ["Cultural Events", "Artistic Programs", "Music & Performance"]
-  },
-  {
-    name: "Health & Healing Council",
-    subtitle: "Wellness & Care",
-    description: "Coordinates wellness services, healing modalities, and community health initiatives.",
-    icon: Stethoscope,
-    color: "bg-teal-light",
-    textDark: false,
-    domain: "Wellness services, healing modalities, community health",
-    members: "Health practitioners, wellness facilitators, fitness leaders",
-    focus: ["Wellness Services", "Healing Modalities", "Community Health"]
-  },
-  {
-    name: "Building & Village Council",
-    subtitle: "Infrastructure & Maintenance",
-    description: "Oversees construction, maintenance, infrastructure development, and architectural decisions.",
-    icon: Building,
-    color: "bg-teal-deep",
-    textDark: false,
-    domain: "Construction oversight, maintenance, infrastructure, architecture",
-    members: "Construction-savvy residents, architects, designers, maintenance coordinators",
-    focus: ["Construction Oversight", "Infrastructure", "Maintenance & Repairs"]
-  },
-  {
-    name: "Business & Finance Council",
-    subtitle: "Economic Sustainability",
-    description: "Governs community financial decisions, business enterprises, and economic sustainability.",
-    icon: DollarSign,
-    color: "bg-gold",
-    textDark: true,
-    domain: "Community financial governance, enterprises, financial sustainability, local economy",
-    members: "Entrepreneurs, business operators, financial managers, residents with financial expertise",
-    focus: ["Financial Governance", "Business Development", "Gratitude Economy"]
-  },
-  {
-    name: "Community Life Council",
-    subtitle: "Social Connection",
-    description: "Coordinates social events, conflict resolution, and community celebrations.",
-    icon: Users2,
-    color: "bg-sage-light",
-    textDark: true,
-    domain: "Social coordination, conflict resolution, celebrations",
-    members: "Social coordinators, facilitators, community builders, local representation",
-    focus: ["Social Coordination", "Conflict Resolution", "Celebrations & Events"]
-  },
-  {
-    name: "Intergenerational Wisdom Council",
-    subtitle: "Wisdom & Rights of Nature",
-    description: "Bridges generations through elder care, children's advocacy, indigenous practices, and rights of nature.",
-    icon: Lightbulb,
-    color: "bg-teal-light",
-    textDark: false,
-    domain: "Elder care, children's advocacy, indigenous practices, rights of nature, rites of passage",
-    members: "Elders, parents, indigenous wisdom keepers, earth-centered practitioners",
-    focus: ["Elder Care", "Children's Advocacy", "Indigenous Wisdom", "Rights of Nature"]
-  },
-];
+interface CircleEntry {
+  id: string;
+  name: string;
+  subtitle?: string;
+  stage: "today" | "future";
+  description?: string;
+  domain?: string;
+  members?: string;
+  focus: string[];
+  icon?: string;
+  color?: string;
+}
+
+/** Icon names a card may reference; anything unknown falls back to CircleDot. */
+const ICONS: Record<string, React.ElementType> = {
+  Users, Home, Building, Leaf, Zap, Stethoscope, BookOpen, Palette,
+  DollarSign, Users2, Lightbulb, Building2, Briefcase, Handshake, CircleDot,
+};
+
+function CircleCard({ circle, expanded, onToggle, index }: {
+  circle: CircleEntry;
+  expanded: boolean;
+  onToggle: () => void;
+  index: number;
+}) {
+  const Icon = ICONS[circle.icon ?? ""] ?? CircleDot;
+  const color = circle.color || "bg-sage";
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ delay: index * 0.05 }}
+    >
+      <button
+        onClick={onToggle}
+        className="w-full text-left bg-card hover:bg-card/80 transition-colors p-6 rounded-xl border border-border"
+      >
+        <div className="flex items-start justify-between">
+          <div className="flex items-start gap-4 flex-1">
+            <div className={`w-12 h-12 ${color} rounded-lg flex items-center justify-center flex-shrink-0 mt-1`}>
+              <Icon className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="font-display text-xl font-bold text-foreground">
+                {circle.name}
+              </h3>
+              {circle.subtitle && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  {circle.subtitle}
+                </p>
+              )}
+            </div>
+          </div>
+          <ChevronDown
+            className={`w-5 h-5 text-muted-foreground transition-transform flex-shrink-0 ${expanded ? "rotate-180" : ""}`}
+          />
+        </div>
+      </button>
+
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="bg-muted/30 p-6 rounded-b-xl border border-t-0 border-border space-y-4">
+              {circle.description && <p className="text-foreground">{circle.description}</p>}
+
+              <div className="grid md:grid-cols-2 gap-6">
+                {circle.domain && (
+                  <div>
+                    <h4 className="font-semibold text-foreground mb-2">Domain</h4>
+                    <p className="text-sm text-muted-foreground">{circle.domain}</p>
+                  </div>
+                )}
+                {circle.members && (
+                  <div>
+                    <h4 className="font-semibold text-foreground mb-2">Who's In It</h4>
+                    <p className="text-sm text-muted-foreground">{circle.members}</p>
+                  </div>
+                )}
+              </div>
+
+              {circle.focus.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-foreground mb-3">Key Focus Areas</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {circle.focus.filter(Boolean).map((area) => (
+                      <span key={area} className={`px-3 py-1 rounded-full text-xs font-medium ${color} text-white shadow-sm`}>
+                        {area}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-border">
+                <p className="text-xs text-muted-foreground">
+                  <strong>How it works:</strong> Each circle has autonomy within its domain and budget, uses consent-based decision-making, and is double-linked to the General Coordinating Circle so information flows both ways.
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
 
 export default function Circles() {
   const [expandedCircle, setExpandedCircle] = useState<string | null>(null);
+  const [circles, setCircles] = useState<CircleEntry[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/content/circles")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data) => {
+        if (!Array.isArray(data)) throw new Error("bad shape");
+        setCircles(
+          data.map((c: any, i: number) => ({
+            ...c,
+            id: String(c.id ?? c.name ?? `circle-${i}`),
+            name: String(c.name ?? "Untitled circle"),
+            stage: String(c.stage ?? "today").toLowerCase().startsWith("f") ? "future" : "today",
+            focus: Array.isArray(c.focus) ? c.focus : [],
+          })),
+        );
+      })
+      .catch(() => setFailed(true));
+  }, []);
+
+  const toggle = (id: string) =>
+    setExpandedCircle((prev) => (prev === id ? null : id));
+
+  const today = (circles ?? []).filter((c) => c.stage === "today");
+  const future = (circles ?? []).filter((c) => c.stage === "future");
 
   return (
     <Layout>
@@ -132,101 +179,67 @@ export default function Circles() {
               Our Sociocratic Circles
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-6">
-              Eight domain-specific circles provide self-governance while staying connected to the whole community through elected representatives and consent-based decision-making.
+              The team organizes in circles, each with a clear domain, real authority within it, and a double link back to the General Coordinating Circle. Circles collaborate, and we win together.
             </p>
             <Link href="/roles" className="inline-flex items-center gap-2 px-6 py-3 bg-sage text-white rounded-lg hover:bg-sage/90 transition-colors font-medium">
-              View Roles & Leadership Structure
+              View Roles & Open Seats
               <ArrowRight className="w-4 h-4" />
             </Link>
           </motion.div>
 
           <div className="max-w-4xl mx-auto">
-            <div className="space-y-4">
-              {circles.map((circle, index) => (
-                <motion.div
-                  key={circle.name}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: index * 0.05 }}
-                >
-                  <button
-                    onClick={() => setExpandedCircle(expandedCircle === circle.name ? null : circle.name)}
-                    className="w-full text-left bg-card hover:bg-card/80 transition-colors p-6 rounded-xl border border-border"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-4 flex-1">
-                        <div className={`w-12 h-12 ${circle.color} rounded-lg flex items-center justify-center flex-shrink-0 mt-1`}>
-                          <circle.icon className={`w-6 h-6 ${circle.textDark ? "text-foreground" : "text-white"}`} />
-                        </div>
-                        <div>
-                          <h3 className="font-display text-xl font-bold text-foreground">
-                            {circle.name}
-                          </h3>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {circle.subtitle}
-                          </p>
-                        </div>
-                      </div>
-                      <ChevronDown 
-                        className={`w-5 h-5 text-muted-foreground transition-transform flex-shrink-0 ${
-                          expandedCircle === circle.name ? 'rotate-180' : ''
-                        }`}
-                      />
-                    </div>
-                  </button>
+            {circles === null && !failed && (
+              <div className="text-center text-muted-foreground py-16">Loading circles…</div>
+            )}
+            {failed && (
+              <div className="text-center text-muted-foreground py-16">
+                The circles are catching their breath. Please refresh in a moment.
+              </div>
+            )}
 
-                  <AnimatePresence>
-                    {expandedCircle === circle.name && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden"
-                      >
-                        <div className="bg-muted/30 p-6 rounded-b-xl border border-t-0 border-border space-y-4">
-                          <p className="text-foreground">
-                            {circle.description}
-                          </p>
+            {today.length > 0 && (
+              <div className="mb-16">
+                <div className="mb-6">
+                  <h2 className="font-display text-2xl font-bold text-foreground mb-1">The Circles Today</h2>
+                  <p className="text-muted-foreground text-sm">
+                    How the team actually organizes right now, while the village is being built.
+                  </p>
+                </div>
+                <div className="space-y-4">
+                  {today.map((circle, index) => (
+                    <CircleCard
+                      key={circle.id}
+                      circle={circle}
+                      expanded={expandedCircle === circle.id}
+                      onToggle={() => toggle(circle.id)}
+                      index={index}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
-                          <div className="grid md:grid-cols-2 gap-6">
-                            <div>
-                              <h4 className="font-semibold text-foreground mb-2">Domain</h4>
-                              <p className="text-sm text-muted-foreground">
-                                {circle.domain}
-                              </p>
-                            </div>
-                            <div>
-                              <h4 className="font-semibold text-foreground mb-2">Who Participates</h4>
-                              <p className="text-sm text-muted-foreground">
-                                {circle.members}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div>
-                            <h4 className="font-semibold text-foreground mb-3">Key Focus Areas</h4>
-                            <div className="flex flex-wrap gap-2">
-                              {circle.focus.map((area) => (
-                                <span key={area} className={`px-3 py-1 rounded-full text-xs font-medium ${circle.color} ${circle.textDark ? "text-foreground" : "text-white"} shadow-sm`}>
-                                  {area}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="pt-4 border-t border-border">
-                            <p className="text-xs text-muted-foreground">
-                              <strong>How it works:</strong> Open to all interested community members. Each circle elects a Representative and Facilitator (6-month terms). Monthly meetings with consent-based decision-making within domain authority. Representatives bring circle input to the Leadership Council.
-                            </p>
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              ))}
-            </div>
+            {future.length > 0 && (
+              <div className="mb-4">
+                <div className="mb-6">
+                  <h2 className="font-display text-2xl font-bold text-foreground mb-1">As the Village Matures</h2>
+                  <p className="text-muted-foreground text-sm">
+                    As residents arrive, today's team circles grow into resident-led councils like these: domain-specific circles connected through elected representatives.
+                  </p>
+                </div>
+                <div className="space-y-4">
+                  {future.map((circle, index) => (
+                    <CircleCard
+                      key={circle.id}
+                      circle={circle}
+                      expanded={expandedCircle === circle.id}
+                      onToggle={() => toggle(circle.id)}
+                      index={index}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <motion.div
@@ -240,13 +253,13 @@ export default function Circles() {
             </h2>
             <div className="space-y-4 text-muted-foreground">
               <p>
-                Each circle has <strong>full authority</strong> over day-to-day operations within its domain. When decisions affect multiple circles, the <strong>Leadership Council</strong> coordinates. Major financial decisions or community-wide policies require Leadership Council and/or Board approval.
+                Each circle has <strong>a domain, a budget, and the authority</strong> to make decisions within that domain. When decisions affect multiple circles, the <strong>General Coordinating Circle</strong>, the four leads and circle representatives, coordinates. The Finance & Business Circle provides budget stewardship, oversight, and alignment across all circles.
               </p>
               <p>
-                Circles use <strong>consent-based decision-making</strong>, where decisions move forward unless someone has a principled objection. This creates space for wisdom and prevents tyranny of the majority.
+                Circles use <strong>consent-based decision-making</strong>: a proposal moves forward unless someone has a reasoned objection that it would cause harm or prevent the circle from achieving its aim. This creates space for wisdom and prevents tyranny of the majority.
               </p>
               <p>
-                All circles participate in a <strong>monthly community forum</strong> for feelings, emotions, and conflict resolution (1-2 hours), ensuring the whole community stays connected and healthy.
+                Every circle is <strong>double-linked</strong> to the General Coordinating Circle by two people, so information flows both ways. Regular reporting, check-ins, and feedback keep the whole aligned and adaptable.
               </p>
             </div>
           </motion.div>

@@ -3,51 +3,15 @@ import { motion } from "framer-motion";
 import { Users, ArrowRight, ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import { Image } from "@/components/Image";
+import { useEffect, useState } from "react";
 
-const coreTeam = [
-  {
-    name: "Jessica Filkins",
-    role: "CEO & Founder",
-    circle: "Core Team",
-    bio: "Visionary founder creating regenerative community infrastructure and leading Amora's evolution toward a multigenerational, family-centered village.",
-    photo: "https://amora.cr/wp-content/uploads/2025/12/Jessica-Filkins-1024x1024.png",
-  },
-  {
-    name: "Kyleen Keenan",
-    role: "Finance Manager",
-    circle: "Core Team",
-    bio: "Manages financial systems, investor relations, and economic sustainability for the village development.",
-    photo: "https://amora.cr/wp-content/uploads/2025/12/Kyleen-Keenan-1-1024x1024.png",
-  },
-  {
-    name: "Nikita Timmermans",
-    role: "Community & Culture",
-    circle: "Core Team",
-    bio: "Cultivates the social fabric of Amora, supporting community culture, events, and the heart of village life.",
-    photo: "https://amora.cr/wp-content/uploads/2025/12/Nikita-Timmermans-1024x1024.png",
-  },
-  {
-    name: "Victoria Leyden",
-    role: "Village Development",
-    circle: "Core Team",
-    bio: "Guides physical and social village development, bridging infrastructure with the lived experience of community.",
-    photo: "https://amora.cr/wp-content/uploads/2025/12/Victoria-Leyden-1024x1024.png",
-  },
-  {
-    name: "Maria Kusk",
-    role: "Regenerative Design",
-    circle: "Core Team",
-    bio: "Brings regenerative design principles to the land, ensuring Amora heals and thrives alongside its human community.",
-    photo: "https://amora.cr/wp-content/uploads/2025/12/Maria-Kusk-1024x1024.png",
-  },
-  {
-    name: "Adriana",
-    role: "Operations & Systems",
-    circle: "Core Team",
-    bio: "Keeps the day-to-day flow of Amora running, from logistics to community support systems.",
-    photo: "https://amora.cr/wp-content/uploads/2025/12/Adriana-1024x1024.png",
-  },
-];
+interface TeamMember {
+  name: string;
+  role: string;
+  circle?: string;
+  bio?: string;
+  photo?: string;
+}
 
 const advisoryHighlights = [
   "Regenerative Agriculture & Permaculture Leaders",
@@ -59,6 +23,15 @@ const advisoryHighlights = [
 ];
 
 export default function Team() {
+  const [team, setTeam] = useState<TeamMember[] | null>(null);
+
+  useEffect(() => {
+    fetch("/api/content/team")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data) => setTeam(Array.isArray(data) ? data.filter((m: any) => m?.name) : []))
+      .catch(() => setTeam([]));
+  }, []);
+
   return (
     <Layout>
       <section className="py-24 bg-background">
@@ -79,7 +52,7 @@ export default function Team() {
             </p>
           </motion.div>
 
-          {/* Core Team */}
+          {/* Leadership */}
           <div className="mb-20">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -88,15 +61,16 @@ export default function Team() {
               className="text-center mb-12"
             >
               <h2 className="font-display text-3xl font-bold text-foreground mb-4">
-                Core Team
+                Leadership Circle
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                This land called for women to lead the creation of a multigenerational, family-centered village.
+                This land called for women to lead the creation of a multigenerational, family-centered village. The full circle of roles, filled and open, lives on the{" "}
+                <Link href="/roles" className="text-sage font-medium hover:underline">Roles &amp; Circles page</Link>.
               </p>
             </motion.div>
 
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
-              {coreTeam.map((member, index) => (
+            <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto">
+              {(team ?? []).map((member, index) => (
                 <motion.div
                   key={member.name}
                   initial={{ opacity: 0, y: 20 }}
@@ -106,14 +80,16 @@ export default function Team() {
                   whileHover={{ y: -6 }}
                   className="bg-card rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all border border-border"
                 >
-                  <div className="h-64 overflow-hidden">
-                    <Image
-                      src={member.photo}
-                      alt={member.name}
-                      className="w-full h-full"
-                      imgClassName="object-top"
-                    />
-                  </div>
+                  {member.photo && (
+                    <div className="h-64 overflow-hidden">
+                      <Image
+                        src={member.photo}
+                        alt={member.name}
+                        className="w-full h-full"
+                        imgClassName="object-top"
+                      />
+                    </div>
+                  )}
                   <div className="p-6">
                     <h3 className="font-display text-xl font-bold text-foreground mb-1">
                       {member.name}
@@ -121,16 +97,34 @@ export default function Team() {
                     <p className="text-sage font-semibold text-sm mb-2">
                       {member.role}
                     </p>
-                    <p className="text-xs text-muted-foreground mb-3 pb-3 border-b border-border">
-                      {member.circle}
-                    </p>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      {member.bio}
-                    </p>
+                    {member.circle && (
+                      <p className="text-xs text-muted-foreground mb-3 pb-3 border-b border-border">
+                        {member.circle}
+                      </p>
+                    )}
+                    {member.bio && (
+                      <p className="text-sm text-muted-foreground leading-relaxed">
+                        {member.bio}
+                      </p>
+                    )}
                   </div>
                 </motion.div>
               ))}
             </div>
+
+            <motion.div
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              viewport={{ once: true }}
+              className="text-center mt-10"
+            >
+              <p className="text-muted-foreground text-sm max-w-xl mx-auto mb-4">
+                The team is growing, and several leadership seats and steward roles are open right now.
+              </p>
+              <Link href="/roles" className="inline-flex items-center gap-2 text-sage font-semibold hover:underline">
+                See the open seats <ArrowRight className="w-4 h-4" />
+              </Link>
+            </motion.div>
           </div>
 
           {/* Advisory Council */}
@@ -145,7 +139,7 @@ export default function Team() {
                 Community Advisory Council
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                10–14 influential practitioners and thought leaders shaping Amora's culture, partnerships, and community integration.
+                10-14 influential practitioners and thought leaders shaping Amora's culture, partnerships, and community integration.
               </p>
             </div>
             <div className="grid md:grid-cols-2 gap-4 max-w-4xl mx-auto mb-8">
@@ -180,7 +174,7 @@ export default function Team() {
                 Development Board of Directors
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto mb-8">
-                5–7 expert members providing strategic oversight, fiduciary responsibility, and guidance on business, legal, and financial aspects.
+                5-7 expert members providing strategic oversight, fiduciary responsibility, and guidance on business, legal, and financial aspects.
               </p>
               <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
                 <div className="text-left">

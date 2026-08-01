@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen, ToggleLeft } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,8 +18,9 @@ const CONTENT_SECTIONS = [
   { key: "steward", label: "Steward Journey", icon: Users },
   { key: "resident", label: "Resident Journey", icon: Home },
   { key: "prosperity", label: "Prosperity Journey", icon: Sparkles },
-  { key: "circles", label: "Circles", icon: Circle },
-  { key: "roles", label: "Roles", icon: Users2 },
+  { key: "circles", label: "Circles Page", icon: Circle },
+  { key: "roles", label: "Roles Page", icon: Users2 },
+  { key: "team", label: "Team Page", icon: Users },
 ] as const;
 
 /**
@@ -71,7 +72,7 @@ function ForumModerationTab({ password }: { password: string }) {
         <h2 className="text-2xl font-display font-bold text-gray-900">Moderation</h2>
         <p className="text-sm text-gray-500 mt-1">
           What the village has flagged, and what it has already hidden on its own.
-          Hiding is always reversible — nothing here deletes anyone's words.
+          Hiding is always reversible. Nothing here deletes anyone's words.
         </p>
       </div>
 
@@ -219,15 +220,18 @@ function navGroups(setupComplete: boolean): NavGroup[] {
       ],
     },
     { title: "Documents", items: [{ key: "investor-vault", label: "Investor Vault", icon: FileText }] },
-    { title: "Training", items: [{ key: "training-modules", label: "Modules", icon: GraduationCap }] },
+    { title: "Training", items: [{ key: "training-modules", label: "Training Modules", icon: GraduationCap }] },
     {
       title: "The Game",
       items: [
+        // First in the group on purpose: this is the master switch for what
+        // the village runs, and it used to hide mid-list under the same
+        // label as the training-content tab above — nobody could find it.
+        { key: "modules", label: "Modules On/Off", icon: ToggleLeft },
         { key: "quests-admin", label: "Quests", icon: Sparkles },
         { key: "quest-claims", label: "Quest Claims", icon: Sparkles },
         { key: "players", label: "Players", icon: Users },
         { key: "game-roles", label: "Game Roles", icon: Users2 },
-        { key: "modules", label: "Modules", icon: Sparkles },
         { key: "circles-map", label: "Circles & Map", icon: Circle },
         { key: "tools-admin", label: "Tools", icon: Handshake },
         { key: "stays-admin", label: "Stays & Payments", icon: Home },
@@ -682,7 +686,7 @@ function SubmissionsTab({ password }: { password: string }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error();
-      if (data.rewarded) toast.success("Accepted — the member was welcomed into the game.");
+      if (data.rewarded) toast.success("Accepted. The member was welcomed into the game.");
       else toast.success("Status updated");
       load();
     } catch { toast.error("Could not update status"); }
@@ -872,11 +876,12 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
   const isJourney = ["investor", "steward", "resident", "prosperity"].includes(sectionKey);
   const journeyData = isJourney && raw ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : null;
 
-  // Circles and Roles get the same treatment: cards with plain fields,
+  // Circles, Roles, and Team get the same treatment: cards with plain fields,
   // the raw JSON demoted to "advanced". Editing mutates the PARSED array
   // in place and re-serializes, so keys the form doesn't know about
-  // survive untouched — the JSON stays the ground truth.
-  const isCards = sectionKey === "circles" || sectionKey === "roles";
+  // survive untouched — the JSON stays the ground truth. These cards feed the
+  // public /roles, /circles, and /team pages directly.
+  const isCards = sectionKey === "circles" || sectionKey === "roles" || sectionKey === "team";
   const cardsData: any[] | null = isCards && raw ? (() => {
     try { const p = JSON.parse(raw); return Array.isArray(p) ? p : null; } catch { return null; }
   })() : null;
@@ -885,24 +890,36 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
     fn(arr);
     setRaw(JSON.stringify(arr, null, 2));
   };
-  // field spec per section: [key, label, kind]
-  const CARD_FIELDS: Array<[string, string, "text" | "long" | "lines"]> =
+  // field spec per section: [key, label, kind, options?]
+  const CARD_FIELDS: Array<[string, string, "text" | "long" | "lines" | "select", string[]?]> =
     sectionKey === "circles"
       ? [
           ["name", "Circle name", "text"],
           ["subtitle", "Subtitle", "text"],
+          ["stage", "Stage (today = current team circle, future = as the village matures)", "select", ["today", "future"]],
           ["description", "Description", "long"],
           ["domain", "Domain (what it cares for)", "long"],
           ["members", "Who's in it", "long"],
           ["focus", "Focus areas (one per line)", "lines"],
         ]
-      : [
+      : sectionKey === "roles"
+      ? [
           ["name", "Role name", "text"],
-          ["size", "Size (e.g. 5-7 members)", "text"],
-          ["terms", "Terms", "text"],
-          ["purpose", "Purpose", "long"],
-          ["compensation", "Compensation", "long"],
-          ["members", "Seats / members (one per line)", "lines"],
+          ["group", "Circle / group (cards with the same group appear together)", "text"],
+          ["status", "Seat status", "select", ["open", "filled", "partial", "forming"]],
+          ["holders", "Who holds it (one name per line, or leave empty for an open seat)", "lines"],
+          ["holderNote", "Holder note (optional, e.g. 'seeking a full-time steward')", "text"],
+          ["aim", "Aim", "long"],
+          ["domain", "Domain", "long"],
+          ["accountabilities", "Key accountabilities (one per line)", "lines"],
+          ["whyItMatters", "Why this role matters", "long"],
+        ]
+      : [
+          ["name", "Name", "text"],
+          ["role", "Role title", "text"],
+          ["circle", "Circle (shown under the title)", "text"],
+          ["photo", "Photo URL", "text"],
+          ["bio", "Bio", "long"],
         ];
 
   return (
@@ -1010,15 +1027,33 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
                 <div key={idx} className="border border-gray-200 rounded-xl p-5 bg-gray-50">
                   <div className="flex items-center justify-between mb-3">
                     <p className="font-semibold text-gray-800 text-sm">{card.name || `#${idx + 1}`}</p>
-                    <button
-                      onClick={() => { if (window.confirm(`Remove "${card.name || "this entry"}"?`)) mutateCards((a) => a.splice(idx, 1)); }}
-                      className="text-xs text-gray-400 hover:text-red-600"
-                    >
-                      Remove
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => mutateCards((a) => { if (idx > 0) { const [c] = a.splice(idx, 1); a.splice(idx - 1, 0, c); } })}
+                        disabled={idx === 0}
+                        title="Move up"
+                        className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => mutateCards((a) => { if (idx < a.length - 1) { const [c] = a.splice(idx, 1); a.splice(idx + 1, 0, c); } })}
+                        disabled={idx === cardsData.length - 1}
+                        title="Move down"
+                        className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => { if (window.confirm(`Remove "${card.name || "this entry"}"?`)) mutateCards((a) => a.splice(idx, 1)); }}
+                        className="text-xs text-gray-400 hover:text-red-600"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                   <div className="grid sm:grid-cols-2 gap-3">
-                    {CARD_FIELDS.map(([key, label, kind]) => (
+                    {CARD_FIELDS.map(([key, label, kind, options]) => (
                       <div key={key} className={kind === "text" ? "" : "sm:col-span-2"}>
                         <label className="text-xs font-medium text-gray-500 block mb-1">{label}</label>
                         {kind === "lines" ? (
@@ -1034,6 +1069,18 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
                             onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value.split("\n"); })}
                             className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-none"
                           />
+                        ) : kind === "select" ? (
+                          <select
+                            value={String(card[key] ?? (options?.[0] ?? ""))}
+                            onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value; })}
+                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 bg-white"
+                          >
+                            {(options ?? []).map((o) => (
+                              <option key={o} value={o}>
+                                {o === "open" ? "Open Seat" : o === "filled" ? "Filled" : o === "partial" ? "Partially Filled" : o === "forming" ? "Forming" : o}
+                              </option>
+                            ))}
+                          </select>
                         ) : kind === "long" ? (
                           <textarea
                             rows={2}
@@ -1057,15 +1104,18 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
               <button
                 onClick={() => mutateCards((a) => a.push(
                   sectionKey === "circles"
-                    ? { name: "New circle", subtitle: "", description: "", domain: "", members: "", focus: [] }
-                    : { id: `role-${Date.now()}`, name: "New role", size: "", terms: "", purpose: "", compensation: "", members: [] },
+                    ? { id: `circle-${Date.now()}`, name: "New circle", subtitle: "", stage: "today", description: "", domain: "", members: "", focus: [] }
+                    : sectionKey === "roles"
+                    ? { id: `role-${Date.now()}`, name: "New role", group: "General Circle", status: "open", holders: [], holderNote: "", aim: "", domain: "", accountabilities: [], whyItMatters: "" }
+                    : { name: "New team member", role: "", circle: "", photo: "", bio: "" },
                 ))}
                 className="text-sm text-[#2D5A5A] font-medium hover:underline"
               >
-                + Add {sectionKey === "circles" ? "a circle" : "a role"}
+                + Add {sectionKey === "circles" ? "a circle" : sectionKey === "roles" ? "a role" : "a team member"}
               </button>
               <p className="text-xs text-gray-400">
-                Remember to hit Save Changes above — edits here go live only after saving.
+                Remember to hit Save Changes above. Edits here go live only after saving.
+                {sectionKey === "roles" && " To fill or open a seat, change its status and edit the holder names. The public page updates the moment you save."}
               </p>
             </div>
           )}
@@ -1226,8 +1276,8 @@ function EmailSettingsTab({ password, openIntegrations }: { password: string; op
               API keys (Resend, Anthropic, Stripe) moved to{" "}
               <button onClick={openIntegrations} className="text-[#2D5A5A] font-medium hover:underline">
                 Integrations
-              </button>{" "}
-              — one place for every third-party connection, and keys never travel
+              </button>,{" "}
+              one place for every third-party connection, and keys never travel
               back to a browser once saved.
             </p>
           </div>
@@ -1278,10 +1328,10 @@ function IntegrationsTab({ password }: { password: string }) {
   };
 
   const CARDS: Array<{ key: string; title: string; unlocks: string; getAt: string; placeholder: string }> = [
-    { key: "stripe_secret_key", title: "Stripe — secret key", unlocks: "Card checkout for stays and the exchange. Without it, card payments answer an honest 503 and the manual path carries.", getAt: "dashboard.stripe.com → Developers → API keys", placeholder: "sk_live_…" },
-    { key: "stripe_webhook_secret", title: "Stripe — webhook signing secret", unlocks: "Settlement. Cards charge but credits never arrive without it — the webhook's signature has nothing to verify against.", getAt: "Stripe → Developers → Webhooks → your endpoint → Signing secret", placeholder: "whsec_…" },
-    { key: "resend_api_key", title: "Resend — email", unlocks: "Every email the village sends: welcomes, receipts, notification digests.", getAt: "resend.com → API Keys", placeholder: "re_…" },
-    { key: "assistant_api_key", title: "Anthropic — the AI guide", unlocks: "Maia: proposal intake and the launch guide. Blank = every form still works, without her.", getAt: "console.anthropic.com", placeholder: "sk-ant-…" },
+    { key: "stripe_secret_key", title: "Stripe secret key", unlocks: "Card checkout for stays and the exchange. Without it, card payments answer an honest 503 and the manual path carries.", getAt: "dashboard.stripe.com → Developers → API keys", placeholder: "sk_live_…" },
+    { key: "stripe_webhook_secret", title: "Stripe webhook signing secret", unlocks: "Settlement. Cards charge but credits never arrive without it: the webhook's signature has nothing to verify against.", getAt: "Stripe → Developers → Webhooks → your endpoint → Signing secret", placeholder: "whsec_…" },
+    { key: "resend_api_key", title: "Resend, email", unlocks: "Every email the village sends: welcomes, receipts, notification digests.", getAt: "resend.com → API Keys", placeholder: "re_…" },
+    { key: "assistant_api_key", title: "Anthropic, the AI guide", unlocks: "Maia: proposal intake and the launch guide. Blank = every form still works, without her.", getAt: "console.anthropic.com", placeholder: "sk-ant-…" },
   ];
 
   const statusOf = (key: string) => (data?.secrets ?? []).find((s: any) => s.key === key);
@@ -1310,12 +1360,12 @@ function IntegrationsTab({ password }: { password: string }) {
               into the card below.
             </p>
             <ul className="text-xs text-gray-500 mt-2 space-y-1">
-              <li><code>checkout.session.completed</code> — a purchase is made</li>
-              <li><code>checkout.session.async_payment_succeeded</code> — a bank
+              <li><code>checkout.session.completed</code>: a purchase is made</li>
+              <li><code>checkout.session.async_payment_succeeded</code>: a bank
                 transfer or direct debit clears, days later</li>
-              <li><code>invoice.paid</code> — a subscription renews for another period</li>
-              <li><code>charge.refunded</code> — money is given back</li>
-              <li><code>charge.dispute.created</code> — a buyer charges back</li>
+              <li><code>invoice.paid</code>: a subscription renews for another period</li>
+              <li><code>charge.refunded</code>: money is given back</li>
+              <li><code>charge.dispute.created</code>: a buyer charges back</li>
             </ul>
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
               Miss <code>invoice.paid</code> and recurring products keep charging
@@ -2186,7 +2236,7 @@ function MilestonesAdminTab({ password }: { password: string }) {
                       return (
                         <p className={`text-[11px] ${isStale ? "text-amber-600 font-medium" : "text-gray-400"}`}>
                           {d === 0 ? "Updated today" : `Updated ${d} day${d === 1 ? "" : "s"} ago`}
-                          {isStale && " — worth a fresh look"}
+                          {isStale && ", worth a fresh look"}
                         </p>
                       );
                     })()}
@@ -2591,7 +2641,7 @@ function QuestsTab({ password }: { password: string }) {
       <div className="mb-6">
         <h2 className="text-xl font-bold text-gray-900">Quests</h2>
         <p className="text-sm text-gray-500 mt-1">
-          The board members see. Edits are live immediately — no deploy. A quest with claims in
+          The board members see. Edits are live immediately, no deploy. A quest with claims in
           flight cannot be deleted until those claims are consented or declined.
         </p>
       </div>
@@ -2919,7 +2969,7 @@ function GameRolesTab({ password }: { password: string }) {
 
               <div className="flex flex-wrap items-center gap-2 mt-3">
                 {(r.holders ?? []).length === 0 && (
-                  <span className="text-xs text-gray-400 italic">Vacant — an open call</span>
+                  <span className="text-xs text-gray-400 italic">Vacant, an open call</span>
                 )}
                 {(r.holders ?? []).map((h: any) => (
                   <span key={h.userId} className="inline-flex items-center gap-1.5 text-xs bg-gray-100 text-gray-700 pl-2.5 pr-1 py-1 rounded-full">
@@ -2966,7 +3016,7 @@ function GameRolesTab({ password }: { password: string }) {
 const LIFECYCLES = ["off", "preview", "members", "public"] as const;
 const LIFECYCLE_HINT: Record<string, string> = {
   off: "Routes 404, no nav, no admin surface.",
-  preview: "Admins only — invisible to everyone else.",
+  preview: "Admins only. Invisible to everyone else.",
   members: "Signed-in members only.",
   public: "Everyone. Capability gates still apply.",
 };
@@ -3023,7 +3073,7 @@ function ModulesTab({ password }: { password: string }) {
         <h2 className="text-xl font-bold text-gray-900">Modules</h2>
         <p className="text-sm text-gray-500 mt-1">
           What this village runs. Everything ships off; each step up widens who can
-          see it. Off modules contribute nothing — no routes, no nav, no settings.
+          see it. Off modules contribute nothing: no routes, no nav, no settings.
         </p>
       </div>
       {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : !data ? (
@@ -3035,7 +3085,7 @@ function ModulesTab({ password }: { password: string }) {
               {demoted.map((m: any) => (
                 <p key={m.id}>
                   <strong>{m.name}</strong> is configured {m.lifecycle} but requires{" "}
-                  {m.demotedBecause.join(", ")} — it is being served as OFF until that is resolved.
+                  {m.demotedBecause.join(", ")}. It is being served as OFF until that is resolved.
                 </p>
               ))}
               {(data.orphans ?? []).length > 0 && (
@@ -3062,7 +3112,7 @@ function ModulesTab({ password }: { password: string }) {
               </div>
             ) : (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block">
-                Not connected yet — every Hypha surface is hidden.
+                Not connected yet. Every Hypha surface is hidden.
               </p>
             )}
           </div>
@@ -3194,7 +3244,7 @@ function CirclesMapTab({ password }: { password: string }) {
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Circles &amp; Map</h2>
-        <p className="text-sm text-gray-500">The Village Map module is off. Enable it in the Modules tab first.</p>
+        <p className="text-sm text-gray-500">The Village Map module is off. Enable it in Modules On/Off (top of The Game menu) first.</p>
       </div>
     );
   }
@@ -3212,7 +3262,7 @@ function CirclesMapTab({ password }: { password: string }) {
         <div className="space-y-6">
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
             Pre-scale requirement: a per-member block list for the contact relay is
-            not built yet — watch the contact log below for misuse until it is.
+            not built yet. Watch the contact log below for misuse until it is.
           </div>
 
           <div className="space-y-3">
@@ -3271,7 +3321,7 @@ function CirclesMapTab({ password }: { password: string }) {
           <div className="grid md:grid-cols-2 gap-4">
             <div className="border border-gray-200 rounded-xl p-4">
               <h3 className="font-semibold text-gray-900 text-sm mb-2">Unrouted concierge asks</h3>
-              {unmatched.length === 0 ? <p className="text-xs text-gray-400">None — the map covers what people ask for.</p> : (
+              {unmatched.length === 0 ? <p className="text-xs text-gray-400">None. The map covers what people ask for.</p> : (
                 <ul className="space-y-1 text-xs text-gray-600">
                   {unmatched.slice(0, 12).map((q: any) => (
                     <li key={q.id}>"{q.query}" <span className="text-gray-300">· {new Date(q.created_at).toLocaleDateString()}</span></li>
@@ -3395,8 +3445,8 @@ function ToolsAdminTab({ password }: { password: string }) {
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Tools</h2>
         <p className="text-sm text-gray-500">
-          The Tools Hub module is off. Enable it (at least to Preview) in the
-          Modules tab, then come back here to add tools.
+          The Tools Hub module is off. Enable it (at least to Preview) in
+          Modules On/Off (top of The Game menu), then come back here to add tools.
         </p>
       </div>
     );
@@ -3451,7 +3501,7 @@ function ToolsAdminTab({ password }: { password: string }) {
                   </tr>
                 ))}
                 {(data?.tools ?? []).length === 0 && (
-                  <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400 text-xs">No tools yet — add the first one below.</td></tr>
+                  <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400 text-xs">No tools yet. Add the first one below.</td></tr>
                 )}
               </tbody>
             </table>
@@ -3581,7 +3631,7 @@ function StaysAdminTab({ password }: { password: string }) {
   const addRoom = async () => {
     if (!roomForm.name.trim()) return toast.error("Name the room");
     const d = await post("/admin/stays/accommodations", roomForm);
-    if (d) { toast.success("Room added — now post its prices"); setRoomForm({ name: "", description: "", capacity: 1 }); load(); }
+    if (d) { toast.success("Room added. Now post its prices"); setRoomForm({ name: "", description: "", capacity: 1 }); load(); }
   };
 
   const savePrices = async (acc: any) => {
@@ -3629,8 +3679,8 @@ function StaysAdminTab({ password }: { password: string }) {
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Stays & Payments</h2>
         <p className="text-sm text-gray-500">
-          The Stays module is off. Enable it in the Modules tab (it is
-          funds-bearing — the legal card will walk you through the posture),
+          The Stays module is off. Enable it in Modules On/Off (top of The Game menu, it is
+          funds-bearing, and the legal card will walk you through the posture),
           then come back here to post rooms and rates.
         </p>
       </div>
@@ -3668,7 +3718,7 @@ function StaysAdminTab({ password }: { password: string }) {
                       not a block: whoever activates a stay is the one who
                       knows whether the room is really full. */}
                   <span className={`ml-2 text-xs font-normal ${a.overCapacity ? "text-amber-700" : "text-gray-400"}`}>
-                    {a.activeStays ?? 0} of {a.capacity} {a.overCapacity ? "— over capacity" : "in residence"}
+                    {a.activeStays ?? 0} of {a.capacity} {a.overCapacity ? "over capacity" : "in residence"}
                   </span>
                 </p>
                 <button
@@ -3741,9 +3791,9 @@ function StaysAdminTab({ password }: { password: string }) {
                   <td className="py-2 pr-3 font-medium text-gray-900">{s.userName}</td>
                   <td className="py-2 pr-3 text-gray-600">{(data?.accommodations ?? []).find((a: any) => a.id === s.accommodationId)?.name ?? s.accommodationId}</td>
                   <td className="py-2 pr-3">{s.status}</td>
-                  <td className="py-2 pr-3">{s.rateSnapshotCredits ?? "—"}{s.audienceSnapshot ? ` (${s.audienceSnapshot})` : ""}</td>
+                  <td className="py-2 pr-3">{s.rateSnapshotCredits ?? "-"}{s.audienceSnapshot ? ` (${s.audienceSnapshot})` : ""}</td>
                   <td className={`py-2 pr-3 ${s.balance < 0 ? "text-red-600 font-semibold" : ""}`}>{s.balance}</td>
-                  <td className="py-2 pr-3">{s.nightsRemaining ?? "—"}</td>
+                  <td className="py-2 pr-3">{s.nightsRemaining ?? "-"}</td>
                   <td className="py-2 pr-3">
                     <button onClick={async () => { const d = await post(`/admin/stays/${s.id}`, { autopay: !s.autopay }, "PUT"); if (d) load(); }}
                       className={`text-xs px-2 py-0.5 rounded-full ${s.autopay ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
@@ -3774,7 +3824,7 @@ function StaysAdminTab({ password }: { password: string }) {
       <div className="grid md:grid-cols-2 gap-4">
         <div className="bg-white border border-gray-100 rounded-xl p-5">
           <h3 className="font-semibold text-gray-900 mb-1">Comp / adjust credits</h3>
-          <p className="text-xs text-gray-500 mb-3">Comp is a gift. Adjust is a correction (negative removes) — both land on the ledger, audited.</p>
+          <p className="text-xs text-gray-500 mb-3">Comp is a gift. Adjust is a correction (negative removes). Both land on the ledger, audited.</p>
           <div className="space-y-2">
             <select value={grant.userId} onChange={(e) => setGrant({ ...grant, userId: e.target.value })} className={`${inputCls} w-full`}>
               <option value="">Member…</option>
@@ -3794,7 +3844,7 @@ function StaysAdminTab({ password }: { password: string }) {
         </div>
         <div className="bg-white border border-gray-100 rounded-xl p-5">
           <h3 className="font-semibold text-gray-900 mb-1">Record a manual payment</h3>
-          <p className="text-xs text-gray-500 mb-3">Cash, Zeffy, bank transfer. Credits are derived from nights × the room's posted rate — you record the money, the server does the math.</p>
+          <p className="text-xs text-gray-500 mb-3">Cash, Zeffy, bank transfer. Credits are derived from nights × the room's posted rate. You record the money, the server does the math.</p>
           <div className="space-y-2">
             <select value={manual.userId} onChange={(e) => setManual({ ...manual, userId: e.target.value })} className={`${inputCls} w-full`}>
               <option value="">Member…</option>
@@ -3829,7 +3879,7 @@ function StaysAdminTab({ password }: { password: string }) {
                 <tr key={p.id} className="border-t border-gray-50">
                   <td className="py-2 pr-3 text-gray-500">{new Date(p.created_at).toLocaleDateString()}</td>
                   <td className="py-2 pr-3">{players.find((pl: any) => pl.id === p.user_id)?.name ?? p.user_id}</td>
-                  <td className="py-2 pr-3">{p.nights ?? "—"}</td>
+                  <td className="py-2 pr-3">{p.nights ?? "-"}</td>
                   <td className="py-2 pr-3">{money(p.amount_minor)}</td>
                   <td className="py-2 pr-3">{p.credits_granted}</td>
                   <td className="py-2 pr-3">{p.provider}</td>
@@ -3857,11 +3907,11 @@ function StaysAdminTab({ password }: { password: string }) {
         <p className="text-xs text-gray-500 mb-3">
           Disputes and chargebacks suspend purchasing automatically, across every
           module. Lift a suspension once the situation is resolved.
-          {payments && !payments.stripeConfigured && " Stripe is NOT configured — card checkout is off; manual payments still work."}
+          {payments && !payments.stripeConfigured && " Stripe is NOT configured. Card checkout is off; manual payments still work."}
         </p>
         {(payments?.suspensions ?? []).filter((s: any) => !s.lifted_at).map((s: any) => (
           <div key={s.id} className="flex items-center justify-between border-t border-gray-50 py-2 text-sm">
-            <span><b>{s.user_name ?? s.user_id}</b> — {s.reason}</span>
+            <span><b>{s.user_name ?? s.user_id}</b>: {s.reason}</span>
             <button onClick={async () => { const d = await post(`/admin/payments/suspensions/${s.id}/lift`); if (d) { toast.success("Lifted"); load(); } }}
               className="text-xs text-[#2D5A5A] font-medium hover:underline">Lift</button>
           </div>
@@ -3875,7 +3925,7 @@ function StaysAdminTab({ password }: { password: string }) {
             <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
               {payments.log.map((l: any) => (
                 <p key={l.id} className={`text-xs ${l.outcome === "ok" ? "text-gray-500" : "text-red-600"}`}>
-                  {new Date(l.at).toLocaleString()} — {l.type} → {l.outcome}{l.module ? ` (${l.module}:${l.order_id ?? ""})` : ""}
+                  {new Date(l.at).toLocaleString()}: {l.type} → {l.outcome}{l.module ? ` (${l.module}:${l.order_id ?? ""})` : ""}
                 </p>
               ))}
             </div>
@@ -3933,8 +3983,8 @@ function ExchangeAdminTab({ password }: { password: string }) {
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Exchange</h2>
         <p className="text-sm text-gray-500">
-          The Exchange module is off. Enable it in the Modules tab (funds-bearing
-          — the legal card applies), then list tokens and post prices here.
+          The Exchange module is off. Enable it in Modules On/Off (top of The Game
+          menu; it is funds-bearing, so the legal card applies), then list tokens and post prices here.
         </p>
       </div>
     );
@@ -3951,7 +4001,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
           Recognition and Hypha tokens can never be listed; a token another
           module sells can't be listed twice. Prices are append-only and
           bounded per change; stock comes out of the same per-cycle mint cap
-          as hand-mints. Swapping refuses more still — anything a faucet has
+          as hand-mints. Swapping refuses more still: anything a faucet has
           paid a member is never swappable, whatever it was earned for.
         </p>
       </div>
@@ -3968,8 +4018,8 @@ function ExchangeAdminTab({ password }: { password: string }) {
             <p className="text-xs text-gray-500 mb-3">
               Members can trade one listed token for another at the posted prices,
               within the caps set per token below. Accepted{" "}
-              {data.legalAck?.acceptedAt ? new Date(data.legalAck.acceptedAt).toLocaleDateString() : "—"} by{" "}
-              {data.legalAck?.acceptedBy ?? "—"} (card {data.legalAck?.cardVersion ?? "—"}).
+              {data.legalAck?.acceptedAt ? new Date(data.legalAck.acceptedAt).toLocaleDateString() : "-"} by{" "}
+              {data.legalAck?.acceptedBy ?? "-"} (card {data.legalAck?.cardVersion ?? "-"}).
             </p>
             <button
               onClick={async () => {
@@ -3987,7 +4037,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
             {data?.legalAck?.cardVersion && data.legalAck.cardVersion !== data.legalCardVersion && (
               <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
                 Swapping closed itself: this village accepted card {data.legalAck.cardVersion}, and
-                the current one is {data.legalCardVersion}. The terms below were amended — read them
+                the current one is {data.legalCardVersion}. The terms below were amended. Read them
                 again and re-accept to reopen. Nobody's tokens were touched.
               </p>
             )}
@@ -3998,15 +4048,15 @@ function ExchangeAdminTab({ password }: { password: string }) {
               <li>
                 Members will trade tokens with each other's village at prices your
                 stewards post. Depending on where you operate, that can be a
-                regulated activity — this is the point to ask a lawyer, not after.
+                regulated activity. This is the point to ask a lawyer, not after.
               </li>
               <li>
                 Tokens never convert back to money here. Fiat comes IN only; the
                 platform has no path out, by design, and adding one is not a setting.
               </li>
               <li>
-                Anything a faucet has paid a member — recognition, rewards, minted
-                credits — can never be swapped, whatever else you list.
+                Anything a faucet has paid a member (recognition, rewards, minted
+                credits) can never be swapped, whatever else you list.
               </li>
               <li>
                 Swaps are final. There is no reversal, no dispute queue, no chargeback;
@@ -4023,7 +4073,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                 const d = await call("/admin/modules/exchange/config", {
                   config: { tradingEnabled: true, legalAck: { cardVersion: data?.legalCardVersion } },
                 }, "PUT");
-                if (d) { toast.success("Swapping is on — set caps per token below"); load(); }
+                if (d) { toast.success("Swapping is on. Set caps per token below"); load(); }
               }}
               className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
             >
@@ -4045,8 +4095,8 @@ function ExchangeAdminTab({ password }: { password: string }) {
             <>
               <p className="text-xs text-gray-500 mb-3">
                 Library credits can be listed and sold for fiat like any credit token.
-                Accepted {data.creditSale.ack?.acceptedAt ? new Date(data.creditSale.ack.acceptedAt).toLocaleDateString() : "—"} by{" "}
-                {data.creditSale.ack?.acceptedBy ?? "—"} (card {data.creditSale.ack?.cardVersion}). Swapping stays sealed regardless.
+                Accepted {data.creditSale.ack?.acceptedAt ? new Date(data.creditSale.ack.acceptedAt).toLocaleDateString() : "-"} by{" "}
+                {data.creditSale.ack?.acceptedBy ?? "-"} (card {data.creditSale.ack?.cardVersion}). Swapping stays sealed regardless.
               </p>
               <button
                 onClick={async () => {
@@ -4067,12 +4117,12 @@ function ExchangeAdminTab({ password }: { password: string }) {
               <ul className="text-xs text-gray-600 space-y-1.5 mb-3 list-disc pl-4">
                 <li>
                   Today every library credit is backed by a physical item someone brought
-                  to the shelf. A SOLD credit is backed by money instead — and after the
+                  to the shelf. A SOLD credit is backed by money instead, and after the
                   sale, the two are indistinguishable claims on the same shelves.
                 </li>
                 <li>
                   If more credits circulate than the shelves can honor, the promise
-                  behind every credit — including the earned ones — weakens. Stock
+                  behind every credit, including the earned ones, weakens. Stock
                   the treasury conservatively and watch the ledger's two provenances
                   (sys:library-mint = shelf-backed intake; sys:mint = sold stock).
                 </li>
@@ -4080,7 +4130,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                   Prepaid credits can be a regulated product (gift-card and escheatment
                   law in some places). This is the point to ask a lawyer, not after.
                 </li>
-                <li>Fiat still flows IN only, and credits still never swap — this card opens the shop, never the market.</li>
+                <li>Fiat still flows IN only, and credits still never swap. This card opens the shop, never the market.</li>
               </ul>
               <button
                 onClick={async () => {
@@ -4088,7 +4138,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                   const d = await call("/admin/modules/library/config", {
                     config: { creditSaleEnabled: true, creditSaleAck: { cardVersion: data.creditSale.cardVersion } },
                   }, "PUT");
-                  if (d) { toast.success("Credit sales open — list and price library-credit below"); load(); }
+                  if (d) { toast.success("Credit sales open. List and price library-credit below"); load(); }
                 }}
                 className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
               >
@@ -4164,7 +4214,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                 {!t.reason && (
                   <div className="mt-3 border-t border-gray-100 pt-3">
                     {data?.swapReasons?.[t.slug] ? (
-                      <p className="text-xs text-amber-700">Not swappable — {data.swapReasons[t.slug]}</p>
+                      <p className="text-xs text-amber-700">Not swappable: {data.swapReasons[t.slug]}</p>
                     ) : (
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-end gap-2">
@@ -4205,7 +4255,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                           )}
                         </div>
                         <p className="text-xs text-gray-400">
-                          0 means ZERO, never unlimited — a cap of 0 keeps this token from being
+                          0 means ZERO, never unlimited. A cap of 0 keeps this token from being
                           swapped out at all, even while it is open. The spread the village keeps
                           on every swap is one setting for all tokens, in basis points: Game
                           Mechanics → exchange.swap_spread_bps (0 = no spread). Rounding dust
@@ -4230,7 +4280,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                         {s?.swapHaltedAt && (
                           <div className="space-y-2">
                             <p className="text-xs text-amber-700">
-                              PAUSED{s.swapHaltReason ? ` — ${s.swapHaltReason}` : ""}
+                              PAUSED{s.swapHaltReason ? `: ${s.swapHaltReason}` : ""}
                             </p>
                             <div className="flex flex-wrap items-end gap-2">
                               <input placeholder="Why is it safe to resume? (a sentence)" className={`${inputCls} flex-1 min-w-[220px]`}
@@ -4263,7 +4313,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
         <h3 className="font-semibold text-gray-900 mb-1">Stock the treasury</h3>
         <p className="text-xs text-gray-500 mb-3">
           sys:mint → sys:treasury, under the shared per-cycle mint cap
-          ({data?.mintCapPerCycle}). Sales come OUT of this stock — an empty
+          ({data?.mintCapPerCycle}). Sales come OUT of this stock. An empty
           treasury fails a sale loudly instead of minting quietly.
         </p>
         <div className="flex flex-wrap items-end gap-2">
@@ -4326,7 +4376,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
             <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
               {data.priceHistory.map((p: any) => (
                 <p key={p.id} className="text-xs text-gray-500">
-                  {new Date(p.effective_at).toLocaleString()} — {p.token_slug} → {money(p.price_minor)} · “{p.note}”
+                  {new Date(p.effective_at).toLocaleString()}: {p.token_slug} → {money(p.price_minor)} · “{p.note}”
                 </p>
               ))}
             </div>
@@ -4409,7 +4459,7 @@ function BadgesAdminTab({ password }: { password: string }) {
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Badges</h2>
-        <p className="text-sm text-gray-500">The Badges module is off. Enable it in the Modules tab first.</p>
+        <p className="text-sm text-gray-500">The Badges module is off. Enable it in Modules On/Off (top of The Game menu) first.</p>
       </div>
     );
   }
@@ -4421,7 +4471,7 @@ function BadgesAdminTab({ password }: { password: string }) {
         <div>
           <h2 className="text-xl font-bold text-gray-900 mb-1">Badges & Skills</h2>
           <p className="text-sm text-gray-500 max-w-xl">
-            Self and hypha badges gate nothing; only warnings may deny — and a
+            Self and hypha badges gate nothing; only warnings may deny, and a
             deny beats role and stage grants (admins excepted). Earned badges
             ride settled metrics only, and never applause into permissions.
           </p>
@@ -4535,7 +4585,7 @@ function BadgesAdminTab({ password }: { password: string }) {
       <div className="bg-white border border-gray-100 rounded-xl p-5">
         <h3 className="font-semibold text-gray-900 mb-1">Award a badge</h3>
         <p className="text-xs text-gray-500 mb-3">
-          Granted, warning and hypha kinds only — self is the member's act,
+          Granted, warning and hypha kinds only. Self is the member's act,
           earned is the engine's. Warnings require a note.
         </p>
         <div className="flex flex-wrap items-end gap-2 mb-5">
@@ -4595,10 +4645,10 @@ function BadgesAdminTab({ password }: { password: string }) {
                 <tr key={a.id} className={`border-t border-gray-50 ${a.badge_kind === "warning" ? "bg-red-50/50" : ""}`}>
                   <td className="py-2 pr-3 font-medium text-gray-900">{a.user_name ?? "(anonymized)"}</td>
                   <td className="py-2 pr-3">{a.badge_name} <span className="text-xs text-gray-400">({a.badge_kind})</span></td>
-                  <td className="py-2 pr-3">{a.count > 1 ? `×${a.count}` : "—"}</td>
+                  <td className="py-2 pr-3">{a.count > 1 ? `×${a.count}` : "-"}</td>
                   <td className="py-2 pr-3 text-gray-500">{a.awarded_by ? "steward" : "engine"}</td>
                   <td className="py-2 pr-3 text-gray-500">{a.note ?? ""}</td>
-                  <td className="py-2 pr-3 text-gray-500">{a.expires_at ? new Date(a.expires_at).toLocaleDateString() : "—"}</td>
+                  <td className="py-2 pr-3 text-gray-500">{a.expires_at ? new Date(a.expires_at).toLocaleDateString() : "-"}</td>
                   <td className="py-2 text-right">
                     <button onClick={async () => {
                       if (!window.confirm("Revoke this badge?")) return;
@@ -4668,7 +4718,7 @@ function LibraryAdminTab({ password }: { password: string }) {
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Material Library</h2>
-        <p className="text-sm text-gray-500">The Library module is off. Enable it in the Modules tab first.</p>
+        <p className="text-sm text-gray-500">The Library module is off. Enable it in Modules On/Off (top of The Game menu) first.</p>
       </div>
     );
   }
@@ -4684,7 +4734,7 @@ function LibraryAdminTab({ password }: { password: string }) {
         <p className="text-sm text-gray-500 max-w-2xl">
           Intake is a mint: awards are capped per member per lunation and
           high appraisals need a second steward. Every loan ends exactly once,
-          through settle — fees left blank use the computed defaults.
+          through settle. Fees left blank use the computed defaults.
         </p>
       </div>
 
@@ -4700,7 +4750,7 @@ function LibraryAdminTab({ password }: { password: string }) {
           <p className="text-xs text-gray-500 mb-1">Credits vs backing</p>
           <p className="text-sm font-semibold text-gray-900">
             {data?.supply?.outstanding} issued / {data?.supply?.backing} on shelves
-            {data?.supply?.flagged && " — MORE CREDITS THAN SHELVES"}
+            {data?.supply?.flagged && ": MORE CREDITS THAN SHELVES"}
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 p-4">
@@ -4733,7 +4783,7 @@ function LibraryAdminTab({ password }: { password: string }) {
           onClick={async () => {
             const d = await call("/admin/library/intake", { ...intake, appraisal: Number(intake.appraisal), categoryId: intake.categoryId || null, photoUrl: intake.photoUrl || null });
             if (d) {
-              toast.success(d.pendingSecondSignoff ? "Recorded — awaiting a second steward's sign-off" : `Recorded — ${d.award} credit(s) awarded`);
+              toast.success(d.pendingSecondSignoff ? "Recorded. Awaiting a second steward's sign-off" : `Recorded: ${d.award} credit(s) awarded`);
               setIntake({ name: "", description: "", categoryId: "", appraisal: "", donorUserId: "", minStage: "", photoUrl: "" });
               load();
             }
@@ -4767,10 +4817,10 @@ function LibraryAdminTab({ password }: { password: string }) {
                   <td className="py-2 pr-3 font-medium text-gray-900">{i.name}</td>
                   <td className="py-2 pr-3">{i.creditValue}</td>
                   <td className={`py-2 pr-3 ${i.status === "intake_pending" ? "text-amber-700 font-medium" : ""}`}>{i.status.replace(/_/g, " ")}</td>
-                  <td className="py-2 pr-3 text-gray-500">{players.find((p: any) => p.id === i.donorUserId)?.name ?? "—"}</td>
+                  <td className="py-2 pr-3 text-gray-500">{players.find((p: any) => p.id === i.donorUserId)?.name ?? "-"}</td>
                   <td className="py-2 text-right space-x-2 whitespace-nowrap">
                     {i.status === "intake_pending" && (
-                      <button onClick={async () => { const d = await call(`/admin/library/items/${i.id}/approve`); if (d) { toast.success(`Signed off — ${d.award} credit(s) awarded`); load(); } }}
+                      <button onClick={async () => { const d = await call(`/admin/library/items/${i.id}/approve`); if (d) { toast.success(`Signed off: ${d.award} credit(s) awarded`); load(); } }}
                         className="text-xs text-[#2D5A5A] font-medium hover:underline">Second sign-off</button>
                     )}
                     {i.status === "available" && (
@@ -4799,7 +4849,7 @@ function LibraryAdminTab({ password }: { password: string }) {
                 </p>
                 <div className="flex items-center gap-2">
                   {l.status === "reserved" && (
-                    <button onClick={async () => { const d = await call(`/admin/library/loans/${l.id}/pickup`); if (d) { toast.success(`Picked up — due ${d.dueOn}`); load(); } }}
+                    <button onClick={async () => { const d = await call(`/admin/library/loans/${l.id}/pickup`); if (d) { toast.success(`Picked up. Due ${d.dueOn}`); load(); } }}
                       className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium">Mark picked up</button>
                   )}
                   <input type="number" min={0} placeholder="wear" value={settleDraft[l.id]?.wear ?? ""} title="Wear fee (blank = computed default)"
@@ -4899,7 +4949,7 @@ function HealthAdminTab({ password }: { password: string }) {
       toast.error((await res.json().catch(() => ({})))?.error || "Could not withdraw it");
       return;
     }
-    toast.success("Withdrawn — it no longer counts toward the totals");
+    toast.success("Withdrawn. It no longer counts toward the totals");
     load();
   };
 
@@ -4911,9 +4961,9 @@ function HealthAdminTab({ password }: { password: string }) {
         <h2 className="text-xl font-bold text-gray-900 mb-2">Village Health</h2>
         <p className="text-sm text-gray-500">
           The Village Health module is off. Snapshot collection runs anyway
-          (every cycle close freezes its numbers); enable the module in the
-          Modules tab when there is enough history to show, and to record
-          regeneration entries here.
+          (every cycle close freezes its numbers); enable the module in
+          Modules On/Off (top of The Game menu) when there is enough history
+          to show, and to record regeneration entries here.
         </p>
       </div>
     );
@@ -4926,10 +4976,10 @@ function HealthAdminTab({ password }: { password: string }) {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-xl font-bold text-gray-900 mb-1">Village Health — the land's ledger</h2>
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Village Health: the land's ledger</h2>
         <p className="text-sm text-gray-500 max-w-2xl">
           Record regeneration as it happens: trees in the ground, water under
-          protection, hectares in restoration. Absolute counts — the numbers
+          protection, hectares in restoration. Absolute counts: the numbers
           the dashboard tiles and the investor-facing impact feed show.
           Lunation snapshots are automatic at every cycle close.
         </p>
@@ -4973,7 +5023,7 @@ function HealthAdminTab({ password }: { password: string }) {
           {(data?.entries ?? []).map((e: any) => (
             <div key={e.id} className="flex items-center justify-between text-sm border-t border-gray-50 py-1.5">
               <span className="text-gray-600">
-                {new Date(e.recordedAt).toLocaleDateString()} — <b>{e.value} {e.unit}</b> {metrics.find((m) => m.key === e.metricKey)?.label?.toLowerCase() ?? e.metricKey}
+                {new Date(e.recordedAt).toLocaleDateString()}: <b>{e.value} {e.unit}</b> {metrics.find((m) => m.key === e.metricKey)?.label?.toLowerCase() ?? e.metricKey}
                 {e.note ? <span className="text-gray-400"> · {e.note}</span> : null}
               </span>
               <button onClick={() => retract(e.id)} className="text-xs text-gray-400 hover:text-red-600">Withdraw</button>
@@ -5038,7 +5088,7 @@ function ExitsAdminTab({ password }: { password: string }) {
       });
       const d = await res.json();
       if (!res.ok) {
-        const detail = Array.isArray(d.blocking) ? ` — ${d.blocking.map((b: any) => `${b.domain}: ${b.count}`).join(", ")}` : "";
+        const detail = Array.isArray(d.blocking) ? `: ${d.blocking.map((b: any) => `${b.domain}: ${b.count}`).join(", ")}` : "";
         throw new Error((d.error || "failed") + detail);
       }
       return d;
@@ -5058,7 +5108,7 @@ function ExitsAdminTab({ password }: { password: string }) {
           Exit is a process, never a delete. Blocking state settles through
           its own domain (loans, stays, orders, debts); positive balances
           sweep by an explicit act; the tombstone comes last. Value rows are
-          never deleted — the economy conserves through every departure.
+          never deleted. The economy conserves through every departure.
         </p>
       </div>
 
@@ -5074,7 +5124,7 @@ function ExitsAdminTab({ password }: { password: string }) {
             <div className="space-y-1.5 mb-4">
               {state.states.map((s: any) => (
                 <div key={s.domain} className="flex items-start justify-between text-sm gap-3">
-                  <span className="text-gray-600"><b className="text-gray-900">{s.domain}</b> — {s.description}</span>
+                  <span className="text-gray-600"><b className="text-gray-900">{s.domain}</b>: {s.description}</span>
                   {s.count > 0 && (
                     <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${s.blocking ? "bg-red-50 text-red-600 font-semibold" : "bg-gray-100 text-gray-500"}`}>
                       {s.blocking ? `blocks (${s.count})` : s.count}
@@ -5100,9 +5150,9 @@ function ExitsAdminTab({ password }: { password: string }) {
                   <button onClick={async () => { const d = await call(`/admin/exits/${openExit.id}/settle-balances`); if (d) { toast.success(`Swept: ${JSON.stringify(d.swept)}`); loadState(selectedUser); } }}
                     className="text-sm border border-teal-deep text-teal-deep rounded-lg px-3 py-2 font-medium">Sweep balances</button>
                   <button onClick={async () => {
-                    if (!window.confirm("Resolve this exit? The account becomes a tombstone — identity removed, contributions kept.")) return;
+                    if (!window.confirm("Resolve this exit? The account becomes a tombstone: identity removed, contributions kept.")) return;
                     const d = await call(`/admin/exits/${openExit.id}/resolve`);
-                    if (d) { toast.success(`Resolved${d.vacatedRoles.length ? ` — seats opened: ${d.vacatedRoles.join(", ")}` : ""}`); setSelectedUser(""); load(); }
+                    if (d) { toast.success(`Resolved${d.vacatedRoles.length ? `. Seats opened: ${d.vacatedRoles.join(", ")}` : ""}`); setSelectedUser(""); load(); }
                   }} className="text-sm bg-red-600 text-white rounded-lg px-3 py-2 font-medium">Resolve (tombstone)</button>
                   <button onClick={async () => { const d = await call(`/admin/exits/${openExit.id}/cancel`); if (d) { toast.success("They're staying"); loadState(selectedUser); load(); } }}
                     className="text-sm text-gray-500 hover:text-gray-900 px-2">They're staying</button>
@@ -5119,12 +5169,12 @@ function ExitsAdminTab({ password }: { password: string }) {
         <div className="space-y-1.5">
           {(data?.exits ?? []).map((e: any) => (
             <p key={e.id} className="text-sm text-gray-600">
-              <b className="text-gray-900">{e.userName}</b> — {e.kind}, {e.status}
+              <b className="text-gray-900">{e.userName}</b>: {e.kind}, {e.status}
               <span className="text-xs text-gray-400"> · opened {new Date(e.openedAt).toLocaleDateString()}{e.resolvedAt ? `, closed ${new Date(e.resolvedAt).toLocaleDateString()}` : ""}</span>
               {e.agreementRef && <span className="text-xs text-teal-deep"> · agreement: {e.agreementRef}</span>}
             </p>
           ))}
-          {(data?.exits ?? []).length === 0 && <p className="text-sm text-gray-400">No departures yet — and the policy is already published. Good.</p>}
+          {(data?.exits ?? []).length === 0 && <p className="text-sm text-gray-400">No departures yet, and the policy is already published. Good.</p>}
         </div>
       </div>
 
@@ -5134,7 +5184,7 @@ function ExitsAdminTab({ password }: { password: string }) {
           <h3 className="font-semibold text-gray-900 mb-1">The published policy</h3>
           <p className="text-xs text-gray-500 mb-3">
             Lives at /exit-policy for everyone to read. The terms are the
-            community's to decide{policyDraft.placeholder ? " — these are still the platform's placeholders" : ""}.
+            community's to decide{policyDraft.placeholder ? " (these are still the platform's placeholders)" : ""}.
           </p>
           <div className="grid sm:grid-cols-2 gap-3 mb-3">
             <label className="text-xs text-gray-500">Notice period (days)
@@ -5233,7 +5283,7 @@ function CallsAdminTab({ password }: { password: string }) {
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Call Automation</h2>
-        <p className="text-sm text-gray-500">The Call Automation module is off. Enable it in the Modules tab first.</p>
+        <p className="text-sm text-gray-500">The Call Automation module is off. Enable it in Modules On/Off (top of The Game menu) first.</p>
       </div>
     );
   }
@@ -5250,13 +5300,13 @@ function CallsAdminTab({ password }: { password: string }) {
         </p>
         {!data?.assistantConfigured && (
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2 inline-block">
-            The assistant is not configured (ANTHROPIC_API_KEY) — ingestion and
+            The assistant is not configured (ANTHROPIC_API_KEY). Ingestion and
             transcripts work; synthesis will refuse honestly.
           </p>
         )}
         {data && data.readyQueue >= data.maxReadyQueue && (
           <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2 inline-block">
-            Backpressure: {data.readyQueue} unpublished syntheses — publish or clear before drafting more.
+            Backpressure: {data.readyQueue} unpublished syntheses. Publish or clear before drafting more.
           </p>
         )}
       </div>
@@ -5265,7 +5315,7 @@ function CallsAdminTab({ password }: { password: string }) {
           transcribed. Always visible — a founder needs the URL to configure
           Riverside, and the secret state to know why nothing is arriving. */}
       <div className="bg-white border border-gray-100 rounded-xl p-5">
-        <h3 className="font-semibold text-gray-900 mb-1">Riverside — automatic ingestion</h3>
+        <h3 className="font-semibold text-gray-900 mb-1">Riverside, automatic ingestion</h3>
         <p className="text-sm text-gray-500 mb-3 max-w-2xl">
           Point Riverside's webhook at this village and every finished call arrives here on its
           own, ready to transcribe and synthesize. In Riverside, add a webhook with this URL and
@@ -5281,7 +5331,7 @@ function CallsAdminTab({ password }: { password: string }) {
               if (data?.riversideWebhookUrl) {
                 navigator.clipboard?.writeText(data.riversideWebhookUrl).then(
                   () => toast.success("Webhook URL copied"),
-                  () => toast.error("Couldn't copy — select and copy the URL by hand"),
+                  () => toast.error("Couldn't copy. Select and copy the URL by hand"),
                 );
               }
             }}
@@ -5292,7 +5342,7 @@ function CallsAdminTab({ password }: { password: string }) {
         </div>
         {data?.riversideSecretConfigured ? (
           <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 inline-block">
-            Shared secret is set — deliveries carrying the matching
+            Shared secret is set. Deliveries carrying the matching
             x-riverside-secret header are ingested.
           </p>
         ) : (
@@ -5315,7 +5365,7 @@ function CallsAdminTab({ password }: { password: string }) {
             <input placeholder="URL (optional)" value={form.url}
               onChange={(e) => setForm({ ...form, url: e.target.value })} className={`${inputCls} flex-1`} />
           </div>
-          <textarea rows={4} placeholder="Paste the transcript — VTT, SRT or plain text. Timestamped cues make the evidence rule sharper."
+          <textarea rows={4} placeholder="Paste the transcript: VTT, SRT or plain text. Timestamped cues make the evidence rule sharper."
             value={form.transcript} onChange={(e) => setForm({ ...form, transcript: e.target.value })}
             className={`${inputCls} w-full font-mono text-xs`} />
           <button
@@ -5358,13 +5408,13 @@ function CallsAdminTab({ password }: { password: string }) {
                 className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Synthesize</button>
             )}
             {detail.synthesis && !detail.synthesis.published_at && (
-              <button onClick={async () => { const d = await call(`/admin/syntheses/${detail.synthesis.id}/publish`); if (d) { toast.success(`Published — ${d.notified} role-holder(s) notified`); load(); loadDetail(selected); } }}
+              <button onClick={async () => { const d = await call(`/admin/syntheses/${detail.synthesis.id}/publish`); if (d) { toast.success(`Published: ${d.notified} role-holder(s) notified`); load(); loadDetail(selected); } }}
                 className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Publish to forum</button>
             )}
           </div>
 
           {!detail.transcript && (
-            <p className="text-sm text-gray-400">No transcript yet — paste one via the transcript endpoint or re-ingest with it.</p>
+            <p className="text-sm text-gray-400">No transcript yet. Paste one via the transcript endpoint or re-ingest with it.</p>
           )}
 
           {detail.synthesis && (
@@ -5390,7 +5440,7 @@ function CallsAdminTab({ password }: { password: string }) {
 
               <div>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                  Suggested tasks — each one evidenced from the tape
+                  Suggested tasks, each one evidenced from the tape
                   {detail.synthesis.dropped_task_count > 0 && (
                     <span className="text-amber-700"> · {detail.synthesis.dropped_task_count} suggestion(s) dropped for failing the evidence rule</span>
                   )}
@@ -5414,7 +5464,7 @@ function CallsAdminTab({ password }: { password: string }) {
                           )}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-500 mt-1 italic">“{t.quote}” — at {fmtTs(t.timestamp_ms)}</p>
+                      <p className="text-xs text-gray-500 mt-1 italic">“{t.quote}”, at {fmtTs(t.timestamp_ms)}</p>
                     </div>
                   ))}
                   {detail.tasks.length === 0 && <p className="text-sm text-gray-400">No suggestions survived, or none were made.</p>}
@@ -5435,6 +5485,7 @@ function TokensTab({ password }: { password: string }) {
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ slug: "", name: "", kind: "credit", transferable: false });
   const [mint, setMint] = useState({ slug: "", toUserId: "", amount: "", reason: "" });
+  const [renaming, setRenaming] = useState<{ slug: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -5469,6 +5520,22 @@ function TokensTab({ password }: { password: string }) {
     } catch (e: any) { toast.error(e?.message || "Create failed"); }
   };
 
+  const rename = async () => {
+    if (!renaming || !renaming.name.trim()) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/tokens/${renaming.slug}`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ name: renaming.name.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "failed");
+      toast.success(`Renamed to "${data.token?.name}". Every page follows`);
+      setRenaming(null);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Rename failed"); }
+  };
+
   const doMint = async () => {
     try {
       const res = await fetch(`${API_BASE}/admin/tokens/${mint.slug}/mint`, {
@@ -5478,7 +5545,7 @@ function TokensTab({ password }: { password: string }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "failed");
-      toast.success(`Minted — ${data.remaining} left under this cycle's cap`);
+      toast.success(`Minted: ${data.remaining} left under this cycle's cap`);
       setMint({ slug: "", toUserId: "", amount: "", reason: "" });
       load();
     } catch (e: any) { toast.error(e?.message || "Mint failed"); }
@@ -5492,8 +5559,9 @@ function TokensTab({ password }: { password: string }) {
         <h2 className="text-xl font-bold text-gray-900">Tokens</h2>
         <p className="text-sm text-gray-500 mt-1">
           The registry every module draws from. Platform tokens are yours to name and
-          issue; Hypha-governed tokens (equity, voice) live on Base and are read-only
-          mirrors here — this platform can never mint them.
+          issue. Renaming one renames it everywhere it appears, wallet to public
+          pages. Hypha-governed tokens (equity, voice) live on Base and are read-only
+          mirrors here, and this platform can never mint them.
         </p>
       </div>
       {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
@@ -5513,8 +5581,29 @@ function TokensTab({ password }: { password: string }) {
                 {tokens.map((t) => (
                   <tr key={t.slug} className="border-t border-gray-100">
                     <td className="px-4 py-2.5">
-                      <span className="font-medium text-gray-900">{t.name}</span>{" "}
-                      <span className="text-xs text-gray-400 font-mono">{t.slug}</span>
+                      {renaming && renaming.slug === t.slug ? (
+                        <span className="flex items-center gap-1.5">
+                          <input
+                            value={renaming.name}
+                            onChange={(e) => setRenaming({ slug: t.slug, name: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === "Enter") rename(); if (e.key === "Escape") setRenaming(null); }}
+                            autoFocus
+                            className="text-sm border border-gray-200 rounded-lg px-2 py-1 w-40"
+                          />
+                          <button onClick={rename} disabled={!renaming.name.trim()}
+                            className="text-xs bg-[#2D5A5A] text-white rounded-lg px-2 py-1 disabled:opacity-40">Save</button>
+                          <button onClick={() => setRenaming(null)} className="text-xs text-gray-400">Cancel</button>
+                        </span>
+                      ) : (
+                        <>
+                          <span className="font-medium text-gray-900">{t.name}</span>{" "}
+                          <span className="text-xs text-gray-400 font-mono">{t.slug}</span>
+                          {t.governance === "platform" && (
+                            <button onClick={() => setRenaming({ slug: t.slug, name: t.name })}
+                              className="ml-2 text-xs text-[#2D5A5A] underline">rename</button>
+                          )}
+                        </>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-gray-600">{t.kind}</td>
                     <td className="px-4 py-2.5">
@@ -5529,7 +5618,7 @@ function TokensTab({ password }: { password: string }) {
                     <td className="px-4 py-2.5 text-gray-600">{t.transferable ? "yes" : "no"}</td>
                     <td className="px-4 py-2.5 text-gray-600">
                       {Object.entries(t.issuedBy ?? {}).length === 0
-                        ? <span className="text-gray-300">—</span>
+                        ? <span className="text-gray-300">-</span>
                         : Object.entries(t.issuedBy).map(([acct, n]) => (
                             <div key={acct} className="text-xs">
                               <span className="font-mono text-gray-400">{acct.replace("sys:", "")}</span>: {String(n)}
@@ -5545,7 +5634,7 @@ function TokensTab({ password }: { password: string }) {
           <div className="border border-gray-200 rounded-xl p-5">
             <h3 className="font-semibold text-gray-900 mb-1">Create a platform token</h3>
             <p className="text-xs text-gray-500 mb-3">
-              Name tokens as you enable modules — stay credits, library credits, event
+              Name tokens as you enable modules: stay credits, library credits, event
               tickets. The slug is permanent: history is never re-denominated.
             </p>
             <div className="flex flex-wrap items-center gap-2">
@@ -5628,7 +5717,7 @@ function LedgerTab({ password }: { password: string }) {
           <h2 className="text-xl font-bold text-gray-900">Ledger</h2>
           <p className="text-sm text-gray-500 mt-1">
             The same checks the server proves before every boot, on demand. Faucet
-            accounts run negative by design — their negative balance is what they
+            accounts run negative by design. Their negative balance is what they
             have issued, which is why everything still sums to zero.
           </p>
         </div>
@@ -5647,7 +5736,7 @@ function LedgerTab({ password }: { password: string }) {
             </div>
           ) : (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-              <p className="font-semibold mb-1">Invariant violations — the server will refuse to boot like this:</p>
+              <p className="font-semibold mb-1">Invariant violations. The server will refuse to boot like this:</p>
               <ul className="list-disc ml-5 space-y-0.5">
                 {(data.invariants?.problems ?? []).map((p: string, i: number) => <li key={i}>{p}</li>)}
               </ul>
@@ -5700,9 +5789,9 @@ function LedgerTab({ password }: { password: string }) {
                       {s.faucet && <span className="ml-2 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full">faucet</span>}
                       <div className="text-xs text-gray-400">{s.label}</div>
                     </td>
-                    <td className="px-4 py-2 text-gray-600 font-mono text-xs">{s.tokenType ?? "—"}</td>
-                    <td className="px-4 py-2 text-gray-600">{s.balance ?? "—"}</td>
-                    <td className="px-4 py-2 text-gray-600">{s.issuedToDate ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-600 font-mono text-xs">{s.tokenType ?? "-"}</td>
+                    <td className="px-4 py-2 text-gray-600">{s.balance ?? "-"}</td>
+                    <td className="px-4 py-2 text-gray-600">{s.issuedToDate ?? "-"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -5769,9 +5858,9 @@ function IntegrateDaoPanel({ password, onAssigned }: { password: string; onAssig
 
   return (
     <div className="border border-gray-200 rounded-xl px-4 py-4 mb-6 bg-gray-50/60">
-      <h3 className="font-semibold text-gray-900 text-sm">Integrate DAO — find a token's contract on Base</h3>
+      <h3 className="font-semibold text-gray-900 text-sm">Integrate DAO: find a token's contract on Base</h3>
       <p className="text-xs text-gray-500 mt-1 max-w-2xl">
-        After creating a token on Hypha, issue yourself some (any amount — issuance is what
+        After creating a token on Hypha, issue yourself some (any amount, issuance is what
         puts the contract on-chain), set your founder Base account address under Hypha below,
         then enter the token's exact on-chain name. The contract address is found from your
         account's transfer history and saved through the normal audited variable route.
@@ -5817,7 +5906,7 @@ function IntegrateDaoPanel({ password, onAssigned }: { password: string; onAssig
       )}
       {result && !result.found && Array.isArray(result.matches) && result.matches.length > 1 && (
         <div className="mt-3 text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          Several contracts share that name — copy the right one by hand:
+          Several contracts share that name. Copy the right one by hand:
           <ul className="mt-1 space-y-0.5">
             {result.matches.map((m: any) => (
               <li key={m.contractAddress}>
@@ -5863,7 +5952,7 @@ function VariablesTab({ password }: { password: string }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Invalid value");
-      toast.success("Saved — the rule is live");
+      toast.success("Saved. The rule is live");
       setDrafts((d) => { const n = { ...d }; delete n[key]; return n; });
       load();
     } catch (e: any) {
@@ -5910,7 +5999,7 @@ function VariablesTab({ password }: { password: string }) {
                           <p className="text-xs text-gray-500 mt-0.5 max-w-xl">{v.description}</p>
                           <p className="text-[11px] text-gray-400 mt-0.5 font-mono">
                             {v.key}
-                            {v.min !== undefined && v.max !== undefined && ` · ${v.min}–${v.max}`}
+                            {v.min !== undefined && v.max !== undefined && ` · ${v.min}-${v.max}`}
                             {v.unit ? ` ${v.unit}` : ""}
                           </p>
                         </div>
@@ -6039,7 +6128,7 @@ function SeasonTab({ password }: { password: string }) {
           <h2 className="text-xl font-bold text-gray-900">Seasons</h2>
           <p className="text-sm text-gray-500 mt-1">
             Name your seasons, say what each one is for, and set its goals. The banner shows
-            whichever season covers today — queue the next one and it hands over by itself.
+            whichever season covers today. Queue the next one and it hands over by itself.
           </p>
         </div>
         <button onClick={save} disabled={saving} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50 shrink-0">
@@ -6049,7 +6138,7 @@ function SeasonTab({ password }: { password: string }) {
 
       {cfg.needsNextSeason && (
         <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <strong>No season covers today.</strong> The banner stays hidden until you add one —
+          <strong>No season covers today.</strong> The banner stays hidden until you add one,
           better than showing a season that has already turned.
         </div>
       )}
@@ -6181,7 +6270,7 @@ function BrandImageField({
       if (!res.ok) throw new Error(data.error || "Upload failed");
       onChange(data.url);
       const saved = data.originalBytes && data.bytes
-        ? ` — ${Math.round(data.originalBytes / 1024)}KB down to ${Math.round(data.bytes / 1024)}KB`
+        ? `, ${Math.round(data.originalBytes / 1024)}KB down to ${Math.round(data.bytes / 1024)}KB`
         : "";
       setNote(`Uploaded${saved}. Remember to save.`);
     } catch (e: any) {
@@ -6352,7 +6441,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
     { tab: "visit-config", label: "Visit program", hint: "Visit types, logistics, and booking copy." },
     { tab: "investor-summary", label: "Investor summary", hint: "The plain-language money facts on the investor page." },
     { tab: "season", label: "Season", hint: "The current season banner (name, theme, dates)." },
-    { tab: "quests-admin", label: "Quests", hint: "Seeded starter quests — rewrite, add or remove them here so the board is yours." },
+    { tab: "quests-admin", label: "Quests", hint: "Seeded starter quests. Rewrite, add or remove them here so the board is yours." },
   ];
 
   const Section = ({ id, n, title, subtitle, children }: any) => (
@@ -6423,7 +6512,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
         <p className="text-xs text-gray-400 mt-2">Instantly updates the game layer (profile, gratitude, season banner, pulse). Page marketing copy is edited under Content below.</p>
       </Section>
 
-      <Section id="images" n={2} title="Pictures" subtitle="Hero images across the site. Upload your own — we host and compress them — or point at a URL you already host.">
+      <Section id="images" n={2} title="Pictures" subtitle="Hero images across the site. Upload your own (we host and compress them) or point at a URL you already host.">
         <div className="grid md:grid-cols-3 gap-4 mb-4">
           {imageField("hero", "Homepage hero")}
           {imageField("investorHero", "Investor hero")}
@@ -6536,7 +6625,7 @@ function SettingsTab({ password }: { password: string }) {
 
   const dues = settings.villageDues ?? {};
   const setDues = (patch: any) => setSettings({ ...settings, villageDues: { ...dues, ...patch } });
-  const preview = dues.amount ? `${dues.currency || "$"}${dues.amount} / ${dues.period || "month"}` : "— not shown until you set an amount —";
+  const preview = dues.amount ? `${dues.currency || "$"}${dues.amount} / ${dues.period || "month"}` : "Not shown until you set an amount";
 
   return (
     <div>
@@ -6730,7 +6819,7 @@ function ProductsAdminTab({ password }: { password: string }) {
         <h2 className="text-xl font-bold text-gray-900">Payments & Donations</h2>
         <p className="text-sm text-gray-500 mt-1">
           Fees, donations, deposits, waitlist seats, recurring memberships and
-          token packs — all sold through the same verified Stripe spine, or via
+          token packs, all sold through the same verified Stripe spine, or via
           your Zeffy form / manual arrangement (confirmed here on reconciliation).
           Money flows in only. The public page is /contribute.
         </p>
@@ -6813,7 +6902,7 @@ function ProductsAdminTab({ password }: { password: string }) {
               {(data?.purchases ?? []).map((o: any) => (
                 <div key={o.id} className="text-sm text-gray-600 flex items-center justify-between gap-3 flex-wrap border-b border-gray-50 pb-1.5">
                   <span>
-                    #{o.receipt_no} — {o.product_name} · ${(o.amount_minor / 100).toFixed(2)}
+                    #{o.receipt_no}: {o.product_name} · ${(o.amount_minor / 100).toFixed(2)}
                     {o.periods_paid > 1 && ` · ${o.periods_paid} periods`}
                     {" · "}{o.user_name ?? o.payer_email ?? "anonymous"}
                     {" · "}
@@ -6890,7 +6979,7 @@ function FeedbackAdminTab({ password }: { password: string }) {
       {loading && !data ? (
         <div className="text-center py-12 text-gray-400">Loading…</div>
       ) : (data?.items ?? []).length === 0 ? (
-        <p className="text-sm text-gray-400 py-8">Nothing yet — the door is at /feedback (also linked in the footer).</p>
+        <p className="text-sm text-gray-400 py-8">Nothing yet. The door is at /feedback (also linked in the footer).</p>
       ) : (
         <div className="space-y-3 max-w-3xl">
           {(data?.items ?? []).map((f: any) => (
@@ -6977,6 +7066,9 @@ export default function Admin() {
     const p = new URLSearchParams(window.location.search);
     p.set("tab", tab);
     window.history.pushState({}, "", `${window.location.pathname}?${p.toString()}`);
+    // Choosing from low in the rail leaves you scrolled past the top of the
+    // panel you just opened; every tab change starts at its own beginning.
+    window.scrollTo({ top: 0 });
   }, []);
   useEffect(() => {
     const onPop = () => setActiveTabState(new URLSearchParams(window.location.search).get("tab") ?? "submissions");

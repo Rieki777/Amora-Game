@@ -24,7 +24,7 @@ const PRINCIPLES = [
     icon: Users,
     title: "Circles, not hierarchy",
     body:
-      "Decisions are made in the circle closest to the work. The Land Circle governs land decisions. The Community Circle governs social matters. No top-down override.",
+      "Decisions are made in the circle closest to the work. The Development Circle governs the build. The Community Circle governs the human experience. No top-down override.",
   },
   {
     icon: Eye,
@@ -139,11 +139,11 @@ export default function Governance() {
           </div>
           <div className="grid md:grid-cols-2 gap-4 mb-8">
             {[
-              { name: "Village Steward Circle", body: "Coordinates the overall village. Cross-circle alignment, season planning, and shared infrastructure decisions." },
-              { name: "Resident Circle", body: "Governs residential life: neighbour relations, shared spaces, household-level agreements, and onboarding new residents." },
-              { name: "Land Circle", body: "Stewardship of the 266 acres: water, soil, ecology, regeneration projects, and physical infrastructure." },
-              { name: "Prosperity Circle", body: "Business interests, the Gratitude economy, revenue sharing, and shared services that fund village life." },
-              { name: "Co-Creator Circle", body: "Holds the cultural rhythm: rites of passage, training, contribution recognition, and Gratitude flows." },
+              { name: "General Coordinating Circle", body: "Where the circles meet: the four leads and circle representatives, coordinating strategy, budget stewardship, and decisions that cross circle boundaries." },
+              { name: "Outreach & Growth Circle", body: "Connects with people and guides their whole journey into the village: marketing, sales, social media, and membership & onboarding as one flow." },
+              { name: "Community Circle", body: "The lived experience: events, hospitality, stays on the land, and the governance and team-health practices that keep the human systems honest." },
+              { name: "Development Circle", body: "The physical realization: master planning, architecture, permitting, construction, land operations, and regenerative systems." },
+              { name: "Finance & Business Circle", body: "Stewards the money and builds the engines that generate it: financial operations, the legal container, and business development." },
             ].map((c) => (
               <div key={c.name} className="bg-white rounded-2xl border border-stone-200 shadow-sm p-5">
                 <h3 className="font-display text-lg font-semibold text-teal-deep mb-1.5">{c.name}</h3>
