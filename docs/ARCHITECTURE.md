@@ -658,6 +658,46 @@ obligations (durable-store-then-2xx, idempotent on
   button is impossible. The platform reads, displays and deep-links; it
   never posts, mints, moves or prices anything Hypha governs.
 
+### 3.15 The serving layer — what every byte costs
+
+Every image, script and stylesheet is served by the **same single Node process**
+that runs the ledger, the scheduler and every module route. There is no CDN and
+no object storage. So page weight is not a cosmetic concern here: image
+bandwidth competes directly with quest consent and gratitude posting on one
+event loop, on the ~50 KB/s links this platform is built for.
+
+Four rules, each of which was a real defect first:
+
+1. **Routes are lazy** (`client/src/App.tsx`). Only Home, Login and the 404 are
+   eagerly imported; every other page is `React.lazy`. Before this the main
+   bundle was 1382 KB against a 1400 KB CI ceiling and every visitor downloaded
+   Admin's 6,980 lines and Project History's 2,870 before anything rendered.
+   Splitting took first-paint JS to ~494 KB. A new page goes in the lazy list
+   unless it renders on first paint for a signed-out visitor.
+
+2. **Uploaded images cache for a year; documents never do**
+   (`/api/uploads/:filename`). Every writer into `UPLOADS_DIR` stamps
+   `${Date.now()}-${random}` into the filename, so a URL's bytes never change —
+   replacing an image mints a new URL. That makes `max-age=31536000, immutable`
+   correct rather than merely fast. Without it Express falls back to a
+   conditional request per image per page view. PDFs get `private, no-cache`
+   instead: they are gated business documents and shared proxies should not
+   hold them.
+
+3. **Foundation art never goes in `client/public/assets/`.** That directory is
+   served one-year-immutable and Vite does **not** content-hash passthrough
+   files, so replacing a file there leaves returning members stale for a year
+   with no way to bust it. It once held 1.7 MB of logos — a single 449 KB PNG
+   at 3458×3458 for a mark drawn at 40px. `scripts/compress-static-images.mjs`
+   re-encodes what is already there; anything new belongs in the uploads
+   volume, which is stamped, cached correctly and swappable.
+
+4. **CI measures all three, not just one.** `MAX_MAIN_JS_KB` (700),
+   `MAX_TOTAL_DIST_KB` (6000) and `MAX_SINGLE_IMAGE_KB` (400) in
+   `.github/workflows/ci.yml`. The budget used to cover main JS alone, so
+   178 KB of CSS and 1.7 MB of images grew entirely unwatched. When one goes
+   red, split or compress — do not raise the number.
+
 ---
 
 ## 4. Modules: how to add one, how to remove one

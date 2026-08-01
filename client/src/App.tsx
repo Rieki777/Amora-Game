@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation } from "wouter";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -123,53 +123,96 @@ function PageTitle() {
 
   return null;
 }
+/**
+ * ROUTE SPLITTING — the rule for anyone adding a page.
+ *
+ * The main bundle sat at 1382 KB against CI's 1400 KB ceiling: 18 KB of
+ * headroom for a platform about to add a design system, an identity intake
+ * and an art review queue. The CI gate says the right thing already — "split
+ * a route rather than raising the budget" — so every page below the eager set
+ * is `lazy()`.
+ *
+ * EAGER = what an arriving human sees before they choose anything: the home
+ * page, the sign-in page a deep link bounces them to, and the 404. Everything
+ * else is a chunk fetched on navigation and cached from then on.
+ *
+ * That trade is strictly good on the ~50 KB/s links this platform is built
+ * for: today a visitor downloads all 26,000 lines of every page — including
+ * Admin's 6,980 and Project History's 2,870, which most members never open —
+ * before anything renders. After this they download the shell plus the one
+ * page they asked for.
+ *
+ * New page? Add it to the lazy list. Only add to the eager set if it renders
+ * on first paint for a signed-out visitor.
+ */
 import Home from "./pages/Home";
-import InvestorJourney from "./pages/InvestorJourney";
-import StewardJourney from "./pages/StewardJourney";
-import ResidentJourney from "./pages/ResidentJourney";
-import ProsperityJourney from "./pages/ProsperityJourney";
-import LoveLetter from "./pages/LoveLetter";
-import Circles from "./pages/Circles";
-import Quests from "./pages/Quests";
-import ProposeQuest from "./pages/ProposeQuest";
-import Roles from "./pages/Roles";
-import HowWeCreate from "./pages/HowWeCreate";
-import CoCreatorsGuide from "./pages/CoCreatorsGuide";
-import Housing from "./pages/Housing";
-import Opportunities from "./pages/Opportunities";
-import MasterPlan from "./pages/MasterPlan";
-import Team from "./pages/Team";
-import Admin from "./pages/Admin";
-import Profile from "./pages/Profile";
 import Login from "./pages/Login";
-import Register from "./pages/Register";
-import SetPassword from "./pages/SetPassword";
-import ForgotPassword from "./pages/ForgotPassword";
-import GameMechanics from "./pages/GameMechanics";
-import GoodNeighbor from "./pages/GoodNeighbor";
-import JourneyToLaunch from "./pages/JourneyToLaunch";
-import ProjectHistory from "./pages/ProjectHistory";
-import Feedback from "./pages/Feedback";
-import Network from "./pages/Network";
-import Contribute from "./pages/Contribute";
-import SeasonalFestivals from "./pages/SeasonalFestivals";
-import StewardRights from "./pages/StewardRights";
-import ResidentRights from "./pages/ResidentRights";
-import Training from "./pages/Training";
-import Governance from "./pages/Governance";
-import Visit from "./pages/Visit";
-import GratitudeWall from "./pages/GratitudeWall";
-import WorkWithUs from "./pages/WorkWithUs";
-import ToolsHub from "./pages/ToolsHub";
-import VillageMap from "./pages/VillageMap";
-import Forum from "./pages/Forum";
-import Feed from "./pages/Feed";
-import Stay from "./pages/Stay";
-import Wallet from "./pages/Wallet";
-import Badges from "./pages/Badges";
-import Library from "./pages/Library";
-import VillageHealth from "./pages/VillageHealth";
-import ExitPolicy from "./pages/ExitPolicy";
+
+const lazyPage = (loader: () => Promise<{ default: React.ComponentType<any> }>) => lazy(loader);
+
+const InvestorJourney = lazyPage(() => import("./pages/InvestorJourney"));
+const StewardJourney = lazyPage(() => import("./pages/StewardJourney"));
+const ResidentJourney = lazyPage(() => import("./pages/ResidentJourney"));
+const ProsperityJourney = lazyPage(() => import("./pages/ProsperityJourney"));
+const LoveLetter = lazyPage(() => import("./pages/LoveLetter"));
+const Circles = lazyPage(() => import("./pages/Circles"));
+const Quests = lazyPage(() => import("./pages/Quests"));
+const ProposeQuest = lazyPage(() => import("./pages/ProposeQuest"));
+const Roles = lazyPage(() => import("./pages/Roles"));
+const HowWeCreate = lazyPage(() => import("./pages/HowWeCreate"));
+const CoCreatorsGuide = lazyPage(() => import("./pages/CoCreatorsGuide"));
+const Housing = lazyPage(() => import("./pages/Housing"));
+const Opportunities = lazyPage(() => import("./pages/Opportunities"));
+const MasterPlan = lazyPage(() => import("./pages/MasterPlan"));
+const Team = lazyPage(() => import("./pages/Team"));
+const Admin = lazyPage(() => import("./pages/Admin"));
+const Profile = lazyPage(() => import("./pages/Profile"));
+const Register = lazyPage(() => import("./pages/Register"));
+const SetPassword = lazyPage(() => import("./pages/SetPassword"));
+const ForgotPassword = lazyPage(() => import("./pages/ForgotPassword"));
+const GameMechanics = lazyPage(() => import("./pages/GameMechanics"));
+const GoodNeighbor = lazyPage(() => import("./pages/GoodNeighbor"));
+const JourneyToLaunch = lazyPage(() => import("./pages/JourneyToLaunch"));
+const ProjectHistory = lazyPage(() => import("./pages/ProjectHistory"));
+const Feedback = lazyPage(() => import("./pages/Feedback"));
+const Network = lazyPage(() => import("./pages/Network"));
+const Contribute = lazyPage(() => import("./pages/Contribute"));
+const SeasonalFestivals = lazyPage(() => import("./pages/SeasonalFestivals"));
+const StewardRights = lazyPage(() => import("./pages/StewardRights"));
+const ResidentRights = lazyPage(() => import("./pages/ResidentRights"));
+const Training = lazyPage(() => import("./pages/Training"));
+const Governance = lazyPage(() => import("./pages/Governance"));
+const Visit = lazyPage(() => import("./pages/Visit"));
+const GratitudeWall = lazyPage(() => import("./pages/GratitudeWall"));
+const WorkWithUs = lazyPage(() => import("./pages/WorkWithUs"));
+const ToolsHub = lazyPage(() => import("./pages/ToolsHub"));
+const VillageMap = lazyPage(() => import("./pages/VillageMap"));
+const Forum = lazyPage(() => import("./pages/Forum"));
+const Feed = lazyPage(() => import("./pages/Feed"));
+const Stay = lazyPage(() => import("./pages/Stay"));
+const Wallet = lazyPage(() => import("./pages/Wallet"));
+const Badges = lazyPage(() => import("./pages/Badges"));
+const Library = lazyPage(() => import("./pages/Library"));
+const VillageHealth = lazyPage(() => import("./pages/VillageHealth"));
+const ExitPolicy = lazyPage(() => import("./pages/ExitPolicy"));
+
+/**
+ * Shown while a page chunk arrives. Deliberately quiet: on a slow link this
+ * appears for a second or two, and a spinner that shouts is worse than one
+ * that waits. `min-h` holds the viewport so the footer does not jump up and
+ * back down as the chunk lands.
+ */
+function PageLoading() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center" role="status" aria-live="polite">
+      <span className="sr-only">Loading page</span>
+      <div
+        aria-hidden="true"
+        className="h-8 w-8 animate-spin rounded-full border-2 border-muted border-t-foreground/60"
+      />
+    </div>
+  );
+}
 
 function Router() {
   const [location] = useLocation();
@@ -178,6 +221,7 @@ function Router() {
     <ScrollToTop />
       <PageTitle />
     <ErrorBoundary key={location}>
+    <Suspense fallback={<PageLoading />}>
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/journey-to-launch" component={JourneyToLaunch} />
@@ -231,6 +275,7 @@ function Router() {
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
+    </Suspense>
     </ErrorBoundary>
     </>
   );

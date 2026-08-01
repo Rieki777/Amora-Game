@@ -9416,11 +9416,33 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (type) {
       res.type(type);
       res.setHeader("Content-Disposition", `inline; filename="${safe}"`);
+      // Every writer into UPLOADS_DIR stamps `${Date.now()}-${random}` into the
+      // filename, so a given URL's bytes never change — replacing an image
+      // mints a new URL. That makes a year-long immutable cache correct rather
+      // than merely convenient, and it matters more here than anywhere else on
+      // the platform: without it Express falls back to a conditional request
+      // per image per page view, so a page of forty illustrated cards spends
+      // forty round trips before a single byte of image arrives. On the
+      // ~50 KB/s links this platform is built for, that is the difference
+      // between a page that loads and one that doesn't.
+      //
+      // Images only. PDFs and unknown types fall through deliberately — see
+      // below.
+      if (type.startsWith("image/")) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      } else {
+        // Investor documents and the like live behind a request-and-email gate.
+        // The gate is weak (anyone with the URL can fetch), but `public` would
+        // additionally invite shared proxies to hold copies. Keep them out of
+        // intermediary caches.
+        res.setHeader("Cache-Control", "private, no-cache");
+      }
     } else {
       // Unknown or executable-ish (.html, .svg, .xml…): hand it over as an
       // opaque download that no browser will render in our origin.
       res.type("application/octet-stream");
       res.setHeader("Content-Disposition", `attachment; filename="${safe}"`);
+      res.setHeader("Cache-Control", "private, no-cache");
     }
     res.sendFile(filePath);
   });
