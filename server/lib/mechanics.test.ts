@@ -5,7 +5,7 @@
  * bridge phase will match on-chain events against.
  */
 import { describe, expect, it } from "vitest";
-import { proposerStanding, validateChangeSet, proposalMarkdown, displayChangeValue } from "./mechanics";
+import { parseHyphaProposalId, proposerStanding, validateChangeSet, proposalMarkdown, displayChangeValue } from "./mechanics";
 
 // validateChangeSet only touches the pool for the cooldown query; with
 // cooldownDays 0 it never dials out, so a throwing stub proves that too.
@@ -141,5 +141,24 @@ describe("the proposal document", () => {
     expect(displayChangeValue("gratitude.require_message", "true")).toBe("On");
     expect(displayChangeValue("quest.consent_cap_mode", "posted")).toBe("Exactly the posted amount");
     expect(displayChangeValue("gratitude.base_budget", "100")).toBe("100 Gratitude");
+  });
+});
+
+describe("parseHyphaProposalId", () => {
+  it("takes the id from a pasted Hypha URL — last numeric path segment wins", () => {
+    expect(parseHyphaProposalId("https://app.hypha.earth/en/dho/my-village/agreements/777")).toBe("777");
+    expect(parseHyphaProposalId("https://app.hypha.earth/en/dho/my-village/agreements/777?tab=votes#top")).toBe("777");
+    expect(parseHyphaProposalId("https://app.hypha.earth/proposal/5704/")).toBe("5704");
+  });
+
+  it("accepts the bare number a founder might paste instead", () => {
+    expect(parseHyphaProposalId("5704")).toBe("5704");
+    expect(parseHyphaProposalId("  777  ")).toBe("777");
+  });
+
+  it("refuses to guess when nothing numeric is there", () => {
+    expect(parseHyphaProposalId("https://app.hypha.earth/en/dho/my-village")).toBeNull();
+    expect(parseHyphaProposalId("not a url at all")).toBeNull();
+    expect(parseHyphaProposalId("")).toBeNull();
   });
 });

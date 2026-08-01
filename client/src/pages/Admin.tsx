@@ -5716,6 +5716,120 @@ function LedgerTab({ password }: { password: string }) {
 // ── Game Admin: the game-variables editor (S3 — built from scratch; the one
 //    the plan's hardening pass proved was a phantom) ──────────────────────────
 
+/**
+ * Integrate DAO: the step-2 flow after a founder creates their DAO on Hypha.
+ * They set their org URL, space id and Base account address (all normal
+ * variables below), issue themselves even a tiny amount of each token on
+ * Hypha (issuance is what makes the DAO create the contract on-chain), then
+ * look each contract up here by the token's EXACT on-chain name and assign
+ * it — the assignment goes through the same audited variables route as any
+ * hand edit.
+ */
+function IntegrateDaoPanel({ password, onAssigned }: { password: string; onAssigned: () => void }) {
+  const [tokenName, setTokenName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<any>(null);
+
+  const find = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/admin/hypha/find-token`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ tokenName: tokenName.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Lookup failed");
+      setResult(data);
+      if (data.found) toast.success(`Found ${data.token.tokenName} (${data.token.tokenSymbol})`);
+      else toast.error(data.error || "Not found");
+    } catch (e: any) {
+      toast.error(e?.message || "Lookup failed");
+    }
+    setBusy(false);
+  };
+
+  const assign = async (variableKey: string, address: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/variables/${encodeURIComponent(variableKey)}`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ value: address }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Assign failed");
+      toast.success(`Saved as ${variableKey}`);
+      onAssigned();
+    } catch (e: any) {
+      toast.error(e?.message || "Assign failed");
+    }
+  };
+
+  return (
+    <div className="border border-gray-200 rounded-xl px-4 py-4 mb-6 bg-gray-50/60">
+      <h3 className="font-semibold text-gray-900 text-sm">Integrate DAO — find a token's contract on Base</h3>
+      <p className="text-xs text-gray-500 mt-1 max-w-2xl">
+        After creating a token on Hypha, issue yourself some (any amount — issuance is what
+        puts the contract on-chain), set your founder Base account address under Hypha below,
+        then enter the token's exact on-chain name. The contract address is found from your
+        account's transfer history and saved through the normal audited variable route.
+      </p>
+      <div className="flex flex-wrap items-center gap-2 mt-3">
+        <input
+          value={tokenName}
+          onChange={(e) => setTokenName(e.target.value)}
+          placeholder="Exact on-chain token name"
+          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white min-w-[220px]"
+        />
+        <button
+          type="button"
+          onClick={find}
+          disabled={busy || !tokenName.trim()}
+          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-1.5 font-medium disabled:opacity-40"
+        >
+          {busy ? "Searching…" : "Find on chain"}
+        </button>
+      </div>
+      {result?.found && (
+        <div className="mt-3 text-xs bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 space-y-1.5">
+          <div>
+            <span className="font-medium">{result.token.tokenName}</span> ({result.token.tokenSymbol}) ·{" "}
+            <code className="select-all">{result.token.contractAddress}</code>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => assign("tokens.equity_address", result.token.contractAddress)} className="text-[#2D5A5A] font-medium hover:underline">
+              Use as equity token
+            </button>
+            <button type="button" onClick={() => assign("tokens.voice_address", result.token.contractAddress)} className="text-[#2D5A5A] font-medium hover:underline">
+              Use as voice token
+            </button>
+            <button
+              type="button"
+              onClick={() => navigator.clipboard?.writeText(result.token.contractAddress).then(() => toast.success("Address copied"))}
+              className="text-gray-500 hover:underline"
+            >
+              Copy address
+            </button>
+          </div>
+        </div>
+      )}
+      {result && !result.found && Array.isArray(result.matches) && result.matches.length > 1 && (
+        <div className="mt-3 text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Several contracts share that name — copy the right one by hand:
+          <ul className="mt-1 space-y-0.5">
+            {result.matches.map((m: any) => (
+              <li key={m.contractAddress}>
+                {m.tokenName} ({m.tokenSymbol}) · <code className="select-all">{m.contractAddress}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VariablesTab({ password }: { password: string }) {
   const [vars, setVars] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -5772,6 +5886,7 @@ function VariablesTab({ password }: { password: string }) {
           evolves. Every value is validated against its bounds before it lands.
         </p>
       </div>
+      <IntegrateDaoPanel password={password} onAssigned={load} />
       {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
         <div className="space-y-8">
           {Object.entries(byCategory).map(([cat, list]) => (

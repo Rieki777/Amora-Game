@@ -224,6 +224,13 @@ export interface ProposalRow {
   proposerUserId: string;
   status: "draft" | "open" | "withdrawn" | "to_hypha" | "passed_claimed" | "passed_verified" | "failed" | "applied";
   hyphaRef: string | null;
+  /** The numeric on-chain proposal id, linked when the founder pastes the
+   *  Hypha proposal URL back. Verified outcomes match by THIS — real chain
+   *  events never carry the title marker. */
+  hyphaProposalId: string | null;
+  hyphaProposalUrl: string | null;
+  /** Whether the (marker, proposalId) link has reached the ReGen hub. */
+  hubLinkSynced: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -238,9 +245,33 @@ export function rowToProposal(r: RowDataPacket): ProposalRow {
     proposerUserId: String(r.proposer_user_id),
     status: r.status,
     hyphaRef: r.hypha_ref ?? null,
+    hyphaProposalId: r.hypha_proposal_id ?? null,
+    hyphaProposalUrl: r.hypha_proposal_url ?? null,
+    hubLinkSynced: Boolean(r.hub_link_synced),
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
   };
+}
+
+/**
+ * Pull the numeric on-chain proposal id out of whatever the founder pastes:
+ * a full Hypha app URL (the id is the last numeric path segment, query and
+ * hash tolerated) or the bare number itself. Null when nothing numeric is
+ * there — the caller should ask again rather than guess.
+ */
+export function parseHyphaProposalId(input: string): string | null {
+  const s = String(input ?? "").trim();
+  if (/^\d{1,40}$/.test(s)) return s;
+  try {
+    const url = new URL(s);
+    const segments = url.pathname.split("/").filter(Boolean);
+    for (let i = segments.length - 1; i >= 0; i--) {
+      if (/^\d{1,40}$/.test(segments[i])) return segments[i];
+    }
+  } catch {
+    /* not a URL either */
+  }
+  return null;
 }
 
 export async function proposalById(pool: Pool, id: string): Promise<ProposalRow | null> {

@@ -94,6 +94,9 @@ interface Proposal {
   rationale: string;
   status: "draft" | "open" | "withdrawn" | "to_hypha" | "passed_claimed" | "passed_verified" | "failed" | "applied";
   hyphaRef: string | null;
+  hyphaProposalId: string | null;
+  hyphaProposalUrl: string | null;
+  hubLinkSynced: boolean;
   createdAt: string;
   proposer: string;
   supports: number;
@@ -349,7 +352,7 @@ export default function GameMechanics() {
         window.open(d.url, "_blank", "noopener,noreferrer");
         setFeedback({
           ok: true,
-          text: `Hypha opened and the document is on your clipboard. Make sure the proposal title carries ${d.title.slice(0, 24)}… — that marker is how the outcome finds its way back.`,
+          text: `Hypha opened and the document is on your clipboard. Keep ${d.title.slice(0, 24)}… in the title, and when the proposal exists, paste its URL back here with "Link the on-chain proposal" — the chain reports outcomes by number, and that link is how the result finds its way home.`,
         });
       } else {
         setFeedback({
@@ -655,6 +658,26 @@ export default function GameMechanics() {
                               title="Proposer only — marks this as taken to Hypha for the binding vote"
                             >
                               I've taken it to Hypha
+                            </button>
+                          )}
+                          {user && (p.status === "to_hypha" || p.status === "passed_claimed") && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const url = window.prompt(
+                                  p.hyphaProposalId
+                                    ? `Linked to on-chain proposal #${p.hyphaProposalId}. Paste a corrected Hypha proposal URL to re-link:`
+                                    : "Paste the Hypha proposal's URL (from your browser after creating it) so the on-chain vote can find this proposal:",
+                                  p.hyphaProposalUrl ?? "",
+                                );
+                                if (url) act(`/api/game/mechanics/proposals/${p.id}/link-hypha`, { url });
+                              }}
+                              className={`text-sm font-medium hover:underline ${p.hyphaProposalId ? "text-emerald-700" : "text-amber-700"}`}
+                              title="The chain reports outcomes by proposal number, not title — this link is how the verified result finds its way home"
+                            >
+                              {p.hyphaProposalId
+                                ? `On-chain #${p.hyphaProposalId} linked${p.hubLinkSynced ? " ✓" : " (hub sync pending — click to retry)"}`
+                                : "Link the on-chain proposal"}
                             </button>
                           )}
                           {user && p.status === "to_hypha" && (

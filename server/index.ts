@@ -19,6 +19,7 @@ import { CONSTITUTION } from "../shared/constitution";
 import {
   backerCounts,
   displayChangeValue,
+  parseHyphaProposalId,
   proposalById,
   proposalMarkdown,
   proposalsOpenedSince,
@@ -10680,6 +10681,85 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * allowed. Setting a value back to its default clears the override, which is
    * how a village keeps inheriting future platform defaults.
    */
+  /**
+   * Integrate DAO: discover a token's contract address on Base from the
+   * founder's account history. The founder issues themselves even a tiny
+   * amount of each token (Hypha requires an issuance for the DAO to create
+   * the contract on-chain), then this looks the contract up by the token's
+   * EXACT on-chain name in that account's transfer history via the
+   * Etherscan V2 API (Base, chainid 8453). Read-only: the admin assigns the
+   * found address through the normal variables route, so the audit trail is
+   * the same one every variable change gets.
+   */
+  app.post("/api/admin/hypha/find-token", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const tokenName = String(req.body?.tokenName ?? "").trim();
+    if (!tokenName) return res.status(400).json({ error: "Enter the token's exact on-chain name" });
+    const founderAddress = stringVar("hypha.founder_base_address").trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(founderAddress)) {
+      return res.status(409).json({ error: "Set the founder Base account address first (Hypha → Founder Base account address)" });
+    }
+    if (!secretConfigured("basescan_api_key")) {
+      return res.status(409).json({
+        error:
+          "No Basescan API key configured. Create a free key at basescan.org (or etherscan.io — one key serves both) and save it under Admin → Integrations, or look the contract up by hand on basescan.org and paste the address into the token variable.",
+      });
+    }
+    try {
+      const api = new URL("https://api.etherscan.io/v2/api");
+      api.searchParams.set("chainid", "8453");
+      api.searchParams.set("module", "account");
+      api.searchParams.set("action", "tokentx");
+      api.searchParams.set("address", founderAddress);
+      api.searchParams.set("page", "1");
+      api.searchParams.set("offset", "500");
+      api.searchParams.set("sort", "desc");
+      api.searchParams.set("apikey", secretValue("basescan_api_key"));
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      const scanRes = await fetch(api, { signal: controller.signal }).finally(() => clearTimeout(timer));
+      const data: any = await scanRes.json();
+      const txs: any[] = Array.isArray(data?.result) ? data.result : [];
+      const distinct = new Map<string, { contractAddress: string; tokenName: string; tokenSymbol: string }>();
+      for (const t of txs) {
+        const addr = String(t.contractAddress ?? "").toLowerCase();
+        if (addr && !distinct.has(addr)) {
+          distinct.set(addr, {
+            contractAddress: addr,
+            tokenName: String(t.tokenName ?? ""),
+            tokenSymbol: String(t.tokenSymbol ?? ""),
+          });
+        }
+      }
+      const all = Array.from(distinct.values());
+      let matches = all.filter((t) => t.tokenName === tokenName);
+      if (matches.length === 0) {
+        matches = all.filter((t) => t.tokenName.toLowerCase() === tokenName.toLowerCase());
+      }
+      if (matches.length === 1) {
+        return res.json({ found: true, token: matches[0], candidates: all.length });
+      }
+      if (matches.length > 1) {
+        return res.json({
+          found: false,
+          ambiguous: true,
+          matches,
+          error: `${matches.length} contracts in this account's history share that name — pick the address by hand from the list.`,
+        });
+      }
+      return res.json({
+        found: false,
+        candidates: all,
+        error:
+          all.length === 0
+            ? "No token transfers found for that account yet. Issue yourself some of the token on Hypha first (any amount), then try again."
+            : `No token named "${tokenName}" in this account's history. The name must match the on-chain name exactly. ${all.length} other token(s) were seen.`,
+      });
+    } catch (err: any) {
+      return res.status(502).json({ error: `Basescan lookup failed: ${String(err?.message ?? err).slice(0, 120)}` });
+    }
+  });
+
   app.put("/api/admin/variables/:key", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const raw = req.body?.value;
@@ -10846,6 +10926,9 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       rationale: p.rationale,
       status: p.status,
       hyphaRef: p.hyphaRef,
+      hyphaProposalId: p.hyphaProposalId ?? null,
+      hyphaProposalUrl: p.hyphaProposalUrl ?? null,
+      hubLinkSynced: Boolean(p.hubLinkSynced),
       createdAt: p.createdAt,
       proposer: proposer ? firstName(proposer.name) : "A departed member",
       supports: b.supports,
@@ -11044,6 +11127,73 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     await getPool().query("UPDATE mechanics_proposals SET status = 'to_hypha' WHERE id = ? AND status = 'open'", [p.id]);
     await notifyAdmins("governance", `A mechanics proposal went to Hypha for the vote: ${p.title}`, `gmp:${p.id}:to-hypha`);
     res.json({ success: true });
+  });
+
+  /**
+   * Link the on-chain proposal: the founder pastes the Hypha proposal URL
+   * after creating it there. The chain's verified outcome carries only the
+   * numeric proposal id (never the title marker), so this link is what lets
+   * the vote find its way home. Best-effort registers the link with the
+   * ReGen hub (governance.hub_url), signed with the shared governance
+   * secret; re-linking retries the sync and corrects a mispaste.
+   */
+  app.post("/api/game/mechanics/proposals/:id/link-hypha", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const p = await proposalById(getPool(), req.params.id);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    if (p.proposerUserId !== user.id && !(await isAdmin(req))) {
+      return res.status(403).json({ error: "Only the proposer links their proposal" });
+    }
+    if (!["to_hypha", "passed_claimed", "passed_verified"].includes(p.status)) {
+      return res.status(409).json({ error: `This proposal is ${p.status.replace("_", " ")} — take it to Hypha first` });
+    }
+    const rawInput = String(req.body?.url ?? "").trim().slice(0, 500);
+    const hyphaId = parseHyphaProposalId(rawInput);
+    if (!hyphaId) {
+      return res.status(400).json({ error: "Paste the Hypha proposal's URL (or its numeric id) — no number found in that" });
+    }
+    const storedUrl = rawInput.startsWith("https://") ? rawInput : null;
+    await getPool().query(
+      "UPDATE mechanics_proposals SET hypha_proposal_id = ?, hypha_proposal_url = ?, hub_link_synced = 0 WHERE id = ?",
+      [hyphaId, storedUrl, p.id],
+    );
+
+    // Tell the hub, best-effort: the same shared secret the hub uses to sign
+    // deliveries to us proves which fork is calling.
+    let synced = false;
+    const hubBase = stringVar("governance.hub_url").replace(/\/+$/, "");
+    if (hubBase && secretConfigured("governance_hub_secret")) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        const hubRes = await fetch(`${hubBase}/api/webhooks/governance-fork-link`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-governance-hub-secret": secretValue("governance_hub_secret"),
+          },
+          body: JSON.stringify({ marker: `[gm:${p.id}]`, hyphaProposalId: hyphaId, proposalUrl: storedUrl ?? undefined }),
+          signal: controller.signal,
+        });
+        synced = hubRes.ok;
+      } catch {
+        synced = false; // stored locally; re-linking retries
+      } finally {
+        clearTimeout(timer);
+      }
+      if (synced) {
+        await getPool().query("UPDATE mechanics_proposals SET hub_link_synced = 1 WHERE id = ?", [p.id]);
+      }
+    }
+    res.json({
+      success: true,
+      hyphaProposalId: hyphaId,
+      synced,
+      message: synced
+        ? `Linked to on-chain proposal #${hyphaId} and registered with the governance hub — the verified outcome will find this proposal by itself.`
+        : `Linked to on-chain proposal #${hyphaId}. The governance hub could not be reached yet — linking again retries, and a steward can still verify by hand.`,
+    });
   });
 
   /** "I'm back — it passed." Records the claim and the Hypha reference; a

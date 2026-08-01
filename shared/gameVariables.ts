@@ -293,6 +293,16 @@ export const VARIABLES: VariableDef[] = [
     unit: "supporters",
   },
   {
+    key: "governance.hub_url",
+    category: "Governance",
+    label: "ReGen governance hub URL",
+    description:
+      "Base URL of the ReGen hub that listens to the chain for this village. When a proposal's Hypha URL is pasted in, the platform registers the on-chain proposal id with this hub (signed with the shared governance secret) so the verified outcome can find its way home. Leave as the platform default unless you run your own hub.",
+    type: "text",
+    default: "https://regencivics.earth",
+    ring: "founder",
+  },
+  {
     key: "governance.auto_apply_enabled",
     category: "Governance",
     label: "Apply verified proposals automatically",
@@ -364,6 +374,26 @@ export const VARIABLES: VariableDef[] = [
       "The one place this platform sends people for governance, proposals, treasury and membership on Hypha. Every module derives its deep links from this single value; leaving it blank hides every Hypha button rather than showing a dead link.",
     type: "text",
     default: "",
+  },
+  {
+    key: "hypha.space_id",
+    category: "Hypha",
+    label: "Hypha space id (on-chain)",
+    description:
+      "The numeric id of your DAO's space on Hypha's Base contracts — every on-chain proposal your DAO creates is stamped with it. Found in your Hypha space's URL or from any of its proposals on Basescan. Used to verify that on-chain outcomes claiming to be yours really came from your space.",
+    type: "text",
+    default: "",
+    ring: "founder",
+  },
+  {
+    key: "hypha.founder_base_address",
+    category: "Hypha",
+    label: "Founder Base account address",
+    description:
+      "The 0x address that created your DAO and issued its first tokens on Base. Used by Integrate DAO to discover your token contracts automatically: issue yourself even a tiny amount of each token, and the lookup finds the contract by the token's exact name in this account's transfer history.",
+    type: "text",
+    default: "",
+    ring: "founder",
   },
   {
     key: "hypha.link_governance",
@@ -1173,6 +1203,7 @@ const FOUNDER_KEYS = new Set([
   "tokens.base_rpc_url",
   "tokens.equity_address",
   "tokens.voice_address",
+  "governance.hub_url",
   "hypha.org_url",
   "hypha.link_governance",
   "hypha.link_proposals",
