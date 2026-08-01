@@ -1063,6 +1063,98 @@ async function ensureDataFiles() {
   await runOnce("backfill-member-handles", backfillMemberHandles);
   await runOnce("membership-grants-from-email-match", freezeEmailMatchedMemberships);
   await runOnce("org-chart-2026-08", applyOrgChartRefresh);
+  await runOnce("voice-sweep-2026-08-01", applyVoiceSweepToSeededRows);
+}
+
+/**
+ * The voice sweep (2026-08-01) rewrote the house writing rules through every
+ * shipped string, seed files included. Seeds only land on a deployment's FIRST
+ * boot, so a village already running kept the pre-sweep text in its database
+ * where a code change cannot reach it: em-dashes in circle purposes and
+ * milestone notes, en-dashes in quest ranges like "50-100" and "3-6 hrs".
+ *
+ * This repairs those rows from the current defaults, and ONLY where the stored
+ * text is still word-for-word the seeded text. The comparison strips case and
+ * every non-alphanumeric character, so it matches exactly the footprint the
+ * sweep left (punctuation) and nothing else: the moment a human has changed a
+ * word, the normalised forms differ and the row is left alone. Idempotent, and
+ * silent when there is nothing to repair.
+ */
+function sameWords(a: string, b: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return norm(a) === norm(b);
+}
+
+/**
+ * The string fields of `row` that are the same words as the default and differ
+ * only in punctuation. Empty when the row is already correct or has been
+ * genuinely edited.
+ */
+function copyRepairsFor(row: any, def: any): Array<[string, string]> {
+  const patches: Array<[string, string]> = [];
+  for (const [key, want] of Object.entries(def)) {
+    if (typeof want !== "string") continue;
+    const have = row?.[key];
+    if (typeof have !== "string" || have === want) continue;
+    if (sameWords(have, want)) patches.push([key, want]);
+  }
+  return patches;
+}
+
+/** Apply the repairs in place. Returns true if anything changed. */
+function repairRowCopy(row: any, def: any): boolean {
+  const patches = copyRepairsFor(row, def);
+  for (const [key, want] of patches) row[key] = want;
+  return patches.length > 0;
+}
+
+async function applyVoiceSweepToSeededRows(): Promise<void> {
+  let repaired = 0;
+
+  const byId = (rows: any[]) => new Map(rows.map((r) => [String(r?.id), r]));
+
+  try {
+    if (fs.existsSync(CIRCLES_SEED_FILE)) {
+      const defaults = byId(JSON.parse(fs.readFileSync(CIRCLES_SEED_FILE, "utf-8")));
+      const rows = circlesRepo.all() as any[];
+      let changed = false;
+      for (const row of rows) {
+        const def = defaults.get(String(row?.id));
+        if (def && repairRowCopy(row, def)) { changed = true; repaired++; }
+      }
+      if (changed) await circlesRepo.replaceAll(rows);
+    }
+  } catch { /* copy repair is best-effort; never block boot */ }
+
+  try {
+    if (fs.existsSync(QUESTS_SEED_FILE)) {
+      const defaults = byId(JSON.parse(fs.readFileSync(QUESTS_SEED_FILE, "utf-8")));
+      for (const row of (await questsRepo.all()) as any[]) {
+        const def = defaults.get(String(row?.id));
+        if (!def) continue;
+        const patches = copyRepairsFor(row, def);
+        if (!patches.length) continue;
+        // questsRepo.update takes a MUTATOR, not a row.
+        await questsRepo.update(row.id, (q: any) => {
+          for (const [key, want] of patches) q[key] = want;
+        });
+        repaired++;
+      }
+    }
+  } catch { /* same */ }
+
+  try {
+    const defaults = byId(DEFAULT_MILESTONES as any[]);
+    const rows = milestonesRepo.all() as any[];
+    let changed = false;
+    for (const row of rows) {
+      const def = defaults.get(String(row?.id));
+      if (def && repairRowCopy(row, def)) { changed = true; repaired++; }
+    }
+    if (changed) await milestonesRepo.replaceAll(rows);
+  } catch { /* same */ }
+
+  if (repaired) console.log(`[MIGRATION] voice sweep repaired ${repaired} seeded row(s)`);
 }
 
 /**
