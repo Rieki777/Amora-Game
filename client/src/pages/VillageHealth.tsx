@@ -13,6 +13,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
 import { SNAPSHOT_METRICS } from "@shared/healthMetrics";
 import { Activity, CheckCircle2, Circle, Leaf, Moon, Sprout, Users } from "lucide-react";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -62,9 +63,10 @@ export default function VillageHealth() {
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Village Health</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            The village's vital signs, frozen each lunar cycle — and the land's
+            The village's vital signs, frozen each lunar cycle, and the land's
             own ledger of regeneration.
           </p>
+          <ExamplesBanner moduleId="health" noun="measurement" />
         </div>
       </section>
 
@@ -76,7 +78,7 @@ export default function VillageHealth() {
               <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
                 <p className="font-semibold text-foreground text-sm">
                   {season.current.name}
-                  {season.current.theme ? <span className="text-muted-foreground font-normal"> — {season.current.theme}</span> : null}
+                  {season.current.theme ? <span className="text-muted-foreground font-normal">: {season.current.theme}</span> : null}
                 </p>
                 <span className="text-xs text-muted-foreground">{season.daysLeft} day(s) left</span>
               </div>
@@ -104,7 +106,7 @@ export default function VillageHealth() {
             {Object.keys(data?.regen?.totals ?? {}).length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 <Sprout className="w-4 h-4 inline mr-1 text-teal-deep/60" />
-                Nothing recorded yet — the stewards log plantings, water and
+                Nothing recorded yet. The stewards log plantings, water and
                 restoration as they happen.
               </p>
             ) : (
@@ -126,7 +128,7 @@ export default function VillageHealth() {
                 <div className="mt-2 space-y-1">
                   {data.regen.latest.map((e: any) => (
                     <p key={e.id} className="text-xs text-muted-foreground">
-                      {new Date(e.recordedAt).toLocaleDateString()} — {e.value} {e.unit}{e.note ? ` · ${e.note}` : ""}
+                      {new Date(e.recordedAt).toLocaleDateString()}: {e.value} {e.unit}{e.note ? ` · ${e.note}` : ""}
                     </p>
                   ))}
                 </div>
@@ -144,7 +146,7 @@ export default function VillageHealth() {
               Frozen at each cycle close, never recomputed.{" "}
               {data && !data.trendsUnlocked && (
                 <span className="text-amber-600">
-                  {data.lunationsCollected} of {data.trendMinLunations} lunations collected — trends unlock at {data.trendMinLunations}.
+                  {data.lunationsCollected} of {data.trendMinLunations} lunations collected, trends unlock at {data.trendMinLunations}.
                 </span>
               )}
             </p>
@@ -182,7 +184,7 @@ export default function VillageHealth() {
               {data?.governance?.decisionsAllTime ?? 0} decision(s) opened by{" "}
               {data?.governance?.distinctAuthors ?? 0} member(s)
               {data?.governance?.authorshipConcentration != null && (
-                <> — the most frequent author opened {Math.round(data.governance.authorshipConcentration * 100)}%</>
+                <>, and the most frequent author opened {Math.round(data.governance.authorshipConcentration * 100)}%</>
               )}
               .
             </p>
@@ -191,7 +193,7 @@ export default function VillageHealth() {
 
           <p className="text-center text-xs text-muted-foreground flex items-center justify-center gap-1.5">
             <Activity className="w-3.5 h-3.5" />
-            Absolute counts only. No leaderboards, no ranks — the village is not a scoreboard.
+            Absolute counts only. No leaderboards, no ranks. The village is not a scoreboard.
           </p>
         </div>
       </section>

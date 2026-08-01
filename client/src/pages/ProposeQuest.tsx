@@ -145,7 +145,7 @@ export default function ProposeQuest() {
             </h1>
             <p className="text-xl text-muted-foreground">
               This is for everyone with an idea to bring value to the community. Tell
-              us what you want to create — it moves to the {projectName} team as a
+              us what you want to create. It moves to the {projectName} team as a
               proposal, and we'll reach out to explore it with you.
             </p>
           </motion.div>
@@ -264,7 +264,7 @@ export default function ProposeQuest() {
                 rows={4}
                 value={form.whatYouWantToDo}
                 onChange={(e) => set("whatYouWantToDo", e.target.value)}
-                placeholder="Describe the quest — what you'd create, and the value it brings to the village."
+                placeholder="Describe the quest: what you'd create, and the value it brings to the village."
                 className={`${field} resize-y`}
               />
             </div>
@@ -303,7 +303,7 @@ export default function ProposeQuest() {
                 rows={2}
                 value={form.compensation}
                 onChange={(e) => set("compensation", e.target.value)}
-                placeholder="Gratitude only, cash, revenue share, a joint venture, or nothing — it's a gift. Totally up to you."
+                placeholder="Gratitude only, cash, revenue share, a joint venture, or nothing. It's a gift, totally up to you."
                 className={`${field} resize-y`}
               />
             </div>
@@ -334,7 +334,7 @@ export default function ProposeQuest() {
               {submitting ? "Sending…" : "Submit Your Quest Proposal"}
             </button>
             <p className="text-xs text-muted-foreground text-center">
-              Your proposal goes straight to the Amora team. No idea is too small — the
+              Your proposal goes straight to the Amora team. No idea is too small. The
               village is built from them.
             </p>
           </motion.form>

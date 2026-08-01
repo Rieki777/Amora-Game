@@ -37,7 +37,7 @@ const housingTypes = [
   {
     title: "Luxury Villa",
     size: "1,500+ sq ft",
-    price: "$450,000+",
+    price: "$1,000,000+",
     description: "Premium homes with exceptional finishes, views, and amenities for discerning residents.",
     features: ["Premium finishes", "Panoramic views", "Private pool option"],
   },

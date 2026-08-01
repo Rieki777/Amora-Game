@@ -107,18 +107,18 @@ export const NEVER_LISTED: ReadonlySet<string> = new Set(["library-credit"]);
  */
 export function tradingProblem(slug: string): string | null {
   if (NEVER_LISTED.has(slug)) {
-    return `${slug} is backed by the library's shelves and never trades — its only doors are intake and loans`;
+    return `${slug} is backed by the library's shelves and never trades. Its only doors are intake and loans`;
   }
   const def = tokenDef(slug);
   if (!def) return `"${slug}" is not a registered token`;
   if (def.kind === "recognition") {
-    return `${slug} is recognition — it is earned through contribution and can never be bought or swapped`;
+    return `${slug} is recognition. It is earned through contribution and can never be bought or swapped`;
   }
   if (def.governance === "hypha") {
-    return `${slug} is governed on Hypha — nothing share-like trades on this platform`;
+    return `${slug} is governed on Hypha. Nothing share-like trades on this platform`;
   }
   if (moduleSoldTokens().has(slug)) {
-    return `${slug} already has a selling module — one seller per token, and the exchange would be a second`;
+    return `${slug} already has a selling module, and there is one seller per token, so the exchange would be a second`;
   }
   return null;
 }
@@ -155,7 +155,7 @@ export function purchaseProblem(slug: string): string | null {
     // hypha, one-seller) without the shelf-backing refusal.
     const def = tokenDef(slug);
     if (!def) return `"${slug}" is not a registered token`;
-    if (def.kind === "recognition") return `${slug} is recognition — never for sale`;
+    if (def.kind === "recognition") return `${slug} is recognition, never for sale`;
     if (def.governance === "hypha") return `${slug} is governed on Hypha`;
     if (moduleSoldTokens().has(slug)) return `${slug} already has a selling module`;
     return null;
@@ -206,7 +206,7 @@ export async function swapProblem(
   const issued = tainted ?? (await faucetIssuedTokens(pool));
   if (issued.has(slug)) {
     const name = tokenDef(slug)?.name ?? slug;
-    return `${name} is minted by the village as a reward — tokens you can earn from thin air are never bought or swapped here`;
+    return `${name} is minted by the village as a reward. Tokens you can earn from thin air are never bought or swapped here`;
   }
   return null;
 }
@@ -265,12 +265,18 @@ export async function upsertSettings(
   const problem = await listingProblemAsync(pool, input.slug, next);
   if (problem) return { ok: false, error: problem };
   await pool.query(
+    // is_example is written 0 on every real write, including the UPDATE half.
+    // The standing example occupies this table's primary key for a REAL token
+    // slug, so an admin listing that token updates the example row in place —
+    // and the retirement that fires straight afterwards would delete the
+    // listing they just saved. Claiming the row as real is what makes the
+    // "retire after a real row commits" order safe on a shared key.
     "INSERT INTO token_exchange_settings (token_slug, purchasable, swappable, min_stage_to_buy, sort_order, active, " +
-      "max_swap_out_per_cycle, max_swap_out_per_member_per_cycle) VALUES (?,?,?,?,?,?,?,?) " +
+      "max_swap_out_per_cycle, max_swap_out_per_member_per_cycle, is_example) VALUES (?,?,?,?,?,?,?,?,0) " +
       "ON DUPLICATE KEY UPDATE purchasable=VALUES(purchasable), swappable=VALUES(swappable), " +
       "min_stage_to_buy=VALUES(min_stage_to_buy), sort_order=VALUES(sort_order), active=VALUES(active), " +
       "max_swap_out_per_cycle=VALUES(max_swap_out_per_cycle), " +
-      "max_swap_out_per_member_per_cycle=VALUES(max_swap_out_per_member_per_cycle)",
+      "max_swap_out_per_member_per_cycle=VALUES(max_swap_out_per_member_per_cycle), is_example=0",
     [
       input.slug,
       next.purchasable ? 1 : 0,
@@ -301,7 +307,7 @@ export async function assertExchangeFirewalls(pool: Pool): Promise<void> {
   // (assertModuleGraph covers that); here we cover module ∪ exchange.
   if (problems.length) {
     for (const p of problems) console.error(`[exchange firewall] ${p}`);
-    throw new Error(`exchange firewalls violated (${problems.length}) — refusing to serve`);
+    throw new Error(`exchange firewalls violated (${problems.length}), refusing to serve`);
   }
 }
 
@@ -336,7 +342,7 @@ export async function setPrice(
   const price = Math.floor(Number(input.priceMinor));
   if (!(price > 0)) return { ok: false, error: "The price must be a positive amount in cents" };
   if (!String(input.note ?? "").trim()) {
-    return { ok: false, error: "A note is required — every price change must explain itself" };
+    return { ok: false, error: "A note is required. Every price change must explain itself" };
   }
   const prev = await latestPrice(pool, input.slug);
   const maxPct = numberVar("exchange.price_change_max_pct");
@@ -410,7 +416,7 @@ export async function settleExchangeOrder(pool: Pool, orderId: string, order: an
     idempotencyKey: `ord:${orderId}:leg1`,
   });
   if (!r.ok) {
-    throw new Error(`treasury cannot cover order ${orderId} (${r.error}) — stock it, then let the retry settle`);
+    throw new Error(`treasury cannot cover order ${orderId} (${r.error}): stock it, then let the retry settle`);
   }
   return r.toBalance;
 }
@@ -503,7 +509,7 @@ export function quoteSwap(input: {
   const denominator = BigInt(pA) * BigInt(10000 - s);
   const payQty = Number((numerator + denominator - BigInt(1)) / denominator); // ceil
   if (!Number.isSafeInteger(payQty) || payQty <= 0) {
-    return { error: "That amount is too small to swap — ask for more and the exchange can price it" };
+    return { error: "That amount is too small to swap. Ask for more and the exchange can price it" };
   }
   const valueMinor = Number(BigInt(payQty) * BigInt(pA));
   const netMinor = Number(BigInt(qB) * BigInt(pB));
@@ -521,7 +527,7 @@ export function quoteSwap(input: {
   const disclosure =
     takeMinor === 0
       ? `Both sides are worth ${money(valueMinor)}. The village keeps nothing on this swap.`
-      : `You hand over ${money(valueMinor)} and receive ${money(netMinor)}. The difference — ${money(takeMinor)} — is whole-unit rounding` +
+      : `You hand over ${money(valueMinor)} and receive ${money(netMinor)}. The difference, ${money(takeMinor)}, is whole-unit rounding` +
         (s > 0 ? ` plus the village's ${(s / 100).toFixed(2)}% share.` : ".");
 
   return {
@@ -698,7 +704,7 @@ export async function reconcileSwapOrders(pool: Pool): Promise<{ settled: number
       await pool.query("UPDATE exchange_orders SET status = 'cancelled', client_key = NULL WHERE id = ?", [id]);
       cancelled += 1;
     } else {
-      throw new Error(`swap order ${id} has ${n} ledger leg(s) — a half-applied swap must never be normalized`);
+      throw new Error(`swap order ${id} has ${n} ledger leg(s): a half-applied swap must never be normalized`);
     }
   }
   return { settled, cancelled };
@@ -813,7 +819,7 @@ export async function assertSwapFirewalls(
 
   // 2. allowNegative must never learn the swap source.
   if (ALLOW_NEGATIVE_SOURCES.has("exchange_swap")) {
-    problems.push("exchange_swap is in ALLOW_NEGATIVE_SOURCES — a swap may never create debt");
+    problems.push("exchange_swap is in ALLOW_NEGATIVE_SOURCES: a swap may never create debt");
   }
 
   // 4. No swap leg touches a faucet, on either side, anywhere in history.
@@ -821,7 +827,7 @@ export async function assertSwapFirewalls(
     "SELECT l.id FROM token_ledger l JOIN ledger_accounts a ON a.id IN (l.from_account, l.to_account) " +
       "WHERE l.source = 'exchange_swap' AND a.faucet = 1 LIMIT 5",
   );
-  for (const r of faucetLegs) problems.push(`swap ledger row ${r.id} touches a faucet account — a swap must never mint`);
+  for (const r of faucetLegs) problems.push(`swap ledger row ${r.id} touches a faucet account: a swap must never mint`);
 
   // 5. Leg pairing: every swap group is exactly two rows, opposite
   // directions across the treasury, in two different tokens.
@@ -833,7 +839,7 @@ export async function assertSwapFirewalls(
   );
   for (const g of groups) {
     problems.push(
-      `swap ${g.source_ref} has ${g.n} leg(s) across ${g.tokens} token(s) — a half-applied or malformed swap must never be normalized`,
+      `swap ${g.source_ref} has ${g.n} leg(s) across ${g.tokens} token(s): a half-applied or malformed swap must never be normalized`,
     );
   }
 
@@ -842,7 +848,7 @@ export async function assertSwapFirewalls(
     "SELECT COUNT(*) AS n FROM exchange_orders WHERE kind = 'swap' AND (provider_ref IS NOT NULL OR stripe_payment_intent_id IS NOT NULL)",
   );
   if (Number(provider.n) > 0) {
-    problems.push(`${provider.n} swap order(s) carry a payment provider reference — swaps never touch fiat`);
+    problems.push(`${provider.n} swap order(s) carry a payment provider reference: swaps never touch fiat`);
   }
 
   // 10. Caps are non-negative; the spread is inside its bounds.
@@ -854,7 +860,7 @@ export async function assertSwapFirewalls(
   // 8/9. Opening the market is a posture decision, not just a toggle.
   if (ctx.tradingEnabled && ctx.sharedPasswordPosture) {
     problems.push(
-      "internal trading is enabled while a shared password is the only admin credential — bootstrap per-admin identities first",
+      "internal trading is enabled while a shared password is the only admin credential: bootstrap per-admin identities first",
     );
   }
   // A version bump here is a DOCS change that would otherwise brick every
@@ -864,13 +870,13 @@ export async function assertSwapFirewalls(
   if (ctx.tradingEnabled && ctx.legalAckVersion !== ctx.cardVersion) {
     warnings.push(
       `swapping is CLOSED: the legal caution card is version ${ctx.cardVersion} but this village accepted ` +
-        `${ctx.legalAckVersion ?? "none"} — an admin must read and accept the current card in Admin → Exchange`,
+        `${ctx.legalAckVersion ?? "none"}. An admin must read and accept the current card in Admin → Exchange`,
     );
   }
 
   if (problems.length) {
     for (const p of problems) console.error(`[swap firewall] ${p}`);
-    throw new Error(`swap firewalls violated (${problems.length}) — refusing to serve`);
+    throw new Error(`swap firewalls violated (${problems.length}), refusing to serve`);
   }
   for (const w of warnings) console.error(`[swap firewall] ${w}`);
   return warnings;

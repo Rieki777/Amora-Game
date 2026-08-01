@@ -70,7 +70,7 @@ export default function IdentityPackPanel({ password }: { password: string }) {
       if (!res.ok) throw new Error(data.error || "Upload failed");
       setPack({ ...pack, references: [...(pack.references ?? []), { url: data.url, thumbUrl: data.thumbUrl }] });
       if (fileRef.current) fileRef.current.value = "";
-      toast.success("Reference added — remember to save");
+      toast.success("Reference added. Remember to save");
     } catch (e: any) { toast.error(e.message || "Upload failed"); }
     setUploading(false);
   };
@@ -116,7 +116,7 @@ export default function IdentityPackPanel({ password }: { password: string }) {
         <label className="flex items-start gap-2 text-xs text-gray-600 mb-3">
           <input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} className="mt-0.5" />
           <span>Our project holds the rights to these reference images (a designer's logo or a
-          photographer's photo is often not yours to reuse — check before you feed it forward).</span>
+          photographer's photo is often not yours to reuse, so check before you feed it forward).</span>
         </label>
       )}
       {pack.rightsAck?.at && (

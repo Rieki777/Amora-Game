@@ -3067,7 +3067,34 @@ function ModulesTab({ password }: { password: string }) {
     setBusy("");
   };
 
+  /**
+   * Clear a module's standing examples without publishing a decoy first.
+   * One-way, so it asks — and it says what "for good" means, because the
+   * button cannot be undone by turning the module off and on again.
+   */
+  const clearExamples = async (mod: any) => {
+    const sure = window.confirm(
+      `Clear the standing examples from ${mod.name}?\n\n` +
+        "They are removed permanently. Publishing your first real item would " +
+        "have done this anyway; this just does it now, leaving the module empty.",
+    );
+    if (!sure) return;
+    setBusy(mod.id);
+    try {
+      const res = await fetch(`${API_BASE}/admin/modules/${mod.id}/examples/clear`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+      });
+      const d = await res.json();
+      if (!res.ok) toast.error(d.error || "Could not clear the examples");
+      else toast.success(`${mod.name}: ${d.removed} example row(s) cleared`);
+      load();
+    } catch { toast.error("Could not clear the examples"); }
+    setBusy("");
+  };
+
   const demoted = (data?.modules ?? []).filter((m: any) => m.demotedBecause?.length);
+  const showingExamples = (data?.modules ?? []).filter((m: any) => m.showingExamples);
 
   return (
     <div>
@@ -3093,6 +3120,31 @@ function ModulesTab({ password }: { password: string }) {
               {(data.orphans ?? []).length > 0 && (
                 <p>Stored settings reference unknown module id(s): {data.orphans.join(", ")} (ignored).</p>
               )}
+            </div>
+          )}
+
+          {showingExamples.length > 0 && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <p className="font-medium">Some modules are showing standing examples.</p>
+              <p className="mt-1 text-xs leading-relaxed">
+                Platform-authored content so a module is never empty when you first
+                open it. It cannot be borrowed, booked, bought or replied to, and it
+                clears itself the moment you publish something real there. Clear it
+                early if you would rather start from nothing. Either way it is gone
+                for good.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {showingExamples.map((m: any) => (
+                  <button
+                    key={m.id}
+                    onClick={() => clearExamples(m)}
+                    disabled={busy === m.id}
+                    className="text-xs font-medium px-2.5 py-1 rounded-md border border-amber-400 bg-white/70 hover:bg-white disabled:opacity-50"
+                  >
+                    {busy === m.id ? "Clearing…" : `Clear ${m.name} examples`}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

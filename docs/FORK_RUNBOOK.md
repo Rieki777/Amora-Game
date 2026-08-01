@@ -109,6 +109,13 @@ above the size of a gathering, not to the size of one person's usage.
 
 - `server/seeds/content-seed.json`, `quests-seed.json` — page copy + quest
   library (self-heals via `seedIfMissingOrEmpty`).
+- `server/seeds/examples-seed.json` — STANDING EXAMPLES: platform-authored
+  worked content revealed when a module is first enabled, so a founder meets a
+  working module instead of "No items yet." Inert (every mutation refused) and
+  retired permanently by the first real item that module receives. Seeds AFTER
+  the real seeds above, so it never displaces your starter content. Clear early
+  with `POST /api/admin/modules/:id/examples/clear`; prove inertness with
+  `node scripts/check-examples.mjs`. See `docs/STANDING_EXAMPLES.md`.
 - `tokens` table rows (0006 seeds gratitude/amora/voice) — a fork renames its
   recognition token here + in `shared/gameConfig.ts` + brand overlay.
 - `data/brand.json` via the admin Setup Wizard ("Make This Yours") — identity,

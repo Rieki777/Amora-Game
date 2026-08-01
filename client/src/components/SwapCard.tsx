@@ -142,7 +142,7 @@ export default function SwapCard({ pairs, onDone }: { pairs: SwapPair[]; onDone:
         // trade as it stands now and let them decide again.
         if (e.code === "QUOTE_STALE" && e.body?.quote) {
           setQuote(e.body.quote);
-          setError("The price moved while you were deciding — this is the trade as it stands now.");
+          setError("The price moved while you were deciding. This is the trade as it stands now.");
         } else {
           setError(e.message);
         }
@@ -158,12 +158,12 @@ export default function SwapCard({ pairs, onDone }: { pairs: SwapPair[]; onDone:
       </div>
       <p className="text-xs text-muted-foreground mb-4">
         Trade one village token for another at the posted prices. The village
-        treasury is the only other side — and swaps are final.
+        treasury is the only other side, and swaps are final.
       </p>
 
       {receipt && (
         <p role="status" className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-4 py-2.5 mb-4">
-          {receipt.replay ? "Already done" : "Swapped"} — receipt #{receipt.receiptNo}: {receipt.payQuantity}{" "}
+          {receipt.replay ? "Already done" : "Swapped"}. Receipt #{receipt.receiptNo}: {receipt.payQuantity}{" "}
           {payTokens.find((p) => p.payToken === receipt.payToken)?.payTokenName ?? receipt.payToken} for{" "}
           {receipt.receiveQuantity} {options.find((o) => o.receiveToken === receipt.receiveToken)?.receiveTokenName ?? receipt.receiveToken}.
         </p>
@@ -183,7 +183,7 @@ export default function SwapCard({ pairs, onDone }: { pairs: SwapPair[]; onDone:
           >
             {payTokens.map((p) => (
               <option key={p.payToken} value={p.payToken}>
-                {p.payTokenName} — you hold {p.yourBalance}
+                {p.payTokenName}, you hold {p.yourBalance}
               </option>
             ))}
           </select>
@@ -317,7 +317,7 @@ export default function SwapCard({ pairs, onDone }: { pairs: SwapPair[]; onDone:
                       </span>
                     </div>
                     <p className="text-muted-foreground mt-0.5">
-                      {usd(p.payPriceMinor)} / {usd(p.receivePriceMinor)} — {p.receiveNote}
+                      {usd(p.payPriceMinor)} / {usd(p.receivePriceMinor)}, {p.receiveNote}
                       {p.receiveDecisionRef && <span className="text-teal-deep"> · decided in the forum</span>}
                     </p>
                   </div>

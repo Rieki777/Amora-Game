@@ -58,7 +58,7 @@ export default function SetPassword() {
                 <h1 className="font-display text-2xl font-bold text-foreground mb-2">
                   You're in
                 </h1>
-                <p className="text-muted-foreground">Password set — taking you to your dashboard…</p>
+                <p className="text-muted-foreground">Password set. Taking you to your dashboard…</p>
               </div>
             ) : (
               <>
@@ -74,7 +74,7 @@ export default function SetPassword() {
                 </p>
                 {!token && (
                   <p className="text-sm text-destructive text-center mb-4">
-                    This link is missing its token — open the link from your email
+                    This link is missing its token. Open the link from your email
                     again.
                   </p>
                 )}

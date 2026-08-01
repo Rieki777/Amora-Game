@@ -13,6 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Calendar, Heart, Megaphone, MessageCircle, Sparkles, Send } from "lucide-react";
 import { Image } from "@/components/Image";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -110,6 +111,7 @@ export default function Feed() {
             Everyday life, woven with the village's milestones. A heart is a real
             gift from your cycle budget.
           </p>
+          <ExamplesBanner moduleId="feed" noun="post" />
         </div>
       </section>
       <section className="py-8 bg-background">
@@ -199,7 +201,7 @@ export default function Feed() {
                     onClick={() => !item.heartedByMe && user && heart(item)}
                     disabled={item.heartedByMe || !user}
                     title={item.heartedByMe ? "Already sent" : `Sends ${data?.heartAmount ?? 1} recognition from your budget`}
-                    aria-label={`${item.heartCount} recognition — ${item.heartedByMe ? "already sent" : "send one"}`}
+                    aria-label={`${item.heartCount} recognition, ${item.heartedByMe ? "already sent" : "send one"}`}
                     className={`inline-flex items-center gap-1.5 text-sm min-h-[44px] px-2 -mx-2 ${item.heartedByMe ? "text-rose-500" : "text-muted-foreground hover:text-rose-500"} disabled:cursor-default`}
                   >
                     <Heart className={`w-4 h-4 ${item.heartedByMe ? "fill-rose-500" : ""}`} />
@@ -207,7 +209,7 @@ export default function Feed() {
                   </button>
                   <Link
                     href={`/forum/${item.id}`}
-                    aria-label={`${item.replyCount} replies — open the thread`}
+                    aria-label={`${item.replyCount} replies, open the thread`}
                     className="inline-flex items-center gap-1.5 text-sm min-h-[44px] px-2 text-muted-foreground hover:text-foreground"
                   >
                     <MessageCircle className="w-4 h-4" /> {item.replyCount}
@@ -218,7 +220,7 @@ export default function Feed() {
           })}
           {data && data.items.length === 0 && older.length === 0 && (
             <p className="text-center text-sm text-muted-foreground py-12">
-              {kind || tag ? "Nothing matches that filter." : "Quiet so far — share the first moment."}
+              {kind || tag ? "Nothing matches that filter." : "Quiet so far. Share the first moment."}
             </p>
           )}
           {more && (

@@ -13,6 +13,7 @@
 import type { Pool } from "mysql2/promise";
 import { boolVar, numberVar } from "./variables";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
+import { isExampleUser } from "./examples";
 import { memberAccount, postTransfer, RECOGNITION_FAUCET } from "./ledger";
 import type { GratitudeLogRepo, GratitudeEntry } from "../repos/gratitude";
 import type { UsersRepo } from "../repos/users";
@@ -87,6 +88,14 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
     : await deps.members.byEmail(String(input.toEmail));
   if (!recipient) return { ok: false, status: 404, error: "No member found with that email" };
   if (recipient.id === user.id) return { ok: false, status: 400, error: "Gratitude flows to others" };
+  // The example identities have fixed, public @examples.invalid addresses, so
+  // without this any member can send to one: the sender's real budget is spent
+  // and recognition is issued from the faucet into an account belonging to
+  // nobody, which the cycle close would then pay a real pool share to. One
+  // check here covers hearts too, since both channels come through this door.
+  if (isExampleUser(recipient)) {
+    return { ok: false, status: 409, error: "That is a standing example, not a member. Appreciation flows to real people." };
+  }
 
   const budget = await budgetFor(deps, user);
   if (budget.total <= 0) {

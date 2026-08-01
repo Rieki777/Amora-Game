@@ -47,6 +47,8 @@ export interface BadgeDef {
   denies: string[];
   rule: BadgeRule | null;
   active: boolean;
+  /** A standing example: renders like any other badge, but never awards. */
+  isExample: boolean;
 }
 
 const parseJsonArray = (v: unknown): string[] => {
@@ -74,6 +76,7 @@ function rowToBadge(r: RowDataPacket): BadgeDef {
     denies: parseJsonArray(r.denies),
     rule,
     active: !!r.active,
+    isExample: Number(r.is_example) === 1,
   };
 }
 
@@ -100,13 +103,13 @@ export function badgeProblem(b: {
   if (!BADGE_KINDS.includes(b.kind as BadgeKind)) return `unknown badge kind "${b.kind}"`;
   const known = new Set<string>(ALL_CAPABILITIES);
   for (const c of b.capabilities) {
-    if (!known.has(c)) return `unknown capability key "${c}" — the gate would silently ignore it`;
+    if (!known.has(c)) return `unknown capability key "${c}": the gate would silently ignore it`;
   }
   for (const d of b.denies) {
     if (!known.has(d)) return `unknown capability key "${d}" in denies`;
   }
   if ((b.kind === "self" || b.kind === "hypha") && b.capabilities.length) {
-    return `${b.kind} badges gate nothing — self-declarations and external mirrors cannot carry capabilities`;
+    return `${b.kind} badges gate nothing. Self-declarations and external mirrors cannot carry capabilities`;
   }
   if (b.denies.length && b.kind !== "warning") {
     return "only warning badges may deny capabilities";
@@ -117,7 +120,7 @@ export function badgeProblem(b: {
     if (!(Number(b.rule.threshold) > 0)) return "the rule threshold must be positive";
     if (b.rule.stackable && !(Number(b.rule.maxStack) >= 1)) return "a stackable rule needs maxStack >= 1";
     if (b.capabilities.length && RECOGNITION_METRICS.has(b.rule.metric)) {
-      return "a capability-bearing earned badge cannot ride a recognition metric — applause must never auto-mint permissions";
+      return "a capability-bearing earned badge cannot ride a recognition metric. Applause must never auto-mint permissions";
     }
   } else if (b.rule) {
     return `only earned badges carry a rule (this one is ${b.kind})`;
@@ -135,7 +138,7 @@ export async function assertBadgeInvariants(pool: Pool): Promise<void> {
   }
   if (problems.length) {
     for (const p of problems) console.error(`[badge invariant] ${p}`);
-    throw new Error(`badge invariants violated (${problems.length}) — refusing to serve`);
+    throw new Error(`badge invariants violated (${problems.length}), refusing to serve`);
   }
 }
 
@@ -307,7 +310,12 @@ export interface EvaluateResult {
  * that fact does not un-happen.
  */
 export async function evaluateEarnedBadges(pool: Pool): Promise<EvaluateResult> {
-  const earned = (await allBadges(pool)).filter((b) => b.active && b.kind === "earned" && b.rule);
+  // Example badges are skipped: the engine runs at every cycle close, so an
+  // example earned badge would quietly award itself to every qualifying member
+  // and the definition would stop being inert.
+  const earned = (await allBadges(pool)).filter(
+    (b) => b.active && b.kind === "earned" && b.rule && !b.isExample,
+  );
   const newTiers: EvaluateResult["newTiers"] = [];
   for (const badge of earned) {
     const rule = badge.rule!;

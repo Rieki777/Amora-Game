@@ -63,7 +63,7 @@ export async function validateChangeSet(
   }
   if (changes.length > 12) {
     return {
-      problems: [{ key: "*", problem: "A proposal may move at most 12 dials — split a larger rebalance into readable steps" }],
+      problems: [{ key: "*", problem: "A proposal may move at most 12 dials. Split a larger rebalance into readable steps" }],
       normalized,
     };
   }
@@ -92,7 +92,7 @@ export async function validateChangeSet(
     }
     const from = effectiveValueOf(key);
     if (from === to) {
-      problems.push({ key, problem: "This change would not change anything — it already has that value" });
+      problems.push({ key, problem: "This change would not change anything. It already has that value" });
       continue;
     }
     if (cooldownDays > 0) {

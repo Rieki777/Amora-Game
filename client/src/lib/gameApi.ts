@@ -33,7 +33,15 @@ export interface PublicGameConfig {
     eventsUrl?: string;
     footerBlurb?: string;
   };
-  currency: { name: string; nameLower: string };
+  currency: {
+    name: string;
+    nameLower: string;
+    /** The VALUE token the cycle pool distributes across recognition — named
+     *  in the token registry (Admin → Tokens), so a fork's rename reaches
+     *  every page that mentions it. Recognition itself carries no financial
+     *  value; this is the tracked value it steers each cycle. */
+    value?: { slug: string; name: string };
+  };
   images: BrandImages;
   paths: { id: string; label: string; role: string; route: string }[];
   stages: { id: string; name: string; description: string }[];

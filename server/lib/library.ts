@@ -214,7 +214,7 @@ export async function approveIntake(pool: Pool, itemId: string, approverId: stri
   if (!item) return { ok: false, error: "No such item" };
   if (item.status !== "intake_pending") return { ok: false, error: `This item is ${item.status}, not awaiting sign-off` };
   if (item.intakeSignedBy && item.intakeSignedBy === approverId) {
-    return { ok: false, error: "Dual sign-off means a SECOND steward — you recorded this intake" };
+    return { ok: false, error: "Dual sign-off means a SECOND steward. You recorded this intake" };
   }
   const pct = Math.max(0, Math.min(100, numberVar("library.intake_award_pct")));
   const award = Math.floor((item.creditValue * pct) / 100);
@@ -292,7 +292,7 @@ export async function reserveItem(
     );
     if (!claim.affectedRows) {
       await conn.rollback();
-      return { ok: false, status: 409, error: `Someone just borrowed "${item.name}" — it is no longer on the shelf` };
+      return { ok: false, status: 409, error: `Someone just borrowed "${item.name}". It is no longer on the shelf` };
     }
     await conn.query(
       "INSERT INTO library_loans (id, item_id, user_id, status, escrow_credits) VALUES (?,?,?,?,?)",
@@ -336,7 +336,7 @@ export async function reserveItem(
       // transaction and cannot join the one above.
       await pool.query("DELETE FROM library_loans WHERE id = ?", [loanId]);
       await pool.query("UPDATE library_items SET status = 'available' WHERE id = ?", [item.id]);
-      return { ok: false, status: 409, error: `You need ${escrow} library credit(s) in escrow to borrow this — earn them by contributing items or work` };
+      return { ok: false, status: 409, error: `You need ${escrow} library credit(s) in escrow to borrow this. Earn them by contributing items or work` };
     }
   }
   await itemEvent(pool, item.id, "reserved", `loan ${loanId}, escrow ${escrow}`, input.userId);
@@ -583,7 +583,7 @@ export async function assertLibraryInvariants(pool: Pool): Promise<void> {
     // Loud on purpose: this cancels a member's reservation and reshelves the
     // item. A silent repair would be a lost reservation nobody can explain.
     console.error(
-      `[library] repaired orphan loan ${o.id}: escrow leg loan:${o.id}:escrow never posted — ` +
+      `[library] repaired orphan loan ${o.id}: escrow leg loan:${o.id}:escrow never posted; ` +
         `cancelled the reservation (member ${o.user_id}, expected ${o.escrow_credits} credit(s)) and reshelved item ${o.item_id}`,
     );
     await recordEvent(pool, {
@@ -597,7 +597,7 @@ export async function assertLibraryInvariants(pool: Pool): Promise<void> {
   const rec = await escrowReconciliation(pool);
   if (!rec.ok) {
     throw new Error(
-      `library escrow reconciliation failed: account holds ${rec.actual} but open loans expect ${rec.expected} — refusing to serve`,
+      `library escrow reconciliation failed: account holds ${rec.actual} but open loans expect ${rec.expected}, refusing to serve`,
     );
   }
 }
@@ -630,7 +630,10 @@ export async function supplyVsBacking(pool: Pool): Promise<{ outstanding: number
   );
   const outstanding = shelfBacked + sold;
   const [[row]] = await pool.query<any[]>(
-    "SELECT COALESCE(SUM(credit_value),0) AS s FROM library_items WHERE status <> 'written_off'",
+    // Example items are not on any shelf, so counting their appraisals as
+    // backing would hold the over-issuance flag grey while real circulating
+    // credits outran the real goods.
+    "SELECT COALESCE(SUM(credit_value),0) AS s FROM library_items WHERE status <> 'written_off' AND is_example = 0",
   );
   const backing = Number(row.s);
   return { outstanding, backing, flagged: outstanding > backing, shelfBacked, sold };

@@ -112,7 +112,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Gratitude",
     label: "Value pool distributed at each cycle close",
     description:
-      "The ReGen Civics model (Rye, 2026-07-26): recognition itself is a signal, and the VALUE arrives when a lunar cycle closes — this pool of tokens is split among everyone in proportion to the recognition they received that cycle. You set how big the pool is; the community's appreciation decides where it flows. 0 turns distribution off (signal only).",
+      "The ReGen Civics model (Rye, 2026-07-26): recognition itself is a signal, and the VALUE arrives when a lunar cycle closes. This pool of tokens is split among everyone in proportion to the recognition they received that cycle. You set how big the pool is; the community's appreciation decides where it flows. 0 turns distribution off (signal only).",
     type: "integer",
     default: "1000",
     min: 0,
@@ -124,7 +124,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Gratitude",
     label: "Which token the pool pays",
     description:
-      "The registry slug of the platform token the cycle pool distributes (rename or add tokens as you configure modules — per-module tokens are yours to name). It must be platform-governed and must NOT be the recognition token itself: recognition is the signal, this is the value, and keeping them separate is what stops appreciation from becoming a price.",
+      "The registry slug of the platform token the cycle pool distributes (rename or add tokens as you configure modules; per-module tokens are yours to name). It must be platform-governed and must NOT be the recognition token itself: recognition is the signal, this is the value, and keeping them separate is what stops appreciation from becoming a price.",
     type: "text",
     default: "credits",
   },
@@ -145,7 +145,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Gratitude",
     label: "Maximum sends to the same person per cycle",
     description:
-      "Stops one friendship from dominating recognition. Set to 1 so acknowledging someone is a considered act once a month rather than a habit.",
+      "Stops one friendship from dominating recognition. Set to 1 so acknowledging someone is a considered act, once a month.",
     type: "integer",
     default: "1",
     min: 1,
@@ -216,7 +216,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Quests",
     label: "Allow consenting at zero",
     description:
-      "When on, a claim can be consented with an amount of 0 — 'acknowledged, no recognition'. The claim completes and any stay-credit reward still releases, but no recognition moves. When off, consent must release at least 1.",
+      "When on, a claim can be consented with an amount of 0, meaning 'acknowledged, no recognition'. The claim completes and any stay-credit reward still releases, but no recognition moves. When off, consent must release at least 1.",
     type: "boolean",
     default: "false",
   },
@@ -225,7 +225,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Quests",
     label: "Founder may self-consent below this many members",
     description:
-      "Consent normally needs a second person to witness the work — nobody may consent to their own claim. But a founder building alone has nobody to ask, so while the village has FEWER than this many members, an admin or founder may consent to their own claims. Once the village reaches this size, the witness rule applies to everyone, admins included. 0 means self-consent is never allowed, even for a founder alone.",
+      "Consent normally needs a second person to witness the work: nobody may consent to their own claim. A founder building alone has nobody to ask, so while the village has FEWER than this many members, an admin or founder may consent to their own claims. Once the village reaches this size, the witness rule applies to everyone, admins included. 0 means self-consent is never allowed, even for a founder alone.",
     type: "integer",
     default: "6",
     min: 0,
@@ -249,7 +249,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Governance",
     label: "Earned recognition to qualify as a proposer",
     description:
-      "Earned recognition a member needs before they can OPEN mechanics proposals and sponsor others' drafts (below it, they can still draft — a qualified member's sponsorship opens a draft). The base posture is 0: any member may propose. Raise it to ask for earned standing first. Admins and founders always qualify.",
+      "Earned recognition a member needs before they can OPEN mechanics proposals and sponsor others' drafts (below it, they can still draft; a qualified member's sponsorship opens a draft). The base posture is 0: any member may propose. Raise it to ask for earned standing first. Admins and founders always qualify.",
     type: "integer",
     default: "0",
     min: 0,
@@ -273,7 +273,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Governance",
     label: "Mechanics proposals per member per cycle",
     description:
-      "How many game-rule change proposals one member may open per cycle. A ceiling on flooding, not on participation — supporting and sponsoring other proposals is never limited.",
+      "How many game-rule change proposals one member may open per cycle. A ceiling on flooding, not on participation: supporting and sponsoring other proposals is never limited.",
     type: "integer",
     default: "5",
     min: 1,
@@ -285,7 +285,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Governance",
     label: "Supporters before a proposal can go to Hypha",
     description:
-      "How many members must support a mechanics proposal in-game before it can be taken to Hypha for the binding vote. The sensing step: proposals gather perspectives here first, and only what the village actually wants reaches the chain. 0 turns the gate off — any open proposal can go straight to Hypha.",
+      "How many members must support a mechanics proposal in-game before it can be taken to Hypha for the binding vote. The sensing step: proposals gather perspectives here first, and only what the village actually wants reaches the chain. 0 turns the gate off: any open proposal can go straight to Hypha.",
     type: "integer",
     default: "0",
     min: 0,
@@ -307,7 +307,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Governance",
     label: "Apply verified proposals automatically",
     description:
-      "When on, a proposal verified as passed on-chain applies itself: instantly for instant dials, at the next cycle close when the set touches any cycle-timed dial (the whole set waits together — a set applies atomically or not at all). Turning this OFF is the founder's emergency brake: verified proposals hold, stewards are notified, and applying becomes a human act until it is turned back on. Founder-held on purpose.",
+      "When on, a proposal verified as passed on-chain applies itself: instantly for instant dials, at the next cycle close when the set touches any cycle-timed dial (the whole set waits together; a set applies atomically or not at all). Turning this OFF is the founder's emergency brake: verified proposals hold, stewards are notified, and applying becomes a human act until it is turned back on. Founder-held on purpose.",
     type: "boolean",
     default: "true",
     ring: "founder",
@@ -358,7 +358,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Tokens",
     label: "Base RPC endpoint",
     description:
-      "Where balances are read from. A public endpoint is fine to start; a dedicated one is more reliable under load. If this fails, the platform shows nothing rather than a wrong number.",
+      "Where balances are read from. A public endpoint is fine to start; a dedicated one is more reliable under load. If this fails, the platform shows nothing, never a wrong number.",
     type: "text",
     default: "https://mainnet.base.org",
   },
@@ -371,7 +371,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Hypha",
     label: "Your Hypha DHO address",
     description:
-      "The one place this platform sends people for governance, proposals, treasury and membership on Hypha. Every module derives its deep links from this single value; leaving it blank hides every Hypha button rather than showing a dead link.",
+      "The one place this platform sends people for governance, proposals, treasury and membership on Hypha. Every module derives its deep links from this single value; leaving it blank hides every Hypha button, so nobody meets a dead link.",
     type: "text",
     default: "",
   },
@@ -380,7 +380,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Hypha",
     label: "Hypha space id (on-chain)",
     description:
-      "The numeric id of your DAO's space on Hypha's Base contracts — every on-chain proposal your DAO creates is stamped with it. Found in your Hypha space's URL or from any of its proposals on Basescan. Used to verify that on-chain outcomes claiming to be yours really came from your space.",
+      "The numeric id of your DAO's space on Hypha's Base contracts. Every on-chain proposal your DAO creates is stamped with it. Found in your Hypha space's URL or from any of its proposals on Basescan. Used to verify that on-chain outcomes claiming to be yours really came from your space.",
     type: "text",
     default: "",
     ring: "founder",
@@ -434,7 +434,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Tools",
     label: "Count tool opens",
     description:
-      "When on, opening a tool records an anonymous-friendly click row (member id attached only for signed-in members) so admins can see which tools the village actually uses. Turning it off makes the beacon a no-op — a village-level privacy choice.",
+      "When on, opening a tool records an anonymous-friendly click row (member id attached only for signed-in members) so admins can see which tools the village actually uses. Turning it off records nothing, a village-level privacy choice.",
     type: "boolean",
     default: "true",
   },
@@ -443,7 +443,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Tools",
     label: "Days between automatic link checks",
     description:
-      "0 means manual-only: admins run 'Check links now' from the Tools tab. A cadence takes effect once the platform scheduler ships (v3 S16) — setting it earlier is harmless and remembered.",
+      "0 means manual-only: admins run 'Check links now' from the Tools tab. A cadence takes effect once the platform scheduler ships (v3 S16); setting it earlier is harmless and remembered.",
     type: "integer",
     default: "0",
     min: 0,
@@ -459,7 +459,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Accounts & sessions",
     label: "Signed-in session length",
     description:
-      "How long a sign-in lasts before the member has to sign in again. Applies to sessions started AFTER a change — existing sessions keep the length they were minted with. Shorter is safer on shared devices; longer is kinder on personal phones.",
+      "How long a sign-in lasts before the member has to sign in again. Applies to sessions started AFTER a change: existing sessions keep the length they were minted with. Shorter is safer on shared devices; longer is kinder on personal phones.",
     type: "integer",
     default: "30",
     min: 1,
@@ -471,7 +471,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Accounts & sessions",
     label: "Most emails one member receives per day",
     description:
-      "Over this many notification emails in a rolling 24 hours, further ones stay in-app only (the notification itself is never lost — only the email is skipped). A ceiling on noisy days, not a quota: raise it for a large, busy village.",
+      "Over this many notification emails in a rolling 24 hours, further ones stay in-app only (the notification itself is never lost; only the email is skipped). A ceiling on noisy days, not a quota: raise it for a large, busy village.",
     type: "integer",
     default: "20",
     min: 1,
@@ -511,7 +511,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Abuse guards",
     label: "Failed logins per account per 15 minutes",
     description:
-      "How many FAILED sign-in attempts any one account may receive per 15 minutes, from all addresses combined — the bound an attacker with many IPs cannot dodge. Successful sign-ins never count. Anyone who knows an address can briefly lock that account out by failing on purpose, so do not set this too low.",
+      "How many FAILED sign-in attempts any one account may receive per 15 minutes, from all addresses combined: the bound an attacker with many IPs cannot dodge. Successful sign-ins never count. Anyone who knows an address can briefly lock that account out by failing on purpose, so do not set this too low.",
     type: "integer",
     default: "10",
     min: 1,
@@ -535,7 +535,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Abuse guards",
     label: "Investor-packet requests per IP per hour",
     description:
-      "How many investor document requests one IP address may make per hour. Each request stores a lead and emails the packet to the address given, so unthrottled it doubles as a spam cannon. Several genuine investors behind one corporate network share a bucket — keep this above 1.",
+      "How many investor document requests one IP address may make per hour. Each request stores a lead and emails the packet to the address given, so unthrottled it doubles as a spam cannon. Several genuine investors behind one corporate network share a bucket, so keep this above 1.",
     type: "integer",
     default: "3",
     min: 1,
@@ -548,7 +548,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Data lifecycle",
     label: "Keep handled form submissions for",
     description:
-      "Form submissions carry personal details (names, emails, phone numbers). Once a submission has been handled — any status other than new — it is deleted this many days after it arrived. Unhandled submissions are never swept: an unread message is a commitment, not clutter. 0 keeps everything forever.",
+      "Form submissions carry personal details (names, emails, phone numbers). Once a submission has been handled (any status other than new), it is deleted this many days after it arrived. Unhandled submissions are never swept: an unread message is a commitment, not clutter. 0 keeps everything forever.",
     type: "integer",
     default: "365",
     min: 0,
@@ -560,7 +560,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Data lifecycle",
     label: "Keep read notifications for",
     description:
-      "Read notifications older than this are deleted by the daily sweep. Unread ones stay — they have not done their job yet. 0 keeps everything forever.",
+      "Read notifications older than this are deleted by the daily sweep. Unread ones stay: they have not done their job yet. 0 keeps everything forever.",
     type: "integer",
     default: "90",
     min: 0,
@@ -574,7 +574,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Village map",
     label: "Show the map's structure to visitors",
     description:
-      "When the map module is public, anonymous visitors see circles, role titles and seat counts — never names or faces. Off hides the map from visitors entirely, even at public lifecycle.",
+      "When the map module is public, anonymous visitors see circles, role titles and seat counts, never names or faces. Off hides the map from visitors entirely, even at public lifecycle.",
     type: "boolean",
     default: "true",
   },
@@ -645,7 +645,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Forum",
     label: "Soft reports that auto-hide a post",
     description:
-      "When this many DIFFERENT members soft-report the same thread or reply, it hides automatically pending moderation — the community can act before a moderator wakes up. Hard reports always go straight to the queue without hiding.",
+      "When this many DIFFERENT members soft-report the same thread or reply, it hides automatically pending moderation, so the community can act before a moderator wakes up. Hard reports always go straight to the queue without hiding.",
     type: "integer",
     default: "3",
     min: 2,
@@ -659,7 +659,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Feed",
     label: "Which forum category the feed shows",
     description:
-      "The feed is a LENS over one forum category plus the village's system events — it is not a second content store. Point it at the category where everyday village life gets posted.",
+      "The feed is a LENS over one forum category plus the village's system events. It is not a second content store. Point it at the category where everyday village life gets posted.",
     type: "text",
     default: "village-life",
   },
@@ -668,7 +668,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Feed",
     label: "Weave the village's own milestones into the feed",
     description:
-      "On, the feed mixes what the village DID — quests consented, seasons turning, people arriving — " +
+      "On, the feed mixes what the village DID (quests consented, seasons turning, people arriving) " +
       "in among what people wrote. Off, it is only posts. A young village usually wants this on, because " +
       "a feed with three posts and no events reads as abandoned.",
     type: "boolean",
@@ -680,7 +680,7 @@ export const VARIABLES: VariableDef[] = [
     label: "How much of a long post the feed shows",
     description:
       "Posts longer than this are cut off in the feed with the rest behind the post itself. Nothing is " +
-      "deleted — this only decides how much of a long piece takes over the page.",
+      "deleted; this only decides how much of a long piece takes over the page.",
     type: "integer",
     default: "600",
     min: 120,
@@ -692,7 +692,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Feed",
     label: "Recognition each heart sends",
     description:
-      "A heart is a REAL send from the tapper's cycle budget — small on purpose. Bounded 1-5 (economy critique): hearts are a tap, not a transfer instrument.",
+      "A heart is a REAL send from the tapper's cycle budget, small on purpose. Bounded 1-5 (economy critique): hearts are a tap, not a transfer instrument.",
     type: "integer",
     default: "1",
     min: 1,
@@ -760,7 +760,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Stays",
     label: "Grace nights below zero",
     description:
-      "How many nights a stay may keep posting after the balance hits zero before autopay refuses and admins are alerted. The debt is real and visible — a negative balance, not a hidden tab.",
+      "How many nights a stay may keep posting after the balance hits zero before autopay refuses and admins are alerted. The debt is real and visible: a negative balance, not a hidden tab.",
     type: "integer",
     default: "2",
     min: 0,
@@ -783,7 +783,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Stays",
     label: "Credit expiry (0 = never)",
     description:
-      "Days until unspent stay credits expire. 0 means they never expire. Expiry is a policy contract shipped ahead of enforcement — v1 does not yet sweep expired credits.",
+      "Days until unspent stay credits expire. 0 means they never expire. Expiry is a policy contract shipped ahead of enforcement: v1 does not yet sweep expired credits.",
     type: "integer",
     default: "0",
     min: 0,
@@ -815,7 +815,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exchange",
     label: "Largest single price change",
     description:
-      "How far one posted price may move from the previous one, in percent. Big moves happen in bounded steps, each with its own note — the price history stays a story, not a cliff. 0 removes the bound.",
+      "How far one posted price may move from the previous one, in percent. Big moves happen in bounded steps, each with its own note, so the price history stays a story, not a cliff. 0 removes the bound.",
     type: "integer",
     default: "20",
     min: 0,
@@ -829,7 +829,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Library",
     label: "Intake award, % of appraisal",
     description:
-      "What a donor earns, as a share of the item's appraised replacement value. Never above 100 — the mint's front door pays at most what the shelf gained.",
+      "What a donor earns, as a share of the item's appraised replacement value. Never above 100: the mint's front door pays at most what the shelf gained.",
     type: "integer",
     default: "75",
     min: 0,
@@ -877,7 +877,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Library",
     label: "Usage fee per loan, % of value",
     description:
-      "The default wear fee a normal return pays into the library pool — also what a dispute resolves to after its deadline (computed wear, zero damage).",
+      "The default wear fee a normal return pays into the library pool, and what a dispute resolves to after its deadline (computed wear, zero damage).",
     type: "integer",
     default: "5",
     min: 0,
@@ -913,7 +913,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exchange",
     label: "The village's share of each swap",
     description:
-      "In basis points, so half a percent is expressible (50 = 0.50%). This is a POLICY dial, not the safety mechanism — a swap can never profit the member even at 0, because the amount they hand over always rounds up. At 0 the confirm card reads 'the village keeps nothing on this swap'.",
+      "In basis points, so half a percent is expressible (50 = 0.50%). This is a POLICY dial, not the safety mechanism: a swap can never profit the member even at 0, because the amount they hand over always rounds up. At 0 the confirm card reads 'the village keeps nothing on this swap'.",
     type: "integer",
     default: "0",
     min: 0,
@@ -925,7 +925,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exchange",
     label: "Abandoned card checkouts are released after",
     description:
-      "A card purchase reserves an order the moment checkout opens, before the member has paid. If they close the tab, that order stays pending forever — and a pending order blocks BOTH turning the exchange off and letting that member leave the village. This is how long to wait before releasing one. Keep it comfortably above 24 hours: a Stripe checkout session stays payable that long, and releasing an order someone is still paying for would strand their money. 0 disables the release.",
+      "A card purchase reserves an order the moment checkout opens, before the member has paid. If they close the tab, that order stays pending forever, and a pending order blocks BOTH turning the exchange off and letting that member leave the village. This is how long to wait before releasing one. Keep it comfortably above 24 hours: a Stripe checkout session stays payable that long, and releasing an order someone is still paying for would strand their money. 0 disables the release.",
     type: "integer",
     default: "48",
     min: 0,
@@ -937,7 +937,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exchange",
     label: "Card-bought tokens settle before they can be swapped",
     description:
-      "Tokens bought with a card are frozen from swapping for this many days — long enough that a chargeback still finds them in the wallet instead of already converted. 0 disables the hold.",
+      "Tokens bought with a card are frozen from swapping for this many days, long enough that a chargeback still finds them in the wallet instead of already converted. 0 disables the hold.",
     type: "integer",
     default: "45",
     min: 0,
@@ -962,7 +962,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Payments",
     label: "Largest single purchase (USD)",
     description:
-      "Per-order ceiling across ALL fiat modules — stays, exchange, and anything after them. 0 disables the check.",
+      "Per-order ceiling across ALL fiat modules: stays, exchange, and anything after them. 0 disables the check.",
     type: "integer",
     default: "1000",
     min: 0,
@@ -1000,7 +1000,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Village",
     label: "Village Pulse length",
     description:
-      "How many recent happenings the public activity feed shows. Nothing is deleted — this is " +
+      "How many recent happenings the public activity feed shows. Nothing is deleted; this is " +
       "how far back the page reaches, not how much the village keeps.",
     type: "integer",
     // Was 500, described as a retention limit, and read by nothing: the route
@@ -1019,7 +1019,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Health",
     label: "Alert when a metric moves this much",
     description:
-      "After a lunation closes, any tracked metric that moved more than this against the previous lunation is flagged to the stewards — in either direction, without judging which is good. 0 turns alerts off.",
+      "After a lunation closes, any tracked metric that moved more than this against the previous lunation is flagged to the stewards, in either direction, without judging which is good. 0 turns alerts off.",
     type: "integer",
     default: "40",
     min: 0,
@@ -1033,7 +1033,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Library",
     label: "Intake stall alarm",
     description:
-      "An item awaiting its second sign-off longer than this many days appears in the stewards' daily digest — the donor already handed it over and is owed credits.",
+      "An item awaiting its second sign-off longer than this many days appears in the stewards' daily digest: the donor already handed it over and is owed credits.",
     type: "integer",
     default: "7",
     min: 1,
@@ -1061,7 +1061,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Platform",
     label: "Share bug reports and ideas with the platform team",
     description:
-      "ON: a copy of each bug/idea submitted here also reaches the ReGen Civics platform team, so fixes and features can ship to every village — content only, never who said it. OFF: feedback stays entirely local; your admins still see all of it in Admin → Feedback. Disclosed on the submission form either way.",
+      "ON: a copy of each bug/idea submitted here also reaches the ReGen Civics platform team, so fixes and features can ship to every village. Content only, never who said it. OFF: feedback stays entirely local; your admins still see all of it in Admin → Feedback. Disclosed on the submission form either way.",
     type: "integer",
     default: "1",
     min: 0,
@@ -1089,7 +1089,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Stays",
     label: "Stay requests per member per day",
     description:
-      "How many stay requests one member may open in 24 hours. A cap on requests, not on stays — stewards still decide every activation.",
+      "How many stay requests one member may open in 24 hours. A cap on requests, not on stays: stewards still decide every activation.",
     type: "integer",
     default: "5",
     min: 1,
@@ -1152,7 +1152,7 @@ const STAGE_QUEST_DEFS: VariableDef[] = GAME_CONFIG.stages
     key: `progression.quests_for.${s.id}`,
     category: "Progression",
     label: `Consented quests to reach ${s.name}`,
-    description: `How many consented quests advance a member to the ${s.name} stage. Raising it never demotes anyone retroactively on its own — stages are recomputed from live counts.`,
+    description: `How many consented quests advance a member to the ${s.name} stage. Raising it never demotes anyone retroactively on its own: stages are recomputed from live counts.`,
     type: "integer",
     default: String((s.rule as { type: "quests"; min: number }).min),
     min: 1,
@@ -1165,7 +1165,7 @@ const UNLOCK_DEFS: VariableDef[] = (Object.entries(STAGE_UNLOCKS) as Array<[stri
     key: `progression.unlock.${cap}`,
     category: "Progression",
     label: `Stage that unlocks: ${cap}`,
-    description: `Which rung of the ladder grants "${cap}" by progression alone. Roles and badges can still grant it at any stage; "never by stage" makes it role/badge-only. This is the constitution's parameter table — move rungs deliberately.`,
+    description: `Which rung of the ladder grants "${cap}" by progression alone. Roles and badges can still grant it at any stage; "never by stage" makes it role/badge-only. This is the constitution's parameter table, so move rungs deliberately.`,
     type: "choice",
     default: stage,
     choices: [

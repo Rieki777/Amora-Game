@@ -3454,7 +3454,11 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // expire when nothing sweeps them.
     const lie = await api("PUT", "/api/admin/variables/stay.credit_expiry_days", { value: "365" }, founderToken);
     expect(lie.status).toBe(409);
-    expect(lie.json.error).toContain("nothing sweeps them");
+    // Lowercased before matching: the refusal copy was reworded in d88a154 so
+    // "Nothing" now opens a sentence, and the assertion broke on the capital
+    // alone. What matters is that the refusal SAYS nothing sweeps them, not
+    // where the sentence boundary falls.
+    expect(String(lie.json.error).toLowerCase()).toContain("nothing sweeps them");
     // Zero is still settable — the honest value stays reachable.
     expect((await api("PUT", "/api/admin/variables/stay.credit_expiry_days", { value: "0" }, founderToken)).status).toBe(200);
 

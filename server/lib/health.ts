@@ -48,15 +48,19 @@ export async function snapshotCycle(pool: Pool, cycle: SnapshotCycle, eligibleSe
   const start = new Date(cycle.startsAt);
   const end = new Date(cycle.endsAt);
 
-  // members_total: real accounts (tombstones carry an anonymized.invalid email).
+  // members_total: real accounts (tombstones carry an anonymized.invalid email;
+  // standing-example identities are content, not people, and never counted).
   const [[membersRow]] = await pool.query<any[]>(
-    "SELECT COUNT(*) AS n FROM users WHERE email NOT LIKE '%anonymized.invalid'",
+    "SELECT COUNT(*) AS n FROM users WHERE email NOT LIKE '%anonymized.invalid' AND is_example = 0",
   );
   await insertSnapshot(pool, cycle.cycleNumber, "members_total", Number(membersRow.n));
 
   // Event-spine reads: windowed on at (these rows carry no cycle stamp).
   const [kinds] = await pool.query<RowDataPacket[]>(
-    "SELECT kind, COUNT(*) AS n FROM health_events WHERE at >= ? AND at < ? GROUP BY kind",
+    // Snapshots are frozen at close and never recomputed, so an example row
+    // counted here is recorded as village activity permanently — retirement
+    // cannot reach back and fix it.
+    "SELECT kind, COUNT(*) AS n FROM health_events WHERE at >= ? AND at < ? AND is_example = 0 GROUP BY kind",
     [start, end],
   );
   const byKind: Record<string, number> = {};
@@ -97,7 +101,7 @@ export async function snapshotCycle(pool: Pool, cycle: SnapshotCycle, eligibleSe
   // concentration read builds on this). Zero rows is a fact, not a failure.
   const [[decRow]] = await pool.query<any[]>(
     "SELECT COUNT(*) AS n, COUNT(DISTINCT author_id) AS authors FROM forum_threads " +
-      "WHERE kind = 'decision' AND created_at >= ? AND created_at < ?",
+      "WHERE kind = 'decision' AND is_example = 0 AND created_at >= ? AND created_at < ?",
     [start, end],
   ).catch(() => [[{ n: 0, authors: 0 }]] as any);
   await insertSnapshot(pool, cycle.cycleNumber, "decisions_opened_cycle", Number(decRow.n), {

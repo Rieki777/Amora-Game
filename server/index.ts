@@ -218,7 +218,7 @@ import {
 } from "./lib/modules";
 import {
   EXAMPLE_REFUSAL_BODY,
-  hasRealContent,
+  isExampleRow,
   isRetired,
   isSeeded,
   loadExampleSeed,
@@ -227,6 +227,7 @@ import {
   onRealItemPublished,
   retireExamples,
   seedExamples,
+  wireExampleCaches,
 } from "./lib/examples";
 import {
   assertCanPurchase,
@@ -667,6 +668,11 @@ const rolesRepo = dbCollection<RoleDef>(getPool(), {
     { js: "circleId", db: "circle_id" },
     { js: "seats", db: "seats", kind: "int" },
     { js: "order", db: "sort_order", kind: "int" },
+    // Carried through the spec or replaceAll launders standing examples into
+    // permanent "real" rows: DELETE-all + re-INSERT writes only spec'd columns,
+    // so an omitted flag comes back as DEFAULT 0 and retirement can never find
+    // them again.
+    { js: "isExample", db: "is_example", kind: "bool" },
   ],
 });
 const roleHoldersRepo = dbCollection<RoleHolderRow>(getPool(), {
@@ -746,6 +752,7 @@ const circlesRepo = dbCollection(getPool(), {
     { js: "color", db: "color" },
     { js: "status", db: "status" },
     { js: "order", db: "sort_order", kind: "int" },
+    { js: "isExample", db: "is_example", kind: "bool" },
   ],
 });
 
@@ -771,6 +778,7 @@ const toolsRepo = dbCollection(getPool(), {
     { js: "lastCheckedAt", db: "last_checked_at", kind: "time" },
     { js: "lastCheckStatus", db: "last_check_status", kind: "int" },
     { js: "createdAt", db: "created_at", kind: "time", defaultNow: true },
+    { js: "isExample", db: "is_example", kind: "bool" },
   ],
 });
 
@@ -2766,6 +2774,18 @@ async function startServer() {
   // assert the one-selling-module-per-token invariant.
   await loadModuleSettings(getPool());
   await loadExampleState(getPool());
+  /*
+   * Three of the tables standing examples write to are served by memory-cached
+   * collections. Seeding and retirement both use raw SQL — correct, because a
+   * replaceAll would rewrite rows the village owns — so the caches have to be
+   * told. Without this, retired examples keep rendering from memory after they
+   * have left the database, which is the worst of both states.
+   */
+  wireExampleCaches(async (tables) => {
+    if (tables.includes("tools")) await toolsRepo.load();
+    if (tables.includes("circles")) await circlesRepo.load();
+    if (tables.includes("roles")) await rolesRepo.load();
+  });
   assertModuleGraph();
   wireModuleAuth({
     isAdmin: (req) => isAdmin(req as any),
@@ -3761,6 +3781,17 @@ async function startServer() {
     }
 
     let user = all.find((u: any) => String(u.email).toLowerCase() === normEmail);
+    // The example identities have fixed, public addresses and an empty
+    // password hash. Login and password-reset already refuse an empty hash,
+    // but bootstrap would happily promote one to founder and hand back a
+    // set-password link — producing a founder the admin roster hides (it
+    // filters examples) and that a later retirement hard-DELETEs, outside
+    // every settle-first check.
+    if (user?.isExample) {
+      return res.status(409).json({
+        error: "That address belongs to a standing example identity, which can never sign in.",
+      });
+    }
     let claimUrl: string | null = null;
     let emailed = false;
     if (user) {
@@ -4229,6 +4260,9 @@ async function startServer() {
     const memberIdx = stageIndex("member");
     const eligible = new Set<string>();
     for (const u of all as any[]) {
+      // Standing-example identities carry member stages, so they would pass
+      // this test and enter the one set every breadth metric trusts.
+      if (u.isExample) continue;
       const count = consented.get(u.id) ?? 0;
       if (count >= 1 || stageIndex(computeStage(u, count)) >= memberIdx) eligible.add(u.id);
     }
@@ -4324,6 +4358,11 @@ async function startServer() {
     if (!user) return res.status(401).json({ error: "Sign in to send appreciation" });
     const thread = await forumThreadById(req.params.id);
     if (!thread || thread.hiddenAt) return res.status(404).json({ error: "Post not found" });
+    // A heart is a real budgeted send that posts a ledger leg. Spending it on
+    // an example would move value to an account that is not a person.
+    if (await isExampleRow(getPool(), "forum_threads", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const outcome = await sendGratitude(gratitudeDeps, {
       fromUser: user,
       toId: thread.authorId,
@@ -4492,6 +4531,13 @@ async function startServer() {
       entityType: "thread",
       entityRef: thread.id,
     });
+    // The feed is a LENS over forum threads, not a table of its own, so a real
+    // micropost in the feed's category retires the feed examples too — and a
+    // thread anywhere retires the forum's. One real voice ends the demo.
+    onRealItemPublished(getPool(), "forum", user.id);
+    if (thread.category === stringVar("feed.category_slug")) {
+      onRealItemPublished(getPool(), "feed", user.id);
+    }
     res.json({ ...thread, tags: cleanTags });
   });
 
@@ -4542,6 +4588,13 @@ async function startServer() {
     if (!thread || thread.hiddenAt) return res.status(404).json({ error: "Thread not found" });
     // Locks are ENFORCED here — a lock that only lives in the UI is theater.
     if (thread.lockedAt) return res.status(423).json({ error: "This thread is locked" });
+    // The banner promises examples cannot be replied to, and it has to be
+    // true: a real reply on an example thread is destroyed without trace when
+    // that thread retires — there are no foreign keys, so the member's words
+    // survive as an orphan pointing at a row that no longer exists.
+    if (await isExampleRow(getPool(), "forum_threads", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const body = String(req.body?.body ?? "").trim();
     if (!body) return res.status(400).json({ error: "Say something" });
     const parentReplyId = req.body?.parentReplyId ? String(req.body.parentReplyId) : null;
@@ -4641,6 +4694,11 @@ async function startServer() {
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const thread = await forumThreadById(req.params.id);
     if (!thread) return res.status(404).json({ error: "Not found" });
+    // A subscription to a thread that will be deleted is an orphan row and a
+    // promise of notifications that can never arrive.
+    if (await isExampleRow(getPool(), "forum_threads", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     await subscribe(getPool(), user.id, thread.id, "manual", req.body?.muted === true);
     res.json({ success: true });
   });
@@ -4651,6 +4709,11 @@ async function startServer() {
     if (!user) return res.status(401).json({ error: "Sign in to report" });
     const thread = await forumThreadById(req.params.id);
     if (!thread) return res.status(404).json({ error: "Not found" });
+    // Reporting an example would let enough soft reports auto-hide platform
+    // content, and the report row outlives the thread it names.
+    if (await isExampleRow(getPool(), "forum_threads", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const replyId = req.body?.replyId ? String(req.body.replyId) : "";
     const severity = req.body?.severity === "hard" ? "hard" : "soft";
     try {
@@ -4879,6 +4942,7 @@ async function startServer() {
       order: circlesRepo.all().length + 1,
     };
     await circlesRepo.insert(circle);
+    onRealItemPublished(getPool(), "map", adminActor(req)?.id ?? null);
     res.json(circle);
   });
 
@@ -4887,7 +4951,9 @@ async function startServer() {
     const all = circlesRepo.all();
     const idx = all.findIndex((c: any) => c.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
-    const merged = { ...all[idx], ...req.body, id: all[idx].id };
+    // isExample is pinned exactly like id: a request body may not forge the
+    // flag onto a real row, nor strip it off an example to launder it.
+    const merged = { ...all[idx], ...req.body, id: all[idx].id, isExample: all[idx].isExample };
     // An alias maps to exactly ONE circle: reject collisions with any other
     // circle's name or aliases — a quest resolving two ways is a data bug.
     const aliases: string[] = Array.isArray(merged.aliases) ? merged.aliases.map((a: any) => String(a)) : [];
@@ -4929,12 +4995,18 @@ async function startServer() {
     if (circleId != null && circleId !== "" && !circlesRepo.all().some((c: any) => c.id === circleId)) {
       return res.status(400).json({ error: `Unknown circle "${circleId}"` });
     }
+    // Example roles are inert like every other example row.
+    if ((all[idx] as any).isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     all[idx] = {
       ...all[idx],
       ...(circleId !== undefined ? { circleId: circleId || null } : {}),
       ...(seats !== undefined ? { seats: Math.max(1, Math.min(20, Number(seats) || 1)) } : {}),
     };
     await rolesRepo.replaceAll(all);
+    // The declared trigger for progression is "a real role edited into
+    // existence" — this is the only role-mutation route, so without this the
+    // module's examples had no retirement path but the admin clear button.
+    onRealItemPublished(getPool(), "progression", adminActor(req)?.id ?? null);
     res.json(all[idx]);
   });
 
@@ -5330,6 +5402,7 @@ async function startServer() {
       entityType: "tool",
       entityRef: tool.id,
     });
+    onRealItemPublished(getPool(), "tools", adminActor(req)?.id ?? null);
     res.json(tool);
   });
 
@@ -5350,7 +5423,7 @@ async function startServer() {
     const all = toolsRepo.all();
     const idx = all.findIndex((t: any) => t.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
-    const merged = { ...all[idx], ...req.body, id: all[idx].id };
+    const merged = { ...all[idx], ...req.body, id: all[idx].id, isExample: all[idx].isExample };
     const problem = validateToolBody(merged);
     if (problem) return res.status(400).json({ error: problem });
     all[idx] = merged;
@@ -5449,6 +5522,11 @@ async function startServer() {
     const { accommodationId, arriveOn, notes } = req.body ?? {};
     const acc = (await listAccommodations(getPool())).find((a) => a.id === String(accommodationId ?? ""));
     if (!acc) return res.status(400).json({ error: "Pick an accommodation" });
+    // A requested stay is open state: it would block disabling the module, for
+    // a room nobody can actually sleep in.
+    if (await isExampleRow(getPool(), "accommodations", acc.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const id = `stay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const arrive = arriveOn && /^\d{4}-\d{2}-\d{2}$/.test(String(arriveOn)) ? String(arriveOn) : null;
     await getPool().query(
@@ -5484,6 +5562,12 @@ async function startServer() {
     // your 30-day limit" is the truthful refusal even where Stripe isn't set up.
     const check = await assertCanPurchase(getPool(), user.id, amountMinor);
     if (!check.ok) return res.status(403).json({ error: check.error });
+    // The example rooms post real credit AND usd prices, so this route would
+    // happily open a Stripe session and leave a pending stay_purchases row —
+    // which is both a Stripe object and open state blocking module-off.
+    if (await isExampleRow(getPool(), "accommodations", String(accommodationId ?? ""))) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     if (!stripeConfigured()) return res.status(503).json({ error: "Card payments are not set up yet. Ask about the manual payment path" });
     const id = `sp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     await getPool().query(
@@ -5549,6 +5633,7 @@ async function startServer() {
       "INSERT INTO accommodations (id, name, description, capacity, photo_url, sort_order) VALUES (?,?,?,?,?,?)",
       [id, String(name).trim().slice(0, 120), description ?? null, Math.max(1, Number(capacity) || 1), photoUrl ?? null, 0],
     );
+    onRealItemPublished(getPool(), "stays", adminActor(req)?.id ?? null);
     res.json({ id });
   });
 
@@ -5703,6 +5788,12 @@ async function startServer() {
     const n = Math.floor(Number(nights) || 0);
     if (n < 1) return res.status(400).json({ error: "How many nights?" });
     const audience = await stayAudienceFor(guest);
+    // The admin room picker lists example rooms beside real ones, so recording
+    // a walk-in payment against a demo room is one dropdown slip away — and it
+    // mints real stay credits and records a real fiat charge.
+    if (await isExampleRow(getPool(), "accommodations", String(accommodationId ?? ""))) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const creditRate = await priceFor(getPool(), String(accommodationId ?? ""), STAY_CREDIT, audience);
     if (!creditRate || creditRate <= 0) return res.status(409).json({ error: "That room has no posted credit rate yet" });
     const creditsGranted = floorTokens(n * creditRate);
@@ -5803,6 +5894,19 @@ async function startServer() {
    * hardcodes a brand. Names come from the merged brand overlay, never a
    * literal.
    */
+  /**
+   * Which modules are currently showing standing examples.
+   *
+   * Public and unauthenticated, because the banner it drives is the honest
+   * label on content a visitor can already see: hiding WHICH content is a
+   * placeholder while showing the placeholder itself would be the deception.
+   * Deliberately not per-row — the concept wants explaining once at the top of
+   * a page, not repeating on twelve cards.
+   */
+  app.get("/api/examples", async (_req, res) => {
+    res.json({ modules: modulesWithExamples() });
+  });
+
   app.get("/api/platform/info", async (_req, res) => {
     const cfg = mergedConfig();
     res.json({
@@ -6043,6 +6147,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   app.post("/api/products/:id/checkout", async (req, res) => {
     const [[p]] = await getPool().query<any[]>("SELECT * FROM payment_products WHERE id = ? AND active = 1", [req.params.id]);
     if (!p) return res.status(404).json({ error: "That product is not offered right now" });
+    // Refused before any Stripe call — nobody is asked for a card to buy a
+    // demonstration.
+    if (Number(p.is_example) === 1) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const user = await authedUser(req);
     if (p.audience === "members" && !user) return res.status(401).json({ error: "Sign in first, this one is for members" });
     if (await overLimit(`product:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
@@ -6199,11 +6306,16 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       kind: "audit", text: `products:create:${kind}:${name.slice(0, 60)}`,
       actorUserId: actor, entityType: "product", entityRef: id, audience: "admin",
     });
+    onRealItemPublished(getPool(), "commerce", actor);
     res.json({ success: true, id });
   });
 
   app.put("/api/admin/products/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Inert: an example product is a demo, not a listing to edit.
+    if (await isExampleRow(getPool(), "payment_products", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const fields: string[] = [];
     const vals: any[] = [];
     if (req.body?.active != null) { fields.push("active = ?"); vals.push(req.body.active ? 1 : 0); }
@@ -6312,11 +6424,16 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       kind: "audit", text: `network:publish:${type}:${title.slice(0, 60)}`,
       actorUserId: actor, entityType: "shared_item", entityRef: id, audience: "admin",
     });
+    onRealItemPublished(getPool(), "network", actor);
     res.json({ success: true, id });
   });
 
   app.put("/api/admin/network/share/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Inert: closing an example need would publish a state change about nothing.
+    if (await isExampleRow(getPool(), "shared_items", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const status = req.body?.status === "closed" ? "closed" : req.body?.status === "open" ? "open" : null;
     if (!status) return res.status(400).json({ error: "status must be open or closed" });
     const [r] = await getPool().query<any>("UPDATE shared_items SET status = ? WHERE id = ?", [status, req.params.id]);
@@ -6689,6 +6806,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     if (transcript && String(transcript).trim()) {
       segments = (await putTranscript(getPool(), r.recording.id, String(transcript), "manual")).segments;
     }
+    onRealItemPublished(getPool(), "automation", adminActor(req)?.id ?? null);
     res.json({ success: true, recording: await recordingById(getPool(), r.recording.id), segments });
   });
 
@@ -6843,6 +6961,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
    */
   app.post("/api/admin/syntheses/:id/publish", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Inert: publishing turns example content into a REAL forum thread.
+    if (await isExampleRow(getPool(), "call_syntheses", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const [synthRows] = await getPool().query<any[]>("SELECT * FROM call_syntheses WHERE id = ?", [req.params.id]);
     const synth = synthRows[0];
     if (!synth) return res.status(404).json({ error: "No such synthesis" });
@@ -7195,6 +7317,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     await moduleActivity("health", "regen", `The land's ledger grew: ${v} ${def.unit} ${def.label.toLowerCase()}`, {
       actorUserId: actor, entityType: "regen", entityRef: id,
     });
+    onRealItemPublished(getPool(), "health", actor);
     res.json({ success: true, id });
   });
 
@@ -7214,6 +7337,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
    */
   app.post("/api/admin/health/regen/:id/retract", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Inert: the land's ledger is append-only; retracting a demo reading writes a real correction.
+    if (await isExampleRow(getPool(), "regen_entries", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const actor = adminActor(req)?.id ?? null;
     if (!actor) return res.status(401).json({ error: "Unauthorized" });
     const note = String(req.body?.note ?? "").trim();
@@ -7361,6 +7488,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     }
     const item = await libraryItemById(getPool(), req.params.id);
     if (!item) return res.status(404).json({ error: "No such item" });
+    // Borrowing an example would escrow real credits against a shelf that does
+    // not exist, and an open loan blocks disabling the module.
+    if (await isExampleRow(getPool(), "library_items", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     // Per-item gates ride the same stage/role data as everything else.
     if (item.minStage) {
       const floor = stageIndex(item.minStage);
@@ -7457,6 +7589,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
         link: "/library", dedupeKey: `intake:${r.itemId}:notify`,
       });
     }
+    onRealItemPublished(getPool(), "library", adminActor(req)?.id ?? null);
     res.json(r);
   });
 
@@ -7550,6 +7683,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   app.put("/api/admin/library/items/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Inert: writing off an example item drifts it from the seeded shape.
+    if (await isExampleRow(getPool(), "library_items", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const item = await libraryItemById(getPool(), req.params.id);
     if (!item) return res.status(404).json({ error: "No such item" });
     const { name, description, categoryId, photoUrl, minStage, requiresRole, healthBp, status } = req.body ?? {};
@@ -7753,6 +7890,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     if (!user) return res.status(401).json({ error: "Sign in first" });
     const badge = await badgeById(getPool(), req.params.id);
     if (!badge || !badge.active) return res.status(404).json({ error: "No such badge" });
+    // Otherwise every member could self-claim the example badge and the
+    // definition would quietly accumulate real award rows.
+    if (await isExampleRow(getPool(), "badges", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     if (badge.kind !== "self") {
       return res.status(403).json({ error: `"${badge.name}" is ${badge.kind}, it is not self-declared` });
     }
@@ -7822,11 +7964,16 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
         JSON.stringify(candidate.capabilities), JSON.stringify(candidate.denies),
         candidate.rule ? JSON.stringify(candidate.rule) : null],
     );
+    onRealItemPublished(getPool(), "badges", adminActor(req)?.id ?? null);
     res.json({ success: true, badge: await badgeById(getPool(), id) });
   });
 
   app.put("/api/admin/badges/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Inert: editing an example definition can give it capabilities.
+    if (await isExampleRow(getPool(), "badges", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const existing = await badgeById(getPool(), req.params.id);
     if (!existing) return res.status(404).json({ error: "No such badge" });
     const merged = {
@@ -7897,6 +8044,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const badge = await badgeById(getPool(), req.params.id);
     if (!badge) return res.status(404).json({ error: "No such badge" });
+    // An award is the one thing that makes a definition live — a warning
+    // example carries a real deny, so awarding it would suspend a real member.
+    if (badge.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     if (badge.kind === "self" || badge.kind === "earned") {
       return res.status(403).json({
         error: badge.kind === "self"
@@ -8084,6 +8234,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     if (qty < 1 || qty > 1_000_000) return res.status(400).json({ error: "How many?" });
     const s = await settingsFor(getPool(), slug);
     if (!s?.active || !s.purchasable) return res.status(404).json({ error: `"${slug}" is not listed for purchase` });
+    // An example listing has no stocked treasury behind it, so this would fail
+    // at settlement anyway — refusing here means nobody reaches a card form.
+    if (await isExampleRow(getPool(), "token_exchange_settings", slug, "token_slug")) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     // Re-proven at buy time, not just at listing and boot: a caution card
     // revoked an hour ago must refuse the NEXT sale, not the next deploy.
     const stillLegal = purchaseProblem(slug);
@@ -8561,6 +8716,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       actorUserId: (await authedUser(req))?.id ?? adminActor(req)?.id ?? null,
       entityType: "token", entityRef: String(req.params.slug), audience: "admin",
     });
+    onRealItemPublished(getPool(), "exchange", (await authedUser(req))?.id ?? adminActor(req)?.id ?? null);
     res.json({ success: true, settings: await settingsFor(getPool(), String(req.params.slug)) });
   });
 
@@ -10177,6 +10333,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       ...req.body,
     };
     await questsRepo.add(entry);
+    onRealItemPublished(getPool(), "quests", adminActor(req)?.id ?? null);
     res.json(entry);
   });
 
@@ -10220,6 +10377,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!user) return res.status(401).json({ error: "Sign in to claim quests" });
     const quest: any = await questsRepo.byId(req.params.id);
     if (!quest) return res.status(404).json({ error: "Quest not found" });
+    // Consent on a claimed quest mints recognition from the faucet, grants
+    // stay credits and advances a stage. Refusing the CLAIM closes that whole
+    // chain, because consent cannot happen without one.
+    if (await isExampleRow(getPool(), "quests", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
 
     // Progression gates (revision 2, step 3). Structured fields enforce; the
     // legacy free-text `roleRequired` stays display-only prose. Refusals name
@@ -10270,6 +10433,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const mine = await claimsRepo.forUser(user.id);
     const active = mine.find((c) => c.questId === req.params.id && (c.status === "claimed" || c.status === "submitted"));
     if (!active) return res.status(404).json({ error: "No active claim for this quest" });
+    // Also guarded here, not only on claim: a claim made before this shipped
+    // must not be walkable through to consent.
+    if (await isExampleRow(getPool(), "quests", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const updated = await claimsRepo.update(active.id, (c) => {
       c.status = "submitted";
       c.artifactUrl = artifactUrl ?? "";
@@ -10336,7 +10504,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // tombstoned members do not count toward the size.
     if (claim.userId === actor.userId) {
       const soloWindow = Math.max(0, numberVar("quest.self_consent_until_members"));
-      const livingMembers = (await members.all()).filter((u: any) => u.email).length;
+      // Neither tombstones nor standing examples are people, and three
+      // phantom identities would shrink the solo-founder window from six real
+      // members to three.
+      const livingMembers = (await members.all()).filter(
+        (u: any) => !u.isExample && u.email && !String(u.email).endsWith("@anonymized.invalid"),
+      ).length;
       const soloFounder = actor.isAdminActor && livingMembers < soloWindow;
       if (!soloFounder) {
         return res.status(403).json({
@@ -10592,6 +10765,9 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       actorUserId: user.id,
       dedupeKey: `gratitude:${outcome.entry.id}`,
     });
+    // Gratitude seeds no example rows of its own (a send posts a ledger leg),
+    // but the first real send retires the module's explanatory empty state.
+    onRealItemPublished(getPool(), "gratitude", user.id);
     res.json({ success: true, entry: { ...outcome.entry, amount: undefined }, budget: outcome.budget });
   });
 
@@ -12033,7 +12209,9 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Players admin: list + stage grants
   app.get("/api/admin/players", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const allMembers = await members.all();
+    // Standing-example identities author example threads; they are content,
+    // not people, and have no password_hash. They do not belong on the roster.
+    const allMembers = (await members.all()).filter((u: any) => !u.isExample);
     // One grouped COUNT for the whole roster, not one query per member.
     const consented = await claimsRepo.consentedCounts();
     res.json(

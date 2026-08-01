@@ -15,6 +15,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { CreditCard, ExternalLink, HeartHandshake, Loader2, Repeat } from "lucide-react";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -50,8 +51,8 @@ export default function Contribute() {
       .then(setData)
       .catch(() => {});
     const q = new URLSearchParams(window.location.search).get("paid");
-    if (q === "success") setNotice("Payment received — thank you. Your receipt is on its way.");
-    if (q === "cancelled") setNotice("Checkout cancelled — nothing was charged.");
+    if (q === "success") setNotice("Payment received, thank you. Your receipt is on its way.");
+    if (q === "cancelled") setNotice("Checkout cancelled. Nothing was charged.");
   }, [commerce?.id]);
 
   if (modules.loaded && !commerce) return <NotFound />;
@@ -85,9 +86,10 @@ export default function Contribute() {
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Contribute</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Fees, gifts, deposits and memberships — every way money supports
+            Fees, gifts, deposits and memberships: every way money supports
             this village, in one honest list.
           </p>
+          <ExamplesBanner moduleId="commerce" noun="product" />
         </div>
       </section>
 
@@ -97,7 +99,7 @@ export default function Contribute() {
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
           {manual && (
             <div className="bg-card border border-teal-deep/30 rounded-xl p-5">
-              <p className="font-semibold text-foreground text-sm mb-1">{manual.name} — receipt #{manual.receiptNo}</p>
+              <p className="font-semibold text-foreground text-sm mb-1">{manual.name}, receipt #{manual.receiptNo}</p>
               <p className="text-sm text-muted-foreground whitespace-pre-wrap">{manual.text}</p>
               {manual.url && (
                 <a

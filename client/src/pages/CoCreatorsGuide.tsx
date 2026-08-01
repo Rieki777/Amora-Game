@@ -1,5 +1,6 @@
 import Layout from "@/components/Layout";
 import { useHypha } from "@/modules/ModuleProvider";
+import { useGameConfig } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -106,7 +107,9 @@ const hyphaActions = [
   },
 ];
 
-const recognitionItems = {
+// A function of the live value-token name (Admin → Tokens): a fork's rename
+// reaches every card below without a code change.
+const recognitionItems = (valueName: string) => ({
   earn: [
     { label: "Quests", range: "40-300 Gratitude" },
     { label: "Circle Roles", range: "200-500/month" },
@@ -120,12 +123,12 @@ const recognitionItems = {
     "Represents community trust",
   ],
   spend: [
+    `Each cycle, a real pool of ${valueName} is shared across everyone's Gratitude`,
     "Village dues & utilities",
     "Cafe & shop services",
-    "Community offerings",
-    "Future: convert to cash or equity as Amora matures",
+    `Future: ${valueName} convert to cash or equity as Amora matures`,
   ],
-};
+});
 
 const spaces = [
   {
@@ -229,6 +232,8 @@ const ctaCards = [
 
 export default function CoCreatorsGuide() {
   const hypha = useHypha();
+  const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
+  const recognition = recognitionItems(valueName);
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
     if (element) {
@@ -447,10 +452,11 @@ export default function CoCreatorsGuide() {
                 The Gratitude Economy
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                Gratitude tracks the value you contribute to Amora, work, time, and resources
-                that we can't yet pay in cash. Rather than a fixed rate, each cycle the community
-                shares a real pool of value across everyone's Gratitude. As Amora matures,
-                Gratitude can convert to cash, equity, or community currency.
+                Two tokens, two jobs. Gratitude is the recognition signal. It acknowledges the
+                work, time, and resources you contribute to Amora, and carries no financial value
+                of its own. {valueName} are the tracked value: each cycle the community shares a
+                real pool of {valueName} across everyone's Gratitude, and as Amora matures they
+                can convert to cash, equity, or community currency.
               </p>
             </div>
 
@@ -471,7 +477,7 @@ export default function CoCreatorsGuide() {
                   <h3 className="font-bold text-xl text-foreground">Earn Gratitude</h3>
                 </div>
                 <div className="space-y-3">
-                  {recognitionItems.earn.map((item, idx) => (
+                  {recognition.earn.map((item, idx) => (
                     <div key={idx} className="flex items-start gap-3 pb-3 border-b border-muted last:border-0">
                       <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
                       <div>
@@ -498,7 +504,7 @@ export default function CoCreatorsGuide() {
                   <h3 className="font-bold text-xl text-foreground">Hold Gratitude</h3>
                 </div>
                 <div className="space-y-3">
-                  {recognitionItems.hold.map((item, idx) => (
+                  {recognition.hold.map((item, idx) => (
                     <div key={idx} className="flex items-start gap-3 pb-3 border-b border-muted last:border-0">
                       <Star className="w-5 h-5 text-teal-deep mt-0.5 flex-shrink-0" />
                       <p className="text-sm text-foreground">{item}</p>
@@ -519,10 +525,10 @@ export default function CoCreatorsGuide() {
                   <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center">
                     <Zap className="w-6 h-6 text-amber" />
                   </div>
-                  <h3 className="font-bold text-xl text-foreground">Use Gratitude</h3>
+                  <h3 className="font-bold text-xl text-foreground">Receive {valueName}</h3>
                 </div>
                 <div className="space-y-3">
-                  {recognitionItems.spend.map((item, idx) => (
+                  {recognition.spend.map((item, idx) => (
                     <div key={idx} className="flex items-start gap-3 pb-3 border-b border-muted last:border-0">
                       <ArrowRight className="w-5 h-5 text-amber mt-0.5 flex-shrink-0" />
                       <p className="text-sm text-foreground">{item}</p>
@@ -535,7 +541,7 @@ export default function CoCreatorsGuide() {
             {/* GRATITUDE FLOW DIAGRAM */}
             <div className="bg-card rounded-xl p-8 border border-muted">
               <h3 className="font-bold text-lg text-foreground mb-6 text-center">
-                How Gratitude Flow Through Amora
+                How Value Flows Through Amora
               </h3>
               <div className="flex flex-col md:flex-row items-center justify-center gap-4 flex-wrap">
                 <div className="flex items-center gap-3">
@@ -547,6 +553,12 @@ export default function CoCreatorsGuide() {
                 <div className="flex items-center gap-3">
                   <div className="px-4 py-2 bg-primary/10 rounded-lg text-sm font-medium text-primary">
                     Gratitude Earned
+                  </div>
+                  <ArrowRight className="w-5 h-5 text-muted-foreground" />
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="px-4 py-2 bg-amber-100 rounded-lg text-sm font-medium text-amber-900">
+                    Cycle Pool of {valueName}
                   </div>
                   <ArrowRight className="w-5 h-5 text-muted-foreground" />
                 </div>
@@ -815,7 +827,7 @@ export default function CoCreatorsGuide() {
               <div className="grid sm:grid-cols-3 gap-4 text-center">
                 {[
                   { label: "Sense", emoji: "🌀", description: "Find where your gifts are most needed. A quest waiting. A gap in the land. A conversation that sparks something." },
-                  { label: "Propose", emoji: "✍️", description: "Open your intention to the community in Hypha. Consent-based, not a vote of approval, but a check: does this serve us?" },
+                  { label: "Propose", emoji: "✍️", description: "Open your intention to the community in Hypha. Consent-based: the check is simply whether this serves us." },
                   { label: "Create", emoji: "🌱", description: "Do the work. Document it. Return and claim the Gratitude that reflects the value you actually created." },
                 ].map((step) => (
                   <div key={step.label} className="rounded-xl bg-white/10 border border-white/20 p-5">
@@ -1142,9 +1154,9 @@ export default function CoCreatorsGuide() {
         <div className="container relative z-10">
           <div className="max-w-2xl mx-auto text-center">
             <p className="text-lg italic text-white/90 leading-relaxed">
-              "Amora is an infinite journey, one undertaken not to win, but to keep creating
+              "Amora is an Infinite Game, played to keep creating
               together. We co-become the most beautiful village, where all beings belong and
-              thrive. Success is measured not by competition, but by the flourishing of our
+              thrive. Success is measured by the flourishing of our
               community, land, and relationships."
             </p>
             <div className="mt-8 flex items-center justify-center gap-4 text-white/70">

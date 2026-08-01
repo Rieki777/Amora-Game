@@ -39,7 +39,7 @@ export default function LookPanel({ password }: { password: string }) {
         body: JSON.stringify({ theme: { seed: theme.seed ?? "", character: theme.character ?? "", place: theme.place ?? "" } }),
       });
       if (!res.ok) throw new Error();
-      toast.success("Look saved — the whole site re-themes on next load");
+      toast.success("Look saved. The whole site re-themes on next load");
     } catch { toast.error("Save failed"); }
     setSaving(false);
   };
@@ -52,7 +52,7 @@ export default function LookPanel({ password }: { password: string }) {
       <h3 className="font-semibold text-gray-900 mb-1">Look</h3>
       <p className="text-xs text-gray-500 mb-4">
         Three decisions; everything else derives. Leave the colour empty to keep the platform's
-        neutral look. Every derived pairing is contrast-checked — your colour keeps its hue,
+        neutral look. Every derived pairing is contrast-checked, so your colour keeps its hue,
         legibility is non-negotiable.
       </p>
 
@@ -88,7 +88,7 @@ export default function LookPanel({ password }: { password: string }) {
             className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-2"
           />
           <p className="text-[11px] text-gray-400 mt-1">
-            Used to ground generated imagery when the design agency lands — never shown publicly.
+            Used to ground generated imagery when the design agency lands. Never shown publicly.
           </p>
         </div>
       </div>
@@ -128,8 +128,8 @@ export default function LookPanel({ password }: { password: string }) {
           <p className="font-medium text-gray-900 mb-1">
             Contrast: {derived.contrast.pairs.length} pairs measured ·{" "}
             {derived.contrast.status === "ok" && <span className="text-emerald-700">all pass as-is</span>}
-            {derived.contrast.status === "adjusted" && <span className="text-amber-700">passes — your colour's lightness was adjusted to stay readable</span>}
-            {derived.contrast.status === "fail" && <span className="text-red-700">FAILING — this should not happen; please report it</span>}
+            {derived.contrast.status === "adjusted" && <span className="text-amber-700">passes, and your colour's lightness was adjusted to stay readable</span>}
+            {derived.contrast.status === "fail" && <span className="text-red-700">FAILING. This should not happen; please report it</span>}
           </p>
           <p className="text-gray-500">
             worst ratio {derived.contrast.worstRatio}:1 ·{" "}

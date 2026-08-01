@@ -180,9 +180,9 @@ export async function verifyWalletSignature(
     [input.userId],
   );
   const row = rows[0];
-  if (!row) return { ok: false, error: "No challenge outstanding — request one first" };
+  if (!row) return { ok: false, error: "No challenge outstanding. Request one first" };
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    return { ok: false, error: "The challenge expired — request a fresh one" };
+    return { ok: false, error: "The challenge expired. Request a fresh one" };
   }
   let address: string;
   try {

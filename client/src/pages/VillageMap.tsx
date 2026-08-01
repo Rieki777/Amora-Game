@@ -5,6 +5,7 @@
  * concierge bar routes "I want to help with X" to the right node.
  */
 import Layout from "@/components/Layout";
+import MicButton from "@/components/MicButton";
 import NotFound from "@/pages/NotFound";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -155,7 +156,7 @@ function MapCanvas({ data, onSelect }: { data: MapData; onSelect: (s: any) => vo
               strokeWidth={2}
               role="button"
               tabIndex={0}
-              aria-label={`${c?.name ?? pos.id}${forming ? ", still forming" : ""} — open this circle`}
+              aria-label={`${c?.name ?? pos.id}${forming ? ", still forming" : ""}. Open this circle`}
               onClick={() => onSelect({ kind: "circle", id: pos.id })}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -180,7 +181,7 @@ function MapCanvas({ data, onSelect }: { data: MapData; onSelect: (s: any) => vo
                   className="cursor-pointer focus:outline-none"
                   role="button"
                   tabIndex={0}
-                  aria-label={`${role?.name ?? rp.id}${rp.vacant ? " — nobody holds this yet, open call" : ""}`}
+                  aria-label={`${role?.name ?? rp.id}${rp.vacant ? ". Nobody holds this yet, open call" : ""}`}
                   onClick={() => onSelect({ kind: "role", id: rp.id })}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
@@ -199,7 +200,7 @@ function MapCanvas({ data, onSelect }: { data: MapData; onSelect: (s: any) => vo
                       <animate attributeName="r" values="11;13;11" dur="2.4s" repeatCount="indefinite" />
                     )}
                   </circle>
-                  <title>{role ? `${role.name}${rp.vacant ? " — open call" : ""}` : rp.id}</title>
+                  <title>{role ? `${role.name}${rp.vacant ? ", open call" : ""}` : rp.id}</title>
                 </g>
               );
             })}
@@ -253,7 +254,7 @@ function CircleAccordion({ data, onSelect }: { data: MapData; onSelect: (s: any)
                 ))}
                 {quests.length > 0 && (
                   <p className="text-xs text-muted-foreground pt-1">
-                    {quests.length} open quest{quests.length === 1 ? "" : "s"} — see the <a href="/quests" className="text-teal-deep font-medium">quest board</a>
+                    {quests.length} open Quest{quests.length === 1 ? "" : "s"}, see the <a href="/quests" className="text-teal-deep font-medium">Quest board</a>
                   </p>
                 )}
               </div>
@@ -304,7 +305,7 @@ function NodeCard({ data, selected, onClose }: { data: MapData; selected: { kind
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "Could not send");
-        setStatus("Sent — they'll get an email they can reply to directly.");
+        setStatus("Sent. They'll get an email they can reply to directly.");
         setComposing(false);
         setMessage("");
       })
@@ -321,7 +322,7 @@ function NodeCard({ data, selected, onClose }: { data: MapData; selected: { kind
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "Could not raise your hand");
-        setStatus("Hand raised — the founding team will be in touch.");
+        setStatus("Hand raised. The founding team will be in touch.");
         setRaising(false);
         setNote("");
       })
@@ -386,7 +387,7 @@ function NodeCard({ data, selected, onClose }: { data: MapData; selected: { kind
               ) : (
                 <button onClick={() => setRaising(true)}
                   className="inline-flex items-center gap-2 text-sm bg-amber/90 text-teal-deep rounded-lg px-4 py-2 font-semibold">
-                  <Hand className="w-4 h-4" /> This seat is open — raise your hand
+                  <Hand className="w-4 h-4" /> This seat is open, raise your hand
                 </button>
               )
             ) : role.holders.length > 0 && data.viewer.viewPeople ? (
@@ -397,7 +398,7 @@ function NodeCard({ data, selected, onClose }: { data: MapData; selected: { kind
                     className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" />
                   <p className="text-[11px] text-gray-400">
                     They'll receive this by email, with YOUR email address as the
-                    reply-to — replying reaches you directly.
+                    reply-to, so replying reaches you directly.
                   </p>
                   <div className="flex gap-2">
                     <button onClick={() => contact(role.holders[0].userId)} disabled={!message.trim()}
@@ -466,6 +467,7 @@ function ConciergeBar({ onPick }: { onPick: (kind: string, id: string) => void }
             className="w-full text-sm border border-border rounded-xl pl-9 pr-3 py-2.5 bg-card"
           />
         </div>
+        <MicButton onText={(t) => setQuery((v) => (v ? v.replace(/\s*$/, " ") : "") + t)} disabled={busy} />
         <button onClick={ask} disabled={busy || query.trim().length < 3}
           className="text-sm bg-[#2D5A5A] text-white rounded-xl px-4 font-medium disabled:opacity-40">
           {busy ? "…" : "Ask"}
@@ -481,11 +483,11 @@ function ConciergeBar({ onPick }: { onPick: (kind: string, id: string) => void }
                 <button className="font-semibold text-teal-deep" onClick={() => result.match.kind !== "quest" && onPick(result.match.kind, result.match.id)}>
                   {result.match.name}
                 </button>
-                {result.vacant && <span className="text-amber-700"> — nobody holds this yet. Raise your hand!</span>}
-                {result.contact && <span> — talk to {result.contact.name}.</span>}
+                {result.vacant && <span className="text-amber-700">, and nobody holds this yet. Raise your hand!</span>}
+                {result.contact && <span>, talk to {result.contact.name}.</span>}
               </p>
               {result.match.kind === "quest" && (
-                <a href="/quests" className="text-xs text-teal-deep font-medium">Open the quest board →</a>
+                <a href="/quests" className="text-xs text-teal-deep font-medium">Open the Quest board →</a>
               )}
             </>
           )}

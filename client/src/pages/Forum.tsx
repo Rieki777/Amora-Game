@@ -13,6 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Flag, Gavel, Lock, MessageCircle, Pin, Plus, Bell } from "lucide-react";
 import { Image } from "@/components/Image";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -84,6 +85,7 @@ function ThreadList() {
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Village Forum</h1>
           <p className="text-muted-foreground">Conversations, questions, and the decisions we make together.</p>
+          <ExamplesBanner moduleId="forum" noun="thread" />
         </div>
       </section>
       <section className="py-8 bg-background">
@@ -156,7 +158,7 @@ function ThreadList() {
               </Link>
             ))}
             {threads.length === 0 && (
-              <p className="text-center text-sm text-muted-foreground py-12">No threads yet — start the first one.</p>
+              <p className="text-center text-sm text-muted-foreground py-12">No threads yet. Start the first one.</p>
             )}
           </div>
         </div>

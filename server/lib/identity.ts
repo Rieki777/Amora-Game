@@ -46,7 +46,7 @@ export async function ensureInstanceIdentity(pool: Pool): Promise<InstanceIdenti
     "SELECT value FROM app_config WHERE config_key = 'instance-identity'",
   );
   const doc = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
-  if (!doc?.instanceId) throw new Error("instance-identity document exists but carries no instanceId — refusing to guess");
+  if (!doc?.instanceId) throw new Error("instance-identity document exists but carries no instanceId, refusing to guess");
   cached = { instanceId: String(doc.instanceId), bornAt: String(doc.bornAt ?? "") };
   return cached;
 }

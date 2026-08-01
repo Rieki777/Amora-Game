@@ -58,7 +58,7 @@ const journeySteps = [
     id: "founding-seeder",
     stage: "Founding Seeder",
     title: "Become a Founding Seeder",
-    description: "Join the Founding Seeders — our waitlist of soul-aligned people securing first access to homes and land at Amora. This is how you raise your hand and say: I'm serious about this.",
+    description: "Join the Founding Seeders, our waitlist of soul-aligned people securing first access to homes and land at Amora. This is how you raise your hand and say: I'm serious about this.",
     icon: Sprout,
     link: "https://amora.cr/founding-seeder/",
     linkText: "Become a Founding Seeder",
@@ -69,7 +69,7 @@ const journeySteps = [
     id: "training",
     stage: "Participant",
     title: "Community Training",
-    description: "Either complete our training in NVC (Nonviolent Communication), authentic relating, and other community practices — or demonstrate you already know and live these essential practices.",
+    description: "Either complete our training in NVC (Nonviolent Communication), authentic relating, and other community practices, or demonstrate you already know and live these essential practices.",
     icon: BookOpen,
     link: "/training",
     linkText: "Learn About Training",
@@ -102,12 +102,12 @@ const journeySteps = [
     id: "deposit",
     stage: "Deposit",
     title: "Put Down a Deposit on Your Future Home",
-    description: "Secure your future home with a fully refundable deposit — from $5k to $20k+ depending on the home type you're reserving. This holds your place and starts the real conversation.",
+    description: "Secure your future home with a fully refundable deposit, from $5k to $20k+ depending on the home type you're reserving. This holds your place and starts the real conversation.",
     icon: Wallet,
     link: "#",
     linkText: "Reserve With a Deposit",
     external: false,
-    details: ["Fully refundable deposit", "$5k–$20k+ depending on home type", "Reserves your future home", "Priority on your chosen lot"]
+    details: ["Fully refundable deposit", "$5k-$20k+ depending on home type", "Reserves your future home", "Priority on your chosen lot"]
   },
   {
     id: "background",
@@ -124,7 +124,7 @@ const journeySteps = [
     id: "fireside",
     stage: "Fireside",
     title: "Fireside Dinner With the Founding Team",
-    description: "You're invited to an intimate 1-on-1 fireside dinner with the founding team — in person in Costa Rica, or online if you can't make it. A casual, beautiful friendship ritual where both sides explore the commitment fully.",
+    description: "You're invited to an intimate 1-on-1 fireside dinner with the founding team, in person in Costa Rica, or online if you can't make it. A casual, beautiful friendship ritual where both sides explore the commitment fully.",
     icon: Flame,
     link: "#",
     linkText: "By Invitation",
@@ -329,8 +329,8 @@ export default function ResidentJourney() {
             </h2>
             <p className="text-muted-foreground">
               Your Land Share Agreement gives you long-term access to your land with the ability 
-              to renew and pass down to your children tax-free. This unique structure ensures 
-              community ownership while providing security for your family.
+              to renew and pass down to your children tax-free. The structure holds ownership 
+              in the community and gives your family security.
             </p>
           </motion.div>
         </div>
@@ -395,7 +395,7 @@ export default function ResidentJourney() {
                           type="button"
                           role="checkbox"
                           aria-checked={isCompleted}
-                          aria-label={`${step.title} — mark as ${isCompleted ? "not done" : "done"}`}
+                          aria-label={`${step.title}: mark as ${isCompleted ? "not done" : "done"}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleStep(step.id);
@@ -578,13 +578,13 @@ export default function ResidentJourney() {
             <p className="text-muted-foreground mb-6">
               {dues?.note?.trim()
                 ? dues.note
-                : "As a resident, you'll pay Village Dues that cover utilities, maintenance, and community services. These can be offset through Gratitude — a living record of the value you contribute, not a fixed dollar amount. Together, we work to reduce costs and create surplus that benefits everyone."}
+                : "As a resident, you'll pay Village Dues that cover utilities, maintenance, and community services. These can be offset through Gratitude, a living record of the value you contribute, not a fixed dollar amount. Together, we work to reduce costs and create surplus that benefits everyone."}
             </p>
             <Link
               href="/how-we-create"
               className="inline-flex items-center gap-2 text-teal-deep font-medium hover:gap-3 transition-all"
             >
-              Learn How Gratitude Work
+              Learn How Gratitude Works
               <ArrowRight className="w-4 h-4" />
             </Link>
           </motion.div>
@@ -659,7 +659,7 @@ export default function ResidentJourney() {
               <Sparkles className="w-12 h-12 text-teal-deep mx-auto mb-6" />
             </motion.div>
             <h2 className="font-display text-3xl md:text-4xl font-semibold text-foreground mb-4">
-              Ready to Find Your Home?
+              Find Your Home
             </h2>
             <p className="text-muted-foreground mb-8">
               Start with a community call to learn about life at Amora, 

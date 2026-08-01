@@ -196,7 +196,7 @@ export default function MasterPlan() {
               title="Master Plan PDF coming soon"
             >
               <Map className="w-5 h-5" />
-              Master Plan PDF — Coming Soon
+              Master Plan PDF, Coming Soon
             </a>
           </div>
         </div>

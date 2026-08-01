@@ -115,12 +115,12 @@ interface Standing {
 }
 
 const STATUS_COPY: Record<Proposal["status"], { label: string; cls: string }> = {
-  draft: { label: "draft — needs a sponsor", cls: "bg-amber-50 text-amber-700" },
+  draft: { label: "draft, needs a sponsor", cls: "bg-amber-50 text-amber-700" },
   open: { label: "open for support", cls: "bg-emerald-50 text-emerald-700" },
   withdrawn: { label: "withdrawn", cls: "bg-stone-100 text-stone-500" },
   to_hypha: { label: "at Hypha for the vote", cls: "bg-sky-50 text-sky-700" },
-  passed_claimed: { label: "passed — awaiting verification", cls: "bg-violet-50 text-violet-700" },
-  passed_verified: { label: "verified on-chain — applying", cls: "bg-violet-50 text-violet-700" },
+  passed_claimed: { label: "passed, awaiting verification", cls: "bg-violet-50 text-violet-700" },
+  passed_verified: { label: "verified on-chain, applying", cls: "bg-violet-50 text-violet-700" },
   failed: { label: "did not pass", cls: "bg-stone-100 text-stone-500" },
   applied: { label: "applied", cls: "bg-teal-deep/10 text-teal-deep" },
 };
@@ -303,7 +303,7 @@ export default function GameMechanics() {
         loadProposals();
       }
     } catch {
-      setFeedback({ ok: false, text: "Something went wrong — try again." });
+      setFeedback({ ok: false, text: "Something went wrong. Try again." });
     }
     setSubmitting(false);
   };
@@ -324,7 +324,7 @@ export default function GameMechanics() {
       loadStanding();
       return d;
     } catch {
-      setFeedback({ ok: false, text: "That did not work — try again." });
+      setFeedback({ ok: false, text: "That did not work. Try again." });
       return null;
     }
   };
@@ -334,9 +334,9 @@ export default function GameMechanics() {
       const res = await fetch(`/api/game/mechanics/proposals/${id}/document`);
       const d = await res.json();
       await navigator.clipboard.writeText(d.markdown);
-      setFeedback({ ok: true, text: "Proposal document copied — paste it into the Hypha proposal (keep the [gm:…] marker in the title)." });
+      setFeedback({ ok: true, text: "Proposal document copied. Paste it into the Hypha proposal, and keep the [gm:…] marker in the title." });
     } catch {
-      setFeedback({ ok: false, text: "Couldn't copy — open the document and copy it by hand." });
+      setFeedback({ ok: false, text: "Couldn't copy. Open the document and copy it by hand." });
     }
   };
 
@@ -352,16 +352,16 @@ export default function GameMechanics() {
         window.open(d.url, "_blank", "noopener,noreferrer");
         setFeedback({
           ok: true,
-          text: `Hypha opened and the document is on your clipboard. Keep ${d.title.slice(0, 24)}… in the title, and when the proposal exists, paste its URL back here with "Link the on-chain proposal" — the chain reports outcomes by number, and that link is how the result finds its way home.`,
+          text: `Hypha opened and the document is on your clipboard. Keep ${d.title.slice(0, 24)}… in the title, and when the proposal exists, paste its URL back here with "Link the on-chain proposal". The chain reports outcomes by number, and that link is how the result finds its way home.`,
         });
       } else {
         setFeedback({
           ok: true,
-          text: "Document copied. This village has no Hypha configured yet — a founder sets it under Admin → Game Mechanics → Hypha.",
+          text: "Document copied. This village has no Hypha configured yet. A founder sets it under Admin → Game Mechanics → Hypha.",
         });
       }
     } catch {
-      setFeedback({ ok: false, text: "Couldn't prepare the handoff — try again." });
+      setFeedback({ ok: false, text: "Couldn't prepare the handoff. Try again." });
     }
   };
 
@@ -383,7 +383,7 @@ export default function GameMechanics() {
           <Scale className="w-8 h-8 text-amber mx-auto mb-3" />
           <h1 className="font-display text-4xl md:text-5xl font-bold mb-3">Game Mechanics</h1>
           <p className="text-white/80 max-w-2xl mx-auto">
-            Every rule this game runs on, in the open — and yours to change. Adjust a dial to
+            Every rule this Game runs on, in the open, and yours to change. Adjust a dial to
             start a proposal; the village senses it here, the vote binds on Hypha, and every
             change lands on the permanent record.
             {villageName ? ` This is how ${villageName} plays.` : ""}
@@ -403,10 +403,10 @@ export default function GameMechanics() {
           )}
           {failed && (
             <p role="alert" className="text-center text-muted-foreground">
-              The mechanics couldn't be loaded just now — reload to try again.
+              The mechanics couldn't be loaded just now. Reload to try again.
             </p>
           )}
-          {!snapshot && !failed && <p className="text-center text-muted-foreground">Loading the rules of the game…</p>}
+          {!snapshot && !failed && <p className="text-center text-muted-foreground">Loading the rules of the Game…</p>}
 
           {snapshot && (
             <>
@@ -444,11 +444,11 @@ export default function GameMechanics() {
                   <h2 className="font-display text-2xl font-bold text-teal-deep">The Dials</h2>
                 </div>
                 <p className="text-sm text-stone-600 mb-2 max-w-2xl">
-                  Every tunable rule, grouped by the part of the game it shapes.{" "}
+                  Every tunable rule, grouped by the part of the Game it shapes.{" "}
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-xs align-middle">
                     <Users className="w-3 h-3" /> community
                   </span>{" "}
-                  dials can be changed by proposal — adjust one below to begin.{" "}
+                  dials can be changed by proposal. Adjust one below to begin.{" "}
                   <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 text-stone-600 px-2 py-0.5 text-xs align-middle">
                     <Lock className="w-3 h-3" /> founder-held
                   </span>{" "}
@@ -456,12 +456,12 @@ export default function GameMechanics() {
                 </p>
                 {!user && (
                   <p className="text-xs text-stone-500 mb-5">
-                    Sign in to stage changes and propose — reading is open to everyone.
+                    Sign in to stage changes and propose. Reading is open to everyone.
                   </p>
                 )}
                 {standing?.denied && (
                   <p role="alert" className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-5 inline-block">
-                    A standing warning currently suspends your proposal rights — talk to a steward.
+                    A standing warning currently suspends your proposal rights. Talk to a steward.
                   </p>
                 )}
                 {standing && !standing.denied && !standing.qualified && (
@@ -544,7 +544,7 @@ export default function GameMechanics() {
                                     )}
                                     {v.min != null && v.max != null && (
                                       <span>
-                                        bounds {v.min}–{v.max}
+                                        bounds {v.min}-{v.max}
                                       </span>
                                     )}
                                     {v.applyTiming === "cycle-close" && <span>changes take effect at the next cycle close</span>}
@@ -577,7 +577,7 @@ export default function GameMechanics() {
                 </p>
                 {activeProposals.length === 0 && (
                   <p className="text-sm text-stone-500">
-                    Nothing is being proposed right now — adjust a community dial above to start.
+                    Nothing is being proposed right now. Adjust a community dial above to start.
                   </p>
                 )}
                 <div className="space-y-3">
@@ -655,7 +655,7 @@ export default function GameMechanics() {
                               type="button"
                               onClick={() => act(`/api/game/mechanics/proposals/${p.id}/to-hypha`)}
                               className="text-sm text-stone-600 hover:text-stone-900 hover:underline"
-                              title="Proposer only — marks this as taken to Hypha for the binding vote"
+                              title="Proposer only: marks this as taken to Hypha for the binding vote"
                             >
                               I've taken it to Hypha
                             </button>
@@ -673,10 +673,10 @@ export default function GameMechanics() {
                                 if (url) act(`/api/game/mechanics/proposals/${p.id}/link-hypha`, { url });
                               }}
                               className={`text-sm font-medium hover:underline ${p.hyphaProposalId ? "text-emerald-700" : "text-amber-700"}`}
-                              title="The chain reports outcomes by proposal number, not title — this link is how the verified result finds its way home"
+                              title="The chain reports outcomes by proposal number, not by title. This link is how the verified result finds its way home"
                             >
                               {p.hyphaProposalId
-                                ? `On-chain #${p.hyphaProposalId} linked${p.hubLinkSynced ? " ✓" : " (hub sync pending — click to retry)"}`
+                                ? `On-chain #${p.hyphaProposalId} linked${p.hubLinkSynced ? " ✓" : " (hub sync pending, click to retry)"}`
                                 : "Link the on-chain proposal"}
                             </button>
                           )}
@@ -700,7 +700,7 @@ export default function GameMechanics() {
                               onClick={() => {
                                 if (
                                   window.confirm(
-                                    `Apply "${p.title}" now? Verify it actually passed on Hypha first${p.hyphaRef ? ` (${p.hyphaRef})` : ""} — every change lands on the public ledger under this proposal's reference.`,
+                                    `Apply "${p.title}" now? Verify it actually passed on Hypha first${p.hyphaRef ? ` (${p.hyphaRef})` : ""}. Every change lands on the public ledger under this proposal's reference.`,
                                   )
                                 )
                                   act(`/api/admin/mechanics/proposals/${p.id}/apply`);
@@ -769,7 +769,7 @@ export default function GameMechanics() {
                       <p className="px-4 py-6 text-sm text-stone-500">Loading the record…</p>
                     ) : history.length === 0 ? (
                       <p className="px-4 py-6 text-sm text-stone-500">
-                        No rules have been changed yet — this game still plays entirely by its platform defaults.
+                        No rules have been changed yet. This Game still plays entirely by its platform defaults.
                       </p>
                     ) : (
                       <ul className="divide-y divide-stone-100">
@@ -853,7 +853,7 @@ export default function GameMechanics() {
                 <textarea
                   value={rationale}
                   onChange={(e) => setRationale(e.target.value)}
-                  placeholder="Why — the village votes on reasons, not numbers."
+                  placeholder="Why this change matters. The village votes on reasons, not numbers."
                   aria-label="Proposal rationale"
                   rows={3}
                   className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm mb-2 resize-y"

@@ -20,6 +20,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Globe2, HandHeart, HelpingHand, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -106,6 +107,7 @@ export default function Network() {
             Villages running this platform can hear each other: what one needs,
             another may have. Each village chooses whom it listens to.
           </p>
+          <ExamplesBanner moduleId="network" noun="need or offer" />
         </div>
       </section>
 
@@ -196,7 +198,7 @@ export default function Network() {
             </div>
             {(data?.peers ?? []).length === 0 && (
               <p className="text-sm text-muted-foreground">
-                Not listening to any villages yet{canManage ? " — add one below." : "."}
+                Not listening to any villages yet{canManage ? ". Add one below." : "."}
               </p>
             )}
             <div className="space-y-4">
@@ -237,7 +239,7 @@ export default function Network() {
             {canManage && (
               <div className="border-t border-border mt-4 pt-4 space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">
-                  Listen to a village (its address — the handshake does the rest)
+                  Listen to a village (its address, the handshake does the rest)
                 </p>
                 <div className="flex gap-2 flex-wrap">
                   <input value={peerUrl} onChange={(e) => setPeerUrl(e.target.value)}

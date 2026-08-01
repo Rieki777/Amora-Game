@@ -178,7 +178,7 @@ export default function Home() {
         <div className="container">
           <div className="text-center mb-12">
             <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Our Journey Together
+              From First Visit to Home
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               Each stage is a chance to get to know each other. You figure out if Amora fits your life; we figure out if you're a good fit for the village.

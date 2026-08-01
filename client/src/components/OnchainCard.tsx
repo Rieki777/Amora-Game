@@ -38,7 +38,7 @@ export default function OnchainCard() {
     setError("");
     const eth = (window as any).ethereum;
     if (!eth) {
-      setError("No wallet extension found — install one (e.g. Coinbase Wallet or MetaMask), then try again.");
+      setError("No wallet extension found. Install one (e.g. Coinbase Wallet or MetaMask), then try again.");
       return;
     }
     setBusy(true);
@@ -82,7 +82,7 @@ export default function OnchainCard() {
       {!verified ? (
         <p className="text-sm text-gray-500">
           Equity and governance tokens live on Base and are shown here only
-          against a wallet you have PROVEN you control — one free signature,
+          against a wallet you have PROVEN you control: one free signature,
           no transaction, no cost.
         </p>
       ) : (
@@ -97,14 +97,14 @@ export default function OnchainCard() {
                     <p className="text-2xl font-bold text-teal-deep">{b.formatted}</p>
                     {b.stale && (
                       <p className="text-xs text-amber-600 mt-1">
-                        as of {new Date(b.fetchedAt).toLocaleString()} — the chain
+                        as of {new Date(b.fetchedAt).toLocaleString()}. The chain
                         didn't answer just now, so this is the last true value
                       </p>
                     )}
                   </>
                 ) : (
                   <p className="text-sm text-gray-400">
-                    {slug === "amora" || slug === "voice" ? "not readable right now — nothing is shown rather than a wrong number" : ""}
+                    {slug === "amora" || slug === "voice" ? "not readable right now. Nothing is shown instead of a wrong number" : ""}
                   </p>
                 )}
               </div>

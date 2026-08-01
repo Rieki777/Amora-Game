@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { fetchGameMe, QuestClaim } from "@/lib/gameApi";
+import { fetchGameMe, QuestClaim, useGameConfig } from "@/lib/gameApi";
 import QuestActions from "@/components/QuestActions";
 import { rewardCeiling } from "@shared/questRewards";
 
@@ -101,6 +101,9 @@ const circles: QuestCircle[] = [
 ];
 
 export default function Quests() {
+  // The value token's live name (Admin → Tokens) — a fork's rename reaches
+  // the explainer below without a code change.
+  const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
   const [activeCircle, setActiveCircle] = useState<QuestCircle>("All");
   const [activeDifficulty, setActiveDifficulty] = useState<Difficulty | "All">(
     "All"
@@ -187,8 +190,8 @@ export default function Quests() {
                   Don't see your gift here?
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  Anyone with an idea to add value can propose their own unique quest —
-                  tell us what you want to bring and what you'd need to make it real.
+                  Anyone with an idea to add value can propose their own unique quest.
+                  Tell us what you want to bring and what you'd need to make it real.
                 </p>
               </div>
               <Link href="/propose-quest">
@@ -343,7 +346,7 @@ export default function Quests() {
               <Compass className="w-12 h-12 mx-auto mb-4 opacity-30" />
               <p>
                 {boardFailed
-                  ? "The quest board couldn't be loaded just now — reload to try again."
+                  ? "The quest board couldn't be loaded just now. Reload to try again."
                   : quests.length === 0
                     ? "There are no quests on the board yet."
                     : "No quests match those filters. Try a different combination."}
@@ -391,10 +394,10 @@ export default function Quests() {
               What Is Gratitude?
             </h2>
             <p className="text-muted-foreground text-center mb-10">
-              Gratitude is how Amora acknowledges contributions — a living record of the
-              value you bring, not a fixed dollar amount. Each cycle the community shares a
-              real pool of value across everyone's Gratitude, so what it's worth grows with
-              the village.
+              Gratitude is how Amora acknowledges contributions, a recognition signal with
+              no financial value of its own. The value rides beside it: each cycle the
+              community sets aside a real pool of {valueName} and shares it across
+              everyone's Gratitude, so appreciation decides where the value flows.
             </p>
             <div className="grid sm:grid-cols-3 gap-6">
               {[
@@ -410,7 +413,7 @@ export default function Quests() {
                 },
                 {
                   title: "Share",
-                  body: "Each cycle, the community sets aside a real pool of value and everyone's Gratitude shares in it — and as Amora grows, Gratitude can convert to cash, equity, or community currency. This is how we honor contributions made before we could pay in cash.",
+                  body: `Each cycle, everyone's Gratitude shares in a real pool of ${valueName}. As Amora grows, ${valueName} can convert to cash, equity, or community currency. This is how we honor contributions made before we could pay in cash.`,
                   icon: Sprout,
                 },
               ].map((item) => (

@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, Loader2, CheckCircle2, ArrowRight, Send } from "lucide-react";
 import { submitProposal, ProposalKind } from "@/lib/proposals";
+import MicButton from "@/components/MicButton";
 
 interface ChatMsg { role: "user" | "assistant"; content: string }
 
@@ -30,8 +31,8 @@ export default function GuideChat({
 }) {
   const defaultGreeting =
     kind === "quest-proposal"
-      ? `Hi, I'm ${assistantName}. So you've got a quest in mind that isn't on the board yet — I'd love to hear it. What do you want to bring to ${projectName}?`
-      : `Hi, I'm ${assistantName} — I help people shape their offering to ${projectName}. There's no wrong way to start. What are you dreaming of bringing?`;
+      ? `Hi, I'm ${assistantName}. So you've got a quest in mind that isn't on the board yet. I'd love to hear it. What do you want to bring to ${projectName}?`
+      : `Hi, I'm ${assistantName}. I help people shape their offering to ${projectName}. There's no wrong way to start. What are you dreaming of bringing?`;
 
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
@@ -65,7 +66,7 @@ export default function GuideChat({
       if (res.status === 503) { onFallback(); return; }
       const data = await res.json();
       if (!res.ok) {
-        setMessages([...next, { role: "assistant", content: "I lost my thread for a moment — could you say that again?" }]);
+        setMessages([...next, { role: "assistant", content: "I lost my thread for a moment. Could you say that again?" }]);
       } else {
         setMessages([...next, { role: "assistant", content: data.reply }]);
         if (data.complete && data.proposal) setProposal({ ...empty, ...data.proposal });
@@ -135,6 +136,7 @@ export default function GuideChat({
       </div>
 
       <div className="border-t border-stone-100 p-3 flex items-end gap-2">
+        <MicButton onText={(t) => setInput((v) => (v ? v.replace(/\s*$/, " ") : "") + t)} disabled={thinking} />
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}

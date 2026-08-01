@@ -74,6 +74,11 @@ function fromDb(spec: ColumnSpec, v: any): any {
 }
 
 function toDb(spec: ColumnSpec, v: any): any {
+  // An absent boolean is false, not NULL. Every tinyint(1) in this schema is
+  // NOT NULL, so writing NULL for a field the caller simply did not set turns
+  // "I have no opinion" into a constraint violation (or a silent 0 outside
+  // strict mode). Two-valued columns get the two-valued answer.
+  if (v == null && spec.kind === "bool") return 0;
   if (v == null) return spec.defaultNow ? new Date() : null;
   switch (spec.kind) {
     case "json":

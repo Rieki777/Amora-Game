@@ -101,7 +101,7 @@ export async function launchStatus(pool: Pool, deps: LaunchDeps): Promise<Launch
       items.push({
         ...req,
         state: confirm ? "ok" : "missing",
-        detail: confirm ? `Confirmed by ${confirm.by}` : "Waiting on a human act the server cannot see — confirm it here once done",
+        detail: confirm ? `Confirmed by ${confirm.by}` : "Waiting on a human act the server cannot see. Confirm it here once done",
         confirmedBy: confirm?.by,
         confirmedAt: confirm?.at,
       });
@@ -113,7 +113,7 @@ export async function launchStatus(pool: Pool, deps: LaunchDeps): Promise<Launch
       // A registry entry without a resolver is a wiring bug. Fail VISIBLY on
       // the page rather than silently dropping the row — a checklist that
       // hides items reads as shorter than the truth.
-      items.push({ ...req, state: "missing", detail: `No check wired for "${req.checkKey}" — this is a platform bug, report it` });
+      items.push({ ...req, state: "missing", detail: `No check wired for "${req.checkKey}". This is a platform bug, report it` });
       continue;
     }
     try {
@@ -146,7 +146,7 @@ export async function confirmManual(
   const req = LAUNCH_REQUIREMENTS.find((r) => r.id === reqId);
   if (!req) return { ok: false, error: `unknown requirement "${reqId}"` };
   if (!req.checkKey.startsWith("manual:")) {
-    return { ok: false, error: `"${req.title}" is checked live by the server — it cannot be hand-confirmed` };
+    return { ok: false, error: `"${req.title}" is checked live by the server, so it cannot be hand-confirmed` };
   }
   const state = await readState(pool);
   if (done) state.manualConfirms[reqId] = { by, at: new Date().toISOString() };
@@ -167,7 +167,7 @@ export async function markLaunched(
     const open = status.items
       .filter((i) => i.severity === "blocking" && i.state !== "ok")
       .map((i) => i.title);
-    return { ok: false, error: `Not yet — ${open.length} blocking item(s) remain`, open };
+    return { ok: false, error: `Not yet: ${open.length} blocking item(s) remain`, open };
   }
   const state = await readState(pool);
   state.launchedAt = new Date().toISOString();

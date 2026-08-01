@@ -74,7 +74,7 @@ export default function Layout({ children }: LayoutProps) {
               holds the space while it loads, so nothing shifts. */}
           <Link
             href="/"
-            aria-label={villageName ? `${villageName} — home` : "Home"}
+            aria-label={villageName ? `${villageName} home` : "Home"}
             className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             style={{ minHeight: "64px" }}
           >

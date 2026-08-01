@@ -1,0 +1,776 @@
+{
+  "_readme": [
+    "STANDING EXAMPLES — platform-authored worked examples, seeded per module so a",
+    "founder who turns a module on sees what it is FOR instead of 'No items yet.'",
+    "Every row seeded from this file carries is_example = 1 and is INERT: it renders",
+    "in full, and every mutation against it is refused. Nothing here ever reaches the",
+    "ledger, escrow, Stripe, or the capability gate.",
+    "",
+    "Copy is deliberately platform-generic — no village's brand — so every fork",
+    "inherits the same examples and scripts/check-brand-refs.mjs stays green.",
+    "",
+    "Retirement: the first real item published in a module deletes that module's",
+    "examples permanently (example_state.retired_at). See docs/STANDING_EXAMPLES.md."
+  ],
+
+  "_identities": {
+    "_note": [
+      "Examples need authors. These are is_example = 1 rows in `users` with no",
+      "password_hash, so they can never log in, and they are excluded from member",
+      "lists, launch member counts, gratitude eligibility, the Sybil helper, badge",
+      "evaluation and health snapshots. The '(example)' suffix is load-bearing: the",
+      "tombstone precedent in anonymizeMember() is that a real row whose display",
+      "name carries the meaning beats a special type."
+    ],
+    "users": [
+      {
+        "id": "ex-user-mira",
+        "name": "Mira (example)",
+        "handle": "mira-example",
+        "bio": "A standing example account. Replace these with your own members — publishing anything real retires the whole example set.",
+        "stageGranted": "member",
+        "isExample": true
+      },
+      {
+        "id": "ex-user-tomas",
+        "name": "Tomás (example)",
+        "handle": "tomas-example",
+        "bio": "A standing example account, here so example conversations have more than one voice.",
+        "stageGranted": "co-creator",
+        "isExample": true
+      },
+      {
+        "id": "ex-user-aditi",
+        "name": "Aditi (example)",
+        "handle": "aditi-example",
+        "bio": "A standing example account. Not a person; nothing here can log in.",
+        "stageGranted": "member",
+        "isExample": true
+      }
+    ]
+  },
+
+  "map": {
+    "_trigger": "POST /api/admin/circles creates a real circle",
+    "circles": [
+      {
+        "id": "ex-circle-land",
+        "name": "Land & Water",
+        "purpose": "Holds everything the ground itself asks for: soil, water catchment, planting cycles, and the long repair of what was farmed hard before us. Decisions about what gets planted where start here.",
+        "aliases": ["land", "permaculture", "water", "regeneration"],
+        "icon": "Sprout",
+        "color": "#4F7942",
+        "status": "active",
+        "sortOrder": 1,
+        "leadRoleId": "ex-role-land-steward",
+        "isExample": true
+      },
+      {
+        "id": "ex-circle-welcome",
+        "name": "Welcome & Belonging",
+        "purpose": "The first face a visitor meets and the people who notice when someone has gone quiet. Runs arrivals, orientation, conflict repair, and the rhythms that keep a group of strangers becoming a community.",
+        "aliases": ["welcome", "hospitality", "onboarding", "belonging"],
+        "icon": "Heart",
+        "color": "#C4736A",
+        "status": "active",
+        "sortOrder": 2,
+        "leadRoleId": "ex-role-welcome-host",
+        "isExample": true
+      },
+      {
+        "id": "ex-circle-build",
+        "name": "Build & Repair",
+        "purpose": "Structures, tools, power and water infrastructure. Everything that has to physically work by Tuesday. Also the circle that decides when something should be repaired rather than replaced.",
+        "aliases": ["build", "construction", "maintenance", "infrastructure"],
+        "icon": "Hammer",
+        "color": "#8A6F4E",
+        "status": "forming",
+        "sortOrder": 3,
+        "leadRoleId": null,
+        "isExample": true
+      }
+    ]
+  },
+
+  "progression": {
+    "_trigger": "A real role is seeded or edited into existence",
+    "_note": "Roles have no POST route; these seed alongside roles-seed.json only into an empty table.",
+    "roles": [
+      {
+        "id": "ex-role-land-steward",
+        "name": "Land Steward",
+        "description": "Walks the land weekly, keeps the planting calendar honest, and is the person a quest about soil or water should be routed to. Holds no budget authority — that stays with the circle.",
+        "capabilities": [],
+        "minStage": "member",
+        "circleId": "ex-circle-land",
+        "seats": 2,
+        "sortOrder": 1,
+        "isExample": true
+      },
+      {
+        "id": "ex-role-welcome-host",
+        "name": "Welcome Host",
+        "description": "Meets arrivals, runs the first-week orientation, and checks in at day thirty. The seat most villages under-staff and most regret under-staffing.",
+        "capabilities": [],
+        "minStage": "member",
+        "circleId": "ex-circle-welcome",
+        "seats": 3,
+        "sortOrder": 2,
+        "isExample": true
+      },
+      {
+        "id": "ex-role-tool-keeper",
+        "name": "Tool Keeper",
+        "description": "Knows where every shared tool is, what condition it is in, and who had it last. If the Material Library module is on, this is the seat that signs items in and out.",
+        "capabilities": [],
+        "minStage": "member",
+        "circleId": "ex-circle-build",
+        "seats": 1,
+        "sortOrder": 3,
+        "isExample": true
+      }
+    ]
+  },
+
+  "quests": {
+    "_trigger": "POST /api/admin/quests creates a real quest",
+    "_note": "Seeds only into a genuinely empty quests table, so a village with real quests never sees these.",
+    "quests": [
+      {
+        "id": "ex-quest-swale",
+        "title": "Cut a swale along the north slope",
+        "description": "The north slope sheds water fast enough to take topsoil with it. A swale on contour slows the run-off, sinks it, and buys the young plantings above it a dry-season margin. Bring a shovel and a decent hat; the A-frame level lives in the tool shed.",
+        "impact": "Water that used to leave the property in an afternoon stays in the ground for weeks. The plantings uphill stop needing hand-watering by the second season.",
+        "gratitude": "60–120",
+        "duration": "Two mornings",
+        "difficulty": "Intermediate",
+        "circle": "Land & Water",
+        "status": "open",
+        "icon": "Sprout",
+        "minStage": "member",
+        "tags": ["land", "water", "outdoor"],
+        "sortOrder": 1,
+        "isExample": true
+      },
+      {
+        "id": "ex-quest-orientation",
+        "title": "Host one arrival through their first week",
+        "description": "Someone new lands next month. This quest is being the person who meets them, walks them around, introduces them to four people by name, and checks in on day seven. Not a tour — a landing.",
+        "impact": "The single strongest predictor of whether a newcomer is still around at six months is whether anyone learned their name in week one.",
+        "gratitude": "40–80",
+        "duration": "A few hours across one week",
+        "difficulty": "Beginner",
+        "circle": "Welcome & Belonging",
+        "status": "open",
+        "icon": "Heart",
+        "minStage": "member",
+        "tags": ["welcome", "people"],
+        "sortOrder": 2,
+        "isExample": true
+      },
+      {
+        "id": "ex-quest-toolshed",
+        "title": "Inventory and label the tool shed",
+        "description": "Nobody can find the good pruning saw. Photograph every tool, note its condition, label the shelves, and write down what is actually missing rather than what we assume is missing. If the Material Library is on, this is what stocks it.",
+        "impact": "Ends the twenty-minute hunt that precedes every job, and gives the village its first honest list of what it owns.",
+        "gratitude": "50–100",
+        "duration": "One full day",
+        "difficulty": "Beginner",
+        "circle": "Build & Repair",
+        "status": "open",
+        "icon": "Wrench",
+        "tags": ["tools", "indoor", "organising"],
+        "sortOrder": 3,
+        "isExample": true
+      }
+    ]
+  },
+
+  "forum": {
+    "_trigger": "POST /api/forum/threads creates a real thread",
+    "threads": [
+      {
+        "id": "ex-thread-water",
+        "category": "village-life",
+        "authorId": "ex-user-mira",
+        "title": "Where should the second water tank go?",
+        "body": "We agreed last season that one tank is a single point of failure. The question is siting.\n\nThe ridge gives us gravity feed to everything below it, but it is a long pipe run and the delivery truck cannot get up there — every load would be hand-carried.\n\nBehind the workshop is easy to reach and easy to plumb, but it sits below the main house, so anything uphill needs pumping.\n\nI lean ridge, and I would rather pay the pipe cost once than the pumping cost forever. Curious whether @tomas-example thinks the truck access kills it.",
+        "kind": "discussion",
+        "tags": ["water", "infrastructure", "planning"],
+        "pinned": false,
+        "isExample": true,
+        "replies": [
+          {
+            "id": "ex-reply-water-1",
+            "authorId": "ex-user-tomas",
+            "body": "Truck access does not kill it, but it changes the cost. Hand-carrying a full load is roughly four person-hours each time, and we would do that maybe twice a year.\n\nAgainst that, pumping is a pump that fails eventually, plus the power to run it. I think the ridge still wins, but let us cost the pipe run properly before anyone commits.",
+            "isExample": true
+          },
+          {
+            "id": "ex-reply-water-2",
+            "authorId": "ex-user-aditi",
+            "parentReplyId": "ex-reply-water-1",
+            "body": "I priced something similar two years ago. Budget more than you think for the fittings — the pipe itself was the cheap part.",
+            "isExample": true
+          }
+        ]
+      },
+      {
+        "id": "ex-thread-decision",
+        "category": "governance",
+        "authorId": "ex-user-tomas",
+        "title": "Proposal: quiet hours from 9pm to 7am",
+        "body": "Raised at three consecutive circle meetings, so it is time to decide it rather than discuss it again.\n\n**The proposal:** amplified sound and power tools stop at 9pm and do not resume before 7am, across the whole site. Acoustic music, conversation and cooking are unaffected.\n\n**Why:** the workshop and the sleeping cabins are ninety metres apart, and a late job on the bandsaw is audible in every one of them.\n\n**What it costs:** the people who work evenings lose their evenings. That is a real cost and it falls on a specific few, which is exactly why this should be decided openly rather than by whoever complains loudest.",
+        "kind": "decision",
+        "tags": ["governance", "living-together"],
+        "meta": { "status": "decided", "outcome": "Adopted, with a standing exception for harvest week. Revisit after two seasons." },
+        "locked": true,
+        "isExample": true,
+        "replies": [
+          {
+            "id": "ex-reply-decision-1",
+            "authorId": "ex-user-aditi",
+            "body": "Supportive, with the harvest-week exception written in rather than assumed. Every year we forget and every year someone is annoyed.",
+            "isExample": true
+          }
+        ]
+      },
+      {
+        "id": "ex-thread-event",
+        "category": "village-life",
+        "authorId": "ex-user-aditi",
+        "title": "Seed swap and shared lunch — first Sunday",
+        "body": "Bring whatever you saved from last season, labelled if you can manage it and honestly guessed if you cannot.\n\nLunch is shared, so bring a dish as well. There will be more chard than anyone wants; this is the nature of chard.\n\nNewcomers especially welcome — you do not need seeds to come, and taking some home is the entire point.",
+        "kind": "event",
+        "tags": ["gathering", "food", "seeds"],
+        "meta": {
+          "startsAt": "2026-09-06T11:00:00.000Z",
+          "endsAt": "2026-09-06T15:00:00.000Z",
+          "location": "The long table under the mango tree",
+          "ctaLabel": "Tell us you are coming",
+          "ctaUrl": "https://example.org/seed-swap"
+        },
+        "isExample": true
+      }
+    ]
+  },
+
+  "feed": {
+    "_trigger": "A real micropost is published to the feed category",
+    "_note": "Feed items are forum_threads with kind='post' and title NULL in the feed category. heart_count stays 0 — a heart is a real ledger send, so hearting an example is refused.",
+    "posts": [
+      {
+        "id": "ex-feed-1",
+        "category": "village-life",
+        "authorId": "ex-user-mira",
+        "kind": "post",
+        "body": "Third morning in a row with frost on the low beds. The tomatoes are finished, but the kale has never looked better. Pulling the tomato frames today if anyone wants the stakes.",
+        "tags": ["garden"],
+        "isExample": true
+      },
+      {
+        "id": "ex-feed-2",
+        "category": "village-life",
+        "authorId": "ex-user-tomas",
+        "kind": "post",
+        "body": "The pump is fixed. It was the foot valve, not the motor, which is the good outcome — forty minutes and a two-dollar part instead of a new pump.\n\nWater is back on across the whole lower site.",
+        "tags": ["water", "repair"],
+        "isExample": true
+      },
+      {
+        "id": "ex-feed-3",
+        "category": "village-life",
+        "authorId": "ex-user-aditi",
+        "kind": "announcement",
+        "body": "Reminder that the road will be graded on Thursday and the lower gate will be shut from about 8am. Park above the workshop if you need to leave before noon.",
+        "tags": ["logistics"],
+        "isExample": true
+      }
+    ],
+    "events": [
+      {
+        "kind": "quest",
+        "text": "An example of how village happenings appear woven into the feed alongside posts.",
+        "audience": "public",
+        "isExample": true
+      }
+    ]
+  },
+
+  "tools": {
+    "_trigger": "POST /api/admin/tools creates a real tool",
+    "_note": "icon MUST be one of the ten names ToolsHub.tsx allowlists, or it silently renders a wrench.",
+    "tools": [
+      {
+        "id": "ex-tool-chat",
+        "name": "Village Chat",
+        "purpose": "Day-to-day conversation, quick questions, and anything that does not need to be found again later.",
+        "description": "The everyday channel. Use it for things that are true today and irrelevant next month. Anything worth finding again belongs in the Forum instead — chat scrolls away and nobody reads back.",
+        "url": "https://example.org/chat",
+        "ctaLabel": "Join",
+        "category": "communication",
+        "iconKind": "slug",
+        "icon": "MessageCircle",
+        "visibility": "members",
+        "gettingStarted": "Ask any member for an invite link, then set your display name to the same handle you use here so people can find you.",
+        "sortOrder": 1,
+        "enabled": true,
+        "isExample": true
+      },
+      {
+        "id": "ex-tool-docs",
+        "name": "Shared Documents",
+        "purpose": "Agreements, meeting notes, budgets and anything the village needs to be able to point at later.",
+        "description": "The filing cabinet. Meeting notes go in dated folders; agreements live at the top level and are never edited in place — a superseded agreement gets a new file and a note saying what it replaced.",
+        "url": "https://example.org/documents",
+        "ctaLabel": "Open",
+        "category": "documents",
+        "iconKind": "slug",
+        "icon": "FileText",
+        "visibility": "members",
+        "gettingStarted": "Read the folder called 'Start here' before adding anything. Naming conventions matter more than they look like they do.",
+        "sortOrder": 2,
+        "enabled": true,
+        "isExample": true
+      },
+      {
+        "id": "ex-tool-calendar",
+        "name": "Village Calendar",
+        "purpose": "Work days, gatherings, visitor arrivals and anything that needs more than one person in one place.",
+        "description": "One shared calendar rather than five personal ones. If an event is not on here it will not be attended, which sounds harsh and is simply true.",
+        "url": "https://example.org/calendar",
+        "ctaLabel": "View",
+        "category": "coordination",
+        "iconKind": "slug",
+        "icon": "Calendar",
+        "visibility": "public",
+        "gettingStarted": "Subscribe to the feed from your own calendar app rather than checking the website — you will actually see the reminders.",
+        "sortOrder": 3,
+        "enabled": true,
+        "isExample": true
+      }
+    ]
+  },
+
+  "library": {
+    "_trigger": "POST /api/admin/library/intake accepts a real donation",
+    "_note": "Items are inserted directly, NOT through recordIntake() — intake mints library credits to the donor. Direct rows raise supply-vs-backing coverage without minting anything, which is safe. Borrowing an example is refused; no loan row ever exists.",
+    "categories": [
+      { "id": "ex-libcat-power", "label": "Power tools", "sortOrder": 1, "isExample": true },
+      { "id": "ex-libcat-garden", "label": "Garden & land", "sortOrder": 2, "isExample": true },
+      { "id": "ex-libcat-kitchen", "label": "Kitchen & preserving", "sortOrder": 3, "isExample": true }
+    ],
+    "items": [
+      {
+        "id": "ex-libitem-drill",
+        "name": "Cordless drill, 18V, two batteries",
+        "description": "The workhorse. Two batteries means one charges while the other works, so please return both — a drill with one battery is half a drill. Comes with the full bit set in the blue case; count the bits back in.",
+        "categoryId": "ex-libcat-power",
+        "status": "available",
+        "healthBp": 8500,
+        "creditValue": 40,
+        "minStage": "member",
+        "isExample": true
+      },
+      {
+        "id": "ex-libitem-broadfork",
+        "name": "Broadfork",
+        "description": "Opens compacted beds without inverting the soil layers, which is the whole point of owning one. Heavy enough that it does the work for you if you let it. Not a lever — do not try to prise rocks with it, the tines will bend.",
+        "categoryId": "ex-libcat-garden",
+        "status": "available",
+        "healthBp": 10000,
+        "creditValue": 25,
+        "isExample": true
+      },
+      {
+        "id": "ex-libitem-canner",
+        "name": "Pressure canner, 23 quart",
+        "description": "For low-acid preserving — beans, stock, anything that a water bath will not make safe. The gauge was last tested this year and the rubber gasket is new. Read the manual in the lid before your first run; this is the one library item that can genuinely hurt you.",
+        "categoryId": "ex-libcat-kitchen",
+        "status": "available",
+        "healthBp": 9000,
+        "creditValue": 60,
+        "minStage": "member",
+        "isExample": true
+      }
+    ]
+  },
+
+  "stays": {
+    "_trigger": "POST /api/admin/stays/accommodations creates a real room",
+    "_note": "Rooms and posted prices are pure catalog — no ledger, no Stripe. Booking an example is refused, so no stays row and no open state is ever created.",
+    "accommodations": [
+      {
+        "id": "ex-stay-cabin",
+        "name": "The Ridge Cabin",
+        "description": "One room with a wood stove, a double bed and a view down the whole valley. Compost toilet and an outdoor shower fed by the tank above it — warm by mid-morning, bracing before that. The walk up is ten minutes and steeper than it looks.",
+        "capacity": 2,
+        "sortOrder": 1,
+        "active": true,
+        "isExample": true,
+        "prices": [
+          { "tokenType": "stay-credit", "audience": "guest", "amountMinor": 3 },
+          { "tokenType": "stay-credit", "audience": "member", "amountMinor": 2 },
+          { "tokenType": "usd", "audience": "guest", "amountMinor": 4500 },
+          { "tokenType": "usd", "audience": "member", "amountMinor": 3000 }
+        ]
+      },
+      {
+        "id": "ex-stay-bunk",
+        "name": "Workshop Bunkroom",
+        "description": "Six bunks in the loft above the workshop, shared bathroom below. Where work-exchange visitors and volunteer crews usually land. Cheerfully noisy; the woodshop starts at seven and you will know about it.",
+        "capacity": 6,
+        "sortOrder": 2,
+        "active": true,
+        "isExample": true,
+        "prices": [
+          { "tokenType": "stay-credit", "audience": "guest", "amountMinor": 1 },
+          { "tokenType": "stay-credit", "audience": "member", "amountMinor": 1 },
+          { "tokenType": "usd", "audience": "guest", "amountMinor": 1800 },
+          { "tokenType": "usd", "audience": "member", "amountMinor": 1200 }
+        ]
+      },
+      {
+        "id": "ex-stay-casita",
+        "name": "Garden Casita",
+        "description": "A small self-contained house at the edge of the kitchen garden: kitchenette, private bathroom, and a porch that catches the morning. The room longer-stay residents and visiting families ask for, so it books out furthest ahead.",
+        "capacity": 4,
+        "sortOrder": 3,
+        "active": true,
+        "isExample": true,
+        "prices": [
+          { "tokenType": "stay-credit", "audience": "guest", "amountMinor": 5 },
+          { "tokenType": "stay-credit", "audience": "member", "amountMinor": 3 },
+          { "tokenType": "usd", "audience": "guest", "amountMinor": 7500 },
+          { "tokenType": "usd", "audience": "member", "amountMinor": 5000 }
+        ]
+      }
+    ]
+  },
+
+  "commerce": {
+    "_trigger": "POST /api/admin/products creates a real product",
+    "_note": "payment_products rows are pure catalog for all six kinds, including token_pack. Checkout against an example is refused before any Stripe call.",
+    "products": [
+      {
+        "id": "ex-product-application",
+        "name": "Residency application review",
+        "description": "Covers the reading, the two conversations and the reference calls that go into considering a residency application properly. Charged once, whatever the outcome — it pays for the attention, not for a yes.",
+        "kind": "fee",
+        "amountMinor": 5000,
+        "minAmountMinor": 5000,
+        "recurring": "none",
+        "provider": "stripe",
+        "audience": "public",
+        "active": true,
+        "sortOrder": 1,
+        "isExample": true
+      },
+      {
+        "id": "ex-product-donation",
+        "name": "Support the land fund",
+        "description": "Goes to the things that outlast any of us: water infrastructure, reforestation, and paying down the land itself. Give what makes sense to you — every amount is read by a person and acknowledged by one.",
+        "kind": "donation",
+        "amountMinor": null,
+        "minAmountMinor": 500,
+        "recurring": "none",
+        "provider": "stripe",
+        "audience": "public",
+        "active": true,
+        "sortOrder": 2,
+        "isExample": true
+      },
+      {
+        "id": "ex-product-membership",
+        "name": "Supporting membership",
+        "description": "A monthly contribution from people who are part of this from a distance. Includes the members-only briefing each lunation and an open invitation to the seasonal gatherings. Cancel any time; nothing is locked in.",
+        "kind": "membership",
+        "amountMinor": 2500,
+        "minAmountMinor": 2500,
+        "recurring": "month",
+        "provider": "stripe",
+        "audience": "public",
+        "active": true,
+        "sortOrder": 3,
+        "isExample": true
+      }
+    ]
+  },
+
+  "badges": {
+    "_trigger": "POST /api/admin/badges creates a real badge",
+    "_note": [
+      "SAFETY: an active badge carrying an unknown capability key makes the server",
+      "REFUSE TO BOOT (assertBadgeInvariants). Example definitions therefore carry",
+      "only real capability keys or none at all. A definition grants nothing without",
+      "an award row, and no example award rows are ever seeded.",
+      "The earned engine and the self-claim route both skip is_example rows, so an",
+      "example badge can never be auto-awarded at cycle close or self-claimed."
+    ],
+    "badges": [
+      {
+        "id": "ex-badge-first-harvest",
+        "name": "First Harvest",
+        "description": "Given by a steward to someone who saw a growing season through from seed to table — not the biggest contribution, the most patient one.",
+        "kind": "granted",
+        "capabilities": [],
+        "denies": [],
+        "active": true,
+        "isExample": true
+      },
+      {
+        "id": "ex-badge-ten-quests",
+        "name": "Ten Times Useful",
+        "description": "Earned automatically at ten consented quests, and again at every ten after that. Counts settled contribution only — work that a human witnessed and released, never applause.",
+        "kind": "earned",
+        "capabilities": [],
+        "denies": [],
+        "rule": { "metric": "quests_consented", "threshold": 10, "stackable": true, "maxStack": 5 },
+        "active": true,
+        "isExample": true
+      },
+      {
+        "id": "ex-badge-timeout",
+        "name": "Posting Paused",
+        "description": "A warning badge. While it stands, this member cannot post to the forum, whatever roles or stage they hold — a deny beats every grant except admin. Always carries a note explaining why and what resolves it, and it expires rather than lasting forever.",
+        "kind": "warning",
+        "capabilities": [],
+        "denies": ["forum.post"],
+        "active": true,
+        "isExample": true
+      }
+    ]
+  },
+
+  "health": {
+    "_trigger": "POST /api/admin/health/regen records a real measurement",
+    "_note": "Snapshots need >= 3 distinct cycle_number values before trends unlock, so examples span three lunations. Metric keys come from the closed set in shared/healthMetrics.ts — a new key cannot be invented here.",
+    "regenEntries": [
+      {
+        "id": "ex-regen-trees",
+        "metricKey": "trees_planted",
+        "value": 240,
+        "note": "Mixed natives along the north boundary and through the erosion gully — mostly nitrogen fixers to hold the bank, with fruit interplanted where there is enough light. Counted at planting, not at survival; the honest survival number comes next dry season.",
+        "isExample": true
+      },
+      {
+        "id": "ex-regen-water",
+        "metricKey": "water_protected_liters",
+        "value": 180000,
+        "note": "Capacity of the new catchment plus the swale system on the north slope. This is water that used to leave the property within a day of falling.",
+        "isExample": true
+      },
+      {
+        "id": "ex-regen-hectares",
+        "metricKey": "hectares_restored",
+        "value": 3.5,
+        "note": "The overgrazed section below the ridge, now fenced off from stock and replanted. Absolute area under active restoration — not a claim that it is finished.",
+        "isExample": true
+      }
+    ],
+    "snapshots": {
+      "_note": "Three lunations so the trend line has something to draw.",
+      "cycles": [
+        { "cycleNumber": -3, "members_total": 18, "members_active_cycle": 11, "events_total_cycle": 34, "quests_consented_cycle": 6, "gratitude_senders_distinct": 9 },
+        { "cycleNumber": -2, "members_total": 21, "members_active_cycle": 14, "events_total_cycle": 41, "quests_consented_cycle": 9, "gratitude_senders_distinct": 12 },
+        { "cycleNumber": -1, "members_total": 23, "members_active_cycle": 16, "events_total_cycle": 52, "quests_consented_cycle": 11, "gratitude_senders_distinct": 15 }
+      ]
+    }
+  },
+
+  "automation": {
+    "_trigger": "POST /api/admin/recordings ingests a real recording",
+    "_note": "Synthesis normally costs an LLM call; the example synthesis is seeded directly. ai_body and body deliberately differ — that pair IS the product. Publishing an example is refused, so no forum thread is ever created from it.",
+    "recordings": [
+      {
+        "id": "ex-recording-1",
+        "source": "manual",
+        "title": "Weekly circle call — water siting and the winter build",
+        "url": "https://example.org/recordings/weekly-circle",
+        "durationS": 2740,
+        "status": "synthesized",
+        "isExample": true,
+        "transcript": {
+          "source": "provided",
+          "segments": [
+            { "startMs": 0, "endMs": 42000, "text": "Alright, we are recording. Two things today: where the second tank goes, and whether the winter build is still realistic given where we are on materials." },
+            { "startMs": 42000, "endMs": 118000, "text": "On the tank — I walked the ridge line again on Sunday. Gravity feed reaches everything below it, including the bunkroom, which the workshop site does not. The catch is the truck cannot get up there, so every delivery is hand-carried." },
+            { "startMs": 118000, "endMs": 196000, "text": "I can cost the pipe run properly by Friday if that would settle it. My instinct is that the pipe is cheaper than a pump plus the power to run it over ten years, but I would rather show numbers than instincts." },
+            { "startMs": 196000, "endMs": 268000, "text": "Please do. And on the winter build — we are short on the roofing steel and the supplier has gone quiet. Somebody needs to chase that this week or we lose the dry window entirely." },
+            { "startMs": 268000, "endMs": 320000, "text": "I will chase the supplier. If they cannot commit to a date by Wednesday we should price a second source rather than wait politely." }
+          ]
+        },
+        "synthesis": {
+          "id": "ex-synthesis-1",
+          "model": "example",
+          "aiBody": "The call covered two decisions.\n\n**Water tank siting.** The ridge site gives gravity feed to the entire lower site including the bunkroom; the workshop site does not. The objection is delivery access — the ridge cannot take a truck, so every load is hand-carried. A full pipe-run costing was offered to settle it by Friday, on the reasoning that pipe is a one-time cost while pumping is perpetual.\n\n**Winter build.** Roofing steel is short and the supplier has stopped responding. The dry window is at risk. Agreement that the supplier is chased this week, with a second source priced if no firm date arrives by Wednesday.",
+          "body": "Two decisions from the weekly circle.\n\n**Water tank siting** — leaning ridge. It gravity-feeds everything below including the bunkroom, which the workshop site can't do. The trade-off is truck access: every delivery gets hand-carried up. Pipe-run costing lands Friday and we decide off the numbers, not off instinct.\n\n**Winter build** — the roofing steel is the bottleneck and the supplier has gone quiet. Being chased this week. If there's no firm date by Wednesday we price a second source rather than keep waiting politely.\n\n(This is the human-edited copy. The untouched AI version sits beside it — that pairing is the point: nothing publishes itself.)",
+          "chapters": [
+            { "startMs": 0, "title": "Agenda" },
+            { "startMs": 42000, "title": "Water tank siting" },
+            { "startMs": 196000, "title": "Winter build and materials" }
+          ],
+          "decisions": [
+            "Pipe-run costing for the ridge site to be presented Friday; tank siting decided from that.",
+            "Second roofing-steel supplier to be priced if the current one gives no firm date by Wednesday."
+          ],
+          "droppedTaskCount": 2,
+          "isExample": true,
+          "tasks": [
+            {
+              "id": "ex-task-1",
+              "description": "Cost the full pipe run from the ridge site and present it Friday",
+              "quote": "I can cost the pipe run properly by Friday if that would settle it.",
+              "timestampMs": 118000,
+              "roleId": "ex-role-land-steward",
+              "status": "suggested",
+              "isExample": true
+            },
+            {
+              "id": "ex-task-2",
+              "description": "Chase the roofing steel supplier for a firm delivery date",
+              "quote": "I will chase the supplier. If they cannot commit to a date by Wednesday we should price a second source rather than wait politely.",
+              "timestampMs": 268000,
+              "roleId": "ex-role-tool-keeper",
+              "status": "accepted",
+              "isExample": true
+            },
+            {
+              "id": "ex-task-3",
+              "description": "Walk the ridge line to confirm the tank pad location",
+              "quote": "I walked the ridge line again on Sunday.",
+              "timestampMs": 42000,
+              "roleId": null,
+              "status": "dismissed",
+              "isExample": true
+            }
+          ]
+        }
+      }
+    ]
+  },
+
+  "network": {
+    "_trigger": "POST /api/admin/network/share publishes a real item",
+    "_note": "The example peer is a fixture written directly to peer_instances with a hand-built cache payload — addPeer() requires a live remote deployment. The sync job skips example peers, so it never tries to reach example.org.",
+    "sharedItems": [
+      {
+        "id": "ex-share-need",
+        "type": "need",
+        "title": "Looking for a timber framer for a two-week build",
+        "detail": "We are raising a 6x8 metre workshop frame in the dry season and have the timber milled and stacked, but nobody here has cut joinery at this scale before.\n\nWe can offer accommodation, all meals, and stay credits for the duration. What we are really after is someone willing to teach while they work — we would rather come out of it with four people who can do it again than a perfect frame and no skills.",
+        "contact": "build@example.org",
+        "status": "open",
+        "isExample": true
+      },
+      {
+        "id": "ex-share-offer",
+        "type": "offer",
+        "title": "Surplus fruit tree seedlings, free to a good home",
+        "detail": "Roughly ninety seedlings surplus to our own planting: citrus, avocado, and a lot of guava. Twelve to eighteen months old, bare-rooted and ready to travel.\n\nFree to any village on the network. We would ask you to collect, and to tell us in a year how many made it — we are trying to learn which rootstock actually survives transplant.",
+        "contact": "nursery@example.org",
+        "status": "open",
+        "isExample": true
+      },
+      {
+        "id": "ex-share-offer-2",
+        "type": "offer",
+        "title": "Our water catchment design, drawings and costings included",
+        "detail": "We spent two years and more money than we needed to getting our catchment right. The drawings, the parts list and the honest account of what we would do differently are yours for the asking.\n\nParticularly relevant if you are on a slope with a long dry season. Happy to walk someone through it on a call.",
+        "contact": "water@example.org",
+        "status": "closed",
+        "isExample": true
+      }
+    ],
+    "peers": [
+      {
+        "id": "ex-peer-1",
+        "instanceId": "ex-instance-0000-0000",
+        "baseUrl": "https://example.org",
+        "name": "A peer village (example)",
+        "version": "1.0.0",
+        "status": "active",
+        "isExample": true,
+        "cache": {
+          "name": "A peer village (example)",
+          "version": "1.0.0",
+          "items": [
+            {
+              "id": "ex-peer-item-1",
+              "type": "offer",
+              "title": "Two experienced natural builders available in the off season",
+              "detail": "Cob and lime plaster mostly, some light timber work. Available for roughly six weeks after our harvest finishes. They would want accommodation and food; beyond that they are looking for interesting work rather than income.",
+              "contact": "crew@example.org",
+              "createdAt": "2026-07-14T09:00:00.000Z"
+            },
+            {
+              "id": "ex-peer-item-2",
+              "type": "need",
+              "title": "Seeking a shared bulk order for organic seed",
+              "detail": "Our supplier's minimum is well above what one village uses in a season, and the per-unit price at volume is roughly half. Looking for two or three villages to split an order and the freight.",
+              "contact": "garden@example.org",
+              "createdAt": "2026-07-22T16:30:00.000Z"
+            }
+          ]
+        }
+      }
+    ]
+  },
+
+  "exchange": {
+    "_trigger": "PUT /api/admin/exchange/tokens/:slug lists a real token",
+    "_note": [
+      "An example listing is a token_exchange_settings row plus posted currency_prices",
+      "rows. Both are display-only. The treasury is NOT stocked for examples, so even",
+      "without the inert guard a purchase would refuse with 'out of stock' rather than",
+      "minting — the refusal is correct behaviour, not an error state.",
+      "Recognition and Hypha-governed tokens can never be listed; the boot firewalls",
+      "re-prove that every deploy and would delist an illegal example loudly."
+    ],
+    "listings": [
+      {
+        "tokenSlug": "credits",
+        "purchasable": true,
+        "swappable": false,
+        "active": true,
+        "sortOrder": 1,
+        "minStageToBuy": null,
+        "isExample": true,
+        "prices": [
+          {
+            "priceMinor": 100,
+            "note": "Opening rate set by the founding circle: one credit to one dollar, chosen for legibility rather than economics. Every later change lands as a new row with its own reasoning, so the price has a history a member can read."
+          }
+        ]
+      }
+    ]
+  },
+
+  "gratitude": {
+    "_trigger": "The first real gratitude send",
+    "_note": [
+      "DELIBERATELY EMPTY of seeded rows. A gratitude row posts to the ledger at",
+      "creation (sendGratitude -> postTransfer from the recognition faucet), so an",
+      "example send would either mint real recognition to a real member or break the",
+      "per-token conservation invariant that refuses boot.",
+      "",
+      "Instead the Gratitude Wall's empty state gets explanatory copy describing what",
+      "a send is, what the budget means, and what arrives at cycle close. That copy",
+      "lives in the client, not in this file, and is covered in docs/STANDING_EXAMPLES.md."
+    ],
+    "entries": []
+  },
+
+  "profiles": {
+    "_trigger": "n/a",
+    "_note": [
+      "DELIBERATELY EMPTY. A profile belongs to the member looking at it; there is no",
+      "shared surface to fill with examples, and seeding fake members into the",
+      "directory is exactly what the reserved-identity exclusions exist to prevent.",
+      "The three example identities above are excluded from the member directory.",
+      "",
+      "Profiles instead get inline prompts on the empty panels ('No bio yet',",
+      "'No contributions yet'), which already exist in client/src/pages/Profile.tsx."
+    ]
+  }
+}

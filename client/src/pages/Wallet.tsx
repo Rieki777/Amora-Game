@@ -51,8 +51,8 @@ export default function Wallet() {
   useEffect(() => {
     if (exchangeModule) load();
     const q = new URLSearchParams(window.location.search).get("purchase");
-    if (q === "success") setNotice("Payment received — your tokens arrive as soon as Stripe confirms (usually seconds).");
-    if (q === "cancelled") setNotice("Checkout cancelled — nothing was charged.");
+    if (q === "success") setNotice("Payment received. Your tokens arrive as soon as Stripe confirms (usually seconds).");
+    if (q === "cancelled") setNotice("Checkout cancelled. Nothing was charged.");
   }, [exchangeModule?.id]);
 
   if (modules.loaded && !exchangeModule) return <NotFound />;
@@ -81,7 +81,7 @@ export default function Wallet() {
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Wallet</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
             What you hold, and the village exchange. Recognition is earned, never
-            bought — only the village's own credit tokens are ever listed here.
+            bought. Only the village's own credit tokens are ever listed here.
           </p>
         </div>
       </section>
@@ -107,7 +107,7 @@ export default function Wallet() {
                   </button>
                 </p>
               ) : Object.keys(balances).length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nothing yet — contribution is where value starts.</p>
+                <p className="text-sm text-muted-foreground">Nothing yet. Contribution is where value starts.</p>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {Object.entries(balances).map(([slug, bal]) => (
@@ -176,7 +176,7 @@ export default function Wallet() {
               <ul className="space-y-1.5">
                 {data.swap.notSwappable.map((n: any) => (
                   <li key={n.slug} className="text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">{n.name}</span> — {n.reason}.
+                    <span className="font-medium text-foreground">{n.name}</span>: {n.reason}.
                   </li>
                 ))}
               </ul>
@@ -187,7 +187,7 @@ export default function Wallet() {
             <p className="text-sm text-amber-800 bg-amber-50 rounded-lg px-4 py-2.5">
               Swapping is paused for{" "}
               {data.swap.halted.map((h: any) => h.slug).join(", ")}
-              {data.swap.halted[0]?.reason ? ` — ${data.swap.halted[0].reason}` : ""}.
+              {data.swap.halted[0]?.reason ? `: ${data.swap.halted[0].reason}` : ""}.
             </p>
           )}
 
@@ -202,7 +202,7 @@ export default function Wallet() {
                   <p key={o.id} className="text-sm text-muted-foreground">
                     {/* A swap has a fiat VALUATION, never a charge — printing a
                         dollar figure beside it would read as money taken. */}
-                    #{o.receipt_no} —{" "}
+                    #{o.receipt_no}:{" "}
                     {o.kind === "swap"
                       ? `${o.pay_quantity} ${o.pay_token_slug} → ${o.quantity} ${o.token_slug}`
                       : `${o.quantity} ${o.token_slug} · ${usd(o.amount_minor)}`}{" "}

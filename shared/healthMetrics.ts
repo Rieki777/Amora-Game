@@ -49,7 +49,7 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
     kind: "snapshot",
     label: "Members who gave recognition",
     unit: "people",
-    description: "Distinct ELIGIBLE senders this cycle — the Sybil rule (stage >= member or >= 1 consented quest) is consumed from settlement, never re-implemented.",
+    description: "Distinct ELIGIBLE senders this cycle. The Sybil rule (stage >= member or >= 1 consented quest) is consumed from settlement, never re-implemented.",
   },
   {
     key: "gratitude_recipients_distinct",
@@ -84,7 +84,7 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
     kind: "snapshot",
     label: "Library in use",
     unit: "%",
-    description: "Share of library items that were out on loan at any point in the lunation — how hard the shelves actually work. Meta carries the item and loan counts behind it.",
+    description: "Share of library items that were out on loan at any point in the lunation: how hard the shelves actually work. Meta carries the item and loan counts behind it.",
   },
   {
     key: "stay_occupancy_nights",
@@ -105,7 +105,7 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
     kind: "snapshot",
     label: "Recognition issued to date",
     unit: "tokens",
-    description: "Total recognition the gratitude faucet has released since the beginning — the faucet's negative balance IS issuance-to-date, read straight from the ledger.",
+    description: "Total recognition the gratitude faucet has released since the beginning. The faucet's negative balance IS issuance-to-date, read straight from the ledger.",
   },
 
   // ── Regen: the land's own ledger, steward-recorded ─────────────────────────

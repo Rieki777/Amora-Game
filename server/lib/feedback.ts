@@ -120,7 +120,7 @@ export async function relayFeedback(
     // Unreachable hub is EXPECTED sometimes, and so is a refused URL. Either
     // way: quiet log, rows stay queued, natural retry. The hub is a listener,
     // never a dependency — nothing here may escape into the caller.
-    console.error(`[feedback] relay skipped: ${String(e?.message ?? e).slice(0, 120)} — ${rows.length} item(s) stay queued`);
+    console.error(`[feedback] relay skipped: ${String(e?.message ?? e).slice(0, 120)}; ${rows.length} item(s) stay queued`);
     return { sent: 0 };
   }
 }

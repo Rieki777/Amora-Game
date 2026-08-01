@@ -13,6 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { BedDouble, CreditCard, Hammer, Moon, Send } from "lucide-react";
 import { Image } from "@/components/Image";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -42,8 +43,8 @@ export default function Stay() {
   useEffect(() => {
     if (staysModule) load();
     const q = new URLSearchParams(window.location.search).get("purchase");
-    if (q === "success") setNotice("Payment received — your credits arrive as soon as Stripe confirms (usually seconds).");
-    if (q === "cancelled") setNotice("Checkout cancelled — nothing was charged.");
+    if (q === "success") setNotice("Payment received. Your credits arrive as soon as Stripe confirms (usually seconds).");
+    if (q === "cancelled") setNotice("Checkout cancelled. Nothing was charged.");
   }, [staysModule?.id]);
 
   if (modules.loaded && !staysModule) return <NotFound />;
@@ -60,7 +61,7 @@ export default function Stay() {
         if (!r.ok) throw new Error(d.error || "Could not request");
         setRequesting("");
         setNotes("");
-        setNotice("Request sent — the stewards will be in touch.");
+        setNotice("Request sent. The stewards will be in touch.");
         load();
       })
       .catch((e) => setError(e.message));
@@ -90,8 +91,9 @@ export default function Stay() {
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Stay With Us</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
             One stay credit hosts one night. Buy credits, or earn them through
-            work-exchange quests — the village runs on contribution either way.
+            work-exchange Quests. The village runs on contribution either way.
           </p>
+          <ExamplesBanner moduleId="stays" noun="room" />
         </div>
       </section>
 
@@ -106,7 +108,7 @@ export default function Stay() {
                 <Moon className="w-5 h-5 text-teal-deep" />
                 <p className="text-sm text-foreground">
                   Your balance: <span className="font-bold">{data.mine.balance}</span> stay credit(s)
-                  {data.mine.balance < 0 && <span className="text-red-600"> — please settle up with the stewards</span>}
+                  {data.mine.balance < 0 && <span className="text-red-600">, please settle up with the stewards</span>}
                 </p>
               </div>
               {data.mine.stays.filter((s: any) => s.status === "requested" || s.status === "active").map((s: any) => (
@@ -116,7 +118,7 @@ export default function Stay() {
                   ) : (
                     <>
                       Your stay is active at <b>{s.rateSnapshotCredits}</b> credit(s)/night
-                      {s.nightsRemaining != null && <> — about <b>{Math.max(0, s.nightsRemaining)}</b> night(s) covered</>}.
+                      {s.nightsRemaining != null && <>, about <b>{Math.max(0, s.nightsRemaining)}</b> night(s) covered</>}.
                     </>
                   )}
                 </div>
@@ -193,7 +195,7 @@ export default function Stay() {
             })}
           </div>
           {data && data.accommodations.length === 0 && (
-            <p className="text-center text-sm text-muted-foreground py-12">No rooms posted yet — check back soon.</p>
+            <p className="text-center text-sm text-muted-foreground py-12">No rooms posted yet. Check back soon.</p>
           )}
 
           {(data?.earnQuests ?? []).length > 0 && (
@@ -206,7 +208,7 @@ export default function Stay() {
                 {data.earnQuests.map((q: any) => (
                   <Link key={q.id} href="/quests" className="block text-sm text-muted-foreground hover:text-foreground">
                     <span className="font-medium text-foreground">{q.title}</span>
-                    {q.stayCreditReward > 0 && <> — {q.stayCreditReward} stay credit(s) on consent</>}
+                    {q.stayCreditReward > 0 && <>: {q.stayCreditReward} stay credit(s) on consent</>}
                   </Link>
                 ))}
               </div>

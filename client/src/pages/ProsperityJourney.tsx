@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { useBrandImages } from "@/lib/gameApi";
+import { useBrandImages, useGameConfig } from "@/lib/gameApi";
 import FaqSection from "@/components/FaqSection";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
@@ -139,6 +139,7 @@ const ariTiers = [
 ];
 
 export default function ProsperityJourney() {
+  const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
   const brand = useBrandImages();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("community-call");
@@ -260,7 +261,7 @@ export default function ProsperityJourney() {
                 Gratitude Economy
               </h3>
               <p className="text-muted-foreground text-sm">
-                All businesses integrate with our contribution tracking system. Revenue shares are paid in Gratitude, a living record of the value you bring rather than a fixed dollar amount. As Amora matures, Gratitude can convert to cash, equity, or community currency.
+                All businesses integrate with our contribution tracking system. Revenue shares are acknowledged in Gratitude (the recognition signal, with no financial value of its own), and each cycle a real pool of {valueName} is shared across everyone's Gratitude. As Amora matures, {valueName} can convert to cash, equity, or community currency.
               </p>
             </motion.div>
 
@@ -356,7 +357,7 @@ export default function ProsperityJourney() {
                           type="button"
                           role="checkbox"
                           aria-checked={isCompleted}
-                          aria-label={`${step.title} — mark as ${isCompleted ? "not done" : "done"}`}
+                          aria-label={`${step.title}: mark as ${isCompleted ? "not done" : "done"}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleStep(step.id);

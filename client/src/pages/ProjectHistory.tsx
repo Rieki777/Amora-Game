@@ -143,7 +143,7 @@ const WEEKS: Week[] = [
   },
   {
     id: "w3",
-    label: "Week 3 | Mar 31 – Apr 6",
+    label: "Week 3 | Mar 31-Apr 6",
     goal: "Deliver and wire the community identity pages - Love Letter, Co-Creators Guide, Good Neighbor, and Seasonal Festivals. Get all membership flows and CTAs live.",
     deliverables: [
       { id: "w1-5", text: "Pages: Home, Love Letter, Co-Creators Guide, Good Neighbor - copy delivered (see page tabs)", status: "done", pageLink: "love-letter" },
@@ -232,7 +232,7 @@ CTAs: Find Your Path | Read the Co-Creators Guide`,
       },
       {
         heading: "Journey Stages Bar",
-        content: `Title: Our Journey Together
+        content: `Title: Five Stages, Align to Home
 Text: Each stage is designed to filter for cultural fit while providing opportunities for mutual assessment.
 Stages: Align | Experience | Co-Create | Integrate | Home`,
       },
@@ -272,7 +272,7 @@ CTAs: Join Community Call | View All Events`,
     emoji: "💌",
     title: "Love Letter",
     url: "/love-letter",
-    week: "Week 3 | Mar 31 – Apr 6",
+    week: "Week 3 | Mar 31-Apr 6",
     placeholders: ["The full body text of the Love Letter needs to be written by the Amora team"],
     sections: [
       {
@@ -312,7 +312,7 @@ CTA: Return Home`,
     emoji: "📖",
     title: "Amora Game Guide",
     url: "/co-creators-guide",
-    week: "Week 3 | Mar 31 – Apr 6",
+    week: "Week 3 | Mar 31-Apr 6",
     placeholders: [
       "Your Hypha DHO URL (e.g. app.hypha.earth/en/dho/amora-village) - paste the full URL to your Amora Hypha space so the platform links on the Game Guide page can go live",
       "Page title - currently 'Amora Game Guide', confirm with the team (alternatives: 'The Co-Creators Guide', 'The Amora Playbook', or your own name)",
@@ -384,7 +384,7 @@ Join Community Call - Meet us live and ask your questions`,
     emoji: "🤝",
     title: "Good Neighbor",
     url: "/good-neighbor",
-    week: "Week 3 | Mar 31 – Apr 6",
+    week: "Week 3 | Mar 31-Apr 6",
     placeholders: ["\"What Amora Commits to You\" section content needs team verification"],
     sections: [
       {
@@ -453,7 +453,7 @@ Community Ownership: Our goal is for all Amora homes, structures, and businesses
       {
         heading: "Your Investment Journey",
         content: `Curious: Discover Amora - Learn about our vision, values, and regenerative approach to community development.
-Interested: Request Investor Pack - Receive comprehensive investor materials including feasibility study, proformas, and development timeline.
+Interested: Request Investor Pack - Receive the full investor materials: feasibility study, proformas, and development timeline.
 Exploring: Schedule Investment Call - Connect one-on-one with our team to discuss your investment goals.
 Committed: Make Your Commitment - Choose your investment vehicle and formalize your contribution.`,
       },
@@ -522,7 +522,7 @@ CTA: Begin My Stewardship Journey`,
         heading: "Page Header",
         content: `Tag: Village Steward Space
 Title: Your Rights and Responsibilities
-Subtitle: This is not a legal document. It's a covenant between co-owners. Every Village Steward holds both, the rights that come from real ownership of this place, and the responsibilities that make those rights worth something.`,
+Subtitle: A covenant between co-owners, not a legal document. Every Village Steward holds both, the rights that come from real ownership of this place, and the responsibilities that make those rights worth something.`,
       },
       {
         heading: "Co-Ownership Framing",
@@ -638,7 +638,7 @@ Text: The land at Amora is held collectively. Every resident is a steward of the
         heading: "Maintenance and Fees Vision",
         content: `Village dues exist to keep infrastructure running. The longer-term vision: as Amora's shared businesses mature, retreat center, cafe, wellness center, artisan market, education programs, revenue flows back into the community.
 
-The goal is a life here that is economically net-positive. Where Gratitude earnings, business participation, or role contributions cover not just your dues, but give you back more than you put in.
+The goal is a life here that is economically net-positive. Where Gratitude earnings, business participation, or role contributions cover your dues and give you back more than you put in.
 
 This is what "Wealth Through Contribution" actually means. Not a promise. A design intention we're building toward together.`,
       },
@@ -662,13 +662,13 @@ Long-Term Resident (Year 7+): Senior voice in community decisions, Sage eligibil
         heading: "Four Pillars",
         content: `Sociocracy and Teal: We blend sociocratic governance with Teal organization principles. Self-management, wholeness, and evolutionary purpose guide our structure.
 Adaptive Governance: Using Hypha tools, each circle designs its own governance strategy, from consent to consensus, tailored to its unique culture and mission.
-Gratitude Economy: Gratitude tracks the value you contribute — a living record, not a fixed dollar amount. Each cycle the community shares a real pool of value across everyone's Gratitude, and it can convert to cash, equity, or community currency as Amora matures.
+Gratitude Economy: Gratitude tracks the value you contribute, a living record, not a fixed dollar amount. Each cycle the community shares a real pool of value across everyone's Gratitude, and it can convert to cash, equity, or community currency as Amora matures.
 Seasonal Rhythm: Every 3 months, the community votes on what kind of season comes next. Not a fixed cycle.`,
       },
       {
         heading: "The Gratitude Economy",
         content: `Earn Gratitude: Complete quests, fulfill roles, or receive revenue shares from community and private businesses.
-Track Value: Gratitude is an honest record of the work everyone is pooling to make Amora real — a living measure of value, not a fixed dollar peg.
+Track Value: Gratitude is an honest record of the work everyone is pooling to make Amora real, a living measure of value, not a fixed dollar peg.
 Future Conversion: As Amora matures, Gratitude will convert to cash or equity.`,
       },
       {
@@ -727,7 +727,7 @@ Security and Night Watch | [CIRCLE TO CONFIRM] | 60-100 Gratitude`,
     emoji: "🎉",
     title: "Seasonal Festivals",
     url: "/seasonal-festivals",
-    week: "Week 3 | Mar 31 – Apr 6",
+    week: "Week 3 | Mar 31-Apr 6",
     placeholders: ["Specific festival dates and themes to confirm with the Amora team", "Festival participation costs or contributions (if any)", "Registration or RSVP process for each festival"],
     sections: [
       {
@@ -787,7 +787,7 @@ For upcoming dates and to register for events, visit the Events page on amora.cr
       {
         heading: "Your Path to Prosperity (7 Stages)",
         content: `Researcher: Attend Community Call - Learn about business opportunities at Amora.
-Dreamer: Explore the Prosperity Packet - Download and review the comprehensive guide.
+Dreamer: Explore the Prosperity Packet - Download and read the whole guide.
 Applicant: Submit Business Proposal - Present your vision and how it aligns with village needs.
 Member: Sign Love Letter / 508 Membership - Become an official member.
 Partner: Community Approval - Present your business to the Business and Finance Council.
@@ -800,7 +800,7 @@ Prosperity Creator: Grow Your Impact - Advance through ARI tiers and scale your 
 Tier 1: Early stage, establishing presence
 Tier 2: Growing, measurable contribution
 Tier 3: Established, regional impact
-Tier 4: Thriving, transformative impact
+Tier 4: Thriving, impact felt beyond the region
 [PLACEHOLDER - ARI tier names and metrics to be defined by Amora team]`,
       },
     ],
@@ -1125,7 +1125,7 @@ function getBucket(
 
 const BUCKETS: { id: BucketId; emoji: string; label: string; goal: string; tone: string }[] = [
   { id: "urgent", emoji: "🔴", label: "Urgent", goal: "Pending items that need attention now.", tone: "bg-red-50 border-red-200 text-red-700" },
-  { id: "in-motion", emoji: "🟡", label: "In Motion", goal: "Currently in progress — ReGen delivered, awaiting Amora.", tone: "bg-amber-50 border-amber-200 text-amber-800" },
+  { id: "in-motion", emoji: "🟡", label: "In Motion", goal: "Currently in progress. ReGen delivered, awaiting Amora.", tone: "bg-amber-50 border-amber-200 text-amber-800" },
   { id: "completed", emoji: "🟢", label: "Completed", goal: "Done and confirmed by Amora.", tone: "bg-emerald-50 border-emerald-200 text-emerald-700" },
   { id: "amora-call", emoji: "🔵", label: "Amora's Call", goal: "Decisions or actions for the Amora team to lead.", tone: "bg-violet-50 border-violet-200 text-violet-700" },
 ];
@@ -1220,7 +1220,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
 
   const copyForHypha = (cycle: any) => {
     const lines = [
-      `Cycle ${cycle.cycleNumber} settlement (closed ${cycle.closedAt ? new Date(cycle.closedAt).toLocaleDateString() : "—"})`,
+      `Cycle ${cycle.cycleNumber} settlement (closed ${cycle.closedAt ? new Date(cycle.closedAt).toLocaleDateString() : "date not recorded"})`,
       ...cycle.totals.map((t: any) =>
         `${t.name}: ${t.received} received (${t.receivedHearts} hearts + ${t.receivedAcks} acknowledgments) from ${t.distinctSenders} member(s)` +
         (t.credited ? ` → ${t.credited} ${cycle.poolToken ?? ""} credited` : ""),
@@ -1232,7 +1232,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
     setTimeout(() => setCopiedCycle(null), 2000);
   };
 
-  if (failed) return <p className="text-sm text-stone-400 italic py-6 text-center">Could not load — are you signed in as an admin?</p>;
+  if (failed) return <p className="text-sm text-stone-400 italic py-6 text-center">Could not load. Are you signed in as an admin?</p>;
   if (!data) return <p className="text-sm text-stone-400 italic py-6 text-center">Loading…</p>;
 
   const invariantsOk = !!data.reconciliation?.invariants?.ok;
@@ -1244,7 +1244,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
         <p className="text-sm font-semibold text-stone-700">
           {invariantsOk
             ? "The economy conserves: every token sums to zero, no drift, no illegal negatives."
-            : "LEDGER INVARIANTS BROKEN — the next deploy will refuse to boot:"}
+            : "LEDGER INVARIANTS BROKEN. The next deploy will refuse to boot:"}
         </p>
         {!invariantsOk && (
           <ul className="mt-2 text-xs text-red-700 list-disc pl-5">
@@ -1257,7 +1257,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
       <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-5">
         <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wide mb-1">Cycle settlement report</h3>
         <p className="text-xs text-stone-400 mb-4">
-          Closed lunations only — a member's share of the open cycle is unknowable before close, on purpose.
+          Closed lunations only. A member's share of the open cycle is unknowable before close, on purpose.
           Hearts and written acknowledgments are never blended into one number.
         </p>
         {data.settlement.length === 0 && <p className="text-sm text-stone-400 italic">No cycle has closed yet.</p>}
@@ -1267,7 +1267,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
               <div className="flex items-center justify-between mb-2">
                 <p className="text-sm font-semibold text-stone-700">
                   Cycle {c.cycleNumber}
-                  <span className="text-stone-400 font-normal"> · closed {c.closedAt ? new Date(c.closedAt).toLocaleDateString() : "—"}</span>
+                  <span className="text-stone-400 font-normal"> · closed {c.closedAt ? new Date(c.closedAt).toLocaleDateString() : "date not recorded"}</span>
                   {c.poolCredited > 0 && <span className="text-teal-deep font-normal"> · pool released {c.poolCredited} {c.poolToken}</span>}
                 </p>
                 <button onClick={() => copyForHypha(c)} className="text-xs text-teal-deep font-medium hover:underline">
@@ -1289,7 +1289,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
                         <td className="py-1.5 pr-3 text-rose-500">{t.receivedHearts}</td>
                         <td className="py-1.5 pr-3 text-teal-deep">{t.receivedAcks}</td>
                         <td className="py-1.5 pr-3 text-stone-500">{t.distinctSenders}</td>
-                        <td className="py-1.5 pr-3">{t.credited > 0 ? `${t.credited} ${c.poolToken ?? ""}` : "—"}</td>
+                        <td className="py-1.5 pr-3">{t.credited > 0 ? `${t.credited} ${c.poolToken ?? ""}` : "none"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1303,14 +1303,19 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
       <div className="grid md:grid-cols-2 gap-6">
         {/* Module health */}
         <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-5">
-          <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wide mb-3">Module health</h3>
+          <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wide mb-1">Module health</h3>
+          <p className="text-xs text-stone-400 mb-3">
+            Turn modules on in{" "}
+            <Link href="/admin?tab=modules" className="text-teal-deep underline">Admin → Modules On/Off</Link>
+            {" "}(top of The Game menu).
+          </p>
           <div className="space-y-1.5">
             {data.modules.map((m: any) => (
               <div key={m.id} className="flex items-center justify-between text-sm">
                 <span className="text-stone-600">{m.name}{m.core && <span className="text-[10px] text-stone-400 ml-1">core</span>}</span>
                 <span>
                   {m.demotedBecause ? (
-                    <span className="text-xs text-red-600 font-semibold">serving OFF — needs {m.demotedBecause.join(", ")}</span>
+                    <span className="text-xs text-red-600 font-semibold">serving OFF, needs {m.demotedBecause.join(", ")}</span>
                   ) : (
                     <span className={`text-xs px-2 py-0.5 rounded-full ${m.served === "off" ? "bg-stone-100 text-stone-400" : m.served === "public" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
                       {m.served}
@@ -1332,7 +1337,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
             <div className="space-y-1.5">
               {data.pendingConsents.map((p: any) => (
                 <p key={p.id} className="text-sm text-stone-600">
-                  <span className="font-medium text-stone-700">{p.userName}</span> — {p.questTitle}
+                  <span className="font-medium text-stone-700">{p.userName}</span> · {p.questTitle}
                   {p.submittedAt && <span className="text-xs text-stone-400"> · {new Date(p.submittedAt).toLocaleDateString()}</span>}
                 </p>
               ))}
@@ -1663,7 +1668,7 @@ export default function ProjectHistory() {
             Project History
           </h1>
           <p className="text-white/70 text-sm max-w-2xl mb-6">
-            The original build tracker — the six weeks that made this site, kept
+            The original build tracker: the six weeks that made this site, kept
             whole. For what's left before launch, see{" "}
             <Link href="/journey-to-launch" className="text-amber underline">Journey to Launch</Link>.
           </p>
@@ -1905,7 +1910,7 @@ export default function ProjectHistory() {
                           <span className="px-2 py-0.5 rounded-full border font-semibold bg-teal-deep/10 text-teal-deep border-teal-deep/20">ReGen</span>
                           <span className="px-2 py-0.5 rounded-full border font-semibold bg-amber/20 text-amber-800 border-amber/40">Amora</span>
                           <span className="px-2 py-0.5 rounded-full border font-semibold bg-violet-100 text-violet-700 border-violet-200">Both</span>
-                          <span className="text-stone-400">— set with the dropdown on each row.</span>
+                          <span className="text-stone-400">(set with the dropdown on each row)</span>
                         </div>
                       </div>
                       <div className="flex-1">
@@ -1914,7 +1919,7 @@ export default function ProjectHistory() {
                           <span className="px-2 py-0.5 rounded-full border font-semibold bg-stone-100 text-stone-500 border-stone-200">To do</span>
                           <span className="px-2 py-0.5 rounded-full border font-semibold bg-teal/10 text-teal-700 border-teal/20">In progress</span>
                           <span className="px-2 py-0.5 rounded-full border font-semibold bg-emerald-100 text-emerald-700 border-emerald-200">Confirmed</span>
-                          <span className="text-stone-400">— advance with the checkbox.</span>
+                          <span className="text-stone-400">(advance with the checkbox)</span>
                         </div>
                       </div>
                     </div>
@@ -2564,7 +2569,7 @@ export default function ProjectHistory() {
                   <div className="mb-6">
                     <h2 className="font-display text-2xl font-bold text-teal-deep">Team Discussion</h2>
                     <p className="text-stone-500 text-sm mt-1">
-                      Surface topics for the team to align on. Saved locally in your browser — share important threads in the Decision Log too.
+                      Surface topics for the team to align on. Saved locally in your browser. Share important threads in the Decision Log too.
                     </p>
                   </div>
 

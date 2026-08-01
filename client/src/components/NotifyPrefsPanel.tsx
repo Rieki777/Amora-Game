@@ -170,7 +170,7 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
                 a.click();
                 URL.revokeObjectURL(url);
               })
-              .catch(() => setError("Could not build your export — please sign in again and retry."));
+              .catch(() => setError("Could not build your export. Please sign in again and retry."));
           }}
         >
           <Download className="w-4 h-4" />

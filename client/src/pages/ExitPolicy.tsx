@@ -37,7 +37,7 @@ export default function ExitPolicy() {
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "Could not open the process");
-        setMsg("Your departure process is open. The stewards will walk each step with you — nothing happens automatically.");
+        setMsg("Your departure process is open. The stewards will walk each step with you. Nothing happens automatically.");
         setPassword(""); setNote("");
       })
       .catch((e) => setError(e.message));
@@ -74,7 +74,7 @@ export default function ExitPolicy() {
           {policy?.placeholder && (
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
               These are the platform's starting terms. The community has not
-              yet written its own — treat them as a draft to be decided
+              yet written its own. Treat them as a draft to be decided
               together, not a contract.
             </p>
           )}
@@ -87,8 +87,8 @@ export default function ExitPolicy() {
               <p className="font-semibold text-foreground text-sm">Choosing to leave</p>
             </div>
             <p className="text-sm text-muted-foreground mb-3">
-              Notice period: {policy?.voluntary?.noticePeriodDays ?? "—"} days.
-              Nothing about your departure is automatic — each step is walked
+              Notice period: {policy?.voluntary?.noticePeriodDays ?? "…"} days.
+              Nothing about your departure is automatic. Each step is walked
               with a person.
             </p>
             <ol className="space-y-1.5 list-decimal pl-5">
@@ -124,7 +124,7 @@ export default function ExitPolicy() {
             {user && policy?.restorative?.intakeContactRole && (
               <div className="border-t border-border pt-3 space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  Start a private intake — it goes directly to the stewards
+                  Start a private intake. It goes directly to the stewards
                   holding that role. It is never posted anywhere.
                 </p>
                 <textarea value={intake} onChange={(e) => setIntake(e.target.value)} rows={3}
@@ -142,7 +142,7 @@ export default function ExitPolicy() {
             <div className="bg-card border border-border rounded-xl p-5">
               <p className="font-semibold text-foreground text-sm mb-2">Begin your own departure</p>
               <p className="text-xs text-muted-foreground mb-3">
-                This opens the process above — it does not close your account.
+                This opens the process above. It does not close your account.
                 Your contributions stay part of the village's record; your
                 identity is removed at the end, when everything is settled.
               </p>

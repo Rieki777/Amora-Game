@@ -11,6 +11,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Award, Hammer, Medal, Plus, ShieldAlert, Sparkles, X } from "lucide-react";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -65,6 +66,7 @@ export default function Badges() {
             What the village recognizes: skills you declare, badges earned from
             real contribution, honors granted by stewards.
           </p>
+          <ExamplesBanner moduleId="badges" noun="badge" />
         </div>
       </section>
 
@@ -88,7 +90,7 @@ export default function Badges() {
                   </span>
                 ))}
                 {(data?.mine?.skills ?? []).length === 0 && (
-                  <p className="text-xs text-muted-foreground">Declare what you can do — it helps the village find you.</p>
+                  <p className="text-xs text-muted-foreground">Declare what you can do. It helps the village find you.</p>
                 )}
               </div>
               <div className="flex gap-2">

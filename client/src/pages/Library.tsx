@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Package, RotateCcw, Undo2, Wrench } from "lucide-react";
 import { Image } from "@/components/Image";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -47,8 +48,8 @@ export default function Library() {
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "Request failed");
-        if (d.escrow != null) setNotice(`Reserved — ${d.escrow} credit(s) moved to escrow until settle.`);
-        if (d.released != null) setNotice(`Cancelled — ${d.released} credit(s) released back to you.`);
+        if (d.escrow != null) setNotice(`Reserved. ${d.escrow} credit(s) moved to escrow until settle.`);
+        if (d.released != null) setNotice(`Cancelled. ${d.released} credit(s) released back to you.`);
         load();
       })
       .catch((e) => setError(e.message));
@@ -67,6 +68,7 @@ export default function Library() {
             Shared tools and goods, borrowed on library credits. Donate what you
             no longer need and earn the credits to borrow what you do.
           </p>
+          <ExamplesBanner moduleId="library" noun="donation" />
         </div>
       </section>
 
@@ -88,7 +90,7 @@ export default function Library() {
                   {liveLoans.map((l: any) => (
                     <div key={l.id} className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">
-                        <b className="text-foreground">{itemName(l.itemId)}</b> — {l.status.replace(/_/g, " ")}
+                        <b className="text-foreground">{itemName(l.itemId)}</b> · {l.status.replace(/_/g, " ")}
                         {l.dueOn && <> · due {l.dueOn}</>} · {l.escrowCredits} in escrow
                       </span>
                       <span className="space-x-3">

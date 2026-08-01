@@ -67,6 +67,7 @@ const COLUMNS = [
   "wallet_address",
   "wallet_verified_at",
   "joined_at",
+  "is_example",
 ] as const;
 
 function toIso(v: unknown): string | null {
@@ -112,6 +113,10 @@ function rowToMember(row: RowDataPacket): MemberRecord {
     walletAddress: row.wallet_address ?? null,
     walletVerifiedAt: toIso(row.wallet_verified_at),
     joinedAt: toIso(row.joined_at),
+    // A standing-example identity: content that authors example threads, never
+    // a person. Excluded from the roster, member counts and every metric that
+    // counts humans; it has no password_hash, so it can never sign in.
+    isExample: Number(row.is_example ?? 0) === 1,
   };
 }
 
@@ -144,6 +149,7 @@ function memberToParams(m: MemberRecord): any[] {
     m.walletAddress ?? null,
     toDb(m.walletVerifiedAt),
     toDb(m.joinedAt) ?? new Date(),
+    m.isExample ? 1 : 0,
   ];
 }
 

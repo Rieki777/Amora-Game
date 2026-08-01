@@ -35,7 +35,7 @@ let corpus: CorpusDoc[] = [];
 export function loadKnowledgeCorpus(baseDir: string): number {
   const dir = path.join(baseDir, "docs", "knowledge");
   if (!fs.existsSync(dir)) {
-    console.error("[knowledge] docs/knowledge missing — Maia has no corpus shelf");
+    console.error("[knowledge] docs/knowledge missing: Maia has no corpus shelf");
     corpus = [];
     return 0;
   }
