@@ -18,6 +18,9 @@
     "dev:server": "tsx watch --clear-screen=false server/index.ts"
   },
   "dependencies": {
+    "@fontsource/kalam": "5.3.0",
+    "@fontsource/montserrat": "5.3.0",
+    "@fontsource/raleway": "5.3.0",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",

@@ -1,14 +1,15 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Serenity - Official Amora brand font */
-@font-face {
-  font-family: "Serenity";
-  src: url("/assets/fonts/Serenity.ttf/SERENITY.TTF") format("truetype");
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}
+/*
+ * No @font-face here, deliberately. A village's brand font is DEPLOYMENT
+ * DATA, not platform code: Serenity (Amora's heading font, unverified
+ * licence, downloaded from a free-fonts aggregator) used to be declared here
+ * and shipped to every fork. It now arrives through /api/brand/theme.css,
+ * which each deployment's server emits from its own brand document — a fork
+ * that sets nothing gets clean fallbacks, and a village that brings a font
+ * carries its own licence.
+ */
 
 @custom-variant dark (&:is(.dark *));
 
@@ -23,14 +24,27 @@
  * - Heart-centered, regenerative energy
  */
 
-@theme inline {
-  /* Serenity is the official Amora brand font (sans-serif). Drop Serenity.ttf into
-     client/public/assets/fonts/ and it will activate automatically.
-     Raleway (Google Fonts) is the free alternative with the same clean elegance. */
-  --font-display: "Serenity", "Raleway", system-ui, -apple-system, sans-serif;
+/* Platform defaults: self-hosted, licence-clean (all three are OFL via
+   @fontsource), and naming NO village's font. A village's own display face —
+   Amora's Serenity, another village's anything — is deployment data: the
+   brand document's theme fields, emitted by /api/brand/theme.css, override
+   these custom properties at higher specificity. The platform stack must
+   stay generic or every fork inherits one village's typography.
+
+   Plain @theme, NOT @theme inline, and that one word is the whole feature:
+   `inline` bakes the literal stack into every generated utility at build
+   time, so the runtime override from theme.css changed the variable while
+   every element with a font-* class kept the compiled default. Plain @theme
+   makes the utilities reference var(--font-display) at runtime, which is
+   what lets a stylesheet the SERVER emits re-typeset the whole site. */
+@theme {
+  --font-display: "Raleway", system-ui, -apple-system, sans-serif;
   --font-body: "Montserrat", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-accent: "Kalam", cursive;
-  
+}
+
+@theme inline {
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

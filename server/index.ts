@@ -14,6 +14,7 @@ import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { ALL_CAPABILITIES, hasCapability, STAGE_UNLOCKS, type Capability } from "../shared/capabilities";
 import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } from "./lib/variables";
+import { buildThemeCss } from "./lib/themeCss";
 import { applyTimingOf, ringOf, VARIABLES_BY_KEY } from "../shared/gameVariables";
 import { CONSTITUTION } from "../shared/constitution";
 import {
@@ -461,6 +462,12 @@ const DEFAULT_BRAND = {
   images: { hero: "", investorHero: "", residentHero: "", stewardHero: "", prosperityHero: "", masterPlanHero: "", logo: "", heartLogo: "", favicon: "" },
   // Setup Wizard progress — projects tick these off as they make the site theirs.
   setup: { identity: false, images: false, numbers: false, content: false, technical: false },
+  // Typography as deployment data (docs/DESIGN_TOKENS_SPEC.md §3.3). All
+  // blank = the platform's licence-clean self-hosted defaults. A village that
+  // brings its own font hosts a CSS file with the @font-face (their server,
+  // their volume, their licence), points fontImportUrl at it, and names the
+  // face first in fontDisplay. Emitted — sanitised — by /api/brand/theme.css.
+  theme: { fontImportUrl: "", fontDisplay: "", fontBody: "", fontAccent: "" },
 };
 
 // "Work With Us" content — editable per project so the exchange types, the intro,
@@ -1269,6 +1276,10 @@ function getBrand() {
     currency: { ...DEFAULT_BRAND.currency, ...(b.currency ?? {}) },
     images: { ...DEFAULT_BRAND.images, ...(b.images ?? {}) },
     setup: { ...DEFAULT_BRAND.setup, ...(b.setup ?? {}) },
+    // This function REBUILDS the document from named sections, so a section
+    // added to DEFAULT_BRAND but not listed here is silently dropped on every
+    // read — theme was stored fine and vanished before it reached theme.css.
+    theme: { ...DEFAULT_BRAND.theme, ...((b as any).theme ?? {}) },
   };
 }
 
@@ -3304,6 +3315,19 @@ async function startServer() {
   });
 
   // Health check — `build` identifies which deployment is live (bump on notable releases)
+  // The village's theme layer — see server/lib/themeCss.ts for what it is and
+  // why every character is sanitised. Render-blocking in index.html, so it
+  // must be fast and cacheable: ETag from the content, revalidate-always so a
+  // font change applies on the next load rather than in a year.
+  app.get("/api/brand/theme.css", async (_req, res) => {
+    const css = buildThemeCss((getBrand() as any).theme);
+    const etag = `"${crypto.createHash("sha1").update(css).digest("hex").slice(0, 16)}"`;
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("ETag", etag);
+    if (_req.headers["if-none-match"] === etag) return res.status(304).end();
+    res.type("text/css").send(css);
+  });
+
   app.get("/health", async (_req, res) => {
     // The uploads volume had no gauge at all: no byte count, no file count,
     // nothing on this probe. It fills silently — every hero photo retried in
@@ -9831,6 +9855,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       currency: { ...current.currency, ...(req.body.currency ?? {}) },
       images: { ...current.images, ...(req.body.images ?? {}) },
       setup: { ...current.setup, ...(req.body.setup ?? {}) },
+      // Theme fields are validated at EMISSION (server/lib/themeCss.ts), not
+      // here — storing a value the sanitiser later rejects yields an empty
+      // stylesheet, never an injected one. Rejecting at write time too would
+      // mean two sanitisers to keep in agreement forever.
+      theme: { ...(current as any).theme, ...(req.body.theme ?? {}) },
     };
     await brandRepo.put(next);
     res.json({ success: true, brand: next });

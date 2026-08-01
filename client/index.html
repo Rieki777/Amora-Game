@@ -26,18 +26,20 @@
     <link rel="icon" type="image/svg+xml" href="/assets/images/platform-favicon.svg" />
     <link rel="apple-touch-icon" href="/assets/images/platform-favicon.svg" />
 
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Montserrat:wght@300;400;500;600;700&family=Kalam:wght@400;700&family=Raleway:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-
     <!--
-      The Serenity @font-face lives in client/src/index.css, which points at the
-      real file. A second copy used to sit here pointing at
-      /assets/fonts/Serenity.ttf — but that path is a DIRECTORY (the unzipped
-      download), not a font, so it 404'd on every page load for every visitor.
-      One declaration, one path, no duplicate.
+      Fonts are SELF-HOSTED: @fontsource imports in client/src/main.tsx bundle
+      the woff2 files into /assets with content hashes. No request ever leaves
+      this origin for a typeface — see main.tsx for the three reasons
+      (privacy/GDPR, Google's CDN being blocked in China, speed).
+
+      The stylesheet below is the village's own theme layer, served by this
+      deployment's server from its brand document. For an untouched fork it is
+      an empty file; a village that brings its own brand font (their
+      deployment data, not platform code) gets its @import and font-stack
+      overrides emitted here. Render-blocking on purpose: a late font swap is
+      worse than a moment of fallback text.
     -->
+    <link rel="stylesheet" href="/api/brand/theme.css" />
 
   </head>
 

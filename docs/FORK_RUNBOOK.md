@@ -140,6 +140,14 @@ two from the admin panel and almost never touches the first.
   to every deployment; the client repaints title and favicon from live
   config. A fork that wants crawler-visible metadata (og:image, canonical)
   adds it in its own fork where those values are actually true.
+- **Fonts:** the platform self-hosts three OFL families (@fontsource, latin
+  subset, bundled with content hashes — no request ever leaves the origin for
+  a typeface). A village's own brand font is deployment data, not platform
+  code: host a CSS file carrying the `@font-face` (your own site or volume,
+  your licence), set `brand.theme.fontImportUrl` to it and name the face
+  first in `brand.theme.fontDisplay` — `/api/brand/theme.css` emits both,
+  sanitised, and the whole site re-typesets with no deploy. Blank fields =
+  the neutral defaults.
 - **NOT overlayable** (code-level edits, deliberately): the stage ladder and
   its ids, the path definitions, season cadence semantics. Those are game
   DESIGN; changing them is a fork of the game, not a re-skin.

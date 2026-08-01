@@ -2,4 +2,39 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
+/**
+ * SELF-HOSTED FONTS (was: a render-blocking Google Fonts <link> in index.html).
+ *
+ * Three reasons, each sufficient on its own:
+ *  - Privacy: the old link sent every member's IP to Google on every page
+ *    load. A German court (LG München, 2022) has already held that a GDPR
+ *    violation — untenable for a platform sold as "your deployment, your
+ *    data".
+ *  - Reach: Google's font CDN is blocked in China. A village there simply
+ *    could not load the typefaces.
+ *  - Speed: two extra DNS+TLS handshakes to third parties before text could
+ *    settle. Bundled woff2 rides the same origin with a content hash and a
+ *    year-long cache, like every other asset.
+ *
+ * Latin subset only (covers Spanish: U+0000-00FF has á é í ó ú ñ ü). The old
+ * link also fetched Cormorant Garamond in five variants — referenced by no
+ * font stack anywhere in the client, so it is simply gone.
+ *
+ * Weights match what the Tailwind classes actually use (light..bold). Fonts
+ * are declared with `font-display: swap` by @fontsource, so text renders in
+ * the fallback immediately and never blocks on a font file.
+ */
+import "@fontsource/montserrat/latin-300.css";
+import "@fontsource/montserrat/latin-400.css";
+import "@fontsource/montserrat/latin-500.css";
+import "@fontsource/montserrat/latin-600.css";
+import "@fontsource/montserrat/latin-700.css";
+import "@fontsource/raleway/latin-300.css";
+import "@fontsource/raleway/latin-400.css";
+import "@fontsource/raleway/latin-500.css";
+import "@fontsource/raleway/latin-600.css";
+import "@fontsource/raleway/latin-700.css";
+import "@fontsource/kalam/latin-400.css";
+import "@fontsource/kalam/latin-700.css";
+
 createRoot(document.getElementById("root")!).render(<App />);
