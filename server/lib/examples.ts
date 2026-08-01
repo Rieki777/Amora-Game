@@ -29,6 +29,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
+import { stringVar } from "./variables";
 
 export const EXAMPLE_REFUSAL =
   "This is a standing example. Publish your own to replace it.";
@@ -83,9 +84,16 @@ const NOT_EVIDENCE_OF_REAL_CONTENT = new Set(["health_events"]);
  * category is.
  */
 const REAL_CONTENT_CHECK: Record<string, (p: Pool) => Promise<boolean>> = {
+  // Scoped by CATEGORY, matching both the retirement trigger and the lens
+  // query. Filtering on kind='post' instead meant a real micropost in any
+  // other category permanently suppressed feed seeding without ever retiring
+  // the feed's examples — two definitions of "real feed content" that
+  // disagreed. The lens shows every kind in its category, so the category is
+  // the only consistent answer.
   feed: async (p) => {
     const [[r]] = await p.query<RowDataPacket[]>(
-      "SELECT COUNT(*) n FROM forum_threads WHERE is_example = 0 AND kind = 'post'",
+      "SELECT COUNT(*) n FROM forum_threads WHERE is_example = 0 AND category = ?",
+      [stringVar("feed.category_slug")],
     );
     return Number(r.n) > 0;
   },
@@ -760,9 +768,31 @@ export async function retireExamples(
  * forget — the caller's response must not wait on housekeeping, and must not
  * fail because of it.
  */
+/**
+ * Modules that must retire TOGETHER because they share a physical table AND a
+ * category, so neither read path can tell them apart.
+ *
+ * The feed is a lens over `forum_threads`, both modules' examples sit in the
+ * feed's category, and both list queries are category-wide (the forum's "All"
+ * tab sends no category at all). Retiring one alone therefore deleted its own
+ * rows, dropped its banner — and left the OTHER module's examples rendering on
+ * the same page with no banner and no row-level marker. That is a worse bug
+ * than the cross-deletion the scoping was added to fix: unlabelled platform
+ * fiction presented as village content.
+ *
+ * Scoping still earns its keep — each module deletes only its own rows and
+ * stamps its own tombstone — but the two tombstones are stamped together.
+ */
+const RETIRE_TOGETHER: Record<string, string[]> = {
+  forum: ["feed"],
+  feed: ["forum"],
+};
+
 export function onRealItemPublished(p: Pool, moduleId: string, byUserId: string | null = null): void {
-  if (isRetired(moduleId) || !isSeeded(moduleId)) return;
-  void retireExamples(p, moduleId, "first_real_item", byUserId);
+  for (const id of [moduleId, ...(RETIRE_TOGETHER[moduleId] ?? [])]) {
+    if (isRetired(id) || !isSeeded(id)) continue;
+    void retireExamples(p, id, "first_real_item", byUserId);
+  }
 }
 
 /**

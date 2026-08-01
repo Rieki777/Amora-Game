@@ -20,7 +20,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Globe2, HandHeart, HelpingHand, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -89,7 +89,7 @@ export default function Network() {
 
   const publish = async () => {
     const d = await call("/api/admin/network/share", { method: "POST", body: JSON.stringify(form) }, "publish");
-    if (d) { setForm({ type: "need", title: "", detail: "", contact: "" }); load(); }
+    if (d) { setForm({ type: "need", title: "", detail: "", contact: "" }); forgetExamplesCache("network"); load(); }
   };
   const addPeerUrl = async () => {
     const d = await call("/api/admin/network/peers", { method: "POST", body: JSON.stringify({ baseUrl: peerUrl }) }, "peer");

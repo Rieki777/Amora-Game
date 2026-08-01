@@ -49,6 +49,8 @@ export interface QuestRecord {
   stayCreditReward?: number | null;
   tags: string[];
   order: number;
+  /** A standing example: renders on the board, refuses every claim. */
+  isExample?: boolean;
 }
 
 export interface QuestsRepo {
@@ -60,7 +62,10 @@ export interface QuestsRepo {
 }
 
 const QUEST_SELECT =
-  "SELECT id, title, description, impact, gratitude, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order FROM quests";
+  // is_example is selected so consumers can filter. Without it no downstream
+  // code could tell an example quest from a real one — the work-exchange
+  // suggester was offering seeded quests to real guests as paid work.
+  "SELECT id, title, description, impact, gratitude, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order, is_example FROM quests";
 
 function rowToQuest(r: RowDataPacket): QuestRecord {
   let tags: string[] = [];
@@ -84,6 +89,7 @@ function rowToQuest(r: RowDataPacket): QuestRecord {
     stayCreditReward: r.stay_credit_reward == null ? null : Number(r.stay_credit_reward),
     tags,
     order: Number(r.sort_order ?? 0),
+    isExample: Number(r.is_example ?? 0) === 1,
   };
 }
 

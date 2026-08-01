@@ -11,6 +11,7 @@
  * that stops being read by the third card.
  */
 import { useEffect, useState } from "react";
+import { gameFetch } from "@/lib/gameApi";
 
 let cache: string[] | null = null;
 let inflight: Promise<string[]> | null = null;
@@ -19,7 +20,10 @@ let inflight: Promise<string[]> | null = null;
 function fetchExampleModules(): Promise<string[]> {
   if (cache) return Promise.resolve(cache);
   if (!inflight) {
-    inflight = fetch("/api/examples")
+    // Through gameFetch so the session token rides along: the endpoint hides
+    // preview-lifecycle modules from anonymous callers, and an admin
+    // previewing a module still needs the label on what they are looking at.
+    inflight = gameFetch("/api/examples")
       .then((r) => (r.ok ? r.json() : { modules: [] }))
       .then((d) => {
         const mods: string[] = Array.isArray(d?.modules) ? d.modules.map(String) : [];
@@ -32,19 +36,43 @@ function fetchExampleModules(): Promise<string[]> {
   return inflight;
 }
 
-/** Call after publishing something real, so the banner leaves with the examples. */
-export function forgetExamplesCache(): void {
-  cache = null;
+/** Mounted banners, so a retirement can reach them without a page reload. */
+const listeners = new Set<() => void>();
+
+/**
+ * Call after publishing something real in `moduleId`.
+ *
+ * Clearing the cache alone is not enough — a mounted banner holds its answer
+ * in state and its effect only re-runs when moduleId changes, so the label
+ * would survive on screen above the member's own brand-new content until they
+ * happened to reload. That is the inverse of the honesty this feature exists
+ * for: real content wearing an example label.
+ *
+ * The module is dropped OPTIMISTICALLY rather than re-fetched, because
+ * retirement is fire-and-forget on the server (the publisher's response never
+ * waits on housekeeping) and an immediate re-fetch races it. Optimism is safe
+ * here precisely because retirement is one-way: a module that just received a
+ * real item is never going to start showing examples again.
+ */
+export function forgetExamplesCache(moduleId?: string): void {
+  if (moduleId && cache) cache = cache.filter((m) => m !== moduleId);
+  else cache = null;
+  for (const notify of Array.from(listeners)) notify();
 }
 
 export function useShowingExamples(moduleId: string): boolean {
   const [showing, setShowing] = useState(() => cache?.includes(moduleId) ?? false);
   useEffect(() => {
     let alive = true;
-    void fetchExampleModules().then((mods) => {
-      if (alive) setShowing(mods.includes(moduleId));
-    });
-    return () => { alive = false; };
+    const sync = () => {
+      // A cleared cache re-fetches; a module-scoped clear answers from it.
+      void fetchExampleModules().then((mods) => {
+        if (alive) setShowing(mods.includes(moduleId));
+      });
+    };
+    sync();
+    listeners.add(sync);
+    return () => { alive = false; listeners.delete(sync); };
   }, [moduleId]);
   return showing;
 }

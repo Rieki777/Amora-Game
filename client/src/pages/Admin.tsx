@@ -10,6 +10,7 @@ const API_BASE = "/api";
 import TypographyPanel from "@/components/TypographyPanel";
 import LookPanel from "@/components/LookPanel";
 import IdentityPackPanel from "@/components/IdentityPackPanel";
+import { forgetExamplesCache } from "@/components/ExamplesBanner";
 const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
 
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
@@ -3449,6 +3450,10 @@ function ToolsAdminTab({ password }: { password: string }) {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "failed");
+      // Publishing the first real one retires that module's examples server
+      // side; drop the banner's cached answer so the admin does not walk to
+      // the page and read "nobody here made them" over their own work.
+      if (!isEdit) forgetExamplesCache("tools");
       toast.success(isEdit ? "Tool updated" : "Tool added");
       setForm(EMPTY_TOOL);
       setEditingId("");
@@ -3685,7 +3690,7 @@ function StaysAdminTab({ password }: { password: string }) {
   const addRoom = async () => {
     if (!roomForm.name.trim()) return toast.error("Name the room");
     const d = await post("/admin/stays/accommodations", roomForm);
-    if (d) { toast.success("Room added. Now post its prices"); setRoomForm({ name: "", description: "", capacity: 1 }); load(); }
+    if (d) { forgetExamplesCache("stays"); toast.success("Room added. Now post its prices"); setRoomForm({ name: "", description: "", capacity: 1 }); load(); }
   };
 
   const savePrices = async (acc: any) => {
@@ -4500,7 +4505,8 @@ function BadgesAdminTab({ password }: { password: string }) {
     }
     const d = await call("/admin/badges", body);
     if (d) {
-      toast.success("Badge created");
+      forgetExamplesCache("badges");
+    toast.success("Badge created");
       setForm({ name: "", description: "", kind: "granted", capabilities: [], denies: [], metric: "quests_consented", threshold: "", stackable: false, maxStack: "1" });
       load();
     }

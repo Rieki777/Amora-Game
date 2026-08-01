@@ -179,3 +179,62 @@ POST /api/admin/bootstrap (server/index.ts:3776-3796, response at :3843) finds t
 ExamplesBanner.tsx:35-38 exports forgetExamplesCache() with the comment 'Call after publishing something real, so the banner leaves with the examples' — but no file in client/src ever calls it (grep: only the definition). The module-level cache (:15) lives for the whole SPA session, so after a member publishes the first real thread/post/tool and the server retires the examples, the page still shows 'These are standing examples... Nobody here made them' above content that now includes the member's own real item, until a hard reload. That is the inverse honesty failure — real content labeled as example. Wire the publish paths on the nine bannered pages (e.g. Forum.tsx thread create, Feed.tsx post create) to call forgetExamplesCache() and re-fetch.
 
 **Fix:** Wiring forgetExamplesCache() into the nine publish-success handlers is necessary but NOT sufficient: useShowingExamples holds `showing` in useState with effect deps [moduleId], so clearing the module cache alone will not re-render an already-mounted banner. Do this instead, all in ExamplesBanner.tsx: (a) add a module-level Set<() => void> of listeners; useShowingExamples subscribes on mount and re-runs its fetch when notified; (b) make forgetExamplesCache() null the cache AND notify listeners; (c) call forgetExamplesCache() from each create-success handler (Forum.tsx post(), Feed.tsx post create, Library/Network/Stay/ToolsHub/VillageHealth/Badges/Contribute equivalents). One timing caveat: onRealItemPublished is fire-and-forget server-side (void retireExamples), so an instant client re-fetch of /api/examples can race the retirement; either optimistically set showing=false for that moduleId in forgetExamplesCache(moduleId?) (retirement is one-way, so optimism is safe) or delay the re-fetch by ~1s. The optimistic per-module variant is the simplest correct fix.
+
+---
+
+## Closing status (16:55, 2026-08-01)
+
+Two sessions worked this list in parallel. The authoring session closed most
+of the guard surface between 15:37 and 16:04; this pass verified all 28
+findings against the resulting tree, closed what was left, and built the
+regression coverage none of it had.
+
+**Closed in this pass** (were STILL_BROKEN after the authoring session's run):
+
+- **Quest consent** now refuses an example quest. Claim and submit were
+  already guarded, but consent is the step that MINTS, and a claim created
+  before those guards shipped could still walk through it. The decline branch
+  stays open so a stranded claim can be cleared.
+- **Admin quest edit** refuses: editing an example into a real quest left
+  `is_example` set, so retirement would later delete the admin's own work.
+- **Call-task accept/dismiss** refuses. The seeded example task ships in
+  status `suggested`, which is exactly what that UPDATE matches.
+- **Synthesis body edit** refuses, matching the publish route beside it.
+- **`forgetExamplesCache`** is now called from the admin create paths (tools,
+  badges, rooms), so an admin who publishes the first real item stops reading
+  "nobody here made them" over their own content in the same session.
+- **`prove-examples.mjs`** prints and counts SKIPPED probes instead of
+  silently passing when a subject is absent; **`check-examples.mjs`** states
+  in the file that its economic counts are virgin-schema-only.
+- **The doc header** now matches the code: the guard list, the banner count,
+  the test inventory, `isExampleRow`/`EXAMPLE_REFUSAL_BODY` instead of the
+  `assertNotExample` that never existed, `retired_by`, the real boot-seeding
+  posture, and the per-module trigger section that was still a placeholder.
+
+**The coverage gap, closed:** `server/examples.routes.e2e.test.ts` (19 cases)
+boots the built server and exercises the guards and retirement over HTTP —
+every refusal asserted with its 409 AND its absence of side effects (no
+`stay_purchases` row, no ledger row, no badge award, no claim), plus the
+economic tables empty, every module still turn-off-able, retirement scoped to
+one module, no resurrection on toggle, and the admin clear. Before this, the
+review found twelve guards that could be deleted with every gate still green.
+
+**Two things worth knowing, found by running it:**
+
+1. Retirement stamps its tombstone BEFORE the cache reload finishes, so for a
+   moment `/api/examples` says a module is done while the served collection
+   still holds the examples. Harmless in practice and self-correcting within
+   seconds, but it is why the test polls the collection rather than the
+   bookkeeping. Worth tightening if the ordering ever matters.
+2. Example quests do not seed on a village whose quest board is already full
+   (`hasRealContent` suppresses them, correctly), so the quest guard is proven
+   against a row the test writes itself. A probe that just looked for a seeded
+   example quest would have passed while asserting nothing.
+
+**Gates, on a clean snapshot of this tree:** `pnpm check` 0 errors ·
+`pnpm build` ✔ · `pnpm test` **259/259 across 23 files** (loop e2e included) ·
+`check-voice` clean. `check-brand-refs` fails on `client/src/pages/Quests.tsx`
+and `server/index.ts` — both belong to the concurrent voice/brand sweep, whose
+burned-down baseline was committed ahead of its removals; no file in this pass
+carries a brand reference. That sweep landing is what turns the fifth gate
+green, and it is the only thing standing between this set and a commit.

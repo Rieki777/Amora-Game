@@ -133,6 +133,12 @@ export async function assertBadgeInvariants(pool: Pool): Promise<void> {
   const problems: string[] = [];
   for (const b of await allBadges(pool)) {
     if (!b.active) continue;
+    // Standing examples cannot refuse the boot. They are written by the seeder
+    // AFTER this assertion runs, so a row this check would reject lands
+    // silently on one boot and bricks the next — a deployment that cannot
+    // start over platform demo content. They also grant nothing (the engine
+    // and the award route both skip them), so they have no invariant to break.
+    if (b.isExample) continue;
     const p = badgeProblem(b);
     if (p) problems.push(`badge "${b.id}": ${p}`);
   }

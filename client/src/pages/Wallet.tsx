@@ -11,6 +11,7 @@ import { useModule, useModules, useHypha } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Coins, CreditCard, ExternalLink, ReceiptText, Wallet as WalletIcon } from "lucide-react";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -83,6 +84,7 @@ export default function Wallet() {
             What you hold, and the village exchange. Recognition is earned, never
             bought. Only the village's own credit tokens are ever listed here.
           </p>
+          <ExamplesBanner moduleId="exchange" noun="listing" />
         </div>
       </section>
 

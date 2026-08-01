@@ -13,7 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Flag, Gavel, Lock, MessageCircle, Pin, Plus, Bell } from "lucide-react";
 import { Image } from "@/components/Image";
-import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -73,6 +73,9 @@ function ThreadList() {
         if (!r.ok) throw new Error(d.error || "Could not post");
         setComposing(false);
         setDraft({ title: "", body: "", category: "", kind: "discussion" });
+        // The server has just retired this module's examples; drop the label
+        // now rather than leaving it over the member's own new thread.
+        forgetExamplesCache("forum");
         load();
       })
       .catch((e) => setError(e.message))

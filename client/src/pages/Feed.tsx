@@ -13,7 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Calendar, Heart, Megaphone, MessageCircle, Sparkles, Send } from "lucide-react";
 import { Image } from "@/components/Image";
-import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -87,6 +87,7 @@ export default function Feed() {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "Could not post");
         setDraft("");
+        forgetExamplesCache("feed");
         load();
       })
       .catch((e) => setError(e.message));

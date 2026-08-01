@@ -117,7 +117,7 @@ export async function snapshotCycle(pool: Pool, cycle: SnapshotCycle, eligibleSe
   // Library utilization: items that saw a loan this lunation / items owned.
   try {
     const [[libRow]] = await pool.query<any[]>(
-      "SELECT (SELECT COUNT(*) FROM library_items WHERE status <> 'written_off') AS items, " +
+      "SELECT (SELECT COUNT(*) FROM library_items WHERE status <> 'written_off' AND is_example = 0) AS items, " +
         "(SELECT COUNT(DISTINCT item_id) FROM library_loans WHERE created_at >= ? AND created_at < ?) AS loaned",
       [start, end],
     );
@@ -219,7 +219,9 @@ export interface SnapshotSeriesPoint {
 
 export async function snapshotSeries(pool: Pool): Promise<{ lunationsCollected: number; series: Record<string, SnapshotSeriesPoint[]> }> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT cycle_number, metric_key, value, meta FROM health_snapshots ORDER BY cycle_number ASC",
+    // Fabricated lunations must not open the honest-sparse gate: three seeded
+    // cycles would report trendsUnlocked on a village that has closed none.
+    "SELECT cycle_number, metric_key, value, meta FROM health_snapshots WHERE is_example = 0 ORDER BY cycle_number ASC",
   );
   const series: Record<string, SnapshotSeriesPoint[]> = {};
   const cycles = new Set<number>();
@@ -285,7 +287,9 @@ export async function regenEntries(pool: Pool, limit = 100, includeRetracted = f
 export async function regenTotals(pool: Pool): Promise<Record<string, { total: number; unit: string; entries: number }>> {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT metric_key, SUM(value) AS total, MAX(unit) AS unit, COUNT(*) AS n FROM regen_entries " +
-      "WHERE retracted_at IS NULL GROUP BY metric_key",
+      // Examples are illustrative; this total is the number a village carries
+      // to funders, so a seeded 240 trees must never be inside it.
+      "WHERE retracted_at IS NULL AND is_example = 0 GROUP BY metric_key",
   );
   const out: Record<string, { total: number; unit: string; entries: number }> = {};
   for (const r of rows) out[String(r.metric_key)] = { total: Number(r.total), unit: String(r.unit), entries: Number(r.n) };
@@ -305,13 +309,13 @@ export async function governanceReads(pool: Pool): Promise<{
   note: string;
 }> {
   const [[row]] = await pool.query<any[]>(
-    "SELECT COUNT(*) AS n, COUNT(DISTINCT author_id) AS authors FROM forum_threads WHERE kind = 'decision'",
+    "SELECT COUNT(*) AS n, COUNT(DISTINCT author_id) AS authors FROM forum_threads WHERE kind = 'decision' AND is_example = 0",
   ).catch(() => [[{ n: 0, authors: 0 }]] as any);
   const decisions = Number(row.n);
   let concentration: number | null = null;
   if (decisions >= 3) {
     const [[top]] = await pool.query<any[]>(
-      "SELECT COUNT(*) AS n FROM forum_threads WHERE kind = 'decision' GROUP BY author_id ORDER BY n DESC LIMIT 1",
+      "SELECT COUNT(*) AS n FROM forum_threads WHERE kind = 'decision' AND is_example = 0 GROUP BY author_id ORDER BY n DESC LIMIT 1",
     );
     concentration = Number(top.n) / decisions;
   }

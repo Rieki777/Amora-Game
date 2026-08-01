@@ -30,6 +30,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { fetchGameMe, QuestClaim, useGameConfig } from "@/lib/gameApi";
 import QuestActions from "@/components/QuestActions";
 import { rewardCeiling } from "@shared/questRewards";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 type QuestStatus = "Open" | "In Progress" | "Seasonal";
 type Difficulty = "Beginner" | "Intermediate" | "Advanced";
@@ -103,7 +104,12 @@ const circles: QuestCircle[] = [
 export default function Quests() {
   // The value token's live name (Admin → Tokens) — a fork's rename reaches
   // the explainer below without a code change.
-  const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
+  const cfg = useGameConfig();
+  const valueName = cfg?.currency?.value?.name ?? "village tokens";
+  // Same rule for the village's own name and its events page: this page is
+  // platform code, so it asks the config rather than naming anybody.
+  const villageName = cfg?.project?.name ?? "the village";
+  const eventsUrl = cfg?.project?.eventsUrl ?? "";
   const [activeCircle, setActiveCircle] = useState<QuestCircle>("All");
   const [activeDifficulty, setActiveDifficulty] = useState<Difficulty | "All">(
     "All"
@@ -172,6 +178,7 @@ export default function Quests() {
               relationships, regenerates the land, and grows the community's
               collective score.
             </p>
+            <ExamplesBanner moduleId="quests" noun="quest" />
             <p className="text-sm text-muted-foreground mb-8">
               {quests.length} active quests &nbsp;·&nbsp; up to{" "}
               {quests
@@ -366,15 +373,19 @@ export default function Quests() {
               first quest.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-semibold hover:opacity-90 transition-opacity flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Join a Community Call
-              </a>
+              {/* A fork with no events page shows no button rather than a dead
+                  link, the same rule the footer follows. */}
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-semibold hover:opacity-90 transition-opacity flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Join a Community Call
+                </a>
+              )}
               <Link href="/love-letter">
                 <a className="px-6 py-3 bg-muted text-foreground rounded-lg font-semibold hover:bg-muted/80 transition-colors flex items-center gap-2">
                   <Heart className="w-5 h-5" />
@@ -394,7 +405,7 @@ export default function Quests() {
               What Is Gratitude?
             </h2>
             <p className="text-muted-foreground text-center mb-10">
-              Gratitude is how Amora acknowledges contributions, a recognition signal with
+              Gratitude is how {villageName} acknowledges contributions, a recognition signal with
               no financial value of its own. The value rides beside it: each cycle the
               community sets aside a real pool of {valueName} and shares it across
               everyone's Gratitude, so appreciation decides where the value flows.
@@ -413,7 +424,7 @@ export default function Quests() {
                 },
                 {
                   title: "Share",
-                  body: `Each cycle, everyone's Gratitude shares in a real pool of ${valueName}. As Amora grows, ${valueName} can convert to cash, equity, or community currency. This is how we honor contributions made before we could pay in cash.`,
+                  body: `Each cycle, everyone's Gratitude shares in a real pool of ${valueName}. As ${villageName} grows, ${valueName} can convert to cash, equity, or community currency. This is how we honor contributions made before we could pay in cash.`,
                   icon: Sprout,
                 },
               ].map((item) => (

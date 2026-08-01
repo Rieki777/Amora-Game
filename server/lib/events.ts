@@ -70,8 +70,11 @@ export async function recentEvents(
   limit = 30,
 ): Promise<EventRow[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
+    // Example events are illustrative, not history. This spine feeds the
+    // public Pulse and the feed's "village happenings", so an unfiltered read
+    // presents seeded copy as things that actually happened here.
     "SELECT id, kind, text, actor_user_id, entity_type, entity_ref, audience, at " +
-      "FROM health_events WHERE audience = ? ORDER BY at DESC, id DESC LIMIT ?",
+      "FROM health_events WHERE audience = ? AND is_example = 0 ORDER BY at DESC, id DESC LIMIT ?",
     [audience, Math.max(1, Math.min(500, limit))],
   );
   return rows.map(rowToEvent);

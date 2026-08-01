@@ -36,6 +36,7 @@ if (item) {
   const b = await r.json().catch(() => ({}));
   ok(`borrow "${item.name}"`, r.status === 409 && b.code === "example_immutable", `${r.status} ${b.error ?? ""}`);
 }
+ else skip("borrow an example", "no example library item on this instance");
 
 // 2. Requesting an example stay would create open state blocking module-off.
 const stays = await fetch(`${BASE}/api/stays`, { headers: auth }).then((r) => r.json());
@@ -47,6 +48,7 @@ if (room) {
   const b = await r.json().catch(() => ({}));
   ok(`book "${room.name}"`, r.status === 409 && b.code === "example_immutable", `${r.status} ${b.error ?? ""}`);
 }
+ else skip("book an example", "no example room on this instance");
 
 // 3. Buying an example product would reach Stripe.
 const prods = await fetch(`${BASE}/api/products`, { headers: auth }).then((r) => r.json());
@@ -58,6 +60,7 @@ if (prod) {
   const b = await r.json().catch(() => ({}));
   ok(`buy "${prod.name}"`, r.status === 409 && b.code === "example_immutable", `${r.status} ${b.error ?? ""}`);
 }
+ else skip("buy an example", "no example product on this instance");
 
 // 4. Hearting an example post would post a real ledger leg.
 const feed = await fetch(`${BASE}/api/feed`, { headers: auth }).then((r) => r.json());
@@ -69,6 +72,7 @@ if (post) {
   const b = await r.json().catch(() => ({}));
   ok("heart an example post", r.status === 409 && b.code === "example_immutable", `${r.status} ${b.error ?? ""}`);
 }
+ else skip("heart an example", "no example feed post on this instance");
 
 // 5. Awarding an example warning badge would suspend a real member.
 const badges = await fetch(`${BASE}/api/badges`, { headers: auth }).then((r) => r.json());
@@ -81,6 +85,7 @@ if (warn) {
   const b = await r.json().catch(() => ({}));
   ok(`award "${warn.name}"`, r.status === 409 && b.code === "example_immutable", `${r.status} ${b.error ?? ""}`);
 }
+ else skip("award an example", "no example warning badge on this instance");
 
 // 6. Claiming an example quest walks straight to consent, which mints.
 const quests = await fetch(`${BASE}/api/quests`, { headers: auth }).then((r) => r.json());
@@ -161,5 +166,10 @@ await fetch(`${BASE}/api/admin/modules/tools/lifecycle`, {
 const afterCycle = await examplesNow();
 ok("off-and-on does not resurrect them", !afterCycle.includes("tools"));
 
+// A pass that asserted nothing is not a pass. Skips are printed above and
+// counted here, so "ALL PROOFS PASSED" can never mean "nothing was checked".
+if (skipped.length) {
+  console.log(`\n${skipped.length} probe(s) SKIPPED (subject absent): ${skipped.join(", ")}`);
+}
 console.log(failures === 0 ? "\nALL PROOFS PASSED\n" : `\n${failures} PROOF(S) FAILED\n`);
 process.exit(failures === 0 ? 0 : 1);

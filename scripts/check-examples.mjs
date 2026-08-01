@@ -57,7 +57,13 @@ const ECONOMIC = [
   "product_purchases", "fiat_charges", "badge_awards", "gratitude_log",
 ];
 
-console.log("\nECONOMIC SAFETY — every count must be 0");
+// NOTE: these counts are UNSCOPED — they ask "is this table empty?", not
+// "did an example put anything here?". That is the right question against a
+// virgin schema (which is what this script is for) and the wrong one against
+// a running village, where a single real loan or ledger row reads as a
+// violation while the examples are perfectly inert. Point it at a scratch
+// database, not at production.
+console.log("\nECONOMIC SAFETY — every count must be 0 (virgin schema only)");
 let violations = 0;
 for (const t of ECONOMIC) {
   const [[r]] = await c.query("SELECT COUNT(*) n FROM `" + t + "`");

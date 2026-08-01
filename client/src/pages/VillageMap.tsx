@@ -13,6 +13,7 @@ import { layoutMap, type LayoutCircle } from "@shared/mapLayout";
 import { authToken } from "@/lib/gameApi";
 import { getPreference, rememberMapAvailable, setPreference } from "@/lib/landing";
 import { ChevronDown, Compass, Hand, Mail, Search, X } from "lucide-react";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 interface MapRole {
   id: string;
@@ -73,6 +74,7 @@ export default function VillageMap() {
             Circles of care, the roles that hold them, and the seats waiting for
             someone like you.
           </p>
+          <ExamplesBanner moduleId="map" noun="circle" />
           <LandingToggle />
         </div>
       </section>

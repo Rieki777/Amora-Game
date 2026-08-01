@@ -54,6 +54,8 @@ export interface ExchangeSettings {
   swapHaltedAt: string | null;
   swapHaltedBy: string | null;
   swapHaltReason: string | null;
+  /** A standing example listing: display-only, never a market. */
+  isExample: boolean;
 }
 
 function rowToSettings(r: RowDataPacket): ExchangeSettings {
@@ -69,6 +71,7 @@ function rowToSettings(r: RowDataPacket): ExchangeSettings {
     swapHaltedAt: r.swap_halted_at ? new Date(r.swap_halted_at).toISOString() : null,
     swapHaltedBy: r.swap_halted_by ?? null,
     swapHaltReason: r.swap_halt_reason ?? null,
+    isExample: Number(r.is_example ?? 0) === 1,
   };
 }
 
@@ -300,6 +303,11 @@ export async function assertExchangeFirewalls(pool: Pool): Promise<void> {
   const problems: string[] = [];
   for (const s of await exchangeSettings(pool)) {
     if (!s.active) continue;
+    // Examples cannot refuse the boot: the seeder writes them AFTER this runs,
+    // so a row this rejects lands quietly on one boot and bricks the next.
+    // repairTaintedListings (which is meant to delist loudly rather than
+    // crash) also runs after this, so the intended soft landing never applies.
+    if (s.isExample) continue;
     const p = listingProblem(s.tokenSlug, s);
     if (p) problems.push(p);
   }

@@ -219,6 +219,7 @@ import {
 import {
   EXAMPLE_REFUSAL_BODY,
   isExampleRow,
+  isExampleUser,
   isRetired,
   isSeeded,
   loadExampleSeed,
@@ -398,77 +399,27 @@ function validEmailSender(v: string): boolean {
 const FAQ_PATHWAYS = ["investor", "steward", "resident", "prosperity"] as const;
 type FaqPathway = (typeof FAQ_PATHWAYS)[number];
 
-const DEFAULT_FAQS: Record<FaqPathway, { id: string; question: string; answer: string }[]> = {
-  investor: [
-    { id: "inv-1", question: "What is the legal structure?", answer: "Amora uses a Horizontal Condominium under Costa Rican law, combined with a 508(c)(1)(a) community organization. Individual lot ownership with shared commons management." },
-    { id: "inv-2", question: "How does debt vs equity work?", answer: "We prefer debt financing to keep community ownership intact. Investors lend to the project and receive interest plus priority on lot purchases." },
-    { id: "inv-3", question: "What is the minimum investment?", answer: "Minimum amounts vary by vehicle. Contact the team to discuss options that match your capacity." },
-    { id: "inv-4", question: "What are my exit options?", answer: "Investors can exit through lot sale at appreciated value, business equity stake, or structured buy-back options. We prioritize liquidity for investors who need it." },
-    { id: "inv-5", question: "What if the project doesn't complete?", answer: "Investors hold debt secured against the land. In the unlikely event of project failure, debt holders have first claim on the 266-acre property which was appraised at $16M+ in January 2026." },
-    { id: "inv-6", question: "Can I live at Amora as an investor?", answer: "Yes. Investors who become residents get priority access to lots, and you can build a home on your lot. Your investment can apply toward your Land Share Agreement." },
-    { id: "inv-7", question: "What fees are involved?", answer: "Annual village contribution fee covers shared services, infrastructure maintenance, and circle operations. Exact amounts will be detailed in your investor pack." },
-    { id: "inv-8", question: "How does governance work?", answer: "Resident investors gain voice in village decisions through our consent-based circle system. The more you contribute over time, the more governance weight you earn." },
-    { id: "inv-9", question: "When is ROI expected?", answer: "The 15-year financial model projects returns from resort, retail, and residential components. Year-by-year projections are in the Investor Pack." },
-  ],
-  steward: [
-    { id: "stw-1", question: "How are decisions made?", answer: "Through sociocratic circles using consent-based decision making. No single person, including the founders, can override a community consent vote." },
-    { id: "stw-2", question: "Do I get paid as a Village Steward?", answer: "Contributions are recognised in Gratitude, a living record of the value you bring, not a fixed dollar amount. As Amora's shared businesses generate revenue, Gratitude can convert to cash, equity, or community currency." },
-    { id: "stw-3", question: "How much time does stewardship require?", answer: "Roles are seasonal (3-month commitments). The time varies by role: some are a few hours per week, others are near full-time." },
-  ],
-  resident: [
-    { id: "res-1", question: "What internet is available?", answer: "Dominicalito has reliable fiber internet. The village will have dedicated high-speed connection for residents and home offices." },
-    { id: "res-2", question: "What schooling options exist for children?", answer: "Plans include an on-site learning center. Local bilingual schools are within 20 minutes. Many resident families are worldschoolers." },
-    { id: "res-3", question: "Can I own my home outright?", answer: "Land Share Agreements provide long-term secure access, renewable and inheritable by your children tax-free. The community co-owns the land, you own your structure." },
-  ],
-  prosperity: [
-    { id: "pro-1", question: "What businesses are needed?", answer: "The Prosperity Packet details all opportunities. High-priority needs include food production, wellness services, childcare, construction, and technology." },
-    { id: "pro-2", question: "How does revenue sharing work?", answer: "A percentage of revenue (exact structure in the Prosperity Packet) is distributed as Gratitude to the village community. You operate your business; the community benefits from your success." },
-    { id: "pro-3", question: "Do I need to live at Amora to run a business?", answer: "Some businesses require on-site presence. Others can be managed remotely. Discuss your model with the team during your Prosperity Call." },
-  ],
+/**
+ * The village-content defaults: FAQs, roadmap milestones, the visit page and
+ * the investor summary. These are one village's words, not platform
+ * behaviour, so they live in server/seeds (a declared brand home) and are
+ * loaded here as the DEFAULTS behind their database documents. An admin edit
+ * writes to the document and this file is never consulted again; a fresh fork
+ * replaces the seed and gets its own.
+ */
+type SiteContentSeed = {
+  faqs: Record<FaqPathway, { id: string; question: string; answer: string }[]>;
+  milestones: any[];
+  visitConfig: any;
+  investorSummary: any;
 };
-
-const DEFAULT_MILESTONES = [
-  { id: "land-acquired", phase: "Phase 0", title: "Land Acquired", description: "266 acres in Dominicalito, Costa Rica secured.", status: "complete", completedDate: "2024-06", updateNote: "", order: 1 },
-  { id: "appraisal-2026", phase: "Phase 0", title: "January 2026 Appraisal", description: "Independent appraisal values property at $16M+.", status: "complete", completedDate: "2026-01", updateNote: "", order: 2 },
-  { id: "founding-team", phase: "Phase 1", title: "Founding Team Assembled", description: "Core co-creators circle forming and active.", status: "in-progress", completedDate: null, updateNote: "Core circle forming, still welcoming co-creators.", order: 3 },
-  { id: "site-planning", phase: "Phase 1", title: "Site Planning & Design", description: "Master plan, infrastructure layout, and first home designs.", status: "in-progress", completedDate: null, updateNote: "Master plan review underway.", order: 4 },
-  { id: "retreat-center", phase: "Phase 2", title: "Retreat Center", description: "120-150 key eco-resort and retreat facility.", status: "upcoming", completedDate: null, updateNote: "", order: 5 },
-  { id: "show-homes", phase: "Phase 2", title: "First 10 Show Homes", description: "First residential structures built and move-in ready.", status: "upcoming", completedDate: null, updateNote: "", order: 6 },
-  { id: "health-center", phase: "Phase 3", title: "Health + Wellness Center", description: "On-site medical and holistic wellness facility.", status: "upcoming", completedDate: null, updateNote: "", order: 7 },
-  { id: "full-village", phase: "Phase 4", title: "Full Village (150+ homes)", description: "Complete residential buildout with all shared infrastructure.", status: "future", completedDate: null, updateNote: "", order: 8 },
-];
-
-const DEFAULT_VISIT_CONFIG = {
-  hero_subtitle: "Experience the land, meet the people, and decide if Amora is where you belong.",
-  visit_types: [
-    { id: "community-call", title: "Community Call", duration: "90 minutes", format: "Virtual (Zoom)", cost: "Free", description: "Meet the founding team and current members. Ask any question. Hear the vision directly. This is your first step.", cta_label: "Join the Next Call", cta_url: "https://amora.cr/event/discover-amora-webinar-qa/", order: 1 },
-    { id: "land-tour", title: "Land Tour Visit", duration: "1-3 days", format: "In Person, Dominicalito CR", cost: "Details TBD", description: "Walk the 266 acres with a founding team member. See the infrastructure underway. Stay nearby or camp on the land. Meals with the community included.", cta_label: "Request a Visit", cta_url: "", order: 2 },
-    { id: "immersion", title: "Village Weaving Immersion", duration: "2-4 weeks", format: "In Person, Dominicalito CR", cost: "Details TBD", description: "Live and work alongside the founding community. Shadow circle meetings, contribute to active projects, and discover where your gifts are most needed. This is the deepest way to know before you commit.", cta_label: "Apply for Immersion", cta_url: "", order: 3 },
-  ],
-  logistics: {
-    getting_there: "Dominicalito is on Costa Rica's Pacific coast. Nearest airport: Quepos (45 min) or San Jose (3.5 hours). Charter flights available to Quepos from the US west coast.",
-    accommodation: "Accommodation details will be provided when you book. Options range from nearby guesthouses to on-land camping.",
-    what_to_bring: "Comfortable outdoor clothes, sun protection, rain gear. The dry season runs December to April; green season May to November brings afternoon rain.",
-    contact_note: "Ready to visit? Fill in the form below or email the team directly.",
-  },
-};
-
-const DEFAULT_INVESTOR_SUMMARY = {
-  headline: "What Your Investment Looks Like",
-  intro: "We believe transparency converts. Here's the plain-language version of what investing in Amora means.",
-  details: [
-    { id: "min-investment", label: "Minimum Investment", value: "To be confirmed", note: "Contact the team to discuss options that match your capacity.", icon: "dollar" },
-    { id: "structure", label: "Investment Structure", value: "Debt (secured notes)", note: "We prioritize debt over equity so the community retains ownership. You lend to the project and receive interest plus priority on lot purchases.", icon: "shield" },
-    { id: "projected-irr", label: "Projected IRR", value: "19.6%", note: "15-year model based on phased development. Past performance and projections are not guarantees of future results.", icon: "trending-up" },
-    { id: "interest-rate", label: "Interest Rate", value: "To be confirmed", note: "Exploring a 1% regenerative development loan. Rates for early investors will be detailed in the Investor Pack.", icon: "percent" },
-    { id: "term", label: "Investment Term", value: "To be confirmed", note: "Multiple term options are available. Details in the Investor Pack.", icon: "calendar" },
-    { id: "exit", label: "Exit Options", value: "Lot sale, equity stake, or structured buyback", note: "We prioritize liquidity for investors who need it.", icon: "arrow-right" },
-    { id: "governance", label: "Governance Rights", value: "Voice in village decisions", note: "Resident investors participate in consent-based circle governance. The more you contribute over time, the more governance weight you earn.", icon: "users" },
-  ],
-  disclaimer: "Investment in Amora involves risk. All projections are forward-looking and not guaranteed. This is not a solicitation. Speak with your financial and legal advisors before making any investment decision.",
-  cta_label: "Request Full Investor Pack",
-  cta_url: "",
-};
+const SITE_CONTENT: SiteContentSeed = JSON.parse(
+  fs.readFileSync(path.join(SEEDS_DIR, "site-content-seed.json"), "utf-8"),
+);
+const DEFAULT_FAQS = SITE_CONTENT.faqs;
+const DEFAULT_MILESTONES = SITE_CONTENT.milestones;
+const DEFAULT_VISIT_CONFIG = SITE_CONTENT.visitConfig;
+const DEFAULT_INVESTOR_SUMMARY = SITE_CONTENT.investorSummary;
 
 // Brand overlay: the white-label layer the Setup Wizard writes to. Empty string
 // on any field means "use the gameConfig default", so a fresh project sees Amora's
@@ -515,7 +466,7 @@ const DEFAULT_SETTINGS = {
     amount: "", // e.g. "250" — blank means "to be confirmed" and no figure is shown on the site
     period: "month",
     currency: "$",
-    note: "Village Dues cover utilities, maintenance, and community services. They can be offset through Gratitude, a living record of what you contribute, with no fixed dollar peg.",
+    note: "Village Dues cover utilities, maintenance, and community services. Contributions are recognised in Gratitude, and the value tokens the community pool distributes across Gratitude can help offset dues.",
   },
 };
 
@@ -1107,6 +1058,7 @@ async function ensureDataFiles() {
   await runOnce("canonicalize-regen-units", canonicalizeRegenUnits);
   await runOnce("accept-award-to-registry", migrateAcceptAwardToRegistry);
   await runOnce("retire-legacy-peg-copy", retireLegacyPegCopy);
+  await runOnce("retire-blended-token-copy", retireBlendedTokenCopy);
   await runOnce("founding-team-in-progress", markFoundingTeamInProgress);
   await runOnce("backfill-member-handles", backfillMemberHandles);
   await runOnce("membership-grants-from-email-match", freezeEmailMatchedMemberships);
@@ -1326,6 +1278,86 @@ async function retireLegacyPegCopy() {
     if (settings?.villageDues?.note === OLD_DUES_NOTE) {
       settings.villageDues.note = (DEFAULT_SETTINGS as any).villageDues.note;
       await settingsRepo.put(settings);
+    }
+  } catch { /* same */ }
+}
+
+/**
+ * The two-token split (Rye, 2026-08-01). Gratitude is the appreciation signal
+ * and carries no financial value; the cycle pool's value token is what the
+ * convert-to-cash-or-equity promise attaches to. Copy written before the split
+ * either promised conversion of Gratitude itself or still called the currency
+ * "Hearts", and those strings were seeded into live deployments where a code
+ * change cannot reach them.
+ *
+ * Same discipline as retireLegacyPegCopy above: a stored string is rewritten
+ * ONLY while it is character-for-character a value this platform seeded.
+ * Anything a human has since edited is left exactly as it is. Two seeded
+ * generations circulate, one punctuated with a comma and one with an em-dash
+ * (written before the voice guard), so both are matched.
+ */
+async function retireBlendedTokenCopy() {
+  const oldStw2 = (join: string) =>
+    `Contributions are recognised in Gratitude${join}a living record of the value you bring, not a fixed dollar amount. As ${GAME_CONFIG.project.name}'s shared businesses generate revenue, Gratitude can convert to cash, equity, or community currency.`;
+  const oldDues = (join: string) =>
+    `Village Dues cover utilities, maintenance, and community services. They can be offset through Gratitude${join}a living record of what you contribute, with no fixed dollar peg.`;
+  const OLD_PRO2 = "A percentage of revenue (exact structure in the Prosperity Packet) is distributed as Gratitude to the village community. You operate your business; the community benefits from your success.";
+  const newStw2 = (DEFAULT_FAQS.steward.find((f) => f.id === "stw-2") as any)?.answer;
+  const newPro2 = (DEFAULT_FAQS.prosperity.find((f) => f.id === "pro-2") as any)?.answer;
+  const FAQ_SWAPS: Array<[string, string]> = [
+    [oldStw2(", "), newStw2],
+    [oldStw2(" — "), newStw2], // voice-ok: search key for retired copy in live data, never rendered
+    [OLD_PRO2, newPro2],
+  ];
+  try {
+    const faqs = faqsRepo.get();
+    if (faqs && typeof faqs === "object") {
+      let changed = false;
+      for (const list of Object.values(faqs) as any[]) {
+        if (!Array.isArray(list)) continue;
+        for (const item of list) {
+          const swap = FAQ_SWAPS.find(([before]) => item?.answer === before);
+          if (swap && swap[1]) { item.answer = swap[1]; changed = true; }
+        }
+      }
+      if (changed) await faqsRepo.put(faqs);
+    }
+  } catch { /* copy migration is best-effort; never block boot */ }
+  try {
+    const settings = settingsRepo.get();
+    const note = settings?.villageDues?.note;
+    if (note === oldDues(", ") || note === oldDues(" — ")) { // voice-ok: search key for retired copy in live data, never rendered
+      settings.villageDues.note = (DEFAULT_SETTINGS as any).villageDues.note;
+      await settingsRepo.put(settings);
+    }
+  } catch { /* same */ }
+  // The "Hearts" era survives inside the seeded content document (journey step
+  // details, circle focus lines). Deep-walk and swap exact strings only.
+  const CONTENT_SWAPS: Record<string, string> = {
+    "Earn Hearts for contributions": "Earn Gratitude for contributions",
+    "Learn about Hearts currency": "Learn how Gratitude and the value pool work",
+    "Hearts Economy": "Gratitude Economy",
+  };
+  try {
+    const content = contentRepo.get();
+    if (content && typeof content === "object") {
+      let changed = false;
+      const walk = (node: any) => {
+        if (Array.isArray(node)) {
+          node.forEach((v, i) => {
+            if (typeof v === "string") { if (CONTENT_SWAPS[v]) { node[i] = CONTENT_SWAPS[v]; changed = true; } }
+            else walk(v);
+          });
+        } else if (node && typeof node === "object") {
+          for (const k of Object.keys(node)) {
+            const v = node[k];
+            if (typeof v === "string") { if (CONTENT_SWAPS[v]) { node[k] = CONTENT_SWAPS[v]; changed = true; } }
+            else walk(v);
+          }
+        }
+      };
+      walk(content);
+      if (changed) await contentRepo.put(content);
     }
   } catch { /* same */ }
 }
@@ -2646,7 +2678,11 @@ async function startServer() {
     const staleDays = Math.max(1, numberVar("tools.link_check_days"));
     const cutoff = Date.now() - staleDays * 24 * 60 * 60 * 1000;
     const all = toolsRepo.all() as any[];
-    const due = all.filter((t) => t.enabled !== false && (!t.lastCheckedAt || new Date(t.lastCheckedAt).getTime() < cutoff));
+    // Example tools point at example.org and are never due: checking them
+    // sends this village's traffic to a domain it does not control every day,
+    // writes the result back onto example rows, and alerts stewards about
+    // "broken links" they cannot fix because the rows refuse every edit.
+    const due = all.filter((t) => !t.isExample && t.enabled !== false && (!t.lastCheckedAt || new Date(t.lastCheckedAt).getTime() < cutoff));
     if (!due.length) return;
     const broken: string[] = [];
     for (const t of due) {
@@ -2763,6 +2799,12 @@ async function startServer() {
       });
       if (r.fresh) fresh += 1;
     }
+    // Deliberately does NOT retire automation examples. Retirement is
+    // permanent and one-way, and a 6-hourly poll of a YouTube channel is not
+    // a village deciding anything — it would delete the examples, and if
+    // automation held the last of them the shared example identities too, on
+    // a timer, with no human act and no undo. Retirement stays on acts a
+    // person took: the manual ingest route and the admin clear button.
     return `${entries.length} in feed, ${fresh} new`;
   });
   // startScheduler is deliberately NOT called here: arming the tick is the
@@ -4587,14 +4629,16 @@ async function startServer() {
     const thread = await forumThreadById(req.params.id);
     if (!thread || thread.hiddenAt) return res.status(404).json({ error: "Thread not found" });
     // Locks are ENFORCED here — a lock that only lives in the UI is theater.
-    if (thread.lockedAt) return res.status(423).json({ error: "This thread is locked" });
-    // The banner promises examples cannot be replied to, and it has to be
-    // true: a real reply on an example thread is destroyed without trace when
-    // that thread retires — there are no foreign keys, so the member's words
-    // survive as an orphan pointing at a row that no longer exists.
+    // Checked BEFORE the lock: an example thread that happens to be locked
+    // should say it is an example, not "locked" — the latter implies someone
+    // could unlock it and reply. The refusal has to be true, not just a
+    // refusal. And it must be: a real reply on an example thread is destroyed
+    // without trace when that thread retires, because there are no foreign
+    // keys, so the member's words survive as an orphan pointing at nothing.
     if (await isExampleRow(getPool(), "forum_threads", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
+    if (thread.lockedAt) return res.status(423).json({ error: "This thread is locked" });
     const body = String(req.body?.body ?? "").trim();
     if (!body) return res.status(400).json({ error: "Say something" });
     const parentReplyId = req.body?.parentReplyId ? String(req.body.parentReplyId) : null;
@@ -5016,6 +5060,10 @@ async function startServer() {
     if (!user) return res.status(401).json({ error: "Sign in to raise your hand" });
     const role = loadRoles().find((r: any) => r.id === req.params.id);
     if (!role) return res.status(404).json({ error: "Role not found" });
+    // Applying for an example seat writes a real submission into the
+    // stewards' inbox for a role that will be deleted on retirement, leaving
+    // the member's application pointing at nothing.
+    if ((role as any).isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const entry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       type: "role-application",
@@ -5447,7 +5495,7 @@ async function startServer() {
     const all = toolsRepo.all();
     const results: any[] = [];
     for (const t of all as any[]) {
-      if (t.enabled === false) continue;
+      if (t.enabled === false || t.isExample) continue; // never dial example.org
       const r = await checkToolLink(t.url);
       t.lastCheckedAt = new Date().toISOString();
       t.lastCheckStatus = r.status ?? 0;
@@ -5495,7 +5543,9 @@ async function startServer() {
     // status compares lowercased: the board has both "open" (seed) and "Open"
     // (admin-created) in the wild, and the earn path must see them all.
     const earnQuests = (await questsRepo.all()).filter(
-      (q) => String(q.status).toLowerCase() === "open" && ((q.stayCreditReward ?? 0) > 0 || (tag && q.tags.includes(tag))),
+      // Example quests are never offered as a way to earn: this list is
+      // shown to a guest running low on stay credits as real, claimable work.
+      (q) => !q.isExample && String(q.status).toLowerCase() === "open" && ((q.stayCreditReward ?? 0) > 0 || (tag && q.tags.includes(tag))),
     ).map((q) => ({ id: q.id, title: q.title, stayCreditReward: q.stayCreditReward ?? 0, gratitude: q.gratitude }));
     res.json({
       accommodations,
@@ -5903,8 +5953,22 @@ async function startServer() {
    * Deliberately not per-row — the concept wants explaining once at the top of
    * a page, not repeating on twelve cards.
    */
-  app.get("/api/examples", async (_req, res) => {
-    res.json({ modules: modulesWithExamples() });
+  app.get("/api/examples", async (req, res) => {
+    // Filtered by what the caller may already know exists. Seeding happens
+    // whenever a module leaves 'off' — including into 'preview', which is
+    // admin-only — so an unfiltered list told anonymous visitors which
+    // modules a village is quietly trying out. Metadata only, but it
+    // contradicted the endpoint's whole justification: the banner is an
+    // honest label on content you can already see, not a catalogue of
+    // content you cannot.
+    const admin = await isAdmin(req);
+    const visible = modulesWithExamples().filter((id) => {
+      const lc = effectiveLifecycle(id);
+      if (lc === "off") return false;
+      if (lc === "preview") return admin;
+      return true;
+    });
+    res.json({ modules: visible });
   });
 
   app.get("/api/platform/info", async (_req, res) => {
@@ -6370,8 +6434,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       return res.status(404).json({ error: "Not found" });
     }
     const [rows] = await getPool().query<any[]>(
+      // Examples never federate. Inbound sync already filters example peers;
+      // without the outbound half, a village's seeded demo needs and offers
+      // are published to every peer and cached there as genuine — other
+      // villages acting on "we need a timber framer" and writing to
+      // build@example.org. A label that only exists locally is not a label.
       "SELECT id, type, title, detail, contact, created_at, updated_at FROM shared_items " +
-        "WHERE status = 'open' ORDER BY created_at DESC LIMIT 100",
+        "WHERE status = 'open' AND is_example = 0 ORDER BY created_at DESC LIMIT 100",
     );
     res.json({
       instanceId: instanceIdentity().instanceId,
@@ -6773,6 +6842,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     if (r.fresh && transcript) {
       await putTranscript(getPool(), r.recording.id, String(transcript), "provided");
     }
+    // A village whose recordings arrive through its live integration publishes
+    // real content without ever touching the manual route, so retiring only
+    // there left the example recording standing beside genuine ones forever.
+    if (r.fresh) onRealItemPublished(getPool(), "automation", null);
     res.json({ received: true, fresh: r.fresh, recordingId: r.recording.id });
   });
 
@@ -6783,7 +6856,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       "SELECT recording_id, id, published_at, dropped_task_count FROM call_syntheses",
     );
     const byRec = new Map(synths.map((s) => [String(s.recording_id), s]));
-    const [[queue]] = await getPool().query<any[]>("SELECT COUNT(*) AS n FROM call_syntheses WHERE published_at IS NULL");
+    const [[queue]] = await getPool().query<any[]>("SELECT COUNT(*) AS n FROM call_syntheses WHERE published_at IS NULL AND is_example = 0");
     res.json({
       recordings: recordings.map((r) => ({ ...r, synthesis: byRec.get(r.id) ?? null })),
       readyQueue: Number(queue.n),
@@ -6855,7 +6928,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const [existing] = await getPool().query<any[]>("SELECT id FROM call_syntheses WHERE recording_id = ?", [rec.id]);
     if (existing[0]) return res.status(409).json({ error: "Already synthesized. One synthesis per recording, ever" });
     const maxQueue = Number((moduleConfig("automation") as any)?.maxReadyQueue ?? 15);
-    const [[queue]] = await getPool().query<any[]>("SELECT COUNT(*) AS n FROM call_syntheses WHERE published_at IS NULL");
+    const [[queue]] = await getPool().query<any[]>("SELECT COUNT(*) AS n FROM call_syntheses WHERE published_at IS NULL AND is_example = 0");
     if (Number(queue.n) >= maxQueue) {
       return res.status(409).json({ error: `The ready queue holds ${queue.n} unpublished syntheses. Publish or clear before drafting more (backpressure at ${maxQueue})` });
     }
@@ -6939,6 +7012,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   /** Humans edit BODY. No code path anywhere updates ai_body — write once. */
   app.put("/api/admin/syntheses/:id/body", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Same refusal the publish route below carries: an example synthesis is
+    // not a draft of the village's own words.
+    if (await isExampleRow(getPool(), "call_syntheses", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const { body, chapters, decisions } = req.body ?? {};
     if (!String(body ?? "").trim()) return res.status(400).json({ error: "The body cannot be empty" });
     const [r] = await getPool().query<any>(
@@ -7033,6 +7111,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
    *  quest, applies nothing — suggestions are never timer-mutations. */
   app.post("/api/admin/call-tasks/:id/:action(accept|dismiss)", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // The seeded example task ships in status 'suggested', so this UPDATE
+    // matches it: without the guard an admin acts on a demo row and the
+    // module quietly stops looking like a demo.
+    if (await isExampleRow(getPool(), "call_tasks", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const status = req.params.action === "accept" ? "accepted" : "dismissed";
     const [r] = await getPool().query<any>(
       "UPDATE call_tasks SET status = ?, acted_by = ?, acted_at = NOW() WHERE id = ? AND status = 'suggested'",
@@ -10339,6 +10423,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.put("/api/admin/quests/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Editing an example into a real quest would launder it: the row keeps
+    // is_example, so retirement would later delete the admin's own work.
+    if (await isExampleRow(getPool(), "quests", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const updated = await questsRepo.update(req.params.id, (q: any) => {
       Object.assign(q, req.body, { id: q.id });
     });
@@ -10490,6 +10579,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const { approve, amount } = req.body ?? {};
     const claim = await claimsRepo.byId(req.params.id);
     if (!claim) return res.status(404).json({ error: "Not found" });
+    // The last door on the example-quest chain. Claim and submit both refuse
+    // an example, so a claim can only reach here if it predates those guards
+    // — and this is the step that actually mints, so it refuses too. The
+    // DECLINE branch stays open on purpose: a stranded claim has to be
+    // clearable, and declining creates nothing.
+    if (approve !== false && (await isExampleRow(getPool(), "quests", claim.questId))) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     // NO SELF-CONSENT — load-bearing, not decorative. Consent mints
     // recognition from the faucet, grants stay credits and advances stages;
     // without this guard, widening the gate to role-holders would let a
@@ -12112,6 +12209,16 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     //     whose every capability they already hold themselves — checked
     //     through hasCapability, so badge denies and stage floors still
     //     apply, and never as a parallel permission path.
+    // Neither the seat nor the person may be a standing example. Seating
+    // someone into an example role announces the appointment on the pulse and
+    // notifies them, then retirement deletes the role and orphans the seat;
+    // seating an example identity puts a phantom on the org chart.
+    if ((loadRoles().find((r: any) => r.id === req.params.id) as any)?.isExample) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
+    if (isExampleUser(await members.byId(String(req.body?.userId ?? "")))) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     if (!isAdminActor) {
       if (String(req.body?.userId ?? "") === actorUser!.id) {
         return res.status(403).json({ error: "Recording a decision is not appointing yourself. Ask an admin, or another decider" });

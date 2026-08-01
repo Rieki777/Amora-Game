@@ -1,24 +1,38 @@
 # Standing examples — the empty-module problem
 
-> Status: BUILT, under review by Rye (2026-08-01).
+> Status: BUILT, reviewed, guards closed (2026-08-01). The adversarial review
+> and its 28 findings are in `docs/STANDING_EXAMPLES_REVIEW_2026-08-01.md`.
 >
-> **Content:** `server/seeds/examples-seed.json` — 81 rows across all 16
-> modules, platform-generic copy.
+> **Content:** `server/seeds/examples-seed.json` — ~70 rows across 16 module
+> blocks (gratitude and profiles seed no rows by design), platform-generic
+> copy, plus 3 shared example identities.
 > **Schema:** `drizzle/0046_standing_examples.sql` — `is_example` on 24 tables
 > plus `example_state`.
 > **Runtime:** `server/lib/examples.ts` — seeding, retirement, the inert guard
 > and the cache reload; hooked into boot (core modules and already-enabled
 > ones) and into `PUT /api/admin/modules/:id/lifecycle` (on first enable).
-> **Guards:** refusals on library reserve, stay request, product checkout,
-> feed heart, badge claim, badge award and exchange buy; the earned-badge
-> engine skips example definitions.
-> **Client:** `ExamplesBanner` on the nine module pages, fed by
-> `GET /api/examples`.
+> **Guards:** every mutation that can address an example row refuses it —
+> library reserve and write-off, stay request, stay checkout, manual stay
+> purchase, product checkout and edit, feed heart, forum reply/subscribe/
+> report, quest claim, submit and consent, admin quest edit, badge claim,
+> award and edit, exchange buy and listing, network share edit, synthesis
+> publish and body edit, call-task accept/dismiss, regen retract, role edit,
+> and bootstrap-as-an-example-identity; gratitude sent TO an example identity
+> is refused in `sendGratitude`; the earned-badge engine skips example
+> definitions. Grep `isExampleRow(` and `EXAMPLE_REFUSAL_BODY` for the live
+> list rather than trusting this sentence.
+> **Client:** `ExamplesBanner` on twelve module pages, fed by
+> `GET /api/examples` (which hides preview-lifecycle modules from
+> non-admins); publishing something real drops the banner in-session through
+> `forgetExamplesCache`.
 > **Admin:** a per-module "Clear examples" panel in the Modules tab over
 > `POST /api/admin/modules/:id/examples/clear`, driven by `showingExamples` /
 > `examplesRetired` on the modules payload.
-> **Tests:** `server/lib/examples.test.ts` (nine cases) plus two runnable
-> provers, `scripts/check-examples.mjs` and `scripts/prove-examples.mjs`.
+> **Tests:** `server/lib/examples.test.ts` (12 cases, the library) and
+> `server/examples.routes.e2e.test.ts` (19 cases, the guards and retirement
+> over HTTP against the built server) — plus three runnable provers,
+> `scripts/check-examples.mjs` (virgin-schema inertness),
+> `scripts/prove-examples.mjs` and `scripts/prove-remaining.mjs`.
 
 ## The problem
 
@@ -73,6 +87,7 @@ CREATE TABLE example_state (
   seeded_at       timestamp    NULL,
   retired_at      timestamp    NULL,
   retired_reason  varchar(64)  NULL,   -- 'first_real_item' | 'admin_cleared'
+  retired_by      varchar(64)  NULL,   -- who published or cleared, when known
   PRIMARY KEY (module_id)
 );
 ```
@@ -86,17 +101,23 @@ refuses, so examples cannot return by any path short of a deliberate SQL edit.
 (inside `setModuleLifecycle`, after the write succeeds) and is a no-op when the
 module has ever been seeded, has ever been retired, or already holds any real
 row. Core modules (quests, gratitude, progression, profiles) can never be
-enabled, so they seed at boot instead, through the existing
-`seedIfMissingOrEmpty` posture — and only into a genuinely empty table, so
-Amora's 14 live quests are never joined by examples.
+enabled, so they seed at boot instead: `seedExamplesAtBoot` walks the module
+registry, skips non-core modules that are still `off`, skips anything already
+seeded or retired, and leaves the rest to `hasRealContent` — which is what
+keeps a village's own 14 live quests from ever being joined by examples. It
+runs AFTER the real starter seeds for the same reason.
 
 ### Retirement
 
-`retireExamples(moduleId, reason)` deletes every `is_example = 1` row in that
-module's tables and stamps `example_state`. It is called from exactly two
-places:
+`retireExamples(moduleId, reason)` deletes that module's `is_example = 1` rows
+— scoped by id where two modules share a table, so retiring the forum does not
+take the feed's examples with it — and stamps `example_state`. A DELETE that
+fails for any reason other than a missing table or column leaves the tombstone
+UNSTAMPED, so the next trigger retries instead of stranding rows. It is
+reached two ways:
 
-- the module's own create paths, after a real row commits;
+- `onRealItemPublished(pool, moduleId, actor)`, called from each module's
+  publish path after a real row commits (one trigger per module);
 - `POST /api/admin/modules/:id/examples/clear`, so a founder who wants a clean
   slate does not have to publish something and delete it.
 
@@ -105,17 +126,27 @@ retires anything.
 
 ### Refusal
 
-`assertNotExample(row)` throws a 409 `example_immutable` with the message
-*"This is a standing example — publish your own to replace it."* Every mutation
-route that can address an example row calls it. The client renders the same
-message inline rather than as an error toast.
+`await isExampleRow(pool, table, id)` asks the row itself, and the route
+returns `EXAMPLE_REFUSAL_BODY` — a 409 carrying `code: "example_immutable"`
+and the message *"This is a standing example. Publish your own to replace
+it."* Every mutation route that can address an example row calls it, BEFORE
+any side effect: the guard has to sit above the INSERT, the Stripe session
+and the ledger post, not below them. The client renders the message inline
+rather than as an error toast.
 
 ## What counts as a "real item", per module
 
 Retirement has to key on publishing something, not on any write at all — a
-founder editing an example's title must not silently retire the set. One
-declared trigger per module, listed with the examples themselves once the
-per-module tables are confirmed.
+founder editing an example's title must not silently retire the set. Each
+module declares exactly one trigger, and the seed carries it per block as
+`_trigger`, so the content and the rule that clears it stay together. The
+live wiring is the set of `onRealItemPublished(pool, "<module>", actor)` call
+sites in `server/index.ts`; grep that string for the current list rather than
+maintaining a second copy here. Two of them are worth naming because they are
+not the obvious create route: `automation` retires on an ingested recording
+(the Riverside webhook and the RSS job, not only the manual add), and `feed`
+keys on a real thread in the feed's own category, because the feed and the
+forum share `forum_threads`.
 
 ## What the build run proved
 
@@ -184,13 +215,76 @@ Also closed: the six unguarded admin routes (product edit, network share
 open/close, synthesis publish — which turned example content into a real forum
 thread — regen retract, library write-off, badge edit).
 
-Still open from the review, all client-side or cosmetic: banners on
-quests/map/roles/exchange (those pages carry no example signal at all today),
-`forgetExamplesCache` has no callers so the banner lingers until a reload, the
-feed's seeding check and its retirement trigger disagree about what counts as
-real feed content, `GET /api/examples` names modules that are only in preview,
-and integration-fed recordings (Riverside webhook, YouTube RSS) do not retire
-automation examples.
+The last seven, now closed too:
+
+- **Banners on the missing pages.** Quests, the village map and the wallet's
+  exchange section were rendering example rows with no signal at all. (Roles
+  and Circles are hardcoded marketing pages that read no DB, so they carry no
+  examples to label.)
+- **The stale banner.** `forgetExamplesCache` had no callers, and clearing the
+  cache alone could not re-render a mounted banner — its effect only re-runs on
+  a `moduleId` change. It now notifies subscribed banners, drops the module
+  OPTIMISTICALLY (retirement is one-way, so optimism cannot be wrong, and an
+  immediate re-fetch would race the fire-and-forget server retirement), and is
+  called from the forum, feed and network publish paths.
+- **The preview leak.** `GET /api/examples` is unauthenticated and named every
+  seeded module, including ones only in admin-preview — telling anonymous
+  visitors what a village is quietly trying out. It now filters by what the
+  caller may know exists, and the client fetch goes through `gameFetch` so an
+  admin previewing a module still sees the label.
+- **The feed's two definitions.** Seeding asked "any non-example `kind='post'`
+  thread anywhere", retirement fired only on the feed's own category. A real
+  micropost elsewhere therefore suppressed seeding forever without retiring
+  anything. Both are now category-scoped.
+- **Integration-fed recordings.** The Riverside webhook and the YouTube RSS job
+  create real recordings without touching the manual route, so an
+  integration-fed village kept its example recording indefinitely. Both now
+  retire on a fresh ingest.
+
+## The second adversarial pass — including a regression the fixes introduced
+
+Three independent reviewers attacked the FIXES. The headline is that the first
+round's fixes contained their own defects, one of them worse than the bug it
+replaced.
+
+**A timer was firing the permanent tombstone.** Retiring automation examples on
+integration ingest put `onRealItemPublished` inside the 6-hourly YouTube RSS
+job, so a poll of a channel — no human act, no undo — would delete every
+automation example and, if automation held the last of them, the three shared
+example identities with it. Reverted: **retirement fires only on acts a person
+took.** The Riverside webhook keeps its trigger (somebody finished recording a
+call); the timer does not.
+
+**Scoping traded a deletion bug for a labelling bug.** Scoping forum/feed
+retirement by id prefix stopped the cross-deletion, but both modules' examples
+sit in the same category and both list queries are category-wide (the forum's
+"All" tab sends no category at all). So retiring one dropped its banner and
+left the other's rows rendering with no label — platform fiction presented as
+village content, which is a worse failure than deleting too much. Fixed by
+retiring the two **together** (`RETIRE_TOGETHER`) while each still deletes only
+its own rows and stamps its own tombstone.
+
+**Examples were leaving the village.** `GET /api/network/published` had no
+filter, so seeded demo needs and offers federated out to every peer and were
+cached there as this village's real ones — other villages acting on them and
+writing to `build@example.org`. Inbound sync was guarded; outbound was not.
+
+**Examples were being counted as real numbers** in eight more places, including
+`regenTotals` (the figure a village carries to funders), the snapshot series
+that gates `trendsUnlocked`, all-time governance concentration, library
+utilisation (frozen into snapshots and unrepairable), and the synthesis
+ready-queue gate that a demo row was silently throttling.
+
+**Two boot assertions could refuse to serve** over a seeded row — and because
+seeding runs after them, a bad row would land quietly on one boot and brick the
+next. Examples are now skipped by `assertBadgeInvariants` and
+`assertExchangeFirewalls`.
+
+Also closed: example quests offered to guests as paid work by the stay-nightly
+suggester (`QUEST_SELECT` did not even select the flag, so nothing downstream
+could filter); the daily tools link-check dialling example.org and alerting
+stewards about unfixable broken links; example events on the public Pulse; and
+unguarded role raise-hand and holder appointment.
 
 ## Three bugs the runtime build found, all of them invisible on the page
 
