@@ -163,11 +163,19 @@ two from the admin panel and almost never touches the first.
 
 ## Token naming (Gate D)
 
-Two layers, both admin-owned:
+Three layers, all admin-owned:
 
 1. **The recognition token** (the village's own word for appreciation):
    rename in the `tokens` table row, in `shared/gameConfig.ts`, and in the
    brand overlay — all three, or the UI and the ledger disagree.
+   The recognition token is a SIGNAL with no financial value — the public
+   pages say so; keep any renamed copy honest about that.
+1b. **The value token** (whatever token `gratitude.pool_token` names —
+   `credits` by default): rename it once via Admin → Tokens → rename, and
+   every surface follows — wallet, exchange, and the public pages, which
+   read the name from `/api/game/config` (`currency.value`). This is the
+   token the cycle pool distributes across recognition, and the one the
+   "converts to cash or equity as the village matures" promise attaches to.
 2. **Per-module tokens, named at enable time (Gate D):** each funds-bearing
    module's token is created through Admin → Tokens with a name the village
    chooses (stay credits, library credits, whatever the village calls
@@ -332,3 +340,5 @@ decision, not a platform dependency — nothing in the server or the shared
 registries assumes a language. If a fork needs another language, the work
 is a locale layer over the client pages plus the seeds; the game rules,
 variables and invariants are language-free by construction.
+
+- Seeds: `server/seeds/org-chart-2026-08.json` — the org-chart content (role cards, circle cards, team cards) applied once by the `org-chart-2026-08` runOnce into the `roles` / `circles` / `team` content sections; the public `/roles`, `/circles`, `/team` pages render those sections and the content admin editor owns them afterward. Forks replace this seed with their own structure (or just edit in admin).
