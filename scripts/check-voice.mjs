@@ -8,6 +8,13 @@
  * template literals. Comments, identifiers, imports and className soup are
  * invisible to it, which is why it can be a hard gate instead of a warning.
  *
+ * Seed JSON is copy too. `server/seeds/**.json` lands in the database on a
+ * fresh deployment's first boot and becomes the page copy, quest cards and
+ * standing examples every fork reads, so its string VALUES are checked the
+ * same way. Keys are machinery and are never read. `data/` is deliberately
+ * NOT scanned: it is the runtime volume, so its contents are whatever an
+ * admin last typed, and a gate has no business failing on that.
+ *
  *   1. No em-dashes or en-dashes. A comma, a period, a colon, or a rewrite.
  *      Hyphens are fine.
  *   2. No contrast framing. State what a thing is.
@@ -35,6 +42,16 @@ const SKIP_DIRS = new Set([
 ]);
 
 const SCAN_ROOTS = ["client/src", "server", "shared"];
+
+/**
+ * JSON string values that are machinery, never prose: ids, routes, icon names,
+ * enum-ish status words. Matched against the KEY the value sits under.
+ */
+const NON_COPY_JSON_KEYS = new Set([
+  "id", "key", "slug", "icon", "status", "url", "href", "src", "path",
+  "type", "kind", "circleId", "parentCircleId", "tokenSlug", "value",
+  "color", "colour", "image", "date", "createdAt", "updatedAt", "email",
+]);
 
 /** Tests describe behaviour to developers; they are not shipped language. */
 const isTest = (rel) => /\.(test|spec)\.tsx?$/.test(rel) || rel.includes("__tests__");
@@ -80,7 +97,7 @@ function walkFiles(dir, out) {
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
       walkFiles(path.join(dir, entry.name), out);
-    } else if (/\.tsx?$/.test(entry.name)) {
+    } else if (/\.tsx?$/.test(entry.name) || /\.json$/.test(entry.name)) {
       out.push(path.join(dir, entry.name));
     }
   }
@@ -165,10 +182,39 @@ for (const r of (roots.length ? roots : SCAN_ROOTS)) {
 const findings = [];
 let waived = 0;
 
+/** Walk parsed JSON, checking every prose string value under a copy key. */
+function checkJson(value, key, rel, lines, out) {
+  if (typeof value === "string") {
+    if (key !== null && NON_COPY_JSON_KEYS.has(key)) return;
+    for (const [kind, hit] of checkSpan(value)) {
+      const idx = lines.findIndex((l) => l.includes(value.slice(0, 60)));
+      out.push({
+        file: rel, line: idx >= 0 ? idx + 1 : 1, kind, hit,
+        text: value.trim().slice(0, 160),
+      });
+    }
+  } else if (Array.isArray(value)) {
+    for (const v of value) checkJson(v, key, rel, lines, out);
+  } else if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value)) checkJson(v, k, rel, lines, out);
+  }
+}
+
 for (const file of files) {
   const rel = path.relative(ROOT, file).replace(/\\/g, "/");
   if (isTest(rel)) continue;
   const text = fs.readFileSync(file, "utf8");
+
+  if (file.endsWith(".json")) {
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      continue; // Not our gate to enforce; the boot seeder fails loud on bad JSON.
+    }
+    checkJson(parsed, null, rel, text.split("\n"), findings);
+    continue;
+  }
   const sf = ts.createSourceFile(
     file, text, ts.ScriptTarget.Latest, true,
     file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,

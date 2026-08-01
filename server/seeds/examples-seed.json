@@ -1,12 +1,12 @@
 {
   "_readme": [
-    "STANDING EXAMPLES — platform-authored worked examples, seeded per module so a",
+    "STANDING EXAMPLES: platform-authored worked examples, seeded per module so a",
     "founder who turns a module on sees what it is FOR instead of 'No items yet.'",
     "Every row seeded from this file carries is_example = 1 and is INERT: it renders",
     "in full, and every mutation against it is refused. Nothing here ever reaches the",
     "ledger, escrow, Stripe, or the capability gate.",
     "",
-    "Copy is deliberately platform-generic — no village's brand — so every fork",
+    "Copy is deliberately platform-generic, no village's brand, so every fork",
     "inherits the same examples and scripts/check-brand-refs.mjs stays green.",
     "",
     "Retirement: the first real item published in a module deletes that module's",
@@ -27,7 +27,7 @@
         "id": "ex-user-mira",
         "name": "Mira (example)",
         "handle": "mira-example",
-        "bio": "A standing example account. Replace these with your own members — publishing anything real retires the whole example set.",
+        "bio": "A standing example account. Replace these with your own members. Publishing anything real retires the whole example set.",
         "stageGranted": "member",
         "isExample": true
       },
@@ -80,7 +80,7 @@
       {
         "id": "ex-circle-build",
         "name": "Build & Repair",
-        "purpose": "Structures, tools, power and water infrastructure. Everything that has to physically work by Tuesday. Also the circle that decides when something should be repaired rather than replaced.",
+        "purpose": "Structures, tools, power and water infrastructure. Everything that has to physically work by Tuesday. Also the circle that decides when something should be repaired and when it should be replaced.",
         "aliases": ["build", "construction", "maintenance", "infrastructure"],
         "icon": "Hammer",
         "color": "#8A6F4E",
@@ -99,7 +99,7 @@
       {
         "id": "ex-role-land-steward",
         "name": "Land Steward",
-        "description": "Walks the land weekly, keeps the planting calendar honest, and is the person a quest about soil or water should be routed to. Holds no budget authority — that stays with the circle.",
+        "description": "Walks the land weekly, keeps the planting calendar honest, and is the person a quest about soil or water should be routed to. Holds no budget authority, which stays with the circle.",
         "capabilities": [],
         "minStage": "member",
         "circleId": "ex-circle-land",
@@ -141,7 +141,7 @@
         "title": "Cut a swale along the north slope",
         "description": "The north slope sheds water fast enough to take topsoil with it. A swale on contour slows the run-off, sinks it, and buys the young plantings above it a dry-season margin. Bring a shovel and a decent hat; the A-frame level lives in the tool shed.",
         "impact": "Water that used to leave the property in an afternoon stays in the ground for weeks. The plantings uphill stop needing hand-watering by the second season.",
-        "gratitude": "60–120",
+        "gratitude": "60-120",
         "duration": "Two mornings",
         "difficulty": "Intermediate",
         "circle": "Land & Water",
@@ -155,9 +155,9 @@
       {
         "id": "ex-quest-orientation",
         "title": "Host one arrival through their first week",
-        "description": "Someone new lands next month. This quest is being the person who meets them, walks them around, introduces them to four people by name, and checks in on day seven. Not a tour — a landing.",
+        "description": "Someone new lands next month. This quest is being the person who meets them, walks them around, introduces them to four people by name, and checks in on day seven. This is a landing.",
         "impact": "The single strongest predictor of whether a newcomer is still around at six months is whether anyone learned their name in week one.",
-        "gratitude": "40–80",
+        "gratitude": "40-80",
         "duration": "A few hours across one week",
         "difficulty": "Beginner",
         "circle": "Welcome & Belonging",
@@ -171,9 +171,9 @@
       {
         "id": "ex-quest-toolshed",
         "title": "Inventory and label the tool shed",
-        "description": "Nobody can find the good pruning saw. Photograph every tool, note its condition, label the shelves, and write down what is actually missing rather than what we assume is missing. If the Material Library is on, this is what stocks it.",
+        "description": "Nobody can find the good pruning saw. Photograph every tool, note its condition, label the shelves, and write down what is actually missing. If the Material Library is on, this is what stocks it.",
         "impact": "Ends the twenty-minute hunt that precedes every job, and gives the village its first honest list of what it owns.",
-        "gratitude": "50–100",
+        "gratitude": "50-100",
         "duration": "One full day",
         "difficulty": "Beginner",
         "circle": "Build & Repair",
@@ -194,7 +194,7 @@
         "category": "village-life",
         "authorId": "ex-user-mira",
         "title": "Where should the second water tank go?",
-        "body": "We agreed last season that one tank is a single point of failure. The question is siting.\n\nThe ridge gives us gravity feed to everything below it, but it is a long pipe run and the delivery truck cannot get up there — every load would be hand-carried.\n\nBehind the workshop is easy to reach and easy to plumb, but it sits below the main house, so anything uphill needs pumping.\n\nI lean ridge, and I would rather pay the pipe cost once than the pumping cost forever. Curious whether @tomas-example thinks the truck access kills it.",
+        "body": "We agreed last season that one tank is a single point of failure. The question is siting.\n\nThe ridge gives us gravity feed to everything below it, but it is a long pipe run and the delivery truck cannot get up there, so every load would be hand-carried.\n\nBehind the workshop is easy to reach and easy to plumb, but it sits below the main house, so anything uphill needs pumping.\n\nI lean ridge, and I would rather pay the pipe cost once than the pumping cost forever. Curious whether @tomas-example thinks the truck access kills it.",
         "kind": "discussion",
         "tags": ["water", "infrastructure", "planning"],
         "pinned": false,
@@ -203,14 +203,14 @@
           {
             "id": "ex-reply-water-1",
             "authorId": "ex-user-tomas",
-            "body": "Truck access does not kill it, but it changes the cost. Hand-carrying a full load is roughly four person-hours each time, and we would do that maybe twice a year.\n\nAgainst that, pumping is a pump that fails eventually, plus the power to run it. I think the ridge still wins, but let us cost the pipe run properly before anyone commits.",
+            "body": "Truck access does not kill it. It changes the cost. Hand-carrying a full load is roughly four person-hours each time, and we would do that maybe twice a year.\n\nAgainst that, pumping is a pump that fails eventually, plus the power to run it. I think the ridge still wins, but let us cost the pipe run properly before anyone commits.",
             "isExample": true
           },
           {
             "id": "ex-reply-water-2",
             "authorId": "ex-user-aditi",
             "parentReplyId": "ex-reply-water-1",
-            "body": "I priced something similar two years ago. Budget more than you think for the fittings — the pipe itself was the cheap part.",
+            "body": "I priced something similar two years ago. Budget more than you think for the fittings. The pipe itself was the cheap part.",
             "isExample": true
           }
         ]
@@ -220,7 +220,7 @@
         "category": "governance",
         "authorId": "ex-user-tomas",
         "title": "Proposal: quiet hours from 9pm to 7am",
-        "body": "Raised at three consecutive circle meetings, so it is time to decide it rather than discuss it again.\n\n**The proposal:** amplified sound and power tools stop at 9pm and do not resume before 7am, across the whole site. Acoustic music, conversation and cooking are unaffected.\n\n**Why:** the workshop and the sleeping cabins are ninety metres apart, and a late job on the bandsaw is audible in every one of them.\n\n**What it costs:** the people who work evenings lose their evenings. That is a real cost and it falls on a specific few, which is exactly why this should be decided openly rather than by whoever complains loudest.",
+        "body": "Raised at three consecutive circle meetings, so it is time to decide it.\n\n**The proposal:** amplified sound and power tools stop at 9pm and do not resume before 7am, across the whole site. Acoustic music, conversation and cooking are unaffected.\n\n**Why:** the workshop and the sleeping cabins are ninety metres apart, and a late job on the bandsaw is audible in every one of them.\n\n**What it costs:** the people who work evenings lose their evenings. That is a real cost and it falls on a specific few, which is exactly why this should be decided openly, by the whole circle.",
         "kind": "decision",
         "tags": ["governance", "living-together"],
         "meta": { "status": "decided", "outcome": "Adopted, with a standing exception for harvest week. Revisit after two seasons." },
@@ -230,7 +230,7 @@
           {
             "id": "ex-reply-decision-1",
             "authorId": "ex-user-aditi",
-            "body": "Supportive, with the harvest-week exception written in rather than assumed. Every year we forget and every year someone is annoyed.",
+            "body": "Supportive, as long as the harvest-week exception is written in. Every year we forget and every year someone is annoyed.",
             "isExample": true
           }
         ]
@@ -239,8 +239,8 @@
         "id": "ex-thread-event",
         "category": "village-life",
         "authorId": "ex-user-aditi",
-        "title": "Seed swap and shared lunch — first Sunday",
-        "body": "Bring whatever you saved from last season, labelled if you can manage it and honestly guessed if you cannot.\n\nLunch is shared, so bring a dish as well. There will be more chard than anyone wants; this is the nature of chard.\n\nNewcomers especially welcome — you do not need seeds to come, and taking some home is the entire point.",
+        "title": "Seed swap and shared lunch, first Sunday",
+        "body": "Bring whatever you saved from last season, labelled if you can manage it and honestly guessed if you cannot.\n\nLunch is shared, so bring a dish as well. There will be more chard than anyone wants; this is the nature of chard.\n\nNewcomers especially welcome: you do not need seeds to come, and taking some home is the entire point.",
         "kind": "event",
         "tags": ["gathering", "food", "seeds"],
         "meta": {
@@ -257,7 +257,7 @@
 
   "feed": {
     "_trigger": "A real micropost is published to the feed category",
-    "_note": "Feed items are forum_threads with kind='post' and title NULL in the feed category. heart_count stays 0 — a heart is a real ledger send, so hearting an example is refused.",
+    "_note": "Feed items are forum_threads with kind='post' and title NULL in the feed category. heart_count stays 0: a heart is a real ledger send, so hearting an example is refused.",
     "posts": [
       {
         "id": "ex-feed-1",
@@ -273,7 +273,7 @@
         "category": "village-life",
         "authorId": "ex-user-tomas",
         "kind": "post",
-        "body": "The pump is fixed. It was the foot valve, not the motor, which is the good outcome — forty minutes and a two-dollar part instead of a new pump.\n\nWater is back on across the whole lower site.",
+        "body": "The pump is fixed. It was the foot valve, not the motor, which is the good outcome: forty minutes and a two-dollar part instead of a new pump.\n\nWater is back on across the whole lower site.",
         "tags": ["water", "repair"],
         "isExample": true
       },
@@ -305,7 +305,7 @@
         "id": "ex-tool-chat",
         "name": "Village Chat",
         "purpose": "Day-to-day conversation, quick questions, and anything that does not need to be found again later.",
-        "description": "The everyday channel. Use it for things that are true today and irrelevant next month. Anything worth finding again belongs in the Forum instead — chat scrolls away and nobody reads back.",
+        "description": "The everyday channel. Use it for things that are true today and irrelevant next month. Anything worth finding again belongs in the Forum instead. Chat scrolls away and nobody reads back.",
         "url": "https://example.org/chat",
         "ctaLabel": "Join",
         "category": "communication",
@@ -321,7 +321,7 @@
         "id": "ex-tool-docs",
         "name": "Shared Documents",
         "purpose": "Agreements, meeting notes, budgets and anything the village needs to be able to point at later.",
-        "description": "The filing cabinet. Meeting notes go in dated folders; agreements live at the top level and are never edited in place — a superseded agreement gets a new file and a note saying what it replaced.",
+        "description": "The filing cabinet. Meeting notes go in dated folders; agreements live at the top level and are never edited in place. A superseded agreement gets a new file and a note saying what it replaced.",
         "url": "https://example.org/documents",
         "ctaLabel": "Open",
         "category": "documents",
@@ -337,14 +337,14 @@
         "id": "ex-tool-calendar",
         "name": "Village Calendar",
         "purpose": "Work days, gatherings, visitor arrivals and anything that needs more than one person in one place.",
-        "description": "One shared calendar rather than five personal ones. If an event is not on here it will not be attended, which sounds harsh and is simply true.",
+        "description": "One shared calendar for the whole village. If an event is not on here it will not be attended, which sounds harsh and is simply true.",
         "url": "https://example.org/calendar",
         "ctaLabel": "View",
         "category": "coordination",
         "iconKind": "slug",
         "icon": "Calendar",
         "visibility": "public",
-        "gettingStarted": "Subscribe to the feed from your own calendar app rather than checking the website — you will actually see the reminders.",
+        "gettingStarted": "Subscribe to the feed from your own calendar app. That way you actually see the reminders.",
         "sortOrder": 3,
         "enabled": true,
         "isExample": true
@@ -354,7 +354,7 @@
 
   "library": {
     "_trigger": "POST /api/admin/library/intake accepts a real donation",
-    "_note": "Items are inserted directly, NOT through recordIntake() — intake mints library credits to the donor. Direct rows raise supply-vs-backing coverage without minting anything, which is safe. Borrowing an example is refused; no loan row ever exists.",
+    "_note": "Items are inserted directly, NOT through recordIntake(): intake mints library credits to the donor. Direct rows raise supply-vs-backing coverage without minting anything, which is safe. Borrowing an example is refused; no loan row ever exists.",
     "categories": [
       { "id": "ex-libcat-power", "label": "Power tools", "sortOrder": 1, "isExample": true },
       { "id": "ex-libcat-garden", "label": "Garden & land", "sortOrder": 2, "isExample": true },
@@ -364,7 +364,7 @@
       {
         "id": "ex-libitem-drill",
         "name": "Cordless drill, 18V, two batteries",
-        "description": "The workhorse. Two batteries means one charges while the other works, so please return both — a drill with one battery is half a drill. Comes with the full bit set in the blue case; count the bits back in.",
+        "description": "The workhorse. Two batteries means one charges while the other works, so please return both. A drill with one battery is half a drill. Comes with the full bit set in the blue case; count the bits back in.",
         "categoryId": "ex-libcat-power",
         "status": "available",
         "healthBp": 8500,
@@ -375,7 +375,7 @@
       {
         "id": "ex-libitem-broadfork",
         "name": "Broadfork",
-        "description": "Opens compacted beds without inverting the soil layers, which is the whole point of owning one. Heavy enough that it does the work for you if you let it. Not a lever — do not try to prise rocks with it, the tines will bend.",
+        "description": "Opens compacted beds without inverting the soil layers, which is the whole point of owning one. Heavy enough that it does the work for you if you let it. Do not try to prise rocks with it. The tines will bend.",
         "categoryId": "ex-libcat-garden",
         "status": "available",
         "healthBp": 10000,
@@ -385,7 +385,7 @@
       {
         "id": "ex-libitem-canner",
         "name": "Pressure canner, 23 quart",
-        "description": "For low-acid preserving — beans, stock, anything that a water bath will not make safe. The gauge was last tested this year and the rubber gasket is new. Read the manual in the lid before your first run; this is the one library item that can genuinely hurt you.",
+        "description": "For low-acid preserving: beans, stock, anything that a water bath will not make safe. The gauge was last tested this year and the rubber gasket is new. Read the manual in the lid before your first run; this is the one library item that can genuinely hurt you.",
         "categoryId": "ex-libcat-kitchen",
         "status": "available",
         "healthBp": 9000,
@@ -398,12 +398,12 @@
 
   "stays": {
     "_trigger": "POST /api/admin/stays/accommodations creates a real room",
-    "_note": "Rooms and posted prices are pure catalog — no ledger, no Stripe. Booking an example is refused, so no stays row and no open state is ever created.",
+    "_note": "Rooms and posted prices are pure catalog: no ledger, no Stripe. Booking an example is refused, so no stays row and no open state is ever created.",
     "accommodations": [
       {
         "id": "ex-stay-cabin",
         "name": "The Ridge Cabin",
-        "description": "One room with a wood stove, a double bed and a view down the whole valley. Compost toilet and an outdoor shower fed by the tank above it — warm by mid-morning, bracing before that. The walk up is ten minutes and steeper than it looks.",
+        "description": "One room with a wood stove, a double bed and a view down the whole valley. Compost toilet and an outdoor shower fed by the tank above it. Warm by mid-morning, bracing before that. The walk up is ten minutes and steeper than it looks.",
         "capacity": 2,
         "sortOrder": 1,
         "active": true,
@@ -455,7 +455,7 @@
       {
         "id": "ex-product-application",
         "name": "Residency application review",
-        "description": "Covers the reading, the two conversations and the reference calls that go into considering a residency application properly. Charged once, whatever the outcome — it pays for the attention, not for a yes.",
+        "description": "Covers the reading, the two conversations and the reference calls that go into considering a residency application properly. Charged once, whatever the outcome: it pays for the attention, not for a yes.",
         "kind": "fee",
         "amountMinor": 5000,
         "minAmountMinor": 5000,
@@ -469,7 +469,7 @@
       {
         "id": "ex-product-donation",
         "name": "Support the land fund",
-        "description": "Goes to the things that outlast any of us: water infrastructure, reforestation, and paying down the land itself. Give what makes sense to you — every amount is read by a person and acknowledged by one.",
+        "description": "Goes to the things that outlast any of us: water infrastructure, reforestation, and paying down the land itself. Give what makes sense to you. Every amount is read by a person and acknowledged by one.",
         "kind": "donation",
         "amountMinor": null,
         "minAmountMinor": 500,
@@ -511,7 +511,7 @@
       {
         "id": "ex-badge-first-harvest",
         "name": "First Harvest",
-        "description": "Given by a steward to someone who saw a growing season through from seed to table — not the biggest contribution, the most patient one.",
+        "description": "Given by a steward to someone who saw a growing season through from seed to table. It marks patience.",
         "kind": "granted",
         "capabilities": [],
         "denies": [],
@@ -521,7 +521,7 @@
       {
         "id": "ex-badge-ten-quests",
         "name": "Ten Times Useful",
-        "description": "Earned automatically at ten consented quests, and again at every ten after that. Counts settled contribution only — work that a human witnessed and released, never applause.",
+        "description": "Earned automatically at ten consented quests, and again at every ten after that. Counts settled contribution only: work that a human witnessed and released, never applause.",
         "kind": "earned",
         "capabilities": [],
         "denies": [],
@@ -532,7 +532,7 @@
       {
         "id": "ex-badge-timeout",
         "name": "Posting Paused",
-        "description": "A warning badge. While it stands, this member cannot post to the forum, whatever roles or stage they hold — a deny beats every grant except admin. Always carries a note explaining why and what resolves it, and it expires rather than lasting forever.",
+        "description": "A warning badge. While it stands, this member cannot post to the forum, whatever roles or stage they hold. A deny beats every grant except admin. Always carries a note explaining why and what resolves it, and it expires.",
         "kind": "warning",
         "capabilities": [],
         "denies": ["forum.post"],
@@ -544,13 +544,13 @@
 
   "health": {
     "_trigger": "POST /api/admin/health/regen records a real measurement",
-    "_note": "Snapshots need >= 3 distinct cycle_number values before trends unlock, so examples span three lunations. Metric keys come from the closed set in shared/healthMetrics.ts — a new key cannot be invented here.",
+    "_note": "Snapshots need >= 3 distinct cycle_number values before trends unlock, so examples span three lunations. Metric keys come from the closed set in shared/healthMetrics.ts. A new key cannot be invented here.",
     "regenEntries": [
       {
         "id": "ex-regen-trees",
         "metricKey": "trees_planted",
         "value": 240,
-        "note": "Mixed natives along the north boundary and through the erosion gully — mostly nitrogen fixers to hold the bank, with fruit interplanted where there is enough light. Counted at planting, not at survival; the honest survival number comes next dry season.",
+        "note": "Mixed natives along the north boundary and through the erosion gully, mostly nitrogen fixers to hold the bank, with fruit interplanted where there is enough light. Counted at planting, not at survival; the honest survival number comes next dry season.",
         "isExample": true
       },
       {
@@ -564,7 +564,7 @@
         "id": "ex-regen-hectares",
         "metricKey": "hectares_restored",
         "value": 3.5,
-        "note": "The overgrazed section below the ridge, now fenced off from stock and replanted. Absolute area under active restoration — not a claim that it is finished.",
+        "note": "The overgrazed section below the ridge, now fenced off from stock and replanted. Absolute area under active restoration, not a claim that it is finished.",
         "isExample": true
       }
     ],
@@ -580,12 +580,12 @@
 
   "automation": {
     "_trigger": "POST /api/admin/recordings ingests a real recording",
-    "_note": "Synthesis normally costs an LLM call; the example synthesis is seeded directly. ai_body and body deliberately differ — that pair IS the product. Publishing an example is refused, so no forum thread is ever created from it.",
+    "_note": "Synthesis normally costs an LLM call; the example synthesis is seeded directly. ai_body and body deliberately differ: that pair IS the product. Publishing an example is refused, so no forum thread is ever created from it.",
     "recordings": [
       {
         "id": "ex-recording-1",
         "source": "manual",
-        "title": "Weekly circle call — water siting and the winter build",
+        "title": "Weekly circle call: water siting and the winter build",
         "url": "https://example.org/recordings/weekly-circle",
         "durationS": 2740,
         "status": "synthesized",
@@ -594,17 +594,17 @@
           "source": "provided",
           "segments": [
             { "startMs": 0, "endMs": 42000, "text": "Alright, we are recording. Two things today: where the second tank goes, and whether the winter build is still realistic given where we are on materials." },
-            { "startMs": 42000, "endMs": 118000, "text": "On the tank — I walked the ridge line again on Sunday. Gravity feed reaches everything below it, including the bunkroom, which the workshop site does not. The catch is the truck cannot get up there, so every delivery is hand-carried." },
+            { "startMs": 42000, "endMs": 118000, "text": "On the tank: I walked the ridge line again on Sunday. Gravity feed reaches everything below it, including the bunkroom, which the workshop site does not. The catch is the truck cannot get up there, so every delivery is hand-carried." },
             { "startMs": 118000, "endMs": 196000, "text": "I can cost the pipe run properly by Friday if that would settle it. My instinct is that the pipe is cheaper than a pump plus the power to run it over ten years, but I would rather show numbers than instincts." },
-            { "startMs": 196000, "endMs": 268000, "text": "Please do. And on the winter build — we are short on the roofing steel and the supplier has gone quiet. Somebody needs to chase that this week or we lose the dry window entirely." },
-            { "startMs": 268000, "endMs": 320000, "text": "I will chase the supplier. If they cannot commit to a date by Wednesday we should price a second source rather than wait politely." }
+            { "startMs": 196000, "endMs": 268000, "text": "Please do. And on the winter build: we are short on the roofing steel and the supplier has gone quiet. Somebody needs to chase that this week or we lose the dry window entirely." },
+            { "startMs": 268000, "endMs": 320000, "text": "I will chase the supplier. If they cannot commit to a date by Wednesday we should price a second source and stop waiting politely." }
           ]
         },
         "synthesis": {
           "id": "ex-synthesis-1",
           "model": "example",
-          "aiBody": "The call covered two decisions.\n\n**Water tank siting.** The ridge site gives gravity feed to the entire lower site including the bunkroom; the workshop site does not. The objection is delivery access — the ridge cannot take a truck, so every load is hand-carried. A full pipe-run costing was offered to settle it by Friday, on the reasoning that pipe is a one-time cost while pumping is perpetual.\n\n**Winter build.** Roofing steel is short and the supplier has stopped responding. The dry window is at risk. Agreement that the supplier is chased this week, with a second source priced if no firm date arrives by Wednesday.",
-          "body": "Two decisions from the weekly circle.\n\n**Water tank siting** — leaning ridge. It gravity-feeds everything below including the bunkroom, which the workshop site can't do. The trade-off is truck access: every delivery gets hand-carried up. Pipe-run costing lands Friday and we decide off the numbers, not off instinct.\n\n**Winter build** — the roofing steel is the bottleneck and the supplier has gone quiet. Being chased this week. If there's no firm date by Wednesday we price a second source rather than keep waiting politely.\n\n(This is the human-edited copy. The untouched AI version sits beside it — that pairing is the point: nothing publishes itself.)",
+          "aiBody": "The call covered two decisions.\n\n**Water tank siting.** The ridge site gives gravity feed to the entire lower site including the bunkroom; the workshop site does not. The objection is delivery access: the ridge cannot take a truck, so every load is hand-carried. A full pipe-run costing was offered to settle it by Friday, on the reasoning that pipe is a one-time cost while pumping is perpetual.\n\n**Winter build.** Roofing steel is short and the supplier has stopped responding. The dry window is at risk. Agreement that the supplier is chased this week, with a second source priced if no firm date arrives by Wednesday.",
+          "body": "Two decisions from the weekly circle.\n\n**Water tank siting**: leaning ridge. It gravity-feeds everything below including the bunkroom, which the workshop site can't do. The trade-off is truck access: every delivery gets hand-carried up. Pipe-run costing lands Friday and we decide off the numbers, not off instinct.\n\n**Winter build**: the roofing steel is the bottleneck and the supplier has gone quiet. Being chased this week. If there's no firm date by Wednesday we stop waiting politely and price a second source.\n\n(This is the human-edited copy. The untouched AI version sits beside it, and that pairing is the point: nothing publishes itself.)",
           "chapters": [
             { "startMs": 0, "title": "Agenda" },
             { "startMs": 42000, "title": "Water tank siting" },
@@ -629,7 +629,7 @@
             {
               "id": "ex-task-2",
               "description": "Chase the roofing steel supplier for a firm delivery date",
-              "quote": "I will chase the supplier. If they cannot commit to a date by Wednesday we should price a second source rather than wait politely.",
+              "quote": "I will chase the supplier. If they cannot commit to a date by Wednesday we should price a second source and stop waiting politely.",
               "timestampMs": 268000,
               "roleId": "ex-role-tool-keeper",
               "status": "accepted",
@@ -652,13 +652,13 @@
 
   "network": {
     "_trigger": "POST /api/admin/network/share publishes a real item",
-    "_note": "The example peer is a fixture written directly to peer_instances with a hand-built cache payload — addPeer() requires a live remote deployment. The sync job skips example peers, so it never tries to reach example.org.",
+    "_note": "The example peer is a fixture written directly to peer_instances with a hand-built cache payload: addPeer() requires a live remote deployment. The sync job skips example peers, so it never tries to reach example.org.",
     "sharedItems": [
       {
         "id": "ex-share-need",
         "type": "need",
         "title": "Looking for a timber framer for a two-week build",
-        "detail": "We are raising a 6x8 metre workshop frame in the dry season and have the timber milled and stacked, but nobody here has cut joinery at this scale before.\n\nWe can offer accommodation, all meals, and stay credits for the duration. What we are really after is someone willing to teach while they work — we would rather come out of it with four people who can do it again than a perfect frame and no skills.",
+        "detail": "We are raising a 6x8 metre workshop frame in the dry season and have the timber milled and stacked, but nobody here has cut joinery at this scale before.\n\nWe can offer accommodation, all meals, and stay credits for the duration. What we are really after is someone willing to teach while they work. We want to come out of it with four people who can do it again.",
         "contact": "build@example.org",
         "status": "open",
         "isExample": true
@@ -667,7 +667,7 @@
         "id": "ex-share-offer",
         "type": "offer",
         "title": "Surplus fruit tree seedlings, free to a good home",
-        "detail": "Roughly ninety seedlings surplus to our own planting: citrus, avocado, and a lot of guava. Twelve to eighteen months old, bare-rooted and ready to travel.\n\nFree to any village on the network. We would ask you to collect, and to tell us in a year how many made it — we are trying to learn which rootstock actually survives transplant.",
+        "detail": "Roughly ninety seedlings surplus to our own planting: citrus, avocado, and a lot of guava. Twelve to eighteen months old, bare-rooted and ready to travel.\n\nFree to any village on the network. We would ask you to collect, and to tell us in a year how many made it. We are trying to learn which rootstock actually survives transplant.",
         "contact": "nursery@example.org",
         "status": "open",
         "isExample": true
@@ -699,7 +699,7 @@
               "id": "ex-peer-item-1",
               "type": "offer",
               "title": "Two experienced natural builders available in the off season",
-              "detail": "Cob and lime plaster mostly, some light timber work. Available for roughly six weeks after our harvest finishes. They would want accommodation and food; beyond that they are looking for interesting work rather than income.",
+              "detail": "Cob and lime plaster mostly, some light timber work. Available for roughly six weeks after our harvest finishes. They would want accommodation and food; beyond that they are looking for interesting work, not income.",
               "contact": "crew@example.org",
               "createdAt": "2026-07-14T09:00:00.000Z"
             },
@@ -722,8 +722,8 @@
     "_note": [
       "An example listing is a token_exchange_settings row plus posted currency_prices",
       "rows. Both are display-only. The treasury is NOT stocked for examples, so even",
-      "without the inert guard a purchase would refuse with 'out of stock' rather than",
-      "minting — the refusal is correct behaviour, not an error state.",
+      "without the inert guard a purchase would refuse with 'out of stock'. Nothing",
+      "is minted. The refusal is correct behaviour, not an error state.",
       "Recognition and Hypha-governed tokens can never be listed; the boot firewalls",
       "re-prove that every deploy and would delist an illegal example loudly."
     ],
@@ -739,7 +739,7 @@
         "prices": [
           {
             "priceMinor": 100,
-            "note": "Opening rate set by the founding circle: one credit to one dollar, chosen for legibility rather than economics. Every later change lands as a new row with its own reasoning, so the price has a history a member can read."
+            "note": "Opening rate set by the founding circle: one credit to one dollar, chosen for legibility, not economics. Every later change lands as a new row with its own reasoning, so the price has a history a member can read."
           }
         ]
       }

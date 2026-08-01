@@ -12,7 +12,7 @@
   {
     "id": "education-council",
     "name": "Education Council",
-    "purpose": "Learning for all ages — from the children's forest school to skill-shares and mentorship.",
+    "purpose": "Learning for all ages, from the children's forest school to skill-shares and mentorship.",
     "aliases": ["Education"],
     "icon": "BookOpen",
     "color": "amber",
@@ -32,7 +32,7 @@
   {
     "id": "health-healing-council",
     "name": "Health & Healing Council",
-    "purpose": "Wellbeing of body and mind — movement, nourishment, care and quiet.",
+    "purpose": "Wellbeing of body and mind: movement, nourishment, care and quiet.",
     "aliases": ["Wellness"],
     "icon": "Heart",
     "color": "rose",
@@ -52,7 +52,7 @@
   {
     "id": "business-finance-council",
     "name": "Business & Finance Council",
-    "purpose": "Prosperity engines — hospitality, retreats and the enterprises that sustain the land.",
+    "purpose": "Prosperity engines: hospitality, retreats and the enterprises that sustain the land.",
     "aliases": ["Tourism & Retreat"],
     "icon": "TrendingUp",
     "color": "teal",
