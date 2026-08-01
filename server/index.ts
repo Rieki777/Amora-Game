@@ -10746,13 +10746,21 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   /**
    * Integrate DAO: discover a token's contract address on Base from the
-   * founder's account history. The founder issues themselves even a tiny
-   * amount of each token (Hypha requires an issuance for the DAO to create
-   * the contract on-chain), then this looks the contract up by the token's
-   * EXACT on-chain name in that account's transfer history via the
-   * Etherscan V2 API (Base, chainid 8453). Read-only: the admin assigns the
-   * found address through the normal variables route, so the audit trail is
-   * the same one every variable change gets.
+   * founder's account. The founder issues themselves even a tiny amount of
+   * each token (Hypha requires an issuance for the DAO to create the
+   * contract on-chain), then this looks the contract up by the token's
+   * EXACT on-chain name.
+   *
+   * Two lookup paths, tried in order:
+   *  1. Alchemy Token API — when tokens.base_rpc_url is an Alchemy endpoint
+   *     (alchemy_getTokenBalances + alchemy_getTokenMetadata on the SAME
+   *     key; no extra signup). Balances-based: exactly what issuance
+   *     produces.
+   *  2. Etherscan V2 (basescan_api_key secret) — transfer-history based.
+   *
+   * Read-only: the admin assigns the found address through the normal
+   * variables route, so the audit trail is the same one every variable
+   * change gets.
    */
   app.post("/api/admin/hypha/find-token", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
@@ -10762,13 +10770,52 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!/^0x[0-9a-fA-F]{40}$/.test(founderAddress)) {
       return res.status(409).json({ error: "Set the founder Base account address first (Hypha → Founder Base account address)" });
     }
-    if (!secretConfigured("basescan_api_key")) {
-      return res.status(409).json({
-        error:
-          "No Basescan API key configured. Create a free key at basescan.org (or etherscan.io — one key serves both) and save it under Admin → Integrations, or look the contract up by hand on basescan.org and paste the address into the token variable.",
-      });
-    }
-    try {
+
+    type Candidate = { contractAddress: string; tokenName: string; tokenSymbol: string };
+    const withTimeout = async <T,>(run: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      try {
+        return await run(controller.signal);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    /** Alchemy Token API: tokens the founder HOLDS (issuance = a balance). */
+    const alchemyCandidates = async (rpcUrl: string): Promise<Candidate[]> => {
+      const rpc = (method: string, params: unknown[]) =>
+        withTimeout(async (signal) => {
+          const r = await fetch(rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+            signal,
+          });
+          const d: any = await r.json();
+          if (d.error) throw new Error(String(d.error.message ?? "RPC error"));
+          return d.result;
+        });
+      const balances: any = await rpc("alchemy_getTokenBalances", [founderAddress]);
+      const held: string[] = (balances?.tokenBalances ?? [])
+        .filter((b: any) => b?.tokenBalance && !/^0x0*$/.test(String(b.tokenBalance)))
+        .map((b: any) => String(b.contractAddress).toLowerCase())
+        .slice(0, 60);
+      const metas = await Promise.all(
+        held.map(async (addr): Promise<Candidate | null> => {
+          try {
+            const m: any = await rpc("alchemy_getTokenMetadata", [addr]);
+            return { contractAddress: addr, tokenName: String(m?.name ?? ""), tokenSymbol: String(m?.symbol ?? "") };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      return metas.filter((m): m is Candidate => m !== null && m.tokenName !== "");
+    };
+
+    /** Etherscan V2 (Base chainid 8453): tokens in the transfer history. */
+    const basescanCandidates = async (): Promise<Candidate[]> => {
       const api = new URL("https://api.etherscan.io/v2/api");
       api.searchParams.set("chainid", "8453");
       api.searchParams.set("module", "account");
@@ -10778,36 +10825,41 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       api.searchParams.set("offset", "500");
       api.searchParams.set("sort", "desc");
       api.searchParams.set("apikey", secretValue("basescan_api_key"));
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 10_000);
-      const scanRes = await fetch(api, { signal: controller.signal }).finally(() => clearTimeout(timer));
-      const data: any = await scanRes.json();
+      const data: any = await withTimeout(async (signal) => (await fetch(api, { signal })).json());
       const txs: any[] = Array.isArray(data?.result) ? data.result : [];
-      const distinct = new Map<string, { contractAddress: string; tokenName: string; tokenSymbol: string }>();
+      const distinct = new Map<string, Candidate>();
       for (const t of txs) {
         const addr = String(t.contractAddress ?? "").toLowerCase();
         if (addr && !distinct.has(addr)) {
-          distinct.set(addr, {
-            contractAddress: addr,
-            tokenName: String(t.tokenName ?? ""),
-            tokenSymbol: String(t.tokenSymbol ?? ""),
-          });
+          distinct.set(addr, { contractAddress: addr, tokenName: String(t.tokenName ?? ""), tokenSymbol: String(t.tokenSymbol ?? "") });
         }
       }
-      const all = Array.from(distinct.values());
+      return Array.from(distinct.values());
+    };
+
+    const baseRpc = stringVar("tokens.base_rpc_url").trim();
+    const hasAlchemy = /g\.alchemy\.com\/v2\//.test(baseRpc);
+    if (!hasAlchemy && !secretConfigured("basescan_api_key")) {
+      return res.status(409).json({
+        error:
+          "No lookup source configured. Either set an Alchemy endpoint as the Base RPC URL (Tokens → Base RPC URL — its Token API does the lookup, no extra key), or save a free etherscan.io API key under Admin → Integrations as the Basescan key. You can also paste the contract address by hand from basescan.org.",
+      });
+    }
+    try {
+      const all = hasAlchemy ? await alchemyCandidates(baseRpc) : await basescanCandidates();
       let matches = all.filter((t) => t.tokenName === tokenName);
       if (matches.length === 0) {
         matches = all.filter((t) => t.tokenName.toLowerCase() === tokenName.toLowerCase());
       }
       if (matches.length === 1) {
-        return res.json({ found: true, token: matches[0], candidates: all.length });
+        return res.json({ found: true, token: matches[0], candidates: all.length, source: hasAlchemy ? "alchemy" : "basescan" });
       }
       if (matches.length > 1) {
         return res.json({
           found: false,
           ambiguous: true,
           matches,
-          error: `${matches.length} contracts in this account's history share that name — pick the address by hand from the list.`,
+          error: `${matches.length} contracts share that name — pick the address by hand from the list.`,
         });
       }
       return res.json({
@@ -10815,11 +10867,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         candidates: all,
         error:
           all.length === 0
-            ? "No token transfers found for that account yet. Issue yourself some of the token on Hypha first (any amount), then try again."
-            : `No token named "${tokenName}" in this account's history. The name must match the on-chain name exactly. ${all.length} other token(s) were seen.`,
+            ? "No tokens found on that account yet. Issue yourself some of the token on Hypha first (any amount), then try again."
+            : `No token named "${tokenName}" on this account. The name must match the on-chain name exactly. ${all.length} other token(s) were seen.`,
       });
     } catch (err: any) {
-      return res.status(502).json({ error: `Basescan lookup failed: ${String(err?.message ?? err).slice(0, 120)}` });
+      return res.status(502).json({ error: `Token lookup failed: ${String(err?.message ?? err).slice(0, 120)}` });
     }
   });
 
