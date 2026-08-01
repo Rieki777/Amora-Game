@@ -12,6 +12,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Flag, Gavel, Lock, MessageCircle, Pin, Plus, Bell } from "lucide-react";
+import { Image } from "@/components/Image";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -260,7 +261,7 @@ function ThreadView({ id }: { id: string }) {
               <BylineChips userId={thread.author.id} />
               {" · "}{new Date(thread.createdAt).toLocaleString()}
             </p>
-            {thread.imageUrl && <img src={thread.imageUrl} alt="" className="rounded-xl mb-4 max-h-80 object-cover" />}
+            {thread.imageUrl && <Image src={thread.imageUrl} alt="" ratio={16 / 9} className="rounded-xl mb-4" />}
             {/* F1: edit your own words. The marker below is public and
                 permanent — see the PATCH route's rule 2. */}
             {editing === "thread" ? (

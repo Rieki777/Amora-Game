@@ -10,6 +10,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Package, RotateCcw, Undo2, Wrench } from "lucide-react";
+import { Image } from "@/components/Image";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -117,8 +118,7 @@ export default function Library() {
               return (
                 <div key={i.id} className="bg-card border border-border rounded-xl p-4 flex flex-col">
                   {i.photoUrl && (
-                    <img src={i.photoUrl} alt={i.name} loading="lazy"
-                      className="rounded-lg mb-3 h-36 w-full object-cover" />
+                    <Image src={i.photoUrl} alt={i.name} className="rounded-lg mb-3 h-36 w-full" />
                   )}
                   <div className="flex items-center gap-2 mb-1">
                     <Wrench className="w-4 h-4 text-teal-deep" />

@@ -9258,8 +9258,6 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       if (!req.file) return res.status(400).json({ error: "Missing file" });
       const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       try {
-        // Lazy import: if sharp can't load on this platform we still accept the
-        // image rather than failing the upload outright.
         const sharp = (await import("sharp")).default;
         const filename = `brand-${stamp}.webp`;
         const info = await sharp(req.file.buffer)
@@ -9267,9 +9265,29 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           .resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true })
           .webp({ quality: 82 })
           .toFile(path.join(UPLOADS_DIR, filename));
+
+        // A card thumbnail served at 2000px is absurd, and it is what every
+        // illustrated list would have done: the pipeline resized once and
+        // stopped. One extra encode here saves the same bytes on every view
+        // for the life of the image. Best-effort — a village with no thumb
+        // gets the full image, which is slower but never broken.
+        let thumbFilename: string | null = null;
+        try {
+          thumbFilename = `brand-${stamp}.thumb.webp`;
+          await sharp(req.file.buffer)
+            .rotate()
+            .resize({ width: 400, height: 400, fit: "inside", withoutEnlargement: true })
+            .webp({ quality: 76 })
+            .toFile(path.join(UPLOADS_DIR, thumbFilename));
+        } catch (thumbErr) {
+          console.error("[BRAND IMAGE] thumbnail failed, full size only", thumbErr);
+          thumbFilename = null;
+        }
+
         return res.json({
           url: `/api/uploads/${filename}`,
           filename,
+          thumbUrl: thumbFilename ? `/api/uploads/${thumbFilename}` : null,
           width: info.width,
           height: info.height,
           bytes: info.size,
@@ -9277,20 +9295,19 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           format: "webp",
         });
       } catch (e) {
-        console.error("[BRAND IMAGE] compression unavailable, storing original", e);
-        const ext = (path.extname(req.file.originalname) || ".jpg").toLowerCase();
-        const filename = `brand-${stamp}${ext}`;
-        try {
-          fs.writeFileSync(path.join(UPLOADS_DIR, filename), req.file.buffer);
-          return res.json({
-            url: `/api/uploads/${filename}`,
-            filename,
-            bytes: req.file.size,
-            originalBytes: req.file.size,
-          });
-        } catch {
-          return res.status(500).json({ error: "Could not save the image" });
-        }
+        // This used to write the ORIGINAL bytes — up to 25 MB straight off a
+        // phone — and return a 200 indistinguishable from a successful
+        // compression. The admin saw "uploaded", and every visitor thereafter
+        // paid 25 MB on a link measured at 50 KB/s. A silent fallback that
+        // makes the product worse than doing nothing is not a fallback; it is
+        // a defect with good manners. Refuse, and say why.
+        console.error("[BRAND IMAGE] compression unavailable, refusing upload", e);
+        return res.status(503).json({
+          error:
+            "Image processing is unavailable on this server, so the image was not saved. " +
+            "Storing it uncompressed would make every page slower for every member. " +
+            "Check that the `sharp` dependency installed correctly for this platform.",
+        });
       }
     });
   });

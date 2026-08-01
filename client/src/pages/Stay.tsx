@@ -12,6 +12,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { BedDouble, CreditCard, Hammer, Moon, Send } from "lucide-react";
+import { Image } from "@/components/Image";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -129,7 +130,7 @@ export default function Stay() {
               const money = a.prices?.usd?.[audience] ?? a.prices?.usd?.guest;
               return (
                 <div key={a.id} className="bg-card border border-border rounded-xl overflow-hidden flex flex-col">
-                  {a.photoUrl && <img src={a.photoUrl} alt="" className="h-40 w-full object-cover" />}
+                  {a.photoUrl && <Image src={a.photoUrl} alt="" className="h-40 w-full" />}
                   <div className="p-4 flex-1 flex flex-col">
                     <div className="flex items-center gap-2 mb-1">
                       <BedDouble className="w-4 h-4 text-teal-deep" />

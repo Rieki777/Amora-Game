@@ -14,6 +14,7 @@ import {
   Users,
   Building
 } from "lucide-react";
+import { Image } from "@/components/Image";
 
 const HERO_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/4.jpg";
 
@@ -64,10 +65,11 @@ export default function MasterPlan() {
       {/* Hero */}
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
-          <img
+          <Image
             src={brand.masterPlanHero || HERO_IMAGE}
             alt="Amora Master Plan"
-            className="w-full h-full object-cover"
+            priority
+            className="w-full h-full"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/60 to-black/40" />
         </div>

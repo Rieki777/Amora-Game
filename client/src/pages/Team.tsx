@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import { motion } from "framer-motion";
 import { Users, ArrowRight, ExternalLink } from "lucide-react";
 import { Link } from "wouter";
+import { Image } from "@/components/Image";
 
 const coreTeam = [
   {
@@ -106,10 +107,11 @@ export default function Team() {
                   className="bg-card rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all border border-border"
                 >
                   <div className="h-64 overflow-hidden">
-                    <img
+                    <Image
                       src={member.photo}
                       alt={member.name}
-                      className="w-full h-full object-cover object-top"
+                      className="w-full h-full"
+                      imgClassName="object-top"
                     />
                   </div>
                   <div className="p-6">

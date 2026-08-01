@@ -12,6 +12,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Calendar, Heart, Megaphone, MessageCircle, Sparkles, Send } from "lucide-react";
+import { Image } from "@/components/Image";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -188,7 +189,7 @@ export default function Feed() {
                 </div>
                 {item.title && <p className="font-semibold text-foreground text-sm mb-1">{item.title}</p>}
                 <p className="text-sm text-foreground whitespace-pre-wrap">{item.body}</p>
-                {item.imageUrl && <img src={item.imageUrl} alt="" className="rounded-lg mt-2 max-h-72 object-cover" />}
+                {item.imageUrl && <Image src={item.imageUrl} alt="" ratio={16 / 9} className="rounded-lg mt-2" />}
                 {/* Tap targets clear WCAG 2.5.8's 24px floor: a heart sends a
                     REAL gift from the sender's budget, so a thumb that misses
                     by 4px is not a cosmetic problem. Negative margin keeps the
