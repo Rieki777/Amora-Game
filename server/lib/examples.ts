@@ -50,7 +50,7 @@ export const EXAMPLE_TABLES: Record<string, string[]> = {
   progression: ["roles"],
   quests: ["quests"],
   forum: ["forum_replies", "forum_threads"],
-  feed: ["forum_threads", "health_events"],
+  feed: ["forum_threads"],
   // NOTE: forum and feed share forum_threads — see SCOPE below. Without a
   // per-module predicate, retiring either one deletes the other's rows.
   tools: ["tools"],
@@ -58,7 +58,7 @@ export const EXAMPLE_TABLES: Record<string, string[]> = {
   stays: ["accommodation_prices", "accommodations"],
   commerce: ["payment_products"],
   badges: ["badges"],
-  health: ["regen_entries", "health_snapshots"],
+  health: ["regen_entries"],
   automation: ["call_tasks", "call_syntheses", "transcripts", "recordings"],
   network: ["peer_shared_cache", "peer_instances", "shared_items"],
   exchange: ["currency_prices", "token_exchange_settings"],
@@ -128,7 +128,6 @@ const SCOPE: Record<string, Record<string, string>> = {
   },
   feed: {
     forum_threads: "id LIKE 'ex-feed-%'",
-    health_events: "id LIKE 'ex-event-%'",
   },
 };
 
@@ -436,12 +435,12 @@ export async function seedExamples(
           await ins(p, "forum_thread_tags", { thread_id: post.id, tag });
         }
       }
-      for (const [i, e] of (block.events ?? []).entries()) {
-        n += await ins(p, "health_events", {
-          id: `ex-event-${i + 1}`, kind: e.kind, text: e.text,
-          audience: e.audience, is_example: 1,
-        });
-      }
+      // NO SEEDED EVENTS, deliberately. recentEvents reads
+      // `WHERE is_example = 0` and it is right to: the event spine feeds the
+      // public Pulse, where seeded copy would read as things that actually
+      // happened here. That correct filter also serves the feed's own
+      // "village happenings" lane, so a seeded event could never appear
+      // anywhere — it was counted as seeded and rendered nowhere.
       break;
 
     case "tools":
@@ -522,16 +521,15 @@ export async function seedExamples(
           recorded_by: EXAMPLE_AUTHOR, is_example: 1,
         });
       }
-      for (const c of block.snapshots?.cycles ?? []) {
-        const cycle = baseCycle + c.cycleNumber;
-        for (const [key, value] of Object.entries(c)) {
-          if (key === "cycleNumber") continue;
-          n += await ins(p, "health_snapshots", {
-            id: `snap-${cycle}-${key}`, cycle_number: cycle,
-            metric_key: key, value, is_example: 1,
-          });
-        }
-      }
+      // NO SEEDED SNAPSHOTS, deliberately. snapshotSeries reads
+      // `WHERE is_example = 0` and it is right to: three fabricated lunations
+      // would open the honest-sparse trend gate on a village that has closed
+      // none. Seeding rows that a correct filter must always hide only makes
+      // the boot log lie about how much was seeded — and the ids collided with
+      // insertSnapshot's own `snap-<cycle>-<metric>`, so a later real backfill
+      // of those cycles was silently swallowed by rows nothing could read.
+      // The regen entries above DO render (regenEntries does not filter), and
+      // they are what teaches the module.
       break;
 
     case "automation":
@@ -687,6 +685,19 @@ export async function retireExamples(
   /** A DELETE that failed for a real reason — not a table this fork lacks. */
   let failed = false;
   try {
+    // Release any REAL row still pointing at an example we are about to
+    // delete. The library's admin intake picker offers every shelf, example
+    // ones included, so the founder's first real donation is usually filed
+    // under "Power tools" — and that same request triggers this retirement.
+    // category_id carries no FK constraint, so the delete would succeed and
+    // leave their item pointing at a shelf that no longer exists, permanently
+    // uncategorised and unfilable.
+    if (moduleId === "library") {
+      await p.query(
+        "UPDATE library_items SET category_id = NULL WHERE is_example = 0 AND category_id IN " +
+          "(SELECT id FROM library_categories WHERE is_example = 1)",
+      ).catch(() => { /* older forks without the column */ });
+    }
     for (const table of EXAMPLE_TABLES[moduleId] ?? []) {
       const parent = BY_PARENT[table];
       try {

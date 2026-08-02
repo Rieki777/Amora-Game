@@ -5129,6 +5129,11 @@ async function startServer() {
   app.post("/api/forum/threads/:id/moderate", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
+    // Pinning or locking a row that retirement will delete is moderation
+    // that quietly undoes itself.
+    if (await isExampleRow(getPool(), "forum_threads", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     if (!(await canModerateForum(req, user))) {
       return res.status(403).json({ error: "Moderation requires the forum.moderate capability" });
     }
@@ -5161,6 +5166,9 @@ async function startServer() {
   app.post("/api/forum/threads/:id/decide", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (await isExampleRow(getPool(), "forum_threads", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const ctx = await capabilityCtx(user);
     if (!hasCapability("proposal.decide", ctx)) {
       return res.status(403).json({ error: "Recording a decision requires the proposal.decide capability" });
@@ -5727,6 +5735,10 @@ async function startServer() {
   /** The click beacon: analytics, never truth. Silent-drop on any failure. */
   app.post("/api/tools/:id/click", async (req, res) => {
     if (!boolVar("tools.click_tracking")) return res.json({ ok: true });
+    // tool_clicks deliberately outlives tool deletion, so a click on an
+    // example would leave a permanent orphan inside the 30/90-day counts.
+    // Answer ok (opening the link is legitimate) and record nothing.
+    if (await isExampleRow(getPool(), "tools", req.params.id)) return res.json({ ok: true });
     if (await overLimit(`toolclick:${clientIp(req)}`, 120, 60 * 60 * 1000)) return res.json({ ok: true });
     try {
       const viewer = await authedUser(req);
@@ -5804,6 +5816,12 @@ async function startServer() {
 
   app.put("/api/admin/tools/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Editing an example keeps its flag, so the admin's own words would be
+    // deleted by the first real tool they add. Every sibling module refuses
+    // the same edit; tools was the outlier.
+    if (await isExampleRow(getPool(), "tools", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const all = toolsRepo.all();
     const idx = all.findIndex((t: any) => t.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
@@ -5817,6 +5835,12 @@ async function startServer() {
 
   app.delete("/api/admin/tools/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Deleting examples one by one would empty the grid without stamping a
+    // tombstone, so the banner would keep promising them until the next boot.
+    // "Clear examples" in Admin is the supported way to be rid of them.
+    if (await isExampleRow(getPool(), "tools", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const all = toolsRepo.all();
     const filtered = all.filter((t: any) => t.id !== req.params.id);
     if (filtered.length === all.length) return res.status(404).json({ error: "Not found" });
@@ -6874,6 +6898,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   app.delete("/api/admin/network/peers/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Deleting the example peer would take the federation half of the demo
+    // with it, leaving the banner promising examples that are half gone.
+    if (await isExampleRow(getPool(), "peer_instances", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     await getPool().query("DELETE FROM peer_shared_cache WHERE peer_id = ?", [req.params.id]);
     const [r] = await getPool().query<any>("DELETE FROM peer_instances WHERE id = ?", [req.params.id]);
     if (!(r as any).affectedRows) return res.status(404).json({ error: "no such peer" });

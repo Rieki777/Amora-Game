@@ -12,7 +12,6 @@
     "Retirement: the first real item published in a module deletes that module's",
     "examples permanently (example_state.retired_at). See docs/STANDING_EXAMPLES.md."
   ],
-
   "_identities": {
     "_note": [
       "Examples need authors. These are is_example = 1 rows in `users` with no",
@@ -49,7 +48,6 @@
       }
     ]
   },
-
   "map": {
     "_trigger": "POST /api/admin/circles creates a real circle",
     "circles": [
@@ -57,7 +55,12 @@
         "id": "ex-circle-land",
         "name": "Land & Water",
         "purpose": "Holds everything the ground itself asks for: soil, water catchment, planting cycles, and the long repair of what was farmed hard before us. Decisions about what gets planted where start here.",
-        "aliases": ["land", "permaculture", "water", "regeneration"],
+        "aliases": [
+          "land",
+          "permaculture",
+          "water",
+          "regeneration"
+        ],
         "icon": "Sprout",
         "color": "#4F7942",
         "status": "active",
@@ -69,7 +72,12 @@
         "id": "ex-circle-welcome",
         "name": "Welcome & Belonging",
         "purpose": "The first face a visitor meets and the people who notice when someone has gone quiet. Runs arrivals, orientation, conflict repair, and the rhythms that keep a group of strangers becoming a community.",
-        "aliases": ["welcome", "hospitality", "onboarding", "belonging"],
+        "aliases": [
+          "welcome",
+          "hospitality",
+          "onboarding",
+          "belonging"
+        ],
         "icon": "Heart",
         "color": "#C4736A",
         "status": "active",
@@ -81,7 +89,12 @@
         "id": "ex-circle-build",
         "name": "Build & Repair",
         "purpose": "Structures, tools, power and water infrastructure. Everything that has to physically work by Tuesday. Also the circle that decides when something should be repaired and when it should be replaced.",
-        "aliases": ["build", "construction", "maintenance", "infrastructure"],
+        "aliases": [
+          "build",
+          "construction",
+          "maintenance",
+          "infrastructure"
+        ],
         "icon": "Hammer",
         "color": "#8A6F4E",
         "status": "forming",
@@ -91,7 +104,6 @@
       }
     ]
   },
-
   "progression": {
     "_trigger": "A real role is seeded or edited into existence",
     "_note": "Roles have no POST route; these seed alongside roles-seed.json only into an empty table.",
@@ -131,7 +143,6 @@
       }
     ]
   },
-
   "quests": {
     "_trigger": "POST /api/admin/quests creates a real quest",
     "_note": "Seeds only into a genuinely empty quests table, so a village with real quests never sees these.",
@@ -148,7 +159,11 @@
         "status": "open",
         "icon": "Sprout",
         "minStage": "member",
-        "tags": ["land", "water", "outdoor"],
+        "tags": [
+          "land",
+          "water",
+          "outdoor"
+        ],
         "sortOrder": 1,
         "isExample": true
       },
@@ -164,7 +179,10 @@
         "status": "open",
         "icon": "Heart",
         "minStage": "member",
-        "tags": ["welcome", "people"],
+        "tags": [
+          "welcome",
+          "people"
+        ],
         "sortOrder": 2,
         "isExample": true
       },
@@ -179,13 +197,16 @@
         "circle": "Build & Repair",
         "status": "open",
         "icon": "Wrench",
-        "tags": ["tools", "indoor", "organising"],
+        "tags": [
+          "tools",
+          "indoor",
+          "organising"
+        ],
         "sortOrder": 3,
         "isExample": true
       }
     ]
   },
-
   "forum": {
     "_trigger": "POST /api/forum/threads creates a real thread",
     "threads": [
@@ -196,7 +217,11 @@
         "title": "Where should the second water tank go?",
         "body": "We agreed last season that one tank is a single point of failure. The question is siting.\n\nThe ridge gives us gravity feed to everything below it, but it is a long pipe run and the delivery truck cannot get up there, so every load would be hand-carried.\n\nBehind the workshop is easy to reach and easy to plumb, but it sits below the main house, so anything uphill needs pumping.\n\nI lean ridge, and I would rather pay the pipe cost once than the pumping cost forever. Curious whether @tomas-example thinks the truck access kills it.",
         "kind": "discussion",
-        "tags": ["water", "infrastructure", "planning"],
+        "tags": [
+          "water",
+          "infrastructure",
+          "planning"
+        ],
         "pinned": false,
         "isExample": true,
         "replies": [
@@ -222,8 +247,14 @@
         "title": "Proposal: quiet hours from 9pm to 7am",
         "body": "Raised at three consecutive circle meetings, so it is time to decide it.\n\n**The proposal:** amplified sound and power tools stop at 9pm and do not resume before 7am, across the whole site. Acoustic music, conversation and cooking are unaffected.\n\n**Why:** the workshop and the sleeping cabins are ninety metres apart, and a late job on the bandsaw is audible in every one of them.\n\n**What it costs:** the people who work evenings lose their evenings. That is a real cost and it falls on a specific few, which is exactly why this should be decided openly, by the whole circle.",
         "kind": "decision",
-        "tags": ["governance", "living-together"],
-        "meta": { "status": "decided", "outcome": "Adopted, with a standing exception for harvest week. Revisit after two seasons." },
+        "tags": [
+          "governance",
+          "living-together"
+        ],
+        "meta": {
+          "status": "decided",
+          "outcome": "Adopted, with a standing exception for harvest week. Revisit after two seasons."
+        },
         "locked": true,
         "isExample": true,
         "replies": [
@@ -242,7 +273,11 @@
         "title": "Seed swap and shared lunch, first Sunday",
         "body": "Bring whatever you saved from last season, labelled if you can manage it and honestly guessed if you cannot.\n\nLunch is shared, so bring a dish as well. There will be more chard than anyone wants; this is the nature of chard.\n\nNewcomers especially welcome: you do not need seeds to come, and taking some home is the entire point.",
         "kind": "event",
-        "tags": ["gathering", "food", "seeds"],
+        "tags": [
+          "gathering",
+          "food",
+          "seeds"
+        ],
         "meta": {
           "startsAt": "2026-09-06T11:00:00.000Z",
           "endsAt": "2026-09-06T15:00:00.000Z",
@@ -254,7 +289,6 @@
       }
     ]
   },
-
   "feed": {
     "_trigger": "A real micropost is published to the feed category",
     "_note": "Feed items are forum_threads with kind='post' and title NULL in the feed category. heart_count stays 0: a heart is a real ledger send, so hearting an example is refused.",
@@ -265,7 +299,9 @@
         "authorId": "ex-user-mira",
         "kind": "post",
         "body": "Third morning in a row with frost on the low beds. The tomatoes are finished, but the kale has never looked better. Pulling the tomato frames today if anyone wants the stakes.",
-        "tags": ["garden"],
+        "tags": [
+          "garden"
+        ],
         "isExample": true
       },
       {
@@ -274,7 +310,10 @@
         "authorId": "ex-user-tomas",
         "kind": "post",
         "body": "The pump is fixed. It was the foot valve, not the motor, which is the good outcome: forty minutes and a two-dollar part instead of a new pump.\n\nWater is back on across the whole lower site.",
-        "tags": ["water", "repair"],
+        "tags": [
+          "water",
+          "repair"
+        ],
         "isExample": true
       },
       {
@@ -283,20 +322,13 @@
         "authorId": "ex-user-aditi",
         "kind": "announcement",
         "body": "Reminder that the road will be graded on Thursday and the lower gate will be shut from about 8am. Park above the workshop if you need to leave before noon.",
-        "tags": ["logistics"],
-        "isExample": true
-      }
-    ],
-    "events": [
-      {
-        "kind": "quest",
-        "text": "An example of how village happenings appear woven into the feed alongside posts.",
-        "audience": "public",
+        "tags": [
+          "logistics"
+        ],
         "isExample": true
       }
     ]
   },
-
   "tools": {
     "_trigger": "POST /api/admin/tools creates a real tool",
     "_note": "icon MUST be one of the ten names ToolsHub.tsx allowlists, or it silently renders a wrench.",
@@ -351,14 +383,28 @@
       }
     ]
   },
-
   "library": {
     "_trigger": "POST /api/admin/library/intake accepts a real donation",
     "_note": "Items are inserted directly, NOT through recordIntake(): intake mints library credits to the donor. Direct rows raise supply-vs-backing coverage without minting anything, which is safe. Borrowing an example is refused; no loan row ever exists.",
     "categories": [
-      { "id": "ex-libcat-power", "label": "Power tools", "sortOrder": 1, "isExample": true },
-      { "id": "ex-libcat-garden", "label": "Garden & land", "sortOrder": 2, "isExample": true },
-      { "id": "ex-libcat-kitchen", "label": "Kitchen & preserving", "sortOrder": 3, "isExample": true }
+      {
+        "id": "ex-libcat-power",
+        "label": "Power tools",
+        "sortOrder": 1,
+        "isExample": true
+      },
+      {
+        "id": "ex-libcat-garden",
+        "label": "Garden & land",
+        "sortOrder": 2,
+        "isExample": true
+      },
+      {
+        "id": "ex-libcat-kitchen",
+        "label": "Kitchen & preserving",
+        "sortOrder": 3,
+        "isExample": true
+      }
     ],
     "items": [
       {
@@ -395,7 +441,6 @@
       }
     ]
   },
-
   "stays": {
     "_trigger": "POST /api/admin/stays/accommodations creates a real room",
     "_note": "Rooms and posted prices are pure catalog: no ledger, no Stripe. Booking an example is refused, so no stays row and no open state is ever created.",
@@ -409,10 +454,26 @@
         "active": true,
         "isExample": true,
         "prices": [
-          { "tokenType": "stay-credit", "audience": "guest", "amountMinor": 3 },
-          { "tokenType": "stay-credit", "audience": "member", "amountMinor": 2 },
-          { "tokenType": "usd", "audience": "guest", "amountMinor": 4500 },
-          { "tokenType": "usd", "audience": "member", "amountMinor": 3000 }
+          {
+            "tokenType": "stay-credit",
+            "audience": "guest",
+            "amountMinor": 3
+          },
+          {
+            "tokenType": "stay-credit",
+            "audience": "member",
+            "amountMinor": 2
+          },
+          {
+            "tokenType": "usd",
+            "audience": "guest",
+            "amountMinor": 4500
+          },
+          {
+            "tokenType": "usd",
+            "audience": "member",
+            "amountMinor": 3000
+          }
         ]
       },
       {
@@ -424,10 +485,26 @@
         "active": true,
         "isExample": true,
         "prices": [
-          { "tokenType": "stay-credit", "audience": "guest", "amountMinor": 1 },
-          { "tokenType": "stay-credit", "audience": "member", "amountMinor": 1 },
-          { "tokenType": "usd", "audience": "guest", "amountMinor": 1800 },
-          { "tokenType": "usd", "audience": "member", "amountMinor": 1200 }
+          {
+            "tokenType": "stay-credit",
+            "audience": "guest",
+            "amountMinor": 1
+          },
+          {
+            "tokenType": "stay-credit",
+            "audience": "member",
+            "amountMinor": 1
+          },
+          {
+            "tokenType": "usd",
+            "audience": "guest",
+            "amountMinor": 1800
+          },
+          {
+            "tokenType": "usd",
+            "audience": "member",
+            "amountMinor": 1200
+          }
         ]
       },
       {
@@ -439,15 +516,30 @@
         "active": true,
         "isExample": true,
         "prices": [
-          { "tokenType": "stay-credit", "audience": "guest", "amountMinor": 5 },
-          { "tokenType": "stay-credit", "audience": "member", "amountMinor": 3 },
-          { "tokenType": "usd", "audience": "guest", "amountMinor": 7500 },
-          { "tokenType": "usd", "audience": "member", "amountMinor": 5000 }
+          {
+            "tokenType": "stay-credit",
+            "audience": "guest",
+            "amountMinor": 5
+          },
+          {
+            "tokenType": "stay-credit",
+            "audience": "member",
+            "amountMinor": 3
+          },
+          {
+            "tokenType": "usd",
+            "audience": "guest",
+            "amountMinor": 7500
+          },
+          {
+            "tokenType": "usd",
+            "audience": "member",
+            "amountMinor": 5000
+          }
         ]
       }
     ]
   },
-
   "commerce": {
     "_trigger": "POST /api/admin/products creates a real product",
     "_note": "payment_products rows are pure catalog for all six kinds, including token_pack. Checkout against an example is refused before any Stripe call.",
@@ -496,7 +588,6 @@
       }
     ]
   },
-
   "badges": {
     "_trigger": "POST /api/admin/badges creates a real badge",
     "_note": [
@@ -525,7 +616,12 @@
         "kind": "earned",
         "capabilities": [],
         "denies": [],
-        "rule": { "metric": "quests_consented", "threshold": 10, "stackable": true, "maxStack": 5 },
+        "rule": {
+          "metric": "quests_consented",
+          "threshold": 10,
+          "stackable": true,
+          "maxStack": 5
+        },
         "active": true,
         "isExample": true
       },
@@ -535,13 +631,14 @@
         "description": "A warning badge. While it stands, this member cannot post to the forum, whatever roles or stage they hold. A deny beats every grant except admin. Always carries a note explaining why and what resolves it, and it expires.",
         "kind": "warning",
         "capabilities": [],
-        "denies": ["forum.post"],
+        "denies": [
+          "forum.post"
+        ],
         "active": true,
         "isExample": true
       }
     ]
   },
-
   "health": {
     "_trigger": "POST /api/admin/health/regen records a real measurement",
     "_note": "Snapshots need >= 3 distinct cycle_number values before trends unlock, so examples span three lunations. Metric keys come from the closed set in shared/healthMetrics.ts. A new key cannot be invented here.",
@@ -567,17 +664,8 @@
         "note": "The overgrazed section below the ridge, now fenced off from stock and replanted. Absolute area under active restoration, not a claim that it is finished.",
         "isExample": true
       }
-    ],
-    "snapshots": {
-      "_note": "Three lunations so the trend line has something to draw.",
-      "cycles": [
-        { "cycleNumber": -3, "members_total": 18, "members_active_cycle": 11, "events_total_cycle": 34, "quests_consented_cycle": 6, "gratitude_senders_distinct": 9 },
-        { "cycleNumber": -2, "members_total": 21, "members_active_cycle": 14, "events_total_cycle": 41, "quests_consented_cycle": 9, "gratitude_senders_distinct": 12 },
-        { "cycleNumber": -1, "members_total": 23, "members_active_cycle": 16, "events_total_cycle": 52, "quests_consented_cycle": 11, "gratitude_senders_distinct": 15 }
-      ]
-    }
+    ]
   },
-
   "automation": {
     "_trigger": "POST /api/admin/recordings ingests a real recording",
     "_note": "Synthesis normally costs an LLM call; the example synthesis is seeded directly. ai_body and body deliberately differ: that pair IS the product. Publishing an example is refused, so no forum thread is ever created from it.",
@@ -593,11 +681,31 @@
         "transcript": {
           "source": "provided",
           "segments": [
-            { "startMs": 0, "endMs": 42000, "text": "Alright, we are recording. Two things today: where the second tank goes, and whether the winter build is still realistic given where we are on materials." },
-            { "startMs": 42000, "endMs": 118000, "text": "On the tank: I walked the ridge line again on Sunday. Gravity feed reaches everything below it, including the bunkroom, which the workshop site does not. The catch is the truck cannot get up there, so every delivery is hand-carried." },
-            { "startMs": 118000, "endMs": 196000, "text": "I can cost the pipe run properly by Friday if that would settle it. My instinct is that the pipe is cheaper than a pump plus the power to run it over ten years, but I would rather show numbers than instincts." },
-            { "startMs": 196000, "endMs": 268000, "text": "Please do. And on the winter build: we are short on the roofing steel and the supplier has gone quiet. Somebody needs to chase that this week or we lose the dry window entirely." },
-            { "startMs": 268000, "endMs": 320000, "text": "I will chase the supplier. If they cannot commit to a date by Wednesday we should price a second source and stop waiting politely." }
+            {
+              "startMs": 0,
+              "endMs": 42000,
+              "text": "Alright, we are recording. Two things today: where the second tank goes, and whether the winter build is still realistic given where we are on materials."
+            },
+            {
+              "startMs": 42000,
+              "endMs": 118000,
+              "text": "On the tank: I walked the ridge line again on Sunday. Gravity feed reaches everything below it, including the bunkroom, which the workshop site does not. The catch is the truck cannot get up there, so every delivery is hand-carried."
+            },
+            {
+              "startMs": 118000,
+              "endMs": 196000,
+              "text": "I can cost the pipe run properly by Friday if that would settle it. My instinct is that the pipe is cheaper than a pump plus the power to run it over ten years, but I would rather show numbers than instincts."
+            },
+            {
+              "startMs": 196000,
+              "endMs": 268000,
+              "text": "Please do. And on the winter build: we are short on the roofing steel and the supplier has gone quiet. Somebody needs to chase that this week or we lose the dry window entirely."
+            },
+            {
+              "startMs": 268000,
+              "endMs": 320000,
+              "text": "I will chase the supplier. If they cannot commit to a date by Wednesday we should price a second source and stop waiting politely."
+            }
           ]
         },
         "synthesis": {
@@ -606,9 +714,18 @@
           "aiBody": "The call covered two decisions.\n\n**Water tank siting.** The ridge site gives gravity feed to the entire lower site including the bunkroom; the workshop site does not. The objection is delivery access: the ridge cannot take a truck, so every load is hand-carried. A full pipe-run costing was offered to settle it by Friday, on the reasoning that pipe is a one-time cost while pumping is perpetual.\n\n**Winter build.** Roofing steel is short and the supplier has stopped responding. The dry window is at risk. Agreement that the supplier is chased this week, with a second source priced if no firm date arrives by Wednesday.",
           "body": "Two decisions from the weekly circle.\n\n**Water tank siting**: leaning ridge. It gravity-feeds everything below including the bunkroom, which the workshop site can't do. The trade-off is truck access: every delivery gets hand-carried up. Pipe-run costing lands Friday and we decide off the numbers, not off instinct.\n\n**Winter build**: the roofing steel is the bottleneck and the supplier has gone quiet. Being chased this week. If there's no firm date by Wednesday we stop waiting politely and price a second source.\n\n(This is the human-edited copy. The untouched AI version sits beside it, and that pairing is the point: nothing publishes itself.)",
           "chapters": [
-            { "startMs": 0, "title": "Agenda" },
-            { "startMs": 42000, "title": "Water tank siting" },
-            { "startMs": 196000, "title": "Winter build and materials" }
+            {
+              "startMs": 0,
+              "title": "Agenda"
+            },
+            {
+              "startMs": 42000,
+              "title": "Water tank siting"
+            },
+            {
+              "startMs": 196000,
+              "title": "Winter build and materials"
+            }
           ],
           "decisions": [
             "Pipe-run costing for the ridge site to be presented Friday; tank siting decided from that.",
@@ -649,7 +766,6 @@
       }
     ]
   },
-
   "network": {
     "_trigger": "POST /api/admin/network/share publishes a real item",
     "_note": "The example peer is a fixture written directly to peer_instances with a hand-built cache payload: addPeer() requires a live remote deployment. The sync job skips example peers, so it never tries to reach example.org.",
@@ -716,7 +832,6 @@
       }
     ]
   },
-
   "exchange": {
     "_trigger": "PUT /api/admin/exchange/tokens/:slug lists a real token",
     "_note": [
@@ -745,7 +860,6 @@
       }
     ]
   },
-
   "gratitude": {
     "_trigger": "The first real gratitude send",
     "_note": [
@@ -760,7 +874,6 @@
     ],
     "entries": []
   },
-
   "profiles": {
     "_trigger": "n/a",
     "_note": [
