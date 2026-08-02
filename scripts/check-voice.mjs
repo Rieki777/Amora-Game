@@ -15,6 +15,11 @@
  * NOT scanned: it is the runtime volume, so its contents are whatever an
  * admin last typed, and a gate has no business failing on that.
  *
+ * `docs/knowledge/*.md` is checked too. It is the corpus Maia loads at boot
+ * and reasons from, so her answers inherit its register: it is site language
+ * that happens to be written in markdown. Only the hard rules apply there.
+ * Every other doc under `docs/` is for developers and is left alone.
+ *
  *   1. No em-dashes or en-dashes. A comma, a period, a colon, or a rewrite.
  *      Hyphens are fine.
  *   2. No contrast framing. State what a thing is.
@@ -41,7 +46,7 @@ const SKIP_DIRS = new Set([
   "attached_assets", "data", "drizzle", "patches",
 ]);
 
-const SCAN_ROOTS = ["client/src", "server", "shared"];
+const SCAN_ROOTS = ["client/src", "server", "shared", "docs/knowledge"];
 
 /**
  * JSON string values that are machinery, never prose: ids, routes, icon names,
@@ -97,7 +102,7 @@ function walkFiles(dir, out) {
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
       walkFiles(path.join(dir, entry.name), out);
-    } else if (/\.tsx?$/.test(entry.name) || /\.json$/.test(entry.name)) {
+    } else if (/\.(tsx?|json|md)$/.test(entry.name)) {
       out.push(path.join(dir, entry.name));
     }
   }
@@ -204,6 +209,21 @@ for (const file of files) {
   const rel = path.relative(ROOT, file).replace(/\\/g, "/");
   if (isTest(rel)) continue;
   const text = fs.readFileSync(file, "utf8");
+
+  if (file.endsWith(".md")) {
+    // Markdown is prose end to end, so the whole file is the span. Fenced code
+    // blocks are machinery and are cut out first.
+    const prose = text.replace(/```[\s\S]*?```/g, "");
+    prose.split("\n").forEach((lineText, i) => {
+      if (/voice-ok:/.test(lineText)) return;
+      for (const [kind, hit] of checkSpan(lineText)) {
+        findings.push({
+          file: rel, line: i + 1, kind, hit, text: lineText.trim().slice(0, 160),
+        });
+      }
+    });
+    continue;
+  }
 
   if (file.endsWith(".json")) {
     let parsed;

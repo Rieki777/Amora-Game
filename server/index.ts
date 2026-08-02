@@ -218,6 +218,7 @@ import {
 } from "./lib/modules";
 import {
   EXAMPLE_REFUSAL_BODY,
+  EXAMPLE_TABLES,
   isExampleRow,
   isExampleUser,
   isRetired,
@@ -1064,6 +1065,7 @@ async function ensureDataFiles() {
   await runOnce("membership-grants-from-email-match", freezeEmailMatchedMemberships);
   await runOnce("org-chart-2026-08", applyOrgChartRefresh);
   await runOnce("voice-sweep-2026-08-01", applyVoiceSweepToSeededRows);
+  await runOnce("voice-sweep-2026-08-01-part-2", applyVoiceSweepToSeededDocuments);
 }
 
 /**
@@ -1106,6 +1108,140 @@ function repairRowCopy(row: any, def: any): boolean {
   const patches = copyRepairsFor(row, def);
   for (const [key, want] of patches) row[key] = want;
   return patches.length > 0;
+}
+
+/**
+ * Mirror `def` onto `stored`, replacing only strings that are the same words.
+ * Arrays pair up by index when the lengths match and by id otherwise, so a
+ * reordered or extended list still repairs the entries it recognises.
+ */
+function repairDeep(stored: any, def: any): any {
+  if (typeof stored === "string" && typeof def === "string") {
+    return stored !== def && sameWords(stored, def) ? def : stored;
+  }
+  if (Array.isArray(stored) && Array.isArray(def)) {
+    const byId = new Map(def.filter((d) => d?.id != null).map((d) => [String(d.id), d]));
+    return stored.map((item, i) => {
+      const twin = item?.id != null ? byId.get(String(item.id)) : undefined;
+      const pair = twin ?? (stored.length === def.length ? def[i] : undefined);
+      return pair === undefined ? item : repairDeep(item, pair);
+    });
+  }
+  if (stored && def && typeof stored === "object" && typeof def === "object") {
+    const out: any = Array.isArray(stored) ? [...stored] : { ...stored };
+    for (const key of Object.keys(def)) {
+      if (key in out) out[key] = repairDeep(out[key], def[key]);
+    }
+    return out;
+  }
+  return stored;
+}
+
+/** Every string anywhere inside a parsed structure. */
+function collectStrings(value: any, out: string[] = []): string[] {
+  if (typeof value === "string") out.push(value);
+  else if (Array.isArray(value)) for (const v of value) collectStrings(v, out);
+  else if (value && typeof value === "object") {
+    for (const v of Object.values(value)) collectStrings(v, out);
+  }
+  return out;
+}
+
+/**
+ * Part two of the voice sweep repair, for the surfaces the first pass did not
+ * reach: the content document (its roles / circles / team sections were written
+ * from the org-chart seed by an earlier one-shot, before the sweep), the
+ * work-with-us document, and the standing-example rows, which were seeded on
+ * the boot that shipped them, hours before the seed file was corrected.
+ *
+ * Examples are repaired in place rather than re-seeded on purpose. Retirement
+ * is terminal by design, so clearing and re-seeding would mean reaching into
+ * `example_state` and breaking the promise that a retired example stays
+ * retired. Repairing the rows leaves the state machine alone and reaches the
+ * same result; every touched row is still `is_example = 1` and still retires
+ * normally the moment the village publishes anything real.
+ *
+ * Same word-for-word rule throughout: punctuation only, never an edited string.
+ */
+async function applyVoiceSweepToSeededDocuments(): Promise<void> {
+  let repaired = 0;
+
+  try {
+    if (fs.existsSync(ORG_CHART_SEED_FILE)) {
+      const seed = JSON.parse(fs.readFileSync(ORG_CHART_SEED_FILE, "utf-8"));
+      const content = contentRepo.get() ?? {};
+      let changed = false;
+      for (const key of ["roles", "circles", "team"] as const) {
+        if (!Array.isArray(seed?.[key]) || !Array.isArray(content?.[key])) continue;
+        const before = JSON.stringify(content[key]);
+        content[key] = repairDeep(content[key], seed[key]);
+        if (JSON.stringify(content[key]) !== before) changed = true;
+      }
+      if (changed) { await contentRepo.put(content); repaired++; }
+    }
+  } catch { /* copy repair is best-effort; never block boot */ }
+
+  try {
+    const stored = workWithUsRepo.get();
+    if (stored && typeof stored === "object") {
+      const fixed = repairDeep(stored, DEFAULT_WORK_WITH_US);
+      if (JSON.stringify(fixed) !== JSON.stringify(stored)) {
+        await workWithUsRepo.put(fixed);
+        repaired++;
+      }
+    }
+  } catch { /* same */ }
+
+  try {
+    const seed = loadExampleSeed(SEEDS_DIR);
+    if (seed) {
+      // Word-for-word lookup: a stored example string is only replaced when the
+      // corrected seed contains the very same words.
+      const wanted = new Map<string, string>();
+      for (const s of collectStrings(seed)) {
+        const norm = s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        if (norm) wanted.set(norm, s);
+      }
+      const tables = Array.from(new Set(Object.values(EXAMPLE_TABLES).flat()));
+      const pool = getPool();
+      for (const table of tables) {
+        try {
+          const [cols] = await pool.query<any>(
+            "SELECT column_name AS c FROM information_schema.columns " +
+              "WHERE table_schema = DATABASE() AND table_name = ? " +
+              "AND data_type IN ('char','varchar','text','mediumtext','longtext','tinytext')",
+            [table],
+          );
+          const names = (cols as Array<{ c: string }>).map((r) => r.c);
+          if (!names.length) continue;
+          const list = names.map((n) => `\`${n}\``).join(", ");
+          const [rows] = await pool.query<any>(
+            `SELECT \`id\`, ${list} FROM \`${table}\` WHERE is_example = 1`,
+          );
+          for (const row of rows as any[]) {
+            const sets: string[] = [];
+            const vals: any[] = [];
+            for (const n of names) {
+              const have = row[n];
+              if (typeof have !== "string" || !/[—–]/.test(have)) continue;
+              const want = wanted.get(have.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
+              if (!want || want === have) continue;
+              sets.push(`\`${n}\` = ?`);
+              vals.push(want);
+            }
+            if (!sets.length) continue;
+            await pool.query(
+              `UPDATE \`${table}\` SET ${sets.join(", ")} WHERE \`id\` = ?`,
+              [...vals, row.id],
+            );
+            repaired++;
+          }
+        } catch { /* a fork may lack this table; skip it */ }
+      }
+    }
+  } catch { /* same */ }
+
+  if (repaired) console.log(`[MIGRATION] voice sweep part 2 repaired ${repaired} record(s)`);
 }
 
 async function applyVoiceSweepToSeededRows(): Promise<void> {
