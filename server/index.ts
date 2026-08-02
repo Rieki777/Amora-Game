@@ -227,6 +227,7 @@ import {
   loadExampleState,
   modulesWithExamples,
   onRealItemPublished,
+  refreshExamples,
   retireExamples,
   seedExamples,
   wireExampleCaches,
@@ -3163,6 +3164,9 @@ async function startServer() {
     if (tables.includes("tools")) await toolsRepo.load();
     if (tables.includes("circles")) await circlesRepo.load();
     if (tables.includes("roles")) await rolesRepo.load();
+    // Example tokens live in the boot-loaded registry map; deleting their
+    // rows without this reload leaves ghost names resolving until reboot.
+    if (tables.includes("tokens")) await loadTokenRegistry(getPool());
   });
   assertModuleGraph();
   wireModuleAuth({
@@ -3677,6 +3681,21 @@ async function startServer() {
 
   await ensureDataFiles();
   await seedExamplesAtBoot();
+  // The 2026-08-02 seed revision: real timestamps, a stocked example market,
+  // badges with powers and holders, the relative event date. Instances that
+  // seeded the older content replace it once; a retired module stays retired,
+  // and health's orphans (rows the correct is_example = 0 filters could never
+  // serve) are cleared even though health no longer seeds them.
+  await runOnce("examples-refresh-2026-08-02", async () => {
+    await getPool().query("DELETE FROM health_snapshots WHERE is_example = 1").catch(() => {});
+    await getPool().query("DELETE FROM health_events WHERE is_example = 1").catch(() => {});
+    const seed = loadExampleSeed(SEEDS_DIR);
+    if (!seed) return;
+    const baseCycle = currentCycle().cycleNumber;
+    for (const moduleId of ["forum", "feed", "network", "exchange", "badges"]) {
+      await refreshExamples(getPool(), moduleId, seed, { baseCycle });
+    }
+  });
 
   const app = express();
   const server = createServer(app);
@@ -4834,23 +4853,35 @@ async function startServer() {
     }
     if (req.query.before) { where += " AND t.created_at < ?"; params.push(new Date(String(req.query.before))); }
     const [rows] = await getPool().query<any[]>(
-      `SELECT t.id, t.category, t.author_id, t.title, t.body, t.kind, t.image_url, t.heart_count, t.reply_count, ` +
+      `SELECT t.id, t.category, t.author_id, t.title, t.body, t.kind, t.meta, t.image_url, t.heart_count, t.reply_count, ` +
         `t.last_reply_at, t.pinned_at, t.locked_at, t.hidden_at, t.created_at, u.name AS author_name, u.handle AS author_handle ` +
         `FROM forum_threads t LEFT JOIN users u ON u.id = t.author_id WHERE ${where} ` +
         `ORDER BY (t.pinned_at IS NULL), t.pinned_at DESC, COALESCE(t.last_reply_at, t.created_at) DESC LIMIT 20`,
       params,
     );
     res.json(
-      rows.map((r) => ({
-        id: r.id, category: r.category, kind: r.kind,
-        title: r.title ?? String(r.body).slice(0, 80),
-        preview: String(r.body).slice(0, 160),
-        imageUrl: r.image_url, heartCount: Number(r.heart_count), replyCount: Number(r.reply_count),
-        author: { id: r.author_id, name: firstName(r.author_name ?? "Member"), handle: r.author_handle },
-        pinned: !!r.pinned_at, locked: !!r.locked_at, hidden: !!r.hidden_at,
-        lastActivityAt: new Date(r.last_reply_at ?? r.created_at).toISOString(),
-        createdAt: new Date(r.created_at).toISOString(),
-      })),
+      rows.map((r) => {
+        // An event's date belongs on the card: nobody should have to open a
+        // thread to learn when the thing is happening.
+        let eventStartsAt: string | null = null;
+        if (r.kind === "event" && r.meta) {
+          try {
+            const m = typeof r.meta === "string" ? JSON.parse(r.meta) : r.meta;
+            if (m?.startsAt) eventStartsAt = m.startsAt;
+          } catch { /* malformed meta stays off the card */ }
+        }
+        return {
+          id: r.id, category: r.category, kind: r.kind,
+          title: r.title ?? String(r.body).slice(0, 80),
+          preview: String(r.body).slice(0, 160),
+          imageUrl: r.image_url, heartCount: Number(r.heart_count), replyCount: Number(r.reply_count),
+          author: { id: r.author_id, name: firstName(r.author_name ?? "Member"), handle: r.author_handle },
+          pinned: !!r.pinned_at, locked: !!r.locked_at, hidden: !!r.hidden_at,
+          eventStartsAt,
+          lastActivityAt: new Date(r.last_reply_at ?? r.created_at).toISOString(),
+          createdAt: new Date(r.created_at).toISOString(),
+        };
+      }),
     );
   });
 
@@ -8595,12 +8626,17 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       const def = tokenDef(s.tokenSlug);
       if (!def) continue;
       const price = await latestPrice(getPool(), s.tokenSlug);
+      // An example listing's stock is the seeded display number, never the
+      // ledger: the market demonstrates itself, and the buy route's example
+      // guard refuses before any stock logic can matter.
+      const onHand = s.isExample ? (s.exampleStock ?? 0) : (stock[s.tokenSlug] ?? 0);
       listings.push({
         slug: s.tokenSlug,
         name: def.name,
         kind: def.kind,
         priceMinor: price?.priceMinor ?? null,
-        inStock: (stock[s.tokenSlug] ?? 0) > 0,
+        inStock: onHand > 0,
+        stockCount: s.isExample ? onHand : undefined,
         minStageToBuy: s.minStageToBuy,
         sortOrder: s.sortOrder,
       });
@@ -9328,6 +9364,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       governance: "platform",
       transferable: !!transferable,
     });
+    // The village minting its own token is the moment the example market has
+    // done its job: real tokens replace the demonstration.
+    onRealItemPublished(getPool(), "exchange", adminActor(req)?.id ?? null);
     res.json({ success: true, token: tokenDef(cleanSlug) });
   });
 

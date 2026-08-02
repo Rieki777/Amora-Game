@@ -51,10 +51,13 @@ for (const t of CONTENT_TABLES) {
 }
 console.log("  " + "TOTAL".padEnd(24) + total);
 
-/** Tables where a row IS economic state. An example must never produce one. */
+/** Tables where a row IS economic state. An example must never produce one.
+ *  badge_awards left this list on purpose (Rye, 2026-08-02): example awards
+ *  are seeded so the badge page can demonstrate a held badge. Their own
+ *  invariant is checked separately below. */
 const ECONOMIC = [
   "token_ledger", "library_loans", "stays", "stay_purchases", "exchange_orders",
-  "product_purchases", "fiat_charges", "badge_awards", "gratitude_log",
+  "product_purchases", "fiat_charges", "gratitude_log",
 ];
 
 // NOTE: these counts are UNSCOPED — they ask "is this table empty?", not
@@ -72,13 +75,31 @@ for (const t of ECONOMIC) {
   console.log("  " + t.padEnd(24) + String(r.n).padEnd(6) + (ok ? "OK" : "<-- VIOLATION"));
 }
 
-// A definition alone grants nothing, but a capability-bearing example badge is
-// one admin click from real permissions — and an unknown key refuses boot.
-const [[cap]] = await c.query(
-  "SELECT COUNT(*) n FROM badges WHERE is_example = 1 AND JSON_LENGTH(capabilities) > 0",
+// Example badges CARRY capabilities now (Rye, 2026-08-02) — the page must
+// demonstrate what a badge grants. What keeps that safe is the award-side
+// invariant, and THAT is what gets asserted:
+//   1. every example award points at an example user (the gate reads awards
+//      per authenticated user, and example identities never authenticate);
+//   2. no example award sits on a warning badge (a warning award is open
+//      state and would wedge the module's off switch);
+//   3. no REAL award row exists on a virgin schema at all.
+const [[leak]] = await c.query(
+  "SELECT COUNT(*) n FROM badge_awards a JOIN users u ON u.id = a.user_id " +
+    "WHERE a.is_example = 1 AND u.is_example = 0",
 );
-if (cap.n > 0) violations++;
-console.log("\n  example badges granting capabilities: " + cap.n + (cap.n ? "  <-- VIOLATION" : "  OK"));
+if (leak.n > 0) violations++;
+console.log("\n  example awards held by REAL users: " + leak.n + (leak.n ? "  <-- VIOLATION" : "  OK"));
+const [[warnAward]] = await c.query(
+  "SELECT COUNT(*) n FROM badge_awards a JOIN badges b ON b.id = a.badge_id " +
+    "WHERE a.is_example = 1 AND b.kind = 'warning'",
+);
+if (warnAward.n > 0) violations++;
+console.log("  example awards on warning badges: " + warnAward.n + (warnAward.n ? "  <-- VIOLATION" : "  OK"));
+const [[realAward]] = await c.query(
+  "SELECT COUNT(*) n FROM badge_awards WHERE is_example = 0",
+);
+if (realAward.n > 0) violations++;
+console.log("  real award rows (virgin schema): " + realAward.n + (realAward.n ? "  <-- VIOLATION" : "  OK"));
 
 const [ex] = await c.query(
   "SELECT module_id, retired_at FROM example_state WHERE seeded_at IS NOT NULL ORDER BY module_id",

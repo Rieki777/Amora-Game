@@ -262,8 +262,12 @@ describe.skipIf(!DB_CONFIGURED)("standing examples: every guard, over HTTP", () 
     const id = await exampleId("badges");
     const r = await call("POST", `/api/admin/badges/${id}/award`, { userId: founderId });
     expectRefused(r, "badge award");
-    const [rows] = await pool.query<any[]>("SELECT COUNT(*) n FROM badge_awards");
-    expect(Number(rows[0].n)).toBe(0);
+    // Seeded example awards exist by design; what the refusal must guarantee
+    // is that no award of any kind reached the REAL member.
+    const [rows] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM badge_awards WHERE user_id = ?", [founderId],
+    );
+    expect(Number(rows[0].n), "the founder holds nothing").toBe(0);
   });
 
   it("refuses to buy the example exchange listing", async () => {
@@ -293,11 +297,23 @@ describe.skipIf(!DB_CONFIGURED)("standing examples: every guard, over HTTP", () 
   it("leaves every economic table empty after all that refusing", async () => {
     for (const table of [
       "token_ledger", "library_loans", "stay_purchases", "product_purchases",
-      "fiat_charges", "badge_awards", "exchange_orders",
+      "fiat_charges", "exchange_orders",
     ]) {
       const [rows] = await pool.query<any[]>(`SELECT COUNT(*) n FROM \`${table}\``);
       expect(Number(rows[0].n), `${table} must hold nothing`).toBe(0);
     }
+    // badge_awards is allowed to hold EXAMPLE awards (seeded, held by example
+    // identities). What must never exist is a real one, or an example one on
+    // a real member.
+    const [real] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM badge_awards WHERE is_example = 0",
+    );
+    expect(Number(real[0].n), "no real award may exist on this instance").toBe(0);
+    const [leak] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM badge_awards a JOIN users u ON u.id = a.user_id " +
+        "WHERE a.is_example = 1 AND u.is_example = 0",
+    );
+    expect(Number(leak[0].n), "no example award may touch a real user").toBe(0);
   });
 
   /**

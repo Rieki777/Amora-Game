@@ -229,16 +229,19 @@
             "id": "ex-reply-water-1",
             "authorId": "ex-user-tomas",
             "body": "Truck access does not kill it. It changes the cost. Hand-carrying a full load is roughly four person-hours each time, and we would do that maybe twice a year.\n\nAgainst that, pumping is a pump that fails eventually, plus the power to run it. I think the ridge still wins, but let us cost the pipe run properly before anyone commits.",
-            "isExample": true
+            "isExample": true,
+            "hoursAfter": 18
           },
           {
             "id": "ex-reply-water-2",
             "authorId": "ex-user-aditi",
             "parentReplyId": "ex-reply-water-1",
             "body": "I priced something similar two years ago. Budget more than you think for the fittings. The pipe itself was the cheap part.",
-            "isExample": true
+            "isExample": true,
+            "hoursAfter": 27
           }
-        ]
+        ],
+        "daysAgo": 4
       },
       {
         "id": "ex-thread-decision",
@@ -262,9 +265,11 @@
             "id": "ex-reply-decision-1",
             "authorId": "ex-user-aditi",
             "body": "Supportive, as long as the harvest-week exception is written in. Every year we forget and every year someone is annoyed.",
-            "isExample": true
+            "isExample": true,
+            "hoursAfter": 30
           }
-        ]
+        ],
+        "daysAgo": 11
       },
       {
         "id": "ex-thread-event",
@@ -279,13 +284,14 @@
           "seeds"
         ],
         "meta": {
-          "startsAt": "2026-09-06T11:00:00.000Z",
-          "endsAt": "2026-09-06T15:00:00.000Z",
           "location": "The long table under the mango tree",
           "ctaLabel": "Tell us you are coming",
-          "ctaUrl": "https://example.org/seed-swap"
+          "ctaUrl": "https://example.org/seed-swap",
+          "startsInDays": 12,
+          "durationHours": 4
         },
-        "isExample": true
+        "isExample": true,
+        "daysAgo": 2
       }
     ]
   },
@@ -302,7 +308,8 @@
         "tags": [
           "garden"
         ],
-        "isExample": true
+        "isExample": true,
+        "daysAgo": 0.2
       },
       {
         "id": "ex-feed-2",
@@ -314,7 +321,8 @@
           "water",
           "repair"
         ],
-        "isExample": true
+        "isExample": true,
+        "daysAgo": 1.1
       },
       {
         "id": "ex-feed-3",
@@ -325,7 +333,8 @@
         "tags": [
           "logistics"
         ],
-        "isExample": true
+        "isExample": true,
+        "daysAgo": 2.4
       }
     ]
   },
@@ -591,30 +600,62 @@
   "badges": {
     "_trigger": "POST /api/admin/badges creates a real badge",
     "_note": [
-      "SAFETY: an active badge carrying an unknown capability key makes the server",
-      "REFUSE TO BOOT (assertBadgeInvariants). Example definitions therefore carry",
-      "only real capability keys or none at all. A definition grants nothing without",
-      "an award row, and no example award rows are ever seeded.",
-      "The earned engine and the self-claim route both skip is_example rows, so an",
-      "example badge can never be auto-awarded at cycle close or self-claimed."
+      "Badges carry REAL capability keys and awards held by example identities,",
+      "so the page demonstrates the whole arc: definition, grant, holder, stack.",
+      "Safe because an example award may only ever point at an example user: the",
+      "award route, the claim route and the earned engine all refuse or skip",
+      "examples, and example identities never authenticate, so these rows never",
+      "reach the capability gate for anyone real. Warning badges never get",
+      "awards: a warning award is open state and would block module-off.",
+      "Every capability key must exist in shared/capabilities.ts ALL_CAPABILITIES."
     ],
     "badges": [
       {
         "id": "ex-badge-first-harvest",
         "name": "First Harvest",
-        "description": "Given by a steward to someone who saw a growing season through from seed to table. It marks patience.",
         "kind": "granted",
+        "icon": "sprout",
+        "active": true,
+        "description": "Brought in the first crop of the season. Granted by a steward who witnessed the work.",
         "capabilities": [],
         "denies": [],
+        "awards": [
+          {
+            "userId": "ex-user-aditi",
+            "note": "Three baskets of squash from the north beds."
+          }
+        ]
+      },
+      {
+        "id": "ex-badge-steward",
+        "name": "Village Steward",
+        "kind": "granted",
+        "icon": "shield",
         "active": true,
-        "isExample": true
+        "description": "Carries the village's trust to moderate the forum, post announcements and record the land's measurements. Powers travel with the badge and leave with it.",
+        "capabilities": [
+          "forum.moderate",
+          "feed.announce",
+          "health.record"
+        ],
+        "denies": [],
+        "awards": [
+          {
+            "userId": "ex-user-mira",
+            "note": "Stewarding through the wet season."
+          }
+        ]
       },
       {
         "id": "ex-badge-ten-quests",
         "name": "Ten Times Useful",
-        "description": "Earned automatically at ten consented quests, and again at every ten after that. Counts settled contribution only: work that a human witnessed and released, never applause.",
         "kind": "earned",
-        "capabilities": [],
+        "icon": "star",
+        "active": true,
+        "description": "Ten quests consented by others. The engine awards this on its own at cycle close, and it stacks: twenty quests earns it twice. Holding it opens quest proposals early.",
+        "capabilities": [
+          "quest.propose"
+        ],
         "denies": [],
         "rule": {
           "metric": "quests_consented",
@@ -622,20 +663,42 @@
           "stackable": true,
           "maxStack": 5
         },
+        "awards": [
+          {
+            "userId": "ex-user-tomas",
+            "count": 2,
+            "note": "Earned twice over: twenty-three consented quests."
+          }
+        ]
+      },
+      {
+        "id": "ex-badge-gardener",
+        "name": "Gardener",
+        "kind": "self",
+        "icon": "flower",
         "active": true,
-        "isExample": true
+        "description": "A self-claimed identity: tell the village what you do with your hands. Self badges grant nothing; they help people find each other.",
+        "capabilities": [],
+        "denies": [],
+        "awards": [
+          {
+            "userId": "ex-user-aditi",
+            "selfClaimed": true
+          }
+        ]
       },
       {
         "id": "ex-badge-timeout",
         "name": "Posting Paused",
-        "description": "A warning badge. While it stands, this member cannot post to the forum, whatever roles or stage they hold. A deny beats every grant except admin. Always carries a note explaining why and what resolves it, and it expires.",
         "kind": "warning",
+        "icon": "octagon-pause",
+        "active": true,
+        "description": "A deliberate brake: while this is held, forum posting is closed to the holder. A deny beats every role and stage; only an admin outranks it.",
         "capabilities": [],
         "denies": [
           "forum.post"
         ],
-        "active": true,
-        "isExample": true
+        "awards": []
       }
     ]
   },
@@ -817,7 +880,7 @@
               "title": "Two experienced natural builders available in the off season",
               "detail": "Cob and lime plaster mostly, some light timber work. Available for roughly six weeks after our harvest finishes. They would want accommodation and food; beyond that they are looking for interesting work, not income.",
               "contact": "crew@example.org",
-              "createdAt": "2026-07-14T09:00:00.000Z"
+              "daysAgo": 18
             },
             {
               "id": "ex-peer-item-2",
@@ -825,7 +888,7 @@
               "title": "Seeking a shared bulk order for organic seed",
               "detail": "Our supplier's minimum is well above what one village uses in a season, and the per-unit price at volume is roughly half. Looking for two or three villages to split an order and the freight.",
               "contact": "garden@example.org",
-              "createdAt": "2026-07-22T16:30:00.000Z"
+              "daysAgo": 10
             }
           ]
         }
@@ -833,28 +896,60 @@
     ]
   },
   "exchange": {
-    "_trigger": "PUT /api/admin/exchange/tokens/:slug lists a real token",
+    "_trigger": "PUT /api/admin/exchange/tokens/:slug lists a real token, or POST /api/admin/tokens creates one",
     "_note": [
-      "An example listing is a token_exchange_settings row plus posted currency_prices",
-      "rows. Both are display-only. The treasury is NOT stocked for examples, so even",
-      "without the inert guard a purchase would refuse with 'out of stock'. Nothing",
-      "is minted. The refusal is correct behaviour, not an error state.",
-      "Recognition and Hypha-governed tokens can never be listed; the boot firewalls",
-      "re-prove that every deploy and would delist an illegal example loudly."
+      "Example TOKENS (registry rows, is_example=1) plus listings and posted prices,",
+      "all display-only. exampleStock is a presentation number on the settings row;",
+      "the ledger holds NO rows for example tokens, so conservation holds trivially",
+      "and the buy route refuses the example before any stock logic runs.",
+      "Only credit-kind tokens can list (recognition and Hypha-governed refuse, and",
+      "the boot firewalls re-prove that every deploy). The village creating or",
+      "listing its own token retires the whole set, registry rows included."
+    ],
+    "tokens": [
+      {
+        "slug": "ex-credits",
+        "name": "Example Credits",
+        "kind": "credit",
+        "transferable": true,
+        "sortOrder": 91
+      },
+      {
+        "slug": "ex-workshop",
+        "name": "Example Workshop Passes",
+        "kind": "credit",
+        "transferable": false,
+        "sortOrder": 92
+      }
     ],
     "listings": [
       {
-        "tokenSlug": "credits",
+        "tokenSlug": "ex-credits",
         "purchasable": true,
         "swappable": false,
         "active": true,
         "sortOrder": 1,
         "minStageToBuy": null,
-        "isExample": true,
+        "exampleStock": 250,
         "prices": [
           {
             "priceMinor": 100,
-            "note": "Opening rate set by the founding circle: one credit to one dollar, chosen for legibility, not economics. Every later change lands as a new row with its own reasoning, so the price has a history a member can read."
+            "note": "One credit to one dollar, chosen for legibility: everyone can price a favour, a meal or an hour without arithmetic. Revisit once the village has its own sense of value."
+          }
+        ]
+      },
+      {
+        "tokenSlug": "ex-workshop",
+        "purchasable": true,
+        "swappable": false,
+        "active": true,
+        "sortOrder": 2,
+        "minStageToBuy": null,
+        "exampleStock": 40,
+        "prices": [
+          {
+            "priceMinor": 1500,
+            "note": "Covers materials and the teacher's time for one session. Priced to break even, never to profit from learning."
           }
         ]
       }

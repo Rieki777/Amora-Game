@@ -43,6 +43,8 @@ export interface TokenDef {
   /** May members send it peer-to-peer? */
   transferable: boolean;
   active: boolean;
+  /** Standing-example token: display-only, retires on the first real one. */
+  isExample?: boolean;
 }
 
 /** The default recognition token. The others are read from chain. */
@@ -71,7 +73,7 @@ const registry = new Map<string, TokenDef>();
  */
 export async function loadTokenRegistry(pool: Pool): Promise<void> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT slug, name, kind, governance, transferable, active FROM tokens",
+    "SELECT slug, name, kind, governance, transferable, active, is_example FROM tokens",
   );
   registry.clear();
   for (const r of rows) {
@@ -82,6 +84,7 @@ export async function loadTokenRegistry(pool: Pool): Promise<void> {
       governance: r.governance === "hypha" ? "hypha" : "platform",
       transferable: !!r.transferable,
       active: !!r.active,
+      isExample: Number(r.is_example ?? 0) === 1,
     });
   }
 }

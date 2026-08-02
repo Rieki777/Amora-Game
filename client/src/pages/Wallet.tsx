@@ -141,6 +141,7 @@ export default function Wallet() {
                     <p className="text-xs text-muted-foreground">
                       {l.priceMinor != null ? `${usd(l.priceMinor)} each` : "price coming soon"}
                       {!l.inStock && <span className="text-amber-600"> · out of stock</span>}
+                      {l.stockCount != null && l.stockCount > 0 && <span> · {l.stockCount} in stock</span>}
                     </p>
                   </div>
                   {user && data?.mine?.canBuy && data?.stripeConfigured && l.priceMinor != null && l.inStock && (

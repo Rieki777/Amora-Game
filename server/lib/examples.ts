@@ -30,6 +30,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { stringVar } from "./variables";
+import { loadTokenRegistry } from "./ledger";
 
 export const EXAMPLE_REFUSAL =
   "This is a standing example. Publish your own to replace it.";
@@ -57,11 +58,11 @@ export const EXAMPLE_TABLES: Record<string, string[]> = {
   library: ["library_items", "library_categories"],
   stays: ["accommodation_prices", "accommodations"],
   commerce: ["payment_products"],
-  badges: ["badges"],
+  badges: ["badge_awards", "badges"],
   health: ["regen_entries"],
   automation: ["call_tasks", "call_syntheses", "transcripts", "recordings"],
   network: ["peer_shared_cache", "peer_instances", "shared_items"],
-  exchange: ["currency_prices", "token_exchange_settings"],
+  exchange: ["currency_prices", "token_exchange_settings", "tokens"],
   gratitude: ["gratitude_log"],
   profiles: [],
 };
@@ -75,7 +76,13 @@ export const EXAMPLE_TABLES: Record<string, string[]> = {
  * read as already-populated and silently skip its examples. That is exactly
  * what happened to the feed on the first run.
  */
-const NOT_EVIDENCE_OF_REAL_CONTENT = new Set(["health_events"]);
+const NOT_EVIDENCE_OF_REAL_CONTENT = new Set([
+  "health_events",
+  // Every fork is born with the platform's own tokens (gratitude, credits,
+  // the chain mirrors) — real rows that say nothing about whether this
+  // village has built its own market yet.
+  "tokens",
+]);
 
 /**
  * Modules whose "is there real content?" question the table list cannot answer.
@@ -254,6 +261,12 @@ export function loadExampleSeed(seedsDir: string): any | null {
 const J = (v: unknown) => JSON.stringify(v ?? null);
 
 /** INSERT IGNORE everywhere: re-running is a no-op, never a duplicate. */
+/** N days before now; fractional days welcome. Undefined = a day ago. */
+function agoDate(daysAgo: unknown): Date {
+  const days = Number(daysAgo);
+  return new Date(Date.now() - (Number.isFinite(days) ? days : 1) * 86400_000);
+}
+
 async function ins(conn: Pool | PoolConnection, table: string, row: Record<string, any>): Promise<number> {
   const cols = Object.keys(row);
   const sql =
@@ -401,11 +414,37 @@ export async function seedExamples(
     case "forum":
       for (const t of block.threads ?? []) {
         const replies = t.replies ?? [];
+        // A conversation that happened in zero seconds convinces nobody.
+        // Threads carry daysAgo, replies hoursAfter their thread, and the
+        // stamps land in created_at so lists sort the authored order.
+        const threadAt = agoDate(t.daysAgo);
+        let lastReplyAt: Date | null = null;
+        // An event with a hard-coded date goes stale the day after it; the
+        // seed declares startsInDays and the date is minted here, always
+        // ahead of whoever is looking at it.
+        let meta = t.meta ?? null;
+        if (meta?.startsInDays !== undefined) {
+          const startsAt = new Date(Date.now() + Number(meta.startsInDays) * 86400_000);
+          startsAt.setMinutes(0, 0, 0);
+          const { startsInDays: _s, durationHours, ...rest } = meta;
+          meta = {
+            ...rest,
+            startsAt: startsAt.toISOString(),
+            ...(durationHours
+              ? { endsAt: new Date(startsAt.getTime() + Number(durationHours) * 3600_000).toISOString() }
+              : {}),
+          };
+        }
+        for (const r of replies) {
+          const at = new Date(threadAt.getTime() + Number(r.hoursAfter ?? 24) * 3600_000);
+          if (!lastReplyAt || at > lastReplyAt) lastReplyAt = at;
+        }
         n += await ins(p, "forum_threads", {
           id: t.id, category: t.category, author_id: t.authorId, title: t.title,
-          body: t.body, kind: t.kind, meta: t.meta ? J(t.meta) : null,
+          body: t.body, kind: t.kind, meta: meta ? J(meta) : null,
           heart_count: 0, reply_count: replies.length,
-          last_reply_at: replies.length ? new Date() : null,
+          created_at: threadAt,
+          last_reply_at: lastReplyAt,
           pinned_at: t.pinned ? new Date() : null,
           locked_at: t.locked ? new Date() : null,
           is_example: 1,
@@ -416,7 +455,9 @@ export async function seedExamples(
         for (const r of replies) {
           n += await ins(p, "forum_replies", {
             id: r.id, thread_id: t.id, author_id: r.authorId,
-            parent_reply_id: r.parentReplyId ?? null, body: r.body, is_example: 1,
+            parent_reply_id: r.parentReplyId ?? null, body: r.body,
+            created_at: new Date(threadAt.getTime() + Number(r.hoursAfter ?? 24) * 3600_000),
+            is_example: 1,
           });
         }
       }
@@ -429,7 +470,9 @@ export async function seedExamples(
         n += await ins(p, "forum_threads", {
           id: post.id, category: post.category, author_id: post.authorId,
           title: null, body: post.body, kind: post.kind,
-          heart_count: 0, reply_count: 0, is_example: 1,
+          heart_count: 0, reply_count: 0,
+          created_at: agoDate(post.daysAgo),
+          is_example: 1,
         });
         for (const tag of post.tags ?? []) {
           await ins(p, "forum_thread_tags", { thread_id: post.id, tag });
@@ -502,14 +545,29 @@ export async function seedExamples(
       break;
 
     case "badges":
-      // Definitions only. A definition grants nothing without an award row, and
-      // assertBadgeInvariants refuses BOOT on an unknown capability key.
+      // Definitions WITH powers, and awards held by example identities, so
+      // the page shows the whole arc: what a badge grants, what holding one
+      // looks like, what stacking means. Safe because an example award may
+      // only ever point at an example user: the award and claim routes both
+      // refuse examples, the earned engine skips them, and example users
+      // never authenticate — so badgeGrantsFor() never reads these rows for
+      // anyone real. Warning badges never get awards: a warning award is
+      // open state and would block turning the module off.
       for (const b of block.badges ?? []) {
         n += await ins(p, "badges", {
           id: b.id, name: b.name, description: b.description, kind: b.kind,
+          icon: b.icon ?? null,
           capabilities: J(b.capabilities), denies: J(b.denies),
           rule: b.rule ? J(b.rule) : null, active: b.active ? 1 : 0, is_example: 1,
         });
+        for (const a of b.awards ?? []) {
+          if (b.kind === "warning") continue;
+          n += await ins(p, "badge_awards", {
+            id: `ex-award-${b.id}-${a.userId}`, badge_id: b.id, user_id: a.userId,
+            count: a.count ?? 1, awarded_by: a.selfClaimed ? a.userId : EXAMPLE_AUTHOR,
+            note: a.note ?? null, is_example: 1,
+          });
+        }
       }
       break;
 
@@ -576,14 +634,40 @@ export async function seedExamples(
           name: peer.name, version: peer.version, added_by: EXAMPLE_AUTHOR,
           status: peer.status, is_example: 1,
         });
-        n += await ins(p, "peer_shared_cache", { peer_id: peer.id, payload: J(peer.cache) });
+        // Cache item dates are seeded as daysAgo and minted here: an absolute
+        // date reads as weeks-stale the month after anyone writes it.
+        const cache = peer.cache
+          ? {
+              ...peer.cache,
+              items: (peer.cache.items ?? []).map((it: any) => {
+                const { daysAgo, ...rest } = it;
+                return { ...rest, createdAt: agoDate(daysAgo).toISOString() };
+              }),
+            }
+          : peer.cache;
+        n += await ins(p, "peer_shared_cache", { peer_id: peer.id, payload: J(cache) });
       }
       break;
 
     case "exchange":
-      // A listing and a posted price, both display-only. The treasury is
-      // deliberately NOT stocked, so even without the inert guard a purchase
-      // refuses out-of-stock rather than minting.
+      // A working-looking market: example TOKENS of the platform's own kinds,
+      // listed and priced, with a display-only stock number. The ledger is
+      // never touched — an example token has NO ledger rows, so conservation
+      // holds trivially, and the buy route refuses the example before any
+      // stock logic runs. The first real token an admin creates or lists
+      // retires the whole set.
+      for (const t of block.tokens ?? []) {
+        n += await ins(p, "tokens", {
+          slug: t.slug, name: t.name, kind: t.kind, governance: "platform",
+          transferable: t.transferable ? 1 : 0, active: 1,
+          sort_order: t.sortOrder ?? 90, is_example: 1,
+        });
+      }
+      if ((block.tokens ?? []).length) {
+        // The registry is a boot-loaded memory map; the new tokens must
+        // resolve for their listings to render names on the page.
+        await loadTokenRegistry(p as Pool);
+      }
       for (const l of block.listings ?? []) {
         const [[tok]] = await p.query<RowDataPacket[]>(
           "SELECT slug FROM tokens WHERE slug = ?", [l.tokenSlug],
@@ -595,7 +679,8 @@ export async function seedExamples(
         n += await ins(p, "token_exchange_settings", {
           token_slug: l.tokenSlug, purchasable: l.purchasable ? 1 : 0,
           swappable: l.swappable ? 1 : 0, active: l.active ? 1 : 0,
-          sort_order: l.sortOrder, min_stage_to_buy: l.minStageToBuy, is_example: 1,
+          sort_order: l.sortOrder, min_stage_to_buy: l.minStageToBuy,
+          example_stock: l.exampleStock ?? null, is_example: 1,
         });
         for (const [i, price] of (l.prices ?? []).entries()) {
           n += await ins(p, "currency_prices", {
@@ -674,6 +759,78 @@ export async function hasRealContent(p: Pool, moduleId: string): Promise<boolean
  * Deliberately forgiving: retirement is housekeeping riding on someone else's
  * successful write, and it must never turn their 201 into a 500.
  */
+/** The delete loop shared by retirement and refresh: every example row for a
+ *  module, child tables first, scoped where two modules share a table. */
+async function deleteExampleRows(
+  p: Pool,
+  moduleId: string,
+): Promise<{ removed: number; failed: boolean }> {
+  let removed = 0;
+  let failed = false;
+  // Release any REAL row still pointing at an example we are about to
+  // delete. The library's admin intake picker offers every shelf, example
+  // ones included, so the founder's first real donation is usually filed
+  // under "Power tools" — and that same request triggers this retirement.
+  // category_id carries no FK constraint, so the delete would succeed and
+  // leave their item pointing at a shelf that no longer exists, permanently
+  // uncategorised and unfilable.
+  if (moduleId === "library") {
+    await p.query(
+      "UPDATE library_items SET category_id = NULL WHERE is_example = 0 AND category_id IN " +
+        "(SELECT id FROM library_categories WHERE is_example = 1)",
+    ).catch(() => { /* older forks without the column */ });
+  }
+  for (const table of EXAMPLE_TABLES[moduleId] ?? []) {
+    const parent = BY_PARENT[table];
+    try {
+      if (parent) {
+        const [r] = await p.query<any>(
+          `DELETE FROM \`${table}\` WHERE \`${parent.fk}\` IN ` +
+            `(SELECT \`${parent.parentKey}\` FROM \`${parent.parentTable}\` WHERE is_example = 1)`,
+        );
+        removed += r?.affectedRows ?? 0;
+      } else {
+        const scope = scopeFor(moduleId, table);
+        const [r] = await p.query<any>(
+          `DELETE FROM \`${table}\` WHERE is_example = 1` + (scope ? ` AND ${scope}` : ""),
+        );
+        removed += r?.affectedRows ?? 0;
+      }
+    } catch (e: any) {
+      // A table or column this fork does not have is not a failure; anything
+      // else is, and must not be papered over with a tombstone.
+      const benign = e?.code === "ER_NO_SUCH_TABLE" || e?.code === "ER_BAD_FIELD_ERROR";
+      if (!benign) failed = true;
+      console.error(`[examples] could not clear ${table} for "${moduleId}"`, e);
+    }
+  }
+  return { removed, failed };
+}
+
+/**
+ * Replace a module's SHOWING examples with the current seed, without touching
+ * the tombstone. For live instances that seeded an older revision of the
+ * content: delete-and-reseed, only while the module is still demonstrating.
+ * A retired module stays retired; a module whose village has real content is
+ * untouched (its examples are already gone or were never seeded).
+ */
+export async function refreshExamples(
+  p: Pool,
+  moduleId: string,
+  seed: any,
+  opts: { baseCycle?: number } = {},
+): Promise<number> {
+  if (!isSeeded(moduleId) || isRetired(moduleId)) return 0;
+  const { failed } = await deleteExampleRows(p, moduleId);
+  if (failed) {
+    console.error(`[examples] refresh of "${moduleId}" aborted: old rows not fully cleared`);
+    return 0;
+  }
+  const n = await seedExamples(p, moduleId, seed, { force: true, baseCycle: opts.baseCycle });
+  console.log(`[examples] refreshed "${moduleId}" to the current seed (${n} row(s))`);
+  return n;
+}
+
 export async function retireExamples(
   p: Pool,
   moduleId: string,
@@ -685,43 +842,9 @@ export async function retireExamples(
   /** A DELETE that failed for a real reason — not a table this fork lacks. */
   let failed = false;
   try {
-    // Release any REAL row still pointing at an example we are about to
-    // delete. The library's admin intake picker offers every shelf, example
-    // ones included, so the founder's first real donation is usually filed
-    // under "Power tools" — and that same request triggers this retirement.
-    // category_id carries no FK constraint, so the delete would succeed and
-    // leave their item pointing at a shelf that no longer exists, permanently
-    // uncategorised and unfilable.
-    if (moduleId === "library") {
-      await p.query(
-        "UPDATE library_items SET category_id = NULL WHERE is_example = 0 AND category_id IN " +
-          "(SELECT id FROM library_categories WHERE is_example = 1)",
-      ).catch(() => { /* older forks without the column */ });
-    }
-    for (const table of EXAMPLE_TABLES[moduleId] ?? []) {
-      const parent = BY_PARENT[table];
-      try {
-        if (parent) {
-          const [r] = await p.query<any>(
-            `DELETE FROM \`${table}\` WHERE \`${parent.fk}\` IN ` +
-              `(SELECT \`${parent.parentKey}\` FROM \`${parent.parentTable}\` WHERE is_example = 1)`,
-          );
-          removed += r?.affectedRows ?? 0;
-        } else {
-          const scope = scopeFor(moduleId, table);
-          const [r] = await p.query<any>(
-            `DELETE FROM \`${table}\` WHERE is_example = 1` + (scope ? ` AND ${scope}` : ""),
-          );
-          removed += r?.affectedRows ?? 0;
-        }
-      } catch (e: any) {
-        // A table or column this fork does not have is not a failure; anything
-        // else is, and must not be papered over with a tombstone.
-        const benign = e?.code === "ER_NO_SUCH_TABLE" || e?.code === "ER_BAD_FIELD_ERROR";
-        if (!benign) failed = true;
-        console.error(`[examples] could not clear ${table} for "${moduleId}"`, e);
-      }
-    }
+    const cleared = await deleteExampleRows(p, moduleId);
+    removed = cleared.removed;
+    failed = cleared.failed;
     // The tombstone is permanent and short-circuits every later attempt,
     // including the admin clear button. Stamping it after a failed DELETE
     // would strand the surviving rows with no removal path but hand-written

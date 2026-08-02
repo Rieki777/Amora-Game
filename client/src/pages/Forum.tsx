@@ -11,7 +11,7 @@ import { Link, useRoute } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
-import { Flag, Gavel, Lock, MessageCircle, Pin, Plus, Bell } from "lucide-react";
+import { Calendar, ExternalLink, Flag, Gavel, Lock, MapPin, MessageCircle, Pin, Plus, Bell } from "lucide-react";
 import { Image } from "@/components/Image";
 import { ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
 
@@ -157,6 +157,12 @@ function ThreadList() {
                   <span>{t.author.name}</span>
                   <span className="inline-flex items-center gap-1"><MessageCircle className="w-3 h-3" />{t.replyCount}</span>
                   <span>{new Date(t.lastActivityAt).toLocaleDateString()}</span>
+                  {t.eventStartsAt && (
+                    <span className="inline-flex items-center gap-1 text-teal-deep font-medium">
+                      <Calendar className="w-3 h-3" />
+                      {new Date(t.eventStartsAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                    </span>
+                  )}
                 </div>
               </Link>
             ))}
@@ -246,6 +252,15 @@ function ThreadView({ id }: { id: string }) {
   if (!thread) return <Layout><div className="container py-24 text-center text-muted-foreground">Loading…</div></Layout>;
 
   const decided = thread.kind === "decision" && thread.meta?.status === "decided";
+  // An event carries structure the body cannot: when, where, and how to say
+  // you are coming. Render it the way decisions get their outcome card.
+  const eventMeta = thread.kind === "event" && thread.meta?.startsAt ? thread.meta : null;
+  const fmtWhen = (startsAt: string, endsAt?: string) => {
+    const s = new Date(startsAt);
+    const day = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+    const t = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    return endsAt ? `${day}, ${t(s)} to ${t(new Date(endsAt))}` : `${day}, ${t(s)}`;
+  };
 
   return (
     <Layout>
@@ -315,6 +330,31 @@ function ThreadView({ id }: { id: string }) {
               <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50 p-4">
                 <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-1">Decision recorded</p>
                 <p className="text-sm text-purple-900 whitespace-pre-wrap">{thread.meta.outcome}</p>
+              </div>
+            )}
+            {eventMeta && (
+              <div className="mt-4 rounded-xl border border-teal/30 bg-teal/5 p-4 space-y-2">
+                <p className="flex items-center gap-2 text-sm text-foreground">
+                  <Calendar className="w-4 h-4 text-teal-deep shrink-0" />
+                  {fmtWhen(eventMeta.startsAt, eventMeta.endsAt)}
+                </p>
+                {eventMeta.location && (
+                  <p className="flex items-center gap-2 text-sm text-foreground">
+                    <MapPin className="w-4 h-4 text-teal-deep shrink-0" />
+                    {eventMeta.location}
+                  </p>
+                )}
+                {eventMeta.ctaUrl && (
+                  <a
+                    href={eventMeta.ctaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 mt-1 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium hover:opacity-90"
+                  >
+                    {eventMeta.ctaLabel || "Respond"}
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
               </div>
             )}
             {user && (

@@ -21,6 +21,13 @@
 > is refused in `sendGratitude`; the earned-badge engine skips example
 > definitions. Grep `isExampleRow(` and `EXAMPLE_REFUSAL_BODY` for the live
 > list rather than trusting this sentence.
+> **Since 2026-08-02:** example badges CARRY real capabilities, example
+> identities HOLD seeded awards, and the exchange seeds example TOKENS with
+> display-only stock and prices. What keeps that safe: no route can attach an
+> example to a real member (award, claim and the earned engine all refuse or
+> skip), example identities never authenticate so the gate never reads their
+> awards, and no ledger row exists for an example token so conservation holds
+> trivially. The refusal surface above is unchanged.
 > **Client:** `ExamplesBanner` on twelve module pages, fed by
 > `GET /api/examples` (which hides preview-lifecycle modules from
 > non-admins); publishing something real drops the banner in-session through

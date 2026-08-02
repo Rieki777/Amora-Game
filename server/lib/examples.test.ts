@@ -81,26 +81,50 @@ describe.skipIf(!configured)("standing examples", () => {
       await seedExamples(pool, id, seed, { force: true });
     }
     // If any of these is non-zero, an example has become real value.
+    // (badge_awards is asserted separately: example awards exist by design,
+    // and their invariant is WHO holds them, never whether they exist.)
     for (const table of [
       "token_ledger", "library_loans", "stays", "stay_purchases",
-      "exchange_orders", "product_purchases", "fiat_charges", "badge_awards",
+      "exchange_orders", "product_purchases", "fiat_charges",
     ]) {
       const [[r]] = await pool.query<any[]>(`SELECT COUNT(*) n FROM \`${table}\``);
       expect(Number(r.n), `${table} must stay empty`).toBe(0);
     }
   });
 
-  it("never gives an example badge a capability", async () => {
-    // An unknown capability key refuses BOOT, and a real one is one admin
-    // click from live permissions. Neither is acceptable on a demo row.
+  it("gives example awards only to example identities, and none on warnings", async () => {
+    // Capabilities on example badges are the demonstration (Rye, 2026-08-02).
+    // What keeps them harmless: badgeGrantsFor() reads awards per
+    // authenticated user, example identities never authenticate, and every
+    // route that could hand an award to a real member refuses examples. So
+    // the load-bearing assertions are about the AWARDS.
     await seedExamples(pool, "badges", seed, { force: true });
-    const [rows] = await pool.query<any[]>(
+    const [awards] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM badge_awards WHERE is_example = 1",
+    );
+    expect(Number(awards[0].n), "the seed demonstrates held badges").toBeGreaterThan(0);
+    const [leaked] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM badge_awards a JOIN users u ON u.id = a.user_id " +
+        "WHERE a.is_example = 1 AND u.is_example = 0",
+    );
+    expect(Number(leaked[0].n), "no example award may touch a real user").toBe(0);
+    const [onWarning] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM badge_awards a JOIN badges b ON b.id = a.badge_id " +
+        "WHERE a.is_example = 1 AND b.kind = 'warning'",
+    );
+    expect(Number(onWarning[0].n), "a warning award is open state").toBe(0);
+    // And every capability key on an example badge is a real registry key —
+    // the gate silently ignores unknowns, which would demo nothing.
+    const [defs] = await pool.query<any[]>(
       "SELECT capabilities FROM badges WHERE is_example = 1",
     );
-    expect(rows.length).toBeGreaterThan(0);
-    for (const r of rows) {
+    const { ALL_CAPABILITIES } = await import("../../shared/capabilities");
+    const valid = new Set<string>(ALL_CAPABILITIES);
+    for (const r of defs) {
       const caps = typeof r.capabilities === "string" ? JSON.parse(r.capabilities) : r.capabilities;
-      expect(caps ?? []).toEqual([]);
+      for (const key of caps ?? []) {
+        expect(valid.has(key), `"${key}" must be a registered capability`).toBe(true);
+      }
     }
   });
 

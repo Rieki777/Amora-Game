@@ -56,6 +56,9 @@ export interface ExchangeSettings {
   swapHaltReason: string | null;
   /** A standing example listing: display-only, never a market. */
   isExample: boolean;
+  /** Display-only stock on an example listing. NULL on every real one; the
+   *  ledger is never consulted for examples and never touched by them. */
+  exampleStock: number | null;
 }
 
 function rowToSettings(r: RowDataPacket): ExchangeSettings {
@@ -72,6 +75,7 @@ function rowToSettings(r: RowDataPacket): ExchangeSettings {
     swapHaltedBy: r.swap_halted_by ?? null,
     swapHaltReason: r.swap_halt_reason ?? null,
     isExample: Number(r.is_example ?? 0) === 1,
+    exampleStock: r.example_stock == null ? null : Number(r.example_stock),
   };
 }
 
@@ -274,12 +278,14 @@ export async function upsertSettings(
     // and the retirement that fires straight afterwards would delete the
     // listing they just saved. Claiming the row as real is what makes the
     // "retire after a real row commits" order safe on a shared key.
+    // example_stock is nulled alongside the is_example claim: a row an admin
+    // has made real must never carry a fictional inventory number.
     "INSERT INTO token_exchange_settings (token_slug, purchasable, swappable, min_stage_to_buy, sort_order, active, " +
-      "max_swap_out_per_cycle, max_swap_out_per_member_per_cycle, is_example) VALUES (?,?,?,?,?,?,?,?,0) " +
+      "max_swap_out_per_cycle, max_swap_out_per_member_per_cycle, is_example, example_stock) VALUES (?,?,?,?,?,?,?,?,0,NULL) " +
       "ON DUPLICATE KEY UPDATE purchasable=VALUES(purchasable), swappable=VALUES(swappable), " +
       "min_stage_to_buy=VALUES(min_stage_to_buy), sort_order=VALUES(sort_order), active=VALUES(active), " +
       "max_swap_out_per_cycle=VALUES(max_swap_out_per_cycle), " +
-      "max_swap_out_per_member_per_cycle=VALUES(max_swap_out_per_member_per_cycle), is_example=0",
+      "max_swap_out_per_member_per_cycle=VALUES(max_swap_out_per_member_per_cycle), is_example=0, example_stock=NULL",
     [
       input.slug,
       next.purchasable ? 1 : 0,
