@@ -1066,6 +1066,7 @@ async function ensureDataFiles() {
   await runOnce("org-chart-2026-08", applyOrgChartRefresh);
   await runOnce("voice-sweep-2026-08-01", applyVoiceSweepToSeededRows);
   await runOnce("voice-sweep-2026-08-01-part-2", applyVoiceSweepToSeededDocuments);
+  await runOnce("voice-sweep-2026-08-01-part-3", applyVoiceSweepWhereWordsChanged);
 }
 
 /**
@@ -1108,6 +1109,113 @@ function repairRowCopy(row: any, def: any): boolean {
   const patches = copyRepairsFor(row, def);
   for (const [key, want] of patches) row[key] = want;
   return patches.length > 0;
+}
+
+/**
+ * The tail of the sweep: platform-authored copy where the rewrite changed
+ * WORDS, not only punctuation, so the word-for-word rule in parts one and two
+ * correctly refused to touch it (it cannot tell an intended rewrite from a
+ * villager's edit). Six strings across the standing examples and the
+ * work-with-us defaults.
+ *
+ * Identity does the matching instead of the text, so nothing is transcribed and
+ * nothing is guessed: example rows pair to their seed entry by `id`, reciprocity
+ * options pair by their machinery `value`, which the sweep never touched. Only
+ * a field that STILL CONTAINS a dash is replaced, and only from the file that
+ * authored it. Both surfaces are platform content by definition: examples are
+ * inert and disposable, and the reciprocity descriptions are shipped defaults.
+ */
+function snakeToCamel(s: string): string {
+  return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+}
+
+async function applyVoiceSweepWhereWordsChanged(): Promise<void> {
+  let repaired = 0;
+  const hasDash = (v: unknown) => typeof v === "string" && /[—–]/.test(v);
+
+  try {
+    const stored: any = workWithUsRepo.get();
+    const def: any = DEFAULT_WORK_WITH_US;
+    if (stored && typeof stored === "object") {
+      let changed = false;
+      for (const key of Object.keys(def)) {
+        if (hasDash(stored[key]) && typeof def[key] === "string") {
+          stored[key] = def[key];
+          changed = true;
+        }
+      }
+      if (Array.isArray(stored.reciprocityOptions) && Array.isArray(def.reciprocityOptions)) {
+        const byValue = new Map(
+          def.reciprocityOptions.map((o: any) => [String(o?.value), o]),
+        );
+        for (const opt of stored.reciprocityOptions) {
+          const twin: any = byValue.get(String(opt?.value));
+          if (!twin) continue;
+          for (const field of Object.keys(twin)) {
+            if (hasDash(opt[field]) && typeof twin[field] === "string") {
+              opt[field] = twin[field];
+              changed = true;
+            }
+          }
+        }
+      }
+      if (changed) { await workWithUsRepo.put(stored); repaired++; }
+    }
+  } catch { /* copy repair is best-effort; never block boot */ }
+
+  try {
+    const seed = loadExampleSeed(SEEDS_DIR);
+    if (seed) {
+      // Every seed entity that carries an id, so a row can find its author.
+      const byId = new Map<string, any>();
+      const index = (v: any): void => {
+        if (Array.isArray(v)) { for (const x of v) index(x); return; }
+        if (!v || typeof v !== "object") return;
+        if (typeof v.id === "string") byId.set(v.id, v);
+        for (const x of Object.values(v)) index(x);
+      };
+      index(seed);
+
+      const pool = getPool();
+      for (const table of Array.from(new Set(Object.values(EXAMPLE_TABLES).flat()))) {
+        try {
+          const [cols] = await pool.query<any>(
+            "SELECT column_name AS c FROM information_schema.columns " +
+              "WHERE table_schema = DATABASE() AND table_name = ? " +
+              "AND data_type IN ('char','varchar','text','mediumtext','longtext','tinytext')",
+            [table],
+          );
+          const names = (cols as Array<{ c: string }>).map((r) => r.c);
+          if (!names.length) continue;
+          const [rows] = await pool.query<any>(
+            `SELECT \`id\`, ${names.map((n) => `\`${n}\``).join(", ")} ` +
+              `FROM \`${table}\` WHERE is_example = 1`,
+          );
+          for (const row of rows as any[]) {
+            const author = byId.get(String(row?.id));
+            if (!author) continue;
+            const sets: string[] = [];
+            const vals: any[] = [];
+            for (const n of names) {
+              if (!hasDash(row[n])) continue;
+              const want = author[n] ?? author[snakeToCamel(n)];
+              if (typeof want !== "string" || want === row[n]) continue;
+              sets.push(`\`${n}\` = ?`);
+              vals.push(want);
+            }
+            if (!sets.length) continue;
+            await pool.query(
+              `UPDATE \`${table}\` SET ${sets.join(", ")} WHERE \`id\` = ?`,
+              [...vals, row.id],
+            );
+            repaired++;
+          }
+        } catch { /* a fork may lack this table; skip it */ }
+      }
+    }
+  } catch { /* same */ }
+
+  if (repaired) console.log(`[MIGRATION] voice sweep part 3 repaired ${repaired} record(s)`);
 }
 
 /**
