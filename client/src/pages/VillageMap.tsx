@@ -1,18 +1,23 @@
 /**
- * The Village Map (S19-S23): the living org chart. Desktop renders the
- * deterministic radial layout (shared/mapLayout — pure, tested, jitter-free);
- * mobile gets an accordion of the same data with the same actions. The
- * concierge bar routes "I want to help with X" to the right node.
+ * The Village Map (S19-S23, S70): the living org chart as nested circles in
+ * the sociocracy style. The village encloses its circles, sub-circles nest
+ * inside their parents, and roles sit as seats on each circle's inner ring.
+ * Desktop pairs the canvas with a standing detail panel; mobile gets an
+ * accordion of the same data with the same actions. The concierge bar routes
+ * "I want to help with X" to the right node.
+ *
+ * Layout is shared/mapLayout.layoutNestedMap: pure, deterministic, tested.
+ * A member's spatial memory of where a circle lives survives every visit.
  */
 import Layout from "@/components/Layout";
 import MicButton from "@/components/MicButton";
 import NotFound from "@/pages/NotFound";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
-import { layoutMap, type LayoutCircle } from "@shared/mapLayout";
+import { layoutNestedMap, type NestedInput } from "@shared/mapLayout";
 import { authToken } from "@/lib/gameApi";
 import { getPreference, rememberMapAvailable, setPreference } from "@/lib/landing";
-import { ChevronDown, Compass, Hand, Mail, Search, X } from "lucide-react";
+import { ChevronDown, Compass, Hand, Mail, Minus, Plus, Search, X } from "lucide-react";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 interface MapRole {
@@ -34,18 +39,29 @@ interface MapData {
   vacantHighlight: boolean;
   conciergeEnabled: boolean;
 }
+type Selection = { kind: "circle" | "role"; id: string } | null;
 
 const headers = (): Record<string, string> => {
   const t = authToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
 
+/** Tone tokens a circle row may carry, resolved to the theme's variables so
+ *  the map draws in the village's own palette. Unknown tokens read as teal. */
+const TONE: Record<string, string> = {
+  sage: "var(--color-sage)",
+  amber: "var(--color-amber)",
+  coral: "var(--color-coral)",
+  teal: "var(--color-teal)",
+};
+const toneOf = (c: any): string => TONE[String(c?.color ?? "")] ?? "var(--color-teal-deep)";
+
 export default function VillageMap() {
   const modules = useModules();
   const mapModule = useModule("map");
   const [data, setData] = useState<MapData | null>(null);
   const [denied, setDenied] = useState(false);
-  const [selected, setSelected] = useState<{ kind: "circle" | "role"; id: string } | null>(null);
+  const [selected, setSelected] = useState<Selection>(null);
 
   useEffect(() => {
     if (!mapModule) return;
@@ -80,7 +96,7 @@ export default function VillageMap() {
       </section>
 
       <section className="py-8 bg-background">
-        <div className="container max-w-6xl">
+        <div className="container max-w-7xl">
           {denied && (
             <p className="text-center text-muted-foreground py-16">
               Sign in to see the village map.
@@ -89,14 +105,19 @@ export default function VillageMap() {
           {data && (
             <>
               {data.conciergeEnabled && <ConciergeBar onPick={(k, id) => setSelected({ kind: k as any, id })} />}
-              <div className="hidden md:block">
-                <MapCanvas data={data} onSelect={setSelected} />
+              <div className="hidden md:flex gap-6 items-start">
+                <div className="flex-1 min-w-0">
+                  <MapCanvas data={data} selected={selected} onSelect={setSelected} />
+                </div>
+                <SidePanel data={data} selected={selected} onSelect={setSelected} onClose={() => setSelected(null)} />
               </div>
               <div className="md:hidden">
                 <CircleAccordion data={data} onSelect={setSelected} />
               </div>
               {selected && (
-                <NodeCard data={data} selected={selected} onClose={() => setSelected(null)} />
+                <div className="md:hidden">
+                  <NodeCard data={data} selected={selected} onClose={() => setSelected(null)} />
+                </div>
               )}
             </>
           )}
@@ -106,118 +127,426 @@ export default function VillageMap() {
   );
 }
 
-// ── Desktop: the deterministic radial canvas ─────────────────────────────────
+// ── Desktop: nested circles, the sociocracy picture ──────────────────────────
 
-function MapCanvas({ data, onSelect }: { data: MapData; onSelect: (s: any) => void }) {
+function MapCanvas({ data, selected, onSelect }: {
+  data: MapData; selected: Selection; onSelect: (s: Selection) => void;
+}) {
+  const [zoom, setZoom] = useState(1);
   const layout = useMemo(() => {
-    const circles: LayoutCircle[] = data.circles.map((c: any) => ({
+    const inputs: NestedInput[] = data.circles.map((c: any) => ({
       id: c.id,
+      parentId: c.parentCircleId ?? null,
       order: c.order ?? 0,
       memberCount: data.roles.filter((r) => r.circleId === c.id).reduce((n, r) => n + r.holderCount, 0),
       roles: data.roles.filter((r) => r.circleId === c.id).map((r) => ({ id: r.id, vacant: r.vacant })),
       questCount: data.quests.filter((q) => q.circleId === c.id).length,
     }));
-    return layoutMap(circles);
+    // Roles with no circle are the village's own seats: they sit on the
+    // boundary ring rather than vanishing off the picture.
+    const villageRoles = data.roles
+      .filter((r) => !r.circleId)
+      .map((r) => ({ id: r.id, vacant: r.vacant }));
+    return layoutNestedMap(inputs, villageRoles);
   }, [data]);
 
   const circleById = (id: string) => data.circles.find((c: any) => c.id === id);
   const roleById = (id: string) => data.roles.find((r) => r.id === id);
 
+  // Zoom re-centres on the village; the viewBox is the whole camera.
+  const vw = layout.width / zoom;
+  const view = `${layout.village.x - vw / 2} ${layout.village.y - vw / 2} ${vw} ${vw}`;
+
   return (
-    // group, NOT img: role="img" has ARIA's presentational-children
-    // characteristic, so every circle and role-seat button inside this SVG
-    // was pruned from the accessibility tree — the whole desktop map
-    // announced as a single unlabelled graphic with nothing operable in it.
-    <svg viewBox={`0 0 ${layout.width} ${layout.height}`} className="w-full max-h-[78vh]" role="group" aria-label="Village map">
-      {/* Village heart */}
-      <circle cx={layout.center.x} cy={layout.center.y} r={46} className="fill-teal-deep" />
-      <text x={layout.center.x} y={layout.center.y + 5} textAnchor="middle" className="fill-white text-[16px] font-semibold">
-        Village
-      </text>
-
-      {layout.circles.map((pos) => {
-        const c = circleById(pos.id);
-        const forming = c?.status === "forming";
-        return (
-          <g key={pos.id} opacity={forming ? 0.45 : 1}>
-            <line x1={layout.center.x} y1={layout.center.y} x2={pos.x} y2={pos.y} className="stroke-border" strokeDasharray="3 5" />
-            {/*
-              An SVG shape with an onClick is a mouse-only control: it takes
-              no focus, answers no key, and is invisible to a screen reader.
-              The map is how this village explains who holds what — the one
-              picture a new member is pointed at — and it could only be used
-              by someone holding a mouse.
-
-              role + tabIndex put it in the tab order; Enter and Space are
-              what a button answers to, so they select here too; the label
-              says what the shape is, since a circle announces nothing.
-            */}
-            <circle
-              cx={pos.x} cy={pos.y} r={pos.r}
-              className="fill-teal/10 stroke-teal-deep/50 cursor-pointer hover:fill-teal/20 transition-colors focus:outline-none focus-visible:stroke-teal-deep"
-              strokeWidth={2}
+    <div className="relative">
+      {/* group, NOT img: role="img" has ARIA's presentational-children
+          characteristic, so every circle and role-seat button inside this SVG
+          was pruned from the accessibility tree — the whole desktop map
+          announced as a single unlabelled graphic with nothing operable. */}
+      <svg viewBox={view} className="w-full max-h-[80vh]" role="group" aria-label="Village map">
+        {/* The village boundary: one ring holding everything, the way the
+            sociocracy diagrams draw the whole organization. */}
+        <circle
+          cx={layout.village.x} cy={layout.village.y} r={layout.village.r}
+          fill="none" stroke="var(--color-sage)" strokeWidth={10} opacity={0.5}
+        />
+        <circle
+          cx={layout.village.x} cy={layout.village.y} r={layout.village.r - 8}
+          style={{ fill: "var(--color-sage)", fillOpacity: 0.05 }} stroke="none"
+        />
+        {layout.village.roles.map((rp) => {
+          const role = roleById(rp.id);
+          return (
+            <g
+              key={rp.id}
+              className="cursor-pointer focus:outline-none"
               role="button"
               tabIndex={0}
-              aria-label={`${c?.name ?? pos.id}${forming ? ", still forming" : ""}. Open this circle`}
-              onClick={() => onSelect({ kind: "circle", id: pos.id })}
+              aria-label={`${role?.name ?? rp.id}, a village-wide seat${rp.vacant ? ". Nobody holds this yet, open call" : ""}`}
+              onClick={() => onSelect({ kind: "role", id: rp.id })}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  onSelect({ kind: "circle", id: pos.id });
+                  onSelect({ kind: "role", id: rp.id });
                 }
               }}
-            />
-            <text x={pos.x} y={pos.y - pos.r - 8} textAnchor="middle" className="fill-foreground text-[15px] font-semibold pointer-events-none">
-              {c?.name ?? pos.id}
-            </text>
-            {forming && (
-              <text x={pos.x} y={pos.y + 4} textAnchor="middle" className="fill-muted-foreground text-[11px] pointer-events-none">
-                forming
+            >
+              <circle
+                cx={rp.x} cy={rp.y} r={12}
+                className={rp.vacant ? "fill-white stroke-muted-foreground" : "fill-teal-deep stroke-white"}
+                strokeWidth={2.5}
+                strokeDasharray={rp.vacant ? "3 3" : undefined}
+              >
+                {rp.vacant && data.vacantHighlight && (
+                  <animate attributeName="r" values="12;14;12" dur="2.4s" repeatCount="indefinite" />
+                )}
+              </circle>
+              <title>{role ? `${role.name}${rp.vacant ? ", open call" : ""}` : rp.id}</title>
+            </g>
+          );
+        })}
+
+        {layout.circles.map((pos) => {
+          const c = circleById(pos.id);
+          const forming = c?.status === "forming";
+          const tone = toneOf(c);
+          const isSelected = selected?.kind === "circle" && selected.id === pos.id;
+          const hasChildren = layout.circles.some((o) => circleById(o.id)?.parentCircleId === pos.id);
+          return (
+            <g key={pos.id} opacity={forming ? 0.5 : 1}>
+              {/* An SVG shape with an onClick is a mouse-only control: role +
+                  tabIndex put it in the tab order, Enter and Space select, and
+                  the label says what the shape is. Hard-won; keep it. */}
+              <circle
+                cx={pos.x} cy={pos.y} r={pos.r}
+                style={{ fill: tone, fillOpacity: isSelected ? 0.22 : 0.1 }}
+                stroke={tone} strokeOpacity={isSelected ? 0.9 : 0.45}
+                strokeWidth={isSelected ? 3 : 2}
+                className="cursor-pointer transition-all focus:outline-none"
+                role="button"
+                tabIndex={0}
+                aria-label={`${c?.name ?? pos.id}${forming ? ", still forming" : ""}. Open this circle`}
+                onClick={() => onSelect({ kind: "circle", id: pos.id })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelect({ kind: "circle", id: pos.id });
+                  }
+                }}
+              />
+              {/* A parent's name hugs its top edge so the children keep the
+                  middle; a leaf's name sits at its center. */}
+              <text
+                x={pos.x}
+                y={hasChildren ? pos.y - pos.r + 26 : pos.y + (forming ? -6 : 0)}
+                textAnchor="middle"
+                className="fill-foreground font-semibold pointer-events-none"
+                style={{ fontSize: pos.depth === 0 ? 17 : 13 }}
+              >
+                {c?.name ?? pos.id}
               </text>
-            )}
-            {pos.roles.map((rp) => {
-              const role = roleById(rp.id);
-              return (
-                <g
-                  key={rp.id}
-                  className="cursor-pointer focus:outline-none"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${role?.name ?? rp.id}${rp.vacant ? ". Nobody holds this yet, open call" : ""}`}
-                  onClick={() => onSelect({ kind: "role", id: rp.id })}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onSelect({ kind: "role", id: rp.id });
-                    }
-                  }}
-                >
-                  <circle
-                    cx={rp.x} cy={rp.y} r={11}
-                    className={rp.vacant ? "fill-white stroke-muted-foreground" : "fill-teal-deep stroke-white"}
-                    strokeWidth={2}
-                    strokeDasharray={rp.vacant ? "3 3" : undefined}
+              {forming && (
+                <text x={pos.x} y={pos.y + (hasChildren ? -pos.r + 42 : 12)} textAnchor="middle"
+                  className="fill-muted-foreground pointer-events-none" style={{ fontSize: 11 }}>
+                  forming
+                </text>
+              )}
+              {pos.roles.map((rp) => {
+                const role = roleById(rp.id);
+                const dotR = pos.depth === 0 ? 11 : 9;
+                return (
+                  <g
+                    key={rp.id}
+                    className="cursor-pointer focus:outline-none"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${role?.name ?? rp.id}${rp.vacant ? ". Nobody holds this yet, open call" : ""}`}
+                    onClick={(e) => { e.stopPropagation(); onSelect({ kind: "role", id: rp.id }); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onSelect({ kind: "role", id: rp.id });
+                      }
+                    }}
                   >
-                    {rp.vacant && data.vacantHighlight && (
-                      <animate attributeName="r" values="11;13;11" dur="2.4s" repeatCount="indefinite" />
+                    <circle
+                      cx={rp.x} cy={rp.y} r={dotR}
+                      className={rp.vacant ? "fill-white stroke-muted-foreground" : "fill-teal-deep stroke-white"}
+                      strokeWidth={2}
+                      strokeDasharray={rp.vacant ? "3 3" : undefined}
+                    >
+                      {rp.vacant && data.vacantHighlight && (
+                        <animate attributeName="r" values={`${dotR};${dotR + 2};${dotR}`} dur="2.4s" repeatCount="indefinite" />
+                      )}
+                    </circle>
+                    <title>{role ? `${role.name}${rp.vacant ? ", open call" : ""}` : rp.id}</title>
+                  </g>
+                );
+              })}
+              {pos.questDots.map((q, i) => (
+                <circle key={i} cx={q.x} cy={q.y} r={4} className="fill-amber/70" />
+              ))}
+              {pos.questOverflow > 0 && (
+                <text x={pos.x} y={pos.y + pos.r - 10} textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: 10 }}>
+                  +{pos.questOverflow} more quests
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="absolute top-2 right-2 flex flex-col gap-1">
+        <button
+          onClick={() => setZoom((z) => Math.min(2.4, z * 1.3))}
+          aria-label="Zoom in"
+          className="w-8 h-8 rounded-lg bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setZoom((z) => Math.max(1, z / 1.3))}
+          aria-label="Zoom out"
+          className="w-8 h-8 rounded-lg bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground"
+        >
+          <Minus className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Desktop: the standing detail panel ───────────────────────────────────────
+
+function SidePanel({ data, selected, onSelect, onClose }: {
+  data: MapData; selected: Selection; onSelect: (s: Selection) => void; onClose: () => void;
+}) {
+  const filled = data.roles.reduce((n, r) => n + r.holderCount, 0);
+  const seats = data.roles.reduce((n, r) => n + r.seats, 0);
+  const open = data.roles.filter((r) => r.vacant).length;
+  return (
+    <aside className="w-80 shrink-0 bg-card border border-border rounded-2xl p-5 sticky top-24 max-h-[80vh] overflow-y-auto">
+      {!selected && (
+        <div>
+          <h2 className="font-display text-lg font-bold text-foreground mb-1">The whole village</h2>
+          <p className="text-xs text-muted-foreground mb-4">
+            {data.circles.length} circle{data.circles.length === 1 ? "" : "s"} · {data.roles.length} role{data.roles.length === 1 ? "" : "s"} · {filled} of {seats} seats filled
+          </p>
+          {open > 0 && (
+            <p className="text-xs text-amber-700 bg-amber/10 rounded-lg px-3 py-2 mb-4">
+              {open} open call{open === 1 ? "" : "s"}: the dashed seats are waiting for someone.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Click a circle to meet it, or a seat to see who holds it and how to
+            reach them.
+          </p>
+        </div>
+      )}
+      {selected && (
+        <div>
+          <div className="flex items-start justify-between mb-2">
+            <NodeTitle data={data} selected={selected} />
+            <button onClick={onClose} aria-label="Back to the village overview" className="text-muted-foreground hover:text-foreground">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <NodeDetail data={data} selected={selected} onSelect={onSelect} />
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function NodeTitle({ data, selected }: { data: MapData; selected: { kind: string; id: string } }) {
+  const role = selected.kind === "role" ? data.roles.find((r) => r.id === selected.id) : null;
+  const circle = selected.kind === "circle"
+    ? data.circles.find((c: any) => c.id === selected.id)
+    : role?.circleId
+      ? data.circles.find((c: any) => c.id === role.circleId)
+      : null;
+  return (
+    <div>
+      <h3 className="font-display text-lg font-bold text-foreground">{role?.name ?? circle?.name}</h3>
+      {role && circle && <p className="text-xs text-teal-deep">{circle.name}</p>}
+    </div>
+  );
+}
+
+// ── The shared detail body: circle or role + actions ─────────────────────────
+
+function NodeDetail({ data, selected, onSelect }: {
+  data: MapData; selected: { kind: string; id: string }; onSelect?: (s: Selection) => void;
+}) {
+  const [composing, setComposing] = useState(false);
+  const [raising, setRaising] = useState(false);
+  const [message, setMessage] = useState("");
+  const [note, setNote] = useState("");
+  const [status, setStatus] = useState("");
+
+  const role = selected.kind === "role" ? data.roles.find((r) => r.id === selected.id) : null;
+  const circle = selected.kind === "circle"
+    ? data.circles.find((c: any) => c.id === selected.id)
+    : role?.circleId
+      ? data.circles.find((c: any) => c.id === role.circleId)
+      : null;
+
+  // Selection changed: clear the in-flight composer state so a half-written
+  // note to one person never lands under another name.
+  useEffect(() => {
+    setComposing(false); setRaising(false); setMessage(""); setNote(""); setStatus("");
+  }, [selected.kind, selected.id]);
+
+  const contact = (toUserId: string) => {
+    setStatus("");
+    fetch("/api/map/contact", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify({ toUserId, roleId: role?.id, circleId: circle?.id, message }),
+    })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Could not send");
+        setStatus("Sent. They'll get an email they can reply to directly.");
+        setComposing(false);
+        setMessage("");
+      })
+      .catch((e) => setStatus(e.message));
+  };
+
+  const raiseHand = () => {
+    setStatus("");
+    fetch(`/api/map/roles/${role!.id}/raise-hand`, {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify({ note }),
+    })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Could not raise your hand");
+        setStatus("Hand raised. The founding team will be in touch.");
+        setRaising(false);
+        setNote("");
+      })
+      .catch((e) => setStatus(e.message));
+  };
+
+  const circleRoles = circle && !role ? data.roles.filter((r) => r.circleId === circle.id) : [];
+  const circleQuests = circle && !role ? data.quests.filter((q) => q.circleId === circle.id) : [];
+  const subCircles = circle && !role ? data.circles.filter((c: any) => c.parentCircleId === circle.id) : [];
+
+  return (
+    <div>
+      <p className="text-sm text-muted-foreground mb-4">{role?.description || circle?.purpose || ""}</p>
+
+      {role && (
+        <div className="space-y-3">
+          <div className="text-xs text-muted-foreground">
+            {role.holderCount} of {role.seats} seat{role.seats === 1 ? "" : "s"} filled
+            {role.minStage && <span className="ml-2 bg-amber/10 text-amber-700 px-1.5 py-0.5 rounded-full">requires {role.minStage}</span>}
+          </div>
+          {data.viewer.viewPeople && role.holders.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {role.holders.map((h) => (
+                <span key={h.userId} className="text-xs bg-muted text-foreground px-2 py-1 rounded-full">{h.name}</span>
+              ))}
+            </div>
+          )}
+
+          {role.vacant ? (
+            raising ? (
+              <div className="space-y-2">
+                <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3}
+                  placeholder="Why this seat calls to you (optional)"
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background" />
+                <div className="flex gap-2">
+                  <button onClick={raiseHand} className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Raise my hand</button>
+                  <button onClick={() => setRaising(false)} className="text-sm text-muted-foreground">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setRaising(true)}
+                className="inline-flex items-center gap-2 text-sm bg-amber/90 text-teal-deep rounded-lg px-4 py-2 font-semibold">
+                <Hand className="w-4 h-4" /> This seat is open, raise your hand
+              </button>
+            )
+          ) : role.holders.length > 0 && data.viewer.viewPeople ? (
+            composing ? (
+              <div className="space-y-2">
+                <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
+                  placeholder={`A few words for ${role.holders[0].name}…`}
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background" />
+                <p className="text-[11px] text-muted-foreground">
+                  They'll receive this by email, with YOUR email address as the
+                  reply-to, so replying reaches you directly.
+                </p>
+                <div className="flex gap-2">
+                  <button onClick={() => contact(role.holders[0].userId)} disabled={!message.trim()}
+                    className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Send</button>
+                  <button onClick={() => setComposing(false)} className="text-sm text-muted-foreground">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setComposing(true)}
+                className="inline-flex items-center gap-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">
+                <Mail className="w-4 h-4" /> Contact {role.holders[0].name}
+              </button>
+            )
+          ) : null}
+        </div>
+      )}
+
+      {!role && circle && (
+        <div className="space-y-3">
+          {circle.status === "forming" && (
+            <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
+              Still forming: the shape is drawn, the people are gathering.
+            </p>
+          )}
+          {subCircles.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Circles within</p>
+              <div className="space-y-1">
+                {subCircles.map((sc: any) => (
+                  <button key={sc.id} onClick={() => onSelect?.({ kind: "circle", id: sc.id })}
+                    className="w-full text-left text-sm px-3 py-2 rounded-lg bg-muted/40 hover:bg-muted">
+                    {sc.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {circleRoles.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Roles</p>
+              <div className="space-y-1">
+                {circleRoles.map((r) => (
+                  <button key={r.id} onClick={() => onSelect?.({ kind: "role", id: r.id })}
+                    className="w-full flex items-center justify-between text-left text-sm px-3 py-2 rounded-lg bg-muted/40 hover:bg-muted">
+                    <span>{r.name}</span>
+                    {r.vacant ? (
+                      <span className="text-[10px] bg-amber/20 text-amber-700 px-1.5 py-0.5 rounded-full">open call</span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">{r.holderCount}/{r.seats}</span>
                     )}
-                  </circle>
-                  <title>{role ? `${role.name}${rp.vacant ? ", open call" : ""}` : rp.id}</title>
-                </g>
-              );
-            })}
-            {pos.questDots.map((q, i) => (
-              <circle key={i} cx={q.x} cy={q.y} r={4} className="fill-amber/70" />
-            ))}
-            {pos.questOverflow > 0 && (
-              <text x={pos.x} y={pos.y + pos.r + 16} textAnchor="middle" className="fill-muted-foreground text-[10px]">
-                +{pos.questOverflow} more quests
-              </text>
-            )}
-          </g>
-        );
-      })}
-    </svg>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {circleRoles.length === 0 && subCircles.length === 0 && (
+            <p className="text-xs text-muted-foreground">No roles attached yet.</p>
+          )}
+          {circleQuests.length > 0 && (
+            <p className="text-xs text-muted-foreground pt-1">
+              {circleQuests.length} open Quest{circleQuests.length === 1 ? "" : "s"}, see the{" "}
+              <a href="/quests" className="text-teal-deep font-medium">Quest board</a>
+            </p>
+          )}
+        </div>
+      )}
+
+      {status && <p className="text-xs text-teal-deep mt-3">{status}</p>}
+    </div>
   );
 }
 
@@ -268,68 +597,22 @@ function CircleAccordion({ data, onSelect }: { data: MapData; onSelect: (s: any)
   );
 }
 
-// ── The node card: circle or role detail + actions ───────────────────────────
+// ── Mobile: the node card, a bottom sheet over the accordion ─────────────────
 
 function NodeCard({ data, selected, onClose }: { data: MapData; selected: { kind: string; id: string }; onClose: () => void }) {
-  const [composing, setComposing] = useState(false);
-  const [raising, setRaising] = useState(false);
-  const [message, setMessage] = useState("");
-  const [note, setNote] = useState("");
-  const [status, setStatus] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = `node-card-title-${selected.kind}-${selected.id}`;
 
   // Move focus INTO the card on open and put it back where it came from on
-  // close. Both entry points (an SVG node, the concierge's match button) are
-  // covered by capturing whatever had focus at mount. Without this the card
-  // opens with focus still on the page behind it: Escape does nothing, and a
-  // keyboard user has to tab through the whole map to reach the close button.
+  // close. Both entry points (an accordion row, the concierge's match button)
+  // are covered by capturing whatever had focus at mount. Without this the
+  // card opens with focus still on the page behind it: Escape does nothing,
+  // and a keyboard user has to tab through the whole map to reach close.
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
     return () => previous?.focus?.();
   }, []);
-
-  const role = selected.kind === "role" ? data.roles.find((r) => r.id === selected.id) : null;
-  const circle = selected.kind === "circle"
-    ? data.circles.find((c: any) => c.id === selected.id)
-    : role?.circleId
-      ? data.circles.find((c: any) => c.id === role.circleId)
-      : null;
-
-  const contact = (toUserId: string) => {
-    setStatus("");
-    fetch("/api/map/contact", {
-      method: "POST",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify({ toUserId, roleId: role?.id, circleId: circle?.id, message }),
-    })
-      .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not send");
-        setStatus("Sent. They'll get an email they can reply to directly.");
-        setComposing(false);
-        setMessage("");
-      })
-      .catch((e) => setStatus(e.message));
-  };
-
-  const raiseHand = () => {
-    setStatus("");
-    fetch(`/api/map/roles/${role!.id}/raise-hand`, {
-      method: "POST",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify({ note }),
-    })
-      .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not raise your hand");
-        setStatus("Hand raised. The founding team will be in touch.");
-        setRaising(false);
-        setNote("");
-      })
-      .catch((e) => setStatus(e.message));
-  };
 
   return (
     // z-[70] puts the sheet above the mobile tab bar and the FAB (see the
@@ -337,9 +620,9 @@ function NodeCard({ data, selected, onClose }: { data: MapData; selected: { kind
     // sheet's primary actions. The bottom padding clears the bar band plus
     // the home indicator so no control lands underneath it.
     // Escape only fires while focus is inside the overlay, which is why the
-    // focus-move-on-open below is load-bearing rather than a nicety.
+    // focus-move-on-open above is load-bearing rather than a nicety.
     <div
-      className="fixed inset-0 z-[70] flex items-end md:items-center justify-center bg-black/30"
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/30"
       onClick={onClose}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
     >
@@ -349,83 +632,14 @@ function NodeCard({ data, selected, onClose }: { data: MapData; selected: { kind
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="bg-white w-full md:max-w-md rounded-t-2xl md:rounded-2xl p-6 pb-[calc(1.5rem+4rem+env(safe-area-inset-bottom,0px))] md:pb-6 max-h-[80vh] overflow-y-auto focus:outline-none"
+        className="bg-white w-full rounded-t-2xl p-6 pb-[calc(1.5rem+4rem+env(safe-area-inset-bottom,0px))] max-h-[80vh] overflow-y-auto focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-3">
-          <div>
-            <h3 id={titleId} className="font-display text-lg font-bold text-gray-900">{role?.name ?? circle?.name}</h3>
-            {role && circle && <p className="text-xs text-teal-deep">{circle.name}</p>}
-          </div>
+          <span id={titleId}><NodeTitle data={data} selected={selected} /></span>
           <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
         </div>
-        <p className="text-sm text-gray-600 mb-4">{role?.description || circle?.purpose || ""}</p>
-
-        {role && (
-          <div className="space-y-3">
-            <div className="text-xs text-gray-500">
-              {role.holderCount} of {role.seats} seat{role.seats === 1 ? "" : "s"} filled
-              {role.minStage && <span className="ml-2 bg-amber/10 text-amber-700 px-1.5 py-0.5 rounded-full">requires {role.minStage}</span>}
-            </div>
-            {data.viewer.viewPeople && role.holders.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {role.holders.map((h) => (
-                  <span key={h.userId} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">{h.name}</span>
-                ))}
-              </div>
-            )}
-
-            {role.vacant ? (
-              raising ? (
-                <div className="space-y-2">
-                  <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3}
-                    placeholder="Why this seat calls to you (optional)"
-                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" />
-                  <div className="flex gap-2">
-                    <button onClick={raiseHand} className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Raise my hand</button>
-                    <button onClick={() => setRaising(false)} className="text-sm text-gray-500">Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <button onClick={() => setRaising(true)}
-                  className="inline-flex items-center gap-2 text-sm bg-amber/90 text-teal-deep rounded-lg px-4 py-2 font-semibold">
-                  <Hand className="w-4 h-4" /> This seat is open, raise your hand
-                </button>
-              )
-            ) : role.holders.length > 0 && data.viewer.viewPeople ? (
-              composing ? (
-                <div className="space-y-2">
-                  <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
-                    placeholder={`A few words for ${role.holders[0].name}…`}
-                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" />
-                  <p className="text-[11px] text-gray-400">
-                    They'll receive this by email, with YOUR email address as the
-                    reply-to, so replying reaches you directly.
-                  </p>
-                  <div className="flex gap-2">
-                    <button onClick={() => contact(role.holders[0].userId)} disabled={!message.trim()}
-                      className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Send</button>
-                    <button onClick={() => setComposing(false)} className="text-sm text-gray-500">Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <button onClick={() => setComposing(true)}
-                  className="inline-flex items-center gap-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">
-                  <Mail className="w-4 h-4" /> Contact {role.holders[0].name}
-                </button>
-              )
-            ) : null}
-          </div>
-        )}
-
-        {!role && circle && (
-          <div className="text-xs text-gray-500">
-            {data.roles.filter((r) => r.circleId === circle.id).length} role(s) ·{" "}
-            {data.quests.filter((q) => q.circleId === circle.id).length} open quest(s)
-          </div>
-        )}
-
-        {status && <p className="text-xs text-teal-deep mt-3">{status}</p>}
+        <NodeDetail data={data} selected={selected} />
       </div>
     </div>
   );
