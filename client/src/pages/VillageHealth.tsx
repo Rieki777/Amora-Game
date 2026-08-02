@@ -72,6 +72,10 @@ export default function VillageHealth() {
 
       <section className="py-8 bg-background">
         <div className="container max-w-3xl space-y-6">
+          {/* The doughnut: the social foundation inside, the land's ledger
+              outside, the safe and just space between. */}
+          {data?.doughnut && <DoughnutCard doughnut={data.doughnut} />}
+
           {/* Season goals overlay */}
           {season?.current && (
             <div className="bg-card border border-border rounded-xl p-5">
@@ -198,5 +202,210 @@ export default function VillageHealth() {
         </div>
       </section>
     </Layout>
+  );
+}
+
+// ── The doughnut (S71) ───────────────────────────────────────────────────────
+//
+// Two rings around a safe and just space, after Raworth. The INNER ring is
+// the social foundation: each wedge is the share of the village the last
+// lunation reached, and a red mark points inward where the share sits under
+// the floor the village set. The red points at what the village agreed
+// matters, never at a person. The OUTER ring is the land's ledger: this
+// platform measures what a village gives back, so wedges grow OUTWARD with
+// each metric's current lunation against the village's own best. Villages
+// that meter extraction can wire true ceilings later; a CO2 wedge with no
+// data source would be decoration wearing the costume of measurement.
+
+const TAU = Math.PI * 2;
+
+/** An annular sector path between radii r0..r1 across [a0..a1] (radians). */
+function ring(cx: number, cy: number, r0: number, r1: number, a0: number, a1: number): string {
+  const p = (r: number, a: number) => `${cx + r * Math.cos(a)} ${cy + r * Math.sin(a)}`;
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  return [
+    `M ${p(r1, a0)}`,
+    `A ${r1} ${r1} 0 ${large} 1 ${p(r1, a1)}`,
+    `L ${p(r0, a1)}`,
+    `A ${r0} ${r0} 0 ${large} 0 ${p(r0, a0)}`,
+    "Z",
+  ].join(" ");
+}
+
+function DoughnutCard({ doughnut }: { doughnut: any }) {
+  const C = 360;
+  const F_OUT = 188;   // foundation wedges grow inward from here
+  const F_DEPTH = 96;  // a full share reaches this far in
+  const RING_F = [188, 210] as const;
+  const SAFE = [210, 248] as const;
+  const RING_R = [248, 270] as const;
+  const R_GROW = 70;   // a best-lunation regen wedge reaches this far out
+
+  const foundation: any[] = doughnut.foundation ?? [];
+  const regen: any[] = doughnut.regen ?? [];
+  const GAP = 0.035;
+
+  const fSeg = (i: number) => {
+    const span = TAU / Math.max(1, foundation.length);
+    return [-Math.PI / 2 + i * span + GAP, -Math.PI / 2 + (i + 1) * span - GAP] as const;
+  };
+  const rSeg = (i: number) => {
+    const span = TAU / Math.max(1, regen.length);
+    return [-Math.PI / 2 + i * span + GAP, -Math.PI / 2 + (i + 1) * span - GAP] as const;
+  };
+  const mid = (seg: readonly [number, number]) => (seg[0] + seg[1]) / 2;
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <Circle className="w-4 h-4 text-teal-deep" />
+        <p className="font-semibold text-foreground text-sm">The doughnut</p>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        The social foundation inside, the land's ledger outside, the safe and
+        just space between. Red marks point at what the village agreed
+        matters, never at a person.
+      </p>
+
+      <svg viewBox="0 0 720 720" className="w-full max-h-[76vh]" role="group" aria-label="The village doughnut">
+        <defs>
+          <path id="ring-f-label" d={`M ${C - RING_F[0] - 11} ${C} A ${RING_F[0] + 11} ${RING_F[0] + 11} 0 1 1 ${C + RING_F[0] + 11} ${C}`} />
+          <path id="ring-r-label" d={`M ${C - RING_R[0] - 11} ${C} A ${RING_R[0] + 11} ${RING_R[0] + 11} 0 1 1 ${C + RING_R[0] + 11} ${C}`} />
+        </defs>
+
+        {/* The safe and just space */}
+        <path d={ring(C, C, SAFE[0], SAFE[1], 0, TAU - 0.0001)}
+          style={{ fill: "var(--color-sage)", fillOpacity: 0.07 }} />
+
+        {/* Foundation band */}
+        <path d={ring(C, C, RING_F[0], RING_F[1], 0, TAU - 0.0001)}
+          style={{ fill: "var(--color-sage)", fillOpacity: 0.85 }} />
+        <text style={{ fontSize: 13, letterSpacing: 3, fill: "white", fontWeight: 600 }}>
+          <textPath href="#ring-f-label" startOffset="25%" textAnchor="middle">SOCIAL FOUNDATION</textPath>
+        </text>
+
+        {/* Outer band */}
+        <path d={ring(C, C, RING_R[0], RING_R[1], 0, TAU - 0.0001)}
+          style={{ fill: "var(--color-teal-deep)", fillOpacity: 0.9 }} />
+        <text style={{ fontSize: 13, letterSpacing: 3, fill: "white", fontWeight: 600 }}>
+          <textPath href="#ring-r-label" startOffset="25%" textAnchor="middle">THE LAND'S LEDGER</textPath>
+        </text>
+
+        {/* Foundation wedges: share grows inward; shortfall is the red gap
+            between where the wedge reached and the floor. */}
+        {foundation.map((w, i) => {
+          const [a0, a1] = fSeg(i);
+          const track = ring(C, C, F_OUT - F_DEPTH, F_OUT, a0, a1);
+          const share = w.share == null ? 0 : w.share;
+          const reach = ring(C, C, F_OUT - share * F_DEPTH, F_OUT, a0, a1);
+          const label = w.share == null ? "no reading yet" : `${Math.round(w.share * 100)}% of the village, floor ${Math.round(w.floor * 100)}%`;
+          return (
+            <g key={w.key}>
+              <path d={track} style={{ fill: "var(--color-sage)", fillOpacity: 0.06 }} />
+              {w.share != null && (
+                <path d={reach} style={{ fill: "var(--color-sage)", fillOpacity: 0.5 }}>
+                  <title>{`${w.label}: ${label}`}</title>
+                </path>
+              )}
+              {w.shortfall && (
+                <path
+                  d={ring(C, C, F_OUT - w.floor * F_DEPTH, F_OUT - share * F_DEPTH, a0, a1)}
+                  style={{ fill: "var(--color-destructive)", fillOpacity: 0.55 }}
+                >
+                  <title>{`${w.label}: under the ${Math.round(w.floor * 100)}% floor`}</title>
+                </path>
+              )}
+              <text
+                x={C + 128 * Math.cos(mid(fSeg(i)))}
+                y={C + 128 * Math.sin(mid(fSeg(i)))}
+                textAnchor="middle"
+                className="fill-foreground"
+                style={{ fontSize: 11.5, fontWeight: 500 }}
+              >
+                {w.label.length > 18 ? (
+                  <>
+                    <tspan x={C + 128 * Math.cos(mid(fSeg(i)))} dy="-0.35em">{w.label.slice(0, w.label.lastIndexOf(" ", 18))}</tspan>
+                    <tspan x={C + 128 * Math.cos(mid(fSeg(i)))} dy="1.15em">{w.label.slice(w.label.lastIndexOf(" ", 18) + 1)}</tspan>
+                  </>
+                ) : w.label}
+              </text>
+              <text
+                x={C + 168 * Math.cos(mid(fSeg(i)))}
+                y={C + 168 * Math.sin(mid(fSeg(i)))}
+                textAnchor="middle"
+                className="fill-muted-foreground"
+                style={{ fontSize: 10.5 }}
+              >
+                {w.share == null ? "…" : `${Math.round(w.share * 100)}%`}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Regen wedges: this lunation against the village's own best,
+            growing outward. Quiet is visible, never shameful. */}
+        {regen.map((w, i) => {
+          const [a0, a1] = rSeg(i);
+          const track = ring(C, C, RING_R[1], RING_R[1] + R_GROW, a0, a1);
+          const grow = ring(C, C, RING_R[1], RING_R[1] + Math.max(0.02, w.fill) * R_GROW, a0, a1);
+          const lx = C + (RING_R[1] + R_GROW + 22) * Math.cos(mid(rSeg(i)));
+          const ly = C + (RING_R[1] + R_GROW + 22) * Math.sin(mid(rSeg(i)));
+          const side = Math.cos(mid(rSeg(i)));
+          return (
+            <g key={w.key}>
+              <path d={track} style={{ fill: "var(--color-teal)", fillOpacity: 0.06 }} />
+              <path d={grow} style={{ fill: "var(--color-teal)", fillOpacity: 0.55 }}>
+                <title>{`${w.label}: ${w.thisLunation.toLocaleString()} ${w.unit} this lunation, best lunation ${w.bestLunation.toLocaleString()}`}</title>
+              </path>
+              <text
+                x={lx} y={ly}
+                textAnchor={Math.abs(side) < 0.35 ? "middle" : side > 0 ? "start" : "end"}
+                className="fill-foreground"
+                style={{ fontSize: 11.5, fontWeight: 500 }}
+              >
+                {w.label}
+              </text>
+              <text
+                x={lx} y={ly + 13}
+                textAnchor={Math.abs(side) < 0.35 ? "middle" : side > 0 ? "start" : "end"}
+                className="fill-muted-foreground"
+                style={{ fontSize: 10.5 }}
+              >
+                {w.total.toLocaleString()} {w.unit} to date
+              </text>
+            </g>
+          );
+        })}
+
+        {!doughnut.collected && (
+          <text x={C} y={C} textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: 13 }}>
+            <tspan x={C} dy="-0.5em">The doughnut draws itself from lunation snapshots.</tspan>
+            <tspan x={C} dy="1.3em">The first lands when the current lunar cycle closes.</tspan>
+          </text>
+        )}
+      </svg>
+
+      {/* The same numbers as text: the SVG is a picture of this list. */}
+      <details className="mt-2">
+        <summary className="text-xs text-muted-foreground cursor-pointer">The numbers behind the rings</summary>
+        <div className="mt-2 grid sm:grid-cols-2 gap-x-6 gap-y-1">
+          {foundation.map((w) => (
+            <p key={w.key} className="text-xs text-muted-foreground">
+              <span className="text-foreground font-medium">{w.label}:</span>{" "}
+              {w.share == null
+                ? "no reading yet"
+                : `${w.value?.toLocaleString?.() ?? w.value} of ${w.denomValue?.toLocaleString?.() ?? w.denomValue} (${Math.round(w.share * 100)}%, floor ${Math.round(w.floor * 100)}%)`}
+              {w.shortfall && <span className="text-red-600"> · under the floor</span>}
+            </p>
+          ))}
+          {regen.map((w) => (
+            <p key={w.key} className="text-xs text-muted-foreground">
+              <span className="text-foreground font-medium">{w.label}:</span>{" "}
+              {w.thisLunation.toLocaleString()} {w.unit} this lunation, {w.total.toLocaleString()} to date
+            </p>
+          ))}
+        </div>
+      </details>
+    </div>
   );
 }

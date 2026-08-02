@@ -82,7 +82,7 @@ import {
   videoIdsFromRss,
 } from "./lib/recordings";
 import { chapterCandidates, synthesisSystemPrompt, validateTasks } from "./lib/callSynthesis";
-import { governanceReads, regenEntries, regenTotals, snapshotCycle, snapshotSeries, thresholdAlerts } from "./lib/health";
+import { doughnutData, governanceReads, regenEntries, regenTotals, snapshotCycle, snapshotSeries, thresholdAlerts } from "./lib/health";
 import { REGEN_METRICS, TREND_MIN_LUNATIONS } from "../shared/healthMetrics";
 import {
   LIBRARY_CREDIT,
@@ -7734,8 +7734,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   /** The dashboard, one call: series, regen ledger, governance reads, season. */
   app.get("/api/health/summary", async (_req, res) => {
     const snapshots = await snapshotSeries(getPool());
+    // Floor overrides ride the module's own config JSON: no new knob surface,
+    // and a fresh village needs to set nothing.
+    const floors = ((moduleConfig("health") as any)?.doughnutFloors ?? {}) as Record<string, number>;
     res.json({
       ...snapshots,
+      doughnut: await doughnutData(getPool(), floors),
       trendMinLunations: TREND_MIN_LUNATIONS,
       // The honest-sparse contract the client renders from: under the line,
       // tiles show points, never trends.

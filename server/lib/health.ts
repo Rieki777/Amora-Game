@@ -23,7 +23,8 @@
  *     the mutation. Failures land as an admin-audience event instead.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { SNAPSHOT_METRICS } from "../../shared/healthMetrics";
+import { REGEN_METRICS, SNAPSHOT_METRICS } from "../../shared/healthMetrics";
+import { cycleBoundsFor } from "../../shared/lunar";
 
 export interface SnapshotCycle {
   id: string;
@@ -294,6 +295,118 @@ export async function regenTotals(pool: Pool): Promise<Record<string, { total: n
   const out: Record<string, { total: number; unit: string; entries: number }> = {};
   for (const r of rows) out[String(r.metric_key)] = { total: Number(r.total), unit: String(r.unit), entries: Number(r.n) };
   return out;
+}
+
+// ── The doughnut (S71) ───────────────────────────────────────────────────────
+
+export interface DoughnutFoundationWedge {
+  key: string;
+  label: string;
+  /** Share of the village this lunation reached, 0..1; null = no reading. */
+  share: number | null;
+  floor: number;
+  shortfall: boolean;
+  value: number | null;
+  denomValue: number | null;
+}
+
+export interface DoughnutRegenWedge {
+  key: string;
+  label: string;
+  unit: string;
+  total: number;
+  thisLunation: number;
+  bestLunation: number;
+  /** This lunation against the village's own best, 0..1. */
+  fill: number;
+}
+
+export interface DoughnutData {
+  collected: boolean;
+  foundation: DoughnutFoundationWedge[];
+  regen: DoughnutRegenWedge[];
+}
+
+/**
+ * The doughnut's two rings, computed from what the village already records.
+ *
+ * FOUNDATION (inner): each wedge is the share of the village a lunation
+ * reached, read from the LATEST frozen snapshot, with the floor coming from
+ * the shared registry (a village overrides per key via `doughnutFloors` in
+ * the health module's config JSON). Shortfall points at what the village
+ * agreed matters, never at a person; a wedge with no reading claims nothing.
+ *
+ * REGEN (outer): the honest inversion of the classic ecological ceiling.
+ * This platform measures what a village GIVES BACK, so the outer ring grows
+ * outward with the land's ledger, each wedge scaled against the village's
+ * own best lunation for that metric. A village that meters extraction can
+ * wire true ceilings later; drawing CO2 wedges with no data source would be
+ * decoration wearing the costume of measurement.
+ */
+export async function doughnutData(
+  pool: Pool,
+  floorOverrides: Record<string, number> = {},
+): Promise<DoughnutData> {
+  const { lunationsCollected, series } = await snapshotSeries(pool);
+  const latest = (key: string): number | null => {
+    const points = series[key] ?? [];
+    return points.length ? Number(points[points.length - 1].value) : null;
+  };
+
+  const foundation: DoughnutFoundationWedge[] = SNAPSHOT_METRICS
+    .filter((m) => m.doughnut?.ring === "foundation")
+    .map((m) => {
+      const d = m.doughnut!;
+      const raw = Number(floorOverrides[m.key]);
+      const floor = Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : d.floor;
+      const value = latest(m.key);
+      const denomValue = d.shareOf === "percent" ? 100 : latest(d.shareOf);
+      const share = value == null || denomValue == null || denomValue <= 0
+        ? null
+        : Math.min(1, value / denomValue);
+      return {
+        key: m.key,
+        label: m.label,
+        share,
+        floor,
+        shortfall: share != null && share < floor,
+        value,
+        denomValue,
+      };
+    });
+
+  // Regen per lunation: bucket the ledger's rows by the lunar calendar in
+  // code (lunation boundaries are nobody's SQL function), then compare the
+  // current lunation to the best one this village has ever recorded.
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT metric_key, value, recorded_at FROM regen_entries WHERE retracted_at IS NULL AND is_example = 0",
+  );
+  const totals = await regenTotals(pool);
+  const nowCycle = cycleBoundsFor(new Date()).cycleNumber;
+  const perCycle = new Map<string, Map<number, number>>();
+  for (const r of rows) {
+    const cycle = cycleBoundsFor(new Date(r.recorded_at)).cycleNumber;
+    const byCycle = perCycle.get(String(r.metric_key)) ?? new Map<number, number>();
+    byCycle.set(cycle, (byCycle.get(cycle) ?? 0) + Number(r.value));
+    perCycle.set(String(r.metric_key), byCycle);
+  }
+
+  const regen: DoughnutRegenWedge[] = REGEN_METRICS.map((m) => {
+    const byCycle = perCycle.get(m.key) ?? new Map<number, number>();
+    const thisLunation = byCycle.get(nowCycle) ?? 0;
+    const bestLunation = Math.max(0, ...Array.from(byCycle.values()));
+    return {
+      key: m.key,
+      label: m.label,
+      unit: m.unit,
+      total: totals[m.key]?.total ?? 0,
+      thisLunation,
+      bestLunation,
+      fill: bestLunation > 0 ? Math.min(1, thisLunation / bestLunation) : 0,
+    };
+  });
+
+  return { collected: lunationsCollected > 0, foundation, regen };
 }
 
 /**
