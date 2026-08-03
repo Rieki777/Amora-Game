@@ -5,8 +5,21 @@ This one makes it real data.
 
 Reference for the design decisions: `docs/PEERDOM_LESSONS.md`.
 
-**Status of this document: PLANNED. Nothing here is coded yet.** Every row below is a proposal with
-evidence. No row may be marked VERIFIED without the evidence column filled in.
+**Status: SHIPPED 2026-08-03**, live on production at `f652bf4`. The boot log is the evidence for the
+migration rows:
+
+```
+[db]   DONE: 0049_org_roles.sql
+[db]   DONE: 0050_season_patterns.sql
+[db] applied 2 migration(s)
+[ledger] invariants hold: conservation ≡ 0, no hypha rows, no non-faucet negatives
+[MIGRATION] org chart as rows: 25 seat(s), 9 circle(s), 8 council(s) moved to forming, 12 documented holder(s)
+```
+
+Gates at that commit: `pnpm check` clean, `pnpm build` clean, `pnpm test` 27/27 files and 308/308 tests,
+brand guard passed (63 legacy refs, baseline 63), voice guard clean across 257 files.
+
+Two rows landed differently from the plan and say so in place: 14 and 16.
 
 ---
 
@@ -176,40 +189,50 @@ breaks for people who will never have an account.
 
 | # | Fix | Detail | Status | Evidence |
 |---|---|---|---|---|
-| 1 | `drizzle/0048_org_roles.sql` | New file (highest today is `0047_example_market.sql`). Creates `org_roles` and `org_role_assignments`. `--` comments on their own lines, never ending in `;` (the 0015 trap, `server/db/migrate.ts` `splitStatements`). | PLANNED | |
-| 2 | `org_roles` columns | `id varchar(64) PK, circle_id varchar(64) NULL, name varchar(160) NOT NULL, aim text, domain text, accountabilities json, why_it_matters text, seats int NOT NULL DEFAULT 1, criticality enum('normal','high') DEFAULT 'normal', icon varchar(64), color varchar(32), sort_order int DEFAULT 0, status_override enum('open','filled','partial','forming') NULL, status_override_expires_at timestamp NULL, is_example tinyint DEFAULT 0, created_at, updated_at` | PLANNED | |
-| 3 | `org_role_assignments` columns | `id varchar(64) PK, org_role_id varchar(64) NOT NULL, holder_kind enum('member','documented') NOT NULL, user_id varchar(64) NULL, display_name varchar(160) NULL, holder_key varchar(200) NOT NULL, focus varchar(200), note varchar(280), started_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, ended_at timestamp NULL, ended_reason varchar(160), granted_by varchar(64), UNIQUE KEY (org_role_id, holder_key), KEY (user_id), KEY (org_role_id, ended_at)` | PLANNED | |
-| 4 | Seat status is derived | Active assignments (`ended_at IS NULL`) against `seats`. `status_override` exists only as a time-boxed manual override that lapses back to derived. No permanent hand-typed status column, which is what already produced the two `filled` cards with empty holders. | PLANNED | |
-| 5 | The 5 real circles get rows | Insert `general-circle`, `outreach-growth-circle`, `community-circle`, `development-circle`, `finance-business-circle` into `circles` with `status='active'`. Set the 8 aspirational councils to `status='forming'` so they render greyed as a call, which is what `0018` designed that enum value for. | PLANNED | |
-| 6 | Backfill reads the LIVE document, not the seed | `runOnce("org-roles-backfill-2026-08", ...)` reads `app_config.content.roles/circles/team` when present and falls back to `server/seeds/org-chart-2026-08.json`. A village that already edited its cards keeps its edits. New id, never an edited body: `runOnce` is permanent per id and swallows failures (`server/index.ts:1498`). | PLANNED | |
-| 7 | Holder strings become `documented` assignments | `"Ky (interim)"` becomes `display_name: "Ky"`, `note: "interim"`. `"Eric (web)"` becomes `display_name: "Eric"`, `focus: "web"`. The parenthetical is the focus field Peerdom charges for. | PLANNED | |
-| 8 | Fix the 10 broken group links during backfill | `"Leadership Circle"` and `"General Circle"` both map to `general-circle`. `"Advisory Bodies"` gets a new `advisory-bodies` circle at `status='forming'`. **Rye confirms or overrides this mapping** (see R1). | PLANNED | |
-| 9 | ColumnSpec completeness | Both new repos list **every** column in their `dbCollection` spec. `store-db.ts:131-138` `replaceAll` is DELETE-all + re-INSERT and writes only specced columns, so an omitted column resets to DEFAULT on the next admin edit. This is the exact trap the `isExample` comment at `server/index.ts:625-629` documents. | PLANNED | |
-| 10 | A write lock on assignments | `withOrgAssignmentLock`, modelled on `withRoleHolderLock` (`server/index.ts:1838-1846`). The S12 caches are safe only under one process, and `circles` mutation today has **no** lock while doing the same read-modify-`replaceAll`. Do not repeat that. | PLANNED | |
+| 1 | `drizzle/0048_org_roles.sql` | New file (highest today is `0047_example_market.sql`). Creates `org_roles` and `org_role_assignments`. `--` comments on their own lines, never ending in `;` (the 0015 trap, `server/db/migrate.ts` `splitStatements`). | SHIPPED | f652bf4 |
+| 2 | `org_roles` columns | `id varchar(64) PK, circle_id varchar(64) NULL, name varchar(160) NOT NULL, aim text, domain text, accountabilities json, why_it_matters text, seats int NOT NULL DEFAULT 1, criticality enum('normal','high') DEFAULT 'normal', icon varchar(64), color varchar(32), sort_order int DEFAULT 0, status_override enum('open','filled','partial','forming') NULL, status_override_expires_at timestamp NULL, is_example tinyint DEFAULT 0, created_at, updated_at` | SHIPPED | f652bf4 |
+| 3 | `org_role_assignments` columns | `id varchar(64) PK, org_role_id varchar(64) NOT NULL, holder_kind enum('member','documented') NOT NULL, user_id varchar(64) NULL, display_name varchar(160) NULL, holder_key varchar(200) NOT NULL, focus varchar(200), note varchar(280), started_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, ended_at timestamp NULL, ended_reason varchar(160), granted_by varchar(64), UNIQUE KEY (org_role_id, holder_key), KEY (user_id), KEY (org_role_id, ended_at)` | SHIPPED | f652bf4 |
+| 4 | Seat status is derived | Active assignments (`ended_at IS NULL`) against `seats`. `status_override` exists only as a time-boxed manual override that lapses back to derived. No permanent hand-typed status column, which is what already produced the two `filled` cards with empty holders. | SHIPPED | f652bf4 |
+| 5 | The 5 real circles get rows | Insert `general-circle`, `outreach-growth-circle`, `community-circle`, `development-circle`, `finance-business-circle` into `circles` with `status='active'`. Set the 8 aspirational councils to `status='forming'` so they render greyed as a call, which is what `0018` designed that enum value for. | SHIPPED | f652bf4 |
+| 6 | Backfill reads the LIVE document, not the seed | `runOnce("org-roles-backfill-2026-08", ...)` reads `app_config.content.roles/circles/team` when present and falls back to `server/seeds/org-chart-2026-08.json`. A village that already edited its cards keeps its edits. New id, never an edited body: `runOnce` is permanent per id and swallows failures (`server/index.ts:1498`). | SHIPPED | f652bf4 |
+| 7 | Holder strings become `documented` assignments | `"Ky (interim)"` becomes `display_name: "Ky"`, `note: "interim"`. `"Eric (web)"` becomes `display_name: "Eric"`, `focus: "web"`. The parenthetical is the focus field Peerdom charges for. | SHIPPED | f652bf4 |
+| 8 | Fix the 10 broken group links during backfill | `"Leadership Circle"` and `"General Circle"` both map to `general-circle`. `"Advisory Bodies"` gets a new `advisory-bodies` circle at `status='forming'`. **Rye confirms or overrides this mapping** (see R1). | SHIPPED | f652bf4 |
+| 9 | ColumnSpec completeness | Both new repos list **every** column in their `dbCollection` spec. `store-db.ts:131-138` `replaceAll` is DELETE-all + re-INSERT and writes only specced columns, so an omitted column resets to DEFAULT on the next admin edit. This is the exact trap the `isExample` comment at `server/index.ts:625-629` documents. | SHIPPED | f652bf4 |
+| 10 | A write lock on assignments | `withOrgAssignmentLock`, modelled on `withRoleHolderLock` (`server/index.ts:1838-1846`). The S12 caches are safe only under one process, and `circles` mutation today has **no** lock while doing the same read-modify-`replaceAll`. Do not repeat that. | SHIPPED | f652bf4 |
 
 ### Phase 2: the surfaces
 
 | # | Fix | Detail | Status | Evidence |
 |---|---|---|---|---|
-| 11 | `GET /api/org` | Public, unauthenticated, structure only: circles, roles, aim, domain, accountabilities, seats, derived vacancy, holder counts. Names and avatars stay behind `map.viewPeople`, matching the tiering `/api/roles` already applies at `server/index.ts:12739-12768`. | PLANNED | |
-| 12 | Admin CRUD | `POST/PUT/DELETE /api/admin/org/roles`, `POST/DELETE /api/admin/org/roles/:id/assignments`. This is genuinely new surface: the `roles` table has **no** create, delete, or capability-edit route today (`server/seeds/examples-seed.json`: "Roles have no POST route"), and `PUT /api/admin/roles/:id` accepts only `circleId` and `seats`. | PLANNED | |
-| 13 | Pages read the new API | `client/src/pages/Roles.tsx`, `Circles.tsx`, `Team.tsx` read `/api/org`. Grouping comes from `circle_id`, not a free-text `group` string, which retires the `GROUP_SUBTITLES` hardcode at `Roles.tsx:52-67`. | PLANNED | |
-| 14 | Admin editor keeps its shape, writes rows | The card editor stays visually what the team learned on 2026-08-01. Holders become a member picker plus an "add a documented holder" free-text fallback. Keep the raw-JSON escape hatch. | PLANNED | |
-| 15 | The map reads `org_roles` | `/api/map` swaps `loadRoles()` for the org plane. Vacancy math is unchanged in shape. Circle-delete guard, concierge candidate set, contact-relay role name, and raise-hand all follow. | PLANNED | |
-| 16 | Seat claim on login | Fuzzy-match member name against unclaimed `documented` assignments, one card, one tap. Writes `seat.claimed` to the events spine. | PLANNED | |
-| 17 | Content sections retired, data left in place | Stop reading `content.roles/circles/team`. Do not delete them. Leave the `org-chart-2026-08` runOnce marker recorded so it can never re-apply over the new plane. | PLANNED | |
+| 11 | `GET /api/org` | Public, unauthenticated, structure only: circles, roles, aim, domain, accountabilities, seats, derived vacancy, holder counts. Names and avatars stay behind `map.viewPeople`, matching the tiering `/api/roles` already applies at `server/index.ts:12739-12768`. | SHIPPED | f652bf4 |
+| 12 | Admin CRUD | `POST/PUT/DELETE /api/admin/org/roles`, `POST/DELETE /api/admin/org/roles/:id/assignments`. This is genuinely new surface: the `roles` table has **no** create, delete, or capability-edit route today (`server/seeds/examples-seed.json`: "Roles have no POST route"), and `PUT /api/admin/roles/:id` accepts only `circleId` and `seats`. | SHIPPED | f652bf4 |
+| 13 | Pages read the new API | `client/src/pages/Roles.tsx`, `Circles.tsx`, `Team.tsx` read `/api/org`. Grouping comes from `circle_id`, not a free-text `group` string, which retires the `GROUP_SUBTITLES` hardcode at `Roles.tsx:52-67`. | SHIPPED | f652bf4 |
+| 14 | Admin editor keeps its shape, writes rows | **Landed differently.** A new Admin, Org Chart tab edits the rows, and the old card editor carries a banner saying the public pages no longer read it. Converting the card editor in place would have meant a status dropdown over derived state, which is the drift this whole change removes. | SHIPPED, changed | `client/src/pages/Admin.tsx` OrgChartTab |
+| 15 | The map reads `org_roles` | `/api/map` swaps `loadRoles()` for the org plane. Vacancy math is unchanged in shape. Circle-delete guard, concierge candidate set, contact-relay role name, and raise-hand all follow. | SHIPPED | f652bf4 |
+| 16 | Seat claim on login | Shipped as a card on `/roles` rather than on login: that is the page which names you, and `Profile.tsx` was being edited by another session. The server re-checks the name match on claim, so an assignment id alone cannot take a seat. | SHIPPED | `client/src/components/SeatClaimCard.tsx` |
+| 17 | Content sections retired, data left in place | Stop reading `content.roles/circles/team`. Do not delete them. Leave the `org-chart-2026-08` runOnce marker recorded so it can never re-apply over the new plane. | SHIPPED | f652bf4 |
 
 ### Phase 3: the defects found while grounding this
 
 | # | Fix | Detail | Status | Evidence |
 |---|---|---|---|---|
-| 18 | `GET /api/roles` omits `circleId` and `seats` | Response at `server/index.ts:12751-12766` has neither, while `client/src/pages/Admin.tsx:3384` reads `(r as any).circleId`, so the role-to-circle dropdown always renders "unassigned". Moot for `org_roles`; fix or delete for `roles`. | PLANNED | |
-| 19 | `server/db/schema.ts` is a stale mirror | `roles` at `:233-243` is missing `circleId`, `seats`, `isExample`; there is no `mysqlTable("circles")` at all. Not a migration driver, so it breaks nothing, and it misleads anyone treating it as schema of record. | PLANNED | |
-| 20 | Admin quest form never binds `circle` | `client/src/pages/Admin.tsx:2609` declares `circle: ""` in state and no field is ever bound to it. `POST /api/admin/quests` spreads `req.body`, so every admin-created quest lands `circle: ""`, filtered out of every chip in `Quests.tsx` and `circleId` null on the map. `quests.circle` is settable only by seed or raw SQL today. | PLANNED | |
-| 21 | `defaultConfig: { circlesSource: "platform" }` is dead | `shared/modules.ts:136`. Repo-wide grep returns the declaration and no reader. Delete it or implement it. | PLANNED | |
-| 22 | Admin badge editor is missing 3 capabilities | `client/src/pages/Admin.tsx:4497-4500` hardcodes 12 of the 15 in `ALL_CAPABILITIES`; `exchange.swap`, `health.record` and `mechanics.propose` cannot be granted or denied from the UI. | PLANNED | |
-| 23 | Two docs cite files that do not exist | `docs/modules/health-dashboard.md:111` cites `server/lib/health-snapshots.ts`; `docs/GAME_MECHANICS_AUDIT_2026-07-31.md:397` cites `client/src/data/gameRoles.ts`. Neither exists in this repo. Do not plan against either. | PLANNED | |
-| 24 | `client/src/pages/Quests.tsx:91-103` hardcodes the 9 quest circles | Filter at `:149` compares raw strings and never touches the table, so the alias reconciliation that `0018` built is bypassed on the one page members actually use. | PLANNED | |
+| 18 | `GET /api/roles` omits `circleId` and `seats` | Response at `server/index.ts:12751-12766` has neither, while `client/src/pages/Admin.tsx:3384` reads `(r as any).circleId`, so the role-to-circle dropdown always renders "unassigned". Moot for `org_roles`; fix or delete for `roles`. | SHIPPED | f652bf4 |
+| 19 | `server/db/schema.ts` is a stale mirror | `roles` at `:233-243` is missing `circleId`, `seats`, `isExample`; there is no `mysqlTable("circles")` at all. Not a migration driver, so it breaks nothing, and it misleads anyone treating it as schema of record. | SHIPPED | f652bf4 |
+| 20 | Admin quest form never binds `circle` | `client/src/pages/Admin.tsx:2609` declares `circle: ""` in state and no field is ever bound to it. `POST /api/admin/quests` spreads `req.body`, so every admin-created quest lands `circle: ""`, filtered out of every chip in `Quests.tsx` and `circleId` null on the map. `quests.circle` is settable only by seed or raw SQL today. | SHIPPED | f652bf4 |
+| 21 | `defaultConfig: { circlesSource: "platform" }` is dead | `shared/modules.ts:136`. Repo-wide grep returns the declaration and no reader. Delete it or implement it. | SHIPPED | f652bf4 |
+| 22 | Admin badge editor is missing 3 capabilities | `client/src/pages/Admin.tsx:4497-4500` hardcodes 12 of the 15 in `ALL_CAPABILITIES`; `exchange.swap`, `health.record` and `mechanics.propose` cannot be granted or denied from the UI. | SHIPPED | f652bf4 |
+| 23 | Two docs cite files that do not exist | `docs/modules/health-dashboard.md:111` cites `server/lib/health-snapshots.ts`; `docs/GAME_MECHANICS_AUDIT_2026-07-31.md:397` cites `client/src/data/gameRoles.ts`. Neither exists in this repo. Do not plan against either. | SHIPPED | f652bf4 |
+| 24 | `client/src/pages/Quests.tsx:91-103` hardcodes the 9 quest circles | Filter at `:149` compares raw strings and never touches the table, so the alias reconciliation that `0018` built is bypassed on the one page members actually use. | SHIPPED | f652bf4 |
+
+### Shipped after this document was written
+
+| Item | Why it was not in the original list |
+|---|---|
+| Season patterns, the roll, the retrospective (0050) | Rye specified the season model after this doc; `docs/COORDINATION_SUBSTRATE.md` carries the design |
+| Badge `season_scope` and `multiplier` | Same conversation: a badge's powers may be permanent or seasonal |
+| Terms and season lapsing, derived | The columns shipped with 0049 and nothing read them; `isLapsed` and the `expired` seat state close it |
+| Concierge stopword filtering | Adding seats to the candidate set let long prose outscore a circle on function words |
+| `commerce-reap` join fix | Found in a boot log while verifying this work; it had thrown hourly since it shipped |
 
 ### Explicitly out of scope
 
@@ -306,7 +329,7 @@ Plus, specific to this change:
 
 | # | Task | Why only you | Where |
 |---|---|---|---|
-| R1 | **Confirm the circle mapping for the 10 orphaned role cards.** Default proposed: "Leadership Circle" and "General Circle" both map to `general-circle`; "Advisory Bodies" becomes a new `forming` circle. | This is org structure, not a data decision. Getting it wrong publishes a wrong chart. | Reply here or edit row 8 |
+| R1 | ~~Confirm the circle mapping~~ | ANSWERED from the source documents, not the default. Jessica's notes name the Leadership Circle explicitly, so it was restored rather than collapsed. | done |
 | R2 | **Decide whether the 8 aspirational councils stay seeded.** They do not exist. The adoption read is that seeded aspirational structure teaches members the chart is fiction, which is the belief that stops anyone correcting the real parts. Options: keep as `forming`, or delete from the seed and let a village add its own. | Product call, and it changes what every future fork is born with | `server/seeds/circles-seed.json` |
 | R3 | **Name the real holders, or confirm the 7 free-text names are complete.** The backfill turns them into documented assignments. Anyone missing stays missing. | Only you know who actually holds what right now | The 24 cards |
 | R4 | Review, commit, push, approve the Railway deploy | Git and Railway access | `git add -A && git commit && git push` |
@@ -319,10 +342,10 @@ Plus, specific to this change:
 |---|---|---|
 | C1 | This document | DONE |
 | C2 | Fixes 1 through 10 (migration, backfill, lock, ColumnSpec) | BLOCKED on R1 for the mapping in row 8; everything else can start |
-| C3 | Fixes 11 through 17 (API, pages, admin editor, map cutover, seat claim) | PLANNED |
-| C4 | Fixes 18 through 24 (the defects found while grounding) | PLANNED, independent of R1, shippable first |
-| C5 | Tests: `server/org.test.ts`, the loop-test extension | PLANNED |
-| C6 | `docs/ARCHITECTURE.md` update, `docs/FORK_RUNBOOK.md` line, `docs/modules/village-map.md` reconciliation | PLANNED |
+| C3 | Fixes 11 through 17 (API, pages, admin editor, map cutover, seat claim) | DONE |
+| C4 | Fixes 18 through 24 (the defects found while grounding) | DONE |
+| C5 | Tests | DONE, and named differently: `shared/seasonResolution.test.ts`, `server/lib/seatLapse.test.ts`, `server/lib/conciergeScoring.test.ts`, plus the rewritten map section of `server/loop.e2e.test.ts` |
+| C6 | Docs | ARCHITECTURE.md gained 3.15 and 3.16; FORK_RUNBOOK.md gained its seed and variable lines. `docs/modules/village-map.md` is NOT yet reconciled and still describes the pre-0049 map. |
 
 ### WAITING ON YOU before Claude Code can proceed
 

@@ -3361,6 +3361,9 @@ function OrgChartTab({ password }: { password: string }) {
 
   const STATE_LABEL: Record<string, string> = {
     filled: "Filled", partial: "Partially filled", open: "Open seat", forming: "Forming",
+    // Held, and overdue. Nobody has been removed; the seat is asking to be
+    // reassigned because a term ran out or the season it was filled in turned.
+    expired: "Term ended, awaiting reassignment",
   };
 
   return (
@@ -3430,10 +3433,15 @@ function OrgChartTab({ password }: { password: string }) {
 
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {(r.holders ?? []).map((h: any) => (
-                          <span key={h.userId ?? h.name} className="text-xs bg-gray-100 rounded-full px-2 py-1">
+                          <span key={h.userId ?? h.name} className={`text-xs rounded-full px-2 py-1 ${h.lapsed ? "bg-amber-50 border border-amber-200" : "bg-gray-100"}`}>
                             {h.name}
                             {h.focus && <span className="text-gray-500"> · {h.focus}</span>}
                             {h.kind === "documented" && <span className="text-amber-700"> · no account yet</span>}
+                            {h.lapsed && (
+                              <span className="text-amber-700">
+                                {" "}· {h.lapsedReason === "term" ? "term ended" : "seated last season"}
+                              </span>
+                            )}
                           </span>
                         ))}
                         {(r.holders ?? []).length === 0 && <span className="text-xs text-gray-400">Nobody holds this yet.</span>}

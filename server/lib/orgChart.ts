@@ -21,7 +21,19 @@
  */
 import type { Pool } from "mysql2/promise";
 
-export type SeatState = "open" | "filled" | "partial" | "forming";
+export type SeatState = "open" | "filled" | "partial" | "forming" | "expired";
+
+/**
+ * What decides whether a holding has lapsed. Passed in rather than read here,
+ * because this file must stay a pure function of its inputs.
+ */
+export interface LapseContext {
+  /** The dated season running today, or null. */
+  currentSeasonId: string | null;
+  /** org.reassignment_cadence: season_turn | pattern_change | annual | never. */
+  cadence: string;
+  now?: Date;
+}
 
 export interface OrgRole {
   id: string;
@@ -58,6 +70,13 @@ export interface OrgAssignment {
   startedAt: Date;
   endedAt: Date | null;
   endedReason: string | null;
+  /**
+   * DERIVED, never stored: the term ran out, or the season this seating was
+   * made in has turned. The holding is still live and the person is still
+   * acting; what has expired is their mandate to keep doing so unasked.
+   */
+  lapsed?: boolean;
+  lapsedReason?: "term" | "season" | null;
 }
 
 const ROLE_COLS =
@@ -126,12 +145,53 @@ export async function listOrgRoles(pool: Pool): Promise<OrgRole[]> {
   return (rows as any[]).map(rowToRole);
 }
 
-/** Live seatings only. Ended ones are history and are asked for by name. */
-export async function listOrgAssignments(pool: Pool): Promise<OrgAssignment[]> {
+/**
+ * Live seatings only. Ended ones are history and are asked for by name.
+ *
+ * Pass a LapseContext and each row comes back annotated with whether its
+ * mandate has run out. Without one they come back unannotated, which is the
+ * old behaviour and treats every live seating as current.
+ */
+export async function listOrgAssignments(pool: Pool, ctx?: LapseContext): Promise<OrgAssignment[]> {
   const [rows]: any = await pool.query(
     `SELECT ${ASSIGN_COLS} FROM org_role_assignments WHERE ended_at IS NULL ORDER BY started_at, id`,
   );
-  return (rows as any[]).map(rowToAssignment);
+  const list = (rows as any[]).map(rowToAssignment);
+  if (!ctx) return list;
+  const roles = await listOrgRoles(pool);
+  const byId = new Map(roles.map((r) => [r.id, r]));
+  return list.map((a) => {
+    const role = byId.get(a.orgRoleId);
+    const v = isLapsed(a, { expiresEachSeason: role?.expiresEachSeason ?? null }, ctx);
+    return { ...a, lapsed: v.lapsed, lapsedReason: v.reason };
+  });
+}
+
+/**
+ * Seatings whose mandate has run out or is about to, most overdue first.
+ *
+ * Terms are the highest-value column in this whole model precisely because a
+ * village forgets them: without a date, correcting a bad fit needs a
+ * confrontation, and communities avoid confrontations until seats calcify.
+ * With one, removal becomes non-renewal.
+ */
+export async function expiringSeatings(
+  pool: Pool,
+  ctx: LapseContext,
+  withinDays = 30,
+): Promise<Array<OrgAssignment & { roleName: string; daysLeft: number | null }>> {
+  const [live, roles] = await Promise.all([listOrgAssignments(pool, ctx), listOrgRoles(pool)]);
+  const nameOf = new Map(roles.map((r) => [r.id, r.name]));
+  const now = (ctx.now ?? new Date()).getTime();
+  const soon = withinDays * 86400000;
+  return live
+    .filter((a) => a.lapsed || (a.termEndsAt && a.termEndsAt.getTime() - now <= soon))
+    .map((a) => ({
+      ...a,
+      roleName: nameOf.get(a.orgRoleId) ?? a.orgRoleId,
+      daysLeft: a.termEndsAt ? Math.ceil((a.termEndsAt.getTime() - now) / 86400000) : null,
+    }))
+    .sort((x, y) => (x.daysLeft ?? -9999) - (y.daysLeft ?? -9999));
 }
 
 export async function orgRoleHistory(pool: Pool, orgRoleId: string): Promise<OrgAssignment[]> {
@@ -146,14 +206,68 @@ export async function orgRoleHistory(pool: Pool, orgRoleId: string): Promise<Org
  * The seat's state, derived. `seats` is the target, live holdings are the
  * count, and an unexpired override wins over both.
  */
-export function seatState(role: OrgRole, liveHolders: number, now = new Date()): SeatState {
+/**
+ * Has this seating run out of mandate?
+ *
+ * NOTHING IS REVOKED. A village misses a re-selection during a harvest or a
+ * build push, and taking the keys away on a Tuesday for reasons nobody chose
+ * is worse than the seat reading as overdue. So a lapsed holding is still a
+ * holding: the person keeps acting, and the seat says out loud that it is
+ * waiting to be reassigned.
+ *
+ * Derived on every read, so a season turn writes nothing and cannot drift.
+ */
+export function isLapsed(
+  a: Pick<OrgAssignment, "termEndsAt" | "seasonId" | "endedAt">,
+  role: Pick<OrgRole, "expiresEachSeason">,
+  ctx: LapseContext,
+): { lapsed: boolean; reason: "term" | "season" | null } {
+  if (a.endedAt) return { lapsed: false, reason: null };
+  const now = ctx.now ?? new Date();
+  // A term always wins, whatever the cadence says: somebody named a date.
+  if (a.termEndsAt && a.termEndsAt.getTime() <= now.getTime()) {
+    return { lapsed: true, reason: "term" };
+  }
+  if (ctx.cadence === "never") return { lapsed: false, reason: null };
+  // A seat may opt out on its own card; null inherits the village setting.
+  if (role.expiresEachSeason === false) return { lapsed: false, reason: null };
+  // Seated in a season that is no longer the one running.
+  if (
+    (ctx.cadence === "season_turn" || ctx.cadence === "pattern_change") &&
+    a.seasonId &&
+    ctx.currentSeasonId &&
+    a.seasonId !== ctx.currentSeasonId
+  ) {
+    return { lapsed: true, reason: "season" };
+  }
+  return { lapsed: false, reason: null };
+}
+
+/**
+ * The seat's state, derived.
+ *
+ * `holders` is the live seatings, each already annotated with whether it has
+ * lapsed. A seat every one of whose holders has lapsed reads `expired`: still
+ * held, and openly waiting for the village to reassign it. Counting a lapsed
+ * holder as "filled" is how a seat quietly stops being reviewed for a year.
+ */
+export function seatState(
+  role: OrgRole,
+  holders: Array<{ lapsed?: boolean }> | number,
+  now = new Date(),
+): SeatState {
   const ov = role.statusOverride;
   if (ov) {
     const until = role.statusOverrideExpiresAt;
     if (!until || until.getTime() > now.getTime()) return ov;
   }
-  if (liveHolders <= 0) return "open";
-  if (liveHolders < role.seats) return "partial";
+  const list: Array<{ lapsed?: boolean }> =
+    typeof holders === "number" ? Array.from({ length: holders }, () => ({}) as { lapsed?: boolean }) : holders;
+  const live = list.length;
+  if (live <= 0) return "open";
+  const current = list.filter((h) => !h.lapsed).length;
+  if (current === 0) return "expired";
+  if (current < role.seats) return "partial";
   return "filled";
 }
 

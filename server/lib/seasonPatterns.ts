@@ -210,7 +210,18 @@ export interface RollPlan {
   patternName: string | null;
   changes: RollChange[];
   blocked: RollBlock[];
-  /** Seats whose holdings lapse at this turn, given the village's cadence. */
+  /**
+   * Seats whose holdings lapse at this turn, given the village's cadence.
+   *
+   * A PREVIEW of derived state, and applyRoll deliberately does not touch
+   * these. Lapsing is computed on every read from the seating's season and
+   * term (orgChart.isLapsed), so a turn writes nothing and the state cannot
+   * drift from the calendar. Nothing is revoked either: the holder keeps
+   * acting and the seat reads `expired`, meaning held and openly waiting to
+   * be reassigned.
+   *
+   * If you came here expecting applyRoll to end these, read isLapsed first.
+   */
   lapsing: Array<{ orgRoleId: string; name: string; holders: number }>;
 }
 

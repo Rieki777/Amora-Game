@@ -243,10 +243,12 @@ import {
   listOrgAssignments,
   listOrgRoles,
   orgRoleHistory,
+  expiringSeatings,
   seatHolder,
   seatState,
   unclaimedSeatingsFor,
   updateOrgRole,
+  type LapseContext,
   type OrgAssignment,
   type OrgRole,
 } from "./lib/orgChart";
@@ -2092,6 +2094,19 @@ async function dormantBadgeIds(): Promise<string[]> {
 /** The pattern the current season runs, if it names one. */
 function currentPatternId(): string | null {
   return (seasonState().current as any)?.patternId ?? null;
+}
+
+/**
+ * What every read uses to decide whether a seating's mandate has run out.
+ *
+ * One helper on purpose: a seat that reads "filled" on the map and "expired"
+ * in Admin would be worse than either answer on its own.
+ */
+function lapseContext(): LapseContext {
+  return {
+    currentSeasonId: (seasonState().current as any)?.id ?? null,
+    cadence: stringVar("org.reassignment_cadence"),
+  };
 }
 
 async function capabilityCtx(user: any) {
@@ -5545,7 +5560,7 @@ async function startServer() {
     // The flag rides every node so the page can mark them one by one.
     const [orgRoles, orgAssignments] = await Promise.all([
       listOrgRoles(getPool()),
-      listOrgAssignments(getPool()),
+      listOrgAssignments(getPool(), lapseContext()),
     ]);
     const heldBySeat = new Map<string, OrgAssignment[]>();
     for (const a of orgAssignments) {
@@ -5568,7 +5583,7 @@ async function startServer() {
           // Still derived, and now derived from real seatings instead of
           // from a permission group's membership.
           vacant: held.length < r.seats,
-          state: seatState(r, held.length),
+          state: seatState(r, held),
           isExample: r.isExample,
           holders: viewPeople
             ? held.map((h) => ({
@@ -5578,6 +5593,7 @@ async function startServer() {
                 name: h.holderKind === "member" && h.userId ? nameOf(h.userId) : h.displayName,
                 kind: h.holderKind,
                 focus: h.focus,
+                lapsed: !!h.lapsed,
               }))
             : [],
         };
@@ -5963,7 +5979,7 @@ async function startServer() {
     // Resolve who to contact: quest → its circle's lead; role → its holders,
     // else the circle lead; a vacant resolved seat becomes the call itself.
     // 0049: seatings, not permission-group memberships.
-    const holders = await listOrgAssignments(getPool());
+    const holders = await listOrgAssignments(getPool(), lapseContext());
     let contactRoleId: string | null = null;
     let contactCircleId: string | null = null;
     if (winner.kind === "role") contactRoleId = winner.id;
@@ -13129,7 +13145,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
     const [roles, assignments, allMembers] = await Promise.all([
       listOrgRoles(getPool()),
-      listOrgAssignments(getPool()),
+      listOrgAssignments(getPool(), lapseContext()),
       members.all(),
     ]);
     const nameOf = (id: string) =>
@@ -13175,7 +13191,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
             recruiting: r.recruiting,
             // Derived, never stored. The card-shaped chart this replaced
             // already carried two seats marked filled with nobody named.
-            state: seatState(r, held.length),
+            state: seatState(r, held),
             holderCount: held.length,
             holders: maySeePeople
               ? held.map((h) => ({
@@ -13185,12 +13201,45 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
                   kind: h.holderKind,
                   focus: h.focus,
                   note: h.note,
+                  // Derived: their term ran out, or the season they were
+                  // seated in has turned. They are still holding it.
+                  lapsed: !!h.lapsed,
+                  lapsedReason: h.lapsedReason ?? null,
                 }))
               : [],
             isExample: r.isExample,
           };
         }),
     });
+  });
+
+  /**
+   * Seats whose mandate has run out or is about to, most overdue first.
+   *
+   * Nothing here revokes anything. A village misses a re-selection during a
+   * harvest, and a seat going dark on a Tuesday for reasons nobody chose is
+   * worse than one that says out loud it is overdue.
+   */
+  app.get("/api/admin/org/expiring", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const within = Math.max(1, Math.min(365, Number(req.query.days ?? 30)));
+    const rows = await expiringSeatings(getPool(), lapseContext(), within);
+    const allMembers = await members.all();
+    res.json(
+      rows.map((a) => ({
+        assignmentId: a.id,
+        orgRoleId: a.orgRoleId,
+        roleName: a.roleName,
+        holder: a.holderKind === "member" && a.userId
+          ? firstName((allMembers as any[]).find((u: any) => u.id === a.userId)?.name ?? "Member")
+          : a.displayName,
+        focus: a.focus,
+        lapsed: !!a.lapsed,
+        reason: a.lapsedReason,
+        daysLeft: a.daysLeft,
+        termEndsAt: a.termEndsAt,
+      })),
+    );
   });
 
   /** One seat's whole history, ended seatings included. */
