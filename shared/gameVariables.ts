@@ -175,6 +175,31 @@ export const VARIABLES: VariableDef[] = [
     ],
   },
 
+  // ── The org chart and its seasons ─────────────────────────────────────────
+  {
+    key: "org.reassignment_cadence",
+    category: "Progression",
+    label: "How often every seat reopens",
+    description:
+      "A season can end with every seat vacated and offered again. Reopening on a rhythm is how a village keeps seats from calcifying, because correcting a bad fit stops needing a confrontation and becomes a date everyone already knew about. A seat can opt out on its own card, and a term can always end sooner.",
+    type: "choice",
+    default: "season_turn",
+    choices: [
+      {
+        value: "season_turn",
+        label: "Every season turn",
+        hint: "Recommended while a village is young: three months is short enough to learn fast and change what is not working.",
+      },
+      {
+        value: "pattern_change",
+        label: "When the season's shape changes",
+        hint: "A founding season can run across several turns without reopening every seat each time.",
+      },
+      { value: "annual", label: "Once a year", hint: "One reopening a year, whatever the seasons did." },
+      { value: "never", label: "Never", hint: "Seats end only on their own term date, or when somebody steps down." },
+    ],
+  },
+
   // ── Quests: how work becomes recognition ──────────────────────────────────
   {
     key: "quest.consent_cap_mode",

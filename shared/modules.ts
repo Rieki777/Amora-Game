@@ -133,7 +133,6 @@ export const MODULES: ModuleDef[] = [
       "map.contact_retention_days",
     ],
     apiPrefixes: ["/api/map", "/api/circles"],
-    defaultConfig: { circlesSource: "platform" },
   },
   {
     id: "forum",

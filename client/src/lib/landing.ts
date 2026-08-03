@@ -6,16 +6,23 @@
  * right the first time and slightly insulting the tenth, when what you
  * actually want is to see where everyone is and what is happening.
  *
- * So after a few visits the map becomes home. The rules that make that a
- * kindness rather than a hijack:
+ * The map was promoted to home automatically on the third visit. That is
+ * TURNED OFF. The map is not finished enough to be the first thing a
+ * returning member sees, and a half-built page arriving unasked is worse
+ * than a welcome page they have already read. Nobody is routed there now
+ * unless they went and asked for it.
+ *
+ * The machinery is kept whole rather than deleted, because the map becoming
+ * home is still where this is going. Re-enabling is one line: restore the
+ * visit-count branch at the end of chooseLanding.
+ *
+ * The rules that stay true either way:
  *
  *   - An EXPLICIT choice always wins, in both directions and forever. Someone
  *     who says "give me the welcome page" gets it on visit five hundred.
  *   - It never routes anyone to a module they cannot see. The map is an
  *     optional module; a village can run without it, and a visitor below its
  *     lifecycle rank must not be bounced into a page that will refuse them.
- *   - It takes effect on the THIRD visit, so the welcome page gets two full
- *     showings before the app assumes you know your way around.
  *
  * The decision is deliberately pure and synchronous. Waiting on the module
  * catalogue before deciding would mean rendering the welcome page and then
@@ -23,8 +30,15 @@
  * caller passes what it already knows, cached from the previous visit.
  */
 
-/** Visit on which the map takes over. Two full looks at the welcome first. */
+/**
+ * The visit the map WOULD take over on, once it is ready to be a home page.
+ * Nothing reads it while the automatic switch is off; it is the number to
+ * restore, kept beside the rule it belongs to.
+ */
 export const LANDING_SWITCH_VISIT = 3;
+
+/** Whether visit count alone may promote the map to the landing page. */
+export const AUTO_LANDING_ENABLED = false;
 
 export type LandingChoice = "home" | "map";
 /** null = the member has not expressed a preference; the count decides. */
@@ -45,6 +59,9 @@ export function chooseLanding({ visits, preference, mapAvailable }: LandingInput
   if (preference === "home") return "home";
   if (!mapAvailable) return "home";
   if (preference === "map") return "map";
+  // The automatic promotion is off. A member who never asked for the map
+  // keeps the welcome page however many times they come back.
+  if (!AUTO_LANDING_ENABLED) return "home";
   return visits >= LANDING_SWITCH_VISIT ? "map" : "home";
 }
 

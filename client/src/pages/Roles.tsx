@@ -28,7 +28,9 @@ type RoleStatus = "filled" | "open" | "forming" | "partial";
 interface RoleEntry {
   id: string;
   name: string;
+  /** The circle this seat sits in, resolved from its id to a display name. */
   group: string;
+  circleId?: string | null;
   status: RoleStatus;
   holders?: string[];
   holderNote?: string;
@@ -48,23 +50,9 @@ const ICONS: Record<string, React.ElementType> = {
   Building2, CircleDot, Globe, Handshake, MessageCircle, ClipboardList, Scale,
 };
 
-/** Subtitles for the groups the village uses today; unknown groups render without one. */
-const GROUP_SUBTITLES: Record<string, string> = {
-  "Leadership Circle":
-    "Four seats hold the whole together, peers in one circle, each building the circles beneath them: vision, physical realization, capital, and community.",
-  "General Circle":
-    "The connective tissue: coordination, follow-through, and the digital systems that keep the whole team's work legible.",
-  "Outreach & Growth Circle":
-    "One circle connects with people and guides their whole journey into the village, from first hearing of the project, through a real conversation, to membership and a home.",
-  "Community Circle":
-    "The lived experience: events, hospitality, stays on the land, and the governance and team-health practices that keep the human systems honest.",
-  "Development Circle":
-    "From drawings to homes: land operations, architecture, permitting, and the regenerative systems that make the place alive.",
-  "Finance & Business Circle":
-    "The money and the engines that generate it: financial stewardship, the legal container, and business development.",
-  "Advisory Bodies":
-    "These sit outside the circle structure. They provide wisdom and oversight. Operational decisions stay in the circles.",
-};
+// The subtitles under each circle heading used to be a hardcoded map of one
+// village's circle names, living in platform code: a fork got no subtitle for
+// any circle it actually had. They come from the circle's own purpose now.
 
 const statusBadge: Record<RoleStatus, { label: string; className: string }> = {
   filled: { label: "Filled", className: "bg-sage/15 text-sage border border-sage/30" },
@@ -188,23 +176,37 @@ function RoleCard({ role, expanded, onToggle, index }: RoleCardProps) {
 export default function Roles() {
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [roles, setRoles] = useState<RoleEntry[] | null>(null);
+  const [circles, setCircles] = useState<any[]>([]);
   const [failed, setFailed] = useState(false);
 
+  // Seats are rows now (0049), not cards in a document. `state` arrives
+  // DERIVED from live holdings against the seat count, so the page can no
+  // longer show a seat marked filled with nobody in it, which the card-shaped
+  // chart did for two seats at once.
   useEffect(() => {
-    fetch("/api/content/roles")
+    fetch("/api/org")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data) => {
-        if (!Array.isArray(data)) throw new Error("bad shape");
+        if (!data || !Array.isArray(data.roles)) throw new Error("bad shape");
+        const circleById = new Map<string, any>(
+          (data.circles ?? []).map((c: any) => [c.id, c]),
+        );
+        setCircles(data.circles ?? []);
         setRoles(
-          data.map((r: any, i: number) => ({
-            ...r,
+          (data.roles as any[]).map((r: any, i: number) => ({
             id: String(r.id ?? `role-${i}`),
             name: String(r.name ?? "Untitled role"),
-            group: String(r.group ?? r.category ?? "Roles"),
-            status: normalizeStatus(r.status),
-            aim: String(r.aim ?? r.purpose ?? ""),
+            circleId: r.circleId ?? null,
+            group: String(circleById.get(r.circleId)?.name ?? "Unplaced seats"),
+            status: normalizeStatus(r.state),
+            holders: (r.holders ?? []).map((h: any) => h.name).filter(Boolean),
+            holderNote: (r.holders ?? []).map((h: any) => h.note).filter(Boolean).join(" "),
+            aim: String(r.aim ?? ""),
             domain: String(r.domain ?? ""),
             accountabilities: Array.isArray(r.accountabilities) ? r.accountabilities : [],
+            whyItMatters: r.whyItMatters ?? "",
+            icon: r.icon ?? undefined,
+            color: r.color ?? undefined,
           })),
         );
       })
@@ -214,14 +216,21 @@ export default function Roles() {
   const toggle = (id: string) =>
     setExpandedRole((prev) => (prev === id ? null : id));
 
-  // Group by each card's `group`, in order of first appearance — the admin
-  // editor controls grouping and ordering with nothing but the cards.
-  const groups: { title: string; roles: RoleEntry[] }[] = [];
+  // Grouped by circle, in the order the village sorted its circles, with a
+  // dormant circle's seats still listed under it.
+  const circleOrder = new Map(circles.map((c, i) => [c.name, i]));
+  const groups: { title: string; subtitle: string; roles: RoleEntry[] }[] = [];
   for (const role of roles ?? []) {
     const g = groups.find((x) => x.title === role.group);
     if (g) g.roles.push(role);
-    else groups.push({ title: role.group, roles: [role] });
+    else {
+      const circle = circles.find((c) => c.name === role.group);
+      groups.push({ title: role.group, subtitle: circle?.purpose ?? "", roles: [role] });
+    }
   }
+  groups.sort(
+    (a, b) => (circleOrder.get(a.title) ?? 999) - (circleOrder.get(b.title) ?? 999),
+  );
 
   return (
     <Layout>
@@ -273,12 +282,12 @@ export default function Roles() {
               </div>
             )}
 
-            {groups.map(({ title, roles: groupRoles }) => (
+            {groups.map(({ title, subtitle, roles: groupRoles }) => (
               <div className="mb-14" key={title}>
                 <div className="mb-6">
                   <h2 className="font-display text-2xl font-bold text-foreground mb-1">{title}</h2>
-                  {GROUP_SUBTITLES[title] && (
-                    <p className="text-muted-foreground text-sm">{GROUP_SUBTITLES[title]}</p>
+                  {subtitle && (
+                    <p className="text-muted-foreground text-sm">{subtitle}</p>
                   )}
                 </div>
                 <div className="space-y-3">

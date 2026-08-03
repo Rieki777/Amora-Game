@@ -235,6 +235,36 @@ import {
   wireExampleCaches,
 } from "./lib/examples";
 import {
+  backfillOrgChart,
+  claimSeating,
+  createOrgRole,
+  documentedKey,
+  endSeating,
+  listOrgAssignments,
+  listOrgRoles,
+  orgRoleHistory,
+  seatHolder,
+  seatState,
+  unclaimedSeatingsFor,
+  updateOrgRole,
+  type OrgAssignment,
+  type OrgRole,
+} from "./lib/orgChart";
+import {
+  addMember as addPatternMember,
+  applyRoll,
+  captureIntoCurrentPattern,
+  createPattern,
+  listMembers as listPatternMembers,
+  listPatterns,
+  planRoll,
+  removeMember as removePatternMember,
+  rewardMultiplierFor,
+  seasonallyDormantBadgeIds,
+  type PatternKind,
+} from "./lib/seasonPatterns";
+import { buildRetrospective, proposeNextPattern } from "./lib/seasonRetrospective";
+import {
   assertCanPurchase,
   ceilMinor,
   createCheckout,
@@ -320,6 +350,9 @@ const CIRCLES_SEED_FILE = path.join(SEEDS_DIR, "circles-seed.json");
 // current org structure ships as a seed and is applied once by runOnce below;
 // after that, the content admin editor is the source of truth.
 const ORG_CHART_SEED_FILE = path.join(SEEDS_DIR, "org-chart-2026-08.json");
+// Structure, naming, seat placement and holders, applied as a delta over the
+// cards when the org chart becomes rows (0049). Card prose is never touched.
+const ORG_CORRECTIONS_SEED_FILE = path.join(SEEDS_DIR, "org-chart-corrections-2026-08.json");
 // gratitude-cycles.json / gratitude-distributions.json retired in S8 (MySQL).
 // token-ledger.json retired in S7 — the ledger lives in MySQL (server/lib/ledger.ts).
 
@@ -703,6 +736,11 @@ const circlesRepo = dbCollection(getPool(), {
     { js: "aliases", db: "aliases", kind: "json" },
     { js: "parentCircleId", db: "parent_circle_id" },
     { js: "leadRoleId", db: "lead_role_id" },
+    // 0049. Listed here for the same reason isExample is: replaceAll is a
+    // DELETE-all plus re-INSERT of exactly the columns in this spec, so a
+    // column left out is silently reset to its DEFAULT on the next admin
+    // circle edit. A seat that grew into a circle would forget it had.
+    { js: "grownFromOrgRoleId", db: "grown_from_org_role_id" },
     { js: "icon", db: "icon" },
     { js: "color", db: "color" },
     { js: "status", db: "status" },
@@ -1070,6 +1108,46 @@ async function ensureDataFiles() {
   await runOnce("voice-sweep-2026-08-01", applyVoiceSweepToSeededRows);
   await runOnce("voice-sweep-2026-08-01-part-2", applyVoiceSweepToSeededDocuments);
   await runOnce("voice-sweep-2026-08-01-part-3", applyVoiceSweepWhereWordsChanged);
+  await runOnce("org-roles-backfill-2026-08", applyOrgRolesBackfill);
+}
+
+/**
+ * The org chart stops being a document and becomes rows (0049).
+ *
+ * Reads the LIVE content document first and falls back to the seed, so a
+ * village that edited its cards in Admin keeps every word it wrote. The
+ * corrections file carries only structure, naming, seat placement and the
+ * holders the cards recorded as free-text name strings.
+ *
+ * Runs after the voice sweep on purpose: the sweep edits card copy in place,
+ * and the rows should carry the swept text rather than the pre-sweep text.
+ */
+async function applyOrgRolesBackfill(): Promise<void> {
+  const content = (contentRepo.get() ?? {}) as any;
+  let cards: any[] = Array.isArray(content.roles) ? content.roles : [];
+  let circleCards: any[] = Array.isArray(content.circles) ? content.circles : [];
+  if ((!cards.length || !circleCards.length) && fs.existsSync(ORG_CHART_SEED_FILE)) {
+    const seed = JSON.parse(fs.readFileSync(ORG_CHART_SEED_FILE, "utf-8"));
+    if (!cards.length && Array.isArray(seed?.roles)) cards = seed.roles;
+    if (!circleCards.length && Array.isArray(seed?.circles)) circleCards = seed.circles;
+  }
+  if (!cards.length) return;
+
+  let corrections: any = {};
+  if (fs.existsSync(ORG_CORRECTIONS_SEED_FILE)) {
+    corrections = JSON.parse(fs.readFileSync(ORG_CORRECTIONS_SEED_FILE, "utf-8"));
+  }
+
+  const report = await backfillOrgChart(getPool(), { cards, circleCards, corrections });
+  if (report.skipped) {
+    console.log("[MIGRATION] org roles already present, backfill skipped");
+    return;
+  }
+  await circlesRepo.load();
+  console.log(
+    `[MIGRATION] org chart as rows: ${report.seatsWritten} seat(s), ${report.circlesWritten} circle(s), ` +
+      `${report.councilsToForming} council(s) moved to forming, ${report.holdersWritten} documented holder(s)`,
+  );
 }
 
 /**
@@ -1987,6 +2065,35 @@ function stageUnlockOverridesFromVars(): Partial<Record<Capability, string>> {
   return out;
 }
 
+/**
+ * The seasonal badges whose season is not running, cached for a few seconds.
+ *
+ * capabilityCtx runs on effectively every authenticated request, and this
+ * answer changes only when an admin rolls a season or edits a pattern. The
+ * window is short enough that a roll takes effect while somebody is still
+ * looking at the page.
+ */
+let dormantBadgeCache: { at: number; ids: string[] } | null = null;
+async function dormantBadgeIds(): Promise<string[]> {
+  const now = Date.now();
+  if (dormantBadgeCache && now - dormantBadgeCache.at < 10_000) return dormantBadgeCache.ids;
+  try {
+    const ids = await seasonallyDormantBadgeIds(getPool(), currentPatternId());
+    dormantBadgeCache = { at: now, ids };
+    return ids;
+  } catch {
+    // A failure here must never widen anyone's permissions, and it must never
+    // narrow them either: fall back to "nothing is asleep", which is exactly
+    // how the gate behaved before seasonal badges existed.
+    return [];
+  }
+}
+
+/** The pattern the current season runs, if it names one. */
+function currentPatternId(): string | null {
+  return (seasonState().current as any)?.patternId ?? null;
+}
+
 async function capabilityCtx(user: any) {
   // S36: badge grants and denies join the one gate — but only while the
   // badges module is on. Off = zero queries, zero effect: the gate is
@@ -1994,7 +2101,11 @@ async function capabilityCtx(user: any) {
   let badgeCapabilities: string[] = [];
   let badgeDenies: string[] = [];
   if (effectiveLifecycle("badges") !== "off") {
-    const grants = await badgeGrantsFor(getPool(), user.id);
+    // 0050: a badge declared `seasonal` grants nothing while its season is
+    // not running. The award survives and the badge stays on the profile;
+    // only the power sleeps. Denies never sleep, which badgeGrantsFor
+    // enforces on its own side.
+    const grants = await badgeGrantsFor(getPool(), user.id, await dormantBadgeIds());
     badgeCapabilities = grants.capabilities;
     badgeDenies = grants.denies;
   }
@@ -2049,6 +2160,12 @@ function normalizeSeasonConfig(raw: any): { seasons: any[]; cadence: string; tim
         focus: s.focus ?? "",
         startsOn: s.startsOn ?? "",
         endsOn: s.endsOn ?? "",
+        // 0050. This normaliser rebuilds every season from a FIXED field list
+        // and runs on read as well as write, so a field missing from here is
+        // a field the village can never store: without this line the pattern
+        // id was silently dropped on every save AND every load, and the whole
+        // season-pattern system resolved to "no pattern running".
+        patternId: s.patternId ?? "",
         goals: Array.isArray(s.goals)
           ? s.goals.map((g: any) => ({ text: String(g?.text ?? ""), done: !!g?.done }))
           : [],
@@ -2082,12 +2199,24 @@ function getSeasonConfig() {
 function seasonState() {
   const cfg = getSeasonConfig();
   const today = todayInTz(cfg.timezone);
-  const dated = cfg.seasons.filter((s) => s.startsOn && s.endsOn);
+  // An END DATE IS OPTIONAL.
+  //
+  // Both dates used to be required, so a season written without an end was
+  // filtered out of the calendar entirely and the village had no current
+  // season at all. A founding season runs until the founder starts the next
+  // one, which is a real shape and the one Amora is in.
+  const dated = cfg.seasons.filter((s) => s.startsOn);
   const sorted = [...dated].sort((a, b) => a.startsOn.localeCompare(b.startsOn));
 
-  const current = sorted.find((s) => s.startsOn <= today && today < s.endsOn) ?? null;
+  // The LATEST season that has begun and has not ended. Taking the latest is
+  // what lets an open-ended season hand over: queueing the next one with a
+  // start date is how the founder says this one is done.
+  const running = sorted.filter((s) => s.startsOn <= today && (!s.endsOn || today < s.endsOn));
+  const current = running.length ? running[running.length - 1] : null;
   const upcoming = sorted.find((s) => s.startsOn > today) ?? null;
-  const ended = !current && sorted.length > 0 && sorted.every((s) => s.endsOn <= today);
+  // An open-ended season never ends, so it never leaves the village asking
+  // for a next one.
+  const ended = !current && sorted.length > 0 && sorted.every((s) => !!s.endsOn && s.endsOn <= today);
 
   return {
     // Back-compat: older clients read these top-level fields directly.
@@ -2100,7 +2229,10 @@ function seasonState() {
     seasons: sorted,
     /** True when every configured season is in the past — admin needs to add one. */
     needsNextSeason: ended || (!current && !upcoming),
-    daysLeft: current ? Math.max(0, daysBetween(today, current.endsOn)) : 0,
+    // An open-ended season has no countdown, and 0 would read as "ends today".
+    daysLeft: current?.endsOn ? Math.max(0, daysBetween(today, current.endsOn)) : null,
+    /** True while the current season runs until somebody starts the next. */
+    openEnded: !!current && !current.endsOn,
     daysUntilStart: !current && upcoming ? Math.max(0, daysBetween(today, upcoming.startsOn)) : 0,
     timezone: cfg.timezone,
     cadence: cfg.cadence,
@@ -5382,29 +5514,61 @@ async function startServer() {
     }
     const allMembers = viewPeople ? await members.all() : [];
     const nameOf = (id: string) => firstName(allMembers.find((u: any) => u.id === id)?.name ?? "Member");
-    const holders = loadRoleHolders();
     const quests = boolVar("map.show_quests") ? await questsRepo.all() : [];
 
+    // 0049: the map draws the ORG CHART, not the permission table.
+    //
+    // It used to read `roles`, which is the capability-group carrier. On a
+    // default fork that meant the map rendered "Founders Circle", "Steward
+    // Circle", "Treasury" and "Trained Practitioners" as if they were seats
+    // people sit in, two of them named as circles, orbiting eight councils
+    // nobody holds, while the circles the village actually runs on never
+    // appeared at all. Seats are their own rows now.
+    //
     // THREE modules' examples land on this one page: map's circles,
     // progression's roles and quests' quests, each retiring independently. A
     // single page-level banner scoped to "map" therefore went away on the
     // first real circle and left the other two rendering as village content.
     // The flag rides every node so the page can mark them one by one.
-    const roles = loadRoles().map((r: any) => {
-      const held = holders.filter((h) => h.roleId === r.id);
-      return {
-        id: r.id,
-        name: r.name,
-        description: r.description ?? "",
-        circleId: r.circleId ?? null,
-        seats: Number(r.seats ?? 1),
-        minStage: r.minStage ?? null,
-        holderCount: held.length,
-        vacant: held.length < Number(r.seats ?? 1),
-        isExample: !!r.isExample,
-        holders: viewPeople ? held.map((h) => ({ userId: h.userId, name: nameOf(h.userId) })) : [],
-      };
-    });
+    const [orgRoles, orgAssignments] = await Promise.all([
+      listOrgRoles(getPool()),
+      listOrgAssignments(getPool()),
+    ]);
+    const heldBySeat = new Map<string, OrgAssignment[]>();
+    for (const a of orgAssignments) {
+      const list = heldBySeat.get(a.orgRoleId) ?? [];
+      list.push(a);
+      heldBySeat.set(a.orgRoleId, list);
+    }
+    const roles = orgRoles
+      .filter((r) => r.active)
+      .map((r) => {
+        const held = heldBySeat.get(r.id) ?? [];
+        return {
+          id: r.id,
+          name: r.name,
+          description: r.aim ?? "",
+          circleId: r.circleId ?? null,
+          seats: r.seats,
+          minStage: null,
+          holderCount: held.length,
+          // Still derived, and now derived from real seatings instead of
+          // from a permission group's membership.
+          vacant: held.length < r.seats,
+          state: seatState(r, held.length),
+          isExample: r.isExample,
+          holders: viewPeople
+            ? held.map((h) => ({
+                userId: h.userId,
+                // A documented holder is a real person with no account yet,
+                // so there is a name to show and no profile to link to.
+                name: h.holderKind === "member" && h.userId ? nameOf(h.userId) : h.displayName,
+                kind: h.holderKind,
+                focus: h.focus,
+              }))
+            : [],
+        };
+      });
 
     res.json({
       circles: circlesRepo.all(),
@@ -5492,9 +5656,15 @@ async function startServer() {
     if (await isExampleRow(getPool(), "circles", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
+    // Both planes can point at a circle: permission groups carry a circleId
+    // from 0018, and org seats carry one from 0049. Deleting a circle out
+    // from under either one orphans a reference the database cannot catch,
+    // because nothing in drizzle/ has a foreign key.
     const referencing = loadRoles().filter((r: any) => r.circleId === req.params.id);
-    if (referencing.length) {
-      return res.status(409).json({ error: `${referencing.length} role(s) still orbit this circle, reassign them first` });
+    const seatsHere = (await listOrgRoles(getPool())).filter((r) => r.circleId === req.params.id);
+    const stillHere = referencing.length + seatsHere.length;
+    if (stillHere) {
+      return res.status(409).json({ error: `${stillHere} seat(s) still orbit this circle, reassign them first` });
     }
     const remaining = circlesRepo.all().filter((c: any) => c.id !== req.params.id);
     if (remaining.length === circlesRepo.all().length) return res.status(404).json({ error: "Not found" });
@@ -5531,12 +5701,13 @@ async function startServer() {
   app.post("/api/map/roles/:id/raise-hand", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to raise your hand" });
-    const role = loadRoles().find((r: any) => r.id === req.params.id);
-    if (!role) return res.status(404).json({ error: "Role not found" });
+    // 0049: the map shows org seats, so this is the id a raised hand carries.
+    const role = (await listOrgRoles(getPool())).find((r) => r.id === req.params.id);
+    if (!role) return res.status(404).json({ error: "Seat not found" });
     // Applying for an example seat writes a real submission into the
     // stewards' inbox for a role that will be deleted on retirement, leaving
     // the member's application pointing at nothing.
-    if ((role as any).isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    if (role.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const entry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       type: "role-application",
@@ -5598,7 +5769,8 @@ async function startServer() {
       return res.status(429).json({ error: "Their day is full. Try one of the circle's open quests instead" });
     }
 
-    const role = roleId ? loadRoles().find((r: any) => r.id === roleId) : null;
+    // The seat someone is being contacted AS. Org plane, matching the map.
+    const role = roleId ? (await listOrgRoles(getPool())).find((r) => r.id === roleId) : null;
     const inserted = await insertContactRequest(getPool(), {
       fromUserId: user.id,
       toUserId: recipient.id,
@@ -5691,7 +5863,20 @@ async function startServer() {
       ...(circlesRepo.all() as any[]).map((c) => ({
         kind: "circle" as const, id: c.id, name: c.name, purpose: c.purpose, extra: c.aliases ?? [],
       })),
-      ...loadRoles().map((r: any) => ({ kind: "role" as const, id: r.id, name: r.name, purpose: r.description })),
+      // 0049: "who do I ask about X" resolves to a SEAT, so the candidates
+      // are org roles. Matching against permission groups meant the concierge
+      // could only ever answer with "Treasury" or "Founders Circle".
+      // A seat's domain is what it decides on, which is the field a question
+      // like "who handles water" is actually asking about.
+      ...(await listOrgRoles(getPool()))
+        .filter((r) => r.active)
+        .map((r) => ({
+          kind: "role" as const,
+          id: r.id,
+          name: r.name,
+          purpose: [r.aim, r.domain].filter(Boolean).join(" "),
+          extra: r.accountabilities,
+        })),
       ...(await questsRepo.all())
         .filter((q: any) => String(q.status).toLowerCase() === "open")
         .map((q: any) => ({ kind: "quest" as const, id: q.id, name: q.title, purpose: q.description, extra: q.tags ?? [] })),
@@ -5757,7 +5942,8 @@ async function startServer() {
 
     // Resolve who to contact: quest → its circle's lead; role → its holders,
     // else the circle lead; a vacant resolved seat becomes the call itself.
-    const holders = loadRoleHolders();
+    // 0049: seatings, not permission-group memberships.
+    const holders = await listOrgAssignments(getPool());
     let contactRoleId: string | null = null;
     let contactCircleId: string | null = null;
     if (winner.kind === "role") contactRoleId = winner.id;
@@ -5770,8 +5956,12 @@ async function startServer() {
       contactCircleId = circleIdForQuestName(quest?.circle);
       contactRoleId = (circlesRepo.all() as any[]).find((c) => c.id === contactCircleId)?.leadRoleId ?? null;
     }
-    const seatHolders = contactRoleId ? holders.filter((h) => h.roleId === contactRoleId) : [];
-    const holderUser = seatHolders.length ? await members.byId(seatHolders[0].userId) : null;
+    const seatHolders = contactRoleId ? holders.filter((h) => h.orgRoleId === contactRoleId) : [];
+    // A documented holder is a real person the village has not connected to
+    // an account yet, so there is nobody for the relay to deliver to. The
+    // seat reads as a call rather than pretending it can be contacted.
+    const contactable = seatHolders.find((h) => h.holderKind === "member" && h.userId);
+    const holderUser = contactable?.userId ? await members.byId(contactable.userId) : null;
 
     res.json({
       queryId,
@@ -8616,23 +8806,29 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   app.post("/api/admin/badges", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const { name, description, icon, kind, capabilities, denies, rule } = req.body ?? {};
+    const { name, description, icon, kind, capabilities, denies, rule, seasonScope, multiplier } = req.body ?? {};
     if (!String(name ?? "").trim()) return res.status(400).json({ error: "A name is required" });
     const candidate = {
       kind: String(kind ?? "granted"),
       capabilities: Array.isArray(capabilities) ? capabilities.map(String) : [],
       denies: Array.isArray(denies) ? denies.map(String) : [],
       rule: rule && typeof rule === "object" ? { metric: rule.metric, threshold: Number(rule.threshold), stackable: !!rule.stackable, maxStack: Number(rule.maxStack) || 1 } : null,
+      // 0050. Carried into the validator AND the INSERT: the columns existed
+      // with rules nothing could reach, so a multiplier could only ever be set
+      // by hand-written SQL, which is the one path that validates nothing.
+      seasonScope: seasonScope === "seasonal" ? "seasonal" : "permanent",
+      multiplier: multiplier === undefined || multiplier === null || multiplier === "" ? null : Number(multiplier),
     };
     const problem = badgeProblem(candidate as any);
     if (problem) return res.status(400).json({ error: problem });
     const id = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || `badge-${Date.now()}`;
     if (await badgeById(getPool(), id)) return res.status(409).json({ error: `A badge with id "${id}" already exists` });
     await getPool().query(
-      "INSERT INTO badges (id, name, description, icon, kind, capabilities, denies, rule) VALUES (?,?,?,?,?,?,?,?)",
+      "INSERT INTO badges (id, name, description, icon, kind, capabilities, denies, rule, season_scope, multiplier) VALUES (?,?,?,?,?,?,?,?,?,?)",
       [id, String(name).trim().slice(0, 120), description ?? null, icon ?? null, candidate.kind,
         JSON.stringify(candidate.capabilities), JSON.stringify(candidate.denies),
-        candidate.rule ? JSON.stringify(candidate.rule) : null],
+        candidate.rule ? JSON.stringify(candidate.rule) : null,
+        candidate.seasonScope, candidate.multiplier],
     );
     onRealItemPublished(getPool(), "badges", adminActor(req)?.id ?? null);
     res.json({ success: true, badge: await badgeById(getPool(), id) });
@@ -8656,6 +8852,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       rule: req.body?.rule !== undefined
         ? (req.body.rule ? { metric: req.body.rule.metric, threshold: Number(req.body.rule.threshold), stackable: !!req.body.rule.stackable, maxStack: Number(req.body.rule.maxStack) || 1 } : null)
         : existing.rule,
+      // 0050. Partial-update shape like every field above, so a client that
+      // does not know about seasons cannot blank them by omission.
+      seasonScope: req.body?.seasonScope !== undefined
+        ? (req.body.seasonScope === "seasonal" ? "seasonal" : "permanent")
+        : existing.seasonScope,
+      multiplier: req.body?.multiplier !== undefined
+        ? (req.body.multiplier === null || req.body.multiplier === "" ? null : Number(req.body.multiplier))
+        : existing.multiplier,
       active: req.body?.active !== undefined ? !!req.body.active : existing.active,
     };
     const problem = badgeProblem(merged as any);
@@ -8693,9 +8897,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       }
     }
     await getPool().query(
-      "UPDATE badges SET name=?, description=?, icon=?, kind=?, capabilities=?, denies=?, rule=?, active=? WHERE id=?",
+      "UPDATE badges SET name=?, description=?, icon=?, kind=?, capabilities=?, denies=?, rule=?, season_scope=?, multiplier=?, active=? WHERE id=?",
       [merged.name, merged.description, merged.icon, merged.kind, JSON.stringify(merged.capabilities),
-        JSON.stringify(merged.denies), merged.rule ? JSON.stringify(merged.rule) : null, merged.active ? 1 : 0, req.params.id],
+        JSON.stringify(merged.denies), merged.rule ? JSON.stringify(merged.rule) : null,
+        merged.seasonScope, merged.multiplier, merged.active ? 1 : 0, req.params.id],
     );
     // Every AWARD leaves a trail; the DEFINITION they answer to did not.
     void recordEvent(getPool(), {
@@ -11039,6 +11244,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       id: req.body.id || currentId || `season-${cfg.seasons.length + 1}`,
       name: req.body.name ?? "", theme: req.body.theme ?? "", focus: req.body.focus ?? "",
       startsOn: req.body.startsOn ?? "", endsOn: req.body.endsOn ?? "",
+      // Carried through rather than dropped: this legacy route overwrites the
+      // whole entry, so omitting the field would silently unhook the season
+      // from its pattern every time somebody used the old save.
+      patternId: req.body.patternId ?? (idx >= 0 ? (cfg.seasons[idx] as any)?.patternId ?? "" : ""),
       goals: Array.isArray(req.body.goals) ? req.body.goals : [],
     };
     if (idx >= 0) cfg.seasons[idx] = entry; else cfg.seasons.push(entry);
@@ -11070,6 +11279,9 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     };
     await questsRepo.add(entry);
     onRealItemPublished(getPool(), "quests", adminActor(req)?.id ?? null);
+    // A quest posted during a season belongs to that season's pattern, so it
+    // returns with it next year. No-op for a village with no pattern running.
+    await captureIntoCurrentPattern(getPool(), currentPatternId(), "quest", entry.id);
     res.json(entry);
   });
 
@@ -11387,14 +11599,34 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       // nothing to recompute: the cache write is skipped entirely — the old
       // code assigned the failed post's toBalance (0) and wiped the member.
       let after: any = claimant;
-      if (granted > 0) {
+      // A standing badge can carry a reward multiplier (0050): ten years in
+      // the village, a 20% bonus on everything. It applies AFTER the consent
+      // cap on purpose. The cap governs what this piece of WORK is worth,
+      // which is a question about the quest; a multiplier is a standing the
+      // person carries into every quest, which is a question about them.
+      //
+      // Multiplying rather than adding keeps it honest at every scale, and
+      // the reason rides into the ledger description so a member reading
+      // their history can see where the extra came from.
+      //
+      // With no multiplier badge anywhere this is exactly 1, so a village
+      // that never makes one sees byte-identical behaviour.
+      const multiplier =
+        effectiveLifecycle("badges") === "off"
+          ? 1
+          : await rewardMultiplierFor(getPool(), consented.userId, await dormantBadgeIds());
+      const payout = multiplier === 1 ? granted : Math.floor(granted * multiplier);
+      if (payout > 0) {
         const credit = await postTransfer(getPool(), {
           from: RECOGNITION_FAUCET,
           to: memberAccount(consented.userId),
-          amount: granted,
+          amount: payout,
           source: "quest_consent",
           sourceRef: consented.id,
-          description: `Quest consented: ${consented.questTitle}`,
+          description:
+            multiplier === 1
+              ? `Quest consented: ${consented.questTitle}`
+              : `Quest consented: ${consented.questTitle} (${granted} x${multiplier} for a standing badge)`,
           idempotencyKey: `quest_consent:${consented.id}`,
         });
         if (!credit.ok) {
@@ -11437,7 +11669,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       await notify({
         userId: consented.userId,
         type: "quest_consented",
-        title: `Your quest was consented: ${consented.questTitle} (+${granted})`,
+        // What was actually CREDITED, not what was consented. A standing
+        // badge can multiply the two apart, and telling a member a number
+        // their balance does not match is the fastest way to lose their
+        // trust in the ledger.
+        title: multiplier === 1
+          ? `Your quest was consented: ${consented.questTitle} (+${payout})`
+          : `Your quest was consented: ${consented.questTitle} (+${payout}, including your badge bonus)`,
         link: "/profile",
         // The real actor, admin or steward (see the declines branch above).
         actorUserId: actor.userId,
@@ -11448,7 +11686,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       // whole point of widening this gate — needs its own row.
       if (!actor.isAdminActor) {
         void recordEvent(getPool(), {
-          kind: "audit", text: `quest:consented:${consented.id}:${granted}`,
+          // Both figures: what the steward decided, and what the ledger
+          // moved. An audit row carrying only the first would misstate the
+          // release it exists to attribute.
+          kind: "audit",
+          text: multiplier === 1
+            ? `quest:consented:${consented.id}:${payout}`
+            : `quest:consented:${consented.id}:granted=${granted}:paid=${payout}:x${multiplier}`,
           actorUserId: actor.userId, entityType: "quest_claim", entityRef: consented.id, audience: "admin",
         });
       }
@@ -12828,6 +13072,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
             // roles are real rows on a public read, and nothing downstream
             // could tell them from the village's own without the flag.
             isExample: !!(r as any).isExample,
+            // 0018 put these on the row and this payload never carried them,
+            // so the admin role-to-circle picker read undefined and every
+            // role rendered as unassigned however many times it was set.
+            circleId: (r as any).circleId ?? null,
+            seats: Number((r as any).seats ?? 1),
             // Additive, and always present: a page can show "2 of 3 seats
             // filled · 1 open call" without knowing anybody's name.
             holderCount: seated.length,
@@ -12837,6 +13086,326 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           };
         }),
     );
+  });
+
+  /**
+   * The sociocratic org chart (0049): circles, the seats inside them, and who
+   * holds each seat.
+   *
+   * This is the OTHER plane from /api/roles above. That one serves permission
+   * groups; this one serves the org chart people read. They share nothing but
+   * a word, which is exactly the confusion this route exists to end.
+   *
+   * Structure is public: circle names, seat names, aims, domains, seat counts
+   * and how many are filled. WHO holds a seat is gated behind map.viewPeople,
+   * the same tier /api/roles already applies, so a village can publish its
+   * shape without publishing its people.
+   */
+  app.get("/api/org", async (req, res) => {
+    const viewer = await authedUser(req);
+    const maySeePeople =
+      (await isAdmin(req)) ||
+      (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
+
+    const [roles, assignments, allMembers] = await Promise.all([
+      listOrgRoles(getPool()),
+      listOrgAssignments(getPool()),
+      members.all(),
+    ]);
+    const nameOf = (id: string) =>
+      firstName((allMembers as any[]).find((u: any) => u.id === id)?.name ?? "Member");
+
+    const byRole = new Map<string, OrgAssignment[]>();
+    for (const a of assignments) {
+      const list = byRole.get(a.orgRoleId) ?? [];
+      list.push(a);
+      byRole.set(a.orgRoleId, list);
+    }
+
+    const circles = circlesRepo
+      .all()
+      .map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        purpose: c.purpose ?? null,
+        status: c.status ?? "active",
+        parentCircleId: c.parentCircleId ?? null,
+        // The fractal: this circle grew out of a seat that outgrew itself.
+        grownFromOrgRoleId: c.grownFromOrgRoleId ?? null,
+        order: Number(c.order ?? 0),
+        isExample: !!c.isExample,
+      }));
+
+    res.json({
+      circles,
+      roles: roles
+        .filter((r) => r.active)
+        .map((r) => {
+          const held = byRole.get(r.id) ?? [];
+          return {
+            id: r.id,
+            circleId: r.circleId,
+            name: r.name,
+            aim: r.aim,
+            domain: r.domain,
+            accountabilities: r.accountabilities,
+            whyItMatters: r.whyItMatters,
+            seats: r.seats,
+            criticality: r.criticality,
+            recruiting: r.recruiting,
+            // Derived, never stored. The card-shaped chart this replaced
+            // already carried two seats marked filled with nobody named.
+            state: seatState(r, held.length),
+            holderCount: held.length,
+            holders: maySeePeople
+              ? held.map((h) => ({
+                  userId: h.userId,
+                  // A documented holder is a real person without an account.
+                  name: h.holderKind === "member" && h.userId ? nameOf(h.userId) : h.displayName,
+                  kind: h.holderKind,
+                  focus: h.focus,
+                  note: h.note,
+                }))
+              : [],
+            isExample: r.isExample,
+          };
+        }),
+    });
+  });
+
+  /** One seat's whole history, ended seatings included. */
+  app.get("/api/org/roles/:id/history", async (req, res) => {
+    const viewer = await authedUser(req);
+    const maySeePeople =
+      (await isAdmin(req)) ||
+      (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
+    if (!maySeePeople) return res.status(401).json({ error: "Sign in to see who held this seat" });
+    const allMembers = await members.all();
+    const rows = await orgRoleHistory(getPool(), req.params.id);
+    res.json(
+      rows.map((a) => ({
+        id: a.id,
+        name:
+          a.holderKind === "member" && a.userId
+            ? firstName((allMembers as any[]).find((u: any) => u.id === a.userId)?.name ?? "Member")
+            : a.displayName,
+        kind: a.holderKind,
+        focus: a.focus,
+        startedAt: a.startedAt,
+        endedAt: a.endedAt,
+        endedReason: a.endedReason,
+      })),
+    );
+  });
+
+  /**
+   * Seatings recorded under a name that looks like this member's.
+   *
+   * The org chart arrived carrying holders as free-text names, because that
+   * is all the document it replaced could hold. Rather than ask anyone to
+   * re-enter twenty-five seats, the first person to sign in under a matching
+   * name is offered the seating and takes it with one tap.
+   */
+  app.get("/api/org/my-unclaimed-seats", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const rows = await unclaimedSeatingsFor(getPool(), user.name);
+    if (!rows.length) return res.json([]);
+    const roles = await listOrgRoles(getPool());
+    res.json(
+      rows.map((a) => ({
+        assignmentId: a.id,
+        recordedName: a.displayName,
+        roleId: a.orgRoleId,
+        roleName: roles.find((r) => r.id === a.orgRoleId)?.name ?? a.orgRoleId,
+        focus: a.focus,
+      })),
+    );
+  });
+
+  app.post("/api/org/seatings/:id/claim", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    // Only a seating whose recorded name matches this member may be claimed,
+    // checked server-side: the id alone must never be enough to take a seat.
+    const mine = await unclaimedSeatingsFor(getPool(), user.name);
+    if (!mine.some((a) => a.id === req.params.id)) {
+      return res.status(403).json({ error: "That seat is not recorded under your name" });
+    }
+    const ok = await claimSeating(getPool(), req.params.id, user.id);
+    if (!ok) return res.status(409).json({ error: "That seating has already been claimed or ended" });
+    await recordEvent(getPool(), {
+      kind: "role",
+      text: `${firstName(user.name)} confirmed a seat`,
+      actorUserId: user.id,
+      entityType: "org_role_assignment",
+      entityRef: req.params.id,
+      audience: "admin",
+    });
+    res.json({ success: true });
+  });
+
+  // ── Admin: the org chart is edited here, and the edits are live ──────────
+  app.post("/api/admin/org/roles", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const id = await createOrgRole(getPool(), req.body ?? {});
+    // Anything made while a season runs joins that season's pattern, so a
+    // village never sits down to author one. Nothing happens when the season
+    // names no pattern, which is every village that has not opted in.
+    await captureIntoCurrentPattern(getPool(), currentPatternId(), "org_role", id);
+    res.json({ success: true, id });
+  });
+
+  app.put("/api/admin/org/roles/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const role = (await listOrgRoles(getPool())).find((r) => r.id === req.params.id);
+    if (!role) return res.status(404).json({ error: "Seat not found" });
+    if (role.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    const ok = await updateOrgRole(getPool(), req.params.id, req.body ?? {});
+    res.json({ success: ok });
+  });
+
+  app.post("/api/admin/org/roles/:id/holders", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const role = (await listOrgRoles(getPool())).find((r) => r.id === req.params.id);
+    if (!role) return res.status(404).json({ error: "Seat not found" });
+    if (role.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    const actor = await authedUser(req);
+    const r = await seatHolder(getPool(), req.params.id, {
+      userId: req.body?.userId ?? null,
+      displayName: req.body?.displayName ?? null,
+      focus: req.body?.focus ?? null,
+      note: req.body?.note ?? null,
+      seasonId: seasonState().current?.id ?? null,
+      grantedBy: actor?.id ?? null,
+    });
+    if (!r.ok) return res.status(409).json({ error: r.reason });
+    res.json({ success: true });
+  });
+
+  // ── Season patterns (0050) ───────────────────────────────────────────────
+  //
+  // A pattern is the working setup of a season: which circles, seats, badges
+  // and quests are live while it runs. Membership only; nothing is copied and
+  // nothing is deleted, so a row leaving a pattern stays in the village's
+  // catalogue for any future season to pick up again.
+
+  app.get("/api/admin/seasons/patterns", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [patterns, members] = await Promise.all([
+      listPatterns(getPool()),
+      listPatternMembers(getPool()),
+    ]);
+    res.json({
+      patterns,
+      members,
+      currentPatternId: currentPatternId(),
+      cadence: stringVar("org.reassignment_cadence"),
+    });
+  });
+
+  app.post("/api/admin/seasons/patterns", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const id = await createPattern(getPool(), req.body ?? {});
+    res.json({ success: true, id });
+  });
+
+  app.post("/api/admin/seasons/patterns/:id/members", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const kind = String(req.body?.kind ?? "") as PatternKind;
+    const entityId = String(req.body?.entityId ?? "");
+    if (!["circle", "org_role", "badge", "quest"].includes(kind) || !entityId) {
+      return res.status(400).json({ error: "A kind and an entityId are required" });
+    }
+    await addPatternMember(getPool(), req.params.id, kind, entityId);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/admin/seasons/patterns/:id/members", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    await removePatternMember(
+      getPool(),
+      req.params.id,
+      String(req.body?.kind ?? "") as PatternKind,
+      String(req.body?.entityId ?? ""),
+    );
+    res.json({ success: true });
+  });
+
+  /**
+   * Roll the season.
+   *
+   * DRY RUN BY DEFAULT. Pass `{ apply: true }` to commit. The plan says what
+   * would change and what refuses, and a roll with anything blocked is
+   * refused whole: a village never ends up half-turned.
+   *
+   * This is a human act, never a scheduled job, which is the same rule cycle
+   * close already follows. The scheduler's charter forbids it explicitly.
+   */
+  app.post("/api/admin/seasons/roll", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const season = seasonState();
+    const patternId = req.body?.patternId !== undefined
+      ? (req.body.patternId || null)
+      : currentPatternId();
+    const plan = await planRoll(getPool(), {
+      patternId,
+      cadence: stringVar("org.reassignment_cadence"),
+    });
+    if (!req.body?.apply) {
+      return res.json({ dryRun: true, ...plan });
+    }
+    if (plan.blocked.length) {
+      return res.status(409).json({
+        error: "Settle what is outstanding before rolling the season",
+        ...plan,
+      });
+    }
+    const actor = await authedUser(req);
+    const result = await applyRoll(getPool(), plan, {
+      seasonId: (season.current as any)?.id ?? null,
+      byUserId: actor?.id ?? null,
+    });
+    await circlesRepo.load();
+    dormantBadgeCache = null;
+    await recordEvent(getPool(), {
+      kind: "season",
+      text: `the season rolled: ${result.applied} change(s)`,
+      actorUserId: actor?.id ?? null,
+      audience: "admin",
+    });
+    res.json({ dryRun: false, ...plan, ...result });
+  });
+
+  /**
+   * The season retrospective: what the pattern declared against what the
+   * village actually used, with the edit each gap implies.
+   *
+   * Reads only. The proposed next pattern is a diff somebody accepts, and it
+   * only ever REMOVES: adding a seat is a decision about what the village
+   * will take on, which no report should make on its behalf.
+   */
+  app.get("/api/admin/seasons/retrospective", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const season = seasonState();
+    const patternId = (req.query.patternId as string) || currentPatternId();
+    const startsOn = (season.current as any)?.startsOn;
+    const retro = await buildRetrospective(getPool(), {
+      patternId,
+      seasonId: (season.current as any)?.id ?? null,
+      since: startsOn ? new Date(`${startsOn}T00:00:00Z`) : null,
+    });
+    const current = (await listPatternMembers(getPool(), patternId ?? undefined)).map((m) => ({
+      kind: m.kind, entityId: m.entityId,
+    }));
+    res.json({ ...retro, proposed: proposeNextPattern(retro, current) });
+  });
+
+  app.delete("/api/admin/org/seatings/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const ok = await endSeating(getPool(), req.params.id, String(req.body?.reason ?? "") || undefined);
+    if (!ok) return res.status(404).json({ error: "No live seating with that id" });
+    res.json({ success: true });
   });
 
   /**

@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen, ToggleLeft } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
+import { ALL_CAPABILITIES } from "@shared/capabilities";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { holdCancelled, swipeIntent } from "@/lib/gestures";
@@ -235,6 +236,9 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         { key: "quest-claims", label: "Quest Claims", icon: Sparkles },
         { key: "players", label: "Players", icon: Users },
         { key: "game-roles", label: "Game Roles", icon: Users2 },
+        // The sociocratic org chart. Distinct from "Game Roles" above, which
+        // edits permission groups; this is the seats people actually hold.
+        { key: "org-chart", label: "Org Chart", icon: Users2 },
         { key: "circles-map", label: "Circles & Map", icon: Circle },
         { key: "tools-admin", label: "Tools", icon: Handshake },
         { key: "stays-admin", label: "Stays & Payments", icon: Home },
@@ -951,6 +955,27 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
           </button>
         </div>
       </div>
+
+      {/*
+        The roles, circles and team cards stopped driving the public pages at
+        0049: /roles, /circles and /team read the org ROWS now. Leaving this
+        editor looking authoritative would be the worst outcome of the whole
+        change, because somebody follows the walkthrough they were given, edits
+        a card, saves, and nothing moves on the site.
+      */}
+      {isCards && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm text-amber-900 font-medium">
+            The public pages no longer read these cards.
+          </p>
+          <p className="text-sm text-amber-800 mt-1">
+            Circles, seats and who holds them moved into the org chart, so
+            /roles, /circles and /team come from <strong>Admin → Org Chart</strong>.
+            Edit them there and the site updates immediately. These cards are
+            kept as a record of what the pages said before the move.
+          </p>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading...</div>
@@ -2608,6 +2633,12 @@ function QuestsTab({ password }: { password: string }) {
   const [draft, setDraft] = useState<Record<string, any>>({});
   const [adding, setAdding] = useState({ title: "", description: "", gratitude: "", circle: "" });
   const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+  // Suggestions come from the board itself, so an admin reuses the circle
+  // names already in play instead of coining a near-miss the chips ignore.
+  const questCircles = useMemo(
+    () => Array.from(new Set(quests.map((q) => q?.circle).filter(Boolean))).sort() as string[],
+    [quests],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2651,7 +2682,7 @@ function QuestsTab({ password }: { password: string }) {
 
       <div className="bg-white border border-gray-100 rounded-xl p-5 mb-6">
         <h3 className="font-semibold text-gray-900 mb-3">Post a quest</h3>
-        <div className="grid sm:grid-cols-4 gap-2 items-end">
+        <div className="grid sm:grid-cols-5 gap-2 items-end">
           <label className="text-xs text-gray-500">Title
             <input value={adding.title} onChange={(e) => setAdding({ ...adding, title: e.target.value })} className={`${inputCls} w-full mt-1`} />
           </label>
@@ -2660,6 +2691,17 @@ function QuestsTab({ password }: { password: string }) {
           </label>
           <label className="text-xs text-gray-500">Reward (e.g. 50 or 50-100)
             <input value={adding.gratitude} onChange={(e) => setAdding({ ...adding, gratitude: e.target.value })} className={`${inputCls} w-full mt-1`} />
+          </label>
+          {/* The state carried a circle from the day this form shipped and no
+              field was ever bound to it, so every admin-posted quest landed
+              with an empty circle: filtered off every chip on the board, and
+              unplaceable on the map. */}
+          <label className="text-xs text-gray-500">Circle
+            <input value={adding.circle} onChange={(e) => setAdding({ ...adding, circle: e.target.value })}
+              list="quest-circles" placeholder="Which circle?" className={`${inputCls} w-full mt-1`} />
+            <datalist id="quest-circles">
+              {questCircles.map((c) => <option key={c} value={c} />)}
+            </datalist>
           </label>
           <button
             onClick={async () => {
@@ -2687,8 +2729,8 @@ function QuestsTab({ password }: { password: string }) {
         <div className="space-y-3">
           {quests.map((q: any) => {
             const d = draft[q.id] ?? q;
-            const dirty = JSON.stringify({ t: d.title, de: d.description, g: d.gratitude, s: d.status })
-              !== JSON.stringify({ t: q.title, de: q.description, g: q.gratitude, s: q.status });
+            const dirty = JSON.stringify({ t: d.title, de: d.description, g: d.gratitude, s: d.status, c: d.circle })
+              !== JSON.stringify({ t: q.title, de: q.description, g: q.gratitude, s: q.status, c: q.circle });
             return (
               <div key={q.id} className="bg-white border border-gray-100 rounded-xl p-4">
                 {/* On a fresh fork the whole board is examples. Without the
@@ -2697,7 +2739,7 @@ function QuestsTab({ password }: { password: string }) {
                 {q.isExample && (
                   <p className="mb-2"><ExampleChip /></p>
                 )}
-                <div className="grid sm:grid-cols-4 gap-2 items-end">
+                <div className="grid sm:grid-cols-5 gap-2 items-end">
                   <label className="text-xs text-gray-500">Title
                     <input value={d.title ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, title: e.target.value } })} className={`${inputCls} w-full mt-1`} />
                   </label>
@@ -2706,6 +2748,10 @@ function QuestsTab({ password }: { password: string }) {
                   </label>
                   <label className="text-xs text-gray-500">Reward
                     <input value={d.gratitude ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, gratitude: e.target.value } })} className={`${inputCls} w-full mt-1`} />
+                  </label>
+                  <label className="text-xs text-gray-500">Circle
+                    <input value={d.circle ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, circle: e.target.value } })}
+                      list="quest-circles" className={`${inputCls} w-full mt-1`} />
                   </label>
                   <label className="text-xs text-gray-500">Status
                     <select value={d.status ?? "Open"} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, status: e.target.value } })} className={`${inputCls} w-full mt-1`}>
@@ -2719,7 +2765,8 @@ function QuestsTab({ password }: { password: string }) {
                     disabled={!dirty}
                     onClick={async () => {
                       const r = await call(`/admin/quests/${q.id}`, {
-                        title: d.title, description: d.description, gratitude: d.gratitude, status: d.status,
+                        title: d.title, description: d.description, gratitude: d.gratitude,
+                        status: d.status, circle: d.circle,
                       }, "PUT");
                       if (r) { toast.success("Saved"); setDraft({ ...draft, [q.id]: undefined }); load(); }
                     }}
@@ -3249,6 +3296,194 @@ function ModulesTab({ password }: { password: string }) {
 }
 
 // ── Circles & Map admin (S19-S23) ────────────────────────────────────────────
+
+/**
+ * The sociocratic org chart, edited as rows (0049).
+ *
+ * The public /roles, /circles and /team pages read /api/org, so THIS is where
+ * their content comes from. The "Roles Page" and "Circles Page" content-card
+ * editors under Content no longer reach those pages.
+ *
+ * Distinct from "Game Roles", which seats people into PERMISSION GROUPS. The
+ * two share a word and nothing else: a group grants capabilities, a seat is
+ * work somebody holds. Nothing here can grant anyone a permission.
+ *
+ * Seat status is DERIVED from live holdings against the seat count. There is
+ * no status dropdown, because a hand-set one drifts: the cards this replaced
+ * shipped two seats marked "filled" with nobody named in them.
+ */
+function OrgChartTab({ password }: { password: string }) {
+  const [org, setOrg] = useState<any>(null);
+  const [members, setMembers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState<Record<string, any>>({});
+  const [adding, setAdding] = useState<Record<string, string>>({});
+  const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [o, m] = await Promise.all([
+        fetch(`${API_BASE}/org`, { headers: authHeaders(password) }).then((r) => r.json()),
+        fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }).then((r) => (r.ok ? r.json() : [])),
+      ]);
+      setOrg(o);
+      setMembers(Array.isArray(m) ? m : []);
+    } catch { setOrg(null); }
+    setLoading(false);
+  }, [password]);
+  useEffect(() => { void load(); }, [load]);
+
+  const call = async (path: string, body?: any, method = "POST") => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: authHeaders(password, { "Content-Type": "application/json" }),
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(d?.error ?? "That did not save"); return null; }
+    return d;
+  };
+
+  if (loading) return <div className="text-center py-12 text-gray-400">Loading…</div>;
+  if (!org) return <div className="text-center py-12 text-gray-400">The org chart could not be read.</div>;
+
+  const circles: any[] = org.circles ?? [];
+  const roles: any[] = org.roles ?? [];
+  const byCircle = new Map<string, any[]>();
+  for (const r of roles) {
+    const k = r.circleId ?? "";
+    byCircle.set(k, [...(byCircle.get(k) ?? []), r]);
+  }
+
+  const STATE_LABEL: Record<string, string> = {
+    filled: "Filled", partial: "Partially filled", open: "Open seat", forming: "Forming",
+  };
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Org Chart</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Circles, the seats inside them, and who holds each seat. This is what
+          /roles, /circles and /team show, and edits are live immediately.
+          Whether a seat reads as filled or open is worked out from its holders,
+          so it can never say filled with nobody in it.
+        </p>
+      </div>
+
+      <div className="space-y-6">
+        {circles.map((c) => {
+          const seats = byCircle.get(c.id) ?? [];
+          return (
+            <div key={c.id} className="bg-white border border-gray-100 rounded-xl p-5">
+              <div className="flex items-baseline justify-between mb-1">
+                <h3 className="font-semibold text-gray-900">{c.name}</h3>
+                <span className="text-xs text-gray-400">
+                  {c.status}
+                  {c.grownFromOrgRoleId && " · grew from a seat"}
+                </span>
+              </div>
+              {c.purpose && <p className="text-xs text-gray-500 mb-3">{c.purpose}</p>}
+
+              <div className="space-y-3">
+                {seats.map((r) => {
+                  const d = draft[r.id] ?? r;
+                  const dirty = ["name", "circleId", "aim", "domain", "seats"].some((k) => d[k] !== r[k]);
+                  return (
+                    <div key={r.id} className="border border-gray-100 rounded-lg p-3">
+                      <div className="grid sm:grid-cols-4 gap-2 items-end">
+                        <label className="text-xs text-gray-500">Seat
+                          <input value={d.name ?? ""} className={`${inputCls} w-full mt-1`}
+                            onChange={(e) => setDraft({ ...draft, [r.id]: { ...d, name: e.target.value } })} />
+                        </label>
+                        <label className="text-xs text-gray-500">Circle
+                          <select value={d.circleId ?? ""} className={`${inputCls} w-full mt-1`}
+                            onChange={(e) => setDraft({ ...draft, [r.id]: { ...d, circleId: e.target.value } })}>
+                            <option value="">Unplaced</option>
+                            {circles.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                          </select>
+                        </label>
+                        <label className="text-xs text-gray-500">Seats
+                          <input type="number" min={1} value={d.seats ?? 1} className={`${inputCls} w-full mt-1`}
+                            onChange={(e) => setDraft({ ...draft, [r.id]: { ...d, seats: Number(e.target.value) } })} />
+                        </label>
+                        <p className="text-xs text-gray-500">
+                          State<br />
+                          <span className="font-medium text-gray-800">{STATE_LABEL[r.state] ?? r.state}</span>
+                          <span className="text-gray-400"> · {r.holderCount} of {r.seats}</span>
+                        </p>
+                      </div>
+                      <div className="grid sm:grid-cols-2 gap-2 mt-2">
+                        <label className="text-xs text-gray-500">Aim
+                          <textarea rows={2} value={d.aim ?? ""} className={`${inputCls} w-full mt-1`}
+                            onChange={(e) => setDraft({ ...draft, [r.id]: { ...d, aim: e.target.value } })} />
+                        </label>
+                        <label className="text-xs text-gray-500">Domain (what it decides alone)
+                          <textarea rows={2} value={d.domain ?? ""} className={`${inputCls} w-full mt-1`}
+                            onChange={(e) => setDraft({ ...draft, [r.id]: { ...d, domain: e.target.value } })} />
+                        </label>
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {(r.holders ?? []).map((h: any) => (
+                          <span key={h.userId ?? h.name} className="text-xs bg-gray-100 rounded-full px-2 py-1">
+                            {h.name}
+                            {h.focus && <span className="text-gray-500"> · {h.focus}</span>}
+                            {h.kind === "documented" && <span className="text-amber-700"> · no account yet</span>}
+                          </span>
+                        ))}
+                        {(r.holders ?? []).length === 0 && <span className="text-xs text-gray-400">Nobody holds this yet.</span>}
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-2 items-end">
+                        <label className="text-xs text-gray-500">Seat someone
+                          <select className={`${inputCls} mt-1`} value={adding[r.id] ?? ""}
+                            onChange={(e) => setAdding({ ...adding, [r.id]: e.target.value })}>
+                            <option value="">Choose a member…</option>
+                            {members.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                          </select>
+                        </label>
+                        <button
+                          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-2 font-medium disabled:opacity-40"
+                          disabled={!adding[r.id]}
+                          onClick={async () => {
+                            const ok = await call(`/admin/org/roles/${r.id}/holders`, { userId: adding[r.id] });
+                            if (ok) { toast.success("Seated"); setAdding({ ...adding, [r.id]: "" }); void load(); }
+                          }}
+                        >Seat</button>
+                        <button
+                          disabled={!dirty}
+                          className="text-sm border border-gray-200 rounded-lg px-3 py-2 disabled:opacity-40"
+                          onClick={async () => {
+                            const ok = await call(`/admin/org/roles/${r.id}`, {
+                              name: d.name, circleId: d.circleId, aim: d.aim, domain: d.domain, seats: d.seats,
+                            }, "PUT");
+                            if (ok) { toast.success("Saved"); setDraft({ ...draft, [r.id]: undefined }); void load(); }
+                          }}
+                        >Save seat</button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {seats.length === 0 && <p className="text-xs text-gray-400">No seats in this circle yet.</p>}
+              </div>
+            </div>
+          );
+        })}
+
+        {(byCircle.get("") ?? []).length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+            <h3 className="font-semibold text-amber-900 mb-2">Seats with no circle</h3>
+            <p className="text-xs text-amber-800">
+              {(byCircle.get("") ?? []).map((r) => r.name).join(", ")}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function CirclesMapTab({ password }: { password: string }) {
   const [off, setOff] = useState(false);
@@ -4523,10 +4758,11 @@ function ExchangeAdminTab({ password }: { password: string }) {
  * same words the API refuses with.
  */
 function BadgesAdminTab({ password }: { password: string }) {
-  const CAPS = [
-    "quest.propose", "quest.consent", "forum.post", "forum.moderate", "proposal.open", "proposal.decide",
-    "map.viewPeople", "map.contact", "feed.announce", "stay.member_rate", "exchange.buy", "exchange.manage",
-  ];
+  // Was a hand-typed list of twelve, three short of the registry, so
+  // exchange.swap, health.record and mechanics.propose could not be granted
+  // or denied from here at all. Reading the registry means a new capability
+  // shows up the moment it is added.
+  const CAPS = ALL_CAPABILITIES;
   const METRICS = ["quests_consented", "ledger_earned_total", "gratitude_breadth"];
   const [data, setData] = useState<any>(null);
   const [off, setOff] = useState(false);
@@ -7388,6 +7624,7 @@ export default function Admin() {
           {activeTab === "players" && <PlayersTab password={password} />}
           {activeTab === "game-roles" && <GameRolesTab password={password} />}
           {activeTab === "modules" && <ModulesTab password={password} />}
+          {activeTab === "org-chart" && <OrgChartTab password={password} />}
           {activeTab === "circles-map" && <CirclesMapTab password={password} />}
           {activeTab === "tools-admin" && <ToolsAdminTab password={password} />}
           {activeTab === "stays-admin" && <StaysAdminTab password={password} />}

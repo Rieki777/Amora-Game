@@ -148,7 +148,17 @@ export interface SeasonEntry {
   theme: string;
   focus: string;
   startsOn: string; // ISO date, inclusive
-  endsOn: string;   // ISO date, exclusive — the day the season turns
+  /** ISO date, exclusive, the day the season turns. EMPTY means open-ended:
+   *  it runs until somebody starts the next one, which is what a founding
+   *  season does. */
+  endsOn: string;
+  /**
+   * The season PATTERN this season runs (0050): which circles, seats, badges
+   * and quests are live while it is current. Empty means the season carries
+   * no pattern, which is every village that has not opted in, and nothing
+   * about their structure changes at a turn.
+   */
+  patternId?: string;
   /** What this season is actually trying to achieve. Shown on the banner//season. */
   goals: { text: string; done: boolean }[];
 }

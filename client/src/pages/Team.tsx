@@ -26,9 +26,57 @@ export default function Team() {
   const [team, setTeam] = useState<TeamMember[] | null>(null);
 
   useEffect(() => {
-    fetch("/api/content/team")
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((data) => setTeam(Array.isArray(data) ? data.filter((m: any) => m?.name) : []))
+    // Two sources, merged. Seats and their holders come from the org rows
+    // (0049), so anyone actually holding a seat appears here without being
+    // added to a second list by hand. The team cards still supply photos and
+    // bios, matched by name, because a row has no portrait.
+    //
+    // Before this the Team page was its own hand-kept list, and it showed two
+    // people out of the eight who held seats.
+    Promise.all([
+      fetch("/api/org").then((r) => (r.ok ? r.json() : { circles: [], roles: [] })).catch(() => ({ circles: [], roles: [] })),
+      fetch("/api/content/team").then((r) => (r.ok ? r.json() : [])).catch(() => []),
+    ])
+      .then(([org, cards]) => {
+        const profileByName = new Map<string, any>();
+        for (const c of Array.isArray(cards) ? cards : []) {
+          if (c?.name) profileByName.set(String(c.name).trim().toLowerCase(), c);
+        }
+        const circleName = new Map<string, string>(
+          (org.circles ?? []).map((c: any) => [c.id, c.name]),
+        );
+        // One entry per person, carrying every seat they hold.
+        const seatsByPerson = new Map<string, { name: string; seats: string[]; circle?: string }>();
+        for (const r of org.roles ?? []) {
+          for (const h of r.holders ?? []) {
+            if (!h?.name) continue;
+            const key = String(h.name).trim().toLowerCase();
+            const entry = seatsByPerson.get(key) ?? {
+              name: String(h.name).trim(),
+              seats: [],
+              circle: circleName.get(r.circleId) ?? undefined,
+            };
+            entry.seats.push(h.focus ? `${r.name} (${h.focus})` : r.name);
+            seatsByPerson.set(key, entry);
+          }
+        }
+        const merged: TeamMember[] = Array.from(seatsByPerson.values()).map((p) => {
+          const card = profileByName.get(p.name.toLowerCase());
+          return {
+            name: card?.name ?? p.name,
+            role: p.seats.join(" · "),
+            circle: card?.circle ?? p.circle,
+            bio: card?.bio,
+            photo: card?.photo,
+          };
+        });
+        // A card for somebody who holds no seat still belongs on the page.
+        for (const c of Array.isArray(cards) ? cards : []) {
+          if (!c?.name) continue;
+          if (!seatsByPerson.has(String(c.name).trim().toLowerCase())) merged.push(c);
+        }
+        setTeam(merged);
+      })
       .catch(() => setTeam([]));
   }, []);
 

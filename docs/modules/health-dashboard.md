@@ -106,9 +106,9 @@ Each metric: `{ key, label, category: participation|recognition|contribution|cov
 
 ## Mechanics
 
-**Event spine (always on, not toggleable).** `recordEvent({type, actorId?, entityType?, entityId?, value?, meta?, publicText?})` in `server/lib/healthEvents.ts` appends the structured row and forwards publicText to addActivity so Village Pulse behavior is unchanged. This is deliberately OUTSIDE the module toggle: F13's justification is that the data is unrecoverable retroactively, and the write cost is one appended line. The dashboard (page, nav, admin tab, endpoints) is the toggleable module.
+**Event spine (always on, not toggleable).** `recordEvent(pool, {kind, text, actorUserId?, entityType?, entityId?, value?, meta?, audience?})` in `server/lib/events.ts` appends the structured row to `health_events`. (This file was named `healthEvents.ts` in the design; as built it is `events.ts`.) This is deliberately OUTSIDE the module toggle: F13's justification is that the data is unrecoverable retroactively, and the write cost is one appended line. The dashboard (page, nav, admin tab, endpoints) is the toggleable module.
 
-**Snapshot computation — pure and deterministic** (`server/lib/health-snapshots.ts`, shaped like the existing pure `settleCycle()`): `computeCycleSnapshots(cycleId, {events, gratitudeLog, ledger, roles, roleHolders, users, claims, regenEntries}) → rows[]`. No LLM, no wall clock beyond "cycle has ended". Unit-tested with fixtures.
+**Snapshot computation.** Designed as a pure `computeCycleSnapshots(cycleId, {...}) → rows[]` in `server/lib/health-snapshots.ts`. **Not built that way.** As shipped it is `snapshotCycle(pool, cycle, eligibleSenders)` in `server/lib/health.ts:48`, which queries and writes directly rather than taking a fixture bag, and it takes no roles or roleHolders at all. Snapshots are frozen at cycle close and never recomputed. Do not plan against the design signature.
 
 **Formulas:**
 - `participation.active_members` = |distinct actor_id in cycle events| (acting, not lurking — logins don't count, deeds do)

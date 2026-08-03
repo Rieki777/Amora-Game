@@ -349,3 +349,20 @@ is a locale layer over the client pages plus the seeds; the game rules,
 variables and invariants are language-free by construction.
 
 - Seeds: `server/seeds/org-chart-2026-08.json` — the org-chart content (role cards, circle cards, team cards) applied once by the `org-chart-2026-08` runOnce into the `roles` / `circles` / `team` content sections; the public `/roles`, `/circles`, `/team` pages render those sections and the content admin editor owns them afterward. Forks replace this seed with their own structure (or just edit in admin).
+
+## Org chart and seasons (0049, 0050)
+
+- `drizzle/0049_org_roles.sql` creates `org_roles` and `org_role_assignments`
+  and adds `circles.grown_from_org_role_id`. The `roles` table is untouched:
+  it stays the permission-group carrier feeding the one capability gate.
+- `drizzle/0050_season_patterns.sql` creates `season_patterns`,
+  `season_pattern_members` and `season_roll_log`, and adds
+  `badges.season_scope` and `badges.multiplier`.
+- Seed: `server/seeds/org-chart-corrections-2026-08.json` is per-deployment
+  data, applied once by the `org-roles-backfill-2026-08` runOnce when the
+  card-shaped org chart becomes rows. A fork with its own cards keeps them;
+  the corrections file only moves seats between circles and names holders.
+- New game variable: `org.reassignment_cadence` (default `season_turn`).
+- The public `/roles`, `/circles` and `/team` pages read `GET /api/org`. The
+  Content card editors for those three sections no longer drive them; the
+  editing surface is Admin, Org Chart.

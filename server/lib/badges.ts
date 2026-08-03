@@ -26,6 +26,10 @@ import { ALL_CAPABILITIES } from "../../shared/capabilities";
 export const BADGE_KINDS = ["self", "earned", "granted", "warning", "hypha"] as const;
 export type BadgeKind = (typeof BADGE_KINDS)[number];
 
+/** A single badge may not multiply a reward past this. Mirrors the stack
+ *  ceiling in seasonPatterns.MAX_REWARD_MULTIPLIER; both fail closed. */
+export const MAX_BADGE_MULTIPLIER = 3;
+
 export const EARNED_METRICS = ["quests_consented", "ledger_earned_total", "gratitude_breadth"] as const;
 /** Metrics that measure recognition: capability-bearing earned badges may not use them. */
 export const RECOGNITION_METRICS: ReadonlySet<string> = new Set(["gratitude_breadth"]);
@@ -46,6 +50,10 @@ export interface BadgeDef {
   capabilities: string[];
   denies: string[];
   rule: BadgeRule | null;
+  /** Whether this badge's POWERS are always live, or only during its seasons. */
+  seasonScope: "permanent" | "seasonal";
+  /** Multiplies what a holder is credited at consent. null means no effect. */
+  multiplier: number | null;
   active: boolean;
   /** A standing example: renders like any other badge, but never awards. */
   isExample: boolean;
@@ -75,6 +83,11 @@ function rowToBadge(r: RowDataPacket): BadgeDef {
     capabilities: parseJsonArray(r.capabilities),
     denies: parseJsonArray(r.denies),
     rule,
+    // 0050. Read back so validation, the admin surface and the boot assertion
+    // can all see them. Without this the columns existed, were validated by a
+    // function nothing could reach, and were invisible everywhere.
+    seasonScope: r.season_scope === "seasonal" ? "seasonal" : "permanent",
+    multiplier: r.multiplier === null || r.multiplier === undefined ? null : Number(r.multiplier),
     active: !!r.active,
     isExample: Number(r.is_example) === 1,
   };
@@ -99,6 +112,8 @@ export function badgeProblem(b: {
   capabilities: string[];
   denies: string[];
   rule: BadgeRule | null;
+  seasonScope?: string | null;
+  multiplier?: number | null;
 }): string | null {
   if (!BADGE_KINDS.includes(b.kind as BadgeKind)) return `unknown badge kind "${b.kind}"`;
   const known = new Set<string>(ALL_CAPABILITIES);
@@ -113,6 +128,32 @@ export function badgeProblem(b: {
   }
   if (b.denies.length && b.kind !== "warning") {
     return "only warning badges may deny capabilities";
+  }
+  // A sanction that lifts because a season turned is not a sanction. The
+  // grant seam already keeps denies awake; refusing the combination outright
+  // means nobody can even write down the intention.
+  if (b.kind === "warning" && b.seasonScope === "seasonal") {
+    return "a warning badge must be permanent. A sanction that lapses at a season turn is not a sanction";
+  }
+  if (b.seasonScope && b.seasonScope !== "permanent" && b.seasonScope !== "seasonal") {
+    return `unknown season scope "${b.seasonScope}"`;
+  }
+  if (b.multiplier !== undefined && b.multiplier !== null) {
+    const m = Number(b.multiplier);
+    if (!Number.isFinite(m) || m <= 0) return "a reward multiplier must be greater than zero";
+    // A multiplier that can shrink a reward is a penalty wearing a badge, and
+    // penalties belong on warning badges as denies.
+    if (m < 1) return "a reward multiplier below 1 would cut somebody's reward; use a warning badge instead";
+    if (m > MAX_BADGE_MULTIPLIER) {
+      return `a reward multiplier above ${MAX_BADGE_MULTIPLIER} mints more than the board advertises; the ceiling is deliberate`;
+    }
+    // Self badges are self-claimed and hypha badges mirror an outside fact.
+    // Both gate nothing on purpose, and a multiplier is a power: letting one
+    // ride a self-claimable badge would put the recognition faucet behind a
+    // button any member can press.
+    if (b.kind === "self" || b.kind === "hypha") {
+      return `${b.kind} badges carry no powers, so they cannot carry a reward multiplier`;
+    }
   }
   if (b.kind === "earned") {
     if (!b.rule) return "an earned badge needs a rule {metric, threshold}";
@@ -151,17 +192,37 @@ export async function assertBadgeInvariants(pool: Pool): Promise<void> {
 /**
  * The gate feed: what a member's ACTIVE, unexpired badge awards grant and
  * deny. One indexed query; lazy expiry is the WHERE clause, never a sweeper.
+ *
+ * THE ONE SEAM FOR SEASONAL BADGES (0050). Every badge-granted capability in
+ * the product flows through here, so a badge whose powers sleep between its
+ * seasons costs one filter in one function rather than an audit of every
+ * read. `dormant` is the seasonal badges whose season is not running, worked
+ * out by seasonPatterns.seasonallyDormantBadgeIds.
+ *
+ * DENIES ARE NEVER DORMANT. A warning badge takes a capability away, and a
+ * sanction that lifts because a season turned is not a sanction. Only the
+ * GRANTING half of a sleeping badge sleeps. (badgeProblem refuses to save a
+ * seasonal warning badge at all, so this is defence in depth.)
+ *
+ * `badges.active` is untouched by any of this: it means retired-by-an-admin.
  */
-export async function badgeGrantsFor(pool: Pool, userId: string): Promise<{ capabilities: string[]; denies: string[] }> {
+export async function badgeGrantsFor(
+  pool: Pool,
+  userId: string,
+  dormant: string[] = [],
+): Promise<{ capabilities: string[]; denies: string[] }> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT b.capabilities, b.denies FROM badge_awards a JOIN badges b ON b.id = a.badge_id " +
+    "SELECT b.id, b.capabilities, b.denies FROM badge_awards a JOIN badges b ON b.id = a.badge_id " +
       "WHERE a.user_id = ? AND b.active = 1 AND (a.expires_at IS NULL OR a.expires_at > NOW())",
     [userId],
   );
+  const asleep = new Set(dormant);
   const capabilities = new Set<string>();
   const denies = new Set<string>();
   for (const r of rows) {
-    for (const c of parseJsonArray(r.capabilities)) capabilities.add(c);
+    if (!asleep.has(String(r.id))) {
+      for (const c of parseJsonArray(r.capabilities)) capabilities.add(c);
+    }
     for (const d of parseJsonArray(r.denies)) denies.add(d);
   }
   return { capabilities: Array.from(capabilities), denies: Array.from(denies) };

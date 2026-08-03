@@ -14,7 +14,7 @@ import MicButton from "@/components/MicButton";
 import NotFound from "@/pages/NotFound";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
-import { layoutNestedMap, type NestedInput } from "@shared/mapLayout";
+import { layoutNestedMap, wrapLabel, type NestedInput } from "@shared/mapLayout";
 import { authToken } from "@/lib/gameApi";
 import { getPreference, rememberMapAvailable, setPreference } from "@/lib/landing";
 import { ChevronDown, Compass, Hand, Mail, Minus, Plus, Search, X } from "lucide-react";
@@ -30,7 +30,19 @@ interface MapRole {
   minStage: string | null;
   holderCount: number;
   vacant: boolean;
-  holders: Array<{ userId: string; name: string }>;
+  /** Derived seat state (0049). `vacant` stays for the binary case. */
+  state?: "open" | "filled" | "partial" | "forming";
+  /**
+   * A holder is a real person; `documented` means the village has recorded
+   * them in the seat without an account existing yet, so there is a name and
+   * no profile to open. `focus` is the slice of the seat they hold.
+   */
+  holders: Array<{
+    userId: string | null;
+    name: string | null;
+    kind?: "member" | "documented";
+    focus?: string | null;
+  }>;
   /** Set once /api/map carries the row's flag; see EXAMPLE_SETS below. */
   isExample?: boolean;
 }
@@ -60,18 +72,27 @@ const TONE: Record<string, string> = {
 const toneOf = (c: any): string => TONE[String(c?.color ?? "")] ?? "var(--color-teal-deep)";
 
 /**
- * Three modules draw this one page, and they retire independently.
+ * The modules that draw this one page, and they retire independently.
  *
- * /api/map returns circles from `map`, roles from `progression` and open
- * quests from `quests`. A single banner scoped to "map" therefore lied twice:
- * it did not mention the roles or the quests, and the first real circle
- * dropped it while the other two modules' examples kept rendering with no
- * label. Roles.tsx and Circles.tsx read no database, so this page is the ONLY
- * surface where progression's examples are ever seen.
+ * /api/map returns circles from `map` and open quests from `quests`. A single
+ * banner scoped to "map" lied twice: it did not mention the other sets, and
+ * the first real circle dropped it while their examples kept rendering with
+ * no label. The flag rides every node so each set is marked on its own.
+ *
+ * `progression` is NOT in this list any more. The map drew the `roles` table
+ * until 0049; it draws `org_roles` now, which is the sociocratic org chart
+ * rather than the permission groups. progression's standing example roles
+ * (ex-role-land-steward and siblings) are real rows in `roles` and they no
+ * longer appear here, so a banner about them would point at nothing on the
+ * page. They are still reachable through /api/roles and the admin roles tab.
+ *
+ * Worth closing properly later: progression's examples exist to teach an
+ * empty state, and the empty state they were written for is this map. Giving
+ * `org_roles` its own example rows would restore that, and it means adding
+ * the table to EXAMPLE_TABLES so retirement can still reach them.
  */
 const EXAMPLE_SETS: Array<{ id: string; noun: string }> = [
   { id: "map", noun: "circle" },
-  { id: "progression", noun: "role" },
   { id: "quests", noun: "quest" },
 ];
 
@@ -138,7 +159,13 @@ export default function VillageMap() {
                 </div>
                 <SidePanel data={data} selected={selected} onSelect={setSelected} onClose={() => setSelected(null)} />
               </div>
-              <div className="md:hidden">
+              {/* The map is the picture of the village and a phone is where
+                  most people open it, so it renders there too, using the full
+                  width it has. The accordion stays underneath as the list you
+                  can actually act from: every seat reachable by scrolling,
+                  with no pinching. */}
+              <div className="md:hidden space-y-4">
+                <MapCanvas data={data} selected={selected} onSelect={setSelected} />
                 <CircleAccordion data={data} onSelect={setSelected} />
               </div>
               {selected && (
@@ -168,6 +195,9 @@ function MapCanvas({ data, selected, onSelect }: {
       memberCount: data.roles.filter((r) => r.circleId === c.id).reduce((n, r) => n + r.holderCount, 0),
       roles: data.roles.filter((r) => r.circleId === c.id).map((r) => ({ id: r.id, vacant: r.vacant })),
       questCount: data.quests.filter((q) => q.circleId === c.id).length,
+      // The layout sizes each circle to hold its own name, so a long one
+      // gets a bigger circle instead of a label across its neighbours.
+      name: String(c.name ?? c.id),
     }));
     // Roles with no circle are the village's own seats: they sit on the
     // boundary ring rather than vanishing off the picture.
@@ -185,12 +215,36 @@ function MapCanvas({ data, selected, onSelect }: {
   const view = `${layout.village.x - vw / 2} ${layout.village.y - vw / 2} ${vw} ${vw}`;
 
   return (
-    <div className="relative">
+    // A definite height is what lets the SVG below fill instead of letterbox.
+    //
+    // The picture is a circle, so on a phone the box is SQUARE: the width is
+    // the constraint there, and any extra height is just slack under the map.
+    // On a desktop it shares the row with the side panel, so height is the
+    // constraint and the box takes the viewport.
+    <div className="relative aspect-square md:aspect-auto md:h-[76vh] md:min-h-[520px]">
       {/* group, NOT img: role="img" has ARIA's presentational-children
           characteristic, so every circle and role-seat button inside this SVG
           was pruned from the accessibility tree — the whole desktop map
           announced as a single unlabelled graphic with nothing operable. */}
-      <svg viewBox={view} className="w-full max-h-[80vh]" role="group" aria-label="Village map">
+      {/*
+        The SVG FILLS its box.
+
+        It was `w-full max-h-[80vh]` with a square viewBox, so the element took
+        the full container width, computed a matching height, and then had that
+        height clamped — which letterboxes the drawing instead of growing it.
+        Combined with a viewBox that was half margin, the map rendered as a
+        small picture adrift in a large empty area.
+
+        A definite height on the wrapper plus `h-full` here means the drawing
+        scales to whichever dimension is tighter and stays centred.
+      */}
+      <svg
+        viewBox={view}
+        className="w-full h-full"
+        preserveAspectRatio="xMidYMid meet"
+        role="group"
+        aria-label="Village map"
+      >
         {/* The village boundary: one ring holding everything, the way the
             sociocracy diagrams draw the whole organization. */}
         <circle
@@ -262,22 +316,48 @@ function MapCanvas({ data, selected, onSelect }: {
                 }}
               />
               {/* A parent's name hugs its top edge so the children keep the
-                  middle; a leaf's name sits at its center. */}
-              <text
-                x={pos.x}
-                y={hasChildren ? pos.y - pos.r + 26 : pos.y + (forming ? -6 : 0)}
-                textAnchor="middle"
-                className="fill-foreground font-semibold pointer-events-none"
-                style={{ fontSize: pos.depth === 0 ? 17 : 13 }}
-              >
-                {c?.name ?? pos.id}
-              </text>
-              {forming && (
-                <text x={pos.x} y={pos.y + (hasChildren ? -pos.r + 42 : 12)} textAnchor="middle"
-                  className="fill-muted-foreground pointer-events-none" style={{ fontSize: 11 }}>
-                  forming
-                </text>
-              )}
+                  middle; a leaf's name sits at its center.
+
+                  The name used to be one <text> at a fixed size. "Intergenerational
+                  Wisdom Council" is far wider than the circle holding it, so
+                  neighbouring labels ran straight through each other. It wraps
+                  to the circle's own width now, at a size that shrinks with the
+                  circle, and a name too long for three lines is clipped rather
+                  than allowed to cover the map. */}
+              {(() => {
+                const label = wrapLabel(c?.name ?? pos.id, pos.r, pos.depth);
+                // A leaf's block is centred on the circle, so it starts half
+                // its own height above the middle.
+                const top = hasChildren
+                  ? pos.y - pos.r + 24
+                  : pos.y - ((label.lines.length - 1) * label.lineHeight) / 2 + (forming ? -6 : 0);
+                return (
+                  <>
+                    <text
+                      x={pos.x}
+                      y={top}
+                      textAnchor="middle"
+                      className="fill-foreground font-semibold pointer-events-none"
+                      style={{ fontSize: label.fontSize }}
+                    >
+                      {label.lines.map((ln, i) => (
+                        <tspan key={ln + i} x={pos.x} dy={i === 0 ? 0 : label.lineHeight}>{ln}</tspan>
+                      ))}
+                    </text>
+                    {forming && (
+                      <text
+                        x={pos.x}
+                        y={top + (label.lines.length - (hasChildren ? 0 : 1)) * label.lineHeight + (hasChildren ? 14 : 16)}
+                        textAnchor="middle"
+                        className="fill-muted-foreground pointer-events-none"
+                        style={{ fontSize: Math.max(9, label.fontSize - 4) }}
+                      >
+                        forming
+                      </text>
+                    )}
+                  </>
+                );
+              })()}
               {pos.roles.map((rp) => {
                 const role = roleById(rp.id);
                 const dotR = pos.depth === 0 ? 11 : 9;
@@ -424,6 +504,11 @@ function NodeDetail({ data, selected, onSelect }: {
       ? data.circles.find((c: any) => c.id === role.circleId)
       : null;
 
+  // The first holder the relay can actually reach. A documented holder is a
+  // real person the village wrote down before they had an account, so they
+  // show on the seat and cannot be emailed.
+  const contactable = role?.holders.find((h) => h.kind !== "documented" && h.userId) ?? null;
+
   // Selection changed: clear the in-flight composer state so a half-written
   // note to one person never lands under another name.
   useEffect(() => {
@@ -480,8 +565,11 @@ function NodeDetail({ data, selected, onSelect }: {
           </div>
           {data.viewer.viewPeople && role.holders.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {role.holders.map((h) => (
-                <span key={h.userId} className="text-xs bg-muted text-foreground px-2 py-1 rounded-full">{h.name}</span>
+              {role.holders.map((h, i) => (
+                <span key={h.userId ?? `${h.name}-${i}`} className="text-xs bg-muted text-foreground px-2 py-1 rounded-full">
+                  {h.name}
+                  {h.focus && <span className="text-muted-foreground"> · {h.focus}</span>}
+                </span>
               ))}
             </div>
           )}
@@ -505,18 +593,18 @@ function NodeDetail({ data, selected, onSelect }: {
                 <Hand className="w-4 h-4" /> This seat is open, raise your hand
               </button>
             )
-          ) : role.holders.length > 0 && data.viewer.viewPeople ? (
+          ) : contactable && data.viewer.viewPeople ? (
             composing ? (
               <div className="space-y-2">
                 <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
-                  placeholder={`A few words for ${role.holders[0].name}…`}
+                  placeholder={`A few words for ${contactable.name}…`}
                   className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background" />
                 <p className="text-[11px] text-muted-foreground">
                   They'll receive this by email, with YOUR email address as the
                   reply-to, so replying reaches you directly.
                 </p>
                 <div className="flex gap-2">
-                  <button onClick={() => contact(role.holders[0].userId)} disabled={!message.trim()}
+                  <button onClick={() => contactable.userId && contact(contactable.userId)} disabled={!message.trim()}
                     className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Send</button>
                   <button onClick={() => setComposing(false)} className="text-sm text-muted-foreground">Cancel</button>
                 </div>
@@ -524,9 +612,14 @@ function NodeDetail({ data, selected, onSelect }: {
             ) : (
               <button onClick={() => setComposing(true)}
                 className="inline-flex items-center gap-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">
-                <Mail className="w-4 h-4" /> Contact {role.holders[0].name}
+                <Mail className="w-4 h-4" /> Contact {contactable.name}
               </button>
             )
+          ) : role.holders.length > 0 && data.viewer.viewPeople ? (
+            // Held by someone the village has written down and not connected
+            // to an account, so the relay has nobody to deliver to. Saying so
+            // beats offering a button that cannot work.
+            <p className="text-xs text-muted-foreground">Held, and not reachable through the map yet.</p>
           ) : null}
         </div>
       )}
@@ -768,16 +861,23 @@ function ConciergeBar({ onPick }: { onPick: (kind: string, id: string) => void }
  * Both choices write an explicit preference, which outranks the visit count
  * forever — including "map", so choosing to stay stops being implicit.
  */
+/**
+ * Only shown to someone who already made the map their home page, so they
+ * can undo it.
+ *
+ * It used to tell everyone "returning visitors land here", which was true
+ * while visit count promoted the map automatically. That promotion is off
+ * (client/src/lib/landing.ts) because the map is not finished enough to meet
+ * someone on arrival, so the line became a claim about behaviour that no
+ * longer happens. There is no offer here either: nothing should recruit
+ * people onto this page as their front door until it is ready for that.
+ */
 function LandingToggle() {
   const [pref, setPref] = useState(() => getPreference());
-  if (pref === "home") return null; // they chose the welcome page; honour it quietly
+  if (pref !== "map") return null;
   return (
     <p className="mt-4 text-xs text-muted-foreground">
-      {pref === "map" ? (
-        <>The map is your home page.{" "}</>
-      ) : (
-        <>Returning visitors land here.{" "}</>
-      )}
+      The map is your home page.{" "}
       <button
         type="button"
         className="underline underline-offset-2 hover:text-foreground"

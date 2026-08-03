@@ -25,7 +25,7 @@ import {
   Lightbulb,
   ArrowRight,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchGameMe, QuestClaim, useGameConfig } from "@/lib/gameApi";
 import QuestActions from "@/components/QuestActions";
@@ -34,17 +34,14 @@ import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 type QuestStatus = "Open" | "In Progress" | "Seasonal";
 type Difficulty = "Beginner" | "Intermediate" | "Advanced";
-type QuestCircle =
-  | "All"
-  | "Community Development"
-  | "Regenerative Agriculture"
-  | "Land Stewardship"
-  | "Governance"
-  | "Tourism & Retreat"
-  | "Arts & Culture"
-  | "Education"
-  | "Technology"
-  | "Wellness";
+/**
+ * A circle name as a quest carries it. This was a nine-member union of one
+ * village's circle names, hardcoded in platform code: a fork with different
+ * circles got filter chips for circles it did not have, and no chip for the
+ * ones it did. The chips are derived from the board itself now, so the list
+ * is whatever the village is actually running.
+ */
+type QuestCircle = string;
 
 interface Quest {
   id: string;
@@ -87,19 +84,6 @@ const statusColors: Record<string, string> = {
   "In Progress": "bg-amber/20 text-amber-700",
   Seasonal: "bg-blue-100 text-blue-700",
 };
-
-const circles: QuestCircle[] = [
-  "All",
-  "Community Development",
-  "Regenerative Agriculture",
-  "Land Stewardship",
-  "Governance",
-  "Tourism & Retreat",
-  "Arts & Culture",
-  "Education",
-  "Technology",
-  "Wellness",
-];
 
 export default function Quests() {
   // The value token's live name (Admin → Tokens) — a fork's rename reaches
@@ -144,6 +128,20 @@ export default function Quests() {
   };
 
   useEffect(refreshClaims, []);
+
+  // The chips are the circles this board actually uses, in the order the
+  // village sorted them, so a fork never advertises a circle it does not run.
+  const circles = useMemo<QuestCircle[]>(
+    () => ["All", ...Array.from(new Set(quests.map((q) => q.circle).filter(Boolean))).sort()],
+    [quests],
+  );
+
+  // A chip can vanish when the board changes underneath a chosen filter.
+  // Without this the page would render "no quests match" about a circle that
+  // no longer exists, which reads as a fact about the village.
+  useEffect(() => {
+    if (!circles.includes(activeCircle)) setActiveCircle("All");
+  }, [circles, activeCircle]);
 
   const filtered = quests.filter((q) => {
     const circleMatch = activeCircle === "All" || q.circle === activeCircle;

@@ -50,6 +50,8 @@ export interface NestedInput {
   memberCount: number;
   roles: Array<{ id: string; vacant: boolean }>;
   questCount: number;
+  /** The circle's name. The layout sizes the circle to hold it. */
+  name?: string;
 }
 
 export interface NestedCircle {
@@ -78,7 +80,36 @@ export interface NestedLayout {
 
 const ROLE_DOT_R = 11;
 const ROLE_RING_INSET = 20;
+/** Rough advance width of one character as a fraction of font size. */
+const CHAR_W = 0.55;
+/** The size a circle name should be readable at; circles are sized to it. */
+const LABEL_TARGET_FONT = 12;
 const PACK_GAP = 14;
+/** Clears the boundary seats and their stroke; nothing draws past this. */
+const VILLAGE_PAD = ROLE_DOT_R + 12;
+/** Only reached by a village with no circles yet, so it never looks broken. */
+const MIN_CANVAS = 320;
+
+/**
+ * The radius a circle needs to hold its NAME inside its seat ring.
+ *
+ * A circle was sized by member count and seat count only, so "Intergenerational
+ * Wisdom Council" was asked to fit inside a 40-unit circle. It could not, and
+ * the label either ran across its neighbours or had to be shrunk past reading.
+ * Sizing the circle to its name instead means every label fits, and the pack
+ * spaces the circles to match.
+ *
+ * A word cannot be broken, so the longest one sets the floor.
+ */
+export function radiusForLabel(name: string): number {
+  const words = String(name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return 0;
+  const longest = Math.max(...words.map((w) => w.length));
+  const needed = longest * LABEL_TARGET_FONT * CHAR_W;
+  // The chord across the clear interior is about 1.8r at the widest line.
+  const innerR = needed / 1.8;
+  return innerR + ROLE_RING_INSET + ROLE_DOT_R;
+}
 
 /** The radius a circle needs for its own contents: name, role ring, quests. */
 function ownRadius(c: NestedInput): number {
@@ -86,7 +117,7 @@ function ownRadius(c: NestedInput): number {
   // The role ring must hold every dot without crowding: circumference from
   // dot count, radius from circumference.
   const ringR = (c.roles.length * ROLE_DOT_R * 2.6) / (2 * Math.PI);
-  return Math.max(base, ringR + ROLE_RING_INSET + 6);
+  return Math.max(base, ringR + ROLE_RING_INSET + 6, radiusForLabel(c.name ?? ""));
 }
 
 interface PackedNode {
@@ -168,7 +199,16 @@ export function layoutNestedMap(
   // The village is the root that packs every top-level circle.
   const villageContentR = packChildren(roots);
   const villageR = villageContentR + 30;
-  const canvas = Math.max(CANVAS, Math.ceil((villageR + 40) * 2));
+  // The canvas HUGS the village.
+  //
+  // This was `Math.max(CANVAS, …)` with CANVAS = 1000, so a village needing
+  // a 340 radius still drew into a 1000-square viewBox: the picture occupied
+  // under half the area and the rest was margin the browser then scaled down
+  // to fit. The map looked tiny on a wide screen for no reason but padding.
+  //
+  // The pad clears the seats that ride ON the boundary ring, plus their
+  // labels. The floor only matters for a village with nothing in it yet.
+  const canvas = Math.max(MIN_CANVAS, Math.ceil((villageR + VILLAGE_PAD) * 2));
   const center = { x: canvas / 2, y: canvas / 2 };
 
   // Absolute positions, then the per-circle furniture.
@@ -215,6 +255,68 @@ export function layoutNestedMap(
     village: { x: center.x, y: center.y, r: villageR, roles: villageSeatDots },
     circles: out,
   };
+}
+
+export interface WrappedLabel {
+  lines: string[];
+  fontSize: number;
+  lineHeight: number;
+}
+
+const MAX_LABEL_LINES = 3;
+/** Below this a label is not worth rendering, so the word gets cut instead. */
+const MIN_FONT = 9;
+
+/**
+ * Fit a circle's name inside the circle.
+ *
+ * The map drew every name as one line at a fixed size, so a long name was
+ * simply wider than the circle holding it and ran through its neighbours.
+ * ("Intergenerational Wisdom Council" at 17px is about 290 units wide; the
+ * circle holding it is often under 140 across.)
+ *
+ * Pure and deterministic, like the rest of this module: same name and radius
+ * in, same lines out, so the picture never reflows between visits.
+ */
+export function wrapLabel(name: string, radius: number, depth: number): WrappedLabel {
+  const words = String(name ?? "").trim().split(/\s+/).filter(Boolean);
+  const base = depth === 0 ? 17 : depth === 1 ? 14 : 12;
+  // The usable chord is the CLEAR interior, inside the seat ring. Measuring
+  // against the full radius let a label run out under its own seat dots.
+  const usable = Math.max(24, (radius - ROLE_RING_INSET - ROLE_DOT_R) * 1.8);
+
+  let fontSize = base;
+  let lines: string[] = [];
+  let maxChars = 3;
+  // Shrink until the name fits in the line budget, down to a readable floor.
+  //
+  // The exit has to check LINE WIDTH as well as line count. A greedy wrapper
+  // never splits a word, so "Intergenerational" simply became a line of its
+  // own and overflowed the circle at whatever size the count happened to
+  // allow. Counting lines alone let that through.
+  for (; fontSize >= MIN_FONT; fontSize -= 1) {
+    maxChars = Math.max(3, Math.floor(usable / (fontSize * CHAR_W)));
+    lines = [];
+    let cur = "";
+    for (const w of words) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (next.length <= maxChars) cur = next;
+      else {
+        if (cur) lines.push(cur);
+        cur = w;
+      }
+    }
+    if (cur) lines.push(cur);
+    if (lines.length <= MAX_LABEL_LINES && lines.every((l) => l.length <= maxChars)) break;
+  }
+
+  if (lines.length > MAX_LABEL_LINES) lines = lines.slice(0, MAX_LABEL_LINES);
+  // At the floor a word can still be wider than its circle, so it is cut
+  // rather than allowed to run across the neighbours.
+  lines = lines.map((l) => (l.length > maxChars ? `${l.slice(0, Math.max(1, maxChars - 1))}…` : l));
+  if (!lines.length) lines = [""];
+
+  return { lines, fontSize, lineHeight: Math.round(fontSize * 1.15) };
 }
 
 /** Deterministic radial layout. Circles sit on one orbit, first at 12 o'clock. */

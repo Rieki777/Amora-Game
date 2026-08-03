@@ -113,8 +113,13 @@ export const quests = mysqlTable("quests", {
   minStage: varchar("min_stage", { length: 64 }),
   /** Structured role gate the claim gate enforces (0012). */
   requiresRole: varchar("requires_role", { length: 64 }),
+  /** Second currency released in the same consent transaction, never blended
+   *  with gratitude (0021). */
+  stayCreditReward: int("stay_credit_reward"),
   tags: json("tags"),
   sortOrder: int("sort_order").default(0).notNull(),
+  /** Standing-example row (0046). */
+  isExample: boolean("is_example").default(false).notNull(),
 });
 
 export const questClaims = mysqlTable("quest_claims", {
@@ -230,6 +235,31 @@ export const migrationsApplied = mysqlTable("_migrations_applied", {
  * whether any role a member holds includes the capability, so permissions are
  * data a founder edits, not code a developer ships.
  */
+/**
+ * The circles a village organises itself into (0018). Per-deployment data,
+ * seeded from server/seeds/circles-seed.json, never from platform code.
+ *
+ * `aliases` holds legacy free-text `quests.circle` values that resolve to this
+ * circle; one alias maps to exactly one circle and admin writes reject
+ * collisions. `leadRoleId` is a display and contact convention, NOT a
+ * governance object.
+ */
+export const circles = mysqlTable("circles", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  purpose: text("purpose"),
+  aliases: json("aliases"),
+  parentCircleId: varchar("parent_circle_id", { length: 64 }),
+  leadRoleId: varchar("lead_role_id", { length: 64 }),
+  icon: varchar("icon", { length: 64 }),
+  color: varchar("color", { length: 32 }),
+  status: mysqlEnum("status", ["active", "forming", "dormant"]).default("active").notNull(),
+  sortOrder: int("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  /** Standing-example row (0046). */
+  isExample: boolean("is_example").default(false).notNull(),
+});
+
 export const roles = mysqlTable("roles", {
   id: varchar("id", { length: 64 }).primaryKey(),
   name: varchar("name", { length: 120 }).notNull(),
@@ -238,8 +268,14 @@ export const roles = mysqlTable("roles", {
   capabilities: json("capabilities"),
   /** Minimum computed stage before a member may be assigned this role. */
   minStage: varchar("min_stage", { length: 64 }),
+  /** Which circle this role orbits on the village map (0018). */
+  circleId: varchar("circle_id", { length: 64 }),
+  /** How many holders this role carries. Vacancy is DERIVED (holders < seats). */
+  seats: int("seats").default(1).notNull(),
   sortOrder: int("sort_order").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  /** Standing-example row, seeded by the platform and never a village's own (0046). */
+  isExample: boolean("is_example").default(false).notNull(),
 });
 
 /** One row per (member, role). A member can hold several roles. */

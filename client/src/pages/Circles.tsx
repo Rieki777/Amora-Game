@@ -148,19 +148,43 @@ export default function Circles() {
   const [circles, setCircles] = useState<CircleEntry[] | null>(null);
   const [failed, setFailed] = useState(false);
 
+  // Circles are rows now (0049). What a circle IS and who is in it are read
+  // from its seats rather than from hand-typed prose, so the page cannot go
+  // on describing a circle the village stopped running.
   useEffect(() => {
-    fetch("/api/content/circles")
+    fetch("/api/org")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data) => {
-        if (!Array.isArray(data)) throw new Error("bad shape");
+        if (!data || !Array.isArray(data.circles)) throw new Error("bad shape");
+        const seatsByCircle = new Map<string, any[]>();
+        for (const r of data.roles ?? []) {
+          const list = seatsByCircle.get(r.circleId) ?? [];
+          list.push(r);
+          seatsByCircle.set(r.circleId, list);
+        }
         setCircles(
-          data.map((c: any, i: number) => ({
-            ...c,
-            id: String(c.id ?? c.name ?? `circle-${i}`),
-            name: String(c.name ?? "Untitled circle"),
-            stage: String(c.stage ?? "today").toLowerCase().startsWith("f") ? "future" : "today",
-            focus: Array.isArray(c.focus) ? c.focus : [],
-          })),
+          (data.circles as any[]).map((c: any, i: number) => {
+            const seats = seatsByCircle.get(c.id) ?? [];
+            const heldBy = seats
+              .flatMap((s: any) => (s.holders ?? []).map((h: any) => h.name))
+              .filter(Boolean);
+            return {
+              id: String(c.id ?? c.name ?? `circle-${i}`),
+              name: String(c.name ?? "Untitled circle"),
+              subtitle: c.purpose ?? "",
+              description: c.purpose ?? "",
+              // A forming or dormant circle is one the village has named and
+              // not yet started running, which is what "future" always meant.
+              stage: String(c.status ?? "active") === "active" ? "today" : "future",
+              // The seats a circle carries ARE its focus areas.
+              focus: seats.map((s: any) => s.name).filter(Boolean),
+              members: heldBy.length
+                ? Array.from(new Set(heldBy)).join(", ")
+                : seats.length
+                  ? `${seats.length} seat${seats.length === 1 ? "" : "s"}, none held yet`
+                  : "",
+            } as CircleEntry;
+          }),
         );
       })
       .catch(() => setFailed(true));
