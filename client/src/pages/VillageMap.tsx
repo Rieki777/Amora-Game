@@ -79,20 +79,14 @@ const toneOf = (c: any): string => TONE[String(c?.color ?? "")] ?? "var(--color-
  * the first real circle dropped it while their examples kept rendering with
  * no label. The flag rides every node so each set is marked on its own.
  *
- * `progression` is NOT in this list any more. The map drew the `roles` table
- * until 0049; it draws `org_roles` now, which is the sociocratic org chart
- * rather than the permission groups. progression's standing example roles
- * (ex-role-land-steward and siblings) are real rows in `roles` and they no
- * longer appear here, so a banner about them would point at nothing on the
- * page. They are still reachable through /api/roles and the admin roles tab.
- *
- * Worth closing properly later: progression's examples exist to teach an
- * empty state, and the empty state they were written for is this map. Giving
- * `org_roles` its own example rows would restore that, and it means adding
- * the table to EXAMPLE_TABLES so retirement can still reach them.
+ * `progression` is here for its SEATS, not its permission groups. The map drew
+ * the `roles` table until 0049 and draws `org_roles` now, so the module seeds
+ * example seats (ex-seat-land-steward and siblings) alongside its example
+ * permission groups. Both retire together; only the seats are ever drawn here.
  */
 const EXAMPLE_SETS: Array<{ id: string; noun: string }> = [
   { id: "map", noun: "circle" },
+  { id: "progression", noun: "seat" },
   { id: "quests", noun: "quest" },
 ];
 

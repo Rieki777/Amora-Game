@@ -143,7 +143,68 @@
         "isExample": true
       }
     ],
-    "_memberTrigger": "The first role this village writes for itself clears them."
+    "_memberTrigger": "The first role this village writes for itself clears them.",
+    "_orgRolesNote": "Seats for the village map (0049). The roles array above is the PERMISSION-GROUP table and is a different thing entirely; these are the sociocratic seats the map draws. Holders are documented names, never accounts, so an example seat can never point at a real person.",
+    "orgRoles": [
+      {
+        "id": "ex-seat-land-steward",
+        "name": "Land Steward",
+        "circleId": "ex-circle-land",
+        "seats": 1,
+        "sortOrder": 1,
+        "aim": "Keep the land legible: what grows where, what needs water, and what the season is asking for next.",
+        "domain": "Planting plans, water, soil, and the rhythm of the growing year.",
+        "accountabilities": [
+          "Walks the land weekly and writes down what changed",
+          "Calls the work parties the season needs",
+          "Holds the planting plan and keeps it honest"
+        ],
+        "whyItMatters": "Land nobody is watching drifts, and by the time it shows it has usually been drifting a while.",
+        "holders": [
+          {
+            "name": "Mira",
+            "focus": "the north slope"
+          }
+        ]
+      },
+      {
+        "id": "ex-seat-welcome-host",
+        "name": "Welcome Host",
+        "circleId": "ex-circle-welcome",
+        "seats": 2,
+        "sortOrder": 1,
+        "aim": "Be the first warm face, so nobody arrives and has to work out who to ask.",
+        "domain": "Arrivals, orientation, and the first month of somebody being here.",
+        "accountabilities": [
+          "Meets each new arrival within their first week",
+          "Keeps the welcome notes current",
+          "Hands newcomers on to the circle that fits them"
+        ],
+        "whyItMatters": "How somebody is met in their first month decides whether there is a second year.",
+        "holders": [
+          {
+            "name": "Tomas",
+            "focus": null
+          }
+        ]
+      },
+      {
+        "id": "ex-seat-tool-keeper",
+        "name": "Tool Keeper",
+        "circleId": "ex-circle-build",
+        "seats": 1,
+        "sortOrder": 1,
+        "aim": "Every tool findable, sharp, and back where the next person will look for it.",
+        "domain": "The tool store, repairs, and what the village still needs to buy or borrow.",
+        "accountabilities": [
+          "Checks the store after each work party",
+          "Repairs or retires what is broken",
+          "Says plainly when a job needs a tool the village does not have"
+        ],
+        "whyItMatters": "A blunt saw nobody mentions costs more hours than the saw did.",
+        "holders": []
+      }
+    ]
   },
   "quests": {
     "_trigger": "POST /api/admin/quests creates a real quest",

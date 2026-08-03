@@ -22,6 +22,7 @@ import {
   Scale,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import SeatClaimCard from "@/components/SeatClaimCard";
 
 type RoleStatus = "filled" | "open" | "forming" | "partial";
 
@@ -254,6 +255,11 @@ export default function Roles() {
           </motion.div>
 
           <div className="max-w-4xl mx-auto">
+            {/* Offered here because this is the page that names you: the
+                seat the village wrote down under your name is right below.
+                Renders nothing for anyone with nothing to claim, which is
+                every visit after the first. */}
+            <SeatClaimCard />
             {/* How it works */}
             <motion.div
               initial={{ opacity: 0 }}

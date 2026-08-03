@@ -33,7 +33,8 @@ if (!url) {
 const c = await mysql.createConnection({ uri: url, timezone: "Z" });
 
 const CONTENT_TABLES = [
-  "users", "circles", "roles", "quests", "forum_threads", "forum_replies", "tools",
+  "users", "circles", "roles", "org_roles", "org_role_assignments", "quests",
+  "forum_threads", "forum_replies", "tools",
   "library_categories", "library_items", "accommodations", "accommodation_prices",
   "payment_products", "badges", "regen_entries", "health_snapshots", "health_events",
   "recordings", "call_syntheses", "call_tasks", "shared_items", "peer_instances",

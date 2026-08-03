@@ -49,7 +49,10 @@ export const EXAMPLE_REFUSAL_BODY = { error: EXAMPLE_REFUSAL, code: "example_imm
  */
 export const EXAMPLE_TABLES: Record<string, string[]> = {
   map: ["circles"],
-  progression: ["roles"],
+  // Child-first, as this whole list is: an assignment points at a seat, so
+  // the seatings go before the seats they hang off. `roles` (the permission
+  // groups) is unrelated to both and simply also lives in this module.
+  progression: ["org_role_assignments", "org_roles", "roles"],
   quests: ["quests"],
   // forum_thread_tags FIRST: this list deletes child-first, and the tag rows
   // are found through their thread, which the next entry removes.
@@ -463,6 +466,29 @@ export async function seedExamples(
           capabilities: J(r.capabilities), min_stage: r.minStage,
           circle_id: r.circleId, seats: r.seats, sort_order: r.sortOrder, is_example: 1,
         });
+      }
+      // 0049 moved the org chart off the `roles` table, and the map draws
+      // `org_roles` now. Without these the empty state this module's examples
+      // exist to teach had nothing in it: a fresh fork opened the map and saw
+      // circles with no seats at all.
+      for (const r of block.orgRoles ?? []) {
+        n += await ins(p, "org_roles", {
+          id: r.id, name: r.name, circle_id: r.circleId, aim: r.aim,
+          domain: r.domain, accountabilities: J(r.accountabilities ?? []),
+          why_it_matters: r.whyItMatters ?? null,
+          seats: r.seats ?? 1, sort_order: r.sortOrder ?? 0, is_example: 1,
+        });
+        // A documented holder, never a member: an example seat must never
+        // point at a real account, and the identities this module seeds are
+        // the example ones.
+        for (const h of r.holders ?? []) {
+          n += await ins(p, "org_role_assignments", {
+            id: `ex-seat-${r.id}-${String(h.name).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+            org_role_id: r.id, holder_kind: "documented", display_name: h.name,
+            holder_key: `doc:${String(h.name).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+            focus: h.focus ?? null, is_example: 1,
+          });
+        }
       }
       break;
 

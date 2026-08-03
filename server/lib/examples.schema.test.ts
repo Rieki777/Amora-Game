@@ -57,6 +57,7 @@ const DERIVED_OR_CONSUMED: Record<string, string> = {
   tags: "seeded into forum_thread_tags",
   prices: "seeded into currency_prices / accommodation_prices",
   awards: "seeded into badge_awards",
+  holders: "seeded into org_role_assignments as documented seatings",
   items: "seeded into the module's own child table",
   cache: "seeded into peer_shared_cache.payload",
   meta: "serialised to the meta column",
@@ -74,7 +75,10 @@ const DERIVED_OR_CONSUMED: Record<string, string> = {
 /** Blocks whose rows the seeder writes through a non-obvious table. */
 const BLOCK_TABLE: Record<string, { key: string; table: string; idKey?: string }[]> = {
   map: [{ key: "circles", table: "circles" }],
-  progression: [{ key: "roles", table: "roles" }],
+  progression: [
+    { key: "roles", table: "roles" },
+    { key: "orgRoles", table: "org_roles" },
+  ],
   quests: [{ key: "quests", table: "quests" }],
   forum: [{ key: "threads", table: "forum_threads" }],
   feed: [{ key: "posts", table: "forum_threads" }],
