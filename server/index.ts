@@ -3065,9 +3065,22 @@ async function startServer() {
    */
   registerJob("commerce-reap", 60 * 60 * 1000, async () => {
     const hours = Math.max(ORDER_EXPIRY_FLOOR_HOURS, Math.floor(numberVar("exchange.order_expiry_hours")));
+    // `provider` is a column on payment_productS, not on product_purchaseS.
+    // 0032 gave the purchase table `provider_ref` (the Stripe session id) and
+    // no migration ever added `provider`, so this query threw "Unknown column
+    // 'provider' in 'where clause'" on every hourly run. The scheduler logs
+    // and swallows it, so no stale purchase has ever actually been reaped and
+    // the only symptom was a line in the boot log.
+    //
+    // The join matters and is not incidental tidying. A zeffy or manual
+    // product is PAID OUTSIDE THE APP and stays pending until a human
+    // reconciles it, so reaping on the same clock as an abandoned Stripe
+    // checkout would cancel real money somebody had already sent.
     const [stale] = await getPool().query<any[]>(
-      "SELECT id FROM product_purchases WHERE provider = 'stripe' AND status = 'pending' " +
-        "AND created_at < (NOW() - INTERVAL ? HOUR)",
+      "SELECT pp.id FROM product_purchases pp " +
+        "JOIN payment_products p ON p.id = pp.product_id " +
+        "WHERE p.provider = 'stripe' AND pp.status = 'pending' " +
+        "AND pp.created_at < (NOW() - INTERVAL ? HOUR)",
       [hours],
     );
     let released = 0;

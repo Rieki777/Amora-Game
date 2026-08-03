@@ -239,6 +239,9 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         // The sociocratic org chart. Distinct from "Game Roles" above, which
         // edits permission groups; this is the seats people actually hold.
         { key: "org-chart", label: "Org Chart", icon: Users2 },
+        // Season patterns and the retrospective. Separate from the Season
+        // tab's dates: this is what a season CARRIES, not when it runs.
+        { key: "seasons-patterns", label: "Season Shapes", icon: Calendar },
         { key: "circles-map", label: "Circles & Map", icon: Circle },
         { key: "tools-admin", label: "Tools", icon: Handshake },
         { key: "stays-admin", label: "Stays & Payments", icon: Home },
@@ -3478,6 +3481,213 @@ function OrgChartTab({ password }: { password: string }) {
             <p className="text-xs text-amber-800">
               {(byCircle.get("") ?? []).map((r) => r.name).join(", ")}
             </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Season shapes: what a season CARRIES, and what the last one taught.
+ *
+ * A pattern is a selection from everything the village has ever made. Leaving
+ * a pattern removes a membership row and nothing else, so a circle or a seat
+ * that steps out of this season is waiting in the catalogue for the next one.
+ *
+ * The roll is a dry run until somebody presses the second button, and it
+ * refuses outright while anything is unsettled. That is the same settle-first
+ * rule that already governs deleting a quest with claims in flight.
+ */
+function SeasonPatternsTab({ password }: { password: string }) {
+  const [data, setData] = useState<any>(null);
+  const [org, setOrg] = useState<any>(null);
+  const [plan, setPlan] = useState<any>(null);
+  const [retro, setRetro] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [newName, setNewName] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const [d, o] = await Promise.all([
+        fetch(`${API_BASE}/admin/seasons/patterns`, { headers: authHeaders(password) }).then((r) => r.json()),
+        fetch(`${API_BASE}/org`, { headers: authHeaders(password) }).then((r) => r.json()),
+      ]);
+      setData(d); setOrg(o);
+    } catch { setData(null); }
+  }, [password]);
+  useEffect(() => { void load(); }, [load]);
+
+  const call = async (path: string, body?: any, method = "POST") => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d?.error ?? "That did not work"); return d; }
+      return d;
+    } finally { setBusy(false); }
+  };
+
+  if (!data) return <div className="text-center py-12 text-gray-400">Loading…</div>;
+
+  const members: any[] = data.members ?? [];
+  const inCurrent = (kind: string, id: string) =>
+    members.some((m) => m.patternId === data.currentPatternId && m.kind === kind && m.entityId === id);
+  const governed = (kind: string, id: string) => members.some((m) => m.kind === kind && m.entityId === id);
+
+  const toggle = async (kind: string, entityId: string, on: boolean) => {
+    if (!data.currentPatternId) return toast.error("This season carries no shape yet");
+    await call(`/admin/seasons/patterns/${data.currentPatternId}/members`, { kind, entityId },
+      on ? "POST" : "DELETE");
+    void load();
+  };
+
+  const rows: Array<{ kind: string; id: string; name: string }> = [
+    ...(org?.circles ?? []).map((c: any) => ({ kind: "circle", id: c.id, name: c.name })),
+    ...(org?.roles ?? []).map((r: any) => ({ kind: "org_role", id: r.id, name: r.name })),
+  ];
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Season Shapes</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          A shape is the working setup of a season: which circles, seats, badges
+          and quests are live while it runs. Anything in no shape at all is
+          permanent and a season turn never touches it.
+        </p>
+      </div>
+
+      <div className="bg-white border border-gray-100 rounded-xl p-5 mb-6">
+        <h3 className="font-semibold text-gray-900 mb-2">Shapes</h3>
+        {(data.patterns ?? []).length === 0 && (
+          <p className="text-sm text-gray-500 mb-3">
+            None yet. A village without shapes runs one continuous season, which is a fine place to start.
+          </p>
+        )}
+        <div className="flex flex-wrap gap-2 mb-3">
+          {(data.patterns ?? []).map((p: any) => (
+            <span key={p.id} className={`text-sm rounded-full px-3 py-1 border ${
+              p.id === data.currentPatternId ? "bg-[#2D5A5A] text-white border-transparent" : "border-gray-200 text-gray-600"}`}>
+              {p.name}{p.id === data.currentPatternId && " · running now"}
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2 items-end">
+          <label className="text-xs text-gray-500">New shape
+            <input value={newName} onChange={(e) => setNewName(e.target.value)}
+              placeholder="Festival Season"
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm w-full mt-1" />
+          </label>
+          <button disabled={!newName.trim() || busy}
+            onClick={async () => { await call("/admin/seasons/patterns", { name: newName }); setNewName(""); void load(); }}
+            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Create</button>
+        </div>
+        <p className="text-xs text-gray-400 mt-2">
+          A shape becomes a season's by setting its id on the season itself, in Admin, Season.
+        </p>
+      </div>
+
+      {data.currentPatternId && (
+        <div className="bg-white border border-gray-100 rounded-xl p-5 mb-6">
+          <h3 className="font-semibold text-gray-900 mb-1">What this season carries</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Unticked and never ticked anywhere are different things. Something in
+            no shape at all is permanent; something in another shape is resting.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-1">
+            {rows.map((r) => (
+              <label key={`${r.kind}:${r.id}`} className="flex items-center gap-2 text-sm py-1">
+                <input type="checkbox" checked={inCurrent(r.kind, r.id)}
+                  onChange={(e) => void toggle(r.kind, r.id, e.target.checked)} />
+                <span className={governed(r.kind, r.id) ? "" : "text-gray-500"}>{r.name}</span>
+                <span className="text-[11px] text-gray-400">
+                  {r.kind === "circle" ? "circle" : "seat"}
+                  {!governed(r.kind, r.id) && " · permanent"}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white border border-gray-100 rounded-xl p-5 mb-6">
+        <h3 className="font-semibold text-gray-900 mb-1">Turn the season</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          Nothing moves until you press Apply. Reassignment cadence is{" "}
+          <strong>{String(data.cadence ?? "season_turn").replace(/_/g, " ")}</strong>.
+        </p>
+        <div className="flex gap-2 mb-3">
+          <button disabled={busy}
+            onClick={async () => setPlan(await call("/admin/seasons/roll", {}))}
+            className="text-sm border border-gray-200 rounded-lg px-4 py-2">Show me what would change</button>
+          {plan && plan.changes?.length > 0 && plan.blocked?.length === 0 && (
+            <button disabled={busy}
+              onClick={async () => { const r = await call("/admin/seasons/roll", { apply: true }); if (r?.applied !== undefined) { toast.success(`${r.applied} change(s) applied`); setPlan(null); void load(); } }}
+              className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Apply</button>
+          )}
+        </div>
+        {plan && (
+          <div className="text-sm space-y-2">
+            {plan.blocked?.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="font-medium text-amber-900 mb-1">Settle these first</p>
+                {plan.blocked.map((b: any) => (
+                  <p key={b.entityId} className="text-amber-800 text-xs">{b.name}: {b.reason}</p>
+                ))}
+              </div>
+            )}
+            {plan.changes?.length === 0 && plan.blocked?.length === 0 && (
+              <p className="text-gray-500">Nothing would change.</p>
+            )}
+            {plan.changes?.map((c: any) => (
+              <p key={`${c.kind}:${c.entityId}`} className="text-gray-700 text-xs">
+                {c.name}: {c.from} → {c.to}
+              </p>
+            ))}
+            {plan.lapsing?.length > 0 && (
+              <p className="text-xs text-gray-500">
+                {plan.lapsing.length} seat(s) would reopen for reassignment.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-gray-100 rounded-xl p-5">
+        <h3 className="font-semibold text-gray-900 mb-1">What the season taught</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          What this shape declared, against what the village actually used.
+        </p>
+        <button disabled={busy}
+          onClick={async () => setRetro(await call("/admin/seasons/retrospective", undefined, "GET"))}
+          className="text-sm border border-gray-200 rounded-lg px-4 py-2 mb-3">Read the season</button>
+        {retro && retro.tooQuietToRead && (
+          <p className="text-sm text-gray-500">
+            Too little happened this season to read anything into. That is worth
+            knowing on its own, and it is better than a number invented from four events.
+          </p>
+        )}
+        {retro && !retro.tooQuietToRead && (
+          <div className="space-y-3">
+            {(retro.observations ?? []).length === 0 && <p className="text-sm text-gray-500">Nothing stood out.</p>}
+            {(retro.observations ?? []).map((o: any) => (
+              <div key={o.id} className="border-l-2 border-gray-200 pl-3">
+                <p className="text-sm font-medium text-gray-900">{o.name}</p>
+                <p className="text-xs text-gray-600">{o.reading}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{o.meaning}</p>
+                <p className="text-[11px] text-[#2D5A5A] mt-1">{String(o.action).replace(/_/g, " ")}</p>
+              </div>
+            ))}
+            {retro.proposed?.drop?.length > 0 && (
+              <p className="text-xs text-gray-500 pt-2">
+                Next time this shape could drop {retro.proposed.drop.length} thing(s) nobody used.
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -7625,6 +7835,7 @@ export default function Admin() {
           {activeTab === "game-roles" && <GameRolesTab password={password} />}
           {activeTab === "modules" && <ModulesTab password={password} />}
           {activeTab === "org-chart" && <OrgChartTab password={password} />}
+          {activeTab === "seasons-patterns" && <SeasonPatternsTab password={password} />}
           {activeTab === "circles-map" && <CirclesMapTab password={password} />}
           {activeTab === "tools-admin" && <ToolsAdminTab password={password} />}
           {activeTab === "stays-admin" && <StaysAdminTab password={password} />}
