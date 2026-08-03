@@ -26,7 +26,7 @@ in `.claude/skills/`.
 pnpm check                          # tsc --noEmit
 pnpm build                          # vite client + esbuild server -> dist/
 pnpm test                           # vitest run — see loop-test rules first
-node scripts/check-brand-refs.mjs   # brand ratchet
+node scripts/check-brand-refs.mjs   # brand ratchet (read $?, its last line is blank on failure)
 node scripts/check-voice.mjs        # house writing rules on shipped copy
 ```
 
@@ -141,9 +141,20 @@ printed so they stay honest. New copy is born clean.
 
 ## White-label discipline
 
-`scripts/check-brand-refs.mjs` (S56) has three zones: a RATCHET (`server/index.ts`, `client/`,
+`scripts/check-brand-refs.mjs` (S56) has four zones: a RATCHET (`server/index.ts`, `client/`,
 `drizzle/`, `vitest.config.ts`, `scripts/`, plus every `*.test.ts(x)` file — baseline-capped
 against `scripts/brand-refs-baseline.json`, counts may only ever decrease), DECLARED HOMES
-(exempt: `gameConfig.ts`, `server/seeds/`, `docs/`, markdown), and HARD-CLEAN — everything
-else, where any brand hit fails. A genuine false positive takes an inline
-`brand-ok: <reason>`. New code is born clean, everywhere.
+(exempt: `gameConfig.ts`, `server/seeds/`, `docs/`, markdown), the SHOPFRONT (public brochure
+pages — a fork REPLACES those wholesale, so its own name is not debt there; the list is in the
+script, and the line is drawn at product: anything a signed-in member coordinates through stays
+ratcheted), and HARD-CLEAN — everything else, where any brand hit fails. A genuine false
+positive takes an inline `brand-ok: <reason>` ON THE LINE ITSELF; a waiver on the line above
+does nothing. New code is born clean, everywhere.
+
+The comment stripping lives in `scripts/brand-strip.mjs` and is tested by
+`node scripts/check-brand-refs.test.mjs` — it was wrong twice, and both times the guard reported
+a different answer for the same commit on different machines. **Carriage returns come off before
+any anchored rule** (JS `.` excludes `\r`, so on a CRLF checkout `//.*$` never matched and every
+comment counted as code), and **`//` inside a URL is not a comment** (the old rule cut the line at
+`https://` and hid 41 references). Read the exit code, never `tail -1`: a failing run's last line
+is blank.

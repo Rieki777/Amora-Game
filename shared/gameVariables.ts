@@ -299,7 +299,11 @@ export const VARIABLES: VariableDef[] = [
     description:
       "Base URL of the ReGen hub that listens to the chain for this village. When a proposal's Hypha URL is pasted in, the platform registers the on-chain proposal id with this hub (signed with the shared governance secret) so the verified outcome can find its way home. Leave as the platform default unless you run your own hub.",
     type: "text",
-    default: "https://regencivics.earth",
+    // The ReGen hub is a platform SERVICE this village talks to, and a fork
+    // points it at its own hub or leaves it, the same way it leaves the
+    // Stripe endpoint alone. The waiver rides the line itself, because the
+    // guard reads the line carrying the hit and nothing above it.
+    default: "https://regencivics.earth", // brand-ok: platform service, not a village's name
     ring: "founder",
   },
   {

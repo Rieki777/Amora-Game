@@ -27,6 +27,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { stripComments } from "./brand-strip.mjs";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, "$1"), "..");
 const BASELINE_PATH = path.join(ROOT, "scripts", "brand-refs-baseline.json");
@@ -56,6 +57,42 @@ const EXEMPT = [
 ];
 
 /**
+ * THE SHOPFRONT (Rye, 2026-08-03). Public brochure pages: the story this
+ * village tells about itself to people who are not members yet.
+ *
+ * A fork does not white-label these, it REPLACES them, the way it replaces
+ * its own logo. Policing a village's own prose for its own name cost real
+ * effort and taught nobody anything: 13 of these pages carried the entire
+ * remaining ratchet debt, and none of it was ever going to be paid down.
+ *
+ * The line is drawn at PRODUCT: anything a signed-in member coordinates
+ * through (the forum, the map, the library, the wallet, the admin) stays
+ * ratcheted and must white-label properly. If a new page here starts
+ * carrying member-facing machinery, take it off this list.
+ */
+const SHOPFRONT = [
+  "client/src/pages/Home.tsx",
+  "client/src/pages/Team.tsx",
+  "client/src/pages/MasterPlan.tsx",
+  "client/src/pages/ProjectHistory.tsx",
+  "client/src/pages/Housing.tsx",
+  "client/src/pages/Opportunities.tsx",
+  "client/src/pages/Visit.tsx",
+  "client/src/pages/WorkWithUs.tsx",
+  "client/src/pages/LoveLetter.tsx",
+  "client/src/pages/GoodNeighbor.tsx",
+  "client/src/pages/CoCreatorsGuide.tsx",
+  "client/src/pages/HowWeCreate.tsx",
+  "client/src/pages/InvestorJourney.tsx",
+  "client/src/pages/StewardJourney.tsx",
+  "client/src/pages/ResidentJourney.tsx",
+  "client/src/pages/ProsperityJourney.tsx",
+  "client/src/pages/ResidentRights.tsx",
+  "client/src/pages/StewardRights.tsx",
+  "client/src/components/WhyCostaRica.tsx",
+];
+
+/**
  * Ratchet zones: counts may fall, never rise — and a NEW file in one of
  * them starts at a baseline of zero, so it must be clean like everywhere
  * else. Applied migrations are immutable history (their token seeds name
@@ -65,7 +102,8 @@ const EXEMPT = [
 const RATCHET = ["server/index.ts", "client/", "drizzle/", "vitest.config.ts", "scripts/"];
 
 const rel = (p) => path.relative(ROOT, p).split(path.sep).join("/");
-const isExempt = (r) => EXEMPT.some((e) => r === e || r.startsWith(e)) || r.endsWith(".md");
+const isExempt = (r) =>
+  EXEMPT.some((e) => r === e || r.startsWith(e)) || SHOPFRONT.includes(r) || r.endsWith(".md");
 const isRatchet = (r) => RATCHET.some((z) => r === z || r.startsWith(z)) || /\.test\.tsx?$/.test(r);
 
 function walk(dir, out = []) {
@@ -91,16 +129,6 @@ const pattern = new RegExp(`\\b(${BANNED.join("|")})`, "i");
  * identifier is what a fork would inherit and have to hunt down. Comments
  * are counted separately and reported, never failed.
  */
-function stripComments(line, ext) {
-  let out = line;
-  if (ext === ".sql") out = out.replace(/--.*$/, "");
-  else out = out.replace(/\/\/.*$/, "");
-  out = out.replace(/\/\*[\s\S]*?\*\//g, "");
-  // Inside a block comment, a continuation line starts with * (JSDoc style).
-  if (/^\s*\*/.test(line) || /^\s*\/\*/.test(line)) out = "";
-  return out;
-}
-
 function scanFile(file) {
   const hits = [];
   let waived = 0;
