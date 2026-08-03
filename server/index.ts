@@ -238,6 +238,7 @@ import {
   backfillOrgChart,
   claimSeating,
   createOrgRole,
+  describeOrgChange,
   documentedKey,
   endSeating,
   listOrgAssignments,
@@ -13242,6 +13243,40 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     );
   });
 
+  /**
+   * One node's whole history: every structural change and every seating.
+   *
+   * A read over the event spine, never a second table. Peerdom's journal is
+   * the feature worth copying, and its value is entirely in this direction:
+   * before you change a seat, you can see what has already been tried with it,
+   * and by whom. Governance history stops living in people's memory.
+   */
+  app.get("/api/org/:kind/:id/journal", async (req, res) => {
+    const viewer = await authedUser(req);
+    const maySee =
+      (await isAdmin(req)) ||
+      (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
+    if (!maySee) return res.status(401).json({ error: "Sign in to read this history" });
+    const kind = req.params.kind === "circles" ? "circle" : "org_role";
+    const [rows]: any = await getPool().query(
+      `SELECT id, kind, text, actor_user_id, at FROM health_events
+        WHERE entity_type = ? AND entity_ref = ?
+        ORDER BY at DESC, id DESC LIMIT 200`,
+      [kind, req.params.id],
+    );
+    const allMembers = await members.all();
+    res.json(
+      (rows as any[]).map((r) => ({
+        id: r.id,
+        text: r.text,
+        at: r.at,
+        by: r.actor_user_id
+          ? firstName((allMembers as any[]).find((u: any) => u.id === r.actor_user_id)?.name ?? "Someone")
+          : null,
+      })),
+    );
+  });
+
   /** One seat's whole history, ended seatings included. */
   app.get("/api/org/roles/:id/history", async (req, res) => {
     const viewer = await authedUser(req);
@@ -13322,6 +13357,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // village never sits down to author one. Nothing happens when the season
     // names no pattern, which is every village that has not opted in.
     await captureIntoCurrentPattern(getPool(), currentPatternId(), "org_role", id);
+    await recordEvent(getPool(), {
+      kind: "org", text: `seat created: ${String(req.body?.name ?? id)}`,
+      actorUserId: (await authedUser(req))?.id ?? null,
+      entityType: "org_role", entityRef: id, audience: "admin",
+    });
     res.json({ success: true, id });
   });
 
@@ -13330,7 +13370,18 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const role = (await listOrgRoles(getPool())).find((r) => r.id === req.params.id);
     if (!role) return res.status(404).json({ error: "Seat not found" });
     if (role.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    // Described BEFORE the write, while the old values still exist. The
+    // generic admin audit records "PUT /api/admin/org/roles/x", which cannot
+    // answer "what has already been tried with this seat".
+    const changes = describeOrgChange(role, req.body ?? {});
     const ok = await updateOrgRole(getPool(), req.params.id, req.body ?? {});
+    if (ok && changes.length) {
+      await recordEvent(getPool(), {
+        kind: "org", text: `${role.name}: ${changes.join("; ")}`,
+        actorUserId: (await authedUser(req))?.id ?? null,
+        entityType: "org_role", entityRef: req.params.id, audience: "admin",
+      });
+    }
     res.json({ success: ok });
   });
 

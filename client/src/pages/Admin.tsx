@@ -3321,7 +3321,20 @@ function OrgChartTab({ password }: { password: string }) {
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<Record<string, any>>({});
   const [adding, setAdding] = useState<Record<string, string>>({});
+  // Opened per seat, because the point of a journal is reading one node's
+  // history before you change it, not scrolling a feed of everything.
+  const [journal, setJournal] = useState<Record<string, any[] | "loading">>({});
   const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
+
+  const openJournal = async (id: string) => {
+    if (journal[id]) { setJournal((p) => { const n = { ...p }; delete n[id]; return n; }); return; }
+    setJournal((p) => ({ ...p, [id]: "loading" }));
+    try {
+      const r = await fetch(`${API_BASE}/org/roles/${id}/journal`, { headers: authHeaders(password) });
+      const rows = r.ok ? await r.json() : [];
+      setJournal((p) => ({ ...p, [id]: Array.isArray(rows) ? rows : [] }));
+    } catch { setJournal((p) => ({ ...p, [id]: [] })); }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -3464,6 +3477,10 @@ function OrgChartTab({ password }: { password: string }) {
                           }}
                         >Seat</button>
                         <button
+                          onClick={() => void openJournal(r.id)}
+                          className="text-sm text-gray-500 hover:text-gray-800 px-2 py-2"
+                        >{journal[r.id] ? "Hide history" : "History"}</button>
+                        <button
                           disabled={!dirty}
                           className="text-sm border border-gray-200 rounded-lg px-3 py-2 disabled:opacity-40"
                           onClick={async () => {
@@ -3474,6 +3491,26 @@ function OrgChartTab({ password }: { password: string }) {
                           }}
                         >Save seat</button>
                       </div>
+
+                      {journal[r.id] === "loading" && (
+                        <p className="text-xs text-gray-400 mt-2">Reading the history…</p>
+                      )}
+                      {Array.isArray(journal[r.id]) && (
+                        <div className="mt-2 border-t border-gray-100 pt-2 space-y-1">
+                          {(journal[r.id] as any[]).length === 0 && (
+                            <p className="text-xs text-gray-400">
+                              Nothing recorded against this seat yet. Changes from here on will show up.
+                            </p>
+                          )}
+                          {(journal[r.id] as any[]).map((e) => (
+                            <p key={e.id} className="text-xs text-gray-600">
+                              <span className="text-gray-400">{new Date(e.at).toLocaleDateString()}</span>{" "}
+                              {e.text}
+                              {e.by && <span className="text-gray-400"> · {e.by}</span>}
+                            </p>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

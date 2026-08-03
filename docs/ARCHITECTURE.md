@@ -748,6 +748,18 @@ never per seat, because events carry an actor and not a seat: attributing them
 to seats would make anyone holding three seats look equally overloaded in all
 three.
 
+**The per-node journal** is a READ over the event spine, not a second table
+(invariant 15). `health_events` already carried who, what, when and which
+entity; 0051 adds the `(entity_type, entity_ref, at)` index that lets you ask
+for one node's history without scanning the table every module appends to.
+
+Structural writes record a described change rather than a verb:
+`describeOrgChange` diffs before against after, so the line reads "renamed:
+Gate Steward -> Gatekeeper" instead of "PUT /api/admin/org/roles/gate", which
+is all the generic admin audit can say. Prose fields report as "domain
+rewritten" and accountabilities as a count, because a journal entry carrying
+two paragraphs is one nobody reads.
+
 ### 3.17 The serving layer — what every byte costs
 
 Every image, script and stylesheet is served by the **same single Node process**

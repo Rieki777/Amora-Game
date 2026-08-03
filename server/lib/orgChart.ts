@@ -286,6 +286,44 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${seq.toString(36)}`;
 }
 
+/**
+ * A structural change, in the words somebody would use about it.
+ *
+ * Peerdom's journal is the feature worth copying here: before you change a
+ * seat you can read what has already been tried with it. That only works if
+ * the line says WHAT changed rather than "PUT /api/admin/org/roles/x", which
+ * is all the generic admin audit records.
+ *
+ * Returned rather than written, so this file stays free of the pool and the
+ * caller decides the audience.
+ */
+export function describeOrgChange(before: OrgRole | null, after: Partial<OrgRole>): string[] {
+  const lines: string[] = [];
+  if (!before) return lines;
+  const say = (label: string, from: unknown, to: unknown) => {
+    const f = from === null || from === undefined || from === "" ? "nothing" : String(from);
+    const tt = to === null || to === undefined || to === "" ? "nothing" : String(to);
+    if (f !== tt) lines.push(`${label}: ${f} -> ${tt}`);
+  };
+  if (after.name !== undefined) say("renamed", before.name, after.name);
+  if (after.circleId !== undefined) say("moved circle", before.circleId, after.circleId);
+  if (after.seats !== undefined) say("seats", before.seats, after.seats);
+  if (after.aim !== undefined && after.aim !== before.aim) lines.push("aim rewritten");
+  if (after.domain !== undefined && after.domain !== before.domain) lines.push("domain rewritten");
+  if (after.accountabilities !== undefined) {
+    const a = before.accountabilities.length;
+    const b = after.accountabilities.length;
+    if (a !== b) lines.push(`accountabilities: ${a} -> ${b}`);
+  }
+  if (after.active !== undefined) say(after.active ? "reopened" : "rested", before.active, after.active);
+  if (after.recruiting !== undefined) say("recruiting", before.recruiting, after.recruiting);
+  if (after.criticality !== undefined) say("criticality", before.criticality, after.criticality);
+  if (after.expiresEachSeason !== undefined) {
+    say("expires each season", before.expiresEachSeason, after.expiresEachSeason);
+  }
+  return lines;
+}
+
 const WRITABLE: Record<string, string> = {
   name: "name",
   circleId: "circle_id",
