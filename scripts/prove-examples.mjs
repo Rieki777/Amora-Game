@@ -16,6 +16,20 @@ const ok = (label, pass, detail = "") => {
   if (!pass) failures++;
 };
 
+/**
+ * A probe whose subject is absent on this instance.
+ *
+ * Printed and counted, never silent: "ALL PROOFS PASSED" over six probes that
+ * each found nothing to test is the exact hollow pass this script exists to
+ * prevent. Skips do not fail the run, because a village without the library
+ * module genuinely has no library item to refuse.
+ */
+const skipped = [];
+const skip = (label, why) => {
+  skipped.push(label);
+  console.log(`  SKIP  ${label}  — ${why}`);
+};
+
 const login = await fetch(`${BASE}/api/auth/login`, {
   method: "POST", headers: { "content-type": "application/json" },
   body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
@@ -75,8 +89,11 @@ if (post) {
  else skip("heart an example", "no example feed post on this instance");
 
 // 5. Awarding an example warning badge would suspend a real member.
+// Picked by IDENTITY, not by kind: this posts an award at the admin it is
+// logged in as, so on a village with its own warning badge the kind test
+// would place a REAL warning on a real person and then report a failure.
 const badges = await fetch(`${BASE}/api/badges`, { headers: auth }).then((r) => r.json());
-const warn = (badges.badges ?? []).find((b) => b.kind === "warning");
+const warn = (badges.badges ?? []).find((b) => b.isExample && b.kind === "warning");
 if (warn) {
   const r = await fetch(`${BASE}/api/admin/badges/${warn.id}/award`, {
     method: "POST", headers: auth,
@@ -119,20 +136,32 @@ if (room) {
 
 // 9. Replying — the banner promises this is refused.
 {
-  const threads = await fetch(`${BASE}/api/forum/threads`, { headers: auth }).then((r) => r.json()).catch(() => ({}));
-  const exThread = (threads.threads ?? []).find?.((t) => String(t.id).startsWith("ex-thread-"));
+  // GET /api/forum/threads answers with a BARE ARRAY. Reading `.threads` off
+  // it gave undefined, so this probe found no thread and ran nothing, every
+  // time, while the run still reported ALL PROOFS PASSED. Accept both shapes
+  // and say so out loud when there is nothing to test.
+  const threads = await fetch(`${BASE}/api/forum/threads`, { headers: auth }).then((r) => r.json()).catch(() => []);
+  const list = Array.isArray(threads) ? threads : threads.threads ?? [];
+  const exThread = list.find((t) => String(t.id).startsWith("ex-thread-"));
   if (exThread) {
     const r = await fetch(`${BASE}/api/forum/threads/${exThread.id}/replies`, {
       method: "POST", headers: auth, body: JSON.stringify({ body: "should be refused" }),
     });
     const b = await r.json().catch(() => ({}));
     ok("reply to an example thread", r.status === 409 && b.code === "example_immutable", `${r.status} ${b.error ?? ""}`);
-  }
+  } else skip("reply to an example thread", "no example forum thread on this instance");
 }
 
 console.log("\nRETIREMENT — publishing something real clears that module, and only that module\n");
 
 const before = await examplesNow();
+// ONE SHOT PER INSTANCE. This section publishes a real tool, which retires
+// the tools examples for good, so a second run against the same village has
+// nothing left to retire. Reporting that as a FAILURE is a lie about the
+// product: say it is spent and stop, the same way an absent subject skips.
+if (!before.includes("tools")) {
+  skip("retirement", "tools examples are already retired here, and retirement is one-way");
+} else {
 ok("tools is showing examples before", before.includes("tools"));
 ok("library is showing examples before", before.includes("library"));
 
@@ -165,6 +194,7 @@ await fetch(`${BASE}/api/admin/modules/tools/lifecycle`, {
 });
 const afterCycle = await examplesNow();
 ok("off-and-on does not resurrect them", !afterCycle.includes("tools"));
+}
 
 // A pass that asserted nothing is not a pass. Skips are printed above and
 // counted here, so "ALL PROOFS PASSED" can never mean "nothing was checked".

@@ -454,10 +454,19 @@ export async function exchangeOpenState(pool: Pool): Promise<{ count: number; de
   return { count: Number(row.n), description: `${row.n} pending/disputed exchange order(s)` };
 }
 
-/** Every platform token an admin could conceivably list (for the admin UI). */
+/**
+ * Every platform token an admin could conceivably list (for the admin UI).
+ *
+ * Standing examples are NOT among them. They are registry rows like any other,
+ * so they arrived in the Tokens table, the listing table and the "stock the
+ * treasury" dropdown — and stocking or minting one writes real ledger rows
+ * against a slug that retirement then deletes, so the next boot refuses to
+ * serve on "ledger rows exist for unregistered token". Every write door
+ * refuses them now; this keeps them from being offered in the first place.
+ */
 export function listableTokens(): { slug: string; name: string; kind: string; reason: string | null }[] {
   return allTokens()
-    .filter((t) => t.active)
+    .filter((t) => t.active && !t.isExample)
     .map((t) => ({ slug: t.slug, name: t.name, kind: t.kind, reason: listingProblem(t.slug, { purchasable: true, swappable: false }) }));
 }
 

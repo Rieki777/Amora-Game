@@ -279,6 +279,40 @@ describe.skipIf(!DB_CONFIGURED)("standing examples: every guard, over HTTP", () 
     expectRefused(r, "exchange buy");
   });
 
+  /**
+   * The three doors onto an example TOKEN, all of which write real ledger
+   * rows against a slug retirement then deletes — after which
+   * checkLedgerInvariants refuses the next boot on "ledger rows exist for
+   * unregistered token". A founder's first real listing bricking the
+   * deployment is the worst failure this set can produce.
+   */
+  it("refuses to stock, mint or list an example token, and offers it nowhere", async () => {
+    const [rows] = await pool.query<any[]>("SELECT slug FROM tokens WHERE is_example = 1 LIMIT 1");
+    if (!rows[0]) return; // exchange examples are optional per seed
+    const slug = String(rows[0].slug);
+
+    expectRefused(await call("POST", "/api/admin/exchange/stock", { tokenSlug: slug, amount: 10 }), "stock");
+    expectRefused(
+      await call("POST", `/api/admin/tokens/${slug}/mint`, { toUserId: founderId, amount: 5, reason: "no" }),
+      "hand-mint",
+    );
+    expectRefused(await call("PUT", `/api/admin/tokens/${slug}`, { name: "Renamed" }), "rename");
+    expectRefused(
+      await call("PUT", `/api/admin/exchange/tokens/${slug}`, { purchasable: true }),
+      "listing toggle",
+    );
+
+    // Not one ledger row, and the admin surface never offered it in the first
+    // place: listableTokens feeds both the Tokens table and the stock picker.
+    const [led] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM token_ledger WHERE token_type = ?", [slug],
+    );
+    expect(Number(led[0].n), "an example token must never carry a ledger row").toBe(0);
+    const admin = await call("GET", "/api/admin/exchange");
+    const offered = (admin.json?.listableTokens ?? []).map((t: any) => t.slug);
+    expect(offered, "an example token must not be offered for listing or stocking").not.toContain(slug);
+  });
+
   it("refuses gratitude sent TO an example identity", async () => {
     const [rows] = await pool.query<any[]>("SELECT email FROM users WHERE is_example = 1 LIMIT 1");
     if (!rows[0]?.email) return;
@@ -309,11 +343,14 @@ describe.skipIf(!DB_CONFIGURED)("standing examples: every guard, over HTTP", () 
       "SELECT COUNT(*) n FROM badge_awards WHERE is_example = 0",
     );
     expect(Number(real[0].n), "no real award may exist on this instance").toBe(0);
-    const [leak] = await pool.query<any[]>(
-      "SELECT COUNT(*) n FROM badge_awards a JOIN users u ON u.id = a.user_id " +
-        "WHERE a.is_example = 1 AND u.is_example = 0",
+    // LEFT JOIN: an inner join can only see awards whose holder EXISTS, so it
+    // reported clean over awards pointing at users nobody had created. Both a
+    // real holder and a missing one have to fail.
+    const [bad] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM badge_awards a LEFT JOIN users u ON u.id = a.user_id " +
+        "WHERE a.is_example = 1 AND NOT (u.id IS NOT NULL AND u.is_example = 1)",
     );
-    expect(Number(leak[0].n), "no example award may touch a real user").toBe(0);
+    expect(Number(bad[0].n), "every example award must be held by an example identity that exists").toBe(0);
   });
 
   /**
@@ -345,6 +382,48 @@ describe.skipIf(!DB_CONFIGURED)("standing examples: every guard, over HTTP", () 
     expectRefused(await call("POST", `/api/forum/threads/${id}/replies`, { body: "hello" }), "forum reply");
   });
 
+  /**
+   * The flag has to reach the CLIENT, not merely exist in the table.
+   *
+   * ThreadView reads `thread.isExample` to render the label and to take the
+   * reply composer, Follow, Report and the decision recorder off an example.
+   * forumThreadById builds its record from an explicit column list, so the
+   * column simply never arrived and every one of those guards was dead code:
+   * the member still learned what the thread was by pressing Reply and reading
+   * the 409 below. The other suites walk the refusal; this walks the payload.
+   */
+  it("tells the client an example thread is an example, on every read path", async () => {
+    const id = await exampleId("forum_threads", "ex-thread-%");
+    const one = await call("GET", `/api/forum/threads/${id}`);
+    expect(one.status).toBe(200);
+    expect(one.json?.isExample, "the thread detail payload must carry the flag").toBe(true);
+
+    const list = await call("GET", "/api/forum/threads");
+    const row = (list.json ?? []).find((t: any) => t.id === id);
+    expect(row?.isExample, "the list payload must carry it too, for the row chip").toBe(true);
+
+    const feedId = await exampleId("forum_threads", "ex-feed-%");
+    const feed = await call("GET", "/api/feed");
+    const post = (feed.json?.items ?? []).find((i: any) => i.id === feedId);
+    expect(post?.isExample, "the feed lens must carry it").toBe(true);
+
+    // And a real thread must not be labelled: a false positive here would put
+    // "this is a standing example" over a member's own words. Written straight
+    // to the table rather than posted, because posting is the forum's
+    // retirement trigger and would delete the rows the cases below still need.
+    await pool.query(
+      "INSERT INTO forum_threads (id, category, author_id, title, body, kind) " +
+        "VALUES ('thr-real-flag','village-life',?,'A real thread','Written by an actual person.','discussion')",
+      [founderId],
+    );
+    try {
+      const real = await call("GET", "/api/forum/threads/thr-real-flag");
+      expect(real.json?.isExample, "a real thread must never carry the label").toBe(false);
+    } finally {
+      await pool.query("DELETE FROM forum_threads WHERE id = 'thr-real-flag'");
+    }
+  });
+
   it("refuses an admin EDIT of an example row", async () => {
     const id = await exampleId("library_items");
     const r = await call("PUT", `/api/admin/library/items/${id}`, { title: "renamed" });
@@ -367,6 +446,115 @@ describe.skipIf(!DB_CONFIGURED)("standing examples: every guard, over HTTP", () 
       expect(rows[0]?.title, "the example keeps its own title").toBe("Example quest");
     } finally {
       await pool.query("DELETE FROM quests WHERE id = 'ex-quest-edit'");
+    }
+  });
+
+  /**
+   * The stays admin surface was the outlier: every sibling edit route guarded
+   * and these two did not. The price one is the worse of the pair — it
+   * deactivates every posted rate for the room before re-inserting, so a
+   * half-filled form left the demo's rates switched off for good.
+   */
+  it("refuses an admin edit of an example room, and keeps its posted rates", async () => {
+    const id = await exampleId("accommodations");
+    const [before] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM accommodation_prices WHERE accommodation_id = ? AND active = 1", [id],
+    );
+    expect(Number(before[0].n), "the example room must post rates to protect").toBeGreaterThan(0);
+
+    expectRefused(
+      await call("PUT", `/api/admin/stays/accommodations/${id}`, { name: "Mine now", active: false }),
+      "example room edit",
+    );
+    expectRefused(
+      await call("PUT", `/api/admin/stays/accommodations/${id}/prices`, {
+        prices: [{ tokenType: "stay-credit", audience: "guest", amountMinor: 1 }],
+      }),
+      "example room prices",
+    );
+    const [after] = await pool.query<any[]>(
+      "SELECT name, active FROM accommodations WHERE id = ?", [id],
+    );
+    expect(after[0]?.name, "the example keeps its own name").not.toBe("Mine now");
+    expect(Number(after[0]?.active), "and stays active").toBe(1);
+    const [rates] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM accommodation_prices WHERE accommodation_id = ? AND active = 1", [id],
+    );
+    expect(Number(rates[0].n), "not one posted rate may be switched off").toBe(Number(before[0].n));
+  });
+
+  it("refuses to price, halt or resume an example token", async () => {
+    const [rows] = await pool.query<any[]>("SELECT slug FROM tokens WHERE is_example = 1 LIMIT 1");
+    if (!rows[0]) return; // exchange examples are optional per seed
+    const slug = String(rows[0].slug);
+    const [before] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM currency_prices WHERE token_slug = ?", [slug],
+    );
+
+    expectRefused(
+      await call("POST", `/api/admin/exchange/tokens/${slug}/price`, { priceMinor: 999, note: "no" }),
+      "example token price",
+    );
+    expectRefused(
+      await call("POST", `/api/admin/exchange/tokens/${slug}/halt`, { reason: "no" }),
+      "example token halt",
+    );
+    expectRefused(
+      await call("POST", `/api/admin/exchange/tokens/${slug}/resume`, {
+        note: "This sentence is long enough to pass the resume gate.",
+      }),
+      "example token resume",
+    );
+    const [after] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM currency_prices WHERE token_slug = ?", [slug],
+    );
+    expect(Number(after[0].n), "no price row may be appended to the example market").toBe(Number(before[0].n));
+    const [halted] = await pool.query<any[]>(
+      "SELECT swap_halted_at FROM token_exchange_settings WHERE token_slug = ?", [slug],
+    );
+    expect(halted[0]?.swap_halted_at ?? null, "the example listing keeps its halt state").toBeNull();
+  });
+
+  /**
+   * Both directions of "attach a real thing to an example identity". The
+   * bootstrap guard already refuses making one a founder; these two are the
+   * doors that reached the same state from inside the admin surface.
+   */
+  it("refuses to promote an example identity, or place a real badge on one", async () => {
+    const [rows] = await pool.query<any[]>("SELECT id FROM users WHERE is_example = 1 LIMIT 1");
+    if (!rows[0]) return;
+    const exampleUserId = String(rows[0].id);
+
+    expectRefused(
+      await call("PUT", `/api/admin/users/${exampleUserId}/role`, { role: "founder" }),
+      "role change on an example identity",
+    );
+    const [check] = await pool.query<any[]>("SELECT role FROM users WHERE id = ?", [exampleUserId]);
+    expect(check[0]?.role, "the example identity keeps its role").not.toBe("founder");
+
+    // A REAL warning badge on an example identity writes an is_example = 0
+    // award, which badgesOpenState counts — and it survives the holder's
+    // deletion at retirement, blocking module-off with nothing to revoke.
+    // Written to the table rather than posted: creating a badge is the
+    // module's retirement trigger, and the cases below still need its rows.
+    await pool.query(
+      "INSERT INTO badges (id, name, description, kind, capabilities, denies) " +
+        "VALUES ('badge-real-warning','A real warning','For the guard test','warning','[]','[]')",
+    );
+    try {
+      expectRefused(
+        await call("POST", "/api/admin/badges/badge-real-warning/award", {
+          userId: exampleUserId, note: "no",
+        }),
+        "real badge awarded to an example identity",
+      );
+      const [awards] = await pool.query<any[]>(
+        "SELECT COUNT(*) n FROM badge_awards WHERE user_id = ? AND is_example = 0", [exampleUserId],
+      );
+      expect(Number(awards[0].n), "no real award may attach to an identity retirement deletes").toBe(0);
+    } finally {
+      await pool.query("DELETE FROM badge_awards WHERE badge_id = 'badge-real-warning'");
+      await pool.query("DELETE FROM badges WHERE id = 'badge-real-warning'");
     }
   });
 
@@ -453,12 +641,45 @@ describe.skipIf(!DB_CONFIGURED)("standing examples: every guard, over HTTP", () 
     expect(Number(rows[0].n), "a retired module stays retired").toBe(0);
   });
 
+  /**
+   * The clear button is not exempt from RETIRE_TOGETHER.
+   *
+   * The forum and the feed are two lenses over one table in one category, and
+   * the forum's "All" tab sends no category at all. The route used to retire
+   * exactly the module its label named, so clearing the forum dropped the
+   * forum banner and left ex-feed-1..3 rendering on the same list — the
+   * unlabelled platform fiction the pairing exists to prevent.
+   */
+  it("clears the forum and the feed together, and leaves no thread behind", async () => {
+    const before = await call("GET", "/api/examples");
+    const showing: string[] = before.json?.modules ?? [];
+    if (!showing.includes("forum") && !showing.includes("feed")) return;
+
+    const cleared = await call("POST", "/api/admin/modules/forum/examples/clear");
+    expect(cleared.status, JSON.stringify(cleared.json)).toBeLessThan(400);
+    expect(cleared.json?.retired).toBe(true);
+
+    const after = await call("GET", "/api/examples");
+    expect(after.json.modules, "the named module is retired").not.toContain("forum");
+    expect(after.json.modules, "and so is its twin").not.toContain("feed");
+    // The rows are what a member actually meets: an unlabelled example thread
+    // on a page whose banner has gone is the failure, not the tombstone.
+    const [rows] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM forum_threads WHERE is_example = 1",
+    );
+    expect(Number(rows[0].n), "neither module's example threads may survive").toBe(0);
+  });
+
   it("clears examples on admin request, permanently", async () => {
     const before = await call("GET", "/api/examples");
     const target = (before.json.modules as string[]).find((m) => m !== "tools");
     if (!target) return;
     const cleared = await call("POST", `/api/admin/modules/${target}/examples/clear`);
     expect(cleared.status).toBeLessThan(400);
+    // The route used to answer 200 {success:true} on the failure path too, so
+    // the toast said "N row(s) cleared" over rows still on the page with the
+    // tombstone deliberately unstamped. The tombstone is now what it reports.
+    expect(cleared.json?.retired, "success means the tombstone was stamped").toBe(true);
     const after = await call("GET", "/api/examples");
     expect(after.json.modules).not.toContain(target);
   });

@@ -31,6 +31,7 @@ import path from "node:path";
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { stringVar } from "./variables";
 import { loadTokenRegistry } from "./ledger";
+import { badgeProblem } from "./badges";
 
 export const EXAMPLE_REFUSAL =
   "This is a standing example. Publish your own to replace it.";
@@ -141,6 +142,32 @@ const SCOPE: Record<string, Record<string, string>> = {
 const scopeFor = (moduleId: string, table: string): string | null =>
   SCOPE[moduleId]?.[table] ?? null;
 
+/**
+ * WIDENED delete predicates: rows that belong to an example because of what
+ * they POINT AT, whatever their own flag says.
+ *
+ * upsertSettings writes `is_example = 0` on every write, which is right when
+ * the slug is a real token — the standing example occupies the same primary
+ * key, so an admin listing that token updates the example row in place and
+ * retirement must not delete the listing they just saved. It is wrong for an
+ * example TOKEN: one click on the purchasable toggle made the row real,
+ * retirement then took the token and left the listing, and the next boot's
+ * assertExchangeFirewalls refused to serve on "ex-credits is not a registered
+ * token". A listing can never outlive its token.
+ */
+const WIDEN: Record<string, Record<string, string>> = {
+  exchange: {
+    token_exchange_settings: "token_slug IN (SELECT slug FROM tokens WHERE is_example = 1)",
+    currency_prices: "token_slug IN (SELECT slug FROM tokens WHERE is_example = 1)",
+  },
+};
+
+/**
+ * The one table where deleting a flagged row can brick the next boot, so the
+ * delete is conditioned on the ledger being empty of it. See deleteExampleRows.
+ */
+const KEEP_IF_IN_LEDGER: Record<string, string> = { exchange: "tokens" };
+
 /** Tables with no `is_example` column of their own — deleted by parent ref. */
 const BY_PARENT: Record<string, { parentTable: string; fk: string; parentKey: string }> = {
   transcripts: { parentTable: "recordings", fk: "recording_id", parentKey: "id" },
@@ -153,7 +180,25 @@ interface ExampleStateRow {
   seededAt: string | null;
   retiredAt: string | null;
   retiredReason: string | null;
+  /** Consecutive retirement attempts that left rows behind. See RETIRE_CEILING. */
+  retireAttempts: number;
 }
+
+const EMPTY_STATE: ExampleStateRow = {
+  seededAt: null, retiredAt: null, retiredReason: null, retireAttempts: 0,
+};
+
+/**
+ * How many times an automatic retirement may fail before it stops trying.
+ *
+ * A failed DELETE deliberately leaves the tombstone unstamped so the next
+ * trigger retries, and with no ceiling that retry is every publish, forever:
+ * the whole delete loop re-runs and logs the same error on every real row the
+ * village ever creates. Whatever is wrong needs a person, not a thousandth
+ * attempt. The admin clear button ignores this ceiling on purpose — it IS the
+ * person, and it is the only way back once the automatic path has given up.
+ */
+const RETIRE_CEILING = 5;
 
 let pool: Pool | null = null;
 const state = new Map<string, ExampleStateRow>();
@@ -177,15 +222,24 @@ export function wireExampleCaches(reload: CacheReloader): void {
 
 export async function loadExampleState(p: Pool): Promise<void> {
   pool = p;
-  const [rows] = await p.query<RowDataPacket[]>(
-    "SELECT module_id, seeded_at, retired_at, retired_reason FROM example_state",
-  );
+  // retire_attempts arrived in 0048; a fork mid-migration must still boot.
+  let rows: RowDataPacket[];
+  try {
+    [rows] = await p.query<RowDataPacket[]>(
+      "SELECT module_id, seeded_at, retired_at, retired_reason, retire_attempts FROM example_state",
+    );
+  } catch {
+    [rows] = await p.query<RowDataPacket[]>(
+      "SELECT module_id, seeded_at, retired_at, retired_reason FROM example_state",
+    );
+  }
   state.clear();
   for (const r of rows) {
     state.set(String(r.module_id), {
       seededAt: r.seeded_at ? new Date(r.seeded_at).toISOString() : null,
       retiredAt: r.retired_at ? new Date(r.retired_at).toISOString() : null,
       retiredReason: r.retired_reason ?? null,
+      retireAttempts: Number(r.retire_attempts ?? 0),
     });
   }
   await refreshRowPresence(p);
@@ -311,7 +365,15 @@ const EXAMPLE_AUTHOR = "ex-user-mira";
  * which is precisely the fake-people-in-`users` problem the exclusions exist
  * to contain.
  */
-const NEEDS_IDENTITIES = new Set(["forum", "feed", "commerce", "health", "network", "exchange"]);
+const NEEDS_IDENTITIES = new Set([
+  "forum", "feed", "commerce", "health", "network", "exchange",
+  // badges carries AWARDS, and an award names a holder. Without the
+  // identities, enabling badges alone seeded award rows pointing at users
+  // that do not exist: the holders list rendered empty, and every "no example
+  // award touches a real user" check passed vacuously because a JOIN cannot
+  // see a row whose other side is missing.
+  "badges",
+]);
 
 /**
  * Seed the three example identities. No password_hash, so they can never log
@@ -554,14 +616,33 @@ export async function seedExamples(
       // anyone real. Warning badges never get awards: a warning award is
       // open state and would block turning the module off.
       for (const b of block.badges ?? []) {
+        // The boot assertion deliberately skips examples (it runs BEFORE the
+        // seeder, so a row it rejected would land quietly on one boot and
+        // brick the next), which left example definitions validated by
+        // nothing at all. Validate here instead, at the seam that already
+        // knows how: a definition the platform would refuse to create must
+        // not ship as the thing teaching a founder what a badge is. Skipping
+        // the badge keeps the fail-soft posture the boot check chose.
+        const problem = badgeProblem({
+          kind: String(b.kind),
+          capabilities: Array.isArray(b.capabilities) ? b.capabilities.map(String) : [],
+          denies: Array.isArray(b.denies) ? b.denies.map(String) : [],
+          rule: b.rule ?? null,
+        });
+        if (problem) {
+          console.error(`[examples] badge "${b.id}" is not a valid definition, skipping: ${problem}`);
+          continue;
+        }
         n += await ins(p, "badges", {
           id: b.id, name: b.name, description: b.description, kind: b.kind,
           icon: b.icon ?? null,
           capabilities: J(b.capabilities), denies: J(b.denies),
           rule: b.rule ? J(b.rule) : null, active: b.active ? 1 : 0, is_example: 1,
         });
-        for (const a of b.awards ?? []) {
-          if (b.kind === "warning") continue;
+        // A warning award is open state and would block turning the module
+        // off, so warnings never get one. The condition belongs here, at the
+        // loop, rather than inside it: it does not depend on the award.
+        for (const a of b.kind === "warning" ? [] : b.awards ?? []) {
           n += await ins(p, "badge_awards", {
             id: `ex-award-${b.id}-${a.userId}`, badge_id: b.id, user_id: a.userId,
             count: a.count ?? 1, awarded_by: a.selfClaimed ? a.userId : EXAMPLE_AUTHOR,
@@ -728,7 +809,7 @@ async function stamp(p: Pool, moduleId: string, o: { seeded: boolean }): Promise
       "ON DUPLICATE KEY UPDATE seeded_at = VALUES(seeded_at)",
     [moduleId, o.seeded ? new Date() : null],
   );
-  const prev = state.get(moduleId) ?? { seededAt: null, retiredAt: null, retiredReason: null };
+  const prev = state.get(moduleId) ?? EMPTY_STATE;
   state.set(moduleId, { ...prev, seededAt: o.seeded ? new Date().toISOString() : null });
 }
 
@@ -738,6 +819,23 @@ async function stamp(p: Pool, moduleId: string, o: { seeded: boolean }): Promise
  * marked decided-without-seeding so the check runs once, not on every boot.
  */
 export async function hasRealContent(p: Pool, moduleId: string): Promise<boolean> {
+  if (await ownRealContent(p, moduleId)) return true;
+  // SEEDING IS SYMMETRIC WITH RETIREMENT. Modules that retire together share a
+  // table and a category, so neither read path can tell their rows apart — and
+  // that cuts both ways. forum's check is the whole of forum_threads while
+  // feed's is one category, so a real thread in `governance` made forum
+  // decided-without-seeding while feed happily seeded ex-feed-1..3 into the
+  // shared category: platform fiction on the forum's "All" tab under no
+  // banner at all, which is exactly what RETIRE_TOGETHER exists to prevent.
+  // Asking the pair means both seed or neither does.
+  for (const id of RETIRE_TOGETHER[moduleId] ?? []) {
+    if (await ownRealContent(p, id)) return true;
+  }
+  return false;
+}
+
+/** One module's own answer, before the retire-together union. */
+async function ownRealContent(p: Pool, moduleId: string): Promise<boolean> {
   const custom = REAL_CONTENT_CHECK[moduleId];
   if (custom) {
     try { return await custom(p); } catch { return false; }
@@ -787,6 +885,25 @@ async function deleteExampleRows(
         "(SELECT id FROM library_categories WHERE is_example = 1)",
     ).catch(() => { /* older forks without the column */ });
   }
+  // Belt and braces on the one table whose deletion can refuse the NEXT boot.
+  // checkLedgerInvariants fails loud on "ledger rows exist for unregistered
+  // token", so removing a registry row that has transfers behind it turns a
+  // founder's first real listing into a deployment that will not start. Every
+  // write door onto an example token now refuses, and this is what holds if
+  // one is ever missed or a row is hand-edited: leave the token, report the
+  // failure, and let the unstamped tombstone retry.
+  if (moduleId === "exchange") {
+    const [stuck] = await p.query<RowDataPacket[]>(
+      "SELECT DISTINCT t.slug FROM tokens t JOIN token_ledger l ON l.token_type = t.slug WHERE t.is_example = 1",
+    ).catch(() => [[]] as any);
+    for (const r of stuck as RowDataPacket[]) {
+      failed = true;
+      console.error(
+        `[examples] example token "${r.slug}" has ledger rows; leaving the registry row in place ` +
+          "so the ledger invariants still hold, and not stamping the tombstone",
+      );
+    }
+  }
   for (const table of EXAMPLE_TABLES[moduleId] ?? []) {
     const parent = BY_PARENT[table];
     try {
@@ -798,9 +915,12 @@ async function deleteExampleRows(
         removed += r?.affectedRows ?? 0;
       } else {
         const scope = scopeFor(moduleId, table);
-        const [r] = await p.query<any>(
-          `DELETE FROM \`${table}\` WHERE is_example = 1` + (scope ? ` AND ${scope}` : ""),
-        );
+        const widen = WIDEN[moduleId]?.[table];
+        let where = `(is_example = 1${scope ? ` AND ${scope}` : ""}${widen ? `) OR (${widen}` : ""})`;
+        if (KEEP_IF_IN_LEDGER[moduleId] === table) {
+          where = `(${where}) AND slug NOT IN (SELECT DISTINCT token_type FROM token_ledger)`;
+        }
+        const [r] = await p.query<any>(`DELETE FROM \`${table}\` WHERE ${where}`);
         removed += r?.affectedRows ?? 0;
       }
     } catch (e: any) {
@@ -838,13 +958,28 @@ export async function refreshExamples(
   return n;
 }
 
+/**
+ * What retirement actually did. `retired` is the tombstone: a partial `removed`
+ * count on a failed pass is indistinguishable from a clean sweep by number
+ * alone, and the admin clear endpoint was reporting the failure as success —
+ * "3 example row(s) cleared" over three rows still on the page.
+ */
+export interface RetireOutcome {
+  removed: number;
+  retired: boolean;
+}
+
 export async function retireExamples(
   p: Pool,
   moduleId: string,
   reason: RetireReason,
   byUserId: string | null = null,
-): Promise<number> {
-  if (isRetired(moduleId)) return 0;
+): Promise<RetireOutcome> {
+  if (isRetired(moduleId)) return { removed: 0, retired: true };
+  const attempts = state.get(moduleId)?.retireAttempts ?? 0;
+  if (reason === "first_real_item" && attempts >= RETIRE_CEILING) {
+    return { removed: 0, retired: false };
+  }
   let removed = 0;
   /** A DELETE that failed for a real reason — not a table this fork lacks. */
   let failed = false;
@@ -858,8 +993,21 @@ export async function retireExamples(
     // SQL, while the module reported examplesRetired = true. Leave it unset so
     // the next trigger retries.
     if (failed) {
-      console.error(`[examples] retiring "${moduleId}" left rows behind; not stamping the tombstone so it can retry`);
-      return removed;
+      // Only the AUTOMATIC path is governed by the ceiling, so only the
+      // automatic path may count against it. Counting an admin_cleared failure
+      // let five unlucky presses of the escape hatch switch off the
+      // first_real_item trigger for good, while the button that did it is
+      // documented as ignoring the ceiling precisely because it IS the person.
+      if (reason === "first_real_item") await countRetireFailure(p, moduleId, attempts + 1);
+      if (reason === "first_real_item" && attempts + 1 >= RETIRE_CEILING) {
+        console.error(
+          `[examples] retiring "${moduleId}" has left rows behind ${attempts + 1} times; the automatic ` +
+            "trigger is giving up. Fix the rows, then use Admin -> Modules -> Clear examples",
+        );
+      } else {
+        console.error(`[examples] retiring "${moduleId}" left rows behind; not stamping the tombstone so it can retry`);
+      }
+      return { removed, retired: false };
     }
     // Orphaned tag rows would otherwise outlive their threads.
     if (moduleId === "forum" || moduleId === "feed") {
@@ -874,8 +1022,10 @@ export async function retireExamples(
         "retired_by = VALUES(retired_by)",
       [moduleId, reason, byUserId],
     );
-    const prev = state.get(moduleId) ?? { seededAt: null, retiredAt: null, retiredReason: null };
-    state.set(moduleId, { ...prev, retiredAt: new Date().toISOString(), retiredReason: reason });
+    const prev = state.get(moduleId) ?? EMPTY_STATE;
+    state.set(moduleId, {
+      ...prev, retiredAt: new Date().toISOString(), retiredReason: reason, retireAttempts: 0,
+    });
     withRows.delete(moduleId);
     // The identities are shared, so they can only go once the last module that
     // could still be displaying their words has retired. Removing them earlier
@@ -900,8 +1050,21 @@ export async function retireExamples(
     }
   } catch (e) {
     console.error(`[examples] retiring "${moduleId}" failed (continuing)`, e);
+    if (reason === "first_real_item") await countRetireFailure(p, moduleId, attempts + 1);
+    return { removed, retired: false };
   }
-  return removed;
+  return { removed, retired: true };
+}
+
+/** Record one unsuccessful pass, so the automatic trigger can stop trying. */
+async function countRetireFailure(p: Pool, moduleId: string, attempts: number): Promise<void> {
+  const prev = state.get(moduleId) ?? EMPTY_STATE;
+  state.set(moduleId, { ...prev, retireAttempts: attempts });
+  await p.query(
+    "INSERT INTO example_state (module_id, retire_attempts) VALUES (?, ?) " +
+      "ON DUPLICATE KEY UPDATE retire_attempts = VALUES(retire_attempts)",
+    [moduleId, attempts],
+  ).catch(() => { /* a fork that has not run 0048 yet still retries in memory */ });
 }
 
 /**
@@ -929,8 +1092,46 @@ const RETIRE_TOGETHER: Record<string, string[]> = {
   feed: ["forum"],
 };
 
+/** Every module that must retire when `moduleId` does, itself included. */
+export function retiresWith(moduleId: string): string[] {
+  return [moduleId, ...(RETIRE_TOGETHER[moduleId] ?? [])];
+}
+
+/**
+ * Retire a module AND whatever must go with it, awaited, with one combined
+ * answer.
+ *
+ * The pair rule used to live inside `onRealItemPublished` alone, so the admin
+ * clear button retired exactly the module its label named — and clearing the
+ * forum left the feed's three example threads rendering on the forum's "All"
+ * tab with the banner already gone. Unlabelled platform fiction presented as
+ * village content is the failure the pairing exists to prevent, and the button
+ * is not exempt from it.
+ *
+ * `retired` is the AND of the passes: a partial sweep must not report success,
+ * because the tombstone is what the caller acts on.
+ */
+export async function retireExamplesWithPair(
+  p: Pool,
+  moduleId: string,
+  reason: RetireReason,
+  byUserId: string | null = null,
+): Promise<RetireOutcome> {
+  let removed = 0;
+  let retired = true;
+  for (const id of retiresWith(moduleId)) {
+    // A module that never seeded has nothing to retire and no tombstone to
+    // owe: stamping one would only forbid a later, legitimate seeding.
+    if (!isSeeded(id)) continue;
+    const outcome = await retireExamples(p, id, reason, byUserId);
+    removed += outcome.removed;
+    if (!outcome.retired) retired = false;
+  }
+  return { removed, retired };
+}
+
 export function onRealItemPublished(p: Pool, moduleId: string, byUserId: string | null = null): void {
-  for (const id of [moduleId, ...(RETIRE_TOGETHER[moduleId] ?? [])]) {
+  for (const id of retiresWith(moduleId)) {
     if (isRetired(id) || !isSeeded(id)) continue;
     void retireExamples(p, id, "first_real_item", byUserId);
   }

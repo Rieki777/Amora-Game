@@ -35,10 +35,10 @@
 > **Admin:** a per-module "Clear examples" panel in the Modules tab over
 > `POST /api/admin/modules/:id/examples/clear`, driven by `showingExamples` /
 > `examplesRetired` on the modules payload.
-> **Tests:** `server/lib/examples.test.ts` (12 cases, the library) and
-> `server/examples.routes.e2e.test.ts` (19 cases, the guards and retirement
-> over HTTP against the built server) — plus three runnable provers,
-> `scripts/check-examples.mjs` (virgin-schema inertness),
+> **Tests:** `server/lib/examples.test.ts` (20 cases, the library) and
+> `server/examples.routes.e2e.test.ts` (28 cases, the guards, the PAYLOAD flags
+> and retirement over HTTP against the built server) — plus three runnable
+> provers, `scripts/check-examples.mjs` (virgin-schema inertness),
 > `scripts/prove-examples.mjs` and `scripts/prove-remaining.mjs`.
 
 ## The problem
@@ -316,6 +316,67 @@ flow end-to-end against a real database.
    and `profiles` are stamped seeded so the attempt is not retried every boot,
    which put them in `modulesWithExamples()` and would have banner-labelled a
    page with nothing on it. Membership now requires rows that actually exist.
+
+## The third pass — what the fixes to the fixes got wrong (2026-08-02)
+
+A pass over the second round of fixes found the same shape a third time: the
+guard existed, and the thing it guarded never reached it.
+
+**The whole of the new ThreadView labelling was dead code.** `forumThreadById`
+builds its record from an EXPLICIT column list, so `is_example` never reached
+the client and `thread.isExample` was permanently `undefined`. The banner never
+rendered, and the reply composer, Follow, Report and the decision recorder all
+stayed on screen over an example, which is the "discovered by pressing the
+button" failure the change said it closed. The flag now rides the detail read,
+the list read and the feed lens, and the e2e suite asserts the PAYLOAD rather
+than only walking the refusal.
+
+**A row-level label was let out on parole by module state.** `ExamplesBanner`
+short-circuits on `useExamplesState`, so even once the flag arrived the label
+would vanish on the first paint, during the retirement reconciliation window,
+and for a module cleared while its twin still held rows. It takes a `row` prop
+now: when the ROW says example, the module answer is not allowed a veto. The
+module was also being picked by `kind`, which examples.ts warns against by
+name (`ex-feed-3` is an announcement); it comes from the seeded id prefix.
+
+**The clear button was exempt from `RETIRE_TOGETHER`.** It called
+`retireExamples` directly, so clearing the forum stamped one tombstone, dropped
+one banner, and left the feed's three example threads on the forum's "All" tab
+with no label at all. `retireExamplesWithPair` is now the door both the publish
+trigger and the button go through, and the client stopped mirroring the
+asymmetry.
+
+**A 2s timer could resurrect the banner over a member's own new content.** The
+reconciliation check could not tell "retirement failed" from "retirement has
+not finished", and retirement is fire-and-forget across ~25 COUNTs per module,
+fired for two modules at once on a forum post. One slow database and the banner
+came back permanently. It backs off (2s / 5s / 15s) and only restores on the
+last attempt, and the admin clear path skips it entirely because that response
+IS the server's awaited answer.
+
+**A failed admin clear was spending the automatic path's budget.**
+`countRetireFailure` ran for every reason, so five unlucky presses of the
+escape hatch switched off `first_real_item` retirement for that module forever
+— against a comment saying the button ignores the ceiling on purpose. Only the
+automatic path counts now.
+
+Also closed: the two unguarded stays admin routes (the price one deactivates
+every posted rate before re-inserting, so a half-filled form left the demo's
+rates off for good); exchange price, halt and resume; promoting an example
+identity through the role route; a real warning badge awarded ONTO an example
+identity, which `badgesOpenState` counts and which outlives its holder's
+deletion; `relevantSyntheses` feeding the seeded demo call to the model as
+"THIS VILLAGE'S OWN RECORD, highest authority"; the shelf-transparency count of
+the same table; `members_active_cycle`, the last unfiltered read in the frozen
+snapshot path; the sessionStorage first-paint hint surviving a sign-out; a
+stale pre-sign-in answer still reaching component state after the cache guard
+rejected it; unlabelled example rows in the Quests, Circles, Roles, Stays and
+Network admin surfaces and in the peer list; the Village Health banner claiming
+a page whose headline said "Nothing recorded yet"; an unreachable example
+branch in the exchange listings table (`listableTokens` filters examples out
+and drops the flag, and the filter is the half worth keeping); and a `runOnce`
+key dated two days into the future, which would have silently consumed the id a
+real 2026-08-04 revision needed.
 
 ## Open questions for Rye
 

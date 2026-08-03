@@ -70,7 +70,10 @@ export async function snapshotCycle(pool: Pool, cycle: SnapshotCycle, eligibleSe
   await insertSnapshot(pool, cycle.cycleNumber, "events_total_cycle", totalEvents, { byKind });
 
   const [[activeRow]] = await pool.query<any[]>(
-    "SELECT COUNT(DISTINCT actor_user_id) AS n FROM health_events WHERE at >= ? AND at < ? AND actor_user_id IS NOT NULL",
+    // Same guard as the kinds read above, and for the same reason: this number
+    // is frozen into a snapshot that is never recomputed, so an example event
+    // counted here is village activity permanently.
+    "SELECT COUNT(DISTINCT actor_user_id) AS n FROM health_events WHERE at >= ? AND at < ? AND actor_user_id IS NOT NULL AND is_example = 0",
     [start, end],
   );
   await insertSnapshot(pool, cycle.cycleNumber, "members_active_cycle", Number(activeRow.n));
@@ -254,6 +257,13 @@ export interface RegenEntry {
   retractionNote?: string | null;
   /** The corrected reading that replaced it, when there is one. */
   supersededBy?: string | null;
+  /**
+   * A standing example. These are deliberately OUT of regenTotals and IN this
+   * list, so the page can show what a regeneration ledger looks like without
+   * putting a seeded 240 trees in the number a village carries to funders. The
+   * list has to say which rows those are.
+   */
+  isExample?: boolean;
 }
 
 /**
@@ -281,6 +291,7 @@ export async function regenEntries(pool: Pool, limit = 100, includeRetracted = f
     retractedAt: r.retracted_at ? new Date(r.retracted_at).toISOString() : null,
     retractionNote: r.retraction_note ?? null,
     supersededBy: r.superseded_by ?? null,
+    isExample: Number(r.is_example ?? 0) === 1,
   }));
 }
 

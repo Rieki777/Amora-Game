@@ -130,7 +130,11 @@ export async function syncPeers(pool: Pool): Promise<{ synced: number; failed: n
 /** Everything peers have shared, from cache, grouped by village. */
 export async function peerSharedItems(pool: Pool): Promise<any[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT p.id, p.name, p.base_url, p.last_sync_at, p.status, p.last_error, c.payload, c.fetched_at " +
+    // p.is_example: the example peer is a fixture with a hand-built cache
+    // payload, and adding a real peer is not a retirement trigger — so a
+    // fictional village and a real one sit in this list together, under one
+    // banner claiming everything on the page is an example.
+    "SELECT p.id, p.name, p.base_url, p.last_sync_at, p.status, p.last_error, p.is_example, c.payload, c.fetched_at " +
       "FROM peer_instances p LEFT JOIN peer_shared_cache c ON c.peer_id = p.id ORDER BY p.name",
   );
   return rows.map((r) => {
@@ -140,6 +144,7 @@ export async function peerSharedItems(pool: Pool): Promise<any[]> {
       village: String(payload?.name ?? r.name),
       baseUrl: String(r.base_url),
       status: String(r.status),
+      isExample: Number(r.is_example ?? 0) === 1,
       lastSyncAt: r.last_sync_at ? new Date(r.last_sync_at).toISOString() : null,
       lastError: r.last_error ?? null,
       items: payload?.items ?? [],

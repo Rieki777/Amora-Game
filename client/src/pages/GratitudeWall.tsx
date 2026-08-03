@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { Heart, Send, Sparkles } from "lucide-react";
 import CycleClock from "@/components/CycleClock";
+import { forgetExamplesCache } from "@/components/ExamplesBanner";
 
 interface WallEntry {
   id: string;
@@ -57,6 +58,11 @@ export default function GratitudeWall() {
       } else {
         setFeedback({ ok: true, text: "Your appreciation is on the wall." });
         setForm({ toEmail: "", amount: 10, message: "" });
+        // A real send is gratitude's retirement trigger server-side. The
+        // stock seed writes no gratitude rows, so today this drops nothing;
+        // it is here so a fork that seeds some is not left with a stale
+        // label, and the helper no-ops when the module was not showing any.
+        forgetExamplesCache("gratitude");
         load();
       }
     } catch {

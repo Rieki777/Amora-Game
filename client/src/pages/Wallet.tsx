@@ -168,6 +168,16 @@ export default function Wallet() {
                       </button>
                     </div>
                   )}
+                  {/* A REAL listing with no card processor shows a price and
+                      no way to act on it, which reads as broken. Say which
+                      of the three reasons it is, to the person who can fix
+                      it and to the person who cannot. */}
+                  {user && !l.isExample && l.priceMinor != null && l.inStock && !data?.stripeConfigured && (
+                    <span className="text-xs text-muted-foreground">Card payments aren't connected yet</span>
+                  )}
+                  {user && !l.isExample && l.priceMinor != null && l.inStock && data?.stripeConfigured && !data?.mine?.canBuy && (
+                    <span className="text-xs text-muted-foreground">Buying opens at the member stage</span>
+                  )}
                   </div>
                   {refusedSlug && refusedSlug.slug === l.slug && (
                     <ExampleRefusal message={refusedSlug.message} className="mt-2" />

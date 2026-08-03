@@ -22,6 +22,13 @@ export interface RecordingRow {
   durationS: number | null;
   status: "ingested" | "transcribed" | "synthesized" | "published" | "failed";
   createdAt: string;
+  /**
+   * A standing example. Carried all the way out to the admin card because the
+   * Calls tab offers Publish, Save edit, Accept and Dismiss on every row, and
+   * all four refuse an example — without the flag the guards are discovered as
+   * errors after the click rather than read as a label before it.
+   */
+  isExample: boolean;
 }
 
 function rowToRecording(r: RowDataPacket): RecordingRow {
@@ -34,6 +41,7 @@ function rowToRecording(r: RowDataPacket): RecordingRow {
     durationS: r.duration_s == null ? null : Number(r.duration_s),
     status: r.status,
     createdAt: new Date(r.created_at).toISOString(),
+    isExample: Number(r.is_example ?? 0) === 1,
   };
 }
 

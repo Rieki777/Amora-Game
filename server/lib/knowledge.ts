@@ -90,8 +90,12 @@ export interface SecondBrainHit {
  */
 export async function relevantSyntheses(pool: Pool, query: string, max = 3): Promise<SecondBrainHit[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
+    // is_example = 0 or the seeded demo synthesis is fed to the model under
+    // "THIS VILLAGE'S OWN RECORD, highest authority" and cited back as a call
+    // that happened. On a fresh fork it is the only synthesis there is, so it
+    // would be the top-authority source for every question it scores against.
     "SELECT s.body, r.title, r.recorded_at FROM call_syntheses s JOIN recordings r ON r.id = s.recording_id " +
-      "ORDER BY r.recorded_at DESC LIMIT 40",
+      "WHERE s.is_example = 0 ORDER BY r.recorded_at DESC LIMIT 40",
   );
   return rows
     .map((r) => ({ r, s: score(String(r.body).toLowerCase(), query) }))

@@ -18,7 +18,7 @@ import { layoutNestedMap, type NestedInput } from "@shared/mapLayout";
 import { authToken } from "@/lib/gameApi";
 import { getPreference, rememberMapAvailable, setPreference } from "@/lib/landing";
 import { ChevronDown, Compass, Hand, Mail, Minus, Plus, Search, X } from "lucide-react";
-import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExampleChip, ExamplesBanner, useExampleModules } from "@/components/ExamplesBanner";
 import { FirstWalkInvite } from "@/pages/FirstWalk";
 
 interface MapRole {
@@ -31,11 +31,13 @@ interface MapRole {
   holderCount: number;
   vacant: boolean;
   holders: Array<{ userId: string; name: string }>;
+  /** Set once /api/map carries the row's flag; see EXAMPLE_SETS below. */
+  isExample?: boolean;
 }
 interface MapData {
   circles: any[];
   roles: MapRole[];
-  quests: Array<{ id: string; title: string; circleId: string | null }>;
+  quests: Array<{ id: string; title: string; circleId: string | null; isExample?: boolean }>;
   viewer: { viewPeople: boolean };
   vacantHighlight: boolean;
   conciergeEnabled: boolean;
@@ -57,9 +59,26 @@ const TONE: Record<string, string> = {
 };
 const toneOf = (c: any): string => TONE[String(c?.color ?? "")] ?? "var(--color-teal-deep)";
 
+/**
+ * Three modules draw this one page, and they retire independently.
+ *
+ * /api/map returns circles from `map`, roles from `progression` and open
+ * quests from `quests`. A single banner scoped to "map" therefore lied twice:
+ * it did not mention the roles or the quests, and the first real circle
+ * dropped it while the other two modules' examples kept rendering with no
+ * label. Roles.tsx and Circles.tsx read no database, so this page is the ONLY
+ * surface where progression's examples are ever seen.
+ */
+const EXAMPLE_SETS: Array<{ id: string; noun: string }> = [
+  { id: "map", noun: "circle" },
+  { id: "progression", noun: "role" },
+  { id: "quests", noun: "quest" },
+];
+
 export default function VillageMap() {
   const modules = useModules();
   const mapModule = useModule("map");
+  const { modules: exampleModules } = useExampleModules();
   const [data, setData] = useState<MapData | null>(null);
   const [denied, setDenied] = useState(false);
   const [selected, setSelected] = useState<Selection>(null);
@@ -91,7 +110,9 @@ export default function VillageMap() {
             Circles of care, the roles that hold them, and the seats waiting for
             someone like you.
           </p>
-          <ExamplesBanner moduleId="map" noun="circle" />
+          {EXAMPLE_SETS.filter((s) => exampleModules.includes(s.id)).map((s) => (
+            <ExamplesBanner key={s.id} moduleId={s.id} noun={s.noun} />
+          ))}
           {/* The map is where returning founders land, so the walk offers
               itself here rather than waiting to be searched for. */}
           <div className="max-w-2xl mx-auto text-left mt-4">
@@ -370,9 +391,16 @@ function NodeTitle({ data, selected }: { data: MapData; selected: { kind: string
     : role?.circleId
       ? data.circles.find((c: any) => c.id === role.circleId)
       : null;
+  // Which node is open is the one place a marker is unambiguous, and the
+  // three sets retire separately, so the chip is per row rather than implied
+  // by whichever banners are up. Renders only once /api/map carries the flag.
+  const isExample = selected.kind === "role" ? role?.isExample : (circle as any)?.isExample;
   return (
     <div>
-      <h3 className="font-display text-lg font-bold text-foreground">{role?.name ?? circle?.name}</h3>
+      <h3 className="font-display text-lg font-bold text-foreground">
+        {role?.name ?? circle?.name}
+        {isExample && <ExampleChip className="ml-2 align-middle" />}
+      </h3>
       {role && circle && <p className="text-xs text-teal-deep">{circle.name}</p>}
     </div>
   );
@@ -458,7 +486,9 @@ function NodeDetail({ data, selected, onSelect }: {
             </div>
           )}
 
-          {role.vacant ? (
+          {/* Raising a hand on an example seat is refused server-side, so the
+              button is only there to be pressed and denied. */}
+          {role.isExample ? null : role.vacant ? (
             raising ? (
               <div className="space-y-2">
                 <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3}
@@ -528,7 +558,7 @@ function NodeDetail({ data, selected, onSelect }: {
                 {circleRoles.map((r) => (
                   <button key={r.id} onClick={() => onSelect?.({ kind: "role", id: r.id })}
                     className="w-full flex items-center justify-between text-left text-sm px-3 py-2 rounded-lg bg-muted/40 hover:bg-muted">
-                    <span>{r.name}</span>
+                    <span>{r.name}{r.isExample && <ExampleChip className="ml-1.5 align-middle" />}</span>
                     {r.vacant ? (
                       <span className="text-[10px] bg-amber/20 text-amber-700 px-1.5 py-0.5 rounded-full">open call</span>
                     ) : (
@@ -572,6 +602,7 @@ function CircleAccordion({ data, onSelect }: { data: MapData; onSelect: (s: any)
               <span className="font-semibold text-foreground text-sm">
                 {c.name}
                 {c.status === "forming" && <span className="ml-2 text-xs text-muted-foreground">(forming)</span>}
+                {c.isExample && <ExampleChip className="ml-2 align-middle" />}
               </span>
               <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
             </button>
@@ -581,7 +612,7 @@ function CircleAccordion({ data, onSelect }: { data: MapData; onSelect: (s: any)
                 {roles.map((r) => (
                   <button key={r.id} onClick={() => onSelect({ kind: "role", id: r.id })}
                     className="w-full flex items-center justify-between text-left text-sm px-3 py-2 rounded-lg bg-muted/40 hover:bg-muted">
-                    <span>{r.name}</span>
+                    <span>{r.name}{r.isExample && <ExampleChip className="ml-1.5 align-middle" />}</span>
                     {r.vacant ? (
                       <span className="text-[10px] bg-amber/20 text-amber-700 px-1.5 py-0.5 rounded-full">open call</span>
                     ) : (

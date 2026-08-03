@@ -10,7 +10,7 @@ const API_BASE = "/api";
 import TypographyPanel from "@/components/TypographyPanel";
 import LookPanel from "@/components/LookPanel";
 import IdentityPackPanel from "@/components/IdentityPackPanel";
-import { forgetExamplesCache } from "@/components/ExamplesBanner";
+import { ExampleChip, ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
 const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
 
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
@@ -2665,7 +2665,12 @@ function QuestsTab({ password }: { password: string }) {
             onClick={async () => {
               if (!adding.title.trim()) return toast.error("Give it a title");
               const d = await call("/admin/quests", adding);
-              if (d) { toast.success("Posted"); setAdding({ title: "", description: "", gratitude: "", circle: "" }); load(); }
+              if (d) {
+                forgetExamplesCache("quests");
+                toast.success("Posted");
+                setAdding({ title: "", description: "", gratitude: "", circle: "" });
+                load();
+              }
             }}
             className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
           >
@@ -2686,6 +2691,12 @@ function QuestsTab({ password }: { password: string }) {
               !== JSON.stringify({ t: q.title, de: q.description, g: q.gratitude, s: q.status });
             return (
               <div key={q.id} className="bg-white border border-gray-100 rounded-xl p-4">
+                {/* On a fresh fork the whole board is examples. Without the
+                    chip the admin found that out by editing one and reading
+                    the 409 the edit route answers. */}
+                {q.isExample && (
+                  <p className="mb-2"><ExampleChip /></p>
+                )}
                 <div className="grid sm:grid-cols-4 gap-2 items-end">
                   <label className="text-xs text-gray-500">Title
                     <input value={d.title ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, title: e.target.value } })} className={`${inputCls} w-full mt-1`} />
@@ -3087,8 +3098,21 @@ function ModulesTab({ password }: { password: string }) {
         headers: authHeaders(password, { "Content-Type": "application/json" }),
       });
       const d = await res.json();
-      if (!res.ok) toast.error(d.error || "Could not clear the examples");
-      else toast.success(`${mod.name}: ${d.removed} example row(s) cleared`);
+      if (!res.ok) {
+        toast.error(d.error || "Could not clear the examples");
+      } else {
+        toast.success(`${mod.name}: ${d.removed} example row(s) cleared`);
+        // The member-facing banner reads its own endpoint and would otherwise
+        // keep labelling a module whose rows this button just deleted, until
+        // whoever is on that page happened to reload it. Only on success: a
+        // partial pass leaves the rows AND the tombstone, so the label has to
+        // stay. Paired, because the route retires the pair: the forum and the
+        // feed share a table and a category, so clearing one alone left the
+        // other's rows on the same page with the banner already gone.
+        // `confirmed` because this answer IS the server's, awaited: there is
+        // nothing left to reconcile with a poll.
+        forgetExamplesCache(mod.id, { confirmed: true });
+      }
       load();
     } catch { toast.error("Could not clear the examples"); }
     setBusy("");
@@ -3129,10 +3153,10 @@ function ModulesTab({ password }: { password: string }) {
               <p className="font-medium">Some modules are showing standing examples.</p>
               <p className="mt-1 text-xs leading-relaxed">
                 Platform-authored content so a module is never empty when you first
-                open it. It cannot be borrowed, booked, bought or replied to, and it
-                clears itself the moment you publish something real there. Clear it
-                early if you would rather start from nothing. Either way it is gone
-                for good.
+                open it. Nobody in this village made it, nothing anyone does to it
+                takes effect, and it clears itself the moment you publish something
+                real there. Clear it early if you want to start from nothing. Either
+                way it is gone for good.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {showingExamples.map((m: any) => (
@@ -3267,6 +3291,8 @@ function CirclesMapTab({ password }: { password: string }) {
     if (!res.ok) return toast.error(d.error || "Create failed");
     toast.success("Circle created");
     setNewCircle({ name: "", purpose: "" });
+    // The village's first real circle retires the map's examples server-side.
+    forgetExamplesCache("map");
     load();
   };
 
@@ -3292,6 +3318,9 @@ function CirclesMapTab({ password }: { password: string }) {
       body: JSON.stringify({ circleId }),
     });
     if (!res.ok) return toast.error("Assignment failed");
+    // Progression's declared trigger is a real role edited into existence,
+    // and this is the only role-mutation route in the admin.
+    forgetExamplesCache("progression");
     load();
   };
 
@@ -3325,7 +3354,10 @@ function CirclesMapTab({ password }: { password: string }) {
               <div key={c.id} className="border border-gray-200 rounded-xl p-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <h3 className="font-semibold text-gray-900 text-sm">{c.name} <span className="text-xs text-gray-400 font-mono">{c.id}</span></h3>
+                    <h3 className="font-semibold text-gray-900 text-sm">
+                      {c.name} <span className="text-xs text-gray-400 font-mono">{c.id}</span>
+                      {(c as any).isExample && <ExampleChip className="ml-2 align-middle" />}
+                    </h3>
                     <p className="text-xs text-gray-500">{c.purpose}</p>
                   </div>
                   <span className="text-[10px] uppercase tracking-wide text-gray-400">{c.status}</span>
@@ -3359,7 +3391,10 @@ function CirclesMapTab({ password }: { password: string }) {
             <div className="space-y-1.5">
               {roles.map((r: any) => (
                 <div key={r.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="text-gray-700">{r.name}</span>
+                  <span className="text-gray-700">
+                    {r.name}
+                    {r.isExample && <ExampleChip className="ml-2 align-middle" />}
+                  </span>
                   <select
                     defaultValue={(r as any).circleId ?? ""}
                     onChange={(e) => assignRole(r.id, e.target.value)}
@@ -3544,6 +3579,7 @@ function ToolsAdminTab({ password }: { password: string }) {
                   <tr key={t.id} className={`border-t border-gray-100 ${t.enabled === false ? "opacity-50" : ""}`}>
                     <td className="px-4 py-2.5">
                       <span className="font-medium text-gray-900">{t.name}</span>
+                      {t.isExample && <ExampleChip className="ml-2 align-middle" />}
                       <div className="text-xs text-gray-400">{t.purpose}</div>
                     </td>
                     <td className="px-4 py-2.5 text-xs text-gray-600">
@@ -3773,6 +3809,7 @@ function StaysAdminTab({ password }: { password: string }) {
               <div className="flex items-center justify-between mb-2">
                 <p className="font-medium text-gray-900">
                   {a.name} {!a.active && <span className="text-xs text-gray-400">(inactive)</span>}
+                  {a.isExample && <ExampleChip className="ml-2 align-middle" />}
                   {/* Capacity was recorded and never shown anywhere. A flag,
                       not a block: whoever activates a stay is the one who
                       knows whether the room is really full. */}
@@ -3780,12 +3817,18 @@ function StaysAdminTab({ password }: { password: string }) {
                     {a.activeStays ?? 0} of {a.capacity} {a.overCapacity ? "over capacity" : "in residence"}
                   </span>
                 </p>
-                <button
-                  onClick={async () => { const d = await post(`/admin/stays/accommodations/${a.id}`, { active: !a.active }, "PUT"); if (d) load(); }}
-                  className="text-xs text-gray-500 hover:text-gray-900"
-                >
-                  {a.active ? "Deactivate" : "Activate"}
-                </button>
+                {/* Both write routes refuse an example room, and the price one
+                    would otherwise have deactivated every posted rate before
+                    it got to the refusal. The controls come off so the founder
+                    learns that from the row, not from a 409 after typing. */}
+                {!a.isExample && (
+                  <button
+                    onClick={async () => { const d = await post(`/admin/stays/accommodations/${a.id}`, { active: !a.active }, "PUT"); if (d) load(); }}
+                    className="text-xs text-gray-500 hover:text-gray-900"
+                  >
+                    {a.active ? "Deactivate" : "Activate"}
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end">
                 {[
@@ -3799,15 +3842,24 @@ function StaysAdminTab({ password }: { password: string }) {
                     <input
                       type="number" min={0} step={k.startsWith("u") ? "0.01" : "1"}
                       value={priceDraft[a.id]?.[k] ?? cur ?? ""}
+                      disabled={a.isExample}
                       onChange={(e) => setPriceDraft((p) => ({ ...p, [a.id]: { ...(p[a.id] ?? {}), [k]: e.target.value } }))}
-                      className={`${inputCls} w-full mt-1`}
+                      className={`${inputCls} w-full mt-1 disabled:bg-gray-50 disabled:text-gray-400`}
                     />
                   </label>
                 ))}
               </div>
-              <button onClick={() => savePrices(a)} className="mt-2 text-sm text-[#2D5A5A] font-medium hover:underline">
-                Post prices
-              </button>
+              {a.isExample ? (
+                <p className="mt-2 text-xs text-amber-700">
+                  A standing example. Its posted rates are here to show what the
+                  module does, and nothing you do to them takes effect. Add your
+                  own room to clear the examples.
+                </p>
+              ) : (
+                <button onClick={() => savePrices(a)} className="mt-2 text-sm text-[#2D5A5A] font-medium hover:underline">
+                  Post prices
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -4216,11 +4268,22 @@ function ExchangeAdminTab({ password }: { password: string }) {
             const s: any = settingsBySlug.get(t.slug);
             const price = data?.latestPrices?.[t.slug];
             const stock = data?.stock?.[t.slug] ?? 0;
+            // No example branch here on purpose. listableTokens() filters
+            // them out and drops the flag, so `t.isExample` was always
+            // undefined and the branch that read it was dead code. The filter
+            // is the safer half of the pair: this list also feeds the "stock
+            // the treasury" picker below, and stocking an example token writes
+            // real ledger rows against a slug retirement then deletes, which
+            // refuses the NEXT boot. The example token is shown, with a chip,
+            // in the Tokens table, which reads the unfiltered registry.
+            const locked = !!t.reason;
             return (
               <div key={t.slug} className="border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div>
-                    <p className="font-medium text-gray-900">{t.name} <span className="text-xs text-gray-400">({t.slug} · {t.kind})</span></p>
+                    <p className="font-medium text-gray-900">
+                      {t.name} <span className="text-xs text-gray-400">({t.slug} · {t.kind})</span>
+                    </p>
                     {t.reason ? (
                       <p className="text-xs text-amber-700 mt-0.5">{t.reason}</p>
                     ) : (
@@ -4230,11 +4293,17 @@ function ExchangeAdminTab({ password }: { password: string }) {
                       </p>
                     )}
                   </div>
-                  {!t.reason && (
+                  {!locked && (
                     <button
                       onClick={async () => {
                         const d = await call(`/admin/exchange/tokens/${t.slug}`, { purchasable: !s?.purchasable }, "PUT");
-                        if (d) { toast.success(s?.purchasable ? "Delisted" : "Listed"); load(); }
+                        if (d) {
+                          // Listing a real token is the exchange's other
+                          // retirement trigger, beside creating one.
+                          forgetExamplesCache("exchange");
+                          toast.success(s?.purchasable ? "Delisted" : "Listed");
+                          load();
+                        }
                       }}
                       className={`text-sm rounded-lg px-3 py-1.5 font-medium ${s?.purchasable ? "bg-gray-100 text-gray-600" : "bg-[#2D5A5A] text-white"}`}
                     >
@@ -4242,7 +4311,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                     </button>
                   )}
                 </div>
-                {!t.reason && (
+                {!locked && (
                   <div className="mt-3 flex flex-wrap items-end gap-2">
                     <label className="text-xs text-gray-500">Price (USD each)
                       <input type="number" step="0.01" min="0" value={priceForm[t.slug]?.usd ?? ""}
@@ -4270,7 +4339,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                 )}
                 {/* Swapping (v2). Refuses MORE than buying: a token any faucet
                     has paid a member cannot be swapped, however it was earned. */}
-                {!t.reason && (
+                {!locked && (
                   <div className="mt-3 border-t border-gray-100 pt-3">
                     {data?.swapReasons?.[t.slug] ? (
                       <p className="text-xs text-amber-700">Not swappable: {data.swapReasons[t.slug]}</p>
@@ -4295,7 +4364,9 @@ function ExchangeAdminTab({ password }: { password: string }) {
                                 maxSwapOutPerCycle: Number(f.perCycle ?? s?.maxSwapOutPerCycle ?? 0),
                                 maxSwapOutPerMemberPerCycle: Number(f.perMember ?? s?.maxSwapOutPerMemberPerCycle ?? 0),
                               }, "PUT");
-                              if (d) { toast.success(s?.swappable ? "Caps saved" : "Swapping opened"); load(); }
+                              // Same route, same trigger: any settings write
+                              // on a real token retires the example market.
+                              if (d) { forgetExamplesCache("exchange"); toast.success(s?.swappable ? "Caps saved" : "Swapping opened"); load(); }
                             }}
                             className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium"
                           >
@@ -4305,7 +4376,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                             <button
                               onClick={async () => {
                                 const d = await call(`/admin/exchange/tokens/${t.slug}`, { swappable: false }, "PUT");
-                                if (d) { toast.success("Swapping closed"); load(); }
+                                if (d) { forgetExamplesCache("exchange"); toast.success("Swapping closed"); load(); }
                               }}
                               className="text-sm text-gray-600 bg-gray-100 rounded-lg px-3 py-1.5 font-medium"
                             >
@@ -4554,6 +4625,7 @@ function BadgesAdminTab({ password }: { password: string }) {
                 <div>
                   <p className="text-sm font-medium text-gray-900">
                     {b.name} <span className="text-xs text-gray-400">({b.kind})</span>
+                    {b.isExample && <ExampleChip className="ml-2 align-middle" />}
                   </p>
                   <p className="text-xs text-gray-500">
                     {b.kind === "earned" && b.rule ? `at ${b.rule.threshold} ${String(b.rule.metric).replace(/_/g, " ")}${b.rule.stackable ? ` · stacks ×${b.rule.maxStack}` : ""} · ` : ""}
@@ -4843,6 +4915,7 @@ function LibraryAdminTab({ password }: { password: string }) {
           onClick={async () => {
             const d = await call("/admin/library/intake", { ...intake, appraisal: Number(intake.appraisal), categoryId: intake.categoryId || null, photoUrl: intake.photoUrl || null });
             if (d) {
+              forgetExamplesCache("library");
               toast.success(d.pendingSecondSignoff ? "Recorded. Awaiting a second steward's sign-off" : `Recorded: ${d.award} credit(s) awarded`);
               setIntake({ name: "", description: "", categoryId: "", appraisal: "", donorUserId: "", minStage: "", photoUrl: "" });
               load();
@@ -4874,7 +4947,10 @@ function LibraryAdminTab({ password }: { password: string }) {
             <tbody>
               {(data?.items ?? []).map((i: any) => (
                 <tr key={i.id} className="border-t border-gray-50">
-                  <td className="py-2 pr-3 font-medium text-gray-900">{i.name}</td>
+                  <td className="py-2 pr-3 font-medium text-gray-900">
+                    {i.name}
+                    {i.isExample && <ExampleChip className="ml-2 align-middle" />}
+                  </td>
                   <td className="py-2 pr-3">{i.creditValue}</td>
                   <td className={`py-2 pr-3 ${i.status === "intake_pending" ? "text-amber-700 font-medium" : ""}`}>{i.status.replace(/_/g, " ")}</td>
                   <td className="py-2 pr-3 text-gray-500">{players.find((p: any) => p.id === i.donorUserId)?.name ?? "-"}</td>
@@ -4987,6 +5063,7 @@ function HealthAdminTab({ password }: { password: string }) {
       if (!res.ok) throw new Error(d.error || "failed");
       toast.success("Recorded on the land's ledger");
       setForm({ ...form, value: "", note: "" });
+      forgetExamplesCache("health");
       load();
     } catch (e: any) { toast.error(e?.message || "Failed"); }
   };
@@ -5349,6 +5426,13 @@ function CallsAdminTab({ password }: { password: string }) {
   }
   if (loading && !data) return <p className="text-sm text-gray-500">Loading…</p>;
 
+  // Recordings come back mapped (camelCase); syntheses and tasks are raw
+  // rows. Read both spellings so the marker does not hinge on which payload
+  // a row arrived through, and treat MySQL's 1 as the true it is.
+  const flagged = (row: any): boolean =>
+    row?.isExample === true || row?.is_example === true || row?.is_example === 1;
+  const exampleDetail = flagged(detail?.recording) || flagged(detail?.synthesis);
+
   return (
     <div className="space-y-8">
       <div>
@@ -5358,6 +5442,10 @@ function CallsAdminTab({ password }: { password: string }) {
           a verbatim quote and timestamp from the tape; publishing and every
           decision stay human.
         </p>
+        {/* The seeded recording, its synthesis and its tasks render here with
+            every button a real one has, and each of those buttons 409s. Say
+            so once at the top and mark the rows below. */}
+        <ExamplesBanner moduleId="automation" noun="recording" layout="mt-3 max-w-2xl text-left" />
         {!data?.assistantConfigured && (
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2 inline-block">
             The assistant is not configured (ANTHROPIC_API_KEY). Ingestion and
@@ -5431,7 +5519,12 @@ function CallsAdminTab({ password }: { password: string }) {
           <button
             onClick={async () => {
               const d = await call("/admin/recordings", form);
-              if (d) { toast.success(`Ingested (${d.segments} segment(s))`); setForm({ title: "", url: "", transcript: "" }); load(); }
+              if (d) {
+                forgetExamplesCache("automation");
+                toast.success(`Ingested (${d.segments} segment(s))`);
+                setForm({ title: "", url: "", transcript: "" });
+                load();
+              }
             }}
             disabled={!form.title.trim()}
             className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
@@ -5448,7 +5541,10 @@ function CallsAdminTab({ password }: { password: string }) {
           {(data?.recordings ?? []).map((r: any) => (
             <button key={r.id} onClick={() => setSelected(selected === r.id ? "" : r.id)}
               className={`w-full text-left flex items-center justify-between border rounded-lg px-4 py-2.5 text-sm ${selected === r.id ? "border-[#2D5A5A] bg-[#2D5A5A]/5" : "border-gray-200 hover:bg-gray-50"}`}>
-              <span className="font-medium text-gray-900">{r.title} <span className="text-xs text-gray-400">({r.source})</span></span>
+              <span className="font-medium text-gray-900">
+                {r.title} <span className="text-xs text-gray-400">({r.source})</span>
+                {flagged(r) && <ExampleChip className="ml-2 align-middle" />}
+              </span>
               <span className={`text-xs px-2 py-0.5 rounded-full ${r.status === "published" ? "bg-emerald-50 text-emerald-700" : r.status === "synthesized" ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-500"}`}>
                 {r.status}{r.synthesis?.dropped_task_count > 0 ? ` · ${r.synthesis.dropped_task_count} dropped` : ""}
               </span>
@@ -5462,12 +5558,15 @@ function CallsAdminTab({ password }: { password: string }) {
       {detail && (
         <div className="bg-white border border-gray-100 rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <h3 className="font-semibold text-gray-900">{detail.recording.title}</h3>
-            {!detail.synthesis && detail.transcript && (
+            <h3 className="font-semibold text-gray-900">
+              {detail.recording.title}
+              {exampleDetail && <ExampleChip className="ml-2 align-middle" />}
+            </h3>
+            {!exampleDetail && !detail.synthesis && detail.transcript && (
               <button onClick={async () => { const d = await call(`/admin/recordings/${detail.recording.id}/synthesize`); if (d) { toast.success(`${d.tasks} task(s) kept, ${d.dropped} dropped by the evidence rule`); load(); loadDetail(selected); } }}
                 className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Synthesize</button>
             )}
-            {detail.synthesis && !detail.synthesis.published_at && (
+            {!exampleDetail && detail.synthesis && !detail.synthesis.published_at && (
               <button onClick={async () => { const d = await call(`/admin/syntheses/${detail.synthesis.id}/publish`); if (d) { toast.success(`Published: ${d.notified} role-holder(s) notified`); load(); loadDetail(selected); } }}
                 className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Publish to forum</button>
             )}
@@ -5489,9 +5588,9 @@ function CallsAdminTab({ password }: { password: string }) {
                 <div>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Your edit (what actually publishes)</p>
                   <textarea rows={10} value={bodyDraft} onChange={(e) => setBodyDraft(e.target.value)}
-                    disabled={!!detail.synthesis.published_at}
+                    disabled={!!detail.synthesis.published_at || exampleDetail}
                     className={`${inputCls} w-full`} />
-                  {!detail.synthesis.published_at && (
+                  {!detail.synthesis.published_at && !exampleDetail && (
                     <button onClick={async () => { const d = await call(`/admin/syntheses/${detail.synthesis.id}/body`, { body: bodyDraft }, "PUT"); if (d) { toast.success("Saved"); loadDetail(selected); } }}
                       className="mt-1 text-sm text-[#2D5A5A] font-medium hover:underline">Save edit</button>
                   )}
@@ -5512,7 +5611,8 @@ function CallsAdminTab({ password }: { password: string }) {
                         <p className="text-sm font-medium text-gray-900">{t.description}</p>
                         <span className="flex items-center gap-2">
                           {t.role_id && <span className="text-xs bg-teal-deep/10 text-teal-deep px-2 py-0.5 rounded-full">{t.role_id}</span>}
-                          {t.status === "suggested" ? (
+                          {flagged(t) && <ExampleChip />}
+                          {t.status === "suggested" && !flagged(t) && !exampleDetail ? (
                             <>
                               <button onClick={async () => { const d = await call(`/admin/call-tasks/${t.id}/accept`); if (d) loadDetail(selected); }}
                                 className="text-xs text-emerald-700 font-medium hover:underline">Accept</button>
@@ -5576,6 +5676,8 @@ function TokensTab({ password }: { password: string }) {
       if (!res.ok) throw new Error(data.error || "failed");
       toast.success(`Token "${data.token?.name}" created`);
       setForm({ slug: "", name: "", kind: "credit", transferable: false });
+      // The village minting its own token is what retires the example market.
+      forgetExamplesCache("exchange");
       load();
     } catch (e: any) { toast.error(e?.message || "Create failed"); }
   };
@@ -5611,7 +5713,9 @@ function TokensTab({ password }: { password: string }) {
     } catch (e: any) { toast.error(e?.message || "Mint failed"); }
   };
 
-  const platformTokens = tokens.filter((t) => t.governance === "platform");
+  // Minting into an example token is refused, and no ledger row exists for
+  // one, so it never belongs in the mint picker.
+  const platformTokens = tokens.filter((t) => t.governance === "platform" && !t.isExample);
 
   return (
     <div>
@@ -5658,7 +5762,12 @@ function TokensTab({ password }: { password: string }) {
                         <>
                           <span className="font-medium text-gray-900">{t.name}</span>{" "}
                           <span className="text-xs text-gray-400 font-mono">{t.slug}</span>
-                          {t.governance === "platform" && (
+                          {t.isExample && <ExampleChip className="ml-2 align-middle" />}
+                          {/* Rename, mint and stock are all refused on a
+                              seeded token. Without the chip an example token
+                              is indistinguishable from a real one here, which
+                              is the registry telling the founder a lie. */}
+                          {t.governance === "platform" && !t.isExample && (
                             <button onClick={() => setRenaming({ slug: t.slug, name: t.name })}
                               className="ml-2 text-xs text-[#2D5A5A] underline">rename</button>
                           )}
@@ -6940,6 +7049,8 @@ function ProductsAdminTab({ password }: { password: string }) {
                   <div>
                     <p className="text-sm font-medium text-gray-900">
                       {p.name} <span className="text-xs text-gray-400">({p.kind}{p.recurring !== "none" ? ` · ${p.recurring}ly` : ""} · {p.provider})</span>
+                      {/* The payload is SELECT *, so the flag is snake-cased. */}
+                      {!!p.is_example && <ExampleChip className="ml-2 align-middle" />}
                     </p>
                     <p className="text-xs text-gray-500">
                       {money(p.amount_minor)}
@@ -6992,7 +7103,12 @@ function ProductsAdminTab({ password }: { password: string }) {
               <button
                 onClick={async () => {
                   const body = { ...f, amountMinor: f.amountMinor === "" ? null : Math.round(Number(f.amountMinor) * 100), minAmountMinor: Math.round(Number(f.minAmountMinor) || 500), tokenAmount: f.tokenAmount ? Number(f.tokenAmount) : undefined, tokenSlug: f.tokenSlug || undefined };
-                  if (await call("/admin/products", body)) { toast.success("Product created"); setF({ ...f, name: "", description: "", amountMinor: "" }); load(); }
+                  if (await call("/admin/products", body)) {
+                    forgetExamplesCache("commerce");
+                    toast.success("Product created");
+                    setF({ ...f, name: "", description: "", amountMinor: "" });
+                    load();
+                  }
                 }}
                 disabled={f.name.trim().length < 3}
                 className="col-span-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"

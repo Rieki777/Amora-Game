@@ -66,6 +66,12 @@ export interface LibraryItem {
   requiresRole: string | null;
   donorUserId: string | null;
   intakeSignedBy: string | null;
+  /**
+   * A standing example. The read is `SELECT *`, so the row always carried it
+   * and this mapper always dropped it — which left the admin shelf table
+   * mixing seeded items with the village's own donations under no marker.
+   */
+  isExample: boolean;
 }
 
 export interface LibraryLoan {
@@ -90,6 +96,7 @@ function rowToItem(r: RowDataPacket): LibraryItem {
     status: r.status, healthBp: Number(r.health_bp ?? 10000), creditValue: Number(r.credit_value ?? 0),
     minStage: r.min_stage ?? null, requiresRole: r.requires_role ?? null,
     donorUserId: r.donor_user_id ?? null, intakeSignedBy: r.intake_signed_by ?? null,
+    isExample: Number(r.is_example ?? 0) === 1,
   };
 }
 

@@ -15,6 +15,7 @@ import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
 import { dbCollection } from "../repos/store-db";
 import {
   EXAMPLE_TABLES,
+  exampleState,
   hasRealContent,
   isRetired,
   isSeeded,
@@ -22,6 +23,7 @@ import {
   loadExampleState,
   modulesWithExamples,
   retireExamples,
+  retireExamplesWithPair,
   seedExamples,
   wireExampleCaches,
 } from "./examples";
@@ -31,6 +33,43 @@ if (!configured) {
   // eslint-disable-next-line no-console
   console.warn("[examples.test] TEST_DATABASE_URL not set — DB-backed tests SKIPPED.");
 }
+
+const SEEDS_DIR = new URL("../seeds", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+
+/**
+ * No database, so it runs everywhere — which matters, because the badge
+ * definitions had no validation at all: badgeProblem was never run against
+ * them, and assertBadgeInvariants skips examples on purpose (it runs BEFORE
+ * the seeder, so a row it rejected would land quietly on one boot and brick
+ * the next). A definition the platform would refuse to create must not ship
+ * as the thing teaching a founder what a badge is.
+ */
+describe("example badge definitions", () => {
+  it("would every one of them be accepted by the badge write path", async () => {
+    const { badgeProblem } = await import("./badges");
+    const seed = loadExampleSeed(SEEDS_DIR);
+    expect(seed, "examples-seed.json must be readable").toBeTruthy();
+    const badges = seed?.badges?.badges ?? [];
+    expect(badges.length, "the badges block must carry definitions").toBeGreaterThan(0);
+    for (const b of badges) {
+      const problem = badgeProblem({
+        kind: String(b.kind),
+        capabilities: (b.capabilities ?? []).map(String),
+        denies: (b.denies ?? []).map(String),
+        rule: b.rule ?? null,
+      });
+      expect(problem, `badge "${b.id}": ${problem}`).toBeNull();
+    }
+  });
+
+  it("puts an award on no warning badge, where it would be open state", () => {
+    const seed = loadExampleSeed(SEEDS_DIR);
+    for (const b of seed?.badges?.badges ?? []) {
+      if (b.kind !== "warning") continue;
+      expect((b.awards ?? []).length, `"${b.id}" is a warning and may hold no award`).toBe(0);
+    }
+  });
+});
 
 describe.skipIf(!configured)("standing examples", () => {
   let db: TestDb;
@@ -103,11 +142,16 @@ describe.skipIf(!configured)("standing examples", () => {
       "SELECT COUNT(*) n FROM badge_awards WHERE is_example = 1",
     );
     expect(Number(awards[0].n), "the seed demonstrates held badges").toBeGreaterThan(0);
-    const [leaked] = await pool.query<any[]>(
-      "SELECT COUNT(*) n FROM badge_awards a JOIN users u ON u.id = a.user_id " +
-        "WHERE a.is_example = 1 AND u.is_example = 0",
+    // LEFT JOIN, not JOIN. An inner join can only ever see awards whose holder
+    // EXISTS, so with badges missing from NEEDS_IDENTITIES the awards pointed
+    // at users nobody had created, the holders demo rendered empty, and this
+    // assertion passed over zero rows. Both failures now fail: a real holder,
+    // and a holder who is not there at all.
+    const [bad] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM badge_awards a LEFT JOIN users u ON u.id = a.user_id " +
+        "WHERE a.is_example = 1 AND NOT (u.id IS NOT NULL AND u.is_example = 1)",
     );
-    expect(Number(leaked[0].n), "no example award may touch a real user").toBe(0);
+    expect(Number(bad[0].n), "every example award must be held by an example identity that exists").toBe(0);
     const [onWarning] = await pool.query<any[]>(
       "SELECT COUNT(*) n FROM badge_awards a JOIN badges b ON b.id = a.badge_id " +
         "WHERE a.is_example = 1 AND b.kind = 'warning'",
@@ -245,6 +289,58 @@ describe.skipIf(!configured)("standing examples", () => {
     expect(modulesWithExamples()).not.toContain("forum");
   });
 
+  it("clears forum and feed together, so neither is left unlabelled", async () => {
+    // The pair share forum_threads AND the feed's category, and the forum's
+    // "All" tab sends no category at all. Retiring one alone therefore dropped
+    // its banner and left the OTHER module's rows rendering on the same page
+    // with no label: platform fiction presented as village content. The admin
+    // clear button used to call retireExamples directly and reproduce exactly
+    // that, which is what this helper closes.
+    await seedExamples(pool, "forum", seed, { force: true });
+    await seedExamples(pool, "feed", seed, { force: true });
+
+    const outcome = await retireExamplesWithPair(pool, "forum", "admin_cleared");
+    expect(outcome.retired, "both passes must succeed before it reports success").toBe(true);
+
+    const [[left]] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM forum_threads WHERE is_example = 1",
+    );
+    expect(Number(left.n), "no example thread of either module may survive").toBe(0);
+    expect(isRetired("forum")).toBe(true);
+    expect(isRetired("feed"), "the twin's tombstone is stamped too").toBe(true);
+    expect(modulesWithExamples()).not.toContain("forum");
+    expect(modulesWithExamples()).not.toContain("feed");
+  });
+
+  it("counts a failed admin clear against nothing, so the escape hatch stays open", async () => {
+    // RETIRE_CEILING governs the AUTOMATIC trigger only: the clear button IS
+    // the person, and it is the only way back once the automatic path has
+    // given up. Counting its failures let five unlucky presses switch off
+    // first_real_item retirement for that module for good.
+    await seedExamples(pool, "exchange", seed, { force: true });
+    await pool.query(
+      "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, idempotency_key) " +
+        "VALUES ('tl-ex-ceiling','sys:mint','sys:treasury','ex-credits',5,'exchange_stock','tl-ex-ceiling')",
+    );
+    try {
+      for (let i = 0; i < 6; i++) {
+        const outcome = await retireExamples(pool, "exchange", "admin_cleared");
+        expect(outcome.retired, "the ledger row keeps every pass from finishing").toBe(false);
+      }
+      expect(
+        exampleState("exchange")?.retireAttempts,
+        "an admin_cleared failure must not spend the automatic path's budget",
+      ).toBe(0);
+
+      // And the automatic path is still willing to try, which is the fact the
+      // counter would otherwise have destroyed.
+      await retireExamples(pool, "exchange", "first_real_item");
+      expect(exampleState("exchange")?.retireAttempts).toBe(1);
+    } finally {
+      await pool.query("DELETE FROM token_ledger WHERE id = 'tl-ex-ceiling'");
+    }
+  });
+
   it("reads health's real content from the land's ledger, not the snapshot spine", async () => {
     // snapshotCycle writes health_snapshots on every cycle close whether or
     // not the module is on, so counting those rows meant a village that had
@@ -267,6 +363,98 @@ describe.skipIf(!configured)("standing examples", () => {
     for (const r of rows) {
       expect(r.password_hash ?? "").toBe("");
       expect(String(r.email)).toContain("@examples.invalid");
+    }
+  });
+
+  it("brings the identities into existence when badges is the only module on", async () => {
+    // badges carries AWARDS, and an award names a holder. Enabling badges
+    // alone used to seed award rows pointing at users that did not exist:
+    // the holders list rendered empty and every JOIN-based leak check passed
+    // over nothing. beforeEach deletes the example users, so this is the
+    // badges-alone path exactly.
+    await seedExamples(pool, "badges", seed, { force: true });
+
+    const [users] = await pool.query<any[]>("SELECT COUNT(*) n FROM users WHERE is_example = 1");
+    expect(Number(users[0].n), "the awards need holders").toBeGreaterThan(0);
+    const [orphans] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM badge_awards a LEFT JOIN users u ON u.id = a.user_id " +
+        "WHERE a.is_example = 1 AND u.id IS NULL",
+    );
+    expect(Number(orphans[0].n), "an award whose holder does not exist demonstrates nothing").toBe(0);
+  });
+
+  it("takes the exchange's listings and prices with the token, however they are flagged", async () => {
+    await seedExamples(pool, "exchange", seed, { force: true });
+    // What one click on the purchasable toggle used to do: upsertSettings
+    // writes is_example = 0 on every write, which is right for a real slug
+    // sharing the key with an example listing and wrong for an example TOKEN.
+    // Retirement then deleted the token and left the listing, and the next
+    // boot's assertExchangeFirewalls refused to serve on an unregistered one.
+    await pool.query("UPDATE token_exchange_settings SET is_example = 0 WHERE token_slug = 'ex-credits'");
+    await pool.query("UPDATE currency_prices SET is_example = 0 WHERE token_slug = 'ex-credits'");
+
+    const outcome = await retireExamples(pool, "exchange", "first_real_item");
+    expect(outcome.retired).toBe(true);
+
+    const [tokens] = await pool.query<any[]>("SELECT COUNT(*) n FROM tokens WHERE is_example = 1");
+    expect(Number(tokens[0].n)).toBe(0);
+    const [orphanListings] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM token_exchange_settings s LEFT JOIN tokens t ON t.slug = s.token_slug WHERE t.slug IS NULL",
+    );
+    expect(Number(orphanListings[0].n), "a listing may never outlive its token").toBe(0);
+    const [orphanPrices] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM currency_prices c LEFT JOIN tokens t ON t.slug = c.token_slug WHERE t.slug IS NULL",
+    );
+    expect(Number(orphanPrices[0].n), "a price may never outlive its token").toBe(0);
+  });
+
+  it("keeps an example token that has ledger rows, and says it did not retire", async () => {
+    // Belt and braces for the boot gate: checkLedgerInvariants fails loud on
+    // "ledger rows exist for unregistered token", so deleting a registry row
+    // with transfers behind it turns the founder's first real listing into a
+    // deployment that will not start. Every write door refuses example tokens;
+    // this is what holds if one is ever missed or a row is hand-edited.
+    await seedExamples(pool, "exchange", seed, { force: true });
+    await pool.query(
+      "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, idempotency_key) " +
+        "VALUES ('tl-ex-guard','sys:mint','sys:treasury','ex-credits',5,'exchange_stock','tl-ex-guard')",
+    );
+    try {
+      const outcome = await retireExamples(pool, "exchange", "first_real_item");
+      expect(outcome.retired, "a failed sweep must not stamp the permanent tombstone").toBe(false);
+      expect(isRetired("exchange")).toBe(false);
+      const [kept] = await pool.query<any[]>("SELECT COUNT(*) n FROM tokens WHERE slug = 'ex-credits'");
+      expect(Number(kept[0].n), "the ledger would have nothing to point at").toBe(1);
+      const [orphaned] = await pool.query<any[]>(
+        "SELECT COUNT(*) n FROM token_ledger l LEFT JOIN tokens t ON t.slug = l.token_type WHERE t.slug IS NULL",
+      );
+      expect(Number(orphaned[0].n), "this is the count that refuses the next boot").toBe(0);
+    } finally {
+      await pool.query("DELETE FROM token_ledger WHERE id = 'tl-ex-guard'");
+    }
+  });
+
+  it("seeds forum and feed together or not at all", async () => {
+    // Retirement pairs them (RETIRE_TOGETHER) because they share a table AND a
+    // category. Seeding did not: forum's check was the whole of forum_threads
+    // and feed's was one category, so one real thread in `governance` marked
+    // forum decided-without-seeding while the feed happily seeded ex-feed-*
+    // into the shared category — unlabelled platform fiction on the forum's
+    // "All" tab, which is the failure RETIRE_TOGETHER exists to prevent.
+    await pool.query(
+      "INSERT INTO forum_threads (id, category, author_id, title, body, kind) " +
+        "VALUES ('real-thread-1','governance','usr-real','A real decision','The village decided.','decision')",
+    );
+    try {
+      expect(await hasRealContent(pool, "forum")).toBe(true);
+      expect(await hasRealContent(pool, "feed"), "the pair answers as one").toBe(true);
+
+      expect(await seedExamples(pool, "forum", seed)).toBe(0);
+      expect(await seedExamples(pool, "feed", seed)).toBe(0);
+      const [rows] = await pool.query<any[]>("SELECT COUNT(*) n FROM forum_threads WHERE is_example = 1");
+      expect(Number(rows[0].n)).toBe(0);
+    } finally {
+      await pool.query("DELETE FROM forum_threads WHERE id = 'real-thread-1'");
     }
   });
 });

@@ -20,7 +20,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Globe2, HandHeart, HelpingHand, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
+import { ExampleChip, ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -132,13 +132,19 @@ export default function Network() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <TypeBadge type={m.type} />
                     <p className="text-sm font-medium text-foreground">{m.title}</p>
+                    {/* Publishing a real share retires the module's examples,
+                        so the two can only overlap for as long as retirement
+                        takes. The row carries the flag anyway (SELECT s.*):
+                        the banner above is dropped optimistically, and this is
+                        what still tells the truth in that window. */}
+                    {!!m.is_example && <ExampleChip />}
                     {m.status === "closed" && <span className="text-[10px] text-muted-foreground uppercase">closed</span>}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{m.detail}</p>
                   <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground">
                     <span>{day(m.created_at)}</span>
                     {m.contact && <span>reach us: {m.contact}</span>}
-                    {canManage && (
+                    {canManage && !m.is_example && (
                       <button
                         onClick={async () => {
                           const d = await call(`/api/admin/network/share/${m.id}`, { method: "PUT", body: JSON.stringify({ status: m.status === "open" ? "closed" : "open" }) }, m.id);
@@ -206,6 +212,11 @@ export default function Network() {
                 <div key={p.peerId}>
                   <p className="text-xs font-semibold text-foreground mb-1.5">
                     {p.village}
+                    {/* Adding a real peer is not a retirement trigger, so a
+                        fictional village and a real one can sit in this list
+                        together under one banner calling everything on the
+                        page an example. The row says which is which. */}
+                    {p.isExample && <ExampleChip className="ml-1.5 align-middle" />}
                     <span className="text-muted-foreground font-normal">
                       {" "}· {p.lastSyncAt ? `heard ${day(p.lastSyncAt)}` : "not heard yet"}
                       {p.status === "paused" && " · paused"}

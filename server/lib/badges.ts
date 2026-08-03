@@ -250,9 +250,13 @@ export interface ExpiredWarning {
  */
 export async function sweepExpiredWarnings(pool: Pool): Promise<ExpiredWarning[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
+    // Example awards are skipped for the same reason gratitude and the contact
+    // relay skip example identities: the notification would be addressed to an
+    // account that can never sign in to read it.
     "SELECT a.id, a.user_id, a.expires_at, a.reissue_count, b.name FROM badge_awards a " +
       "JOIN badges b ON b.id = a.badge_id " +
-      "WHERE b.kind = 'warning' AND a.expires_at IS NOT NULL AND a.expires_at <= NOW() AND a.expiry_notified_at IS NULL",
+      "WHERE b.kind = 'warning' AND a.is_example = 0 " +
+      "AND a.expires_at IS NOT NULL AND a.expires_at <= NOW() AND a.expiry_notified_at IS NULL",
   );
   if (rows.length === 0) return [];
   await pool.query(
@@ -362,8 +366,13 @@ export async function evaluateEarnedBadges(pool: Pool): Promise<EvaluateResult> 
 /** Open state that blocks module-off: standing warnings are live governance. */
 export async function badgesOpenState(pool: Pool): Promise<{ count: number; description: string }> {
   const [[row]] = await pool.query<any[]>(
+    // An example award is never open state, whatever kind it sits on. The
+    // seeder refuses to put one on a warning, and that single line is all that
+    // stands between a seed edit and a badges module nobody can turn off —
+    // the exact trap standing examples exist to avoid.
     "SELECT COUNT(*) AS n FROM badge_awards a JOIN badges b ON b.id = a.badge_id " +
-      "WHERE b.kind = 'warning' AND b.active = 1 AND (a.expires_at IS NULL OR a.expires_at > NOW())",
+      "WHERE b.kind = 'warning' AND b.active = 1 AND a.is_example = 0 " +
+      "AND (a.expires_at IS NULL OR a.expires_at > NOW())",
   );
   return { count: Number(row.n), description: `${row.n} active warning badge(s)` };
 }

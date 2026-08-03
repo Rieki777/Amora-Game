@@ -13,7 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Calendar, Heart, Megaphone, MessageCircle, Sparkles, Send } from "lucide-react";
 import { Image } from "@/components/Image";
-import { ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
+import { ExampleChip, ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
 import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
@@ -94,6 +94,8 @@ export default function Feed() {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "Could not post");
         setDraft("");
+        // Drops the forum's label with it: the two are retired as a pair
+        // server-side (RETIRE_TOGETHER), and the helper keeps that rule.
         forgetExamplesCache("feed");
         load();
       })
@@ -187,6 +189,11 @@ export default function Feed() {
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
                   <span className="font-medium text-foreground">{item.author.name}</span>
                   {item.author.handle && <span>@{item.author.handle}</span>}
+                  {/* The lens is category-wide, so the forum's example threads
+                      appear here too. Once one of the pair has retired the hero
+                      banner is gone and the row's own flag is all that is left
+                      to say what the card is. */}
+                  {item.isExample && <ExampleChip />}
                   {item.kind === "announcement" && (
                     <span className="inline-flex items-center gap-1 text-[10px] bg-amber/20 text-amber-700 px-1.5 py-0.5 rounded-full">
                       <Megaphone className="w-3 h-3" /> announcement

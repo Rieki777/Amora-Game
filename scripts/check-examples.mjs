@@ -83,12 +83,16 @@ for (const t of ECONOMIC) {
 //   2. no example award sits on a warning badge (a warning award is open
 //      state and would wedge the module's off switch);
 //   3. no REAL award row exists on a virgin schema at all.
+// LEFT JOIN, not JOIN: an inner join can only ever see an award whose holder
+// EXISTS, so it reported clean over awards pointing at users nobody created —
+// which is exactly what enabling badges alone used to produce. A real holder
+// and a missing holder both have to count.
 const [[leak]] = await c.query(
-  "SELECT COUNT(*) n FROM badge_awards a JOIN users u ON u.id = a.user_id " +
-    "WHERE a.is_example = 1 AND u.is_example = 0",
+  "SELECT COUNT(*) n FROM badge_awards a LEFT JOIN users u ON u.id = a.user_id " +
+    "WHERE a.is_example = 1 AND NOT (u.id IS NOT NULL AND u.is_example = 1)",
 );
 if (leak.n > 0) violations++;
-console.log("\n  example awards held by REAL users: " + leak.n + (leak.n ? "  <-- VIOLATION" : "  OK"));
+console.log("\n  example awards without an example holder: " + leak.n + (leak.n ? "  <-- VIOLATION" : "  OK"));
 const [[warnAward]] = await c.query(
   "SELECT COUNT(*) n FROM badge_awards a JOIN badges b ON b.id = a.badge_id " +
     "WHERE a.is_example = 1 AND b.kind = 'warning'",
@@ -100,6 +104,44 @@ const [[realAward]] = await c.query(
 );
 if (realAward.n > 0) violations++;
 console.log("  real award rows (virgin schema): " + realAward.n + (realAward.n ? "  <-- VIOLATION" : "  OK"));
+
+// 4. Every capability and deny key on an example badge is a REAL registry key.
+// The gate silently ignores an unknown key, so a typo would demonstrate a
+// power that does not exist. This check went missing when the definitions
+// gained capabilities, which is the moment it started mattering.
+// Read as TEXT rather than imported: this is a plain .mjs prover and
+// shared/capabilities.ts is TypeScript, so `import` of it fails at runtime.
+const capsSrc = (() => {
+  try {
+    return fs.readFileSync(path.resolve(__dirname, "..", "shared", "capabilities.ts"), "utf8");
+  } catch { return ""; }
+})();
+const capsBlock = /export const ALL_CAPABILITIES[^=]*=\s*\[([\s\S]*?)\n\]/.exec(capsSrc);
+const ALL_CAPABILITIES = capsBlock
+  ? Array.from(capsBlock[1].matchAll(/"([^"]+)"/g)).map((m) => m[1])
+  : null;
+const [badgeDefs] = await c.query(
+  "SELECT id, capabilities, denies FROM badges WHERE is_example = 1",
+);
+if (!ALL_CAPABILITIES?.length) {
+  violations++;
+  console.log("  capability keys on example badges: COULD NOT READ shared/capabilities.ts  <-- VIOLATION");
+} else {
+  const known = new Set(ALL_CAPABILITIES);
+  let unknown = 0;
+  for (const b of badgeDefs) {
+    for (const field of ["capabilities", "denies"]) {
+      const raw = typeof b[field] === "string" ? JSON.parse(b[field] || "[]") : b[field] ?? [];
+      for (const key of raw) {
+        if (known.has(key)) continue;
+        unknown++;
+        console.log(`    ${b.id}.${field}: unknown key "${key}"`);
+      }
+    }
+  }
+  if (unknown > 0) violations++;
+  console.log("  unknown capability keys on example badges: " + unknown + (unknown ? "  <-- VIOLATION" : "  OK"));
+}
 
 const [ex] = await c.query(
   "SELECT module_id, retired_at FROM example_state WHERE seeded_at IS NOT NULL ORDER BY module_id",

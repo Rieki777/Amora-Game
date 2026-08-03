@@ -631,9 +631,15 @@
       "reach the capability gate for anyone real. Warning badges never get",
       "awards: a warning award is open state and would block module-off.",
       "Every capability key must exist in shared/capabilities.ts ALL_CAPABILITIES.",
-      "One award carries expiresInDays: trust lent for a season, shown on the card as",
+      "One award carries expiresInDays: trust lent for a year, shown on the card as",
       "a date and released by the same clock every read already honours. Never on a",
-      "WARNING badge: an unexpired warning award is open state and blocks module-off."
+      "WARNING badge: an unexpired warning award is open state and blocks module-off.",
+      "That expiry is a YEAR, and the length is a decision. It is minted forward from",
+      "seed time, and every read drops a lapsed award, so a season's worth silently",
+      "emptied the holders demo 54 days after a founder enabled badges, on an instance",
+      "whose whole point is that it has no real content yet. Nothing renews it: the",
+      "refresh one-shots are permanent per id. A year outlives realistic retirement,",
+      "so the card teaches lapsing trust without going blank on anyone."
     ],
     "badges": [
       {
@@ -658,7 +664,7 @@
         "kind": "granted",
         "icon": "shield",
         "active": true,
-        "description": "Carries the village's trust to moderate the forum, post announcements and record the land's measurements. Powers travel with the badge and leave with it, and this one is lent for a season.",
+        "description": "Carries the village's trust to moderate the forum, post announcements and record the land's measurements. Powers travel with the badge and leave with it, and this one is lent for a year.",
         "capabilities": [
           "forum.moderate",
           "feed.announce",
@@ -668,8 +674,8 @@
         "awards": [
           {
             "userId": "ex-user-mira",
-            "note": "Stewarding through the wet season. The village lends this for one season at a time.",
-            "expiresInDays": 54
+            "note": "Stewarding through the wet season. The village lends this for one year at a time.",
+            "expiresInDays": 365
           }
         ]
       },

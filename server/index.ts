@@ -217,6 +217,7 @@ import {
   wireModuleAuth,
 } from "./lib/modules";
 import {
+  EXAMPLE_REFUSAL,
   EXAMPLE_REFUSAL_BODY,
   EXAMPLE_TABLES,
   isExampleRow,
@@ -228,7 +229,8 @@ import {
   modulesWithExamples,
   onRealItemPublished,
   refreshExamples,
-  retireExamples,
+  retireExamplesWithPair,
+  retiresWith,
   seedExamples,
   wireExampleCaches,
 } from "./lib/examples";
@@ -2415,6 +2417,11 @@ async function runRetentionSweep(): Promise<string> {
  */
 async function anonymizeMember(target: any, actorId: string | null): Promise<void> {
   const pool = getPool();
+  // Defensive: every route into here refuses example identities, and if one
+  // ever slips through, the scrub would rename the author of every seeded
+  // thread and feed post to "A departed member" — irreversibly, since the
+  // rename is a write and the seed is only re-applied on a refresh.
+  if (isExampleUser(target)) return;
   const anon = "A departed member";
 
   // Ledger descriptions first, while gratitude_log still links names to refs.
@@ -3708,6 +3715,21 @@ async function startServer() {
       await refreshExamples(getPool(), moduleId, seed, { baseCycle });
     }
   });
+  // The badges revision, and the only path by which it reaches an instance
+  // that already seeded: the steward award's expiry moved from 54 days to a
+  // year (the demo went blank one season in, with nothing to renew it), and
+  // badges joined NEEDS_IDENTITIES, so a village that enabled badges alone is
+  // holding award rows whose users were never created.
+  //
+  // Keyed by what it changes rather than by a date. runOnce ids are permanent,
+  // so the date convention above quietly reserves that day: this one was
+  // written as 2026-08-04 two days early, and the real 2026-08-04 revision
+  // would have found the id already applied and never run.
+  await runOnce("examples-refresh-badges-award-expiry", async () => {
+    const seed = loadExampleSeed(SEEDS_DIR);
+    if (!seed) return;
+    await refreshExamples(getPool(), "badges", seed, { baseCycle: currentCycle().cycleNumber });
+  });
 
   const app = express();
   const server = createServer(app);
@@ -4447,6 +4469,11 @@ async function startServer() {
     }
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
+    // A standing-example identity promoted to founder is the state bootstrap
+    // already refuses: a founder the roster hides (it filters examples), that
+    // the last-founder guard counts as a person, and that retirement
+    // hard-DELETEs. The ids are fixed and public in every fork.
+    if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const fromRole = target.role ?? "member";
     if (fromRole === "founder" && role !== "founder") {
       const founders = (await members.all()).filter((u: any) => u.role === "founder");
@@ -4605,20 +4632,36 @@ async function startServer() {
    * Clear a module's examples without publishing something first. A founder
    * who wants an empty module should not have to post a decoy and delete it.
    * One-way, like every other retirement: examples never come back.
+   *
+   * Retires the module's PAIR too (retireExamplesWithPair). The forum and the
+   * feed are two lenses over one table in one category, so clearing either one
+   * alone drops its banner and leaves the other's rows on the same page with
+   * no label — the failure the pairing exists to prevent, and a button is no
+   * more exempt from it than a publish is.
    */
   app.post("/api/admin/modules/:id/examples/clear", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     if (!MODULES_BY_ID[req.params.id]) return res.status(404).json({ error: "No such module" });
-    if (isRetired(req.params.id)) {
+    if (retiresWith(req.params.id).every((id) => isRetired(id))) {
       return res.json({ success: true, removed: 0, alreadyRetired: true });
     }
-    const removed = await retireExamples(
+    const outcome = await retireExamplesWithPair(
       getPool(),
       req.params.id,
       "admin_cleared",
       adminActor(req)?.id ?? (await authedUser(req))?.id ?? null,
     );
-    res.json({ success: true, removed });
+    // A partial count on a failed pass looks exactly like a clean sweep, and
+    // the toast was reporting "N example row(s) cleared" over rows still on
+    // the page with the tombstone deliberately unstamped. Say so instead.
+    if (!outcome.retired) {
+      return res.status(409).json({
+        error: "Some example rows could not be cleared, so nothing was marked retired. Try again in a moment",
+        removed: outcome.removed,
+        retired: false,
+      });
+    }
+    res.json({ success: true, removed: outcome.removed, retired: true });
   });
 
   app.put("/api/admin/modules/:id/config", async (req, res) => {
@@ -4690,7 +4733,10 @@ async function startServer() {
     }
     if (req.query.before) { where += " AND t.created_at < ?"; params.push(new Date(String(req.query.before))); }
     const [threadRows] = await getPool().query<any[]>(
-      `SELECT t.id, t.author_id, t.title, t.body, t.kind, t.meta, t.image_url, t.heart_count, t.reply_count, t.created_at, ` +
+      // t.is_example: the lens and the forum share this table, so the feed can
+      // be showing the forum's examples (and the other way round) after one of
+      // the two has retired. The card carries its own marker for that.
+      `SELECT t.id, t.author_id, t.title, t.body, t.kind, t.meta, t.image_url, t.heart_count, t.reply_count, t.created_at, t.is_example, ` +
         `u.name AS author_name, u.handle AS author_handle ` +
         `FROM forum_threads t LEFT JOIN users u ON u.id = t.author_id WHERE ${where} ` +
         `ORDER BY t.created_at DESC LIMIT 20`,
@@ -4719,6 +4765,7 @@ async function startServer() {
         heartCount: Number(t.heart_count),
         replyCount: Number(t.reply_count),
         heartedByMe: heartedIds.has(String(t.id)),
+        isExample: Number(t.is_example ?? 0) === 1,
         author: { id: t.author_id, name: firstName(t.author_name ?? "Member"), handle: t.author_handle },
         at: new Date(t.created_at).toISOString(),
       };
@@ -4807,7 +4854,14 @@ async function startServer() {
     ...notifyDeps,
     memberByHandle: async (handle: string) => {
       const all = await members.all();
-      return all.find((u: any) => String(u.handle ?? "").toLowerCase() === handle) ?? null;
+      // The example handles are fixed in every fork and rendered beside the
+      // byline on every example thread, so a member can copy one — and
+      // processMentions writes the mention row and the notification whatever
+      // the target is. A notification addressed to an account that can never
+      // sign in is a message nobody will ever read.
+      return all.find(
+        (u: any) => !u.isExample && String(u.handle ?? "").toLowerCase() === handle,
+      ) ?? null;
     },
   };
   const forumCategories = () =>
@@ -4815,9 +4869,14 @@ async function startServer() {
 
   async function forumThreadById(id: string): Promise<any | null> {
     const [rows] = await getPool().query<any[]>(
+      // is_example rides along because the thread page reads the flag from the
+      // ROW: an example opened by link or from the feed had no label at all,
+      // and the member learned what it was by pressing Reply and reading a
+      // 409. An explicit column list is exactly how a new column fails to
+      // reach a mapper, so this one is named here on purpose.
       "SELECT id, category, author_id, title, body, kind, meta, image_url, heart_count, reply_count, " +
-        "last_reply_at, pinned_at, locked_at, hidden_at, hidden_by, hidden_reason, created_at, edited_at, edit_count " +
-        "FROM forum_threads WHERE id = ?",
+        "last_reply_at, pinned_at, locked_at, hidden_at, hidden_by, hidden_reason, created_at, edited_at, edit_count, " +
+        "is_example FROM forum_threads WHERE id = ?",
       [id],
     );
     if (!rows[0]) return null;
@@ -4836,6 +4895,7 @@ async function startServer() {
       // F1: the edit marker is public, always — see the PATCH route's rule 2.
       editedAt: r.edited_at ? new Date(r.edited_at).toISOString() : null,
       editCount: Number(r.edit_count ?? 0),
+      isExample: Number(r.is_example ?? 0) === 1,
     };
   }
 
@@ -4865,8 +4925,12 @@ async function startServer() {
     }
     if (req.query.before) { where += " AND t.created_at < ?"; params.push(new Date(String(req.query.before))); }
     const [rows] = await getPool().query<any[]>(
+      // t.is_example: the forum and the feed share this table AND the feed's
+      // category, and the "All" tab sends no category at all, so one list can
+      // hold both modules' examples. A row-level chip is the only marker that
+      // stays true when one of the two has retired.
       `SELECT t.id, t.category, t.author_id, t.title, t.body, t.kind, t.meta, t.image_url, t.heart_count, t.reply_count, ` +
-        `t.last_reply_at, t.pinned_at, t.locked_at, t.hidden_at, t.created_at, u.name AS author_name, u.handle AS author_handle ` +
+        `t.last_reply_at, t.pinned_at, t.locked_at, t.hidden_at, t.created_at, t.is_example, u.name AS author_name, u.handle AS author_handle ` +
         `FROM forum_threads t LEFT JOIN users u ON u.id = t.author_id WHERE ${where} ` +
         `ORDER BY (t.pinned_at IS NULL), t.pinned_at DESC, COALESCE(t.last_reply_at, t.created_at) DESC LIMIT 20`,
       params,
@@ -4889,6 +4953,7 @@ async function startServer() {
           imageUrl: r.image_url, heartCount: Number(r.heart_count), replyCount: Number(r.reply_count),
           author: { id: r.author_id, name: firstName(r.author_name ?? "Member"), handle: r.author_handle },
           pinned: !!r.pinned_at, locked: !!r.locked_at, hidden: !!r.hidden_at,
+          isExample: Number(r.is_example ?? 0) === 1,
           eventStartsAt,
           lastActivityAt: new Date(r.last_reply_at ?? r.created_at).toISOString(),
           createdAt: new Date(r.created_at).toISOString(),
@@ -5320,6 +5385,11 @@ async function startServer() {
     const holders = loadRoleHolders();
     const quests = boolVar("map.show_quests") ? await questsRepo.all() : [];
 
+    // THREE modules' examples land on this one page: map's circles,
+    // progression's roles and quests' quests, each retiring independently. A
+    // single page-level banner scoped to "map" therefore went away on the
+    // first real circle and left the other two rendering as village content.
+    // The flag rides every node so the page can mark them one by one.
     const roles = loadRoles().map((r: any) => {
       const held = holders.filter((h) => h.roleId === r.id);
       return {
@@ -5331,6 +5401,7 @@ async function startServer() {
         minStage: r.minStage ?? null,
         holderCount: held.length,
         vacant: held.length < Number(r.seats ?? 1),
+        isExample: !!r.isExample,
         holders: viewPeople ? held.map((h) => ({ userId: h.userId, name: nameOf(h.userId) })) : [],
       };
     });
@@ -5340,7 +5411,10 @@ async function startServer() {
       roles,
       quests: quests
         .filter((q: any) => String(q.status).toLowerCase() === "open")
-        .map((q: any) => ({ id: q.id, title: q.title, circleId: circleIdForQuestName(q.circle) })),
+        .map((q: any) => ({
+          id: q.id, title: q.title, circleId: circleIdForQuestName(q.circle),
+          isExample: !!q.isExample,
+        })),
       viewer: { viewPeople, canContact: false },
       vacantHighlight: boolVar("map.vacant_highlight"),
       conciergeEnabled: boolVar("map.concierge_enabled") && numberVar("map.contact_daily_cap") >= 0,
@@ -5382,6 +5456,12 @@ async function startServer() {
     const all = circlesRepo.all();
     const idx = all.findIndex((c: any) => c.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
+    // Pinning the flag stops laundering but not the edit itself: the row stays
+    // an example, so retirement deletes the founder's own words the moment
+    // they publish a real circle. Refuse, like every sibling module.
+    if (await isExampleRow(getPool(), "circles", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     // isExample is pinned exactly like id: a request body may not forge the
     // flag onto a real row, nor strip it off an example to launder it.
     const merged = { ...all[idx], ...req.body, id: all[idx].id, isExample: all[idx].isExample };
@@ -5406,6 +5486,12 @@ async function startServer() {
 
   app.delete("/api/admin/circles/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Deleting examples one by one empties the map with no tombstone stamped,
+    // so modulesWithExamples still names the module and the banner keeps
+    // promising circles that are gone. The clear endpoint is the way out.
+    if (await isExampleRow(getPool(), "circles", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const referencing = loadRoles().filter((r: any) => r.circleId === req.params.id);
     if (referencing.length) {
       return res.status(409).json({ error: `${referencing.length} role(s) still orbit this circle, reassign them first` });
@@ -5494,6 +5580,13 @@ async function startServer() {
     if (toUserId === user.id) return res.status(400).json({ error: "That's you" });
     const recipient = await members.byId(String(toUserId));
     if (!recipient) return res.status(404).json({ error: "Member not found" });
+    // Example identities carry empty prefs, so contactable is not false, and
+    // their ids are public on every forum thread payload. Without this the
+    // relay writes a contact_requests row that outlives the identities and
+    // sends a real Resend email to @examples.invalid — burnt quota and a hard
+    // bounce against the deployment's sending reputation. sendGratitude has
+    // carried exactly this guard since the first review.
+    if (isExampleUser(recipient)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     if (recipient.contactable === false) {
       return res.status(403).json({ error: "This member has chosen not to be contacted through the map" });
     }
@@ -6092,6 +6185,12 @@ async function startServer() {
 
   app.put("/api/admin/stays/accommodations/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Renaming or deactivating an example room launders it into village
+    // content that retirement can still delete. Every sibling admin edit route
+    // refuses examples; stays was the one that did not.
+    if (await isExampleRow(getPool(), "accommodations", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const { name, description, capacity, photoUrl, active, sortOrder } = req.body ?? {};
     const [r] = await getPool().query<any>(
       "UPDATE accommodations SET name = COALESCE(?, name), description = COALESCE(?, description), " +
@@ -6107,6 +6206,13 @@ async function startServer() {
   /** Replace a room's posted prices. Two numbers per audience, never an FX rate. */
   app.put("/api/admin/stays/accommodations/:id/prices", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // Worse than the edit route: this deactivates every posted price for the
+    // room and re-inserts over the unique (accommodation_id, token_type,
+    // audience) key, so it rewrites the seeded example rates in place and
+    // leaves any combo the admin left blank switched off for good.
+    if (await isExampleRow(getPool(), "accommodations", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const prices: any[] = Array.isArray(req.body?.prices) ? req.body.prices : [];
     for (const p of prices) {
       if (![STAY_CREDIT, "usd"].includes(String(p?.tokenType))) {
@@ -7184,7 +7290,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   /** What's on the shelf — the admin UI lists it for transparency. */
   app.get("/api/admin/assistant/knowledge", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const [[synthCount]] = await getPool().query<any[]>("SELECT COUNT(*) AS n FROM call_syntheses");
+    // is_example = 0, like both other reads of this table: a transparency
+    // panel reporting the platform's demo call as one of the village's own
+    // records is the one thing it cannot do.
+    const [[synthCount]] = await getPool().query<any[]>(
+      "SELECT COUNT(*) AS n FROM call_syntheses WHERE is_example = 0",
+    );
     res.json({ corpus: corpusTitles(), secondBrainEntries: Number(synthCount.n) });
   });
 
@@ -7271,9 +7382,17 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const recordings = await allRecordings(getPool());
     const [synths] = await getPool().query<any[]>(
-      "SELECT recording_id, id, published_at, dropped_task_count FROM call_syntheses",
+      "SELECT recording_id, id, published_at, dropped_task_count, is_example FROM call_syntheses",
     );
-    const byRec = new Map(synths.map((s) => [String(s.recording_id), s]));
+    // isExample travels to the card because Publish, Save edit, Accept and
+    // Dismiss all refuse an example synthesis. Unmarked, the guard is
+    // discovered as an error after the click.
+    const byRec = new Map(
+      synths.map((s) => [
+        String(s.recording_id),
+        { ...s, isExample: Number(s.is_example ?? 0) === 1 },
+      ]),
+    );
     const [[queue]] = await getPool().query<any[]>("SELECT COUNT(*) AS n FROM call_syntheses WHERE published_at IS NULL AND is_example = 0");
     res.json({
       recordings: recordings.map((r) => ({ ...r, synthesis: byRec.get(r.id) ?? null })),
@@ -7319,11 +7438,16 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const rec = await recordingById(getPool(), req.params.id);
     if (!rec) return res.status(404).json({ error: "No such recording" });
     const [synthRows] = await getPool().query<any[]>("SELECT * FROM call_syntheses WHERE recording_id = ?", [rec.id]);
-    const synth = synthRows[0] ?? null;
+    // SELECT * carries is_example in snake_case, which no client reads. The
+    // synthesis body edit, the publish and both task verbs refuse examples,
+    // so the detail card needs the flag in the shape everything else uses.
+    const synth = synthRows[0]
+      ? { ...synthRows[0], isExample: Number(synthRows[0].is_example ?? 0) === 1 }
+      : null;
     let tasks: any[] = [];
     if (synth) {
       const [t] = await getPool().query<any[]>("SELECT * FROM call_tasks WHERE synthesis_id = ? ORDER BY timestamp_ms", [synth.id]);
-      tasks = t;
+      tasks = t.map((row) => ({ ...row, isExample: Number(row.is_example ?? 0) === 1 }));
     }
     res.json({ recording: rec, transcript: await transcriptFor(getPool(), rec.id), synthesis: synth, tasks });
   });
@@ -7627,6 +7751,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const { userId, kind, note } = req.body ?? {};
     const target = await members.byId(String(userId ?? ""));
     if (!target) return res.status(404).json({ error: "No such member" });
+    // An example identity is content, not a person who can leave. The exits
+    // row would outlive the identities (retirement deletes users, not exits)
+    // and the notify below is addressed to an account nobody can sign in to.
+    if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     if (target.role === "founder") {
       return res.status(409).json({ error: "Demote the founder first. A deployment must never strand itself" });
     }
@@ -8296,8 +8424,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     // and does it lapse" on the card itself is what makes a badge legible
     // without hunting, and it is how the standing examples demonstrate a
     // held badge to a founder who holds nothing yet.
+    // Deliberately UNFILTERED by is_example: demonstrating a held badge is the
+    // whole point of the example set. The flag rides along so the card can say
+    // so, and so a prover can pick the example warning badge by identity
+    // rather than by kind (which could land a real warning on a real admin).
     const [holderRows] = await getPool().query<any[]>(
-      "SELECT a.badge_id, a.user_id, a.expires_at, u.name AS user_name " +
+      "SELECT a.badge_id, a.user_id, a.expires_at, a.is_example, u.name AS user_name " +
         "FROM badge_awards a JOIN badges b ON b.id = a.badge_id " +
         "JOIN users u ON u.id = a.user_id " +
         "WHERE b.kind <> 'warning' AND b.active = 1 " +
@@ -8311,6 +8443,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
         userId: String(r.user_id),
         name: firstName(String(r.user_name ?? "Member")),
         expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
+        isExample: Number(r.is_example ?? 0) === 1,
       });
       holdersByBadge.set(String(r.badge_id), list);
     }
@@ -8319,6 +8452,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
         id: b.id, name: b.name, description: b.description, icon: b.icon, kind: b.kind,
         // Transparent governance: what a badge grants or denies is public.
         capabilities: b.capabilities, denies: b.denies, rule: b.rule,
+        isExample: b.isExample,
         holders: b.kind === "warning" ? [] : (holdersByBadge.get(b.id) ?? []),
       })),
       mine,
@@ -8402,8 +8536,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     let rows: any[];
     if (badgeId) {
       [rows] = await getPool().query<any[]>(
+        // u.is_example = 0: this surface exists to put real people in touch.
+        // Example badges had no awards until 2026-08-02, so matching on one
+        // returned nothing and the omission cost nothing; now a search for
+        // who can moderate the forum would hand back a fictional person.
         "SELECT u.id, u.name, u.handle FROM badge_awards a JOIN badges b ON b.id = a.badge_id JOIN users u ON u.id = a.user_id " +
-          "WHERE a.badge_id = ? AND b.active = 1 AND b.kind <> 'warning' AND (a.expires_at IS NULL OR a.expires_at > NOW()) " +
+          "WHERE a.badge_id = ? AND b.active = 1 AND b.kind <> 'warning' AND u.is_example = 0 " +
+          "AND (a.expires_at IS NULL OR a.expires_at > NOW()) " +
           "ORDER BY u.name LIMIT 100",
         [badgeId],
       );
@@ -8588,6 +8727,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const { userId, note, expiresAt } = req.body ?? {};
     const target = await members.byId(String(userId ?? ""));
     if (!target) return res.status(404).json({ error: "No such member" });
+    // The revoke direction checks both sides; award checked only the badge. A
+    // REAL warning on an example identity writes an is_example = 0 award, and
+    // badgesOpenState counts exactly that shape — so the award survives the
+    // holder's deletion at retirement and blocks turning badges off forever.
+    if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     if (badge.kind === "warning" && !String(note ?? "").trim()) {
       return res.status(400).json({ error: "A warning needs a note. The member deserves to know why" });
     }
@@ -8624,6 +8768,16 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   app.delete("/api/admin/badges/:id/award/:userId", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // The award direction refuses examples; the revoke direction was missed,
+    // and this is a raw DELETE that matches the seeded ex-award-* rows. One
+    // click permanently emptied the holders demo with no tombstone stamped,
+    // so the module still reported that it was showing examples.
+    if (
+      (await isExampleRow(getPool(), "badges", req.params.id)) ||
+      (await isExampleRow(getPool(), "users", req.params.userId))
+    ) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const [r] = await getPool().query<any>(
       "DELETE FROM badge_awards WHERE badge_id = ? AND user_id = ?",
       [req.params.id, req.params.userId],
@@ -8880,6 +9034,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
           },
         };
       }
+    }
+    // Inertness must not rest on the seed keeping swappable = false. The buy
+    // route beside this one refuses examples explicitly; this one relied on
+    // the flag it never read.
+    if (paySettings?.isExample || receiveSettings?.isExample) {
+      return { ok: false, status: 409, body: { code: "EXAMPLE", error: EXAMPLE_REFUSAL } };
     }
     // Defence in depth: the firewalls again, in case a row was hand-edited.
     const tainted = await faucetIssuedTokens(getPool());
@@ -9151,6 +9311,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   /** Halt is one click. Resume takes a sentence. */
   app.post("/api/admin/exchange/tokens/:slug/halt", async (req, res) => {
     if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    // The example market is display-only. Halting it would record a real
+    // governance act, with a named actor and an audit line, about nothing.
+    if (await isExampleRow(getPool(), "tokens", String(req.params.slug), "slug")) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
     const [r] = await getPool().query<any>(
       "UPDATE token_exchange_settings SET swap_halted_at = NOW(), swap_halted_by = ?, swap_halt_reason = ? WHERE token_slug = ?",
@@ -9166,6 +9331,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   app.post("/api/admin/exchange/tokens/:slug/resume", async (req, res) => {
     if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (await isExampleRow(getPool(), "tokens", String(req.params.slug), "slug")) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const note = String(req.body?.note ?? "").trim();
     // Narrowing the market is a hand. Widening it writes a sentence.
     if (note.length < 20) {
@@ -9232,6 +9400,16 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   /** List / delist a token. The firewalls answer here AND at boot. */
   app.put("/api/admin/exchange/tokens/:slug", async (req, res) => {
     if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    // An example token is never the village's first real listing. upsertSettings
+    // claims the row as real (is_example = 0) on every write, which is right for
+    // a real slug sharing the key with an example listing and catastrophic for
+    // an example TOKEN: one click on the purchasable toggle made the settings
+    // row real, this route then fired the retirement, and retirement deleted
+    // the token while the now-real listing survived. The next boot's
+    // assertExchangeFirewalls refused to serve on an unregistered token.
+    if (await isExampleRow(getPool(), "tokens", String(req.params.slug), "slug")) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const { purchasable, swappable, minStageToBuy, sortOrder, active, maxSwapOutPerCycle, maxSwapOutPerMemberPerCycle } =
       req.body ?? {};
     // The caps must come through here or a listing can never leave its
@@ -9262,6 +9440,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
     const slug = String(req.params.slug);
     if (!tokenDef(slug)) return res.status(404).json({ error: `unknown token "${slug}"` });
+    // The registry loads example tokens like any other, so tokenDef resolves
+    // one and setPrice would write a real currency_prices row against it —
+    // changing the posted price on the example listing the whole module is
+    // demonstrating with.
+    if (await isExampleRow(getPool(), "tokens", slug, "slug")) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
     const r = await setPrice(getPool(), {
       slug,
@@ -9337,6 +9522,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const amt = Math.floor(Number(req.body?.amount) || 0);
     const def = tokenDef(slug);
     if (!def) return res.status(404).json({ error: `unknown token "${slug}"` });
+    // Stocking IS minting, and a mint against an example token writes real
+    // ledger rows against a slug retirement will delete — after which
+    // checkLedgerInvariants refuses to boot on "ledger rows exist for
+    // unregistered token". The example's stock number is a display fact.
+    if (def.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     if (def.governance !== "platform") return res.status(400).json({ error: `${slug} is issued on Hypha and cannot be stocked here` });
     if (amt < 1) return res.status(400).json({ error: "A positive amount is required" });
     const cap = numberVar("ledger.admin_mint_cycle_cap");
@@ -9439,6 +9629,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     if (def.governance !== "platform") {
       return res.status(400).json({ error: `${slug} is a read-only Hypha mirror. Its name is a fact about Base, not a setting` });
     }
+    // Renaming an example keeps its flag, so the admin's own word for the
+    // token would be deleted by the first real one they create.
+    if (def.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const name = String(req.body?.name ?? "").trim().slice(0, 120);
     if (!name) return res.status(400).json({ error: "A display name is required" });
     await getPool().query("UPDATE tokens SET name = ? WHERE slug = ?", [name, slug]);
@@ -9462,6 +9655,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const amt = Math.trunc(Number(amount) || 0);
     const def = tokenDef(slug);
     if (!def) return res.status(404).json({ error: `unknown token "${slug}"` });
+    // Same rule as stocking: a hand-mint is a real ledger row against a slug
+    // that retirement deletes, and the next boot then refuses to serve.
+    if (def.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     if (def.governance !== "platform") {
       return res.status(400).json({ error: `${slug} is issued on Hypha and cannot be minted here` });
     }
@@ -10893,6 +11089,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.delete("/api/admin/quests/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    // quests is a CORE module, so on a fresh fork the whole board is examples
+    // and deleting them one by one empties the page without stamping a
+    // tombstone: refreshRowPresence only runs at boot, on a seed and on a
+    // retirement, so the banner sits over nothing until the next restart.
+    // "Clear examples" in Admin is the supported way to be rid of them.
+    if (await isExampleRow(getPool(), "quests", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     // SETTLE FIRST, the same rule openStateCheck applies to modules: a claim
     // in flight is work someone is doing or has already submitted, and
     // deleting the quest out from under it strands the claim (badges and
@@ -12620,6 +12824,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
             description: r.description ?? "",
             capabilities: r.capabilities ?? [],
             minStage: r.minStage ?? null,
+            // Same reason the map payload carries it: progression's example
+            // roles are real rows on a public read, and nothing downstream
+            // could tell them from the village's own without the flag.
+            isExample: !!(r as any).isExample,
             // Additive, and always present: a page can show "2 of 3 seats
             // filled · 1 open call" without knowing anybody's name.
             holderCount: seated.length,
@@ -12802,6 +13010,9 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     }
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
+    // The seed sets each identity's stage so its example content renders at
+    // the right level; moving one is editing example content.
+    if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const before = await stageOf(target);
     const updated = await members.update(target.id, (u: any) => { u.stageGranted = stageId ?? null; });
     if (!updated) return res.status(404).json({ error: "Not found" });
@@ -12817,6 +13028,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
+    // anonymizeMember renames the row to "A departed member", so every seeded
+    // thread and feed post would carry that byline — worse than the "(example)"
+    // suffix it replaced, and permanent. Retirement is the way examples go.
+    if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     if (target.role === "founder") {
       return res.status(409).json({ error: "Demote the founder first. A deployment must never strand itself" });
     }

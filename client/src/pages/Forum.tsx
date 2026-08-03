@@ -13,7 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Calendar, ExternalLink, Flag, Gavel, Lock, MapPin, MessageCircle, Pin, Plus, Bell } from "lucide-react";
 import { Image } from "@/components/Image";
-import { ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
+import { ExampleChip, ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
 import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
@@ -75,7 +75,8 @@ function ThreadList() {
         setComposing(false);
         setDraft({ title: "", body: "", category: "", kind: "discussion" });
         // The server has just retired this module's examples; drop the label
-        // now rather than leaving it over the member's own new thread.
+        // now rather than leaving it over the member's own new thread. The
+        // feed goes with it (RETIRE_TOGETHER), which the helper knows.
         forgetExamplesCache("forum");
         load();
       })
@@ -150,6 +151,12 @@ function ThreadList() {
                   {t.pinned && <Pin className="w-3.5 h-3.5 text-amber-600" />}
                   {t.locked && <Lock className="w-3.5 h-3.5 text-gray-400" />}
                   <span className="font-semibold text-foreground text-sm">{t.title}</span>
+                  {/* Per row, not only in the hero banner: the forum and the
+                      feed share this table and this category, the "All" tab
+                      sends no category at all, and the two retire together but
+                      the banner above names one module. A row that says it is
+                      an example is the only marker that cannot go stale. */}
+                  {t.isExample && <ExampleChip />}
                   {KIND_BADGE[t.kind] && (
                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${KIND_BADGE[t.kind]}`}>{t.kind}</span>
                   )}
@@ -260,6 +267,19 @@ function ThreadView({ id }: { id: string }) {
   if (!thread) return <Layout><div className="container py-24 text-center text-muted-foreground">Loading…</div></Layout>;
 
   const decided = thread.kind === "decision" && thread.meta?.status === "decided";
+  // A thread opened by link or from the feed carried no label at all: the
+  // only marker was on the list behind it, so the member learned this was an
+  // example by pressing Reply and reading a refusal. The flag is read from
+  // the ROW, because the module-level banner would otherwise sit over a real
+  // thread whenever the module still has examples elsewhere — and `row` below
+  // stops the module answer vetoing the row's own truth.
+  const isExample = thread.isExample === true;
+  // By SEEDED ID, never by kind. ex-feed-3 is seeded as an announcement, so a
+  // kind === "post" test files a feed example under the forum: the wrong
+  // trigger sentence, and no label at all once the forum alone has cleared.
+  const isFeedRow = String(thread.id).startsWith("ex-feed-");
+  const exampleModule = isFeedRow ? "feed" : "forum";
+  const exampleNoun = isFeedRow ? "post" : "thread";
   // An event carries structure the body cannot: when, where, and how to say
   // you are coming. Render it the way decisions get their outcome card.
   const eventMeta = thread.kind === "event" && thread.meta?.startsAt ? thread.meta : null;
@@ -275,6 +295,7 @@ function ThreadView({ id }: { id: string }) {
       <section className="py-10 bg-background">
         <div className="container max-w-3xl space-y-5">
           <Link href="/forum" className="text-xs text-muted-foreground hover:text-foreground">← All threads</Link>
+          {isExample && <ExamplesBanner moduleId={exampleModule} noun={exampleNoun} row />}
           <div className="bg-card border border-border rounded-2xl p-6">
             <div className="flex items-center gap-2 mb-1">
               {thread.pinnedAt && <Pin className="w-4 h-4 text-amber-600" />}
@@ -365,7 +386,10 @@ function ThreadView({ id }: { id: string }) {
                 )}
               </div>
             )}
-            {user && (
+            {/* Subscribe and report are guarded server-side, so on an example
+                these controls exist only to be refused. Hiding them says the
+                same thing without making the member press one to find out. */}
+            {user && !isExample && (
               <div className="flex gap-3 mt-4 text-xs">
                 <button onClick={() => act(`/api/forum/threads/${id}/subscribe`, {})} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
                   <Bell className="w-3.5 h-3.5" /> Follow
@@ -427,7 +451,7 @@ function ThreadView({ id }: { id: string }) {
             ))}
           </div>
 
-          {user && !thread.lockedAt && (
+          {user && !thread.lockedAt && !isExample && (
             <div className="bg-card border border-border rounded-xl p-4 space-y-2">
               <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3}
                 placeholder="Reply… mention people with @handle."
@@ -443,7 +467,7 @@ function ThreadView({ id }: { id: string }) {
             <p className="text-center text-xs text-muted-foreground">This thread is locked.</p>
           )}
 
-          {user && thread.kind === "decision" && !decided && (
+          {user && thread.kind === "decision" && !decided && !isExample && (
             <div className="bg-card border border-purple-200 rounded-xl p-4 space-y-2">
               <p className="text-xs font-semibold text-purple-700 flex items-center gap-1.5"><Gavel className="w-3.5 h-3.5" /> Record the outcome</p>
               <textarea value={outcome} onChange={(e) => setOutcome(e.target.value)} rows={2}

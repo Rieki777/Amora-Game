@@ -97,11 +97,14 @@ const PAGE_TITLES: Record<string, string> = {
   "/stay": "Stays",
   "/library": "Material library",
   "/badges": "Badges & skills",
-  "/health": "Village health",
-  "/exchange": "Exchange",
+  // Keys here are matched by longest PREFIX against the live location, so a
+  // key with no route behind it can never match and is dead weight that
+  // reads like a promise. /health, /exchange and /profiles were all three:
+  // the health dashboard is /village-health, the exchange lives inside the
+  // wallet, and the member directory is /profile.
+  "/village-health": "Village health",
   "/wallet": "Wallet",
   "/profile": "My profile",
-  "/profiles": "Members",
   "/login": "Sign in",
   "/set-password": "Choose a password",
   "/forgot-password": "Set a new password",

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { TOKEN_KEY } from "@/lib/gameApi";
+import { forgetExamplesCache } from "@/components/ExamplesBanner";
 
 export interface User {
   id: string;
@@ -68,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // stored token and sign them out for a server-side blip.
         localStorage.removeItem(TOKEN_KEY);
         setToken(null);
+        forgetExamplesCache();
       }
     } catch (err) {
       // A dropped connection says nothing about whether the token is valid.
@@ -92,6 +94,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(TOKEN_KEY, data.token);
     setToken(data.token);
     setUser(data.user);
+    // Session-scoped caches that live outside React state have to be dropped
+    // here: login is a pure SPA transition with no reload. /api/examples is
+    // answered per viewer (preview-lifecycle modules are hidden from
+    // non-admins), so an admin who signs in keeps the anonymous answer and
+    // loses the banner on every module they are previewing.
+    forgetExamplesCache();
   }
 
   async function register(name: string, email: string, password: string, paths: string[]) {
@@ -108,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(TOKEN_KEY, data.token);
     setToken(data.token);
     setUser(data.user);
+    forgetExamplesCache();
   }
 
   async function logout() {
@@ -130,6 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);
+    forgetExamplesCache();
   }
 
   async function updateProfile(updates: Partial<Omit<User, "id" | "email" | "joinedAt">>) {

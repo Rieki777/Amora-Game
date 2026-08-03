@@ -52,6 +52,12 @@ export interface AccommodationRow {
   photoUrl: string | null;
   active: boolean;
   sortOrder: number;
+  /**
+   * A standing example. The admin panel needs it to label the row and take the
+   * controls off: the edit and price routes refuse an example, and a founder
+   * should learn that from the row rather than from a 409 after typing rates.
+   */
+  isExample: boolean;
   /** Posted prices: { "stay-credit": {guest, member}, usd: {guest, member} } (minor units / whole credits). */
   prices: Record<string, { guest?: number; member?: number }>;
 }
@@ -96,7 +102,7 @@ function rowToStay(r: RowDataPacket): StayRow {
 
 export async function listAccommodations(pool: Pool, opts?: { includeInactive?: boolean }): Promise<AccommodationRow[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT id, name, description, capacity, photo_url, active, sort_order FROM accommodations ${opts?.includeInactive ? "" : "WHERE active = 1 "}ORDER BY sort_order, name`,
+    `SELECT id, name, description, capacity, photo_url, active, sort_order, is_example FROM accommodations ${opts?.includeInactive ? "" : "WHERE active = 1 "}ORDER BY sort_order, name`,
   );
   const [prices] = await pool.query<RowDataPacket[]>(
     "SELECT accommodation_id, token_type, audience, amount_minor FROM accommodation_prices WHERE active = 1",
@@ -117,6 +123,7 @@ export async function listAccommodations(pool: Pool, opts?: { includeInactive?: 
     photoUrl: r.photo_url ?? null,
     active: !!r.active,
     sortOrder: Number(r.sort_order ?? 0),
+    isExample: Number(r.is_example ?? 0) === 1,
     prices: byAcc.get(String(r.id)) ?? {},
   }));
 }

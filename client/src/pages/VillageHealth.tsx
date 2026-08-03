@@ -13,7 +13,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
 import { SNAPSHOT_METRICS } from "@shared/healthMetrics";
 import { Activity, CheckCircle2, Circle, Leaf, Moon, Sprout, Users } from "lucide-react";
-import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExampleChip, ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -66,7 +66,6 @@ export default function VillageHealth() {
             The village's vital signs, frozen each lunar cycle, and the land's
             own ledger of regeneration.
           </p>
-          <ExamplesBanner moduleId="health" noun="measurement" />
         </div>
       </section>
 
@@ -107,6 +106,13 @@ export default function VillageHealth() {
               <Leaf className="w-4 h-4 text-teal-deep" />
               <p className="font-semibold text-foreground text-sm">Regeneration ledger</p>
             </div>
+            {/* The banner belongs to THIS card, not to the page hero. Health's
+                only seeded content is regen entries, and they are correctly
+                outside the totals, so over the hero the banner claimed the
+                whole page was examples while the headline surface right under
+                it said "Nothing recorded yet". Everything else here (vital
+                signs, governance reads, season goals) is the village's own. */}
+            <ExamplesBanner moduleId="health" noun="measurement" layout="mb-3 text-left" />
             {Object.keys(data?.regen?.totals ?? {}).length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 <Sprout className="w-4 h-4 inline mr-1 text-teal-deep/60" />
@@ -133,6 +139,11 @@ export default function VillageHealth() {
                   {data.regen.latest.map((e: any) => (
                     <p key={e.id} className="text-xs text-muted-foreground">
                       {new Date(e.recordedAt).toLocaleDateString()}: {e.value} {e.unit}{e.note ? ` · ${e.note}` : ""}
+                      {/* This list is the ONE place an example entry shows: the
+                          totals above exclude it on purpose, so without a
+                          marker the disclosure is where the platform's fiction
+                          hides behind the village's own readings. */}
+                      {e.isExample && <ExampleChip className="ml-1.5 align-middle" />}
                     </p>
                   ))}
                 </div>
