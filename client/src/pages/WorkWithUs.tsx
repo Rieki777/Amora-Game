@@ -58,10 +58,10 @@ const PROPOSAL_FIELDS: { key: keyof Proposal; label: string; hint: string; requi
 ];
 
 const RECIPROCITY_FALLBACK: ReciprocityOption[] = [
-  { value: "Financial - Cash", title: "Financial — Cash", desc: "A direct payment for your work, materials, or service — upfront, on milestones, or on completion." },
-  { value: "Tokens", title: "Tokens", desc: "Value held within the community ecosystem — credit you can use at the café and across the village." },
-  { value: "Joint Venture", title: "Joint Venture", desc: "You operate autonomously, and the community holds a share — e.g. 10% of revenue in exchange for rent or water infrastructure." },
-  { value: "Memorandum of Understanding", title: "Memorandum of Understanding", desc: "A clear, living exchange of contribution — e.g. you grow vegetables, share some harvest, and add to the beauty of the land." },
+  { value: "Financial - Cash", title: "Financial: Cash", desc: "A direct payment for your work, materials, or service: upfront, on milestones, or on completion." },
+  { value: "Tokens", title: "Tokens", desc: "Value held within the community ecosystem, credit you can use at the café and across the village." },
+  { value: "Joint Venture", title: "Joint Venture", desc: "You operate autonomously, and the community holds a share, e.g. 10% of revenue in exchange for rent or water infrastructure." },
+  { value: "Memorandum of Understanding", title: "Memorandum of Understanding", desc: "A clear, living exchange of contribution, e.g. you grow vegetables, share some harvest, and add to the beauty of the land." },
 ];
 
 
@@ -116,8 +116,8 @@ export default function WorkWithUs() {
             <CheckCircle2 className="w-14 h-14 text-amber mx-auto mb-6" />
             <h1 className="font-display text-4xl font-bold mb-4">Your proposal is with us</h1>
             <p className="text-white/80 text-lg">
-              Thank you for offering your gifts to {projectName}. We review every proposal with care —
-              please allow up to a month for a thoughtful response, and room for conversation and revision.
+              Thank you for offering your gifts to {projectName}. We review every proposal with care.
+              Please allow up to a month for a thoughtful response, and room for conversation and revision.
             </p>
           </div>
         </section>
@@ -138,7 +138,7 @@ export default function WorkWithUs() {
           </h1>
           <p className="text-white/80 text-lg max-w-2xl leading-relaxed">
             {wwu?.intro ??
-              `${projectName} grows through the people who bring their gifts to it. We welcome ideas, offerings, and ventures — a garden, a piece of infrastructure, a service, a craft, a program, or something we haven't yet imagined. Propose it here.`}
+              `${projectName} grows through the people who bring their gifts to it. We welcome ideas, offerings, and ventures: a garden, a piece of infrastructure, a service, a craft, a program, or something we haven't yet imagined. Propose it here.`}
           </p>
         </div>
       </section>
@@ -287,7 +287,7 @@ function ProposalForm({
       {/* The idea */}
       <div>
         <h2 className="font-display text-xl font-bold text-teal-deep mb-1">Your proposal</h2>
-        <p className="text-sm text-muted-foreground mb-4">Tell us about your idea — specificity is a gift to both of us.</p>
+        <p className="text-sm text-muted-foreground mb-4">Tell us about your idea. Specificity is a gift to both of us.</p>
         <div className="space-y-5">
           {PROPOSAL_FIELDS.map((f) => (
             <div key={f.key}>{field(f.key, f.label, f.hint, f.required, f.rows)}</div>
@@ -299,7 +299,7 @@ function ProposalForm({
       <div>
         <h2 className="font-display text-xl font-bold text-teal-deep mb-1">The exchange</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          {projectName} is built on reciprocity — there's more than one way to be valued here. Select any that fit. <span className="text-red-500">*</span>
+          {projectName} is built on reciprocity, and there's more than one way to be valued here. Select any that fit. <span className="text-red-500">*</span>
         </p>
         <div className="grid md:grid-cols-2 gap-3 mb-4">
           {reciprocityOptions.map((o) => {
@@ -325,7 +325,7 @@ function ProposalForm({
           })}
         </div>
         <label className="block text-sm font-semibold text-foreground mb-1">Tell us more about the exchange you're proposing</label>
-        <p className="text-xs text-muted-foreground mb-2">Amounts, structure, percentages, or a blend — or something we haven't listed.</p>
+        <p className="text-xs text-muted-foreground mb-2">Amounts, structure, percentages, a blend, or something we haven't listed.</p>
         <textarea value={form.reciprocityDetail} onChange={(e) => set("reciprocityDetail", e.target.value)} rows={3} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep resize-y" />
       </div>
 

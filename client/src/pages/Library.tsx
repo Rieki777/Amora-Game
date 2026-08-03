@@ -10,6 +10,9 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Package, RotateCcw, Undo2, Wrench } from "lucide-react";
+import { Image } from "@/components/Image";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -29,6 +32,11 @@ export default function Library() {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // The refusal, keyed to the row: the page-top error slot is a screen away
+  // from the last item on the shelf. Declared with the other state, ABOVE the
+  // early return below: a hook after a conditional return changes the hook
+  // count between renders the moment the module catalogue loads.
+  const [refusedItem, setRefusedItem] = useState<{ id: string; message: string } | null>(null);
 
   const load = () => {
     fetch("/api/library", { headers: headers() })
@@ -40,14 +48,15 @@ export default function Library() {
 
   if (modules.loaded && !libraryModule) return <NotFound />;
 
-  const call = (path: string, body?: any) => {
-    setError(""); setNotice("");
+  const call = (path: string, body?: any, itemId?: string) => {
+    setError(""); setNotice(""); setRefusedItem(null);
     fetch(path, { method: "POST", headers: headers(), body: JSON.stringify(body ?? {}) })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Request failed");
-        if (d.escrow != null) setNotice(`Reserved — ${d.escrow} credit(s) moved to escrow until settle.`);
-        if (d.released != null) setNotice(`Cancelled — ${d.released} credit(s) released back to you.`);
+        const { ok, data: d, refusal } = await readRefusal(r);
+        if (refusal && itemId) { setRefusedItem({ id: itemId, message: refusal }); return; }
+        if (!ok) throw new Error(d?.error || "Request failed");
+        if (d.escrow != null) setNotice(`Reserved. ${d.escrow} credit(s) moved to escrow until settle.`);
+        if (d.released != null) setNotice(`Cancelled. ${d.released} credit(s) released back to you.`);
         load();
       })
       .catch((e) => setError(e.message));
@@ -66,13 +75,14 @@ export default function Library() {
             Shared tools and goods, borrowed on library credits. Donate what you
             no longer need and earn the credits to borrow what you do.
           </p>
+          <ExamplesBanner moduleId="library" noun="donation" />
         </div>
       </section>
 
       <section className="py-8 bg-background">
         <div className="container max-w-3xl space-y-6">
-          {notice && <p className="text-sm text-teal-deep bg-teal-deep/10 rounded-lg px-4 py-2.5">{notice}</p>}
-          {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
+          {notice && <p role="status" className="text-sm text-teal-deep bg-teal-deep/10 rounded-lg px-4 py-2.5">{notice}</p>}
+          {error && <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
 
           {user && data?.mine && (
             <div className="bg-card border border-border rounded-xl p-5">
@@ -87,7 +97,7 @@ export default function Library() {
                   {liveLoans.map((l: any) => (
                     <div key={l.id} className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">
-                        <b className="text-foreground">{itemName(l.itemId)}</b> — {l.status.replace(/_/g, " ")}
+                        <b className="text-foreground">{itemName(l.itemId)}</b> · {l.status.replace(/_/g, " ")}
                         {l.dueOn && <> · due {l.dueOn}</>} · {l.escrowCredits} in escrow
                       </span>
                       <span className="space-x-3">
@@ -117,8 +127,7 @@ export default function Library() {
               return (
                 <div key={i.id} className="bg-card border border-border rounded-xl p-4 flex flex-col">
                   {i.photoUrl && (
-                    <img src={i.photoUrl} alt={i.name} loading="lazy"
-                      className="rounded-lg mb-3 h-36 w-full object-cover" />
+                    <Image src={i.photoUrl} alt={i.name} className="rounded-lg mb-3 h-36 w-full" />
                   )}
                   <div className="flex items-center gap-2 mb-1">
                     <Wrench className="w-4 h-4 text-teal-deep" />
@@ -135,7 +144,7 @@ export default function Library() {
                     </p>
                     {user && i.status === "available" && (
                       <button
-                        onClick={() => call(`/api/library/items/${i.id}/reserve`)}
+                        onClick={() => call(`/api/library/items/${i.id}/reserve`, undefined, i.id)}
                         disabled={!eligible}
                         title={eligible ? `Locks ${i.escrow} credit(s) in escrow` : "Not open to you yet"}
                         className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
@@ -144,6 +153,9 @@ export default function Library() {
                       </button>
                     )}
                   </div>
+                  {refusedItem && refusedItem.id === i.id && (
+                    <ExampleRefusal message={refusedItem.message} className="mt-2" />
+                  )}
                 </div>
               );
             })}

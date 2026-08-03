@@ -23,6 +23,7 @@ import type { Pool, RowDataPacket } from "mysql2/promise";
 import { createPublicClient, http, erc20Abi, verifyMessage, getAddress } from "viem";
 import { base } from "viem/chains";
 import { stringVar } from "./variables";
+import { guardOutboundUrl } from "./toolcheck";
 
 export interface OnchainBalance {
   /** Raw uint256 as a decimal string — full fixed-point, never truncated. */
@@ -49,10 +50,39 @@ export function formatUnits(raw: string, decimals: number): string {
 /** decimals() per contract, cached per process. Refreshed only on success. */
 const decimalsCache = new Map<string, number>();
 
-function rpcClient() {
+/**
+ * The RPC URL is an admin-typed game variable, and its validation rule
+ * accepts any https URL with no range check at all — so without this guard
+ * an admin (or anyone who reached that route) could point the village's
+ * server at `https://10.0.0.5/…` and read whatever answers, which is exactly
+ * the SSRF the pinned dialer exists to close.
+ *
+ * NOT routed through guardedFetchJson: that helper is https-only, and the
+ * loopback exemption is load-bearing — the acceptance test points the
+ * platform at http://127.0.0.1, as does anyone running a local anvil node.
+ * `redirect: "error"` stops viem hopping off the vetted host afterwards.
+ */
+async function rpcClient() {
   const url = stringVar("tokens.base_rpc_url").trim();
   if (!url) return null;
-  return createPublicClient({ chain: base, transport: http(url, { retryCount: 1, timeout: 8_000 }) });
+  let host = "";
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return null;
+  }
+  const isLoopback = host === "127.0.0.1" || host === "localhost";
+  if (!isLoopback) {
+    const guard = await guardOutboundUrl(url);
+    if (!guard.ok) {
+      console.error(`[base-reads] refusing RPC url: ${guard.refused ?? "refused"}`);
+      return null;
+    }
+  }
+  return createPublicClient({
+    chain: base,
+    transport: http(url, { retryCount: 1, timeout: 8_000, fetchOptions: { redirect: "error" } }),
+  });
 }
 
 async function readCache(pool: Pool, userId: string, tokenSlug: string): Promise<{ raw: string; decimals: number; fetchedAt: string } | null> {
@@ -81,7 +111,7 @@ export async function readOnchainBalance(
     return { raw: cached.raw, decimals: cached.decimals, formatted: formatUnits(cached.raw, cached.decimals), fetchedAt: cached.fetchedAt, stale: false };
   }
   try {
-    const client = rpcClient();
+    const client = await rpcClient();
     if (!client) throw new Error("no RPC configured");
     const contract = getAddress(input.contractAddress);
     const holder = getAddress(input.walletAddress);
@@ -150,9 +180,9 @@ export async function verifyWalletSignature(
     [input.userId],
   );
   const row = rows[0];
-  if (!row) return { ok: false, error: "No challenge outstanding — request one first" };
+  if (!row) return { ok: false, error: "No challenge outstanding. Request one first" };
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    return { ok: false, error: "The challenge expired — request a fresh one" };
+    return { ok: false, error: "The challenge expired. Request a fresh one" };
   }
   let address: string;
   try {

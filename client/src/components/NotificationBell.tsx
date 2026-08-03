@@ -89,7 +89,7 @@ export default function NotificationBell() {
             Notifications
           </div>
           {items.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-gray-400 text-center">Nothing yet — go be seen.</p>
+            <p className="px-4 py-6 text-sm text-gray-400 text-center">Nothing yet. Go be seen.</p>
           ) : (
             items.slice(0, 15).map((n) => (
               <Link

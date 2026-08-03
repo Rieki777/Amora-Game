@@ -104,7 +104,7 @@ export default function Training() {
           </h1>
           <p className="text-white/80 text-lg max-w-2xl">
             Practical training in nonviolent communication, authentic relating, and
-            consent-based decision making — the practices that make community life
+            consent-based decision making. The practices that make community life
             actually work.
           </p>
         </div>

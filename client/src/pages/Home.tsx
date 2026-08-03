@@ -24,6 +24,7 @@ import {
   Briefcase,
   Globe
 } from "lucide-react";
+import { Image } from "@/components/Image";
 
 const HERO_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/4.jpg";
 
@@ -87,10 +88,13 @@ export default function Home() {
       <section className="relative min-h-[90vh] flex items-center overflow-hidden">
         {/* Background Image */}
         <div className="absolute inset-0 z-0">
-          <img
+          {/* priority: this is the Largest Contentful Paint element. Without
+              fetchPriority=high it queues behind every other image on the page. */}
+          <Image
             src={brand.hero || HERO_IMAGE}
             alt="Aerial view over Amora's jungle canopy to the Pacific coastline at Dominicalito"
-            className="w-full h-full object-cover"
+            priority
+            className="w-full h-full"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-transparent" />
         </div>
@@ -174,7 +178,7 @@ export default function Home() {
         <div className="container">
           <div className="text-center mb-12">
             <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Our Journey Together
+              From First Visit to Home
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               Each stage is a chance to get to know each other. You figure out if Amora fits your life; we figure out if you're a good fit for the village.
@@ -260,9 +264,18 @@ export default function Home() {
                   <div className="group relative overflow-hidden rounded-2xl bg-card shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer">
                     {/* Image */}
                     <div className="relative h-56 overflow-hidden">
+                      {/* Deliberately a bare <img> rather than <Image>: the
+                          hover zoom needs `transition-transform`, and the
+                          component's fade uses `transition-opacity` — both set
+                          the same CSS property, so one would silently win and
+                          kill the other. The parent already reserves h-56, so
+                          there is no layout shift to fix here; lazy loading is
+                          the whole benefit and it applies directly. */}
                       <img
                         src={card.image}
                         alt={card.title}
+                        loading="lazy"
+                        decoding="async"
                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />

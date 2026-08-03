@@ -67,7 +67,7 @@ export default function Profile() {
       await updateProfile({ bio: bioText });
       setEditingBio(false);
     } catch (e: any) {
-      setBioError(e?.message || "Could not save — try again");
+      setBioError(e?.message || "Could not save, try again");
     } finally {
       setSavingBio(false);
     }
@@ -345,7 +345,7 @@ export default function Profile() {
                         <p className="text-sm text-gray-600 mb-1">Your venture</p>
                         <p className="text-sm text-gray-500">
                           Not set up yet. Venture details and revenue-share tiers arrive with the
-                          prosperity module — until then, tell the stewards what you are building.
+                          prosperity module. Until then, tell the stewards what you're building.
                         </p>
                       </div>
                     </div>

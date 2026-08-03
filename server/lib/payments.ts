@@ -373,7 +373,7 @@ export async function handleStripeEvent(
         await logPayment(pool, { stripeEventId: eventId || undefined, module: String(row.module), orderId: String(row.order_id), type, outcome: "ok", detail: `partial refund ${refundedSoFar}/${chargeTotal}` });
         await alertAdmins(
           `Partial refund on ${row.module} order ${row.order_id}: ${refundedSoFar} of ${chargeTotal} returned. ` +
-            `Nothing was clawed back — settle the difference by hand if the purchase should unwind.`,
+            `Nothing was clawed back. Settle the difference by hand if the purchase should unwind.`,
           `payments-partialrefund:${row.module}:${row.order_id}`,
         );
         await recordEvent(pool, { kind: "audit", text: `payments:partial_refund:${row.module}:${row.order_id}`, entityType: "user", entityRef: String(row.user_id), audience: "admin" });
@@ -395,10 +395,10 @@ export async function handleStripeEvent(
         await suspendPurchasing(pool, String(row.user_id), `${type} on ${row.module}:${row.order_id}`, `${row.module}:${row.order_id}`);
       }
       const why = suspend
-        ? " — buyer suspended pending review"
+        ? ", buyer suspended pending review"
         : !row.user_id
-          ? " — bought without an account; nobody to suspend"
-          : " — the village issued this refund; no suspension";
+          ? ", bought without an account; nobody to suspend"
+          : ", the village issued this refund; no suspension";
       await alertAdmins(
         `Payment ${type === "charge.refunded" ? "refund" : "DISPUTE"}: ${row.module} order ${row.order_id}${why}`,
         `payments-dispute:${row.module}:${row.order_id}`,
@@ -484,7 +484,7 @@ export type PurchaseCheck = { ok: true } | { ok: false; error: string };
  */
 export async function assertCanPurchase(pool: Pool, userId: string, amountMinor: number): Promise<PurchaseCheck> {
   if (await isSuspended(pool, userId)) {
-    return { ok: false, error: "Purchasing is paused on your account pending a payment review — talk to the stewards" };
+    return { ok: false, error: "Purchasing is paused on your account pending a payment review. Talk to the stewards" };
   }
   const perOrder = numberVar("payments.purchase_limit_per_order_usd") * 100;
   if (perOrder > 0 && amountMinor > perOrder) {

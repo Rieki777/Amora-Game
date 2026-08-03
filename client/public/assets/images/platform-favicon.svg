@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Neutral platform mark: a seed inside a circle. Deliberately generic —
+       the static document head cannot know which village it serves, and the
+       client swaps in the village's own favicon (brand config images.favicon)
+       as soon as /api/game/config answers. -->
+  <circle cx="32" cy="32" r="30" fill="#157f7d"/>
+  <path d="M32 14 C 44 22, 44 40, 32 52 C 20 40, 20 22, 32 14 Z" fill="#f4efe6"/>
+  <path d="M32 20 L 32 46" stroke="#157f7d" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M32 30 C 28 27, 26 24, 26 21 M32 36 C 36 33, 38 30, 38 27" stroke="#157f7d" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+</svg>

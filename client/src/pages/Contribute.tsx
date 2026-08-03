@@ -15,6 +15,8 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { CreditCard, ExternalLink, HeartHandshake, Loader2, Repeat } from "lucide-react";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -42,6 +44,10 @@ export default function Contribute() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [manual, setManual] = useState<{ name: string; text: string; receiptNo: number; url?: string } | null>(null);
+  // The refusal, keyed to the product. Declared with the other state, ABOVE
+  // the early return below: a hook after a conditional return changes the
+  // hook count between renders the moment the module catalogue loads.
+  const [refusedProduct, setRefusedProduct] = useState<{ id: string; message: string } | null>(null);
 
   useEffect(() => {
     if (!commerce) return;
@@ -50,22 +56,23 @@ export default function Contribute() {
       .then(setData)
       .catch(() => {});
     const q = new URLSearchParams(window.location.search).get("paid");
-    if (q === "success") setNotice("Payment received — thank you. Your receipt is on its way.");
-    if (q === "cancelled") setNotice("Checkout cancelled — nothing was charged.");
+    if (q === "success") setNotice("Payment received, thank you. Your receipt is on its way.");
+    if (q === "cancelled") setNotice("Checkout cancelled. Nothing was charged.");
   }, [commerce?.id]);
 
   if (modules.loaded && !commerce) return <NotFound />;
 
   const checkout = (p: any) => {
     setBusy(p.id);
-    setError("");
+    setError(""); setRefusedProduct(null);
     const body: any = {};
     if (p.amountMinor == null) body.amountMinor = Math.round((Number(amounts[p.id]) || 0) * 100);
     if (!user) body.email = emails[p.id] ?? "";
     fetch(`/api/products/${p.id}/checkout`, { method: "POST", headers: headers(), body: JSON.stringify(body) })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not start that");
+        const { ok, data: d, refusal } = await readRefusal(r);
+        if (refusal) { setRefusedProduct({ id: p.id, message: refusal }); return; }
+        if (!ok) throw new Error(d?.error || "Could not start that");
         if (d.kind === "stripe") window.location.href = d.url;
         else if (d.kind === "zeffy") {
           // NOT window.open: this runs after a network round trip, outside
@@ -85,9 +92,10 @@ export default function Contribute() {
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Contribute</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Fees, gifts, deposits and memberships — every way money supports
+            Fees, gifts, deposits and memberships: every way money supports
             this village, in one honest list.
           </p>
+          <ExamplesBanner moduleId="commerce" noun="product" />
         </div>
       </section>
 
@@ -97,7 +105,7 @@ export default function Contribute() {
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
           {manual && (
             <div className="bg-card border border-teal-deep/30 rounded-xl p-5">
-              <p className="font-semibold text-foreground text-sm mb-1">{manual.name} — receipt #{manual.receiptNo}</p>
+              <p className="font-semibold text-foreground text-sm mb-1">{manual.name}, receipt #{manual.receiptNo}</p>
               <p className="text-sm text-muted-foreground whitespace-pre-wrap">{manual.text}</p>
               {manual.url && (
                 <a
@@ -180,6 +188,9 @@ export default function Contribute() {
                   <span className="text-xs text-amber-700">Card payments aren't connected yet</span>
                 )}
               </div>
+              {refusedProduct && refusedProduct.id === p.id && (
+                <ExampleRefusal message={refusedProduct.message} className="mt-2" />
+              )}
             </div>
           ))}
         </div>

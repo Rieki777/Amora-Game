@@ -1,7 +1,13 @@
 // Platform game API client. All project-specific naming comes from /api/game/config.
 import { useEffect, useState } from "react";
 
-const TOKEN_KEY = "amora-auth-token";
+/**
+ * The ONE localStorage key for the session token. Exported so nothing else
+ * re-types the literal: eight hand-written copies is eight chances for a
+ * fork's rename to miss one and split the session in half (a page reading a
+ * key nothing writes reads as permanently signed out).
+ */
+export const TOKEN_KEY = "amora-auth-token";
 
 export interface BrandImages {
   hero?: string;
@@ -10,11 +16,32 @@ export interface BrandImages {
   stewardHero?: string;
   prosperityHero?: string;
   masterPlanHero?: string;
+  logo?: string;
+  heartLogo?: string;
+  favicon?: string;
 }
 
 export interface PublicGameConfig {
-  project: { name: string; tagline: string; memberName: string; location: string; adminPath: string };
-  currency: { name: string; nameLower: string };
+  project: {
+    name: string;
+    tagline: string;
+    memberName: string;
+    location: string;
+    adminPath: string;
+    /** Blank = the village has no outside site; render no link. */
+    siteUrl?: string;
+    eventsUrl?: string;
+    footerBlurb?: string;
+  };
+  currency: {
+    name: string;
+    nameLower: string;
+    /** The VALUE token the cycle pool distributes across recognition — named
+     *  in the token registry (Admin → Tokens), so a fork's rename reaches
+     *  every page that mentions it. Recognition itself carries no financial
+     *  value; this is the tracked value it steers each cycle. */
+    value?: { slug: string; name: string };
+  };
   images: BrandImages;
   paths: { id: string; label: string; role: string; route: string }[];
   stages: { id: string; name: string; description: string }[];
@@ -53,6 +80,23 @@ export function fetchConfigCached(): Promise<PublicGameConfig | null> {
       .catch(() => null);
   }
   return _configCache;
+}
+
+/**
+ * The whole live config, null until loaded. The shell (Layout) reads its
+ * identity — logo, name, outside links, footer copy — from here rather than
+ * from literals, which is what makes a fork's shell the fork's without a
+ * code change. Callers must treat null as "unknown, reserve the space",
+ * never as "this village has no identity".
+ */
+export function useGameConfig(): PublicGameConfig | null {
+  const [config, setConfig] = useState<PublicGameConfig | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchConfigCached().then((c) => { if (alive && c) setConfig(c); });
+    return () => { alive = false; };
+  }, []);
+  return config;
 }
 
 /** Live (brand-overlaid) hero image URLs, empty until loaded — callers fall back

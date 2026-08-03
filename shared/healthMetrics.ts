@@ -19,6 +19,22 @@ export interface HealthMetricDef {
   label: string;
   unit: string;
   description: string;
+  /**
+   * Doughnut placement (S71). A foundation wedge measures the SHARE of the
+   * village a lunation reached: `shareOf: "members_total"` divides the
+   * latest snapshot value by the member count; `shareOf: "percent"` reads
+   * the value as a percentage already. `floor` is the fraction beneath
+   * which the wedge shows shortfall, in the doughnut's own language: the
+   * red points at what the village agreed matters, never at a person.
+   * Defaults live HERE so a fresh village needs no configuration; a
+   * village that disagrees overrides per key in the health module's
+   * config JSON (`doughnutFloors`). Absent = the metric stays off the ring.
+   */
+  doughnut?: {
+    ring: "foundation";
+    shareOf: "members_total" | "percent";
+    floor: number;
+  };
 }
 
 export const HEALTH_METRICS: HealthMetricDef[] = [
@@ -36,6 +52,7 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
     label: "Active this cycle",
     unit: "people",
     description: "Distinct members who did anything the village heard about during the lunation.",
+    doughnut: { ring: "foundation", shareOf: "members_total", floor: 0.35 },
   },
   {
     key: "events_total_cycle",
@@ -49,7 +66,8 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
     kind: "snapshot",
     label: "Members who gave recognition",
     unit: "people",
-    description: "Distinct ELIGIBLE senders this cycle — the Sybil rule (stage >= member or >= 1 consented quest) is consumed from settlement, never re-implemented.",
+    description: "Distinct ELIGIBLE senders this cycle. The Sybil rule (stage >= member or >= 1 consented quest) is consumed from settlement, never re-implemented.",
+    doughnut: { ring: "foundation", shareOf: "members_total", floor: 0.25 },
   },
   {
     key: "gratitude_recipients_distinct",
@@ -57,6 +75,7 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
     label: "Members who were recognized",
     unit: "people",
     description: "Distinct recipients of recognition this cycle.",
+    doughnut: { ring: "foundation", shareOf: "members_total", floor: 0.25 },
   },
   {
     key: "quests_consented_cycle",
@@ -64,6 +83,7 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
     label: "Quests consented",
     unit: "quests",
     description: "Work shown and consented to during the lunation.",
+    doughnut: { ring: "foundation", shareOf: "members_total", floor: 0.1 },
   },
   {
     key: "decisions_opened_cycle",
@@ -84,7 +104,8 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
     kind: "snapshot",
     label: "Library in use",
     unit: "%",
-    description: "Share of library items that were out on loan at any point in the lunation — how hard the shelves actually work. Meta carries the item and loan counts behind it.",
+    description: "Share of library items that were out on loan at any point in the lunation: how hard the shelves actually work. Meta carries the item and loan counts behind it.",
+    doughnut: { ring: "foundation", shareOf: "percent", floor: 0.2 },
   },
   {
     key: "stay_occupancy_nights",
@@ -105,7 +126,7 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
     kind: "snapshot",
     label: "Recognition issued to date",
     unit: "tokens",
-    description: "Total recognition the gratitude faucet has released since the beginning — the faucet's negative balance IS issuance-to-date, read straight from the ledger.",
+    description: "Total recognition the gratitude faucet has released since the beginning. The faucet's negative balance IS issuance-to-date, read straight from the ledger.",
   },
 
   // ── Regen: the land's own ledger, steward-recorded ─────────────────────────

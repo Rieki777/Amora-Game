@@ -43,6 +43,8 @@ export interface TokenDef {
   /** May members send it peer-to-peer? */
   transferable: boolean;
   active: boolean;
+  /** Standing-example token: display-only, retires on the first real one. */
+  isExample?: boolean;
 }
 
 /** The default recognition token. The others are read from chain. */
@@ -71,7 +73,7 @@ const registry = new Map<string, TokenDef>();
  */
 export async function loadTokenRegistry(pool: Pool): Promise<void> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT slug, name, kind, governance, transferable, active FROM tokens",
+    "SELECT slug, name, kind, governance, transferable, active, is_example FROM tokens",
   );
   registry.clear();
   for (const r of rows) {
@@ -82,6 +84,7 @@ export async function loadTokenRegistry(pool: Pool): Promise<void> {
       governance: r.governance === "hypha" ? "hypha" : "platform",
       transferable: !!r.transferable,
       active: !!r.active,
+      isExample: Number(r.is_example ?? 0) === 1,
     });
   }
 }
@@ -201,7 +204,7 @@ function validateLeg(input: TransferInput): { tokenType: string; amount: number 
   if (!def) {
     // Fail loud, never coerce: a typo that silently became 'gratitude' would
     // be a mint bug wearing a coercion costume.
-    return { error: `unknown token "${tokenType}" — register it in the token registry before posting` };
+    return { error: `unknown token "${tokenType}": register it in the token registry before posting` };
   }
   if (def.governance !== "platform") {
     return { error: `${tokenType} is issued on Hypha and only read here; the platform cannot move it` };
@@ -419,10 +422,10 @@ async function postTransferPairOnce(
   // overdraft is just a mint with extra steps, so this is a hard error
   // inside the primitive rather than a rule callers are asked to remember.
   for (const leg of legs) {
-    if (leg.allowNegative) return fail("allowNegative is illegal in a paired post — a swap may never create debt");
+    if (leg.allowNegative) return fail("allowNegative is illegal in a paired post: a swap may never create debt");
   }
   if (legs[0].idempotencyKey === legs[1].idempotencyKey) {
-    return fail("both legs carry the same idempotency key — a pair needs two distinct keys");
+    return fail("both legs carry the same idempotency key: a pair needs two distinct keys");
   }
 
   const checked = legs.map(validateLeg);
@@ -511,7 +514,7 @@ async function postTransferPairOnce(
       if (existing.length === 2) return { ok: true, duplicate: true, balances: {} };
       if (existing.length === 1) {
         throw new Error(
-          `partial idempotency collision on ${existing[0].idempotency_key} — keys from different orders have merged; refusing to complete`,
+          `partial idempotency collision on ${existing[0].idempotency_key}: keys from different orders have merged; refusing to complete`,
         );
       }
       throw e;
@@ -635,7 +638,7 @@ export async function checkLedgerInvariants(pool: Pool): Promise<InvariantReport
     "SELECT l.token_type, COUNT(*) n FROM token_ledger l JOIN tokens t ON t.slug = l.token_type " +
       "WHERE t.governance = 'hypha' GROUP BY l.token_type",
   );
-  for (const r of hypha) problems.push(`hypha token "${r.token_type}" has ${r.n} ledger row(s) — this platform must never move it`);
+  for (const r of hypha) problems.push(`hypha token "${r.token_type}" has ${r.n} ledger row(s): this platform must never move it`);
 
   const [orphans] = await pool.query<RowDataPacket[]>(
     "SELECT DISTINCT l.token_type FROM token_ledger l LEFT JOIN tokens t ON t.slug = l.token_type WHERE t.slug IS NULL",

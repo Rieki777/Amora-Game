@@ -23,7 +23,8 @@
  *     the mutation. Failures land as an admin-audience event instead.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { SNAPSHOT_METRICS } from "../../shared/healthMetrics";
+import { REGEN_METRICS, SNAPSHOT_METRICS } from "../../shared/healthMetrics";
+import { cycleBoundsFor } from "../../shared/lunar";
 
 export interface SnapshotCycle {
   id: string;
@@ -48,15 +49,19 @@ export async function snapshotCycle(pool: Pool, cycle: SnapshotCycle, eligibleSe
   const start = new Date(cycle.startsAt);
   const end = new Date(cycle.endsAt);
 
-  // members_total: real accounts (tombstones carry an anonymized.invalid email).
+  // members_total: real accounts (tombstones carry an anonymized.invalid email;
+  // standing-example identities are content, not people, and never counted).
   const [[membersRow]] = await pool.query<any[]>(
-    "SELECT COUNT(*) AS n FROM users WHERE email NOT LIKE '%anonymized.invalid'",
+    "SELECT COUNT(*) AS n FROM users WHERE email NOT LIKE '%anonymized.invalid' AND is_example = 0",
   );
   await insertSnapshot(pool, cycle.cycleNumber, "members_total", Number(membersRow.n));
 
   // Event-spine reads: windowed on at (these rows carry no cycle stamp).
   const [kinds] = await pool.query<RowDataPacket[]>(
-    "SELECT kind, COUNT(*) AS n FROM health_events WHERE at >= ? AND at < ? GROUP BY kind",
+    // Snapshots are frozen at close and never recomputed, so an example row
+    // counted here is recorded as village activity permanently — retirement
+    // cannot reach back and fix it.
+    "SELECT kind, COUNT(*) AS n FROM health_events WHERE at >= ? AND at < ? AND is_example = 0 GROUP BY kind",
     [start, end],
   );
   const byKind: Record<string, number> = {};
@@ -65,7 +70,10 @@ export async function snapshotCycle(pool: Pool, cycle: SnapshotCycle, eligibleSe
   await insertSnapshot(pool, cycle.cycleNumber, "events_total_cycle", totalEvents, { byKind });
 
   const [[activeRow]] = await pool.query<any[]>(
-    "SELECT COUNT(DISTINCT actor_user_id) AS n FROM health_events WHERE at >= ? AND at < ? AND actor_user_id IS NOT NULL",
+    // Same guard as the kinds read above, and for the same reason: this number
+    // is frozen into a snapshot that is never recomputed, so an example event
+    // counted here is village activity permanently.
+    "SELECT COUNT(DISTINCT actor_user_id) AS n FROM health_events WHERE at >= ? AND at < ? AND actor_user_id IS NOT NULL AND is_example = 0",
     [start, end],
   );
   await insertSnapshot(pool, cycle.cycleNumber, "members_active_cycle", Number(activeRow.n));
@@ -97,7 +105,7 @@ export async function snapshotCycle(pool: Pool, cycle: SnapshotCycle, eligibleSe
   // concentration read builds on this). Zero rows is a fact, not a failure.
   const [[decRow]] = await pool.query<any[]>(
     "SELECT COUNT(*) AS n, COUNT(DISTINCT author_id) AS authors FROM forum_threads " +
-      "WHERE kind = 'decision' AND created_at >= ? AND created_at < ?",
+      "WHERE kind = 'decision' AND is_example = 0 AND created_at >= ? AND created_at < ?",
     [start, end],
   ).catch(() => [[{ n: 0, authors: 0 }]] as any);
   await insertSnapshot(pool, cycle.cycleNumber, "decisions_opened_cycle", Number(decRow.n), {
@@ -113,7 +121,7 @@ export async function snapshotCycle(pool: Pool, cycle: SnapshotCycle, eligibleSe
   // Library utilization: items that saw a loan this lunation / items owned.
   try {
     const [[libRow]] = await pool.query<any[]>(
-      "SELECT (SELECT COUNT(*) FROM library_items WHERE status <> 'written_off') AS items, " +
+      "SELECT (SELECT COUNT(*) FROM library_items WHERE status <> 'written_off' AND is_example = 0) AS items, " +
         "(SELECT COUNT(DISTINCT item_id) FROM library_loans WHERE created_at >= ? AND created_at < ?) AS loaned",
       [start, end],
     );
@@ -215,7 +223,9 @@ export interface SnapshotSeriesPoint {
 
 export async function snapshotSeries(pool: Pool): Promise<{ lunationsCollected: number; series: Record<string, SnapshotSeriesPoint[]> }> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT cycle_number, metric_key, value, meta FROM health_snapshots ORDER BY cycle_number ASC",
+    // Fabricated lunations must not open the honest-sparse gate: three seeded
+    // cycles would report trendsUnlocked on a village that has closed none.
+    "SELECT cycle_number, metric_key, value, meta FROM health_snapshots WHERE is_example = 0 ORDER BY cycle_number ASC",
   );
   const series: Record<string, SnapshotSeriesPoint[]> = {};
   const cycles = new Set<number>();
@@ -247,6 +257,13 @@ export interface RegenEntry {
   retractionNote?: string | null;
   /** The corrected reading that replaced it, when there is one. */
   supersededBy?: string | null;
+  /**
+   * A standing example. These are deliberately OUT of regenTotals and IN this
+   * list, so the page can show what a regeneration ledger looks like without
+   * putting a seeded 240 trees in the number a village carries to funders. The
+   * list has to say which rows those are.
+   */
+  isExample?: boolean;
 }
 
 /**
@@ -274,6 +291,7 @@ export async function regenEntries(pool: Pool, limit = 100, includeRetracted = f
     retractedAt: r.retracted_at ? new Date(r.retracted_at).toISOString() : null,
     retractionNote: r.retraction_note ?? null,
     supersededBy: r.superseded_by ?? null,
+    isExample: Number(r.is_example ?? 0) === 1,
   }));
 }
 
@@ -281,11 +299,125 @@ export async function regenEntries(pool: Pool, limit = 100, includeRetracted = f
 export async function regenTotals(pool: Pool): Promise<Record<string, { total: number; unit: string; entries: number }>> {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT metric_key, SUM(value) AS total, MAX(unit) AS unit, COUNT(*) AS n FROM regen_entries " +
-      "WHERE retracted_at IS NULL GROUP BY metric_key",
+      // Examples are illustrative; this total is the number a village carries
+      // to funders, so a seeded 240 trees must never be inside it.
+      "WHERE retracted_at IS NULL AND is_example = 0 GROUP BY metric_key",
   );
   const out: Record<string, { total: number; unit: string; entries: number }> = {};
   for (const r of rows) out[String(r.metric_key)] = { total: Number(r.total), unit: String(r.unit), entries: Number(r.n) };
   return out;
+}
+
+// ── The doughnut (S71) ───────────────────────────────────────────────────────
+
+export interface DoughnutFoundationWedge {
+  key: string;
+  label: string;
+  /** Share of the village this lunation reached, 0..1; null = no reading. */
+  share: number | null;
+  floor: number;
+  shortfall: boolean;
+  value: number | null;
+  denomValue: number | null;
+}
+
+export interface DoughnutRegenWedge {
+  key: string;
+  label: string;
+  unit: string;
+  total: number;
+  thisLunation: number;
+  bestLunation: number;
+  /** This lunation against the village's own best, 0..1. */
+  fill: number;
+}
+
+export interface DoughnutData {
+  collected: boolean;
+  foundation: DoughnutFoundationWedge[];
+  regen: DoughnutRegenWedge[];
+}
+
+/**
+ * The doughnut's two rings, computed from what the village already records.
+ *
+ * FOUNDATION (inner): each wedge is the share of the village a lunation
+ * reached, read from the LATEST frozen snapshot, with the floor coming from
+ * the shared registry (a village overrides per key via `doughnutFloors` in
+ * the health module's config JSON). Shortfall points at what the village
+ * agreed matters, never at a person; a wedge with no reading claims nothing.
+ *
+ * REGEN (outer): the honest inversion of the classic ecological ceiling.
+ * This platform measures what a village GIVES BACK, so the outer ring grows
+ * outward with the land's ledger, each wedge scaled against the village's
+ * own best lunation for that metric. A village that meters extraction can
+ * wire true ceilings later; drawing CO2 wedges with no data source would be
+ * decoration wearing the costume of measurement.
+ */
+export async function doughnutData(
+  pool: Pool,
+  floorOverrides: Record<string, number> = {},
+): Promise<DoughnutData> {
+  const { lunationsCollected, series } = await snapshotSeries(pool);
+  const latest = (key: string): number | null => {
+    const points = series[key] ?? [];
+    return points.length ? Number(points[points.length - 1].value) : null;
+  };
+
+  const foundation: DoughnutFoundationWedge[] = SNAPSHOT_METRICS
+    .filter((m) => m.doughnut?.ring === "foundation")
+    .map((m) => {
+      const d = m.doughnut!;
+      const raw = Number(floorOverrides[m.key]);
+      const floor = Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : d.floor;
+      const value = latest(m.key);
+      const denomValue = d.shareOf === "percent" ? 100 : latest(d.shareOf);
+      const share = value == null || denomValue == null || denomValue <= 0
+        ? null
+        : Math.min(1, value / denomValue);
+      return {
+        key: m.key,
+        label: m.label,
+        share,
+        floor,
+        shortfall: share != null && share < floor,
+        value,
+        denomValue,
+      };
+    });
+
+  // Regen per lunation: bucket the ledger's rows by the lunar calendar in
+  // code (lunation boundaries are nobody's SQL function), then compare the
+  // current lunation to the best one this village has ever recorded.
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT metric_key, value, recorded_at FROM regen_entries WHERE retracted_at IS NULL AND is_example = 0",
+  );
+  const totals = await regenTotals(pool);
+  const nowCycle = cycleBoundsFor(new Date()).cycleNumber;
+  const perCycle = new Map<string, Map<number, number>>();
+  for (const r of rows) {
+    const cycle = cycleBoundsFor(new Date(r.recorded_at)).cycleNumber;
+    const byCycle = perCycle.get(String(r.metric_key)) ?? new Map<number, number>();
+    byCycle.set(cycle, (byCycle.get(cycle) ?? 0) + Number(r.value));
+    perCycle.set(String(r.metric_key), byCycle);
+  }
+
+  const regen: DoughnutRegenWedge[] = REGEN_METRICS.map((m) => {
+    const byCycle = perCycle.get(m.key) ?? new Map<number, number>();
+    const thisLunation = byCycle.get(nowCycle) ?? 0;
+    const bestLunation = Math.max(0, ...Array.from(byCycle.values()));
+    return {
+      key: m.key,
+      label: m.label,
+      unit: m.unit,
+      total: totals[m.key]?.total ?? 0,
+      thisLunation,
+      bestLunation,
+      fill: bestLunation > 0 ? Math.min(1, thisLunation / bestLunation) : 0,
+    };
+  });
+
+  return { collected: lunationsCollected > 0, foundation, regen };
 }
 
 /**
@@ -301,13 +433,13 @@ export async function governanceReads(pool: Pool): Promise<{
   note: string;
 }> {
   const [[row]] = await pool.query<any[]>(
-    "SELECT COUNT(*) AS n, COUNT(DISTINCT author_id) AS authors FROM forum_threads WHERE kind = 'decision'",
+    "SELECT COUNT(*) AS n, COUNT(DISTINCT author_id) AS authors FROM forum_threads WHERE kind = 'decision' AND is_example = 0",
   ).catch(() => [[{ n: 0, authors: 0 }]] as any);
   const decisions = Number(row.n);
   let concentration: number | null = null;
   if (decisions >= 3) {
     const [[top]] = await pool.query<any[]>(
-      "SELECT COUNT(*) AS n FROM forum_threads WHERE kind = 'decision' GROUP BY author_id ORDER BY n DESC LIMIT 1",
+      "SELECT COUNT(*) AS n FROM forum_threads WHERE kind = 'decision' AND is_example = 0 GROUP BY author_id ORDER BY n DESC LIMIT 1",
     );
     concentration = Number(top.n) / decisions;
   }

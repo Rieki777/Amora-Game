@@ -216,10 +216,10 @@ export default function LoveLetter() {
             </p>
 
             <p className="mb-6 text-muted-foreground">
-              How residents govern themselves — and how we steward this land together — will be
-              co-created by the first residents, not handed down. Once we've sold 33 lots, we'll
-              convene a governance council to structure this together. You're not joining a finished
-              system; you're helping write it.
+              How residents govern themselves, and how we steward this land together, will be
+              co-created by the first residents. Nothing here is handed down. Once we've sold 33
+              lots, we'll convene a governance council to structure this together. You're not
+              joining a finished system; you're helping write it.
             </p>
 
             <p className="mb-6 text-muted-foreground">
@@ -327,7 +327,7 @@ export default function LoveLetter() {
                   Monthly Membership Contribution
                 </label>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Tax-deductible contribution to Amora 508(c)(1)(a). Suggested: $33–$108/month.
+                  Tax-deductible contribution to Amora 508(c)(1)(a). Suggested: $33-$108/month.
                 </p>
                 <select
                   value={form.contribution}

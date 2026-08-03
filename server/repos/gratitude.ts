@@ -40,6 +40,15 @@ export interface GratitudeEntry {
 export interface GratitudeLogRepo {
   all(): Promise<GratitudeEntry[]>;
   add(e: GratitudeEntry): Promise<{ ok: boolean; duplicate: boolean }>;
+  /**
+   * What one member has spent this cycle, ACROSS ALL KINDS — hearts included,
+   * because feed.heart_amount can be greater than zero and the budget is one
+   * budget. Kind-filtering this would silently change every member's
+   * spendable total, so the two aggregates below deliberately differ.
+   */
+  spentInCycle(fromId: string, cycleId: string): Promise<number>;
+  /** How many of ONE kind have gone from one member to another this cycle. */
+  countPair(fromId: string, toId: string, cycleId: string, kind: string): Promise<number>;
 }
 
 export function gratitudeLogRepo(pool: Pool): GratitudeLogRepo {
@@ -64,6 +73,22 @@ export function gratitudeLogRepo(pool: Pool): GratitudeLogRepo {
         cycleNumber: r.cycle_number == null ? null : Number(r.cycle_number),
         at: toIso(r.at),
       }));
+    },
+
+    async spentInCycle(fromId, cycleId) {
+      const [[row]] = await pool.query<any[]>(
+        "SELECT COALESCE(SUM(amount),0) AS s FROM gratitude_log WHERE from_id = ? AND cycle_id = ?",
+        [fromId, cycleId],
+      );
+      return Number(row.s);
+    },
+
+    async countPair(fromId, toId, cycleId, kind) {
+      const [[row]] = await pool.query<any[]>(
+        "SELECT COUNT(*) AS n FROM gratitude_log WHERE from_id = ? AND to_id = ? AND cycle_id = ? AND kind = ?",
+        [fromId, toId, cycleId, kind],
+      );
+      return Number(row.n);
     },
 
     async add(e) {
@@ -156,12 +181,15 @@ export function gratitudeDistributionsRepo(pool: Pool): DistributionsRepo {
     },
 
     async add(rec) {
+      // Add-if-absent ON PURPOSE: the settlement basis is sticky. A retried
+      // cycle close recomputes its split from live data that has drifted, and
+      // updating these columns would let the report rows diverge from the
+      // ledger legs already posted under the first split's amounts. The first
+      // persisted split is the story, forever.
       await pool.query(
         "INSERT INTO gratitude_distributions (id, cycle_id, user_id, received, received_hearts, received_acks, distinct_senders, credited, pool_token, created_at) " +
           "VALUES (?,?,?,?,?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP)) " +
-          "ON DUPLICATE KEY UPDATE received=VALUES(received), received_hearts=VALUES(received_hearts), " +
-          "received_acks=VALUES(received_acks), distinct_senders=VALUES(distinct_senders), " +
-          "credited=VALUES(credited), pool_token=VALUES(pool_token)",
+          "ON DUPLICATE KEY UPDATE id=id",
         [
           rec.id,
           rec.cycleId,

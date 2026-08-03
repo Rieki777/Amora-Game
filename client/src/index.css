@@ -1,14 +1,15 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Serenity - Official Amora brand font */
-@font-face {
-  font-family: "Serenity";
-  src: url("/assets/fonts/Serenity.ttf/SERENITY.TTF") format("truetype");
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}
+/*
+ * No @font-face here, deliberately. A village's brand font is DEPLOYMENT
+ * DATA, not platform code: Serenity (Amora's heading font, unverified
+ * licence, downloaded from a free-fonts aggregator) used to be declared here
+ * and shipped to every fork. It now arrives through /api/brand/theme.css,
+ * which each deployment's server emits from its own brand document — a fork
+ * that sets nothing gets clean fallbacks, and a village that brings a font
+ * carries its own licence.
+ */
 
 @custom-variant dark (&:is(.dark *));
 
@@ -23,14 +24,27 @@
  * - Heart-centered, regenerative energy
  */
 
-@theme inline {
-  /* Serenity is the official Amora brand font (sans-serif). Drop Serenity.ttf into
-     client/public/assets/fonts/ and it will activate automatically.
-     Raleway (Google Fonts) is the free alternative with the same clean elegance. */
-  --font-display: "Serenity", "Raleway", system-ui, -apple-system, sans-serif;
+/* Platform defaults: self-hosted, licence-clean (all three are OFL via
+   @fontsource), and naming NO village's font. A village's own display face —
+   Amora's Serenity, another village's anything — is deployment data: the
+   brand document's theme fields, emitted by /api/brand/theme.css, override
+   these custom properties at higher specificity. The platform stack must
+   stay generic or every fork inherits one village's typography.
+
+   Plain @theme, NOT @theme inline, and that one word is the whole feature:
+   `inline` bakes the literal stack into every generated utility at build
+   time, so the runtime override from theme.css changed the variable while
+   every element with a font-* class kept the compiled default. Plain @theme
+   makes the utilities reference var(--font-display) at runtime, which is
+   what lets a stylesheet the SERVER emits re-typeset the whole site. */
+@theme {
+  --font-display: "Raleway", system-ui, -apple-system, sans-serif;
   --font-body: "Montserrat", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-accent: "Kalam", cursive;
-  
+}
+
+@theme inline {
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -68,14 +82,21 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   
-  /* Amora Brand Colors - EXACT values from Official Brand Guidelines */
-  --color-teal-deep: #157f7d;      /* Official primary deep teal */
-  --color-teal: #7fb8ac;           /* Official seafoam teal */
-  --color-teal-light: #3a9896;     /* Medium teal - AA contrast with white */
-  --color-aqua: #83a7ad;           /* Official blue-gray teal */
-  --color-aqua-light: #c6dde0;     /* Very light aqua */
-  --color-cream: #efe8d7;          /* Official warm cream/beige */
-  --color-amber: #ecb163;          /* Official golden amber accent */
+  /* The brand tone layer. Each historical colour name now resolves through a
+     runtime --tone-* variable, with the original hex as the FALLBACK — so an
+     untouched deployment renders pixel-identically to before, and a village
+     that picks a seed colour in Admin → Look re-themes every one of these at
+     once via /api/brand/theme.css (derivation in shared/brandTokens.ts, every
+     pairing WCAG-measured before it ships). The var() indirection survives
+     @theme inline because the reference itself is what gets inlined into the
+     generated utilities — same mechanism as the shadcn block above. */
+  --color-teal-deep: var(--tone-brand, #157f7d);
+  --color-teal: var(--tone-brand-soft, #7fb8ac);
+  --color-teal-light: var(--tone-brand-mid, #3a9896);
+  --color-aqua: var(--tone-mist, #83a7ad);
+  --color-aqua-light: var(--tone-mist-light, #c6dde0);
+  --color-cream: var(--tone-cream, #efe8d7);
+  --color-amber: var(--tone-sun, #ecb163);
   --color-gray-light: #f2f2f2;     /* Official light gray */
   /* UI accent colors - warm tones, dark enough for white text (WCAG AA) */
   --color-gold: #a06b1c;           /* Warm amber-gold - 6.2:1 contrast vs white */
@@ -500,7 +521,11 @@ button, a, [role="button"], input, textarea, select, summary {
    on focus; desktop keeps the compact size. Checkboxes, radios, ranges,
    color pickers, and file inputs are excluded since font-size does not
    apply to them. */
-@media (max-width: 767px) {
+/* Keyed on the DEVICE, not the viewport: iOS zooms on focus for any input
+   under 16px, and a tablet in landscape is well past 767px while still being
+   the device that does it. `and (hover: none)` keeps touchscreen laptops out,
+   where the dense desktop layouts are correct. */
+@media (pointer: coarse) and (hover: none) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
   textarea,
   select {

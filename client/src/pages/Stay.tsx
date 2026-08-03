@@ -12,6 +12,9 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { BedDouble, CreditCard, Hammer, Moon, Send } from "lucide-react";
+import { Image } from "@/components/Image";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -31,6 +34,12 @@ export default function Stay() {
   const [arriveOn, setArriveOn] = useState("");
   const [notes, setNotes] = useState("");
   const [buyNights, setBuyNights] = useState(7);
+  // The refusal, keyed to the room: the page-top error slot sits above the
+  // whole grid, and the request composer stays open, so nothing near the
+  // button moved. Declared with the other state, ABOVE the early return
+  // below: a hook after a conditional return changes the hook count between
+  // renders the moment the module catalogue loads.
+  const [refusedRoom, setRefusedRoom] = useState<{ id: string; message: string } | null>(null);
 
   const load = () => {
     fetch("/api/stays", { headers: headers() })
@@ -41,40 +50,42 @@ export default function Stay() {
   useEffect(() => {
     if (staysModule) load();
     const q = new URLSearchParams(window.location.search).get("purchase");
-    if (q === "success") setNotice("Payment received — your credits arrive as soon as Stripe confirms (usually seconds).");
-    if (q === "cancelled") setNotice("Checkout cancelled — nothing was charged.");
+    if (q === "success") setNotice("Payment received. Your credits arrive as soon as Stripe confirms (usually seconds).");
+    if (q === "cancelled") setNotice("Checkout cancelled. Nothing was charged.");
   }, [staysModule?.id]);
 
   if (modules.loaded && !staysModule) return <NotFound />;
 
   const request = (accommodationId: string) => {
-    setError("");
+    setError(""); setRefusedRoom(null);
     fetch("/api/stays/request", {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ accommodationId, arriveOn: arriveOn || undefined, notes }),
     })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not request");
+        const { ok, data: d, refusal } = await readRefusal(r);
+        if (refusal) { setRefusedRoom({ id: accommodationId, message: refusal }); return; }
+        if (!ok) throw new Error(d?.error || "Could not request");
         setRequesting("");
         setNotes("");
-        setNotice("Request sent — the stewards will be in touch.");
+        setNotice("Request sent. The stewards will be in touch.");
         load();
       })
       .catch((e) => setError(e.message));
   };
 
   const checkout = (accommodationId: string) => {
-    setError("");
+    setError(""); setRefusedRoom(null);
     fetch("/api/stays/checkout", {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ accommodationId, nights: buyNights }),
     })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not start checkout");
+        const { ok, data: d, refusal } = await readRefusal(r);
+        if (refusal) { setRefusedRoom({ id: accommodationId, message: refusal }); return; }
+        if (!ok) throw new Error(d?.error || "Could not start checkout");
         window.location.href = d.url;
       })
       .catch((e) => setError(e.message));
@@ -89,15 +100,16 @@ export default function Stay() {
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Stay With Us</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
             One stay credit hosts one night. Buy credits, or earn them through
-            work-exchange quests — the village runs on contribution either way.
+            work-exchange Quests. The village runs on contribution either way.
           </p>
+          <ExamplesBanner moduleId="stays" noun="room" />
         </div>
       </section>
 
       <section className="py-8 bg-background">
         <div className="container max-w-3xl space-y-6">
-          {notice && <p className="text-sm text-teal-deep bg-teal-deep/10 rounded-lg px-4 py-2.5">{notice}</p>}
-          {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
+          {notice && <p role="status" className="text-sm text-teal-deep bg-teal-deep/10 rounded-lg px-4 py-2.5">{notice}</p>}
+          {error && <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
 
           {user && data?.mine && (
             <div className="bg-card border border-border rounded-xl p-5">
@@ -105,7 +117,7 @@ export default function Stay() {
                 <Moon className="w-5 h-5 text-teal-deep" />
                 <p className="text-sm text-foreground">
                   Your balance: <span className="font-bold">{data.mine.balance}</span> stay credit(s)
-                  {data.mine.balance < 0 && <span className="text-red-600"> — please settle up with the stewards</span>}
+                  {data.mine.balance < 0 && <span className="text-red-600">, please settle up with the stewards</span>}
                 </p>
               </div>
               {data.mine.stays.filter((s: any) => s.status === "requested" || s.status === "active").map((s: any) => (
@@ -115,7 +127,7 @@ export default function Stay() {
                   ) : (
                     <>
                       Your stay is active at <b>{s.rateSnapshotCredits}</b> credit(s)/night
-                      {s.nightsRemaining != null && <> — about <b>{Math.max(0, s.nightsRemaining)}</b> night(s) covered</>}.
+                      {s.nightsRemaining != null && <>, about <b>{Math.max(0, s.nightsRemaining)}</b> night(s) covered</>}.
                     </>
                   )}
                 </div>
@@ -129,7 +141,7 @@ export default function Stay() {
               const money = a.prices?.usd?.[audience] ?? a.prices?.usd?.guest;
               return (
                 <div key={a.id} className="bg-card border border-border rounded-xl overflow-hidden flex flex-col">
-                  {a.photoUrl && <img src={a.photoUrl} alt="" className="h-40 w-full object-cover" />}
+                  {a.photoUrl && <Image src={a.photoUrl} alt="" className="h-40 w-full" />}
                   <div className="p-4 flex-1 flex flex-col">
                     <div className="flex items-center gap-2 mb-1">
                       <BedDouble className="w-4 h-4 text-teal-deep" />
@@ -185,6 +197,9 @@ export default function Stay() {
                       ) : (
                         <p className="text-xs text-muted-foreground">Sign in to request a stay or buy credits.</p>
                       )}
+                      {refusedRoom && refusedRoom.id === a.id && (
+                        <ExampleRefusal message={refusedRoom.message} className="mt-2" />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -192,7 +207,7 @@ export default function Stay() {
             })}
           </div>
           {data && data.accommodations.length === 0 && (
-            <p className="text-center text-sm text-muted-foreground py-12">No rooms posted yet — check back soon.</p>
+            <p className="text-center text-sm text-muted-foreground py-12">No rooms posted yet. Check back soon.</p>
           )}
 
           {(data?.earnQuests ?? []).length > 0 && (
@@ -205,7 +220,7 @@ export default function Stay() {
                 {data.earnQuests.map((q: any) => (
                   <Link key={q.id} href="/quests" className="block text-sm text-muted-foreground hover:text-foreground">
                     <span className="font-medium text-foreground">{q.title}</span>
-                    {q.stayCreditReward > 0 && <> — {q.stayCreditReward} stay credit(s) on consent</>}
+                    {q.stayCreditReward > 0 && <>: {q.stayCreditReward} stay credit(s) on consent</>}
                   </Link>
                 ))}
               </div>

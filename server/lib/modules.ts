@@ -125,11 +125,11 @@ function reconcileGraph() {
 export function assertModuleGraph(): void {
   for (const [id, missing] of Array.from(demoted.entries())) {
     console.error(
-      `[modules] FATAL-LEVEL CONFIG: "${id}" is configured ${storedLifecycle(id)} but requires [${missing.join(", ")}] which ${missing.length === 1 ? "is" : "are"} off — serving "${id}" as OFF until resolved`,
+      `[modules] FATAL-LEVEL CONFIG: "${id}" is configured ${storedLifecycle(id)} but requires [${missing.join(", ")}] which ${missing.length === 1 ? "is" : "are"} off; serving "${id}" as OFF until resolved`,
     );
   }
   for (const id of orphanIds) {
-    console.error(`[modules] stored settings reference unknown module "${id}" — ignored, listed as orphan`);
+    console.error(`[modules] stored settings reference unknown module "${id}": ignored, listed as orphan`);
   }
   const sellers = new Map<string, string>();
   for (const def of MODULES) {
@@ -137,7 +137,7 @@ export function assertModuleGraph(): void {
     const prior = sellers.get(def.sellsToken);
     if (prior) {
       throw new Error(
-        `module graph invalid: token "${def.sellsToken}" has two selling modules (${prior}, ${def.id}) — one selling module per token is a boot assertion, not a convention`,
+        `module graph invalid: token "${def.sellsToken}" has two selling modules (${prior}, ${def.id}); one selling module per token is a boot assertion, not a convention`,
       );
     }
     sellers.set(def.sellsToken, def.id);

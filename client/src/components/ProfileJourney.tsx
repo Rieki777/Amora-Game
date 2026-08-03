@@ -70,7 +70,7 @@ export default function ProfileJourney() {
 
           {(prog.history ?? []).length === 0 ? (
             <p className="text-sm text-gray-500">
-              Your stage turns will be recorded here — each one names what it unlocked.
+              Your stage turns will be recorded here. Each one names what it unlocked.
             </p>
           ) : (
             <ol className="space-y-3">
@@ -81,7 +81,7 @@ export default function ProfileJourney() {
                     <span className="font-medium text-gray-900">
                       {prettySource(h.fromStage)} → {prettySource(h.toStage)}
                     </span>
-                    {h.reason && <span className="text-gray-500"> — {h.reason}</span>}
+                    {h.reason && <span className="text-gray-500">: {h.reason}</span>}
                     {h.unlocked && (
                       <span className="block text-xs text-teal-deep mt-0.5">Unlocked: {h.unlocked}</span>
                     )}
@@ -117,7 +117,7 @@ export default function ProfileJourney() {
               <p className="text-2xl font-display font-bold text-teal-deep">{flows.totals?.sent ?? 0}</p>
               <p className="text-xs text-gray-500 mt-1">sent</p>
             </div>
-            <div className="text-center bg-amber-50 rounded-xl py-4" title="How many different people have thanked you — breadth is the real signal of community health">
+            <div className="text-center bg-amber-50 rounded-xl py-4" title="How many different people have thanked you. Breadth is the real signal of community health">
               <p className="text-2xl font-display font-bold text-amber-700">{flows.totals?.distinctAcknowledgers ?? 0}</p>
               <p className="text-xs text-gray-600 mt-1">people thanked you</p>
             </div>
@@ -157,7 +157,7 @@ export default function ProfileJourney() {
           </p>
           {(ledger.entries ?? []).length === 0 ? (
             <p className="text-sm text-gray-500">
-              Nothing yet — consented quests and received gratitude will appear here.
+              Nothing yet. Consented quests and received gratitude will appear here.
             </p>
           ) : (
             <div className="space-y-1.5">

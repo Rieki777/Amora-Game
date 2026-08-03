@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModule } from "@/modules/ModuleProvider";
 import NotificationBell from "@/components/NotificationBell";
-import AmoraLogo, { AmoraHeartLogo } from "./AmoraLogo";
+import { useGameConfig } from "@/lib/gameApi";
 import MobileTabBar from "./mobile/MobileTabBar";
 import MobileFab from "./mobile/MobileFab";
 
@@ -26,6 +26,15 @@ export default function Layout({ children }: LayoutProps) {
   const [mobilePathsOpen, setMobilePathsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
+  // The shell's identity — logo, name, outside links, footer copy — comes
+  // from the live config, never from literals: this is what makes a fork's
+  // shell the fork's without touching a component. While config is loading
+  // the logo boxes reserve their height (64px header / 90px footer) so the
+  // page never shifts on first paint, and outside links simply don't render.
+  const cfg = useGameConfig();
+  const siteUrl = String(cfg?.project?.siteUrl ?? "").trim();
+  const eventsUrl = String(cfg?.project?.eventsUrl ?? "").trim();
+  const villageName = String(cfg?.project?.name ?? "").trim();
   const toolsModule = useModule("tools");
   const mapModule = useModule("map");
   const forumModule = useModule("forum");
@@ -35,6 +44,10 @@ export default function Layout({ children }: LayoutProps) {
   const badgesModule = useModule("badges");
   const libraryModule = useModule("library");
   const healthModule = useModule("health");
+  // Footer-only (see the note by the desktop nav: it is already ~1250px wide
+  // and two more header links reopen the sideways-scroll bug below xl).
+  const commerceModule = useModule("commerce");
+  const networkModule = useModule("network");
 
   // The bottom tab bar's "More" slot opens this same drawer rather than being a
   // second, separately-maintained menu. No scrolling: the header is sticky, so
@@ -52,10 +65,29 @@ export default function Layout({ children }: LayoutProps) {
       {/* Navigation */}
       <nav className="sticky top-0 z-50 bg-teal-deep text-white shadow-lg">
         <div className="container py-4 flex items-center justify-between">
-          <Link href="/">
-            <a className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-              <AmoraLogo variant="beige" height={64} />
-            </a>
+          {/* One anchor, not two. wouter's Link renders the <a> itself, so a
+              nested <a> is invalid markup: the browser closes the outer one
+              early and leaves an EMPTY focusable link as the first stop in
+              the tab order on every page — a keyboard or screen-reader user
+              meets an unnamed link before anything else on the site.
+              The logo itself comes from the brand config: the fixed 64px box
+              holds the space while it loads, so nothing shifts. */}
+          <Link
+            href="/"
+            aria-label={villageName ? `${villageName} home` : "Home"}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            style={{ minHeight: "64px" }}
+          >
+            {cfg?.images?.logo ? (
+              <img
+                src={cfg.images.logo}
+                alt={villageName || "Village logo"}
+                style={{ height: "64px", width: "auto" }}
+                draggable={false}
+              />
+            ) : (
+              <span style={{ height: "64px", display: "inline-block" }} aria-hidden="true" />
+            )}
           </Link>
 
           {/* Desktop Menu.
@@ -72,19 +104,37 @@ export default function Layout({ children }: LayoutProps) {
             </Link>
 
             {/* Your Path Dropdown */}
+            {/* Hover was the ONLY way to open this: the button had no
+                onClick, so Enter and Space fired a click with no listener and
+                the four path links never entered the tab order at all. The
+                keyboard-correct twin lives in the mobile block, which is
+                display:none at this width — so no code path covered a
+                keyboard user on a desktop screen. Escape closes, because a
+                click-toggle that a mouse user cannot re-open (the pointer is
+                still inside the wrapper, so no fresh mouseenter fires) needs
+                a second way out. */}
             <div
               ref={dropdownRef}
               className="relative"
               onMouseEnter={() => setPathsOpen(true)}
               onMouseLeave={() => setPathsOpen(false)}
+              onKeyDown={(e) => { if (e.key === "Escape") setPathsOpen(false); }}
             >
-              <button className="flex items-center gap-1 text-white/70 hover:text-white transition-colors text-sm">
+              <button
+                type="button"
+                onClick={() => setPathsOpen((v) => !v)}
+                aria-expanded={pathsOpen}
+                aria-haspopup="true"
+                aria-controls="paths-menu"
+                className="flex items-center gap-1 text-white/70 hover:text-white transition-colors text-sm"
+              >
                 Your Path
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${pathsOpen ? "rotate-180" : ""}`} />
               </button>
               <AnimatePresence>
                 {pathsOpen && (
                   <motion.div
+                    id="paths-menu"
                     initial={{ opacity: 0, y: -6 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
@@ -210,37 +260,40 @@ export default function Layout({ children }: LayoutProps) {
             {user ? (
               <div className="flex items-center gap-3">
                 <NotificationBell />
-                <Link href="/profile">
-                  <a className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
-                    <User className="w-4 h-4" />
-                    <span>{user.name.split(" ")[0]}</span>
-                  </a>
+                <Link href="/profile" className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
+                  <User className="w-4 h-4" />
+                  <span>{user.name.split(" ")[0]}</span>
                 </Link>
                 <button
                   onClick={logout}
                   className="text-white/50 hover:text-white transition-colors pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:-m-2"
-                  title="Sign out"
+                  // title is a hover tooltip and a phone has no hover, so an
+                  // icon-only control needs a real name as well. "Everywhere"
+                  // is honest, not decorative: tokenVersion is the only
+                  // revocation lever, so this ends the session on every device.
+                  aria-label="Sign out everywhere"
+                  title="Sign out everywhere"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
               </div>
             ) : (
-              <Link href="/login">
-                <a className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
-                  <User className="w-4 h-4" />
-                  Sign In
-                </a>
+              <Link href="/login" className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
+                <User className="w-4 h-4" />
+                Sign In
               </Link>
             )}
 
-            <a
-              href="https://amora.cr"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-sm"
-            >
-              Main Site
-            </a>
+            {siteUrl && (
+              <a
+                href={siteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-sm"
+              >
+                Main Site
+              </a>
+            )}
           </div>
 
           {/* Mobile Menu Button (bell beside it when signed in) */}
@@ -371,7 +424,7 @@ export default function Layout({ children }: LayoutProps) {
                       onClick={logout}
                       className="block text-white/50 hover:text-white transition-colors text-sm py-2 text-left"
                     >
-                      Sign Out
+                      Sign Out Everywhere
                     </button>
                   </>
                 ) : (
@@ -379,14 +432,16 @@ export default function Layout({ children }: LayoutProps) {
                     Sign In / Register
                   </Link>
                 )}
-                <a
-                  href="https://amora.cr"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-center"
-                >
-                  Main Site
-                </a>
+                {siteUrl && (
+                  <a
+                    href={siteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-center"
+                  >
+                    Main Site
+                  </a>
+                )}
               </div>
             </motion.div>
           )}
@@ -404,12 +459,20 @@ export default function Layout({ children }: LayoutProps) {
           <div className="grid md:grid-cols-5 gap-12 mb-12">
             {/* Brand */}
             <div className="md:col-span-1">
-              <div className="flex items-center gap-2 mb-4">
-                <AmoraHeartLogo variant="beige" height={90} />
+              {/* 90px box reserved while config loads — same rule as the header. */}
+              <div className="flex items-center gap-2 mb-4" style={{ minHeight: "90px" }}>
+                {cfg?.images?.heartLogo && (
+                  <img
+                    src={cfg.images.heartLogo}
+                    alt={villageName || "Village mark"}
+                    style={{ height: "90px", width: "auto" }}
+                    draggable={false}
+                  />
+                )}
               </div>
-              <p className="text-white/70 text-sm leading-relaxed">
-                A regenerative village in Costa Rica where all beings belong and thrive.
-              </p>
+              {cfg?.project?.footerBlurb && (
+                <p className="text-white/70 text-sm leading-relaxed">{cfg.project.footerBlurb}</p>
+              )}
             </div>
 
             {/* Your Journey */}
@@ -493,6 +556,28 @@ export default function Layout({ children }: LayoutProps) {
                     Our Team
                   </Link>
                 </li>
+                {/* Three pages the app mounted and then linked from nowhere.
+                    The module-gated two must stay gated: both render NotFound
+                    when their module is off, which is the default for every
+                    optional module, so an ungated link would be a dead end on
+                    a fresh fork. /exit-policy is core and always reachable. */}
+                <li>
+                  <Link href="/game-mechanics" className="text-white/70 hover:text-amber transition-colors text-sm">
+                    Game Mechanics
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/exit-policy" className="text-white/70 hover:text-amber transition-colors text-sm">
+                    Leaving Well
+                  </Link>
+                </li>
+                {networkModule && (
+                  <li>
+                    <Link href="/network" className="text-white/70 hover:text-amber transition-colors text-sm">
+                      Village Network
+                    </Link>
+                  </li>
+                )}
               </ul>
             </div>
 
@@ -515,6 +600,13 @@ export default function Layout({ children }: LayoutProps) {
                     Community Quests
                   </Link>
                 </li>
+                {commerceModule && (
+                  <li>
+                    <Link href="/contribute" className="text-white/70 hover:text-amber transition-colors text-sm">
+                      Contribute
+                    </Link>
+                  </li>
+                )}
                 <li>
                   <Link href="/housing" className="text-white/70 hover:text-amber transition-colors text-sm">
                     Housing
@@ -537,36 +629,30 @@ export default function Layout({ children }: LayoutProps) {
             <div>
               <h4 className="font-display text-lg font-semibold mb-4">Connect</h4>
               <ul className="space-y-2">
-                <li>
-                  <a
-                    href="https://amora.cr"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-white/70 hover:text-amber transition-colors text-sm"
-                  >
-                    Main Website
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="https://amora.cr/events/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-white/70 hover:text-amber transition-colors text-sm"
-                  >
-                    Events
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="https://amora.cr/event/discover-amora-webinar-qa/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-white/70 hover:text-amber transition-colors text-sm"
-                  >
-                    Community Calls
-                  </a>
-                </li>
+                {siteUrl && (
+                  <li>
+                    <a
+                      href={siteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-white/70 hover:text-amber transition-colors text-sm"
+                    >
+                      Main Website
+                    </a>
+                  </li>
+                )}
+                {eventsUrl && (
+                  <li>
+                    <a
+                      href={eventsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-white/70 hover:text-amber transition-colors text-sm"
+                    >
+                      Events
+                    </a>
+                  </li>
+                )}
                 <li>
                   <Link href="/profile" className="text-white/70 hover:text-amber transition-colors text-sm">
                     My Village Profile
@@ -578,7 +664,7 @@ export default function Layout({ children }: LayoutProps) {
 
           <div className="border-t border-white/20 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-white/50 text-sm">
-              © {new Date().getFullYear()} Amora. All rights reserved.
+              © {new Date().getFullYear()}{villageName ? ` ${villageName}.` : ""} All rights reserved.
             </p>
             <div className="flex items-center gap-2 text-white/50 text-sm">
               <TreePine className="w-4 h-4" />

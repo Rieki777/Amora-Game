@@ -32,7 +32,8 @@ export type Capability =
   | "exchange.buy" // buy listed tokens for fiat
   | "exchange.swap" // trade one village token for another at posted prices
   | "exchange.manage" // list tokens, post prices, stock the treasury (role-only)
-  | "health.record"; // log the land's own measurements (trees, water, hectares)
+  | "health.record" // log the land's own measurements (trees, water, hectares)
+  | "mechanics.propose"; // propose a change to the game's own rules (Game Mechanics)
 
 /**
  * The canonical list, as a VALUE: badge validation and unlock diffs iterate
@@ -54,6 +55,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "exchange.swap",
   "exchange.manage",
   "health.record",
+  "mechanics.propose",
 ];
 
 /**
@@ -74,6 +76,13 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   // deployment-level trading switch and fail-closed caps, and a higher stage
   // floor would only show more members a door they cannot open.
   "exchange.swap": "member",
+  // The base posture (Rye, 2026-07-31): ANY MEMBER may propose a change to
+  // the game's rules. Founders narrow it by moving this rung (the generated
+  // progression.unlock variable), setting it to "none" and granting through
+  // roles or badges, or requiring earned recognition on top
+  // (governance.hypha_threshold). A warning badge's deny suspends it — the
+  // remedy for misuse that is short of anything harsher.
+  "mechanics.propose": "member",
 };
 
 /**
@@ -103,14 +112,23 @@ export function hasCapability(
     /** Capabilities DENIED by active warning badges. Default []. */
     badgeDenies?: readonly string[];
     isAdmin?: boolean;
+    /**
+     * Per-village overrides of STAGE_UNLOCKS, sourced from the variables
+     * registry (progression.unlock.*) — the Game Mechanics initiative made
+     * the unlock table itself a mechanic. Absent key = platform default;
+     * the value "none" disables the stage path for that capability (roles
+     * and badges still grant it). The GATE's order of authority is
+     * unchanged: this only parameterizes step 5.
+     */
+    stageUnlockOverrides?: Partial<Record<Capability, string>>;
   },
 ): boolean {
   if (ctx.isAdmin) return true;
   if ((ctx.badgeDenies ?? []).includes(cap)) return false;
   if (ctx.roleCapabilities.includes(cap)) return true;
   if ((ctx.badgeCapabilities ?? []).includes(cap)) return true;
-  const unlockStage = STAGE_UNLOCKS[cap];
-  if (unlockStage) {
+  const unlockStage = ctx.stageUnlockOverrides?.[cap] ?? STAGE_UNLOCKS[cap];
+  if (unlockStage && unlockStage !== "none") {
     const needed = ctx.stageIndexOf(unlockStage);
     if (needed >= 0 && ctx.stageIndex >= needed) return true;
   }

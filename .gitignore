@@ -117,3 +117,4 @@ do_commit.bat
 do_audit_commit.bat
 DEPLOY_HANDOFF_2026-07-04.md
 .qa-db-url
+.demo-db-url

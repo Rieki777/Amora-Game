@@ -26,18 +26,96 @@ what, where, what breaks without it.
 | `ANTHROPIC_BASE_URL` | (optional, dev/CI) points the assistant at a stub instead of api.anthropic.com | Defaults to the real API |
 | `RESEND_API_KEY` | Transactional email. **S63: settable from Admin → Integrations instead** — admin-typed beats env, masked on read. | Emails silently skipped (logged) |
 | ↳ *sender domain* | **Every fork must verify its sender domain in Resend (resend.com/domains: SPF + DKIM records in the domain's DNS).** Resend returns 200 on unverified domains and delivers NOTHING — email death is silent. **Amora handoff item (Rye, 2026-07-26): `amora.cr` is unverified and only its team can add the DNS records — verify it during handoff.** | Claim links & notifications never arrive |
+| `EMAIL_FROM` | The `From:` address every village email leaves under — `name@example.org` or `Village Name <name@example.org>`. **Settable from Admin → Email config instead** (admin-typed beats this env var, and a malformed value there is refused at the door). Must be on the domain verified in Resend, or the send 200s and delivers nothing. **Set this during any fork's provisioning** — otherwise mail goes out under the platform's fallback sender, which is the first village's domain. | Falls back to the platform's own sender address |
 | `FRONTEND_URL` | CORS origin | Cross-origin API calls fail |
 | `STRIPE_SECRET_KEY` | (S32) Stripe API key (`sk_live_…`) — powers card checkout for every fiat module (stays, exchange). **S63: settable from Admin → Integrations instead — no Railway access needed.** **Amora handoff item (Rye, 2026-07-26): the Amora team creates its own Stripe account and connects it during handoff** — until then card checkout answers an honest 503 and manual payments carry stays. | Card checkout disabled (503); manual payment path still works |
 | `STRIPE_WEBHOOK_SECRET` | (S32) Signing secret (`whsec_…`) for the ONE webhook endpoint `POST /api/webhooks/stripe`. **S63: settable from Admin → Integrations, which also displays the exact URL to paste into Stripe.** Create the endpoint in the Stripe dashboard (Developers → Webhooks) pointing at `https://<your-domain>/api/webhooks/stripe`, subscribe to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `invoice.paid`, `charge.refunded`, `charge.dispute.created`, then copy its signing secret here. **All five matter**: `invoice.paid` is how every recurring product renews (without it a subscription charges the member forever and delivers only the first period), and `checkout.session.async_payment_succeeded` is how delayed-notification methods — SEPA debit, ACH, Boleto — confirm days later (without it those purchases never settle at all, because `completed` arrives `unpaid` and is correctly ignored). **Amora handoff item (Rye, 2026-07-26): create the endpoint + set this secret together with `STRIPE_SECRET_KEY` — a missing secret means unsigned events are processed only in dev shapes; a wrong one rejects every settlement with `sig_fail` alerts to admins.** Test with `stripe listen --forward-to` before go-live. | Settlements unverified or rejected; orders never credit |
-| `FEEDBACK_HUB_URL` | (S66, optional) where the feedback relay POSTs — defaults to the ReGen Civics hub. The relay is ON by default (`platform.feedback_relay` game variable), sends CONTENT only (never who submitted), queues locally and retries while the hub is unreachable; turning it off keeps everything in Admin → Feedback, local-only. | Default hub endpoint used |
+| `RIVERSIDE_WEBHOOK_SECRET` | Shared secret for `POST /api/webhooks/riverside` (automation module). **Settable from Admin → Integrations instead** — admin-typed beats env, masked on read. The webhook **fails closed**: without a configured secret, or without a matching `x-riverside-secret` header on the delivery, every payload is discarded with an inert 200 (the automation admin card shows a warning while unset). Configure Riverside to send the same value as the `x-riverside-secret` header. | Riverside deliveries are silently discarded until the secret is set |
+| `GOVERNANCE_HUB_SECRET` | Shared secret for `POST /api/webhooks/mechanics-governance` — how a Hypha vote's outcome comes home. **Settable from Admin → Integrations instead** (admin-typed beats env, masked on read). The ReGen hub runs ONE Alchemy listener on Base for every fork; when a proposal carrying a `[gm:…]` marker executes on-chain, the hub POSTs the outcome here with this secret as the `x-governance-hub-secret` header. **Fails closed**: unset or mismatched = every delivery discarded with an inert 200. Until your fork is registered with the hub, outcomes are reported by the proposer and applied by an admin ("Verify & apply"). | Verified outcomes never arrive; the human verify-and-apply path still works |
+| `BASESCAN_API_KEY` | (optional) Etherscan/Basescan API key for **Admin → Game Mechanics → Integrate DAO**: after the founder issues themselves a token on Hypha, the token's contract address on Base is discovered from the founder's account history (`hypha.founder_base_address`) by the token's exact on-chain name. **Settable from Admin → Integrations instead** (admin-typed beats env, masked on read). One free key from etherscan.io serves Base via the V2 API. | The find-token lookup answers 409 with guidance; contract addresses can still be pasted by hand from basescan.org |
+| `FEEDBACK_HUB_URL` | (S66, optional) **must be `https://` and publicly resolvable** — the relay now dials through the pinned-IP guard, which refuses plain http and any private/loopback/CGNAT address. A self-hosted hub on a VPC-internal or `http://` address will simply never receive anything (rows stay queued locally, no data is lost, one log line per attempt). Where the feedback relay POSTs — defaults to the ReGen Civics hub. The relay is ON by default (`platform.feedback_relay` game variable), sends CONTENT only (never who submitted), queues locally and retries while the hub is unreachable; turning it off keeps everything in Admin → Feedback, local-only. | Default hub endpoint used |
 | `ERROR_WEBHOOK_URL` | (optional, PY6) an HTTPS endpoint that receives a JSON POST when something crashes — a Slack or Discord incoming webhook, a Sentry store URL, or your own collector. Admins are ALWAYS notified in-app regardless; this puts the same alert where your team actually looks. Deduped to one alert per distinct failure per hour, and dialled through the pinned-IP guard like every other outbound call. | Crashes are still logged and still alert admins in-app, but nothing reaches an external channel |
 | `TRUSTED_PROXY_HOPS` | (optional, default `1`) how many proxies sit in front of this process. `X-Forwarded-For` grows left to right, so the client's real address is the Nth entry from the RIGHT, where N is this number — and everything to its left is caller-supplied and forgeable. Every rate limit (checkout attempts, sign-in throttling, the assistant's cost cap, the abuse guard) keys on the result. `1` is correct on Railway, Fly and Render; raise it if the fork puts its own CDN or load balancer in front; `0` means no proxy and the socket address is used directly. | A value too LOW trusts a forged header and lets one caller bypass every rate limit; too HIGH buckets unrelated visitors together and throttles innocents |
 | `TEST_DATABASE_URL` | (dev/CI only, local .env) scratch-schema MySQL for DB-backed tests — the harness DROPs/CREATEs `village_test`; never point it at the app schema | DB suites skip loudly |
+
+## Account recovery
+
+Members can reset their own password: **"Forgot your password?"** on `/login` →
+`/forgot-password` → a one-hour, single-use link. The route answers the same
+200 for every address, known or not, so it cannot be used to discover who is a
+member — which also means a fork with an unverified sender domain shows the
+same success page while nothing is delivered. **Verify the sender domain
+before launch** (see `RESEND_API_KEY` above); recovery depends on it.
+
+Two admin levers sit beside it, for the member whose address on file is wrong:
+`POST /api/admin/users/:id/send-password-link` (emails a link, never returns
+it; a plain admin may not target a founder) and the existing
+`POST /api/admin/users/:id/revoke-sessions`.
+
+Note the session semantics, because members notice: `tokenVersion` is the only
+revocation lever there is, so **signing out, or setting a new password, ends
+every session on every device**. Per-session sign-out would need a sessions
+table.
+
+## Game mechanics: rings, the public snapshot, the amendment ledger
+
+Every mechanic lives in the variables registry (`shared/gameVariables.ts`) —
+the single source of truth. Each variable carries a **ring**: `open` dials are
+the community-governable surface (the coming Hypha proposal loop operates only
+on these); `founder` dials (infrastructure, legal posture, privacy windows,
+abuse guards) stay admin-held. The **constitution** (`shared/constitution.ts`)
+is the plain-language list of what no vote can change — shown at the top of
+the public page; edits there change copy, never enforcement.
+
+Two public, unauthenticated endpoints serve the whole story:
+`GET /api/game/mechanics` (constitution + every variable of every running
+module, with ring, bounds, default, current value, and when a change takes
+effect) and `GET /api/game/mechanics/history` (the amendment ledger: every
+change with actor first-name, source, and — once the governance loop lands —
+the Hypha proposal reference). Everything is deliberately visible: rule sets
+are how future players compare forks.
+
+The per-stage mechanics (`progression.multiplier.*`, `progression.quests_for.*`,
+`progression.unlock.*`) are generated from your stage ladder in
+`shared/gameConfig.ts` — edit the ladder and the registry follows at next
+deploy, with your config values as the defaults.
+
+**Members change the rules from the page.** Community dials are editable in
+place on `/game-mechanics`: staged changes become a proposal (title +
+rationale), which gathers in-game support, goes to your Hypha for the binding
+vote (the copy carries a `[gm:…]` marker — keep it in the Hypha proposal
+title), and is applied by an admin after verifying the pass ("Verify & apply"
+on the proposal card; automated on-chain verification is the next phase).
+Who may propose is yours to tune: the base is ANY MEMBER
+(`progression.unlock.mechanics.propose`, default member); raise the rung, set
+it to role/badge-only, require earned recognition
+(`governance.hypha_threshold`), demand in-game supporters before the vote
+(`governance.proposal_support_threshold`), cool changed dials down
+(`governance.change_cooldown_days`), and cap proposals per member per cycle
+(`governance.proposals_per_member_per_cycle`). Members below the bar can
+always draft; a qualified member's sponsorship opens the draft.
+
+## Tunable abuse guards
+
+The throttles are game variables (Admin → Game Mechanics → *Abuse guards*), so
+a village can loosen or tighten them without a deploy: registrations per IP
+per hour, failed sign-ins per IP and **per account** per 15 minutes (successful
+sign-ins never count against either), password-reset requests per IP per hour,
+and investor-packet requests per IP per hour. Every bucket is per-IP unless it
+says per-account, so **one shared village connection is one bucket** — set them
+above the size of a gathering, not to the size of one person's usage.
 
 ## Seeds & per-deployment data
 
 - `server/seeds/content-seed.json`, `quests-seed.json` — page copy + quest
   library (self-heals via `seedIfMissingOrEmpty`).
+- `server/seeds/examples-seed.json` — STANDING EXAMPLES: platform-authored
+  worked content revealed when a module is first enabled, so a founder meets a
+  working module instead of "No items yet." Inert (every mutation refused) and
+  retired permanently by the first real item that module receives. Seeds AFTER
+  the real seeds above, so it never displaces your starter content. Clear early
+  with `POST /api/admin/modules/:id/examples/clear`; prove inertness with
+  `node scripts/check-examples.mjs`. See `docs/STANDING_EXAMPLES.md`.
 - `tokens` table rows (0006 seeds gratitude/amora/voice) — a fork renames its
   recognition token here + in `shared/gameConfig.ts` + brand overlay.
 - `data/brand.json` via the admin Setup Wizard ("Make This Yours") — identity,
@@ -57,9 +135,30 @@ two from the admin panel and almost never touches the first.
   `mergedConfig()` and served at `/api/game/config`. A blank field inherits
   the platform default, so a fork overrides only what differs.
 - **Wizard order:** Identity (project + village name, tagline, currency
-  name) → Pictures (uploaded, sharp-compressed, never hotlinked) →
-  Numbers (dues, budgets — these write game variables) → Content (page
-  copy, FAQs) → Go live.
+  name, main-site / events URLs, footer introduction) → Pictures (uploaded,
+  sharp-compressed, never hotlinked — including the header logo, footer mark
+  and browser tab icon, all live with no deploy) → Numbers (dues, budgets —
+  these write game variables) → Content (page copy, FAQs) → Go live.
+- **The shell is overlay-driven.** The header logo, tab icon, footer mark,
+  footer introduction, "Main Site"/"Events" links and copyright name all come
+  from the brand config; a blank `siteUrl` renders NO outside links rather
+  than a dead one. `client/index.html` is deliberately NEUTRAL — no village
+  name, no canonical URL, no og:image — because it is served byte-for-byte
+  to every deployment; the client repaints title and favicon from live
+  config. A fork that wants crawler-visible metadata (og:image, canonical)
+  adds it in its own fork where those values are actually true.
+- **Fonts:** the platform self-hosts an all-OFL catalogue (@fontsource, latin
+  subset, bundled with content hashes — no request ever leaves the origin for
+  a typeface; offerings in `shared/fontCatalog.ts`). Admin → Make This Yours →
+  Typography picks heading/body/accent faces with live previews, or uploads
+  the village's own font file (.woff2 best; magic-byte-verified, stored in the
+  uploads volume, served immutable) behind a **web-embedding licence
+  acknowledgment** that gates the server and is recorded with who/when —
+  "free to download" almost never includes web embedding, and the village
+  that chooses a font carries its licence. Power path: set
+  `brand.theme.fontImportUrl` to a hosted CSS file carrying `@font-face`.
+  `/api/brand/theme.css` emits everything, sanitised; blank fields = neutral
+  defaults; changes apply live with no deploy.
 - **NOT overlayable** (code-level edits, deliberately): the stage ladder and
   its ids, the path definitions, season cadence semantics. Those are game
   DESIGN; changing them is a fork of the game, not a re-skin.
@@ -71,11 +170,19 @@ two from the admin panel and almost never touches the first.
 
 ## Token naming (Gate D)
 
-Two layers, both admin-owned:
+Three layers, all admin-owned:
 
 1. **The recognition token** (the village's own word for appreciation):
    rename in the `tokens` table row, in `shared/gameConfig.ts`, and in the
    brand overlay — all three, or the UI and the ledger disagree.
+   The recognition token is a SIGNAL with no financial value — the public
+   pages say so; keep any renamed copy honest about that.
+1b. **The value token** (whatever token `gratitude.pool_token` names —
+   `credits` by default): rename it once via Admin → Tokens → rename, and
+   every surface follows — wallet, exchange, and the public pages, which
+   read the name from `/api/game/config` (`currency.value`). This is the
+   token the cycle pool distributes across recognition, and the one the
+   "converts to cash or equity as the village matures" promise attaches to.
 2. **Per-module tokens, named at enable time (Gate D):** each funds-bearing
    module's token is created through Admin → Tokens with a name the village
    chooses (stay credits, library credits, whatever the village calls
@@ -240,3 +347,5 @@ decision, not a platform dependency — nothing in the server or the shared
 registries assumes a language. If a fork needs another language, the work
 is a locale layer over the client pages plus the seeds; the game rules,
 variables and invariants are language-free by construction.
+
+- Seeds: `server/seeds/org-chart-2026-08.json` — the org-chart content (role cards, circle cards, team cards) applied once by the `org-chart-2026-08` runOnce into the `roles` / `circles` / `team` content sections; the public `/roles`, `/circles`, `/team` pages render those sections and the content admin editor owns them afterward. Forks replace this seed with their own structure (or just edit in admin).

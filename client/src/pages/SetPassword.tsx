@@ -32,7 +32,11 @@ export default function SetPassword() {
       if (!res.ok) throw new Error(data.error || "Could not set the password");
       localStorage.setItem("amora-auth-token", data.token);
       setDone(true);
-      setTimeout(() => { window.location.href = "/admin"; }, 1200);
+      // Admins land on the admin panel; everyone else on their profile. This
+      // route is a member-reachable password reset now, and sending an
+      // ordinary member to /admin lands them on a refusal screen.
+      const isAdminUser = data.user?.role === "admin" || data.user?.role === "founder";
+      setTimeout(() => { window.location.href = isAdminUser ? "/admin" : "/profile"; }, 1200);
     } catch (err: any) {
       setError(err?.message || "Something went wrong. The link may have expired.");
     }
@@ -54,7 +58,7 @@ export default function SetPassword() {
                 <h1 className="font-display text-2xl font-bold text-foreground mb-2">
                   You're in
                 </h1>
-                <p className="text-muted-foreground">Password set — taking you to your dashboard…</p>
+                <p className="text-muted-foreground">Password set. Taking you to your dashboard…</p>
               </div>
             ) : (
               <>
@@ -70,7 +74,7 @@ export default function SetPassword() {
                 </p>
                 {!token && (
                   <p className="text-sm text-destructive text-center mb-4">
-                    This link is missing its token — open the link from your email
+                    This link is missing its token. Open the link from your email
                     again.
                   </p>
                 )}

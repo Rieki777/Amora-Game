@@ -152,8 +152,16 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
           onClick={(e) => {
             // Anchor downloads can't carry the auth header; fetch + blob it.
             e.preventDefault();
+            setError("");
             fetch("/api/profile/export", { headers: headers() })
-              .then((r) => r.blob())
+              .then((r) => {
+                // fetch resolves for 4xx too, so without this check an
+                // expired session downloaded a 24-byte {"error":...} file
+                // NAMED my-data.json — a member could believe they held
+                // their whole record and be holding an error message.
+                if (!r.ok) throw new Error("export failed");
+                return r.blob();
+              })
               .then((b) => {
                 const url = URL.createObjectURL(b);
                 const a = document.createElement("a");
@@ -162,16 +170,22 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
                 a.click();
                 URL.revokeObjectURL(url);
               })
-              .catch(() => {});
+              .catch(() => setError("Could not build your export. Please sign in again and retry."));
           }}
         >
           <Download className="w-4 h-4" />
           Download everything the village holds about me
         </a>
+        {/* Rendered OUTSIDE the delete-confirmation branch: `error` is shared
+            with that flow, and its only renderer used to live in there, so an
+            export failure was written to state nothing displayed. */}
+        {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
 
         {!confirming ? (
           <button
-            onClick={() => setConfirming(true)}
+            // Clear a stale export error on the way in, so it cannot appear
+            // to be about the deletion the member is now considering.
+            onClick={() => { setError(""); setConfirming(true); }}
             className="inline-flex items-center gap-2 text-sm text-red-500 hover:text-red-600"
           >
             <ShieldOff className="w-4 h-4" />

@@ -114,7 +114,7 @@ export async function exitOpenState(pool: Pool, userId: string, roleIds: string[
   states.push({
     domain: "loans",
     count: Number(loans.n),
-    description: `${loans.n} unsettled library loan(s) — settle each through its own terminal (return, cancel, expire, dispute)`,
+    description: `${loans.n} unsettled library loan(s). Settle each through its own terminal (return, cancel, expire, dispute)`,
     blocking: true,
   });
 
@@ -151,7 +151,7 @@ export async function exitOpenState(pool: Pool, userId: string, roleIds: string[
     domain: "debts",
     count: negative.length,
     description: negative.length
-      ? `owes ${negative.map(([t, v]) => `${-v} ${t}`).join(", ")} — resolve through the owning domain before leaving`
+      ? `owes ${negative.map(([t, v]) => `${-v} ${t}`).join(", ")}. Resolve through the owning domain before leaving`
       : "no negative balances",
     blocking: true,
   });
@@ -159,7 +159,7 @@ export async function exitOpenState(pool: Pool, userId: string, roleIds: string[
     domain: "balances",
     count: positive.length,
     description: positive.length
-      ? `holds ${positive.map(([t, v]) => `${v} ${t}`).join(", ")} — swept to exit settlement by an explicit admin act`
+      ? `holds ${positive.map(([t, v]) => `${v} ${t}`).join(", ")}. Swept to exit settlement by an explicit admin act`
       : "nothing held",
     blocking: false,
   });
@@ -168,7 +168,7 @@ export async function exitOpenState(pool: Pool, userId: string, roleIds: string[
     domain: "roles",
     count: roleIds.length,
     description: roleIds.length
-      ? `holds ${roleIds.join(", ")} — seats vacate at resolution; hand off the work first`
+      ? `holds ${roleIds.join(", ")}. Seats vacate at resolution; hand off the work first`
       : "no seats held",
     blocking: false,
   });
@@ -181,7 +181,7 @@ export async function exitOpenState(pool: Pool, userId: string, roleIds: string[
   states.push({
     domain: "warnings",
     count: Number(warnings.n),
-    description: Number(warnings.n) ? `${warnings.n} active warning badge(s) — context for the conversation, not a gate` : "none",
+    description: Number(warnings.n) ? `${warnings.n} active warning badge(s): context for the conversation, not a gate` : "none",
     blocking: false,
   });
 

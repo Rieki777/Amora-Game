@@ -19,7 +19,7 @@
  * alerts humans; ending a stay is a human act about a human situation.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { MINT_FAUCET, memberAccount, postTransfer, registerToken, tokenDef } from "./ledger";
+import { ledgerEntryExists, MINT_FAUCET, memberAccount, postTransfer, registerToken, tokenDef } from "./ledger";
 import { numberVar } from "./variables";
 
 export const STAY_CREDIT = "stay-credit";
@@ -52,6 +52,12 @@ export interface AccommodationRow {
   photoUrl: string | null;
   active: boolean;
   sortOrder: number;
+  /**
+   * A standing example. The admin panel needs it to label the row and take the
+   * controls off: the edit and price routes refuse an example, and a founder
+   * should learn that from the row rather than from a 409 after typing rates.
+   */
+  isExample: boolean;
   /** Posted prices: { "stay-credit": {guest, member}, usd: {guest, member} } (minor units / whole credits). */
   prices: Record<string, { guest?: number; member?: number }>;
 }
@@ -96,7 +102,7 @@ function rowToStay(r: RowDataPacket): StayRow {
 
 export async function listAccommodations(pool: Pool, opts?: { includeInactive?: boolean }): Promise<AccommodationRow[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT id, name, description, capacity, photo_url, active, sort_order FROM accommodations ${opts?.includeInactive ? "" : "WHERE active = 1 "}ORDER BY sort_order, name`,
+    `SELECT id, name, description, capacity, photo_url, active, sort_order, is_example FROM accommodations ${opts?.includeInactive ? "" : "WHERE active = 1 "}ORDER BY sort_order, name`,
   );
   const [prices] = await pool.query<RowDataPacket[]>(
     "SELECT accommodation_id, token_type, audience, amount_minor FROM accommodation_prices WHERE active = 1",
@@ -117,6 +123,7 @@ export async function listAccommodations(pool: Pool, opts?: { includeInactive?: 
     photoUrl: r.photo_url ?? null,
     active: !!r.active,
     sortOrder: Number(r.sort_order ?? 0),
+    isExample: Number(r.is_example ?? 0) === 1,
     prices: byAcc.get(String(r.id)) ?? {},
   }));
 }
@@ -296,6 +303,50 @@ export async function mintStayCredits(
     description: input.description,
     idempotencyKey: input.idempotencyKey,
   });
+}
+
+/**
+ * The stays counterpart to the exchange's abandoned-checkout reaper.
+ *
+ * A card purchase inserts its row as `pending` BEFORE the Stripe session
+ * opens, so every closed tab leaves one behind and nothing ever cleared it —
+ * and `staysOpenState` below counts pending purchases, so one abandoned
+ * checkout could keep the module permanently un-disableable and hold a
+ * departing member in the village. Same two rules as the exchange reaper:
+ *
+ *  - Never touch a row whose ledger leg exists. Credits moved means it was
+ *    paid whatever the row says; that is a settle bug to report, not an
+ *    abandonment to cancel.
+ *  - Wait longer than Stripe will (~24h of session life), enforced by the
+ *    shared floor in code rather than trusted to whoever edits the variable.
+ *
+ * Scoped to provider='stripe': manual and Zeffy rows are reconciled by a
+ * steward by hand and can legitimately sit pending for days.
+ */
+export async function releaseAbandonedStayPurchases(
+  pool: Pool,
+  expiryHours: number,
+  floorHours: number,
+): Promise<{ released: number; skipped: string[] }> {
+  if (expiryHours <= 0) return { released: 0, skipped: [] };
+  const hours = Math.max(floorHours, Math.floor(expiryHours));
+  const [stale] = await pool.query<RowDataPacket[]>(
+    "SELECT id FROM stay_purchases WHERE provider = 'stripe' AND status = 'pending' " +
+      "AND created_at < (NOW() - INTERVAL ? HOUR)",
+    [hours],
+  );
+  let released = 0;
+  const skipped: string[] = [];
+  for (const row of stale) {
+    const id = String(row.id);
+    if (await ledgerEntryExists(pool, `ord:${id}:leg1`)) {
+      skipped.push(id);
+      continue;
+    }
+    await pool.query("UPDATE stay_purchases SET status = 'cancelled' WHERE id = ? AND status = 'pending'", [id]);
+    released += 1;
+  }
+  return { released, skipped };
 }
 
 /** Open economic state that blocks disabling the module (invariant #13). */

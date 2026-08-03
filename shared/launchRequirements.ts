@@ -90,7 +90,7 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     id: "founder-appointed",
     group: "identity",
     title: "Appoint at least one founder",
-    why: "Some acts — marking the village launched, opening trading — need a named founder, not just any admin.",
+    why: "Marking the village launched and opening trading need a named founder, not just any admin.",
     severity: "blocking",
     checkKey: "founder-appointed",
     fixAt: "/admin?tab=players",
@@ -124,7 +124,7 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     id: "resend-key",
     group: "integrations",
     title: "Connect email (Resend)",
-    why: "Without it nobody receives a welcome, a receipt, or a notification digest — the village goes quiet exactly when someone new arrives.",
+    why: "Without it nobody receives a welcome, a receipt, or a notification digest. The village goes quiet exactly when someone new arrives.",
     severity: "recommended",
     checkKey: "resend-key",
     fixAt: "/admin?tab=integrations",
@@ -146,7 +146,7 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     id: "stripe-keys",
     group: "integrations",
     title: "Connect card payments (Stripe)",
-    why: "Stays and the exchange sell for real money through your own Stripe account — the platform never pools funds. Without keys, card checkout answers an honest 503 and manual payment still works.",
+    why: "Stays and the exchange sell for real money through your own Stripe account. The platform never pools funds. Without keys, card checkout answers an honest 503 and manual payment still works.",
     severity: "recommended",
     checkKey: "stripe-keys",
     fixAt: "/admin?tab=integrations",
@@ -170,7 +170,7 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     id: "assistant-key",
     group: "integrations",
     title: "Connect the AI guide (Anthropic)",
-    why: "Maia welcomes proposals and guides this launch journey. Without a key she is simply absent — every form still works by hand.",
+    why: "Maia welcomes proposals and guides this launch journey. Without a key she is simply absent. Every form still works by hand.",
     severity: "optional",
     checkKey: "assistant-key",
     fixAt: "/admin?tab=integrations",
@@ -182,7 +182,7 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     id: "modules-decided",
     group: "modules",
     title: "Choose which modules your village runs",
-    why: "Everything ships off. A launch with zero modules beyond the core game is a valid choice — but it should be a choice someone made, not a page nobody visited.",
+    why: "Everything ships off. A launch with zero modules beyond the core game is a valid choice. It should be a choice someone made, not a page nobody visited.",
     severity: "blocking",
     checkKey: "modules-decided",
     fixAt: "/admin?tab=modules",
@@ -217,9 +217,9 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     title: "Set a stable session secret",
     why:
       "Without AUTH_TOKEN_SECRET the server invents a new signing key every time it starts. " +
-      "Nothing looks broken — until a deploy silently signs everyone out, or a second copy of the " +
+      "Nothing looks broken until a deploy silently signs everyone out, or a second copy of the " +
       "service starts and members are logged out at random depending on which one answers. It fails " +
-      "safe rather than open, so no forged login is possible; it just quietly makes sessions unreliable.",
+      "safe, so no forged login is possible; it just quietly makes sessions unreliable.",
     severity: "blocking",
     checkKey: "session-secret",
     fixAt: "/admin?tab=integrations",
@@ -232,7 +232,7 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     title: "Write your exit policy's actual terms",
     why:
       "Every village ships with a placeholder that says the terms are still to be decided by the " +
-      "community — honest on day one, a broken promise once people have contributed real value and " +
+      "community. Honest on day one, a broken promise once people have contributed real value and " +
       "money. Someone leaving needs to know how their contribution is honoured BEFORE they need to know.",
     severity: "blocking",
     checkKey: "exit-policy-terms",

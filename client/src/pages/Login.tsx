@@ -116,6 +116,12 @@ export default function Login() {
                 {loading ? "Signing in..." : "Sign In"}
                 {!loading && <ArrowRight className="w-5 h-5" />}
               </motion.button>
+
+              <p className="text-center">
+                <a href="/forgot-password" className="text-sm text-teal-deep hover:underline">
+                  Forgot your password?
+                </a>
+              </p>
             </form>
 
             <div className="mt-8 text-center">

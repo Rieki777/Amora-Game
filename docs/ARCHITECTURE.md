@@ -248,6 +248,25 @@ badges module is non-off — off means the gate is byte-identical to its
 pre-badges self. Modules extend the union; they never invent a second
 mechanism.
 
+**A declared capability that no route enforces is not a capability.**
+`quest.consent` was granted by the seeded steward-circle role and displayed
+to members as authority they held, while both consent routes asked only
+`isAdmin` — so every unit of recognition a village released came from
+whoever held the founder password, which is the single-founder bottleneck
+this whole system exists to prevent. Consent now admits admin OR
+`hasCapability("quest.consent", …)`, and two things ride with that widening
+because releasing value is not an ordinary action: **no self-consent** (for
+admins too — consent mints from the faucet, grants stay credits and advances
+stages, so witnessing your own work must be structurally impossible), and an
+explicit `recordEvent` audit row for non-admin actors, since the `/api/admin`
+audit middleware only attributes callers `adminActor()` populates.
+
+The same shape applies to appointments: a non-admin holder of
+`proposal.decide` may only seat someone into a role whose every capability
+they already hold themselves. Without that, the no-self-appointment guard was
+one hop from useless — register a second account (open, unverified), seat it
+higher, have it seat you.
+
 ### 3.4 The five config planes
 
 Each plane exists for a different kind of fact. Do not move facts between
@@ -269,6 +288,80 @@ planes.
    the override so the fork keeps inheriting future platform defaults
    (variables.ts:94–99). Readers are synchronous against the boot-loaded
    cache; unknown keys throw — "a typo must not read as 0" (37–41).
+
+   **The registry is THE single source of truth for game mechanics**
+   (Game Mechanics initiative, Rye 2026-07-31). Three additions carry that:
+
+   - **Rings.** Every def resolves to a ring (`ringOf`): `open` (Ring 2 —
+     community-governable ceiling, the domain of the coming Hypha proposal
+     loop) or `founder` (Ring 1 — legal posture, infrastructure, privacy,
+     abuse guards). Ring 0 — the constitution — is not in the registry at
+     all: it is code-enforced law, published in plain language from
+     `shared/constitution.ts`. Bounds (min/max) are Ring 0: governance moves
+     a value within its bounds, never the bounds.
+   - **Generated defs.** Per-stage mechanics (`progression.multiplier.<id>`,
+     `progression.quests_for.<id>`, `progression.unlock.<capability>`) are
+     GENERATED from `GAME_CONFIG.stages` and `STAGE_UNLOCKS` at module load,
+     defaults equal to the previously-hardcoded config values — a fork that
+     edits its ladder gets matching variables automatically, and an
+     untouched village behaves identically. Duplicate keys throw at import.
+   - **The amendment ledger** (`mechanics_changes`, drizzle/0042). Delta-only
+     storage deletes history by design, so every change writes an
+     append-only row — key, old, new (NULL = the platform default at the
+     time), actor, source (`admin | governance | platform`), and a
+     `proposal_ref` the Hypha loop will stamp with the on-chain proposal id.
+     `recordMechanicsChange()` is the one writer. Public surface:
+     `GET /api/game/mechanics` (constitution + every visible variable with
+     ring/bounds/apply-timing) and `GET /api/game/mechanics/history`.
+
+   Migrated INTO the registry under this doctrine: stage multipliers and
+   quest thresholds (out of gameConfig behaviour-space), the STAGE_UNLOCKS
+   table (as overridable choice variables threaded through
+   `capabilityCtx.stageUnlockOverrides` — the gate's order of authority is
+   untouched; only step 5's lookup is parameterized), the Work With Us
+   acceptance award (out of the content document, one-shot runOnce), the
+   stays/library daily caps, and the donation checkout ceiling.
+
+   **Mechanics proposals** (`server/lib/mechanics.ts` + `mechanics_proposals`
+   / `mechanics_proposal_backers`, drizzle/0043) are how the community moves
+   Ring-2 dials: any member stages changes on the public page; who may OPEN a
+   proposal is itself part of the game — the `mechanics.propose` capability
+   through the one gate (stage rung tunable, role/badge grantable, badge-deny
+   suspendable) composed with `governance.hypha_threshold` earned standing
+   (admins bypass the bar, never a deny). Below the bar, members DRAFT and a
+   qualified member's sponsorship opens it. A change-set is validated as a
+   WHOLE at creation (open-ring only, bounds, no-ops, ≤12 keys, per-key
+   governance cooldown) and never edited after — what is voted on is what was
+   checked. Lifecycle: draft → open (in-game sensing, support threshold) →
+   to_hypha (the canonical markdown document carries the `[gm:<id>]` marker
+   and a machine-readable change-set block) → passed_claimed (the proposer's
+   word) or **passed_verified** (the governance hub's signed callback) or
+   **failed** → applied. Supports/sponsorships are keyed INSERT IGNOREs — no
+   read-modify-write. Proposals are rate-limited per member per cycle
+   (`governance.proposals_per_member_per_cycle`).
+
+   **The bridge (game-amora side).** `server/lib/hypha-bridge.ts` is THE ONE
+   HOME for action-bearing Hypha URLs (read-only deep links stay in
+   shared/hypha.ts — regen-civics' never-hand-roll-a-hypha-URL rule,
+   imported): the handoff endpoint returns a pre-filled create-agreement URL
+   derived from `hypha.org_url` PLUS the canonical markdown, and the client
+   always copies before it opens — prefill params are hints until a DHO's
+   create page reads them; the `[gm:<id>]` marker in the TITLE is the
+   contract. Outcomes come home through
+   `POST /api/webhooks/mechanics-governance`: the ReGen hub runs ONE Alchemy
+   listener on Base for all forks and relays ProposalExecuted outcomes with
+   the shared `governance_hub_secret` (fail closed, inert-200 discard,
+   idempotent on replays — the Riverside posture). A verified pass runs THE
+   ONE APPLY (`applyMechanicsProposal`, shared by the admin button, the
+   webhook and the cycle close): it revalidates against the CURRENT registry
+   and writes through `setVariable`; instant sets apply immediately; a set
+   touching ANY cycle-timed dial holds — atomically, the whole set — for the
+   next REAL cycle close, so the closing cycle settles under the old rules
+   and the next opens under the new. `governance.auto_apply_enabled`
+   (founder-held) is the emergency brake: off = verified passes hold for a
+   human. Verification metadata (verified_at, tx_hash) lives on the proposal
+   (drizzle/0044); the amendment ledger's proposal_ref carries `gm:<id>` plus
+   the Hypha reference.
 4. **Module structural config — `module_settings.config`.** Validated JSON
    per module (`validateConfig`), seeded from `defaultConfig` — forum
    categories, tools categories, the exchange's `tradingEnabled` +
@@ -565,6 +658,46 @@ obligations (durable-store-then-2xx, idempotent on
   button is impossible. The platform reads, displays and deep-links; it
   never posts, mints, moves or prices anything Hypha governs.
 
+### 3.15 The serving layer — what every byte costs
+
+Every image, script and stylesheet is served by the **same single Node process**
+that runs the ledger, the scheduler and every module route. There is no CDN and
+no object storage. So page weight is not a cosmetic concern here: image
+bandwidth competes directly with quest consent and gratitude posting on one
+event loop, on the ~50 KB/s links this platform is built for.
+
+Four rules, each of which was a real defect first:
+
+1. **Routes are lazy** (`client/src/App.tsx`). Only Home, Login and the 404 are
+   eagerly imported; every other page is `React.lazy`. Before this the main
+   bundle was 1382 KB against a 1400 KB CI ceiling and every visitor downloaded
+   Admin's 6,980 lines and Project History's 2,870 before anything rendered.
+   Splitting took first-paint JS to ~494 KB. A new page goes in the lazy list
+   unless it renders on first paint for a signed-out visitor.
+
+2. **Uploaded images cache for a year; documents never do**
+   (`/api/uploads/:filename`). Every writer into `UPLOADS_DIR` stamps
+   `${Date.now()}-${random}` into the filename, so a URL's bytes never change —
+   replacing an image mints a new URL. That makes `max-age=31536000, immutable`
+   correct rather than merely fast. Without it Express falls back to a
+   conditional request per image per page view. PDFs get `private, no-cache`
+   instead: they are gated business documents and shared proxies should not
+   hold them.
+
+3. **Foundation art never goes in `client/public/assets/`.** That directory is
+   served one-year-immutable and Vite does **not** content-hash passthrough
+   files, so replacing a file there leaves returning members stale for a year
+   with no way to bust it. It once held 1.7 MB of logos — a single 449 KB PNG
+   at 3458×3458 for a mark drawn at 40px. `scripts/compress-static-images.mjs`
+   re-encodes what is already there; anything new belongs in the uploads
+   volume, which is stamped, cached correctly and swappable.
+
+4. **CI measures all three, not just one.** `MAX_MAIN_JS_KB` (700),
+   `MAX_TOTAL_DIST_KB` (6000) and `MAX_SINGLE_IMAGE_KB` (400) in
+   `.github/workflows/ci.yml`. The budget used to cover main JS alone, so
+   178 KB of CSS and 1.7 MB of images grew entirely unwatched. When one goes
+   red, split or compress — do not raise the number.
+
 ---
 
 ## 4. Modules: how to add one, how to remove one
@@ -680,6 +813,13 @@ fork, but drop the row deliberately when you do it.
    splitting (`server/db/migrate.ts:30-42`) — but only full comment lines.
    Migration 0015 was cut in half by `-- …live in game_variables;`. Keep
    comments off statement tails; never end a comment line with `;`.
+   **And a shipped migration file is never edited** — not a style rule, a
+   hard invariant. A file that fails part-way records its progress in
+   `_migrations_partial` and RESUMES at that statement on the next boot
+   (without which a mid-file failure replays already-applied DDL on every
+   boot and bricks the deployment permanently). Editing a partially-applied
+   file therefore resumes at the wrong offset. Correct a shipped migration
+   with a NEW numbered file.
 2. **PowerShell `Set-Content -Encoding utf8` double-encodes.** UTF-8 text
    written through it becomes mojibake; several section rules in
    `server/index.ts` still carry the scars (`â”€â”€ Seasons â”€â”€`,

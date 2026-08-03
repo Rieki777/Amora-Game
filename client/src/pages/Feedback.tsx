@@ -68,10 +68,10 @@ export default function Feedback() {
               <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Check className="w-6 h-6 text-emerald-700" />
               </div>
-              <p className="font-semibold text-foreground mb-1">Received — thank you.</p>
+              <p className="font-semibold text-foreground mb-1">Received, thank you.</p>
               <p className="text-sm text-muted-foreground">
                 {sent.shared
-                  ? "Your village's team has it, and a copy reaches the platform team so a fix can land for every village. Your name travels to neither the platform nor anywhere else — it stays here."
+                  ? "Your village's team has it, and a copy reaches the platform team so a fix can land for every village. Your name travels to neither the platform nor anywhere else. It stays here."
                   : "Your village's team has it and will take it from here."}
               </p>
               <button
@@ -144,7 +144,7 @@ export default function Feedback() {
               {/* The disclosure, before the button, in plain words. */}
               <p className="text-xs text-muted-foreground border-t border-border pt-3">
                 {cfg?.relayOn
-                  ? `Where this goes: ${cfg?.villageName ?? "your village"}'s team, plus a copy to the ReGen Civics platform team — so a bug fixed once is fixed for every village. What you write travels; who you are does not.`
+                  ? `Where this goes: ${cfg?.villageName ?? "your village"}'s team, plus a copy to the ReGen Civics platform team, so a bug fixed once is fixed for every village. What you write travels; who you are does not.`
                   : `Where this goes: ${cfg?.villageName ?? "your village"}'s team, and nowhere else.`}
               </p>
 

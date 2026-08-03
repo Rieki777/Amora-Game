@@ -55,6 +55,19 @@ export function stringVar(key: string): string {
 }
 
 /**
+ * The RAW effective value (override ?? default), as stored. This is the
+ * string a mechanics proposal captures as its baseline and compares its
+ * target against — same representation the write path validates, so a
+ * proposal can never be a no-op that only looks like a change (or vice
+ * versa) through a parse/format asymmetry. Unknown keys throw, as always.
+ */
+export function rawValue(key: string): string {
+  const def = VARIABLES_BY_KEY[key];
+  if (!def) throw new Error(`Unknown game variable: ${key}`);
+  return overrides[key] ?? def.default;
+}
+
+/**
  * Every variable with its definition and current value, grouped for Admin.
  * `isDefault` lets the UI show what has been customised at a glance.
  */

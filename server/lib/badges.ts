@@ -47,6 +47,8 @@ export interface BadgeDef {
   denies: string[];
   rule: BadgeRule | null;
   active: boolean;
+  /** A standing example: renders like any other badge, but never awards. */
+  isExample: boolean;
 }
 
 const parseJsonArray = (v: unknown): string[] => {
@@ -74,6 +76,7 @@ function rowToBadge(r: RowDataPacket): BadgeDef {
     denies: parseJsonArray(r.denies),
     rule,
     active: !!r.active,
+    isExample: Number(r.is_example) === 1,
   };
 }
 
@@ -100,13 +103,13 @@ export function badgeProblem(b: {
   if (!BADGE_KINDS.includes(b.kind as BadgeKind)) return `unknown badge kind "${b.kind}"`;
   const known = new Set<string>(ALL_CAPABILITIES);
   for (const c of b.capabilities) {
-    if (!known.has(c)) return `unknown capability key "${c}" — the gate would silently ignore it`;
+    if (!known.has(c)) return `unknown capability key "${c}": the gate would silently ignore it`;
   }
   for (const d of b.denies) {
     if (!known.has(d)) return `unknown capability key "${d}" in denies`;
   }
   if ((b.kind === "self" || b.kind === "hypha") && b.capabilities.length) {
-    return `${b.kind} badges gate nothing — self-declarations and external mirrors cannot carry capabilities`;
+    return `${b.kind} badges gate nothing. Self-declarations and external mirrors cannot carry capabilities`;
   }
   if (b.denies.length && b.kind !== "warning") {
     return "only warning badges may deny capabilities";
@@ -117,7 +120,7 @@ export function badgeProblem(b: {
     if (!(Number(b.rule.threshold) > 0)) return "the rule threshold must be positive";
     if (b.rule.stackable && !(Number(b.rule.maxStack) >= 1)) return "a stackable rule needs maxStack >= 1";
     if (b.capabilities.length && RECOGNITION_METRICS.has(b.rule.metric)) {
-      return "a capability-bearing earned badge cannot ride a recognition metric — applause must never auto-mint permissions";
+      return "a capability-bearing earned badge cannot ride a recognition metric. Applause must never auto-mint permissions";
     }
   } else if (b.rule) {
     return `only earned badges carry a rule (this one is ${b.kind})`;
@@ -130,12 +133,18 @@ export async function assertBadgeInvariants(pool: Pool): Promise<void> {
   const problems: string[] = [];
   for (const b of await allBadges(pool)) {
     if (!b.active) continue;
+    // Standing examples cannot refuse the boot. They are written by the seeder
+    // AFTER this assertion runs, so a row this check would reject lands
+    // silently on one boot and bricks the next — a deployment that cannot
+    // start over platform demo content. They also grant nothing (the engine
+    // and the award route both skip them), so they have no invariant to break.
+    if (b.isExample) continue;
     const p = badgeProblem(b);
     if (p) problems.push(`badge "${b.id}": ${p}`);
   }
   if (problems.length) {
     for (const p of problems) console.error(`[badge invariant] ${p}`);
-    throw new Error(`badge invariants violated (${problems.length}) — refusing to serve`);
+    throw new Error(`badge invariants violated (${problems.length}), refusing to serve`);
   }
 }
 
@@ -241,9 +250,13 @@ export interface ExpiredWarning {
  */
 export async function sweepExpiredWarnings(pool: Pool): Promise<ExpiredWarning[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
+    // Example awards are skipped for the same reason gratitude and the contact
+    // relay skip example identities: the notification would be addressed to an
+    // account that can never sign in to read it.
     "SELECT a.id, a.user_id, a.expires_at, a.reissue_count, b.name FROM badge_awards a " +
       "JOIN badges b ON b.id = a.badge_id " +
-      "WHERE b.kind = 'warning' AND a.expires_at IS NOT NULL AND a.expires_at <= NOW() AND a.expiry_notified_at IS NULL",
+      "WHERE b.kind = 'warning' AND a.is_example = 0 " +
+      "AND a.expires_at IS NOT NULL AND a.expires_at <= NOW() AND a.expiry_notified_at IS NULL",
   );
   if (rows.length === 0) return [];
   await pool.query(
@@ -282,8 +295,12 @@ async function metricValues(pool: Pool, metric: string): Promise<Map<string, num
   if (metric === "gratitude_breadth") {
     // CONSUMES the settlement's Sybil-filtered distinct_senders — the widest
     // breadth reached in any settled cycle. Never re-derived from raw sends.
+    // Closed cycles only: the sticky-split close persists distribution rows
+    // BEFORE the cycle flips to closed, and a badge must never be granted
+    // from a settlement that has not actually settled.
     const [rows] = await pool.query<RowDataPacket[]>(
-      "SELECT user_id, MAX(distinct_senders) AS v FROM gratitude_distributions GROUP BY user_id",
+      "SELECT d.user_id, MAX(d.distinct_senders) AS v FROM gratitude_distributions d " +
+        "JOIN gratitude_cycles c ON c.id = d.cycle_id AND c.status = 'closed' GROUP BY d.user_id",
     );
     return new Map(rows.map((r) => [String(r.user_id), Number(r.v)]));
   }
@@ -303,7 +320,12 @@ export interface EvaluateResult {
  * that fact does not un-happen.
  */
 export async function evaluateEarnedBadges(pool: Pool): Promise<EvaluateResult> {
-  const earned = (await allBadges(pool)).filter((b) => b.active && b.kind === "earned" && b.rule);
+  // Example badges are skipped: the engine runs at every cycle close, so an
+  // example earned badge would quietly award itself to every qualifying member
+  // and the definition would stop being inert.
+  const earned = (await allBadges(pool)).filter(
+    (b) => b.active && b.kind === "earned" && b.rule && !b.isExample,
+  );
   const newTiers: EvaluateResult["newTiers"] = [];
   for (const badge of earned) {
     const rule = badge.rule!;
@@ -344,8 +366,13 @@ export async function evaluateEarnedBadges(pool: Pool): Promise<EvaluateResult> 
 /** Open state that blocks module-off: standing warnings are live governance. */
 export async function badgesOpenState(pool: Pool): Promise<{ count: number; description: string }> {
   const [[row]] = await pool.query<any[]>(
+    // An example award is never open state, whatever kind it sits on. The
+    // seeder refuses to put one on a warning, and that single line is all that
+    // stands between a seed edit and a badges module nobody can turn off —
+    // the exact trap standing examples exist to avoid.
     "SELECT COUNT(*) AS n FROM badge_awards a JOIN badges b ON b.id = a.badge_id " +
-      "WHERE b.kind = 'warning' AND b.active = 1 AND (a.expires_at IS NULL OR a.expires_at > NOW())",
+      "WHERE b.kind = 'warning' AND b.active = 1 AND a.is_example = 0 " +
+      "AND (a.expires_at IS NULL OR a.expires_at > NOW())",
   );
   return { count: Number(row.n), description: `${row.n} active warning badge(s)` };
 }

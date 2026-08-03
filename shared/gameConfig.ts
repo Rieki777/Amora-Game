@@ -86,6 +86,13 @@ export interface GameConfig {
     memberName: string;
     location: string;
     adminPath: string;
+    /** The project's OUTSIDE website. Blank hides every "Main Site" link —
+     *  a fork with no external site shows no link rather than a dead one. */
+    siteUrl: string;
+    /** Optional events page. Blank hides the footer Events link. */
+    eventsUrl: string;
+    /** The one-sentence footer introduction under the logo. */
+    footerBlurb: string;
   };
   currency: {
     /** The in-site recognition currency (e.g. Gratitude, Seeds, Thanks).
@@ -110,6 +117,12 @@ export interface GameConfig {
     stewardHero: string;
     prosperityHero: string;
     masterPlanHero: string;
+    /** Header logo (on the primary-colour nav). ~64px tall, width auto. */
+    logo: string;
+    /** Footer/secondary mark. ~90px tall, width auto. */
+    heartLogo: string;
+    /** Browser tab icon, swapped in client-side once config loads. */
+    favicon: string;
   };
   paths: GamePath[];
   /** The progression ladder, in order. First stage is the default. */
@@ -162,6 +175,9 @@ export const GAME_CONFIG: GameConfig = {
     memberName: "Amora Family member",
     location: "Dominicalito, Costa Rica",
     adminPath: "/admin",
+    siteUrl: "https://amora.cr",
+    eventsUrl: "https://amora.cr/events/",
+    footerBlurb: "A regenerative village in Costa Rica where all beings belong and thrive.",
   },
 
   currency: {
@@ -182,6 +198,9 @@ export const GAME_CONFIG: GameConfig = {
     stewardHero: "https://amora.cr/wp-content/uploads/2025/11/Planting-Trees.jpg",
     prosperityHero: "https://amora.cr/wp-content/uploads/2026/02/Holistic-Wellbeing-1024x1024.jpg",
     masterPlanHero: "https://amora.cr/wp-content/uploads/2025/11/4.jpg",
+    logo: "/assets/images/Amora-2-Beige.png",
+    heartLogo: "/assets/images/Amora-Beige.png",
+    favicon: "/assets/images/Amora-2-Green1.png",
   },
 
   paths: [

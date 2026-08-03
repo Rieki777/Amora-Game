@@ -56,6 +56,20 @@ describe.skipIf(!configured)("the test-database harness", () => {
     expect(String(cols[0].Type)).not.toContain("enum");
   });
 
+  it("pins the MySQL SESSION zone, not only the driver", async () => {
+    // The string round-trip below cannot catch this: it only proves mysql2
+    // renders and parses consistently. NOW() is evaluated by MySQL in the
+    // session zone, and every rate-limit window and job cadence compares a
+    // DB-generated timestamp against a JS Date. If the session drifts, those
+    // comparisons silently mean different things.
+    const [[row]] = await db.conn.query<any[]>("SELECT @@session.time_zone AS tz");
+    expect(String(row.tz)).toBe("+00:00");
+    // Belt and braces: MySQL's own clock agrees with this process's, within
+    // a minute. A whole-hour offset is exactly the failure being excluded.
+    const [[now]] = await db.conn.query<any[]>("SELECT UNIX_TIMESTAMP(NOW()) AS s");
+    expect(Math.abs(Number(now.s) * 1000 - Date.now())).toBeLessThan(60_000);
+  });
+
   it("round-trips a timestamp without timezone drift", async () => {
     // The rule 2.3 assertion: a Z-disciplined write reads back identical.
     // On a UTC-6 machine with mysql2's default 'local' timezone this fails

@@ -18,7 +18,42 @@
  * express "equal voice or mirror Hypha" or an ERC-20 address; this shape can.
  */
 
+import { GAME_CONFIG } from "./gameConfig";
+import { STAGE_UNLOCKS } from "./capabilities";
+
 export type VariableType = "integer" | "decimal" | "percentage" | "boolean" | "choice" | "text";
+
+/**
+ * THE THREE RINGS (Game Mechanics initiative, decided 2026-07-31).
+ *
+ * Ring 0 — constitutional — is not in this file at all: conservation, the one
+ * capability gate, fiat-in-only and their siblings live in code and are
+ * PUBLISHED (shared/constitution.ts) but never tunable. This registry holds
+ * the other two rings:
+ *
+ *   "open"    — Ring 2: community-governable dials. These appear as editable
+ *               mechanics on the public Game Mechanics page and are the
+ *               domain of the Hypha proposal loop. The platform's min/max
+ *               BOUNDS stay Ring 0: governance moves a value within its
+ *               bounds, never the bounds.
+ *   "founder" — Ring 1: tunable, but by the founder/admin only — legal
+ *               posture, infrastructure, privacy windows, abuse guards.
+ *               Shown on the public page (everything is visible) but marked
+ *               founder-held and never proposable.
+ *
+ * The ring on a def is the PLATFORM CEILING. A founder can close an "open"
+ * variable to their community; nothing can open a "founder" one to it.
+ */
+export type VariableRing = "open" | "founder";
+
+/**
+ * When a governance-passed change takes effect. "instant" is the default;
+ * "cycle-close" marks variables whose mid-cycle change corrupts a settlement
+ * basis (budgets, pools, multipliers — the sticky-split lesson): a passed
+ * proposal for one of these applies at the next cycle close, giving humans
+ * the window between passage and effect the governance design calls for.
+ */
+export type VariableApplyTiming = "instant" | "cycle-close";
 
 export interface VariableDef {
   key: string;
@@ -33,6 +68,10 @@ export interface VariableDef {
   /** For `choice`: the allowed values and how to label them. */
   choices?: Array<{ value: string; label: string; hint?: string }>;
   unit?: string;
+  /** Ring override. Absent = derived by ringOf() from category/key rules. */
+  ring?: VariableRing;
+  /** Apply-timing override. Absent = derived by applyTimingOf(). */
+  applyTiming?: VariableApplyTiming;
 }
 
 /**
@@ -73,7 +112,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Gratitude",
     label: "Value pool distributed at each cycle close",
     description:
-      "The ReGen Civics model (Rye, 2026-07-26): recognition itself is a signal, and the VALUE arrives when a lunar cycle closes — this pool of tokens is split among everyone in proportion to the recognition they received that cycle. You set how big the pool is; the community's appreciation decides where it flows. 0 turns distribution off (signal only).",
+      "The ReGen Civics model (Rye, 2026-07-26): recognition itself is a signal, and the VALUE arrives when a lunar cycle closes. This pool of tokens is split among everyone in proportion to the recognition they received that cycle. You set how big the pool is; the community's appreciation decides where it flows. 0 turns distribution off (signal only).",
     type: "integer",
     default: "1000",
     min: 0,
@@ -85,7 +124,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Gratitude",
     label: "Which token the pool pays",
     description:
-      "The registry slug of the platform token the cycle pool distributes (rename or add tokens as you configure modules — per-module tokens are yours to name). It must be platform-governed and must NOT be the recognition token itself: recognition is the signal, this is the value, and keeping them separate is what stops appreciation from becoming a price.",
+      "The registry slug of the platform token the cycle pool distributes (rename or add tokens as you configure modules; per-module tokens are yours to name). It must be platform-governed and must NOT be the recognition token itself: recognition is the signal, this is the value, and keeping them separate is what stops appreciation from becoming a price.",
     type: "text",
     default: "credits",
   },
@@ -106,7 +145,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Gratitude",
     label: "Maximum sends to the same person per cycle",
     description:
-      "Stops one friendship from dominating recognition. Set to 1 so acknowledging someone is a considered act once a month rather than a habit.",
+      "Stops one friendship from dominating recognition. Set to 1 so acknowledging someone is a considered act, once a month.",
     type: "integer",
     default: "1",
     min: 1,
@@ -172,6 +211,27 @@ export const VARIABLES: VariableDef[] = [
     type: "boolean",
     default: "true",
   },
+  {
+    key: "quest.allow_zero_consent",
+    category: "Quests",
+    label: "Allow consenting at zero",
+    description:
+      "When on, a claim can be consented with an amount of 0, meaning 'acknowledged, no recognition'. The claim completes and any stay-credit reward still releases, but no recognition moves. When off, consent must release at least 1.",
+    type: "boolean",
+    default: "false",
+  },
+  {
+    key: "quest.self_consent_until_members",
+    category: "Quests",
+    label: "Founder may self-consent below this many members",
+    description:
+      "Consent normally needs a second person to witness the work: nobody may consent to their own claim. A founder building alone has nobody to ask, so while the village has FEWER than this many members, an admin or founder may consent to their own claims. Once the village reaches this size, the witness rule applies to everyone, admins included. 0 means self-consent is never allowed, even for a founder alone.",
+    type: "integer",
+    default: "6",
+    min: 0,
+    max: 1000,
+    unit: "members",
+  },
 
   // ── Governance: the informal step before Hypha ────────────────────────────
   {
@@ -187,11 +247,11 @@ export const VARIABLES: VariableDef[] = [
   {
     key: "governance.hypha_threshold",
     category: "Governance",
-    label: "In-app tokens needed to take a proposal to Hypha",
+    label: "Earned recognition to qualify as a proposer",
     description:
-      "Following the ReGen Civics model: in-app tokens are earned recognition, not currency, and reaching this threshold is what qualifies a member to take a proposal to Hypha where real tokens are minted. Set to 0 to let anyone propose.",
+      "Earned recognition a member needs before they can OPEN mechanics proposals and sponsor others' drafts (below it, they can still draft; a qualified member's sponsorship opens a draft). The base posture is 0: any member may propose. Raise it to ask for earned standing first. Admins and founders always qualify.",
     type: "integer",
-    default: "1000",
+    default: "0",
     min: 0,
     max: 10000000,
     unit: "Gratitude",
@@ -206,6 +266,62 @@ export const VARIABLES: VariableDef[] = [
     default: "7",
     min: 1,
     max: 90,
+    unit: "days",
+  },
+  {
+    key: "governance.proposals_per_member_per_cycle",
+    category: "Governance",
+    label: "Mechanics proposals per member per cycle",
+    description:
+      "How many game-rule change proposals one member may open per cycle. A ceiling on flooding, not on participation: supporting and sponsoring other proposals is never limited.",
+    type: "integer",
+    default: "5",
+    min: 1,
+    max: 100,
+    unit: "per cycle",
+  },
+  {
+    key: "governance.proposal_support_threshold",
+    category: "Governance",
+    label: "Supporters before a proposal can go to Hypha",
+    description:
+      "How many members must support a mechanics proposal in-game before it can be taken to Hypha for the binding vote. The sensing step: proposals gather perspectives here first, and only what the village actually wants reaches the chain. 0 turns the gate off: any open proposal can go straight to Hypha.",
+    type: "integer",
+    default: "0",
+    min: 0,
+    max: 10000,
+    unit: "supporters",
+  },
+  {
+    key: "governance.hub_url",
+    category: "Governance",
+    label: "ReGen governance hub URL",
+    description:
+      "Base URL of the ReGen hub that listens to the chain for this village. When a proposal's Hypha URL is pasted in, the platform registers the on-chain proposal id with this hub (signed with the shared governance secret) so the verified outcome can find its way home. Leave as the platform default unless you run your own hub.",
+    type: "text",
+    default: "https://regencivics.earth",
+    ring: "founder",
+  },
+  {
+    key: "governance.auto_apply_enabled",
+    category: "Governance",
+    label: "Apply verified proposals automatically",
+    description:
+      "When on, a proposal verified as passed on-chain applies itself: instantly for instant dials, at the next cycle close when the set touches any cycle-timed dial (the whole set waits together; a set applies atomically or not at all). Turning this OFF is the founder's emergency brake: verified proposals hold, stewards are notified, and applying becomes a human act until it is turned back on. Founder-held on purpose.",
+    type: "boolean",
+    default: "true",
+    ring: "founder",
+  },
+  {
+    key: "governance.change_cooldown_days",
+    category: "Governance",
+    label: "Cooldown after a governed rule change",
+    description:
+      "After a dial is changed by a passed proposal, this many days must pass before a new proposal may move that same dial again. Prevents rule-thrash and vote fatigue. 0 turns the cooldown off.",
+    type: "integer",
+    default: "0",
+    min: 0,
+    max: 365,
     unit: "days",
   },
 
@@ -242,7 +358,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Tokens",
     label: "Base RPC endpoint",
     description:
-      "Where balances are read from. A public endpoint is fine to start; a dedicated one is more reliable under load. If this fails, the platform shows nothing rather than a wrong number.",
+      "Where balances are read from. A public endpoint is fine to start; a dedicated one is more reliable under load. If this fails, the platform shows nothing, never a wrong number.",
     type: "text",
     default: "https://mainnet.base.org",
   },
@@ -255,9 +371,29 @@ export const VARIABLES: VariableDef[] = [
     category: "Hypha",
     label: "Your Hypha DHO address",
     description:
-      "The one place this platform sends people for governance, proposals, treasury and membership on Hypha. Every module derives its deep links from this single value; leaving it blank hides every Hypha button rather than showing a dead link.",
+      "The one place this platform sends people for governance, proposals, treasury and membership on Hypha. Every module derives its deep links from this single value; leaving it blank hides every Hypha button, so nobody meets a dead link.",
     type: "text",
     default: "",
+  },
+  {
+    key: "hypha.space_id",
+    category: "Hypha",
+    label: "Hypha space id (on-chain)",
+    description:
+      "The numeric id of your DAO's space on Hypha's Base contracts. Every on-chain proposal your DAO creates is stamped with it. Found in your Hypha space's URL or from any of its proposals on Basescan. Used to verify that on-chain outcomes claiming to be yours really came from your space.",
+    type: "text",
+    default: "",
+    ring: "founder",
+  },
+  {
+    key: "hypha.founder_base_address",
+    category: "Hypha",
+    label: "Founder Base account address",
+    description:
+      "The 0x address that created your DAO and issued its first tokens on Base. Used by Integrate DAO to discover your token contracts automatically: issue yourself even a tiny amount of each token, and the lookup finds the contract by the token's exact name in this account's transfer history.",
+    type: "text",
+    default: "",
+    ring: "founder",
   },
   {
     key: "hypha.link_governance",
@@ -298,7 +434,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Tools",
     label: "Count tool opens",
     description:
-      "When on, opening a tool records an anonymous-friendly click row (member id attached only for signed-in members) so admins can see which tools the village actually uses. Turning it off makes the beacon a no-op — a village-level privacy choice.",
+      "When on, opening a tool records an anonymous-friendly click row (member id attached only for signed-in members) so admins can see which tools the village actually uses. Turning it off records nothing, a village-level privacy choice.",
     type: "boolean",
     default: "true",
   },
@@ -307,7 +443,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Tools",
     label: "Days between automatic link checks",
     description:
-      "0 means manual-only: admins run 'Check links now' from the Tools tab. A cadence takes effect once the platform scheduler ships (v3 S16) — setting it earlier is harmless and remembered.",
+      "0 means manual-only: admins run 'Check links now' from the Tools tab. A cadence takes effect once the platform scheduler ships (v3 S16); setting it earlier is harmless and remembered.",
     type: "integer",
     default: "0",
     min: 0,
@@ -317,12 +453,102 @@ export const VARIABLES: VariableDef[] = [
 
   // ── Data lifecycle (S18). Every fork inherits this posture — Gate F's
   //    legal scope includes data protection (Costa Rica Law 8968). ──────────
+  // ── Sessions & email delivery ─────────────────────────────────────────────
+  {
+    key: "auth.session_days",
+    category: "Accounts & sessions",
+    label: "Signed-in session length",
+    description:
+      "How long a sign-in lasts before the member has to sign in again. Applies to sessions started AFTER a change: existing sessions keep the length they were minted with. Shorter is safer on shared devices; longer is kinder on personal phones.",
+    type: "integer",
+    default: "30",
+    min: 1,
+    max: 365,
+    unit: "days",
+  },
+  {
+    key: "notify.daily_email_cap",
+    category: "Accounts & sessions",
+    label: "Most emails one member receives per day",
+    description:
+      "Over this many notification emails in a rolling 24 hours, further ones stay in-app only (the notification itself is never lost; only the email is skipped). A ceiling on noisy days, not a quota: raise it for a large, busy village.",
+    type: "integer",
+    default: "20",
+    min: 1,
+    max: 200,
+    unit: "per day",
+  },
+
+  // ── Abuse guards: throttles on the public writers ─────────────────────────
+  // Per-IP unless stated. These are ceilings on ABUSE, not on members: keep
+  // them generous — a whole village behind one NAT shares each IP bucket.
+  {
+    key: "abuse.register_per_ip_hourly",
+    category: "Abuse guards",
+    label: "Registrations per IP per hour",
+    description:
+      "How many account registrations one IP address may attempt per hour. Also bounds how fast an outsider can probe which email addresses belong to members. An onboarding gathering behind one shared connection counts as one IP, so keep this comfortably above the size of a signup circle.",
+    type: "integer",
+    default: "30",
+    min: 1,
+    max: 1000,
+    unit: "per hour",
+  },
+  {
+    key: "abuse.login_ip_per_quarter_hour",
+    category: "Abuse guards",
+    label: "Failed logins per IP per 15 minutes",
+    description:
+      "How many FAILED sign-in attempts one IP address may make per 15 minutes. Successful sign-ins never count. The per-account limit below is the real brute-force bound; this one only caps bulk abuse from a single address, so it can stay loose.",
+    type: "integer",
+    default: "30",
+    min: 1,
+    max: 1000,
+    unit: "per 15 min",
+  },
+  {
+    key: "abuse.login_account_per_quarter_hour",
+    category: "Abuse guards",
+    label: "Failed logins per account per 15 minutes",
+    description:
+      "How many FAILED sign-in attempts any one account may receive per 15 minutes, from all addresses combined: the bound an attacker with many IPs cannot dodge. Successful sign-ins never count. Anyone who knows an address can briefly lock that account out by failing on purpose, so do not set this too low.",
+    type: "integer",
+    default: "10",
+    min: 1,
+    max: 100,
+    unit: "per 15 min",
+  },
+  {
+    key: "abuse.password_reset_per_ip_hourly",
+    category: "Abuse guards",
+    label: "Password-reset requests per IP per hour",
+    description:
+      "How many 'forgot password' requests one IP address may make per hour. Each one can send an email, so this bounds using the village as a mail cannon. A separate per-address limit always applies as well, so one member cannot be mail-bombed from many addresses.",
+    type: "integer",
+    default: "10",
+    min: 1,
+    max: 200,
+    unit: "per hour",
+  },
+  {
+    key: "abuse.investor_docs_per_ip_hourly",
+    category: "Abuse guards",
+    label: "Investor-packet requests per IP per hour",
+    description:
+      "How many investor document requests one IP address may make per hour. Each request stores a lead and emails the packet to the address given, so unthrottled it doubles as a spam cannon. Several genuine investors behind one corporate network share a bucket, so keep this above 1.",
+    type: "integer",
+    default: "3",
+    min: 1,
+    max: 100,
+    unit: "per hour",
+  },
+
   {
     key: "retention.submissions_days",
     category: "Data lifecycle",
     label: "Keep handled form submissions for",
     description:
-      "Form submissions carry personal details (names, emails, phone numbers). Once a submission has been handled — any status other than new — it is deleted this many days after it arrived. Unhandled submissions are never swept: an unread message is a commitment, not clutter. 0 keeps everything forever.",
+      "Form submissions carry personal details (names, emails, phone numbers). Once a submission has been handled (any status other than new), it is deleted this many days after it arrived. Unhandled submissions are never swept: an unread message is a commitment, not clutter. 0 keeps everything forever.",
     type: "integer",
     default: "365",
     min: 0,
@@ -334,7 +560,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Data lifecycle",
     label: "Keep read notifications for",
     description:
-      "Read notifications older than this are deleted by the daily sweep. Unread ones stay — they have not done their job yet. 0 keeps everything forever.",
+      "Read notifications older than this are deleted by the daily sweep. Unread ones stay: they have not done their job yet. 0 keeps everything forever.",
     type: "integer",
     default: "90",
     min: 0,
@@ -348,7 +574,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Village map",
     label: "Show the map's structure to visitors",
     description:
-      "When the map module is public, anonymous visitors see circles, role titles and seat counts — never names or faces. Off hides the map from visitors entirely, even at public lifecycle.",
+      "When the map module is public, anonymous visitors see circles, role titles and seat counts, never names or faces. Off hides the map from visitors entirely, even at public lifecycle.",
     type: "boolean",
     default: "true",
   },
@@ -419,7 +645,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Forum",
     label: "Soft reports that auto-hide a post",
     description:
-      "When this many DIFFERENT members soft-report the same thread or reply, it hides automatically pending moderation — the community can act before a moderator wakes up. Hard reports always go straight to the queue without hiding.",
+      "When this many DIFFERENT members soft-report the same thread or reply, it hides automatically pending moderation, so the community can act before a moderator wakes up. Hard reports always go straight to the queue without hiding.",
     type: "integer",
     default: "3",
     min: 2,
@@ -433,7 +659,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Feed",
     label: "Which forum category the feed shows",
     description:
-      "The feed is a LENS over one forum category plus the village's system events — it is not a second content store. Point it at the category where everyday village life gets posted.",
+      "The feed is a LENS over one forum category plus the village's system events. It is not a second content store. Point it at the category where everyday village life gets posted.",
     type: "text",
     default: "village-life",
   },
@@ -442,7 +668,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Feed",
     label: "Weave the village's own milestones into the feed",
     description:
-      "On, the feed mixes what the village DID — quests consented, seasons turning, people arriving — " +
+      "On, the feed mixes what the village DID (quests consented, seasons turning, people arriving) " +
       "in among what people wrote. Off, it is only posts. A young village usually wants this on, because " +
       "a feed with three posts and no events reads as abandoned.",
     type: "boolean",
@@ -454,7 +680,7 @@ export const VARIABLES: VariableDef[] = [
     label: "How much of a long post the feed shows",
     description:
       "Posts longer than this are cut off in the feed with the rest behind the post itself. Nothing is " +
-      "deleted — this only decides how much of a long piece takes over the page.",
+      "deleted; this only decides how much of a long piece takes over the page.",
     type: "integer",
     default: "600",
     min: 120,
@@ -466,7 +692,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Feed",
     label: "Recognition each heart sends",
     description:
-      "A heart is a REAL send from the tapper's cycle budget — small on purpose. Bounded 1-5 (economy critique): hearts are a tap, not a transfer instrument.",
+      "A heart is a REAL send from the tapper's cycle budget, small on purpose. Bounded 1-5 (economy critique): hearts are a tap, not a transfer instrument.",
     type: "integer",
     default: "1",
     min: 1,
@@ -534,7 +760,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Stays",
     label: "Grace nights below zero",
     description:
-      "How many nights a stay may keep posting after the balance hits zero before autopay refuses and admins are alerted. The debt is real and visible — a negative balance, not a hidden tab.",
+      "How many nights a stay may keep posting after the balance hits zero before autopay refuses and admins are alerted. The debt is real and visible: a negative balance, not a hidden tab.",
     type: "integer",
     default: "2",
     min: 0,
@@ -557,7 +783,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Stays",
     label: "Credit expiry (0 = never)",
     description:
-      "Days until unspent stay credits expire. 0 means they never expire. Expiry is a policy contract shipped ahead of enforcement — v1 does not yet sweep expired credits.",
+      "Days until unspent stay credits expire. 0 means they never expire. Expiry is a policy contract shipped ahead of enforcement: v1 does not yet sweep expired credits.",
     type: "integer",
     default: "0",
     min: 0,
@@ -589,7 +815,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exchange",
     label: "Largest single price change",
     description:
-      "How far one posted price may move from the previous one, in percent. Big moves happen in bounded steps, each with its own note — the price history stays a story, not a cliff. 0 removes the bound.",
+      "How far one posted price may move from the previous one, in percent. Big moves happen in bounded steps, each with its own note, so the price history stays a story, not a cliff. 0 removes the bound.",
     type: "integer",
     default: "20",
     min: 0,
@@ -603,7 +829,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Library",
     label: "Intake award, % of appraisal",
     description:
-      "What a donor earns, as a share of the item's appraised replacement value. Never above 100 — the mint's front door pays at most what the shelf gained.",
+      "What a donor earns, as a share of the item's appraised replacement value. Never above 100: the mint's front door pays at most what the shelf gained.",
     type: "integer",
     default: "75",
     min: 0,
@@ -651,7 +877,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Library",
     label: "Usage fee per loan, % of value",
     description:
-      "The default wear fee a normal return pays into the library pool — also what a dispute resolves to after its deadline (computed wear, zero damage).",
+      "The default wear fee a normal return pays into the library pool, and what a dispute resolves to after its deadline (computed wear, zero damage).",
     type: "integer",
     default: "5",
     min: 0,
@@ -687,7 +913,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exchange",
     label: "The village's share of each swap",
     description:
-      "In basis points, so half a percent is expressible (50 = 0.50%). This is a POLICY dial, not the safety mechanism — a swap can never profit the member even at 0, because the amount they hand over always rounds up. At 0 the confirm card reads 'the village keeps nothing on this swap'.",
+      "In basis points, so half a percent is expressible (50 = 0.50%). This is a POLICY dial, not the safety mechanism: a swap can never profit the member even at 0, because the amount they hand over always rounds up. At 0 the confirm card reads 'the village keeps nothing on this swap'.",
     type: "integer",
     default: "0",
     min: 0,
@@ -699,7 +925,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exchange",
     label: "Abandoned card checkouts are released after",
     description:
-      "A card purchase reserves an order the moment checkout opens, before the member has paid. If they close the tab, that order stays pending forever — and a pending order blocks BOTH turning the exchange off and letting that member leave the village. This is how long to wait before releasing one. Keep it comfortably above 24 hours: a Stripe checkout session stays payable that long, and releasing an order someone is still paying for would strand their money. 0 disables the release.",
+      "A card purchase reserves an order the moment checkout opens, before the member has paid. If they close the tab, that order stays pending forever, and a pending order blocks BOTH turning the exchange off and letting that member leave the village. This is how long to wait before releasing one. Keep it comfortably above 24 hours: a Stripe checkout session stays payable that long, and releasing an order someone is still paying for would strand their money. 0 disables the release.",
     type: "integer",
     default: "48",
     min: 0,
@@ -711,7 +937,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exchange",
     label: "Card-bought tokens settle before they can be swapped",
     description:
-      "Tokens bought with a card are frozen from swapping for this many days — long enough that a chargeback still finds them in the wallet instead of already converted. 0 disables the hold.",
+      "Tokens bought with a card are frozen from swapping for this many days, long enough that a chargeback still finds them in the wallet instead of already converted. 0 disables the hold.",
     type: "integer",
     default: "45",
     min: 0,
@@ -736,7 +962,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Payments",
     label: "Largest single purchase (USD)",
     description:
-      "Per-order ceiling across ALL fiat modules — stays, exchange, and anything after them. 0 disables the check.",
+      "Per-order ceiling across ALL fiat modules: stays, exchange, and anything after them. 0 disables the check.",
     type: "integer",
     default: "1000",
     min: 0,
@@ -774,7 +1000,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Village",
     label: "Village Pulse length",
     description:
-      "How many recent happenings the public activity feed shows. Nothing is deleted — this is " +
+      "How many recent happenings the public activity feed shows. Nothing is deleted; this is " +
       "how far back the page reaches, not how much the village keeps.",
     type: "integer",
     // Was 500, described as a retention limit, and read by nothing: the route
@@ -793,7 +1019,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Health",
     label: "Alert when a metric moves this much",
     description:
-      "After a lunation closes, any tracked metric that moved more than this against the previous lunation is flagged to the stewards — in either direction, without judging which is good. 0 turns alerts off.",
+      "After a lunation closes, any tracked metric that moved more than this against the previous lunation is flagged to the stewards, in either direction, without judging which is good. 0 turns alerts off.",
     type: "integer",
     default: "40",
     min: 0,
@@ -807,7 +1033,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Library",
     label: "Intake stall alarm",
     description:
-      "An item awaiting its second sign-off longer than this many days appears in the stewards' daily digest — the donor already handed it over and is owed credits.",
+      "An item awaiting its second sign-off longer than this many days appears in the stewards' daily digest: the donor already handed it over and is owed credits.",
     type: "integer",
     default: "7",
     min: 1,
@@ -835,19 +1061,181 @@ export const VARIABLES: VariableDef[] = [
     category: "Platform",
     label: "Share bug reports and ideas with the platform team",
     description:
-      "ON: a copy of each bug/idea submitted here also reaches the ReGen Civics platform team, so fixes and features can ship to every village — content only, never who said it. OFF: feedback stays entirely local; your admins still see all of it in Admin → Feedback. Disclosed on the submission form either way.",
+      "ON: a copy of each bug/idea submitted here also reaches the ReGen Civics platform team, so fixes and features can ship to every village. Content only, never who said it. OFF: feedback stays entirely local; your admins still see all of it in Admin → Feedback. Disclosed on the submission form either way.",
     type: "integer",
     default: "1",
     min: 0,
     max: 1,
     unit: "on/off",
   },
+
+  // ── Recognition issuance that used to hide in a content document ──────────
+  {
+    key: "gratitude.proposal_accept_award",
+    category: "Gratitude",
+    label: "Recognition for an accepted Work With Us proposal",
+    description:
+      "How much recognition is minted for a member whose Work With Us proposal is accepted. This used to live inside the Work With Us content settings with no bounds; it is issuance, so it belongs here with the other Gratitude dials.",
+    type: "integer",
+    default: "100",
+    min: 0,
+    max: 100000,
+    unit: "Gratitude",
+  },
+
+  // ── Per-member daily activity caps that were hardcoded ────────────────────
+  {
+    key: "stay.request_daily_cap",
+    category: "Stays",
+    label: "Stay requests per member per day",
+    description:
+      "How many stay requests one member may open in 24 hours. A cap on requests, not on stays: stewards still decide every activation.",
+    type: "integer",
+    default: "5",
+    min: 1,
+    max: 100,
+    unit: "per day",
+  },
+  {
+    key: "library.reserve_daily_cap",
+    category: "Library",
+    label: "Library reservations per member per day",
+    description:
+      "How many items one member may reserve in 24 hours. Bounds how fast one person can lock shelf items and escrow credits.",
+    type: "integer",
+    default: "10",
+    min: 1,
+    max: 100,
+    unit: "per day",
+  },
+  {
+    key: "payments.donation_max_usd",
+    category: "Payments",
+    label: "Largest checkout donation",
+    description:
+      "The ceiling on a single choose-your-amount donation checkout. Anything above it gets a personal conversation instead of a card form.",
+    type: "integer",
+    default: "50000",
+    min: 1,
+    max: 1000000,
+    unit: "USD",
+  },
 ];
+
+// ── Progression: the ladder's economics and thresholds, GENERATED per stage ──
+//
+// These defs are derived from GAME_CONFIG.stages at module load, so a fork
+// that edits its ladder (the identity plane) automatically gets matching,
+// correctly-defaulted variables — the registry stays the single source of
+// truth for BEHAVIOUR while the ladder's SHAPE stays identity. Defaults come
+// from the config values that were previously hardcoded, so registering these
+// changes nothing until a village edits them (the wire-a-knob-at-birth rule).
+
+const STAGE_CHOICES = GAME_CONFIG.stages.map((s) => ({ value: s.id, label: s.name }));
+
+const STAGE_MULTIPLIER_DEFS: VariableDef[] = GAME_CONFIG.stages.map((s) => ({
+  key: `progression.multiplier.${s.id}`,
+  category: "Progression",
+  label: `Sending-budget multiplier: ${s.name}`,
+  description: `Multiplies the base Gratitude sending budget for members at the ${s.name} stage. 0 means members at this stage cannot send yet.`,
+  type: "decimal",
+  default: String(s.gratitudeMultiplier),
+  min: 0,
+  max: 100,
+  unit: "x base budget",
+  applyTiming: "cycle-close",
+}));
+
+const STAGE_QUEST_DEFS: VariableDef[] = GAME_CONFIG.stages
+  .filter((s) => s.rule.type === "quests")
+  .map((s) => ({
+    key: `progression.quests_for.${s.id}`,
+    category: "Progression",
+    label: `Consented quests to reach ${s.name}`,
+    description: `How many consented quests advance a member to the ${s.name} stage. Raising it never demotes anyone retroactively on its own: stages are recomputed from live counts.`,
+    type: "integer",
+    default: String((s.rule as { type: "quests"; min: number }).min),
+    min: 1,
+    max: 1000,
+    unit: "consented quests",
+  }));
+
+const UNLOCK_DEFS: VariableDef[] = (Object.entries(STAGE_UNLOCKS) as Array<[string, string]>).map(
+  ([cap, stage]) => ({
+    key: `progression.unlock.${cap}`,
+    category: "Progression",
+    label: `Stage that unlocks: ${cap}`,
+    description: `Which rung of the ladder grants "${cap}" by progression alone. Roles and badges can still grant it at any stage; "never by stage" makes it role/badge-only. This is the constitution's parameter table, so move rungs deliberately.`,
+    type: "choice",
+    default: stage,
+    choices: [
+      ...STAGE_CHOICES,
+      { value: "none", label: "Never by stage (role or badge only)" },
+    ],
+  }),
+);
+
+VARIABLES.push(...STAGE_MULTIPLIER_DEFS, ...STAGE_QUEST_DEFS, ...UNLOCK_DEFS);
 
 /** Lookup by key, for validation and defaults. */
 export const VARIABLES_BY_KEY: Record<string, VariableDef> = Object.fromEntries(
   VARIABLES.map((v) => [v.key, v]),
 );
+
+// A duplicated key would make VARIABLES_BY_KEY silently keep the last def and
+// the admin list show two rows editing one value. With generated defs in the
+// registry this is now reachable by a careless fork edit, so it fails LOUD at
+// import — on the server at boot, in the client at bundle evaluation.
+if (Object.keys(VARIABLES_BY_KEY).length !== VARIABLES.length) {
+  const seen = new Set<string>();
+  const dupes = VARIABLES.filter((v) => (seen.has(v.key) ? true : (seen.add(v.key), false)));
+  throw new Error(`Duplicate game variable key(s): ${dupes.map((d) => d.key).join(", ")}`);
+}
+
+// ── Ring + apply-timing resolution ───────────────────────────────────────────
+
+/** Categories whose variables default to founder-held (Ring 1). */
+const FOUNDER_CATEGORIES = new Set(["Abuse guards", "Accounts & sessions", "Data lifecycle", "Platform"]);
+
+/** Individual founder-held keys outside those categories: infrastructure,
+ *  contract wiring, and privacy windows — not game rules. */
+const FOUNDER_KEYS = new Set([
+  "tokens.base_rpc_url",
+  "tokens.equity_address",
+  "tokens.voice_address",
+  "governance.hub_url",
+  "hypha.org_url",
+  "hypha.link_governance",
+  "hypha.link_proposals",
+  "hypha.link_treasury",
+  "hypha.link_members",
+  "map.contact_retention_days",
+]);
+
+/** The platform ceiling for who may govern this dial. */
+export function ringOf(def: VariableDef): VariableRing {
+  if (def.ring) return def.ring;
+  if (FOUNDER_KEYS.has(def.key)) return "founder";
+  if (FOUNDER_CATEGORIES.has(def.category)) return "founder";
+  return "open";
+}
+
+/** Keys whose mid-cycle change would corrupt a settlement basis. */
+const CYCLE_APPLY_KEYS = new Set([
+  "gratitude.base_budget",
+  "gratitude.pool_per_cycle",
+  "gratitude.pool_token",
+  "gratitude.cycle_mode",
+  "gratitude.max_per_recipient_per_cycle",
+  "feed.heart_amount",
+  "feed.max_hearts_per_recipient_per_cycle",
+  "ledger.admin_mint_cycle_cap",
+]);
+
+export function applyTimingOf(def: VariableDef): VariableApplyTiming {
+  if (def.applyTiming) return def.applyTiming;
+  return CYCLE_APPLY_KEYS.has(def.key) ? "cycle-close" : "instant";
+}
 
 /** Parse a stored string into the type the caller expects. */
 export function parseVariable(def: VariableDef, raw: string | undefined | null): number | boolean | string {

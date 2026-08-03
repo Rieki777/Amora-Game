@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
+import { useGameConfig } from "@/lib/gameApi";
 import { 
   Sparkles, 
   ArrowRight, 
@@ -30,30 +31,32 @@ const principles = [
   },
   {
     title: "Gratitude Economy",
-    description: "Our contribution tracking system acknowledges every bit of value we create together. Gratitude isn't a fixed dollar amount, it's a living record of what we're building collectively, sharing in a real pool of value the community sets aside each cycle.",
+    description: "Two tokens, two jobs. Gratitude acknowledges every contribution. It carries no financial value on its own. Each cycle, the community sets aside a real pool of value tokens and shares it across everyone's Gratitude, so appreciation decides where the value flows.",
     icon: Heart,
   },
   {
     title: "Seasonal Rhythm",
-    description: "Every 3 months, the community decides together what kind of season comes next, not a fixed cycle, but a living response to what Amora needs most right now.",
+    description: "Every 3 months, the community decides together what kind of season comes next, a living response to what Amora needs most right now.",
     icon: Repeat,
   },
 ];
 
-const recognitionInfo = [
+// The three cards read the LIVE value-token name (Admin → Tokens): a fork
+// that names its token renames every mention here in one act.
+const recognitionInfo = (valueName: string) => [
   {
     title: "Earn Gratitude",
-    description: "Complete quests, fulfill roles, or receive revenue shares from community and private businesses. Every contribution gets acknowledged.",
+    description: "Complete quests, fulfill roles, or receive revenue shares from community and private businesses. Every contribution is acknowledged with Gratitude, the recognition signal. It has no financial value on its own, on purpose.",
     icon: "🤝",
   },
   {
-    title: "Track Value",
-    description: "Rather than a fixed rate, each cycle the community shares a real pool of value across everyone's Gratitude. It's our honest record of the work, time, and resources everyone is pooling to make Amora real.",
+    title: `Share the ${valueName} Pool`,
+    description: `Each cycle, the community sets aside a real pool of ${valueName} and splits it across everyone's Gratitude. Appreciation is the signal; ${valueName} are the value it steers: the honest record of the work, time, and resources everyone is pooling to make Amora real.`,
     icon: "📊",
   },
   {
     title: "Future Conversion",
-    description: "As Amora matures, Gratitude will convert to cash or equity. For now, they're how we honor contributions we can't yet pay in cash.",
+    description: `As Amora matures, ${valueName} convert to cash or equity. For now, they're how we honor contributions we can't yet pay in cash.`,
     icon: "🌱",
   },
 ];
@@ -101,6 +104,10 @@ const itemVariants = {
 };
 
 export default function HowWeCreate() {
+  const config = useGameConfig();
+  // Until the config lands (or on a fork that hasn't named one) speak
+  // generically — never render a blank where the token's name belongs.
+  const valueName = config?.currency?.value?.name ?? "village tokens";
   return (
     <Layout>
       <section className="py-24 bg-background">
@@ -175,15 +182,15 @@ export default function HowWeCreate() {
                 The Gratitude Economy
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto mb-2">
-                Gratitude is how we track contributions, work, time, resources, and expertise that we can't yet pay in cash. Rather than a fixed dollar amount, <strong>each cycle the community shares a real pool of value across everyone's Gratitude</strong>, so its worth grows with the village.
+                Two tokens work together here. <strong>Gratitude</strong> is the recognition signal. It acknowledges contributions, work, time, resources, and expertise, and it has no financial value on its own. <strong>{valueName}</strong> are the tracked value: <strong>each cycle the community sets aside a real pool of {valueName} and shares it across everyone's Gratitude</strong>, so appreciation decides where the value flows.
               </p>
               <p className="text-sm text-muted-foreground">
-                Every Heart is a promise: as Amora grows, contributions convert to cash or equity.
+                Every {valueName.replace(/s$/, "")} is a promise: as Amora grows, they convert to cash or equity.
               </p>
             </div>
 
             <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-              {recognitionInfo.map((item, index) => (
+              {recognitionInfo(valueName).map((item, index) => (
                 <motion.div
                   key={item.title}
                   initial={{ opacity: 0, y: 20 }}
@@ -218,9 +225,10 @@ export default function HowWeCreate() {
               transition={{ delay: 0.5 }}
             >
               <p className="text-muted-foreground">
-                Gratitude isn't a currency yet, they're a <strong>record of shared investment</strong>.
-                We're tracking the full value of what everyone is contributing so no one's effort
-                goes unacknowledged when Amora becomes financially whole.
+                Gratitude is never bought or sold. It's appreciation, kept honest by having no
+                price. {valueName} are the <strong>record of shared investment</strong>: we track
+                the full value of what everyone is contributing so no one's effort goes
+                unacknowledged when Amora becomes financially whole.
               </p>
             </motion.div>
           </motion.div>
@@ -378,7 +386,7 @@ export default function HowWeCreate() {
                 Seasonal Rhythm
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
-                Every 3 months, the community votes on what kind of season comes next, not a fixed cycle, but a collective response to what Amora needs most. Each season is its own chapter.
+                Every 3 months, the community votes on what kind of season comes next, a collective response to what Amora needs most. Each season is its own chapter.
               </p>
             </motion.div>
             <div className="grid sm:grid-cols-2 gap-6">

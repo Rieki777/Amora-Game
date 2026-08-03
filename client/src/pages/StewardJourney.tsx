@@ -55,13 +55,13 @@ const journeySteps = [
     link: "/circles",
     linkText: "Learn About Circles",
     external: false,
-    details: ["Optional — join if it calls you", "2-4 week immersion period", "Shadow existing circle members", "Identify your R-Ikigai fit"]
+    details: ["Optional, join if it calls you", "2-4 week immersion period", "Shadow existing circle members", "Identify your R-Ikigai fit"]
   },
   {
     id: "training",
     stage: "Participant",
     title: "Community Training",
-    description: "Either complete our training in NVC (Nonviolent Communication), authentic relating, and other community practices — or demonstrate you already know and live these essential practices.",
+    description: "Either complete our training in NVC (Nonviolent Communication), authentic relating, and other community practices, or demonstrate you already know and live these essential practices.",
     icon: BookOpen,
     link: "/training",
     linkText: "Learn About Training",
@@ -94,7 +94,7 @@ const journeySteps = [
     id: "quests",
     stage: "Quest Seeker",
     title: "Explore Quests",
-    description: "Take on quests to contribute meaningfully to the village — or propose your own unique quest if you don't see your gift. A great way to demonstrate your commitment.",
+    description: "Take on quests to contribute meaningfully to the village, or propose your own quest if you don't see your gift. A great way to demonstrate your commitment.",
     icon: Compass,
     link: "/quests",
     linkText: "View Quests",
@@ -321,7 +321,7 @@ export default function StewardJourney() {
                           type="button"
                           role="checkbox"
                           aria-checked={isCompleted}
-                          aria-label={`${step.title} — mark as ${isCompleted ? "not done" : "done"}`}
+                          aria-label={`${step.title}: mark as ${isCompleted ? "not done" : "done"}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleStep(step.id);

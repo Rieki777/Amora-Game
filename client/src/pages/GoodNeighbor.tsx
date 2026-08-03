@@ -57,8 +57,8 @@ const criteria = [
       "You have the financial capacity to sustain your commitment to Amora. You're honest about your resources and realistic about what you can afford.",
     practices: [
       "You've done the math on housing, land leases, HOA fees, village dues, and shared costs.",
-      "You have a clear income source or savings to cover your commitment for at least 3–5 years.",
-      "If circumstances change, you communicate early rather than disappearing or defaulting.",
+      "You have a clear income source or savings to cover your commitment for at least 3-5 years.",
+      "If circumstances change, you communicate early. You don't disappear or default.",
     ],
     note: "This is not about wealth. Amora welcomes teachers, artists, young families, retirees, and remote workers. What matters is alignment and honesty.",
     color: "bg-amber/20",
@@ -183,7 +183,7 @@ const commitments = [
   "Create a genuinely supportive and thriving community",
   "Practice transparent governance and decision-making",
   "Share financial benefits from commercial enterprises with all residents",
-  "Protect your investment and provide stability (30–99 year land leases with renewal options)",
+  "Protect your investment and provide stability (30-99 year land leases with renewal options)",
   "Honor your voice and participation in decisions that affect you",
   "Support your growth, learning, and evolution",
   "Celebrate your contributions and make your belonging real",
@@ -434,7 +434,7 @@ export default function GoodNeighbor() {
                 {
                   step: "6",
                   title: "Resident Consent",
-                  body: "Current residents and the Resident Circle give their consent-not unanimous agreement, but genuine consent with no reasoned objections.",
+                  body: "Current residents and the Resident Circle give their consent. The bar is genuine consent with no reasoned objections, not unanimous agreement.",
                 },
                 {
                   step: "7",
@@ -509,9 +509,9 @@ export default function GoodNeighbor() {
                 ecological regeneration all reinforce each other.
               </p>
               <p className="text-lg text-muted-foreground leading-relaxed mb-10">
-                If that resonates-if you're ready to be part of something that
-                demands your best while offering genuine belonging in
-                return-welcome home.
+                If that resonates, and you're ready to live by these criteria
+                and give this place your best, the belonging you get back here
+                is real. Welcome home.
               </p>
 
               <div className="flex flex-wrap justify-center gap-4">

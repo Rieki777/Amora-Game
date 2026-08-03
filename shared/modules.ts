@@ -119,7 +119,7 @@ export const MODULES: ModuleDef[] = [
     id: "map",
     name: "Village Map",
     description:
-      "The living org chart: circles, the roles that orbit them, who holds each seat, which seats are open calls — plus a concierge that routes 'I want to help with X' to the right person.",
+      "The living org chart: circles, the roles that orbit them, who holds each seat, which seats are open calls, plus a concierge that routes 'I want to help with X' to the right person.",
     requires: [],
     recommends: [],
     capabilities: ["map.viewPeople", "map.contact"],
@@ -139,7 +139,7 @@ export const MODULES: ModuleDef[] = [
     id: "forum",
     name: "Forum & Decisions",
     description:
-      "Village conversations: threads by circle-of-life category, @mentions, thread follows, community moderation — and the decision primitive, where proposals are opened and outcomes recorded.",
+      "Village conversations: threads by circle-of-life category, @mentions, thread follows, community moderation, and the decision primitive, where proposals are opened and outcomes recorded.",
     requires: [],
     recommends: ["map"],
     capabilities: ["forum.post", "forum.moderate"],
@@ -172,7 +172,7 @@ export const MODULES: ModuleDef[] = [
     id: "feed",
     name: "Village Feed",
     description:
-      "The everyday stream: microposts, events and announcements from one forum category, woven with the village's own milestones — where a tap of appreciation is a real gift from your cycle budget.",
+      "The everyday stream: microposts, events and announcements from one forum category, woven with the village's own milestones, where a tap of appreciation is a real gift from your cycle budget.",
     // A hard dependency, on purpose: the feed is a LENS over forum threads.
     requires: ["forum"],
     recommends: [],
@@ -184,7 +184,7 @@ export const MODULES: ModuleDef[] = [
     id: "stays",
     name: "Stays",
     description:
-      "Accommodation on stay credits: rooms post credit (and optional USD) prices per audience, credits are bought or earned through work-exchange quests, and one credit hosts one night. Funds-bearing — read the legal card before enabling.",
+      "Accommodation on stay credits: rooms post credit (and optional USD) prices per audience, credits are bought or earned through work-exchange quests, and one credit hosts one night. Funds-bearing: read the legal card before enabling.",
     requires: [],
     recommends: ["quests"],
     capabilities: ["stay.member_rate"],
@@ -233,7 +233,7 @@ export const MODULES: ModuleDef[] = [
     id: "health",
     name: "Village Health",
     description:
-      "The village's vital signs: per-lunation snapshots frozen at each cycle close, the land's own regeneration ledger (trees, water, hectares — absolute counts, never leaderboards), and season goals. Snapshot COLLECTION runs from the day this ships; turn the dashboard on once a few lunations of history exist.",
+      "The village's vital signs: per-lunation snapshots frozen at each cycle close, the land's own regeneration ledger (trees, water, hectares: absolute counts, never leaderboards), and season goals. Snapshot COLLECTION runs from the day this ships; turn the dashboard on once a few lunations of history exist.",
     requires: [],
     recommends: ["gratitude", "quests"],
     // The people who count the trees are rarely the people who hold the admin
@@ -287,7 +287,7 @@ export const MODULES: ModuleDef[] = [
     id: "badges",
     name: "Badges & Skills",
     description:
-      "Recognition of who people are and what they can do: self-declared skills, badges earned from settled contribution, granted honors — and warning badges that suspend specific capabilities until resolved. Earned badges never ride applause metrics into permissions.",
+      "Recognition of who people are and what they can do: self-declared skills, badges earned from settled contribution, granted honors, and warning badges that suspend specific capabilities until resolved. Earned badges never ride applause metrics into permissions.",
     requires: [],
     recommends: ["quests"],
     capabilities: [],
@@ -300,7 +300,7 @@ export const MODULES: ModuleDef[] = [
     id: "exchange",
     name: "Exchange",
     description:
-      "Buy the village's own platform tokens for fiat, out of a stocked treasury — buy-only in v1. Recognition and Hypha-governed tokens can never be listed; a token another module sells can't be listed twice. Funds-bearing — read the legal card before enabling.",
+      "Buy the village's own platform tokens for fiat, out of a stocked treasury, buy-only in v1. Recognition and Hypha-governed tokens can never be listed; a token another module sells can't be listed twice. Funds-bearing: read the legal card before enabling.",
     requires: [],
     recommends: [],
     capabilities: ["exchange.buy", "exchange.swap", "exchange.manage"],
@@ -337,7 +337,7 @@ export const MODULES: ModuleDef[] = [
     id: "commerce",
     name: "Payments & Donations",
     description:
-      "Every payment your project issues or receives, as products you define: application fees, donations, deposits and down payments, waitlist seats, recurring memberships, and token packs granted from treasury stock. Rides the same verified Stripe spine as stays and the exchange; Zeffy and manual payment paths for fee-free giving. Money flows IN only — always.",
+      "Every payment your project issues or receives, as products you define: application fees, donations, deposits and down payments, waitlist seats, recurring memberships, and token packs granted from treasury stock. Rides the same verified Stripe spine as stays and the exchange; Zeffy and manual payment paths for fee-free giving. Money flows IN only, always.",
     requires: [],
     recommends: [],
     capabilities: [],
@@ -362,7 +362,7 @@ export const MODULES: ModuleDef[] = [
     id: "tools",
     name: "Tools Hub",
     description:
-      "An audience-aware registry of the village's tools — one place to find the chat, the documents, the governance space — with a pinned card that deep-links to your Hypha DHO.",
+      "An audience-aware registry of the village's tools: one place to find the chat, the documents, the governance space, with a pinned card that deep-links to your Hypha DHO.",
     requires: [],
     recommends: [],
     capabilities: [],

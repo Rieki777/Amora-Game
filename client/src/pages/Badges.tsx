@@ -11,6 +11,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Award, Hammer, Medal, Plus, ShieldAlert, Sparkles, X } from "lucide-react";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -65,12 +66,13 @@ export default function Badges() {
             What the village recognizes: skills you declare, badges earned from
             real contribution, honors granted by stewards.
           </p>
+          <ExamplesBanner moduleId="badges" noun="badge" />
         </div>
       </section>
 
       <section className="py-8 bg-background">
         <div className="container max-w-2xl space-y-6">
-          {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
+          {error && <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
 
           {user && (
             <div className="bg-card border border-border rounded-xl p-5">
@@ -88,7 +90,7 @@ export default function Badges() {
                   </span>
                 ))}
                 {(data?.mine?.skills ?? []).length === 0 && (
-                  <p className="text-xs text-muted-foreground">Declare what you can do — it helps the village find you.</p>
+                  <p className="text-xs text-muted-foreground">Declare what you can do. It helps the village find you.</p>
                 )}
               </div>
               <div className="flex gap-2">
@@ -136,6 +138,30 @@ export default function Badges() {
                         <p className="text-xs text-red-600 mt-1">Suspends: {b.denies.join(", ")}</p>
                       )}
                       {mine?.note && <p className="text-xs text-muted-foreground italic mt-1">“{mine.note}”</p>}
+                      {/* Trust can be lent for a season. Until this shipped, a
+                          member holding a badge that lapses next week saw
+                          nothing to tell them so. */}
+                      {mine?.expiresAt && (
+                        <p className="text-xs text-amber-700 mt-1">
+                          Yours until {new Date(mine.expiresAt).toLocaleDateString()}.
+                        </p>
+                      )}
+                      {(b.holders ?? []).length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Held by{" "}
+                          {b.holders.map((h: any, i: number) => (
+                            <span key={h.userId}>
+                              {i > 0 ? ", " : ""}
+                              {h.name}
+                              {h.expiresAt && (
+                                <span className="text-amber-700">
+                                  {" "}until {new Date(h.expiresAt).toLocaleDateString()}
+                                </span>
+                              )}
+                            </span>
+                          ))}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-1.5">
                       {user && b.kind === "self" && (

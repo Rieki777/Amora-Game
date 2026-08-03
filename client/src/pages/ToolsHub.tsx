@@ -9,6 +9,7 @@ import NotFound from "@/pages/NotFound";
 import { useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 import {
   ExternalLink,
   Landmark,
@@ -78,9 +79,10 @@ export default function ToolsHub() {
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Village Tools</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Everything the village runs on, in one place — where to talk, where to
+            Everything the village runs on, in one place. Where to talk, where to
             decide, where the documents live.
           </p>
+          <ExamplesBanner moduleId="tools" noun="tool" />
         </div>
       </section>
 
@@ -99,7 +101,7 @@ export default function ToolsHub() {
               </div>
               <p className="text-sm text-muted-foreground mb-4">
                 Agreements, contributions, expenses and membership all live on the
-                village's Hypha DHO. This platform links out — decisions happen there.
+                village's Hypha DHO. This platform links out, decisions happen there.
               </p>
               <div className="flex flex-wrap gap-2">
                 {[

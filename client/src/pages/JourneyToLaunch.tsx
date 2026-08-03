@@ -16,6 +16,7 @@
  * neither.
  */
 import Layout from "@/components/Layout";
+import MicButton from "@/components/MicButton";
 import { EconomicsView } from "@/pages/ProjectHistory";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "wouter";
@@ -50,7 +51,7 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
   const [mode, setMode] = useState<"launch" | "organize">("launch");
   const GREETINGS: Record<string, string> = {
     launch: "I can see exactly where your launch stands. Want to start with what's blocking, or shall I walk the whole journey with you?",
-    organize: "Ask me about organizing — governance, conflict, membership, legal shells, internal economics. Your village's own calls outrank the books when they speak to it.",
+    organize: "Ask me about organizing: governance, conflict, membership, legal shells, internal economics. Your village's own calls outrank the books when they speak to it.",
   };
   const [threads, setThreads] = useState<Record<string, Array<{ role: "user" | "assistant"; content: string; consulted?: any }>>>({
     launch: [{ role: "assistant", content: GREETINGS.launch }],
@@ -79,7 +80,7 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
         if (!r.ok) throw new Error(d.error || "failed");
         setMsgs((m) => [...m, { role: "assistant", content: d.reply, consulted: d.consulted }]);
       })
-      .catch(() => setMsgs((m) => [...m, { role: "assistant", content: "Something hiccuped — ask me that again?" }]))
+      .catch(() => setMsgs((m) => [...m, { role: "assistant", content: "Something hiccuped. Ask me that again?" }]))
       .finally(() => setBusy(false));
   };
 
@@ -112,7 +113,7 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {gone ? (
           <p className="text-xs text-stone-500">
-            The guide needs an Anthropic key — set one in{" "}
+            The guide needs an Anthropic key. Set one in{" "}
             <Link href="/admin?tab=integrations" className="text-[#2D5A5A] underline">Integrations</Link>.
             The checklist above works fine without her.
           </p>
@@ -135,6 +136,7 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
       </div>
       {!gone && (
         <div className="p-3 border-t border-stone-100 flex gap-2">
+          <MicButton onText={(t) => setDraft((v) => (v ? v.replace(/\s*$/, " ") : "") + t)} disabled={busy} className="!rounded-lg" />
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -153,8 +155,8 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
 }
 
 const GROUP_META: Record<string, { title: string; blurb: string }> = {
-  identity: { title: "Who runs this village", blurb: "Named admins, attributable acts — the platform's oldest requirement." },
-  brand: { title: "Make it yours", blurb: "The name, the words, the images — a fork stops being a template here." },
+  identity: { title: "Who runs this village", blurb: "Named admins, attributable acts: the platform's oldest requirement." },
+  brand: { title: "Make it yours", blurb: "The name, the words, the images. A fork stops being a template here." },
   integrations: { title: "Connections", blurb: "Third-party keys, each honest about what stops without it." },
   modules: { title: "What your village runs", blurb: "Everything ships off; opening each part is a decision." },
   reach: { title: "Being reachable", blurb: "Domain, deliverability, and the drills only a human can do." },
@@ -272,7 +274,7 @@ export default function JourneyToLaunch() {
           </h1>
           <p className="text-white/70 text-sm max-w-2xl mb-6">
             {launched
-              ? `Marked launched ${new Date(status.launchedAt).toLocaleDateString()} — this checklist stays as the record of what that took.`
+              ? `Marked launched ${new Date(status.launchedAt).toLocaleDateString()}. This checklist stays as the record of what that took.`
               : "Live status, not a to-do list someone forgot to update: every item below is either observed by the server right now, or confirmed by a named admin."}
           </p>
 
@@ -326,7 +328,7 @@ export default function JourneyToLaunch() {
             <EconomicsView headers={(extra) => ({ ...headers(), ...(extra ?? {}) })} />
           ) : failed ? (
             <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">
-              Could not load launch status — sign in again, or check the server.
+              Could not load launch status. Sign in again, or check the server.
             </p>
           ) : !status ? (
             <p className="text-sm text-muted-foreground py-12 text-center">Reading the village's pulse…</p>
@@ -404,7 +406,7 @@ export default function JourneyToLaunch() {
                       </p>
                       <p className="text-xs text-stone-500 mt-1 max-w-md">
                         {status.readyToLaunch
-                          ? "Every blocking item reads done. This is a founder's act, recorded and one-way — the admin banner retires with it."
+                          ? "Every blocking item reads done. This is a founder's act, recorded and one-way. The admin banner retires with it."
                           : `${status.blockingOpen} blocking item(s) still open. The button unlocks when they read done.`}
                       </p>
                     </div>

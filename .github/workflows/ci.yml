@@ -53,6 +53,13 @@ jobs:
         # would travel with it.
         run: node scripts/check-brand-refs.mjs
 
+      - name: Voice guard
+        # Shipped language follows the house writing rules (the Rye Voice
+        # Profile). It reads only JSX text and string literals, parsed with
+        # the TypeScript compiler, so comments and classNames cannot trip it.
+        # A genuine false positive takes an inline `voice-ok: <reason>`.
+        run: node scripts/check-voice.mjs
+
       - name: Build
         run: pnpm build
 
@@ -68,21 +75,59 @@ jobs:
         #
         # When this fails, the fix is usually code-splitting the admin bundle
         # (React.lazy on the /admin route), not raising the number.
+        #
+        # Three numbers, because one was not enough. The main-JS budget was the
+        # only thing measured, so 178 KB of CSS and 1.7 MB of images grew
+        # entirely unwatched — and images are exactly what this platform is
+        # about to add a lot more of. A gate that cannot see the thing you are
+        # adding is not a gate.
+        #
+        # MAX_MAIN_JS_KB was 1400 and the bundle sat at 1382. Route splitting
+        # (React.lazy on everything but Home and Login, see client/src/App.tsx)
+        # took it to ~494, so the ratchet drops to 700: comfortable room for
+        # genuine growth in the shared shell, no room for a page to slip back
+        # into the main chunk by being imported eagerly somewhere.
         env:
-          MAX_MAIN_JS_KB: 1400
+          MAX_MAIN_JS_KB: 700
+          MAX_TOTAL_DIST_KB: 6000
+          MAX_SINGLE_IMAGE_KB: 400
         run: |
           echo "## Bundle sizes" >> "$GITHUB_STEP_SUMMARY"
           ls -la dist/public/assets/ | awk '{print $5, $9}' | while read size name; do
             [ -n "$name" ] && echo "- $name: $((size/1024)) KB" >> "$GITHUB_STEP_SUMMARY"
           done
+          fail=0
+
           main=$(ls -l dist/public/assets/index-*.js | awk '{print $5}' | sort -nr | head -1)
           main_kb=$((main/1024))
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Main JS: ${main_kb} KB (budget ${MAX_MAIN_JS_KB} KB)" >> "$GITHUB_STEP_SUMMARY"
           if [ "$main_kb" -gt "$MAX_MAIN_JS_KB" ]; then
             echo "::error::Main JS bundle is ${main_kb} KB, over the ${MAX_MAIN_JS_KB} KB budget. Split a route rather than raising the budget."
-            exit 1
+            fail=1
           fi
+
+          total_kb=$(du -sk dist/public | awk '{print $1}')
+          echo "Total dist/public: ${total_kb} KB (budget ${MAX_TOTAL_DIST_KB} KB)" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$total_kb" -gt "$MAX_TOTAL_DIST_KB" ]; then
+            echo "::error::dist/public is ${total_kb} KB, over the ${MAX_TOTAL_DIST_KB} KB budget. Something large landed in client/public — check whether it belongs in the uploads volume instead."
+            fail=1
+          fi
+
+          # Any single oversized image. client/public/assets is served
+          # one-year-immutable and Vite does not content-hash passthrough
+          # files, so a fat PNG there is both slow AND unreplaceable for a
+          # year. Foundation art belongs in the uploads volume, which is
+          # hashed, cached correctly, and swappable.
+          while IFS= read -r f; do
+            kb=$(( $(stat -c%s "$f") / 1024 ))
+            if [ "$kb" -gt "$MAX_SINGLE_IMAGE_KB" ]; then
+              echo "::error::${f} is ${kb} KB, over the ${MAX_SINGLE_IMAGE_KB} KB per-image budget. Compress it, or serve it from the uploads volume rather than static assets."
+              fail=1
+            fi
+          done < <(find dist/public -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' -o -iname '*.gif' -o -iname '*.avif' \))
+
+          exit $fail
 
       - name: Dependency audit
         # BLOCKING as of the commerce work. It was advisory with a note saying

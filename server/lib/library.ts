@@ -27,9 +27,10 @@
  *     passes allowNegative. Insufficient credits is a refusal, not a debt.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { balanceOf, memberAccount, postTransfer, registerToken, tokenDef } from "./ledger";
+import { balanceOf, ledgerEntryExists, memberAccount, MINT_FAUCET, postTransfer, registerToken, tokenDef, TREASURY } from "./ledger";
 import { numberVar } from "./variables";
 import { cycleIdFor, currentCycle } from "./gratitude-cycles";
+import { recordEvent } from "./events";
 
 export const LIBRARY_CREDIT = "library-credit";
 export const LIBRARY_MINT = "sys:library-mint";
@@ -65,6 +66,12 @@ export interface LibraryItem {
   requiresRole: string | null;
   donorUserId: string | null;
   intakeSignedBy: string | null;
+  /**
+   * A standing example. The read is `SELECT *`, so the row always carried it
+   * and this mapper always dropped it — which left the admin shelf table
+   * mixing seeded items with the village's own donations under no marker.
+   */
+  isExample: boolean;
 }
 
 export interface LibraryLoan {
@@ -89,6 +96,7 @@ function rowToItem(r: RowDataPacket): LibraryItem {
     status: r.status, healthBp: Number(r.health_bp ?? 10000), creditValue: Number(r.credit_value ?? 0),
     minStage: r.min_stage ?? null, requiresRole: r.requires_role ?? null,
     donorUserId: r.donor_user_id ?? null, intakeSignedBy: r.intake_signed_by ?? null,
+    isExample: Number(r.is_example ?? 0) === 1,
   };
 }
 
@@ -213,7 +221,7 @@ export async function approveIntake(pool: Pool, itemId: string, approverId: stri
   if (!item) return { ok: false, error: "No such item" };
   if (item.status !== "intake_pending") return { ok: false, error: `This item is ${item.status}, not awaiting sign-off` };
   if (item.intakeSignedBy && item.intakeSignedBy === approverId) {
-    return { ok: false, error: "Dual sign-off means a SECOND steward — you recorded this intake" };
+    return { ok: false, error: "Dual sign-off means a SECOND steward. You recorded this intake" };
   }
   const pct = Math.max(0, Math.min(100, numberVar("library.intake_award_pct")));
   const award = Math.floor((item.creditValue * pct) / 100);
@@ -291,7 +299,7 @@ export async function reserveItem(
     );
     if (!claim.affectedRows) {
       await conn.rollback();
-      return { ok: false, status: 409, error: `Someone just borrowed "${item.name}" — it is no longer on the shelf` };
+      return { ok: false, status: 409, error: `Someone just borrowed "${item.name}". It is no longer on the shelf` };
     }
     await conn.query(
       "INSERT INTO library_loans (id, item_id, user_id, status, escrow_credits) VALUES (?,?,?,?,?)",
@@ -306,23 +314,36 @@ export async function reserveItem(
   }
 
   if (escrow > 0) {
-    const r = await postTransfer(pool, {
-      from: memberAccount(input.userId),
-      to: LIBRARY_ESCROW,
-      tokenType: LIBRARY_CREDIT,
-      amount: escrow,
-      source: "library_escrow",
-      sourceRef: loanId,
-      description: `Escrow: ${item.name}`,
-      idempotencyKey: `loan:${loanId}:escrow`,
-    });
+    let r;
+    try {
+      r = await postTransfer(pool, {
+        from: memberAccount(input.userId),
+        to: LIBRARY_ESCROW,
+        tokenType: LIBRARY_CREDIT,
+        amount: escrow,
+        source: "library_escrow",
+        sourceRef: loanId,
+        description: `Escrow: ${item.name}`,
+        idempotencyKey: `loan:${loanId}:escrow`,
+      });
+    } catch (e) {
+      // A THROWN escrow post (deadlock, lock timeout, dropped connection) is
+      // the same failure as a refused one for this loan's purposes: no
+      // deposit landed, so the same compensation must run — otherwise the
+      // loan row survives expecting credits escrow never received, and boot
+      // reconciliation refuses to serve. Compensate, then rethrow the
+      // original error (the compensation must not swallow it).
+      await pool.query("DELETE FROM library_loans WHERE id = ?", [loanId]);
+      await pool.query("UPDATE library_items SET status = 'available' WHERE id = ?", [item.id]);
+      throw e;
+    }
     if (!r.ok) {
       // They cannot afford it, so hand the item straight back to the shelf.
       // Compensating, not a rollback: the ledger post owns its own
       // transaction and cannot join the one above.
       await pool.query("DELETE FROM library_loans WHERE id = ?", [loanId]);
       await pool.query("UPDATE library_items SET status = 'available' WHERE id = ?", [item.id]);
-      return { ok: false, status: 409, error: `You need ${escrow} library credit(s) in escrow to borrow this — earn them by contributing items or work` };
+      return { ok: false, status: 409, error: `You need ${escrow} library credit(s) in escrow to borrow this. Earn them by contributing items or work` };
     }
   }
   await itemEvent(pool, item.id, "reserved", `loan ${loanId}, escrow ${escrow}`, input.userId);
@@ -411,8 +432,17 @@ export async function settleLoan(
     return { outcome: l.status as SettleOutcome, wearFee: l.wearFee ?? 0, damageFee: l.damageFee ?? 0 };
   })();
 
-  const fee = Math.min(loan.escrowCredits, settled.wearFee + settled.damageFee);
-  const release = loan.escrowCredits - fee;
+  // The ceiling for what can leave escrow is what provably ARRIVED, not what
+  // the loan row expected: a crash between the loan row and its escrow leg
+  // leaves escrow_credits = N with nothing deposited, and releasing against
+  // that expectation would drive sys:library-escrow negative (refused) or,
+  // worse, pay this member from someone else's deposit. Exact idempotency
+  // key on purpose — a looser LIKE would normalise away a genuinely drained
+  // escrow, the one thing the reconciliation invariant exists to catch.
+  const deposited = loan.escrowCredits > 0 && (await ledgerEntryExists(pool, `loan:${input.loanId}:escrow`));
+  const escrowHeld = deposited ? loan.escrowCredits : 0;
+  const fee = Math.min(escrowHeld, settled.wearFee + settled.damageFee);
+  const release = escrowHeld - fee;
   if (fee > 0) {
     const r = await postTransfer(pool, {
       from: LIBRARY_ESCROW, to: LIBRARY_POOL, tokenType: LIBRARY_CREDIT, amount: fee,
@@ -536,10 +566,45 @@ export async function escrowReconciliation(pool: Pool): Promise<{ ok: boolean; e
 }
 
 export async function assertLibraryInvariants(pool: Pool): Promise<void> {
+  // Repair PROVABLE orphans before asserting: a crash between the loan row
+  // and its escrow leg leaves a live loan whose deposit never landed, which
+  // would wedge boot forever (reconciliation expects credits escrow never
+  // received) with nothing an admin can click. Only a provably absent leg
+  // qualifies — exact idempotency key, never a pattern — so a genuinely
+  // drained escrow (leg present, balance short) still refuses to serve.
+  const [candidates] = await pool.query<RowDataPacket[]>(
+    `SELECT id, item_id, user_id, escrow_credits FROM library_loans WHERE settled_at IS NULL AND escrow_credits > 0 AND status IN (${LIVE_LOAN_STATUSES.map(() => "?").join(",")})`,
+    [...LIVE_LOAN_STATUSES],
+  );
+  for (const o of candidates) {
+    if (await ledgerEntryExists(pool, `loan:${o.id}:escrow`)) continue;
+    // Zero the expectation in the same statement that settles, so the
+    // single-terminal invariant stays honest: this loan's stored story is
+    // "cancelled, nothing ever escrowed" — never a release of phantom credits.
+    const [claim]: any = await pool.query(
+      "UPDATE library_loans SET status = 'cancelled', escrow_credits = 0, wear_fee = 0, damage_fee = 0, settled_at = NOW() WHERE id = ? AND settled_at IS NULL",
+      [o.id],
+    );
+    if (!claim.affectedRows) continue;
+    await pool.query("UPDATE library_items SET status = 'available' WHERE id = ? AND status = 'checked_out'", [o.item_id]);
+    // Loud on purpose: this cancels a member's reservation and reshelves the
+    // item. A silent repair would be a lost reservation nobody can explain.
+    console.error(
+      `[library] repaired orphan loan ${o.id}: escrow leg loan:${o.id}:escrow never posted; ` +
+        `cancelled the reservation (member ${o.user_id}, expected ${o.escrow_credits} credit(s)) and reshelved item ${o.item_id}`,
+    );
+    await recordEvent(pool, {
+      kind: "library_repair",
+      text: "A reservation was cancelled at boot: its escrow deposit never landed, so the item went back on the shelf",
+      entityType: "library_loan",
+      entityRef: String(o.id),
+      audience: "admin",
+    });
+  }
   const rec = await escrowReconciliation(pool);
   if (!rec.ok) {
     throw new Error(
-      `library escrow reconciliation failed: account holds ${rec.actual} but open loans expect ${rec.expected} — refusing to serve`,
+      `library escrow reconciliation failed: account holds ${rec.actual} but open loans expect ${rec.expected}, refusing to serve`,
     );
   }
 }
@@ -558,13 +623,27 @@ export async function noShowStrikes(pool: Pool, userId: string): Promise<number>
  * issued and not reclaimed) against the replacement value still on the
  * shelves. Credits above backing = the intake door leaked.
  */
-export async function supplyVsBacking(pool: Pool): Promise<{ outstanding: number; backing: number; flagged: boolean }> {
-  const outstanding = -(await balanceOf(pool, LIBRARY_MINT, LIBRARY_CREDIT));
+export async function supplyVsBacking(pool: Pool): Promise<{ outstanding: number; backing: number; flagged: boolean; shelfBacked: number; sold: number }> {
+  // Two provenances of circulating credit: what the intake door minted
+  // (sys:library-mint) AND what the exchange sold for money once the L9 card
+  // was accepted (sys:mint → sys:treasury → buyers). The old read saw only
+  // the first, so sold credits never counted against the shelves and the
+  // red flag stayed grey however many were sold. Treasury stock still
+  // sitting unsold is subtracted — inventory is not circulation.
+  const shelfBacked = -(await balanceOf(pool, LIBRARY_MINT, LIBRARY_CREDIT));
+  const sold = Math.max(
+    0,
+    -(await balanceOf(pool, MINT_FAUCET, LIBRARY_CREDIT)) - (await balanceOf(pool, TREASURY, LIBRARY_CREDIT)),
+  );
+  const outstanding = shelfBacked + sold;
   const [[row]] = await pool.query<any[]>(
-    "SELECT COALESCE(SUM(credit_value),0) AS s FROM library_items WHERE status <> 'written_off'",
+    // Example items are not on any shelf, so counting their appraisals as
+    // backing would hold the over-issuance flag grey while real circulating
+    // credits outran the real goods.
+    "SELECT COALESCE(SUM(credit_value),0) AS s FROM library_items WHERE status <> 'written_off' AND is_example = 0",
   );
   const backing = Number(row.s);
-  return { outstanding, backing, flagged: outstanding > backing };
+  return { outstanding, backing, flagged: outstanding > backing, shelfBacked, sold };
 }
 
 /** Open economic state (invariant #13): every unsettled loan blocks off. */

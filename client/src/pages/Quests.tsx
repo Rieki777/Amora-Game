@@ -27,9 +27,10 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { fetchGameMe, QuestClaim } from "@/lib/gameApi";
+import { fetchGameMe, QuestClaim, useGameConfig } from "@/lib/gameApi";
 import QuestActions from "@/components/QuestActions";
 import { rewardCeiling } from "@shared/questRewards";
+import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 type QuestStatus = "Open" | "In Progress" | "Seasonal";
 type Difficulty = "Beginner" | "Intermediate" | "Advanced";
@@ -101,6 +102,14 @@ const circles: QuestCircle[] = [
 ];
 
 export default function Quests() {
+  // The value token's live name (Admin → Tokens) — a fork's rename reaches
+  // the explainer below without a code change.
+  const cfg = useGameConfig();
+  const valueName = cfg?.currency?.value?.name ?? "village tokens";
+  // Same rule for the village's own name and its events page: this page is
+  // platform code, so it asks the config rather than naming anybody.
+  const villageName = cfg?.project?.name ?? "the village";
+  const eventsUrl = cfg?.project?.eventsUrl ?? "";
   const [activeCircle, setActiveCircle] = useState<QuestCircle>("All");
   const [activeDifficulty, setActiveDifficulty] = useState<Difficulty | "All">(
     "All"
@@ -108,12 +117,18 @@ export default function Quests() {
   const { user } = useAuth();
   const [claims, setClaims] = useState<Record<string, QuestClaim>>({});
   const [quests, setQuests] = useState<Quest[]>([]);
+  const [boardFailed, setBoardFailed] = useState(false);
 
   useEffect(() => {
     fetch("/api/quests")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`quests ${r.status}`);
+        return r.json();
+      })
       .then((d) => { if (Array.isArray(d)) setQuests(d); })
-      .catch(() => { /* the empty state renders; the board is not load-bearing */ });
+      // A swallowed failure used to render as "no quests match those
+      // filters" — an outage presented as a fact about the village.
+      .catch(() => setBoardFailed(true));
   }, []);
 
   const refreshClaims = () => {
@@ -163,6 +178,7 @@ export default function Quests() {
               relationships, regenerates the land, and grows the community's
               collective score.
             </p>
+            <ExamplesBanner moduleId="quests" noun="quest" />
             <p className="text-sm text-muted-foreground mb-8">
               {quests.length} active quests &nbsp;·&nbsp; up to{" "}
               {quests
@@ -181,8 +197,8 @@ export default function Quests() {
                   Don't see your gift here?
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  Anyone with an idea to add value can propose their own unique quest —
-                  tell us what you want to bring and what you'd need to make it real.
+                  Anyone with an idea to add value can propose their own unique quest.
+                  Tell us what you want to bring and what you'd need to make it real.
                 </p>
               </div>
               <Link href="/propose-quest">
@@ -197,7 +213,10 @@ export default function Quests() {
       </section>
 
       {/* Filters */}
-      <section className="sticky top-[64px] z-30 bg-background/95 backdrop-blur border-b border-border py-4 shadow-sm">
+      {/* The nav is 96px tall (a 64px logo inside container py-4), not 64 —
+          so the filter bar used to park 32px BEHIND an opaque, higher-z
+          header, hiding two thirds of the first filter row. top-24 = 6rem. */}
+      <section className="sticky top-24 z-30 bg-background/95 backdrop-blur border-b border-border py-4 shadow-sm">
         <div className="container">
           <div className="flex flex-wrap gap-2 items-center mb-3">
             <Filter className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -332,7 +351,13 @@ export default function Quests() {
           {filtered.length === 0 && (
             <div className="text-center py-16 text-muted-foreground">
               <Compass className="w-12 h-12 mx-auto mb-4 opacity-30" />
-              <p>No quests match those filters. Try a different combination.</p>
+              <p>
+                {boardFailed
+                  ? "The quest board couldn't be loaded just now. Reload to try again."
+                  : quests.length === 0
+                    ? "There are no quests on the board yet."
+                    : "No quests match those filters. Try a different combination."}
+              </p>
             </div>
           )}
 
@@ -348,15 +373,19 @@ export default function Quests() {
               first quest.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-semibold hover:opacity-90 transition-opacity flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Join a Community Call
-              </a>
+              {/* A fork with no events page shows no button rather than a dead
+                  link, the same rule the footer follows. */}
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-semibold hover:opacity-90 transition-opacity flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Join a Community Call
+                </a>
+              )}
               <Link href="/love-letter">
                 <a className="px-6 py-3 bg-muted text-foreground rounded-lg font-semibold hover:bg-muted/80 transition-colors flex items-center gap-2">
                   <Heart className="w-5 h-5" />
@@ -376,10 +405,10 @@ export default function Quests() {
               What Is Gratitude?
             </h2>
             <p className="text-muted-foreground text-center mb-10">
-              Gratitude is how Amora acknowledges contributions — a living record of the
-              value you bring, not a fixed dollar amount. Each cycle the community shares a
-              real pool of value across everyone's Gratitude, so what it's worth grows with
-              the village.
+              Gratitude is how {villageName} acknowledges contributions, a recognition signal with
+              no financial value of its own. The value rides beside it: each cycle the
+              community sets aside a real pool of {valueName} and shares it across
+              everyone's Gratitude, so appreciation decides where the value flows.
             </p>
             <div className="grid sm:grid-cols-3 gap-6">
               {[
@@ -395,7 +424,7 @@ export default function Quests() {
                 },
                 {
                   title: "Share",
-                  body: "Each cycle, the community sets aside a real pool of value and everyone's Gratitude shares in it — and as Amora grows, Gratitude can convert to cash, equity, or community currency. This is how we honor contributions made before we could pay in cash.",
+                  body: `Each cycle, everyone's Gratitude shares in a real pool of ${valueName}. As ${villageName} grows, ${valueName} can convert to cash, equity, or community currency. This is how we honor contributions made before we could pay in cash.`,
                   icon: Sprout,
                 },
               ].map((item) => (

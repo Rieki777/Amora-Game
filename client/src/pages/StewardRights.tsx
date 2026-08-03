@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
+import { useGameConfig } from "@/lib/gameApi";
 import {
   Users,
   Heart,
@@ -15,7 +16,9 @@ import {
   Crown,
 } from "lucide-react";
 
-const RIGHTS = [
+// A function of the live value-token name (Admin → Tokens): a fork's rename
+// reaches the Gratitude card without a code change.
+const RIGHTS = (valueName: string) => [
   {
     icon: Users,
     title: "Voice in Governance",
@@ -26,7 +29,7 @@ const RIGHTS = [
     icon: Heart,
     title: "Earn Gratitude for Your Contribution",
     description:
-      "Every role you hold, every quest you complete, and every meaningful act of stewardship earns you Gratitude, a direct record of the value you bring rather than a fixed dollar amount. Each cycle the community shares a real pool of value across everyone's Gratitude. As Amora grows, Gratitude converts to cash, equity, or community currency. Your effort builds real wealth.",
+      `Every role you hold, every quest you complete, and every meaningful act of stewardship earns you Gratitude: the recognition signal, with no financial value of its own. Each cycle the community shares a real pool of ${valueName} across everyone's Gratitude, so appreciation decides where value flows. As Amora grows, ${valueName} convert to cash, equity, or community currency. Your effort builds real wealth.`,
   },
   {
     icon: Star,
@@ -77,7 +80,7 @@ const RESPONSIBILITIES = [
     icon: Heart,
     title: "Practice the Community Ways",
     description:
-      "Amora runs on Nonviolent Communication, authentic relating, and consent-based decision-making. As a steward, you commit to practicing these tools, not just knowing them. When conflict arises, you bring it to the appropriate process rather than letting it fester.",
+      "Amora runs on Nonviolent Communication, authentic relating, and consent-based decision-making. As a steward, you commit to practicing these tools, not just knowing them. When conflict arises, you bring it to the appropriate process before it festers.",
   },
   {
     icon: Sparkles,
@@ -89,7 +92,7 @@ const RESPONSIBILITIES = [
     icon: Star,
     title: "Lift Others as You Rise",
     description:
-      "Your path from Visitor to Co-Creator to Guide to Sage is not a solo climb, it's a relay. As you advance, you carry responsibility for welcoming newcomers, mentoring Initiates, and making it easier for the next person to find their place here.",
+      "Your path from Visitor to Co-Creator to Guide to Sage is a relay. As you advance, you carry responsibility for welcoming newcomers, mentoring Initiates, and making it easier for the next person to find their place here.",
   },
 ];
 
@@ -115,6 +118,7 @@ const PROGRESSION = [
 ];
 
 export default function StewardRights() {
+  const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
   return (
     <Layout>
       {/* Hero */}
@@ -150,7 +154,7 @@ export default function StewardRights() {
             transition={{ delay: 0.2 }}
             className="text-cream/80 text-lg leading-relaxed"
           >
-            This is not a legal document. It's a covenant between co-owners. Every Village
+            This is a covenant between co-owners, not a legal document. Every Village
             Steward holds both, the rights that come from real ownership of this place, and the
             responsibilities that make those rights worth something.
           </motion.p>
@@ -196,7 +200,7 @@ export default function StewardRights() {
             </p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
-            {RIGHTS.map((right, i) => {
+            {RIGHTS(valueName).map((right, i) => {
               const Icon = right.icon;
               return (
                 <motion.div

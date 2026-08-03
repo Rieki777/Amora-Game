@@ -1,7 +1,7 @@
 ﻿/**
  * The Forum (S24-S26): threads by category, @mentions on handles, thread
  * follows, community reporting, and the decision primitive. Bodies render as
- * TEXT (React escapes) â€” there is no HTML pipeline to sanitize.
+ * TEXT (React escapes) — there is no HTML pipeline to sanitize.
  */
 import Layout from "@/components/Layout";
 import BylineChips from "@/components/badges/BylineChips";
@@ -11,7 +11,10 @@ import { Link, useRoute } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
-import { Flag, Gavel, Lock, MessageCircle, Pin, Plus, Bell } from "lucide-react";
+import { Calendar, ExternalLink, Flag, Gavel, Lock, MapPin, MessageCircle, Pin, Plus, Bell } from "lucide-react";
+import { Image } from "@/components/Image";
+import { ExampleChip, ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
+import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -71,6 +74,10 @@ function ThreadList() {
         if (!r.ok) throw new Error(d.error || "Could not post");
         setComposing(false);
         setDraft({ title: "", body: "", category: "", kind: "discussion" });
+        // The server has just retired this module's examples; drop the label
+        // now rather than leaving it over the member's own new thread. The
+        // feed goes with it (RETIRE_TOGETHER), which the helper knows.
+        forgetExamplesCache("forum");
         load();
       })
       .catch((e) => setError(e.message))
@@ -83,6 +90,7 @@ function ThreadList() {
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Village Forum</h1>
           <p className="text-muted-foreground">Conversations, questions, and the decisions we make together.</p>
+          <ExamplesBanner moduleId="forum" noun="thread" />
         </div>
       </section>
       <section className="py-8 bg-background">
@@ -111,7 +119,7 @@ function ThreadList() {
               <div className="flex gap-2">
                 <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}
                   className="text-sm border border-border rounded-lg px-2 py-2 bg-white">
-                  <option value="">Categoryâ€¦</option>
+                  <option value="">Category…</option>
                   {categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
                 <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
@@ -143,6 +151,12 @@ function ThreadList() {
                   {t.pinned && <Pin className="w-3.5 h-3.5 text-amber-600" />}
                   {t.locked && <Lock className="w-3.5 h-3.5 text-gray-400" />}
                   <span className="font-semibold text-foreground text-sm">{t.title}</span>
+                  {/* Per row, not only in the hero banner: the forum and the
+                      feed share this table and this category, the "All" tab
+                      sends no category at all, and the two retire together but
+                      the banner above names one module. A row that says it is
+                      an example is the only marker that cannot go stale. */}
+                  {t.isExample && <ExampleChip />}
                   {KIND_BADGE[t.kind] && (
                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${KIND_BADGE[t.kind]}`}>{t.kind}</span>
                   )}
@@ -151,11 +165,17 @@ function ThreadList() {
                   <span>{t.author.name}</span>
                   <span className="inline-flex items-center gap-1"><MessageCircle className="w-3 h-3" />{t.replyCount}</span>
                   <span>{new Date(t.lastActivityAt).toLocaleDateString()}</span>
+                  {t.eventStartsAt && (
+                    <span className="inline-flex items-center gap-1 text-teal-deep font-medium">
+                      <Calendar className="w-3 h-3" />
+                      {new Date(t.eventStartsAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                    </span>
+                  )}
                 </div>
               </Link>
             ))}
             {threads.length === 0 && (
-              <p className="text-center text-sm text-muted-foreground py-12">No threads yet â€” start the first one.</p>
+              <p className="text-center text-sm text-muted-foreground py-12">No threads yet. Start the first one.</p>
             )}
           </div>
         </div>
@@ -192,14 +212,21 @@ function ThreadView({ id }: { id: string }) {
   // In-flight guard: without it an impatient double-tap posts the reply
   // twice, or races the decision primitive's record-once gate into a
   // confusing 409. One action at a time per thread view.
-  const act = (path: string, body: any) => {
+  // A refusal renders beside the control that was pressed. The shared status
+  // slot at the foot of the page is teal and also says "Done.", so a refusal
+  // landing there read as a confirmation several screens from the button.
+  const [refusal, setRefusal] = useState<{ where: string; message: string } | null>(null);
+
+  const act = (path: string, body: any, where = "actions") => {
     if (busy) return;
     setBusy(true);
     setStatus("");
+    setRefusal(null);
     fetch(path, { method: "POST", headers: headers(), body: JSON.stringify(body) })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Failed");
+        const { ok, data: d, refusal: refused } = await readRefusal(r);
+        if (refused) { setRefusal({ where, message: refused }); return; }
+        if (!ok) throw new Error(d?.error || "Failed");
         setStatus("Done.");
         setReply("");
         setOutcome("");
@@ -232,20 +259,43 @@ function ThreadView({ id }: { id: string }) {
       <Layout>
         <div className="container max-w-2xl py-24 text-center text-muted-foreground">
           This thread was hidden by moderation.
-          <div className="mt-4"><Link href="/forum" className="text-teal-deep font-medium">â† Back to the forum</Link></div>
+          <div className="mt-4"><Link href="/forum" className="text-teal-deep font-medium">← Back to the forum</Link></div>
         </div>
       </Layout>
     );
   }
-  if (!thread) return <Layout><div className="container py-24 text-center text-muted-foreground">Loadingâ€¦</div></Layout>;
+  if (!thread) return <Layout><div className="container py-24 text-center text-muted-foreground">Loading…</div></Layout>;
 
   const decided = thread.kind === "decision" && thread.meta?.status === "decided";
+  // A thread opened by link or from the feed carried no label at all: the
+  // only marker was on the list behind it, so the member learned this was an
+  // example by pressing Reply and reading a refusal. The flag is read from
+  // the ROW, because the module-level banner would otherwise sit over a real
+  // thread whenever the module still has examples elsewhere — and `row` below
+  // stops the module answer vetoing the row's own truth.
+  const isExample = thread.isExample === true;
+  // By SEEDED ID, never by kind. ex-feed-3 is seeded as an announcement, so a
+  // kind === "post" test files a feed example under the forum: the wrong
+  // trigger sentence, and no label at all once the forum alone has cleared.
+  const isFeedRow = String(thread.id).startsWith("ex-feed-");
+  const exampleModule = isFeedRow ? "feed" : "forum";
+  const exampleNoun = isFeedRow ? "post" : "thread";
+  // An event carries structure the body cannot: when, where, and how to say
+  // you are coming. Render it the way decisions get their outcome card.
+  const eventMeta = thread.kind === "event" && thread.meta?.startsAt ? thread.meta : null;
+  const fmtWhen = (startsAt: string, endsAt?: string) => {
+    const s = new Date(startsAt);
+    const day = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+    const t = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    return endsAt ? `${day}, ${t(s)} to ${t(new Date(endsAt))}` : `${day}, ${t(s)}`;
+  };
 
   return (
     <Layout>
       <section className="py-10 bg-background">
         <div className="container max-w-3xl space-y-5">
-          <Link href="/forum" className="text-xs text-muted-foreground hover:text-foreground">â† All threads</Link>
+          <Link href="/forum" className="text-xs text-muted-foreground hover:text-foreground">← All threads</Link>
+          {isExample && <ExamplesBanner moduleId={exampleModule} noun={exampleNoun} row />}
           <div className="bg-card border border-border rounded-2xl p-6">
             <div className="flex items-center gap-2 mb-1">
               {thread.pinnedAt && <Pin className="w-4 h-4 text-amber-600" />}
@@ -260,7 +310,7 @@ function ThreadView({ id }: { id: string }) {
               <BylineChips userId={thread.author.id} />
               {" · "}{new Date(thread.createdAt).toLocaleString()}
             </p>
-            {thread.imageUrl && <img src={thread.imageUrl} alt="" className="rounded-xl mb-4 max-h-80 object-cover" />}
+            {thread.imageUrl && <Image src={thread.imageUrl} alt="" ratio={16 / 9} className="rounded-xl mb-4" />}
             {/* F1: edit your own words. The marker below is public and
                 permanent — see the PATCH route's rule 2. */}
             {editing === "thread" ? (
@@ -311,7 +361,35 @@ function ThreadView({ id }: { id: string }) {
                 <p className="text-sm text-purple-900 whitespace-pre-wrap">{thread.meta.outcome}</p>
               </div>
             )}
-            {user && (
+            {eventMeta && (
+              <div className="mt-4 rounded-xl border border-teal/30 bg-teal/5 p-4 space-y-2">
+                <p className="flex items-center gap-2 text-sm text-foreground">
+                  <Calendar className="w-4 h-4 text-teal-deep shrink-0" />
+                  {fmtWhen(eventMeta.startsAt, eventMeta.endsAt)}
+                </p>
+                {eventMeta.location && (
+                  <p className="flex items-center gap-2 text-sm text-foreground">
+                    <MapPin className="w-4 h-4 text-teal-deep shrink-0" />
+                    {eventMeta.location}
+                  </p>
+                )}
+                {eventMeta.ctaUrl && (
+                  <a
+                    href={eventMeta.ctaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 mt-1 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium hover:opacity-90"
+                  >
+                    {eventMeta.ctaLabel || "Respond"}
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
+            )}
+            {/* Subscribe and report are guarded server-side, so on an example
+                these controls exist only to be refused. Hiding them says the
+                same thing without making the member press one to find out. */}
+            {user && !isExample && (
               <div className="flex gap-3 mt-4 text-xs">
                 <button onClick={() => act(`/api/forum/threads/${id}/subscribe`, {})} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
                   <Bell className="w-3.5 h-3.5" /> Follow
@@ -321,6 +399,7 @@ function ThreadView({ id }: { id: string }) {
                 </button>
               </div>
             )}
+            {refusal?.where === "actions" && <ExampleRefusal message={refusal.message} className="mt-3" />}
           </div>
 
           <div className="space-y-3">
@@ -372,31 +451,33 @@ function ThreadView({ id }: { id: string }) {
             ))}
           </div>
 
-          {user && !thread.lockedAt && (
+          {user && !thread.lockedAt && !isExample && (
             <div className="bg-card border border-border rounded-xl p-4 space-y-2">
               <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3}
-                placeholder="Replyâ€¦ mention people with @handle."
+                placeholder="Reply… mention people with @handle."
                 className="w-full text-sm border border-border rounded-lg px-3 py-2" />
-              <button onClick={() => act(`/api/forum/threads/${id}/replies`, { body: reply })} disabled={busy || !reply.trim()}
+              <button onClick={() => act(`/api/forum/threads/${id}/replies`, { body: reply }, "reply")} disabled={busy || !reply.trim()}
                 className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                 Reply
               </button>
+              {refusal?.where === "reply" && <ExampleRefusal message={refusal.message} />}
             </div>
           )}
           {thread.lockedAt && !decided && (
             <p className="text-center text-xs text-muted-foreground">This thread is locked.</p>
           )}
 
-          {user && thread.kind === "decision" && !decided && (
+          {user && thread.kind === "decision" && !decided && !isExample && (
             <div className="bg-card border border-purple-200 rounded-xl p-4 space-y-2">
               <p className="text-xs font-semibold text-purple-700 flex items-center gap-1.5"><Gavel className="w-3.5 h-3.5" /> Record the outcome</p>
               <textarea value={outcome} onChange={(e) => setOutcome(e.target.value)} rows={2}
                 placeholder="What was decided, and by what process?"
                 className="w-full text-sm border border-border rounded-lg px-3 py-2" />
-              <button onClick={() => act(`/api/forum/threads/${id}/decide`, { outcome })} disabled={busy || !outcome.trim()}
+              <button onClick={() => act(`/api/forum/threads/${id}/decide`, { outcome }, "decide")} disabled={busy || !outcome.trim()}
                 className="text-sm bg-purple-700 text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                 Record decision
               </button>
+              {refusal?.where === "decide" && <ExampleRefusal message={refusal.message} />}
             </div>
           )}
 

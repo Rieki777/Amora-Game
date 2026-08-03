@@ -12,6 +12,9 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Calendar, Heart, Megaphone, MessageCircle, Sparkles, Send } from "lucide-react";
+import { Image } from "@/components/Image";
+import { ExampleChip, ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
+import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -42,6 +45,12 @@ export default function Feed() {
   const [more, setMore] = useState<string | null>(null);
   const [older, setOlder] = useState<any[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
+  // The refusal, keyed to the post: the shared error slot lives in the
+  // composer at the top of the page, so hearting the fifteenth post flashed
+  // a line off-screen. Declared with the other state, ABOVE the early return
+  // below: a hook after a conditional return changes the hook count between
+  // renders the moment the module catalogue loads.
+  const [refusedPost, setRefusedPost] = useState<{ id: string; message: string } | null>(null);
 
   const query = (before?: string) => {
     const p = new URLSearchParams();
@@ -85,16 +94,21 @@ export default function Feed() {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "Could not post");
         setDraft("");
+        // Drops the forum's label with it: the two are retired as a pair
+        // server-side (RETIRE_TOGETHER), and the helper keeps that rule.
+        forgetExamplesCache("feed");
         load();
       })
       .catch((e) => setError(e.message));
   };
 
   const heart = (item: any) => {
+    setRefusedPost(null);
     fetch(`/api/feed/threads/${item.id}/heart`, { method: "POST", headers: headers(), body: "{}" })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not send");
+        const { ok, data: d, refusal } = await readRefusal(r);
+        if (refusal) { setRefusedPost({ id: item.id, message: refusal }); return; }
+        if (!ok) throw new Error(d?.error || "Could not send");
         load();
       })
       .catch((e) => setError(e.message));
@@ -109,6 +123,7 @@ export default function Feed() {
             Everyday life, woven with the village's milestones. A heart is a real
             gift from your cycle budget.
           </p>
+          <ExamplesBanner moduleId="feed" noun="post" />
         </div>
       </section>
       <section className="py-8 bg-background">
@@ -174,6 +189,11 @@ export default function Feed() {
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
                   <span className="font-medium text-foreground">{item.author.name}</span>
                   {item.author.handle && <span>@{item.author.handle}</span>}
+                  {/* The lens is category-wide, so the forum's example threads
+                      appear here too. Once one of the pair has retired the hero
+                      banner is gone and the row's own flag is all that is left
+                      to say what the card is. */}
+                  {item.isExample && <ExampleChip />}
                   {item.kind === "announcement" && (
                     <span className="inline-flex items-center gap-1 text-[10px] bg-amber/20 text-amber-700 px-1.5 py-0.5 rounded-full">
                       <Megaphone className="w-3 h-3" /> announcement
@@ -188,7 +208,7 @@ export default function Feed() {
                 </div>
                 {item.title && <p className="font-semibold text-foreground text-sm mb-1">{item.title}</p>}
                 <p className="text-sm text-foreground whitespace-pre-wrap">{item.body}</p>
-                {item.imageUrl && <img src={item.imageUrl} alt="" className="rounded-lg mt-2 max-h-72 object-cover" />}
+                {item.imageUrl && <Image src={item.imageUrl} alt="" ratio={16 / 9} className="rounded-lg mt-2" />}
                 {/* Tap targets clear WCAG 2.5.8's 24px floor: a heart sends a
                     REAL gift from the sender's budget, so a thumb that misses
                     by 4px is not a cosmetic problem. Negative margin keeps the
@@ -198,7 +218,7 @@ export default function Feed() {
                     onClick={() => !item.heartedByMe && user && heart(item)}
                     disabled={item.heartedByMe || !user}
                     title={item.heartedByMe ? "Already sent" : `Sends ${data?.heartAmount ?? 1} recognition from your budget`}
-                    aria-label={`${item.heartCount} recognition — ${item.heartedByMe ? "already sent" : "send one"}`}
+                    aria-label={`${item.heartCount} recognition, ${item.heartedByMe ? "already sent" : "send one"}`}
                     className={`inline-flex items-center gap-1.5 text-sm min-h-[44px] px-2 -mx-2 ${item.heartedByMe ? "text-rose-500" : "text-muted-foreground hover:text-rose-500"} disabled:cursor-default`}
                   >
                     <Heart className={`w-4 h-4 ${item.heartedByMe ? "fill-rose-500" : ""}`} />
@@ -206,18 +226,21 @@ export default function Feed() {
                   </button>
                   <Link
                     href={`/forum/${item.id}`}
-                    aria-label={`${item.replyCount} replies — open the thread`}
+                    aria-label={`${item.replyCount} replies, open the thread`}
                     className="inline-flex items-center gap-1.5 text-sm min-h-[44px] px-2 text-muted-foreground hover:text-foreground"
                   >
                     <MessageCircle className="w-4 h-4" /> {item.replyCount}
                   </Link>
                 </div>
+                {refusedPost && refusedPost.id === item.id && (
+                  <ExampleRefusal message={refusedPost.message} className="mt-2" />
+                )}
               </div>
             );
           })}
           {data && data.items.length === 0 && older.length === 0 && (
             <p className="text-center text-sm text-muted-foreground py-12">
-              {kind || tag ? "Nothing matches that filter." : "Quiet so far — share the first moment."}
+              {kind || tag ? "Nothing matches that filter." : "Quiet so far. Share the first moment."}
             </p>
           )}
           {more && (

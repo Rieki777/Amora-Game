@@ -30,6 +30,26 @@ export function getPool(): mysql.Pool {
     // Fail fast when the DB is unreachable rather than queueing forever.
     connectTimeout: 10_000,
   });
+  /*
+   * The driver half of the timezone discipline was never enough on its own.
+   *
+   * `timezone: 'Z'` above only tells mysql2 how to RENDER JS Dates and parse
+   * DATETIME strings. `NOW()` and `CURRENT_TIMESTAMP` are evaluated by MySQL
+   * in the SESSION zone, which stays at the server's default — so on any
+   * deployment whose MySQL is not UTC, a bound Date and a NOW() lived in
+   * different frames. Two load-bearing comparisons mixed them: the abuse
+   * guard's window (`at > ?` against a JS Date, rows written with
+   * CURRENT_TIMESTAMP) and the scheduler's dueness check. Both fail in the
+   * unsafe direction — a rate limit that never triggers, hourly jobs firing
+   * every tick.
+   *
+   * The numeric offset, never the name 'UTC': a server without the timezone
+   * tables loaded throws on 'UTC', and a throwing init query takes the whole
+   * pool down. On a UTC MySQL (Railway) this is a no-op.
+   */
+  _pool.on("connection", (c) => {
+    c.query("SET time_zone = '+00:00'");
+  });
   return _pool;
 }
 
