@@ -658,7 +658,97 @@ obligations (durable-store-then-2xx, idempotent on
   button is impossible. The platform reads, displays and deep-links; it
   never posts, mints, moves or prices anything Hypha governs.
 
-### 3.15 The serving layer — what every byte costs
+### 3.15 The org chart — `server/lib/orgChart.ts` (0049)
+
+**"Role" means two unrelated things and they share nothing but the word.**
+Get this wrong and you will edit the capability gate while believing you are
+editing an org chart.
+
+| | `roles` + `role_holders` | `org_roles` + `org_role_assignments` |
+|---|---|---|
+| Answers | may this account press this button | what work exists, who holds it |
+| Payload | `capabilities[]` feeding the ONE gate | aim, domain, accountabilities, seats |
+| Rows a fork is born with | `founders-circle`, `steward-circle`, `treasury`, `practitioners` | the village's own seats |
+| Edited at | Admin, Game Roles | Admin, Org Chart |
+
+Nothing in `orgChart.ts` reads or writes `roles`, and no seat grants anyone a
+capability. The bridge that would let holding a seat grant a permission group
+is deliberately **not built**; when it is, it touches the gate and gets its own
+review.
+
+Three properties worth keeping:
+
+- **Vacancy is derived** (`seatState`), never a column. The content cards this
+  replaced shipped two seats marked "filled" with nobody named in them.
+  `statusOverride` exists for when a village knows better, and it carries an
+  expiry so it lapses back instead of outliving the moment somebody meant it.
+- **A holder is an account OR a documented name.** `holder_kind='documented'`
+  is how a real person occupies a real seat before they have a login, and how
+  an external advisor or a past holder stays representable. A documented holder
+  cannot be reached by the contact relay, and the map says so rather than
+  offering a button that cannot deliver.
+- **`active_holder_key`** is a STORED generated column (`holder_key` while
+  live, NULL once ended) under `UNIQUE(org_role_id, active_holder_key)`. It
+  uses MySQL's NULL exemption on purpose: one live seating per person per seat,
+  unlimited ended ones, so somebody can hold a seat, leave, and hold it again
+  years later without colliding with their own history.
+
+Not a `dbCollection`, on purpose: `replaceAll` writes only spec'd columns, and
+these are history tables.
+
+**The fractal.** `circles.grown_from_org_role_id` records which seat a circle
+grew out of. A project starts with one seat covering a whole domain; as it
+grows the seat becomes a circle and its accountabilities fan out into new seats
+beneath it. The seat row keeps its identity, so its history and past holders
+stay continuous across the transition. This is how one model covers a
+four-person project and a four-hundred-person one.
+
+### 3.16 Season shapes — `server/lib/seasonPatterns.ts` (0050)
+
+A season carries a **pattern**: which circles, seats, badges and quests are
+live while it runs. Membership only, never a copy, so one seat can be in the
+festival and the building season at once with unbroken history.
+
+**The resolution rule, and why this is safe to ship to villages that never
+asked for it:**
+
+> A row with NO pattern memberships at all is permanent and always live.
+
+"Not in this pattern" and "in no pattern" must never collapse into the same
+branch. `shared/seasonResolution.test.ts` exists to protect exactly that.
+
+**The roll writes lifecycle columns rather than adding a filter dimension.**
+`circles.status`, `quests.status` and `org_roles.active` are already respected
+by every existing query; teaching ~40 hand-written reads a second question is
+how `is_example` needed three adversarial passes and still misses sites. The
+roll is a HUMAN act with a dry run (invariant 14), and it refuses whole while
+anything is unsettled, the same settle-first rule that governs deleting a quest
+with claims in flight. Every change lands in `season_roll_log`.
+
+**Badges declare their scope at creation.** `permanent` powers never lapse;
+`seasonal` powers sleep between their seasons while the award row, the profile
+history and `badges.active` are untouched. This costs one clause in
+`badgeGrantsFor`, which is the single seam every badge-granted capability flows
+through. Two rules are enforced, not assumed: **denies never sleep**, and a
+`warning` badge may not be seasonal, because a sanction that lapses at a season
+turn is not a sanction. `badges.multiplier` scales a consent payout, is capped
+at 3 on both the badge and the stack, and may not ride a `self` or `hypha`
+badge, which are self-claimable and gate nothing by design.
+
+**A season's end date is optional.** A founding season runs until somebody
+starts the next one; the latest started-and-unended season is the current one,
+and `daysLeft` is null rather than 0, which would read as "ends today".
+
+The **retrospective** (`server/lib/seasonRetrospective.ts`) reads a season that
+has run: what the pattern declared against what was used, each observation
+carrying the edit it implies. It writes nothing, publishes no composite score
+(a village optimises whatever number it is shown), and a season too quiet to
+read says so instead of inventing signal. It reads concentration **per person**,
+never per seat, because events carry an actor and not a seat: attributing them
+to seats would make anyone holding three seats look equally overloaded in all
+three.
+
+### 3.17 The serving layer — what every byte costs
 
 Every image, script and stylesheet is served by the **same single Node process**
 that runs the ledger, the scheduler and every module route. There is no CDN and
