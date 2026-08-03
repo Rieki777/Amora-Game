@@ -20,8 +20,8 @@ export default function SeasonBanner() {
           <span className="inline-flex items-center gap-2 text-amber font-semibold text-sm tracking-widest uppercase">
             <Sunrise className="w-4 h-4" /> {next.name}
           </span>
-          {next.focus && <span className="text-white/85 text-sm">{next.focus}</span>}
-          <span className="text-white/60 text-xs">
+          {next.focus && <span className="text-white text-sm">{next.focus}</span>}
+          <span className="text-white text-xs">
             {season.daysUntilStart > 0
               ? `begins in ${season.daysUntilStart} day${season.daysUntilStart === 1 ? "" : "s"}`
               : "begins today"}
@@ -41,14 +41,14 @@ export default function SeasonBanner() {
         <span className="inline-flex items-center gap-2 text-amber font-semibold text-sm tracking-widest uppercase">
           <Sun className="w-4 h-4" /> {active.name}
         </span>
-        {active.focus && <span className="text-white/85 text-sm">{active.focus}</span>}
+        {active.focus && <span className="text-white text-sm">{active.focus}</span>}
         {goals.length > 0 && (
-          <span className="text-white/60 text-xs">
+          <span className="text-white text-xs">
             {met} of {goals.length} season goal{goals.length === 1 ? "" : "s"} met
           </span>
         )}
         {season.daysLeft > 0 && (
-          <span className="text-white/60 text-xs">
+          <span className="text-white text-xs">
             {season.daysLeft} day{season.daysLeft === 1 ? "" : "s"} until the season turns
           </span>
         )}

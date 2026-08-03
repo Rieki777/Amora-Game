@@ -272,20 +272,20 @@ export default function JourneyToLaunch() {
           <h1 className="font-display text-3xl md:text-4xl font-bold mb-2">
             {launched ? "This village is live" : "Everything between here and open doors"}
           </h1>
-          <p className="text-white/70 text-sm max-w-2xl mb-6">
+          <p className="text-white text-sm max-w-2xl mb-6">
             {launched
               ? `Marked launched ${new Date(status.launchedAt).toLocaleDateString()}. This checklist stays as the record of what that took.`
               : "Live status, not a to-do list someone forgot to update: every item below is either observed by the server right now, or confirmed by a named admin."}
           </p>
 
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-white/60 text-xs">Readiness</span>
+            <span className="text-white text-xs">Readiness</span>
             <div className="flex-1 max-w-xs bg-white/20 rounded-full h-2 min-w-24">
               <div className="bg-amber h-2 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
             </div>
             <span className="text-amber text-sm font-semibold">{pct}%</span>
             {status && !launched && (
-              <span className="text-white/50 text-xs">
+              <span className="text-white text-xs">
                 {status.blockingOpen} blocking · {status.recommendedOpen} recommended remaining
               </span>
             )}
@@ -294,26 +294,26 @@ export default function JourneyToLaunch() {
           <div className="flex flex-wrap gap-2 mt-5">
             <button
               onClick={() => setView("launch")}
-              className={`text-sm rounded-lg px-3 py-1.5 font-medium ${view === "launch" ? "bg-amber text-teal-deep" : "bg-white/10 text-white/80"}`}
+              className={`text-sm rounded-lg px-3 py-1.5 font-medium ${view === "launch" ? "bg-amber text-teal-deep" : "bg-white/10 text-white"}`}
             >
               Launch readiness
             </button>
             <button
               onClick={() => setView("economics")}
-              className={`text-sm rounded-lg px-3 py-1.5 font-medium ${view === "economics" ? "bg-amber text-teal-deep" : "bg-white/10 text-white/80"}`}
+              className={`text-sm rounded-lg px-3 py-1.5 font-medium ${view === "economics" ? "bg-amber text-teal-deep" : "bg-white/10 text-white"}`}
             >
               Village economics
             </button>
             <Link
               href="/project-history"
-              className="inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 font-medium bg-white/10 text-white/80 hover:bg-white/20"
+              className="inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 font-medium bg-white/10 text-white hover:bg-white/20"
             >
               <History className="w-3.5 h-3.5" /> Project history
             </Link>
             {!launched && (
               <button
                 onClick={() => setGuideOpen(true)}
-                className="inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 font-medium bg-white/10 text-white/80 hover:bg-white/20"
+                className="inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 font-medium bg-white/10 text-white hover:bg-white/20"
               >
                 <MessageCircle className="w-3.5 h-3.5" /> Ask the guide
               </button>

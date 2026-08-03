@@ -1667,7 +1667,7 @@ export default function ProjectHistory() {
           <h1 className="font-display text-3xl md:text-4xl font-bold mb-2">
             Project History
           </h1>
-          <p className="text-white/70 text-sm max-w-2xl mb-6">
+          <p className="text-white text-sm max-w-2xl mb-6">
             The original build tracker: the six weeks that made this site, kept
             whole. For what's left before launch, see{" "}
             <Link href="/journey-to-launch" className="text-amber underline">Journey to Launch</Link>.
@@ -1692,7 +1692,7 @@ export default function ProjectHistory() {
 
           {/* Progress Bar - weighted: delivered=50%, confirmed=100% */}
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-white/60 text-xs">Launch progress</span>
+            <span className="text-white text-xs">Launch progress</span>
             <div className="flex-1 max-w-xs bg-white/20 rounded-full h-2 min-w-24">
               <div
                 className="bg-amber h-2 rounded-full transition-all duration-500"
@@ -1700,7 +1700,7 @@ export default function ProjectHistory() {
               />
             </div>
             <span className="text-amber text-sm font-semibold">{progressPct}%</span>
-            <span className="text-white/50 text-xs">
+            <span className="text-white text-xs">
               {deliveredCount} with Amora · {confirmedCount} confirmed
             </span>
           </div>

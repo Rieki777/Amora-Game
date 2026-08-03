@@ -130,11 +130,23 @@ const recognitionItems = (valueName: string) => ({
   ],
 });
 
+/* Four cards, one pattern: a light tinted panel carrying a dark heading and
+   dark body copy. Each `color` is a tint and each `textColor` is measured
+   against that tint, because the two are only readable as a pair:
+     bg-aqua-light  #c6dde0 + text-teal-deep #157f7d = 3.40:1 (20px bold, AA large)
+     bg-sage-light  #dcebe0 + text-sage      #3d6e4a = 4.82:1
+     bg-amber-light #fdf1de + text-gold      #a06b1c = 4.08:1 (20px bold, AA large)
+     bg-green-light #dcecd6 + text-forest    #00472c = 8.78:1
+   Village Steward used to be bg-teal-light, a mid-tone that put its heading at
+   1.40:1 - it looked like the card that worked only because the other three had
+   no background at all. Amber and green headings moved off text-amber and
+   text-green-600 for the same reason: both are light accents that disappear on
+   a light panel. */
 const spaces = [
   {
     id: "village-steward",
     title: "Village Steward Space",
-    color: "bg-teal-light",
+    color: "bg-aqua-light",
     textColor: "text-teal-deep",
     icon: Users,
     description: "Coordinates overall village success, open to all path members",
@@ -151,7 +163,7 @@ const spaces = [
     id: "prosperity",
     title: "Prosperity Space",
     color: "bg-amber-light",
-    textColor: "text-amber",
+    textColor: "text-gold",
     icon: TrendingUp,
     description: "Manages business interests and Gratitude economy",
   },
@@ -159,7 +171,7 @@ const spaces = [
     id: "land",
     title: "Land Stewardship Space",
     color: "bg-green-light",
-    textColor: "text-green-600",
+    textColor: "text-forest",
     icon: TreePine,
     description: "Cares for land and ecosystem health",
   },
@@ -260,10 +272,10 @@ export default function CoCreatorsGuide() {
               <h1 className="font-display text-5xl md:text-6xl font-bold mb-6 leading-tight">
                 The Amora Game Guide
               </h1>
-              <p className="text-lg md:text-xl text-white/90 leading-relaxed max-w-2xl mx-auto">
+              <p className="text-lg md:text-xl text-white leading-relaxed max-w-2xl mx-auto">
                 Your complete guide to co-creating this village. How the economy works, how decisions get made, how to use our governance platform, and what the journey from visitor to Sage looks like.
               </p>
-              <p className="text-sm text-white/60 mt-4">
+              <p className="text-sm text-white mt-4">
                 Also called: The Co-Creators Guide
               </p>
             </motion.div>
@@ -873,7 +885,7 @@ export default function CoCreatorsGuide() {
                   className={`${space.color} rounded-xl p-8 border border-muted/20 hover:shadow-lg transition-shadow`}
                 >
                   <div className="flex items-start gap-4 mb-4">
-                    <div className="w-12 h-12 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
+                    <div className="w-12 h-12 rounded-lg bg-white/70 flex items-center justify-center flex-shrink-0">
                       <space.icon className={`w-6 h-6 ${space.textColor}`} />
                     </div>
                     <h3 className={`font-bold text-xl ${space.textColor}`}>
@@ -1153,13 +1165,13 @@ export default function CoCreatorsGuide() {
         </div>
         <div className="container relative z-10">
           <div className="max-w-2xl mx-auto text-center">
-            <p className="text-lg italic text-white/90 leading-relaxed">
+            <p className="text-lg italic text-white leading-relaxed">
               "Amora is an Infinite Game, played to keep creating
               together. We co-become the most beautiful village, where all beings belong and
               thrive. Success is measured by the flourishing of our
               community, land, and relationships."
             </p>
-            <div className="mt-8 flex items-center justify-center gap-4 text-white/70">
+            <div className="mt-8 flex items-center justify-center gap-4 text-white">
               <Heart className="w-5 h-5" />
               <span className="text-sm">Welcome to Amora</span>
               <Heart className="w-5 h-5" />

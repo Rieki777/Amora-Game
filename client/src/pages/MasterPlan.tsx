@@ -84,7 +84,7 @@ export default function MasterPlan() {
               <h1 className="font-display text-4xl md:text-6xl font-bold text-white mb-6">
                 The Amora Master Plan
               </h1>
-              <p className="text-xl text-white/80 leading-relaxed">
+              <p className="text-xl text-white leading-relaxed">
                 Our vision for a regenerative village that harmonizes human habitation 
                 with the natural beauty of Costa Rica's mountains.
               </p>
@@ -110,7 +110,7 @@ export default function MasterPlan() {
                 <div className="font-display text-3xl md:text-4xl font-bold mb-1">
                   {stat.value}
                 </div>
-                <div className="text-sm text-white/70">{stat.label}</div>
+                <div className="text-sm text-white">{stat.label}</div>
               </motion.div>
             ))}
           </div>
@@ -258,7 +258,7 @@ export default function MasterPlan() {
             <h2 className="font-display text-3xl md:text-4xl font-bold mb-4">
               Be Part of the Vision
             </h2>
-            <p className="text-white/80 mb-8">
+            <p className="text-white mb-8">
               Whether you want to invest, live, work, or create at Amora, 
               there's a place for you in our master plan.
             </p>

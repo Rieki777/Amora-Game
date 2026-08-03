@@ -61,7 +61,7 @@ export default function InvestorSummary() {
           <h2 className="font-display text-3xl md:text-4xl font-bold mb-3">
             {data.headline}
           </h2>
-          <p className="text-white/75 max-w-2xl mx-auto">{data.intro}</p>
+          <p className="text-white max-w-2xl mx-auto">{data.intro}</p>
         </div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
@@ -77,14 +77,16 @@ export default function InvestorSummary() {
                   <div className="w-10 h-10 rounded-xl bg-amber/15 text-amber flex items-center justify-center shrink-0">
                     <Icon className="w-5 h-5" />
                   </div>
-                  <span className="text-xs uppercase tracking-widest text-white/60 font-semibold">
+                  <span className="text-xs uppercase tracking-widest text-white font-semibold">
                     {d.label}
                   </span>
                 </div>
-                <div className={`text-xl font-display font-bold mb-2 ${placeholder ? "italic text-white/50" : "text-white"}`}>
+                {/* A pending value stays italic but not faded - italics carry
+                    the "to be confirmed" meaning without costing contrast. */}
+                <div className={`text-xl font-display font-bold mb-2 text-white ${placeholder ? "italic" : ""}`}>
                   {d.value}
                 </div>
-                <p className="text-sm text-white/65 leading-relaxed">{d.note}</p>
+                <p className="text-sm text-white leading-relaxed">{d.note}</p>
               </div>
             );
           })}
@@ -103,7 +105,7 @@ export default function InvestorSummary() {
         )}
 
         {data.disclaimer && (
-          <p className="text-xs text-white/45 max-w-3xl mx-auto text-center leading-relaxed">
+          <p className="text-xs text-white max-w-3xl mx-auto text-center leading-relaxed">
             {data.disclaimer}
           </p>
         )}

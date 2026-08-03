@@ -208,7 +208,7 @@ export default function Feed() {
                 </div>
                 {item.title && <p className="font-semibold text-foreground text-sm mb-1">{item.title}</p>}
                 <p className="text-sm text-foreground whitespace-pre-wrap">{item.body}</p>
-                {item.imageUrl && <Image src={item.imageUrl} alt="" ratio={16 / 9} className="rounded-lg mt-2" />}
+                {item.imageUrl && <Image src={item.imageUrl} alt={item.title || "Photo attached to this post"} ratio={16 / 9} className="rounded-lg mt-2" />}
                 {/* Tap targets clear WCAG 2.5.8's 24px floor: a heart sends a
                     REAL gift from the sender's budget, so a thumb that misses
                     by 4px is not a cosmetic problem. Negative margin keeps the

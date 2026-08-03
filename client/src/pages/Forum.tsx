@@ -310,7 +310,7 @@ function ThreadView({ id }: { id: string }) {
               <BylineChips userId={thread.author.id} />
               {" · "}{new Date(thread.createdAt).toLocaleString()}
             </p>
-            {thread.imageUrl && <Image src={thread.imageUrl} alt="" ratio={16 / 9} className="rounded-xl mb-4" />}
+            {thread.imageUrl && <Image src={thread.imageUrl} alt={thread.title} ratio={16 / 9} className="rounded-xl mb-4" />}
             {/* F1: edit your own words. The marker below is public and
                 permanent — see the PATCH route's rule 2. */}
             {editing === "thread" ? (

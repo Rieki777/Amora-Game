@@ -22,6 +22,7 @@ import {
   Scale,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { swatchFor } from "@/lib/swatch";
 
 type RoleStatus = "filled" | "open" | "forming" | "partial";
 
@@ -90,6 +91,9 @@ interface RoleCardProps {
 
 function RoleCard({ role, expanded, onToggle, index }: RoleCardProps) {
   const Icon = ICONS[role.icon ?? ""] ?? CircleDot;
+  // Admin-editable colour, resolved together with the ink that stays legible
+  // on it. See client/src/lib/swatch.ts.
+  const swatch = swatchFor(role.color);
   const badge = statusBadge[role.status];
   const holders = (role.holders ?? []).filter(Boolean);
   const why = role.whyItMatters ?? role.evolutionaryPurpose ?? "";
@@ -106,8 +110,8 @@ function RoleCard({ role, expanded, onToggle, index }: RoleCardProps) {
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3 flex-1 min-w-0">
-            <div className={`w-10 h-10 ${role.color || "bg-sage"} rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5`}>
-              <Icon className="w-5 h-5 text-white" />
+            <div className={`w-10 h-10 ${swatch.bg} rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5`}>
+              <Icon className={`w-5 h-5 ${swatch.ink}`} />
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2 mb-0.5">
