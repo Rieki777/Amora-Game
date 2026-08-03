@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import CircleScene from "@/components/CircleScene";
+import { swatchFor } from "@/lib/swatch";
 
 interface CircleEntry {
   id: string;
@@ -51,7 +52,9 @@ function CircleCard({ circle, expanded, onToggle, index }: {
   index: number;
 }) {
   const Icon = ICONS[circle.icon ?? ""] ?? CircleDot;
-  const color = circle.color || "bg-sage";
+  // The icon swatch and the focus-area pills below are both drawn on this
+  // colour, so the ink travels with it rather than being assumed to be white.
+  const swatch = swatchFor(circle.color);
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -70,8 +73,8 @@ function CircleCard({ circle, expanded, onToggle, index }: {
         <div className="p-6">
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-4 flex-1">
-            <div className={`w-12 h-12 ${color} rounded-lg flex items-center justify-center flex-shrink-0 mt-1`}>
-              <Icon className="w-6 h-6 text-white" />
+            <div className={`w-12 h-12 ${swatch.bg} rounded-lg flex items-center justify-center flex-shrink-0 mt-1`}>
+              <Icon className={`w-6 h-6 ${swatch.ink}`} />
             </div>
             <div>
               <h3 className="font-display text-xl font-bold text-foreground">
@@ -122,7 +125,7 @@ function CircleCard({ circle, expanded, onToggle, index }: {
                   <h4 className="font-semibold text-foreground mb-3">Key Focus Areas</h4>
                   <div className="flex flex-wrap gap-2">
                     {circle.focus.filter(Boolean).map((area) => (
-                      <span key={area} className={`px-3 py-1 rounded-full text-xs font-medium ${color} text-white shadow-sm`}>
+                      <span key={area} className={`px-3 py-1 rounded-full text-xs font-medium ${swatch.bg} ${swatch.ink} shadow-sm`}>
                         {area}
                       </span>
                     ))}

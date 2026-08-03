@@ -37,7 +37,7 @@ export default function GameDashboard() {
         <div className="flex items-center gap-3 min-w-0">
           <Compass className="w-6 h-6 text-amber shrink-0" />
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-widest text-white/60 font-semibold">Your next step</p>
+            <p className="text-xs uppercase tracking-widest text-white font-semibold">Your next step</p>
             <p className="font-display text-lg font-semibold truncate">{me.nextAction.label}</p>
           </div>
         </div>

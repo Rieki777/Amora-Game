@@ -99,7 +99,7 @@ export default function Layout({ children }: LayoutProps) {
               breakpoints are a matched pair and must always move together, or
               some viewport gets no navigation at all. */}
           <div className="hidden xl:flex items-center gap-3 2xl:gap-6">
-            <Link href="/" className="text-white/70 hover:text-white transition-colors text-sm">
+            <Link href="/" className="text-white hover:underline transition-colors text-sm">
               Home
             </Link>
 
@@ -126,7 +126,7 @@ export default function Layout({ children }: LayoutProps) {
                 aria-expanded={pathsOpen}
                 aria-haspopup="true"
                 aria-controls="paths-menu"
-                className="flex items-center gap-1 text-white/70 hover:text-white transition-colors text-sm"
+                className="flex items-center gap-1 text-white hover:underline transition-colors text-sm"
               >
                 Your Path
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${pathsOpen ? "rotate-180" : ""}`} />
@@ -162,17 +162,17 @@ export default function Layout({ children }: LayoutProps) {
               </AnimatePresence>
             </div>
 
-            <Link href="/circles" className="text-white/70 hover:text-white transition-colors text-sm">
+            <Link href="/circles" className="text-white hover:underline transition-colors text-sm">
               Circles
             </Link>
-            <Link href="/roles" className="text-white/70 hover:text-white transition-colors text-sm">
+            <Link href="/roles" className="text-white hover:underline transition-colors text-sm">
               Roles
             </Link>
-            <Link href="/quests" className="text-white/70 hover:text-white transition-colors text-sm">
+            <Link href="/quests" className="text-white hover:underline transition-colors text-sm">
               Quests
             </Link>
             {feedModule && (
-              <Link href="/feed" className="text-white/70 hover:text-white transition-colors text-sm">
+              <Link href="/feed" className="text-white hover:underline transition-colors text-sm">
                 Feed
                 {feedModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
@@ -180,7 +180,7 @@ export default function Layout({ children }: LayoutProps) {
               </Link>
             )}
             {staysModule && (
-              <Link href="/stay" className="text-white/70 hover:text-white transition-colors text-sm">
+              <Link href="/stay" className="text-white hover:underline transition-colors text-sm">
                 Stay
                 {staysModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
@@ -188,7 +188,7 @@ export default function Layout({ children }: LayoutProps) {
               </Link>
             )}
             {exchangeModule && (
-              <Link href="/wallet" className="text-white/70 hover:text-white transition-colors text-sm">
+              <Link href="/wallet" className="text-white hover:underline transition-colors text-sm">
                 Wallet
                 {exchangeModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
@@ -196,7 +196,7 @@ export default function Layout({ children }: LayoutProps) {
               </Link>
             )}
             {badgesModule && (
-              <Link href="/badges" className="text-white/70 hover:text-white transition-colors text-sm">
+              <Link href="/badges" className="text-white hover:underline transition-colors text-sm">
                 Badges
                 {badgesModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
@@ -204,7 +204,7 @@ export default function Layout({ children }: LayoutProps) {
               </Link>
             )}
             {libraryModule && (
-              <Link href="/library" className="text-white/70 hover:text-white transition-colors text-sm">
+              <Link href="/library" className="text-white hover:underline transition-colors text-sm">
                 Library
                 {libraryModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
@@ -212,7 +212,7 @@ export default function Layout({ children }: LayoutProps) {
               </Link>
             )}
             {healthModule && (
-              <Link href="/village-health" className="text-white/70 hover:text-white transition-colors text-sm">
+              <Link href="/village-health" className="text-white hover:underline transition-colors text-sm">
                 Health
                 {healthModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
@@ -220,7 +220,7 @@ export default function Layout({ children }: LayoutProps) {
               </Link>
             )}
             {forumModule && (
-              <Link href="/forum" className="text-white/70 hover:text-white transition-colors text-sm">
+              <Link href="/forum" className="text-white hover:underline transition-colors text-sm">
                 Forum
                 {forumModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
@@ -228,7 +228,7 @@ export default function Layout({ children }: LayoutProps) {
               </Link>
             )}
             {mapModule && (
-              <Link href="/map" className="text-white/70 hover:text-white transition-colors text-sm">
+              <Link href="/map" className="text-white hover:underline transition-colors text-sm">
                 Map
                 {mapModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
@@ -236,17 +236,17 @@ export default function Layout({ children }: LayoutProps) {
               </Link>
             )}
             {toolsModule && (
-              <Link href="/tools" className="text-white/70 hover:text-white transition-colors text-sm">
+              <Link href="/tools" className="text-white hover:underline transition-colors text-sm">
                 Tools
                 {toolsModule.lifecycle === "preview" && (
                   <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
                 )}
               </Link>
             )}
-            <Link href="/work-with-us" className="text-white/70 hover:text-white transition-colors text-sm">
+            <Link href="/work-with-us" className="text-white hover:underline transition-colors text-sm">
               Work With Us
             </Link>
-            <Link href="/how-we-create" className="text-white/70 hover:text-white transition-colors text-sm">
+            <Link href="/how-we-create" className="text-white hover:underline transition-colors text-sm">
               How We Create
             </Link>
             {/* Team-only page, team-only link (audit 2026-07-27 flagged it
@@ -266,7 +266,7 @@ export default function Layout({ children }: LayoutProps) {
                 </Link>
                 <button
                   onClick={logout}
-                  className="text-white/50 hover:text-white transition-colors pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:-m-2"
+                  className="text-white hover:opacity-80 transition-opacity pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:-m-2"
                   // title is a hover tooltip and a phone has no hover, so an
                   // icon-only control needs a real name as well. "Everywhere"
                   // is honest, not decorative: tokenVersion is the only
@@ -324,7 +324,7 @@ export default function Layout({ children }: LayoutProps) {
               className="xl:hidden bg-teal-deep/95 border-t border-white/10 overflow-hidden"
             >
               <div className="container py-4 space-y-3">
-                <Link href="/" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                <Link href="/" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   Home
                 </Link>
 
@@ -332,7 +332,7 @@ export default function Layout({ children }: LayoutProps) {
                 <div>
                   <button
                     onClick={() => setMobilePathsOpen(!mobilePathsOpen)}
-                    className="flex items-center justify-between w-full text-white/70 hover:text-white transition-colors text-sm py-2"
+                    className="flex items-center justify-between w-full text-white hover:underline transition-colors text-sm py-2"
                   >
                     <span>Your Path</span>
                     <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${mobilePathsOpen ? "rotate-180" : ""}`} />
@@ -346,7 +346,7 @@ export default function Layout({ children }: LayoutProps) {
                         className="overflow-hidden pl-3 border-l border-white/20 ml-1 space-y-1"
                       >
                         {paths.map((path) => (
-                          <Link key={path.href} href={path.href} className="block text-white/60 hover:text-white transition-colors text-sm py-1.5" onClick={() => { setMobileMenuOpen(false); setMobilePathsOpen(false); }}>
+                          <Link key={path.href} href={path.href} className="block text-white hover:underline transition-colors text-sm py-1.5" onClick={() => { setMobileMenuOpen(false); setMobilePathsOpen(false); }}>
                             {path.label}
                           </Link>
                         ))}
@@ -355,80 +355,80 @@ export default function Layout({ children }: LayoutProps) {
                   </AnimatePresence>
                 </div>
 
-                <Link href="/circles" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                <Link href="/circles" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   Circles
                 </Link>
-                <Link href="/roles" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                <Link href="/roles" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   Roles
                 </Link>
-                <Link href="/quests" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                <Link href="/quests" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   Quests
                 </Link>
                 {feedModule && (
-                  <Link href="/feed" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/feed" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Feed{feedModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {staysModule && (
-                  <Link href="/stay" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/stay" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Stay{staysModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {exchangeModule && (
-                  <Link href="/wallet" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/wallet" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Wallet{exchangeModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {badgesModule && (
-                  <Link href="/badges" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/badges" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Badges{badgesModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {libraryModule && (
-                  <Link href="/library" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/library" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Library{libraryModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {healthModule && (
-                  <Link href="/village-health" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/village-health" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Health{healthModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {forumModule && (
-                  <Link href="/forum" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/forum" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Forum{forumModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {mapModule && (
-                  <Link href="/map" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/map" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Map{mapModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {toolsModule && (
-                  <Link href="/tools" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/tools" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Tools{toolsModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
-                <Link href="/work-with-us" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                <Link href="/work-with-us" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   Work With Us
                 </Link>
-                <Link href="/how-we-create" className="block text-white/70 hover:text-white transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                <Link href="/how-we-create" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                   How We Create
                 </Link>
                 {user ? (
                   <>
-                    <Link href="/profile" className="block text-white/70 hover:text-white transition-colors text-sm py-2">
+                    <Link href="/profile" className="block text-white hover:underline transition-colors text-sm py-2">
                       My Profile ({user.name.split(" ")[0]})
                     </Link>
                     <button
                       onClick={logout}
-                      className="block text-white/50 hover:text-white transition-colors text-sm py-2 text-left"
+                      className="block text-white hover:underline transition-colors text-sm py-2 text-left"
                     >
                       Sign Out Everywhere
                     </button>
                   </>
                 ) : (
-                  <Link href="/login" className="block text-white/70 hover:text-white transition-colors text-sm py-2">
+                  <Link href="/login" className="block text-white hover:underline transition-colors text-sm py-2">
                     Sign In / Register
                   </Link>
                 )}
@@ -471,7 +471,7 @@ export default function Layout({ children }: LayoutProps) {
                 )}
               </div>
               {cfg?.project?.footerBlurb && (
-                <p className="text-white/70 text-sm leading-relaxed">{cfg.project.footerBlurb}</p>
+                <p className="text-white text-sm leading-relaxed">{cfg.project.footerBlurb}</p>
               )}
             </div>
 
@@ -480,42 +480,42 @@ export default function Layout({ children }: LayoutProps) {
               <h4 className="font-display text-lg font-semibold mb-4">Your Journey</h4>
               <ul className="space-y-2">
                 <li>
-                  <Link href="/investor" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/investor" className="text-white hover:underline transition-colors text-sm">
                     Investor
                   </Link>
                 </li>
                 <li>
-                  <Link href="/steward" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/steward" className="text-white hover:underline transition-colors text-sm">
                     Village Steward
                   </Link>
                 </li>
                 <li>
-                  <Link href="/resident" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/resident" className="text-white hover:underline transition-colors text-sm">
                     Resident
                   </Link>
                 </li>
                 <li>
-                  <Link href="/prosperity" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/prosperity" className="text-white hover:underline transition-colors text-sm">
                     Prosperity Creator
                   </Link>
                 </li>
                 <li>
-                  <Link href="/love-letter" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/love-letter" className="text-white hover:underline transition-colors text-sm">
                     Sign the Love Letter
                   </Link>
                 </li>
                 <li>
-                  <Link href="/visit" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/visit" className="text-white hover:underline transition-colors text-sm">
                     Plan a Visit
                   </Link>
                 </li>
                 <li>
-                  <Link href="/gratitude" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/gratitude" className="text-white hover:underline transition-colors text-sm">
                     Gratitude Wall
                   </Link>
                 </li>
                 <li>
-                  <Link href="/work-with-us" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/work-with-us" className="text-white hover:underline transition-colors text-sm">
                     Work With Us
                   </Link>
                 </li>
@@ -527,32 +527,32 @@ export default function Layout({ children }: LayoutProps) {
               <h4 className="font-display text-lg font-semibold mb-4">Governance</h4>
               <ul className="space-y-2">
                 <li>
-                  <Link href="/governance" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/governance" className="text-white hover:underline transition-colors text-sm">
                     Governance
                   </Link>
                 </li>
                 <li>
-                  <Link href="/circles" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/circles" className="text-white hover:underline transition-colors text-sm">
                     Circles
                   </Link>
                 </li>
                 <li>
-                  <Link href="/roles" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/roles" className="text-white hover:underline transition-colors text-sm">
                     Roles & Leadership
                   </Link>
                 </li>
                 <li>
-                  <Link href="/how-we-create" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/how-we-create" className="text-white hover:underline transition-colors text-sm">
                     How We Create
                   </Link>
                 </li>
                 <li>
-                  <Link href="/good-neighbor" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/good-neighbor" className="text-white hover:underline transition-colors text-sm">
                     Good Neighbor Criteria
                   </Link>
                 </li>
                 <li>
-                  <Link href="/team" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/team" className="text-white hover:underline transition-colors text-sm">
                     Our Team
                   </Link>
                 </li>
@@ -562,18 +562,18 @@ export default function Layout({ children }: LayoutProps) {
                     optional module, so an ungated link would be a dead end on
                     a fresh fork. /exit-policy is core and always reachable. */}
                 <li>
-                  <Link href="/game-mechanics" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/game-mechanics" className="text-white hover:underline transition-colors text-sm">
                     Game Mechanics
                   </Link>
                 </li>
                 <li>
-                  <Link href="/exit-policy" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/exit-policy" className="text-white hover:underline transition-colors text-sm">
                     Leaving Well
                   </Link>
                 </li>
                 {networkModule && (
                   <li>
-                    <Link href="/network" className="text-white/70 hover:text-amber transition-colors text-sm">
+                    <Link href="/network" className="text-white hover:underline transition-colors text-sm">
                       Village Network
                     </Link>
                   </li>
@@ -586,39 +586,39 @@ export default function Layout({ children }: LayoutProps) {
               <h4 className="font-display text-lg font-semibold mb-4">Resources</h4>
               <ul className="space-y-2">
                 <li>
-                  <Link href="/co-creators-guide" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/co-creators-guide" className="text-white hover:underline transition-colors text-sm">
                     Co-Creators Guide
                   </Link>
                 </li>
                 <li>
-                  <Link href="/feedback" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/feedback" className="text-white hover:underline transition-colors text-sm">
                     Report a Bug / Share an Idea
                   </Link>
                 </li>
                 <li>
-                  <Link href="/quests" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/quests" className="text-white hover:underline transition-colors text-sm">
                     Community Quests
                   </Link>
                 </li>
                 {commerceModule && (
                   <li>
-                    <Link href="/contribute" className="text-white/70 hover:text-amber transition-colors text-sm">
+                    <Link href="/contribute" className="text-white hover:underline transition-colors text-sm">
                       Contribute
                     </Link>
                   </li>
                 )}
                 <li>
-                  <Link href="/housing" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/housing" className="text-white hover:underline transition-colors text-sm">
                     Housing
                   </Link>
                 </li>
                 <li>
-                  <Link href="/opportunities" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/opportunities" className="text-white hover:underline transition-colors text-sm">
                     Business Opportunities
                   </Link>
                 </li>
                 <li>
-                  <Link href="/master-plan" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/master-plan" className="text-white hover:underline transition-colors text-sm">
                     Master Plan
                   </Link>
                 </li>
@@ -635,7 +635,7 @@ export default function Layout({ children }: LayoutProps) {
                       href={siteUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-white/70 hover:text-amber transition-colors text-sm"
+                      className="text-white hover:underline transition-colors text-sm"
                     >
                       Main Website
                     </a>
@@ -647,14 +647,14 @@ export default function Layout({ children }: LayoutProps) {
                       href={eventsUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-white/70 hover:text-amber transition-colors text-sm"
+                      className="text-white hover:underline transition-colors text-sm"
                     >
                       Events
                     </a>
                   </li>
                 )}
                 <li>
-                  <Link href="/profile" className="text-white/70 hover:text-amber transition-colors text-sm">
+                  <Link href="/profile" className="text-white hover:underline transition-colors text-sm">
                     My Village Profile
                   </Link>
                 </li>
@@ -663,10 +663,14 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           <div className="border-t border-white/20 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-            <p className="text-white/50 text-sm">
+            {/* Solid white, not a fade. --color-teal-deep is a mid-tone, so
+                even 100% white lands at 4.81:1 and every step of opacity below
+                that drops small text under AA. Fine print gets its quietness
+                from size here, not from lightness. */}
+            <p className="text-white text-sm">
               © {new Date().getFullYear()}{villageName ? ` ${villageName}.` : ""} All rights reserved.
             </p>
-            <div className="flex items-center gap-2 text-white/50 text-sm">
+            <div className="flex items-center gap-2 text-white text-sm">
               <TreePine className="w-4 h-4" />
               <span>Built with Pura Vida by ReGenCivics.Earth</span>
             </div>

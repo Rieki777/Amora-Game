@@ -443,7 +443,7 @@ export default function InvestorJourney() {
                 <h3 className="font-display text-xl font-semibold mb-2">
                   {persona.title}
                 </h3>
-                <p className="text-white/90 leading-relaxed">
+                <p className="text-white leading-relaxed">
                   {persona.subtitle}
                 </p>
               </motion.div>
@@ -639,7 +639,7 @@ export default function InvestorJourney() {
             <h2 className="font-display text-3xl md:text-4xl font-semibold mb-4">
               Development Phases
             </h2>
-            <p className="text-white/70 max-w-2xl mx-auto">
+            <p className="text-white max-w-2xl mx-auto">
               With the potential 1% regenerative development loan, multiple phases can proceed simultaneously.
             </p>
           </motion.div>
@@ -661,11 +661,11 @@ export default function InvestorJourney() {
                       <Building className="w-5 h-5 text-gold" />
                       <div>
                         <div className="font-semibold">{phase.phase}</div>
-                        <div className="text-sm text-white/60">{phase.units}</div>
+                        <div className="text-sm text-white">{phase.units}</div>
                       </div>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      phase.status === "Planning" ? "bg-gold/20 text-gold" : "bg-white/20 text-white/70"
+                      phase.status === "Planning" ? "bg-gold/20 text-gold" : "bg-white/20 text-white"
                     }`}>
                       {phase.status}
                     </span>
