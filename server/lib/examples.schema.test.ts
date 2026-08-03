@@ -21,7 +21,13 @@
 import mysql from "mysql2/promise";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
-import { EXAMPLE_TABLES, loadExampleSeed, seedExamples, loadExampleState } from "./examples";
+import {
+  EXAMPLE_TABLES,
+  loadExampleSeed,
+  loadExampleState,
+  retireExamples,
+  seedExamples,
+} from "./examples";
 
 const configured = testDbConfigured();
 if (!configured) {
@@ -221,6 +227,27 @@ describe.skipIf(!configured)("the seed matches the schema it is written against"
     }
     expect(illegal, "an illegal enum value fails the INSERT at boot").toEqual([]);
   });
+
+  /**
+   * The child rows a nested loop writes are invisible to the block-table
+   * check above, because no seed BLOCK names them: forum tags are written
+   * from inside the thread loop. They outlived their threads until
+   * forum_thread_tags joined BY_PARENT, which is the sort of untidiness that
+   * survives precisely because nobody can see it.
+   */
+  it("leaves no orphan tag rows behind after retirement", async () => {
+    await seedExamples(pool, "forum", seed, { force: true });
+    const [before] = await pool.query<any[]>("SELECT COUNT(*) n FROM forum_thread_tags");
+    expect(Number(before[0].n), "the forum seed writes tags").toBeGreaterThan(0);
+
+    await retireExamples(pool, "forum", "admin_cleared");
+
+    const [orphans] = await pool.query<any[]>(
+      "SELECT COUNT(*) n FROM forum_thread_tags t " +
+        "LEFT JOIN forum_threads th ON th.id = t.thread_id WHERE th.id IS NULL",
+    );
+    expect(Number(orphans[0].n), "a tag whose thread is gone is a row nobody can reach").toBe(0);
+  }, 120_000);
 
   /** Every table a module seeds into must be one retirement knows to clear. */
   it("never seeds into a table retirement cannot reach", () => {

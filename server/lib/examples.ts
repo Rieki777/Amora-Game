@@ -51,7 +51,9 @@ export const EXAMPLE_TABLES: Record<string, string[]> = {
   map: ["circles"],
   progression: ["roles"],
   quests: ["quests"],
-  forum: ["forum_replies", "forum_threads"],
+  // forum_thread_tags FIRST: this list deletes child-first, and the tag rows
+  // are found through their thread, which the next entry removes.
+  forum: ["forum_thread_tags", "forum_replies", "forum_threads"],
   feed: ["forum_threads"],
   // NOTE: forum and feed share forum_threads — see SCOPE below. Without a
   // per-module predicate, retiring either one deletes the other's rows.
@@ -172,6 +174,10 @@ const KEEP_IF_IN_LEDGER: Record<string, string> = { exchange: "tokens" };
 const BY_PARENT: Record<string, { parentTable: string; fk: string; parentKey: string }> = {
   transcripts: { parentTable: "recordings", fk: "recording_id", parentKey: "id" },
   peer_shared_cache: { parentTable: "peer_instances", fk: "peer_id", parentKey: "id" },
+  // Tags carry no flag of their own, so they outlived the threads they
+  // described: harmless, because the tag filter joins live thread ids, and
+  // untidy in a way that grows by three rows per village forever.
+  forum_thread_tags: { parentTable: "forum_threads", fk: "thread_id", parentKey: "id" },
 };
 
 export type RetireReason = "first_real_item" | "admin_cleared";

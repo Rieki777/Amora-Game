@@ -90,17 +90,13 @@ what follows is what is left, plus what building them turned up.
 - **`/exchange` is in `PAGE_TITLES` and is not a route.** So are `/health`
   and `/profiles`. Three titles that can never match; the exchange lives on
   `/wallet`. Harmless today, a 404 for whoever links them.
-- **Example forum tags orphan on retirement.** `forum_thread_tags` is absent
-  from both `EXAMPLE_TABLES.forum` and `BY_PARENT`, so tag rows survive the
-  threads they belonged to. Harmless (the filter subquery only matches live
-  thread ids) and untidy. **STILL OPEN, and the fix is two lines** in
-  `server/lib/examples.ts`: add `"forum_thread_tags"` FIRST in
-  `EXAMPLE_TABLES.forum` (the list deletes child-first), and add
-  `forum_thread_tags: { parentTable: "forum_threads", fk: "thread_id",
-  parentKey: "id" }` to `BY_PARENT`. Left alone on 2026-08-03 only because
-  another session was mid-rewrite of that file; the seed-schema test's
-  "never seeds into a table retirement cannot reach" case does not catch it,
-  because the tags are written by a nested loop rather than a block table.
+- ~~Example forum tags orphan on retirement.~~ **CLOSED 2026-08-03.**
+  `forum_thread_tags` now leads `EXAMPLE_TABLES.forum` (the list deletes
+  child-first) and has a `BY_PARENT` entry keyed on `thread_id`. A test
+  asserts zero tag rows whose thread is gone, because the block-table checks
+  cannot see it: the tags are written by a nested loop inside the thread
+  loop, so no seed BLOCK ever names that table. Untidiness that grows three
+  rows per village forever is worth two lines.
 - **The walk cannot demonstrate the map on this platform.** Every village
   seeds 8 real circles at boot, so `hasRealContent("map")` is true and map
   examples never seed. The stop is written and correctly filters itself out;
