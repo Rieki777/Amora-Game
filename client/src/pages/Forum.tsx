@@ -14,6 +14,7 @@ import { authToken } from "@/lib/gameApi";
 import { Calendar, ExternalLink, Flag, Gavel, Lock, MapPin, MessageCircle, Pin, Plus, Bell } from "lucide-react";
 import { Image } from "@/components/Image";
 import { ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
+import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -204,14 +205,21 @@ function ThreadView({ id }: { id: string }) {
   // In-flight guard: without it an impatient double-tap posts the reply
   // twice, or races the decision primitive's record-once gate into a
   // confusing 409. One action at a time per thread view.
-  const act = (path: string, body: any) => {
+  // A refusal renders beside the control that was pressed. The shared status
+  // slot at the foot of the page is teal and also says "Done.", so a refusal
+  // landing there read as a confirmation several screens from the button.
+  const [refusal, setRefusal] = useState<{ where: string; message: string } | null>(null);
+
+  const act = (path: string, body: any, where = "actions") => {
     if (busy) return;
     setBusy(true);
     setStatus("");
+    setRefusal(null);
     fetch(path, { method: "POST", headers: headers(), body: JSON.stringify(body) })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Failed");
+        const { ok, data: d, refusal: refused } = await readRefusal(r);
+        if (refused) { setRefusal({ where, message: refused }); return; }
+        if (!ok) throw new Error(d?.error || "Failed");
         setStatus("Done.");
         setReply("");
         setOutcome("");
@@ -367,6 +375,7 @@ function ThreadView({ id }: { id: string }) {
                 </button>
               </div>
             )}
+            {refusal?.where === "actions" && <ExampleRefusal message={refusal.message} className="mt-3" />}
           </div>
 
           <div className="space-y-3">
@@ -423,10 +432,11 @@ function ThreadView({ id }: { id: string }) {
               <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3}
                 placeholder="Reply… mention people with @handle."
                 className="w-full text-sm border border-border rounded-lg px-3 py-2" />
-              <button onClick={() => act(`/api/forum/threads/${id}/replies`, { body: reply })} disabled={busy || !reply.trim()}
+              <button onClick={() => act(`/api/forum/threads/${id}/replies`, { body: reply }, "reply")} disabled={busy || !reply.trim()}
                 className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                 Reply
               </button>
+              {refusal?.where === "reply" && <ExampleRefusal message={refusal.message} />}
             </div>
           )}
           {thread.lockedAt && !decided && (
@@ -439,10 +449,11 @@ function ThreadView({ id }: { id: string }) {
               <textarea value={outcome} onChange={(e) => setOutcome(e.target.value)} rows={2}
                 placeholder="What was decided, and by what process?"
                 className="w-full text-sm border border-border rounded-lg px-3 py-2" />
-              <button onClick={() => act(`/api/forum/threads/${id}/decide`, { outcome })} disabled={busy || !outcome.trim()}
+              <button onClick={() => act(`/api/forum/threads/${id}/decide`, { outcome }, "decide")} disabled={busy || !outcome.trim()}
                 className="text-sm bg-purple-700 text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                 Record decision
               </button>
+              {refusal?.where === "decide" && <ExampleRefusal message={refusal.message} />}
             </div>
           )}
 

@@ -14,6 +14,7 @@ import { authToken } from "@/lib/gameApi";
 import { Calendar, Heart, Megaphone, MessageCircle, Sparkles, Send } from "lucide-react";
 import { Image } from "@/components/Image";
 import { ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
+import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -44,6 +45,12 @@ export default function Feed() {
   const [more, setMore] = useState<string | null>(null);
   const [older, setOlder] = useState<any[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
+  // The refusal, keyed to the post: the shared error slot lives in the
+  // composer at the top of the page, so hearting the fifteenth post flashed
+  // a line off-screen. Declared with the other state, ABOVE the early return
+  // below: a hook after a conditional return changes the hook count between
+  // renders the moment the module catalogue loads.
+  const [refusedPost, setRefusedPost] = useState<{ id: string; message: string } | null>(null);
 
   const query = (before?: string) => {
     const p = new URLSearchParams();
@@ -94,10 +101,12 @@ export default function Feed() {
   };
 
   const heart = (item: any) => {
+    setRefusedPost(null);
     fetch(`/api/feed/threads/${item.id}/heart`, { method: "POST", headers: headers(), body: "{}" })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not send");
+        const { ok, data: d, refusal } = await readRefusal(r);
+        if (refusal) { setRefusedPost({ id: item.id, message: refusal }); return; }
+        if (!ok) throw new Error(d?.error || "Could not send");
         load();
       })
       .catch((e) => setError(e.message));
@@ -216,6 +225,9 @@ export default function Feed() {
                     <MessageCircle className="w-4 h-4" /> {item.replyCount}
                   </Link>
                 </div>
+                {refusedPost && refusedPost.id === item.id && (
+                  <ExampleRefusal message={refusedPost.message} className="mt-2" />
+                )}
               </div>
             );
           })}

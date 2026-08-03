@@ -1,97 +1,121 @@
-# Making the modules illustrative: ideas from the 2026-08-02 build
+# Making the modules illustrative: the working list
 
-Collected while building the events card, the timestamps, the stocked example
-market, the empowered badges, the circle map and the doughnut. Ordered by how
-much teaching each buys per unit of work. Nothing here is started; each is a
-decision first.
+Started 2026-08-02. **Revised 2026-08-03**: the top six are BUILT and shipped;
+what follows is what is left, plus what building them turned up.
 
-## The one idea that multiplies the rest
+---
 
-**A guided first walk.** The examples now demonstrate every module, but they
-still wait to be found. A "meet your village" checklist for the founder's
-first session (visit the forum's example decision, tap Buy on an example
-listing and read the refusal, open the steward badge, find the open seat on
-the map) would turn the examples from scenery into a course. The pieces all
-exist; the walk is a page and a progress row.
+## Shipped 2026-08-03 (the six Rye picked)
 
-## Per module
+1. **The guided first walk** — `/first-walk`, steps as data in
+   `client/src/lib/firstWalk.ts`, filtered to what the village is actually
+   showing, ticks in localStorage, invitation on the map page. It retires
+   itself: every stop depends on a module still showing examples.
+2. **A pinned announcement in Projects and Work** — fills the empty category,
+   demonstrates the fourth thread kind, the pin affordance and pinned-first
+   ordering.
+3. **A shelf item mid-loan** — the canner shows "out on loan" with no Borrow
+   button. **NO loan row**, see the trap below.
+4. **A badge lent for a season** — the steward award carries an expiry, and
+   the badge card now renders both expiry and holders.
+5. **The shared refusal notice** — amber, `role="alert"`, rendered beside the
+   control pressed, on library, stays, feed, forum, wallet and contribute.
+6. **The banner names its trigger** — per-module member-facing copy from the
+   seed, served on `/api/examples`.
 
-**Forum.** The examples teach discussion, decision and event well now. The
-missing kind is an ANNOUNCEMENT (role-gated posting is invisible until one
-exists), and no example is pinned, so the pin affordance and pinned-first
-ordering go undemonstrated. One announcement in "projects", pinned, closes
-both gaps and fills a category that currently sits empty under the banner.
+### Three things the build taught, worth keeping
 
-**Feed.** Reply nesting is seeded and stored, and renders flat; the one
-seeded fact about threading is invisible. Either indent by parentReplyId
-(small render change) or stop seeding the nesting. Tags are seeded and the
-feed has a tag filter; the example tags (garden, water, repair, logistics)
-never show as chips on the cards, so the filter looks like it filters
-nothing.
+- **A demo can cost a founder their off switch.** The plan for #3 was a
+  display-only `library_loans` row. `library_loans` has no `is_example`
+  column, and `libraryOpenState` counts every row with `settled_at IS NULL`
+  regardless of escrow, so even a zero-escrow loan would have blocked
+  disabling the module: the exact trap rule 1 exists to prevent. It bought
+  nothing either, because the item card draws the borrowed state from
+  `library_items.status` alone. **Before seeding into any table, check
+  whether that table feeds an `openStateCheck`.**
+- **An example held by an example identity is invisible to real members.**
+  Badge awards reach a viewer through `mine`, keyed to their own user id, so
+  a seeded award renders nothing on the badge page for anyone real. That is
+  why #4 also added a holders line to the card: without a surface that shows
+  OTHER people's holdings, example awards demonstrate nothing.
+- **The client was throwing the discriminator away.** `example_immutable`
+  appeared zero times under `client/` before this build. Every page read
+  `d.error` into whatever slot it used for validation errors, which on the
+  forum is the same teal element that says "Done."
 
-**Exchange.** The market now shows two stocked, priced listings that refuse
-purchase with the standing-example message. The remaining gap is the SWAP
-card: it renders only when a member holds a swappable balance, so the whole
-swap mechanic is invisible until real trading opens. A display-only example
-swap pair (Example Credits to Example Workshop Passes, both sides refusing)
-would need care with the swap firewall; worth a design pass before building.
+---
 
-**Badges.** Now demonstrates granted, earned-with-stacking, self, warning,
-capabilities and holders. The last invisible piece is EXPIRY: a badge award
-with an expires_at some weeks out would show the "expires" chip and teach
-that trust can be lent for a season.
+## What is left, ordered by teaching per unit of work
 
-**Stays.** Capacity is seeded and read into the row type and never rendered
-on the card. Either show "sleeps N" or drop the field. The "Earn your
-nights" card and the member-rate distinction would both benefit from one
-example accommodation carrying a member price AND a visitor price, so the
-two-tier pricing is visible.
+### Found while building the six
 
-**Library.** All three example items sit at status "available", so the
-borrowed and overdue states never show. One item seeded as out-on-loan to an
-example identity (display state only, no real escrow) would teach what the
-shelf looks like mid-use. Needs the same care as badges: the loan row must
-be example-flagged and excluded from open-state checks.
+- **The Buy button needs Stripe, and a fresh village has none.** Fixed for
+  example listings (they now always offer the control, since the refusal
+  fires long before any payment code). The REAL listing case is untouched: a
+  village that lists a token before connecting Stripe shows a price and no
+  way to act on it, with nothing saying why. Worth a line on the card.
+- **`/exchange` is in `PAGE_TITLES` and is not a route.** So are `/health`
+  and `/profiles`. Three titles that can never match; the exchange lives on
+  `/wallet`. Harmless today, a 404 for whoever links them.
+- **Example forum tags orphan on retirement.** `forum_thread_tags` is absent
+  from both `EXAMPLE_TABLES.forum` and `BY_PARENT`, so tag rows survive the
+  threads they belonged to. Harmless (the filter subquery only matches live
+  thread ids) and untidy.
+- **The walk cannot demonstrate the map on this platform.** Every village
+  seeds 8 real circles at boot, so `hasRealContent("map")` is true and map
+  examples never seed. The stop is written and correctly filters itself out;
+  it applies only to a fork that ships no circles seed. If the map should
+  demonstrate, the circles seed has to become optional.
+- **Nothing tests the seed against the schema.** Every seed bug this session
+  (a field the seeder ignores, a status the page cannot render) would have
+  been caught by one test that walks `examples-seed.json` and asserts every
+  key is written by its seeder branch and every enum value is legal.
 
-**Health.** The doughnut now draws the foundation and the land's ledger.
-Two follow-ups: (1) the capitals wheel from the Hypha screenshot (Deep,
-Clear, Wide, High impact across the forms of capital) has NO data source in
-the platform yet; deciding what feeds it is a design conversation, and
-building it before that would be decoration. (2) Per-village floor overrides
-already work through the health module's config JSON (doughnutFloors); an
-admin editor for them is a small Admin panel addition when wanted.
+### Per module, still open
 
-**Map.** The circle map now nests and shows seats. The Peerdom look would
-finish with: circle icons rendered inside their circles (the icon field is
-seeded and unused on the canvas), member avatars or initials on filled
-seats for viewers with map.viewPeople, and a "focus mode" that zooms one
-circle to fill the canvas on double-click.
+**Feed.** Reply nesting is seeded, stored, returned, and rendered flat.
+Either indent by `parentReplyId` or stop seeding it. Tags are seeded and the
+feed has a tag filter; the tags never render as chips, so the filter looks
+like it filters nothing.
 
-**Automation.** The example transcript is seeded and invisible: the
-recordings admin shows title and status, never the transcript or the
-synthesis body. Rendering the synthesis (chapters, decisions, tasks) for
-the example recording is the module's whole story; today it reads as a list
-of filenames.
+**Exchange.** The swap card renders only when a member holds a swappable
+balance, so the whole swap mechanic stays invisible until real trading opens.
+A display-only example pair would need care with the swap firewall; design
+pass first.
 
-**Network.** The peer version is written and never rendered; show it or
-drop it. The "Sync now" button on an example-only network silently no-ops;
-it should say the peer is an example and nothing will be fetched.
+**Stays.** `capacity` is seeded, read into the row type, and never rendered.
+Show "sleeps N" or drop the field. One room carrying both a member price and
+a visitor price would make the two-tier pricing visible.
 
-**Commerce.** Every example product is provider stripe and audience public,
-so the members-only visibility branch and the "no provider configured"
-state never demonstrate. One members-only example product would show the
-audience gate to a signed-out founder the moment they log in.
+**Automation.** The example transcript is seeded and invisible: the admin
+shows title and status, never the transcript or the synthesis. Rendering the
+synthesis (chapters, decisions, tasks) for the example recording is the
+module's whole story; today it reads as a list of filenames.
 
-## Cross-cutting
+**Network.** Peer version is written and never rendered. "Sync now" on an
+example-only network silently no-ops and should say so.
 
-- **Example refusals render in the success style on some pages** (noted in
-  the forum during the walk: teal text, below the fold). A shared
-  `<RefusalNotice>` that renders `example_immutable` responses amber, next
-  to the control that was pressed, would make every refusal teach.
-- **The banner could name the trigger.** "These are standing examples.
-  Publish your own to replace them" is true everywhere; per module it could
-  say WHAT publishes: "your first real tool replaces these". The trigger
-  strings already live in the seed as `_trigger`.
-- **A "clear examples" preview.** The admin button removes a module's
-  examples permanently; showing what the page will look like after (the
-  honest empty state) before confirming would prevent regret clicks.
+**Commerce.** Every example product is `provider: stripe`, `audience:
+public`, so the members-only visibility branch never demonstrates.
+
+**Health.** The capitals wheel from the Hypha reference has no data source
+in the platform. Deciding what feeds it is a design conversation; building
+it first would be decoration. Per-village doughnut floors already work
+through the health module config; an admin editor is a small addition.
+
+**Map.** Circle icons are seeded and unused on the canvas. Member initials
+on filled seats (for viewers with `map.viewPeople`) and a double-click focus
+mode would finish the Peerdom look.
+
+**Badges.** Expiry now renders. The remaining gap is that
+`/api/badges/of/:userId` selects `expires_at` and never returns it, so
+`BylineChips` cannot show a lapsing badge next to a name.
+
+### Cross-cutting
+
+- **A "clear examples" preview.** The admin button retires a module's
+  examples permanently. Showing the honest empty state first would prevent
+  regret clicks.
+- **The walk could offer the publish.** Every stop ends at a page where the
+  founder could make the real thing. A "publish your first one" affordance
+  on the last stop would close the loop from reading to doing.

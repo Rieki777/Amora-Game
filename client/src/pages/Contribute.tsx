@@ -16,6 +16,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { CreditCard, ExternalLink, HeartHandshake, Loader2, Repeat } from "lucide-react";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -43,6 +44,10 @@ export default function Contribute() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [manual, setManual] = useState<{ name: string; text: string; receiptNo: number; url?: string } | null>(null);
+  // The refusal, keyed to the product. Declared with the other state, ABOVE
+  // the early return below: a hook after a conditional return changes the
+  // hook count between renders the moment the module catalogue loads.
+  const [refusedProduct, setRefusedProduct] = useState<{ id: string; message: string } | null>(null);
 
   useEffect(() => {
     if (!commerce) return;
@@ -59,14 +64,15 @@ export default function Contribute() {
 
   const checkout = (p: any) => {
     setBusy(p.id);
-    setError("");
+    setError(""); setRefusedProduct(null);
     const body: any = {};
     if (p.amountMinor == null) body.amountMinor = Math.round((Number(amounts[p.id]) || 0) * 100);
     if (!user) body.email = emails[p.id] ?? "";
     fetch(`/api/products/${p.id}/checkout`, { method: "POST", headers: headers(), body: JSON.stringify(body) })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not start that");
+        const { ok, data: d, refusal } = await readRefusal(r);
+        if (refusal) { setRefusedProduct({ id: p.id, message: refusal }); return; }
+        if (!ok) throw new Error(d?.error || "Could not start that");
         if (d.kind === "stripe") window.location.href = d.url;
         else if (d.kind === "zeffy") {
           // NOT window.open: this runs after a network round trip, outside
@@ -182,6 +188,9 @@ export default function Contribute() {
                   <span className="text-xs text-amber-700">Card payments aren't connected yet</span>
                 )}
               </div>
+              {refusedProduct && refusedProduct.id === p.id && (
+                <ExampleRefusal message={refusedProduct.message} className="mt-2" />
+              )}
             </div>
           ))}
         </div>

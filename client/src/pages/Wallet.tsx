@@ -12,6 +12,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Coins, CreditCard, ExternalLink, ReceiptText, Wallet as WalletIcon } from "lucide-react";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -29,6 +30,10 @@ export default function Wallet() {
   const [qty, setQty] = useState<Record<string, number>>({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // The refusal, keyed to the listing. Declared with the other state, ABOVE
+  // the early return below: a hook after a conditional return changes the
+  // hook count between renders the moment the module catalogue loads.
+  const [refusedSlug, setRefusedSlug] = useState<{ slug: string; message: string } | null>(null);
 
   // "Loading", "loaded and genuinely empty" and "the request failed" are
   // three different facts. Collapsing them made a 500 or a dropped connection
@@ -59,15 +64,16 @@ export default function Wallet() {
   if (modules.loaded && !exchangeModule) return <NotFound />;
 
   const buy = (slug: string) => {
-    setError("");
+    setError(""); setRefusedSlug(null);
     fetch("/api/exchange/buy", {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ tokenSlug: slug, quantity: qty[slug] ?? 1 }),
     })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not start checkout");
+        const { ok, data: d, refusal } = await readRefusal(r);
+        if (refusal) { setRefusedSlug({ slug, message: refusal }); return; }
+        if (!ok) throw new Error(d?.error || "Could not start checkout");
         window.location.href = d.url;
       })
       .catch((e) => setError(e.message));
@@ -135,7 +141,8 @@ export default function Wallet() {
             ) : null}
             <div className="space-y-3">
               {(data?.listings ?? []).map((l: any) => (
-                <div key={l.slug} className="flex items-center gap-3 border border-border rounded-lg px-4 py-3">
+                <div key={l.slug} className="border border-border rounded-lg px-4 py-3">
+                  <div className="flex items-center gap-3">
                   <div className="flex-1">
                     <p className="text-sm font-medium text-foreground">{l.name}</p>
                     <p className="text-xs text-muted-foreground">
@@ -144,7 +151,11 @@ export default function Wallet() {
                       {l.stockCount != null && l.stockCount > 0 && <span> · {l.stockCount} in stock</span>}
                     </p>
                   </div>
-                  {user && data?.mine?.canBuy && data?.stripeConfigured && l.priceMinor != null && l.inStock && (
+                  {/* An EXAMPLE listing offers Buy even where Stripe is not
+                      connected. The refusal is the whole lesson, it fires
+                      long before any payment code, and a demo market whose
+                      only button is missing teaches nothing. */}
+                  {user && data?.mine?.canBuy && (data?.stripeConfigured || l.isExample) && l.priceMinor != null && l.inStock && (
                     <div className="flex items-center gap-1.5">
                       <input
                         type="number" min={1} value={qty[l.slug] ?? 1}
@@ -156,6 +167,10 @@ export default function Wallet() {
                         <CreditCard className="w-3.5 h-3.5" /> Buy
                       </button>
                     </div>
+                  )}
+                  </div>
+                  {refusedSlug && refusedSlug.slug === l.slug && (
+                    <ExampleRefusal message={refusedSlug.message} className="mt-2" />
                   )}
                 </div>
               ))}

@@ -3696,6 +3696,18 @@ async function startServer() {
       await refreshExamples(getPool(), moduleId, seed, { baseCycle });
     }
   });
+  // The 2026-08-03 seed revision: the pinned announcement in the empty
+  // Projects category, the shelf item shown mid-loan, and the steward badge
+  // lent for a season. A separate key because runOnce is permanent per id:
+  // editing the body above would never re-run anywhere it already ran.
+  await runOnce("examples-refresh-2026-08-03", async () => {
+    const seed = loadExampleSeed(SEEDS_DIR);
+    if (!seed) return;
+    const baseCycle = currentCycle().cycleNumber;
+    for (const moduleId of ["forum", "library", "badges"]) {
+      await refreshExamples(getPool(), moduleId, seed, { baseCycle });
+    }
+  });
 
   const app = express();
   const server = createServer(app);
@@ -6359,7 +6371,17 @@ async function startServer() {
       if (lc === "preview") return admin;
       return true;
     });
-    res.json({ modules: visible });
+    // What clears them, per module, in the reader's words. "Publishing your
+    // first real listing" is true of the exchange and unhelpful: a token
+    // is what actually retires it. The copy lives in the seed beside the
+    // content it describes, so a fork rewords both together.
+    const seed = loadExampleSeed(SEEDS_DIR);
+    const triggers: Record<string, string> = {};
+    for (const id of visible) {
+      const line = seed?.[id]?._memberTrigger;
+      if (typeof line === "string" && line.trim()) triggers[id] = line;
+    }
+    res.json({ modules: visible, triggers });
   });
 
   app.get("/api/platform/info", async (_req, res) => {
@@ -8268,11 +8290,36 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       const awards = (await awardsFor(getPool(), viewer.id)).filter((a) => !a.expired);
       mine = { awards, skills: await skillsFor(getPool(), viewer.id) };
     }
+    // Who holds each badge, and until when. Already public through
+    // /api/badges/match and /api/badges/of/:userId, so the same privacy line
+    // holds: WARNINGS ARE NEVER LISTED. Answering "who carries this trust,
+    // and does it lapse" on the card itself is what makes a badge legible
+    // without hunting, and it is how the standing examples demonstrate a
+    // held badge to a founder who holds nothing yet.
+    const [holderRows] = await getPool().query<any[]>(
+      "SELECT a.badge_id, a.user_id, a.expires_at, u.name AS user_name " +
+        "FROM badge_awards a JOIN badges b ON b.id = a.badge_id " +
+        "JOIN users u ON u.id = a.user_id " +
+        "WHERE b.kind <> 'warning' AND b.active = 1 " +
+        "AND (a.expires_at IS NULL OR a.expires_at > NOW()) " +
+        "ORDER BY a.created_at ASC",
+    );
+    const holdersByBadge = new Map<string, any[]>();
+    for (const r of holderRows) {
+      const list = holdersByBadge.get(String(r.badge_id)) ?? [];
+      list.push({
+        userId: String(r.user_id),
+        name: firstName(String(r.user_name ?? "Member")),
+        expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
+      });
+      holdersByBadge.set(String(r.badge_id), list);
+    }
     res.json({
       badges: badges.map((b) => ({
         id: b.id, name: b.name, description: b.description, icon: b.icon, kind: b.kind,
         // Transparent governance: what a badge grants or denies is public.
         capabilities: b.capabilities, denies: b.denies, rule: b.rule,
+        holders: b.kind === "warning" ? [] : (holdersByBadge.get(b.id) ?? []),
       })),
       mine,
     });
@@ -8640,6 +8687,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
         kind: def.kind,
         priceMinor: price?.priceMinor ?? null,
         inStock: onHand > 0,
+        isExample: s.isExample,
         stockCount: s.isExample ? onHand : undefined,
         minStageToBuy: s.minStageToBuy,
         sortOrder: s.sortOrder,

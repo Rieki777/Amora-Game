@@ -19,6 +19,7 @@ import { authToken } from "@/lib/gameApi";
 import { getPreference, rememberMapAvailable, setPreference } from "@/lib/landing";
 import { ChevronDown, Compass, Hand, Mail, Minus, Plus, Search, X } from "lucide-react";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { FirstWalkInvite } from "@/pages/FirstWalk";
 
 interface MapRole {
   id: string;
@@ -91,6 +92,11 @@ export default function VillageMap() {
             someone like you.
           </p>
           <ExamplesBanner moduleId="map" noun="circle" />
+          {/* The map is where returning founders land, so the walk offers
+              itself here rather than waiting to be searched for. */}
+          <div className="max-w-2xl mx-auto text-left mt-4">
+            <FirstWalkInvite />
+          </div>
           <LandingToggle />
         </div>
       </section>

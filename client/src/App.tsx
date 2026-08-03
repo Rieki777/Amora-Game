@@ -93,6 +93,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/forum": "Forum",
   "/feed": "Village feed",
   "/map": "Village map",
+  "/first-walk": "Meet your village",
   "/stay": "Stays",
   "/library": "Material library",
   "/badges": "Badges & skills",
@@ -218,6 +219,7 @@ const GratitudeWall = lazyPage(() => import("./pages/GratitudeWall"));
 const WorkWithUs = lazyPage(() => import("./pages/WorkWithUs"));
 const ToolsHub = lazyPage(() => import("./pages/ToolsHub"));
 const VillageMap = lazyPage(() => import("./pages/VillageMap"));
+const FirstWalk = lazyPage(() => import("./pages/FirstWalk"));
 const Forum = lazyPage(() => import("./pages/Forum"));
 const Feed = lazyPage(() => import("./pages/Feed"));
 const Stay = lazyPage(() => import("./pages/Stay"));
@@ -270,6 +272,7 @@ function Router() {
       <Route path="/quests" component={Quests} />
       <Route path="/tools" component={ToolsHub} />
       <Route path="/map" component={VillageMap} />
+      <Route path="/first-walk" component={FirstWalk} />
       <Route path="/feed" component={Feed} />
       <Route path="/stay" component={Stay} />
       <Route path="/wallet" component={Wallet} />

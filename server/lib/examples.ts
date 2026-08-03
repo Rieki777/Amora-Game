@@ -565,7 +565,14 @@ export async function seedExamples(
           n += await ins(p, "badge_awards", {
             id: `ex-award-${b.id}-${a.userId}`, badge_id: b.id, user_id: a.userId,
             count: a.count ?? 1, awarded_by: a.selfClaimed ? a.userId : EXAMPLE_AUTHOR,
-            note: a.note ?? null, is_example: 1,
+            note: a.note ?? null,
+            // Minted forward from seed time, like the event date: an absolute
+            // expiry would read as already-lapsed a season after anyone wrote
+            // it, and a lapsed award is invisible to every read.
+            expires_at: a.expiresInDays === undefined
+              ? null
+              : new Date(Date.now() + Number(a.expiresInDays) * 86400_000),
+            is_example: 1,
           });
         }
       }

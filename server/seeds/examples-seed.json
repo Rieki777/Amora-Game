@@ -102,7 +102,8 @@
         "leadRoleId": null,
         "isExample": true
       }
-    ]
+    ],
+    "_memberTrigger": "The first circle a founder creates clears them."
   },
   "progression": {
     "_trigger": "A real role is seeded or edited into existence",
@@ -141,7 +142,8 @@
         "sortOrder": 3,
         "isExample": true
       }
-    ]
+    ],
+    "_memberTrigger": "The first role this village writes for itself clears them."
   },
   "quests": {
     "_trigger": "POST /api/admin/quests creates a real quest",
@@ -205,7 +207,8 @@
         "sortOrder": 3,
         "isExample": true
       }
-    ]
+    ],
+    "_memberTrigger": "The first quest a founder posts clears them."
   },
   "forum": {
     "_trigger": "POST /api/forum/threads creates a real thread",
@@ -292,8 +295,23 @@
         },
         "isExample": true,
         "daysAgo": 2
+      },
+      {
+        "id": "ex-thread-announce",
+        "category": "projects",
+        "kind": "announcement",
+        "authorId": "ex-user-mira",
+        "pinned": true,
+        "daysAgo": 1.5,
+        "title": "The workshop roof goes on Saturday, and we need eight hands",
+        "body": "Materials arrive Friday afternoon. We start at seven on Saturday while it is still cool, and we should be done by two.\n\nBring gloves if you have them. If you have never done this before that is fine, half of us had not either the first time. There will be food.\n\nAn announcement is pinned so it stays at the top of the list until it stops mattering. Posting one needs a role that carries it, which is how a village keeps the top of its forum for things that concern everyone.",
+        "tags": [
+          "workshop",
+          "build"
+        ]
       }
-    ]
+    ],
+    "_memberTrigger": "The first thread anyone here starts clears them."
   },
   "feed": {
     "_trigger": "A real micropost is published to the feed category",
@@ -336,7 +354,8 @@
         "isExample": true,
         "daysAgo": 2.4
       }
-    ]
+    ],
+    "_memberTrigger": "The first real post in this village's feed clears them."
   },
   "tools": {
     "_trigger": "POST /api/admin/tools creates a real tool",
@@ -390,11 +409,12 @@
         "enabled": true,
         "isExample": true
       }
-    ]
+    ],
+    "_memberTrigger": "The first tool a founder adds clears them."
   },
   "library": {
     "_trigger": "POST /api/admin/library/intake accepts a real donation",
-    "_note": "Items are inserted directly, NOT through recordIntake(): intake mints library credits to the donor. Direct rows raise supply-vs-backing coverage without minting anything, which is safe. Borrowing an example is refused; no loan row ever exists.",
+    "_note": "Items are inserted directly, NOT through recordIntake(): intake mints library credits to the donor. Direct rows raise supply-vs-backing coverage without minting anything, which is safe. Borrowing an example is refused; no loan row ever exists.The canner is seeded checked_out so the shelf shows what mid-use looks like:,a grey out-on-loan pill and no Borrow button. NO library_loans row is written.,library_loans has no is_example column, libraryOpenState counts every row with,settled_at IS NULL regardless of escrow, and a loan row would therefore block,turning the module off - the exact trap rule 1 exists to prevent. The item card,renders the borrowed state from library_items.status alone, so a loan row would,buy no pixels and cost the founder their off switch.",
     "categories": [
       {
         "id": "ex-libcat-power",
@@ -442,13 +462,14 @@
         "name": "Pressure canner, 23 quart",
         "description": "For low-acid preserving: beans, stock, anything that a water bath will not make safe. The gauge was last tested this year and the rubber gasket is new. Read the manual in the lid before your first run; this is the one library item that can genuinely hurt you.",
         "categoryId": "ex-libcat-kitchen",
-        "status": "available",
+        "status": "checked_out",
         "healthBp": 9000,
         "creditValue": 60,
         "minStage": "member",
         "isExample": true
       }
-    ]
+    ],
+    "_memberTrigger": "The first donation the shelf accepts clears them."
   },
   "stays": {
     "_trigger": "POST /api/admin/stays/accommodations creates a real room",
@@ -547,7 +568,8 @@
           }
         ]
       }
-    ]
+    ],
+    "_memberTrigger": "The first room a founder lists clears them."
   },
   "commerce": {
     "_trigger": "POST /api/admin/products creates a real product",
@@ -595,7 +617,8 @@
         "sortOrder": 3,
         "isExample": true
       }
-    ]
+    ],
+    "_memberTrigger": "The first product a founder lists clears them."
   },
   "badges": {
     "_trigger": "POST /api/admin/badges creates a real badge",
@@ -607,7 +630,10 @@
       "examples, and example identities never authenticate, so these rows never",
       "reach the capability gate for anyone real. Warning badges never get",
       "awards: a warning award is open state and would block module-off.",
-      "Every capability key must exist in shared/capabilities.ts ALL_CAPABILITIES."
+      "Every capability key must exist in shared/capabilities.ts ALL_CAPABILITIES.",
+      "One award carries expiresInDays: trust lent for a season, shown on the card as",
+      "a date and released by the same clock every read already honours. Never on a",
+      "WARNING badge: an unexpired warning award is open state and blocks module-off."
     ],
     "badges": [
       {
@@ -632,7 +658,7 @@
         "kind": "granted",
         "icon": "shield",
         "active": true,
-        "description": "Carries the village's trust to moderate the forum, post announcements and record the land's measurements. Powers travel with the badge and leave with it.",
+        "description": "Carries the village's trust to moderate the forum, post announcements and record the land's measurements. Powers travel with the badge and leave with it, and this one is lent for a season.",
         "capabilities": [
           "forum.moderate",
           "feed.announce",
@@ -642,7 +668,8 @@
         "awards": [
           {
             "userId": "ex-user-mira",
-            "note": "Stewarding through the wet season."
+            "note": "Stewarding through the wet season. The village lends this for one season at a time.",
+            "expiresInDays": 54
           }
         ]
       },
@@ -700,7 +727,8 @@
         ],
         "awards": []
       }
-    ]
+    ],
+    "_memberTrigger": "The first badge this village defines clears them."
   },
   "health": {
     "_trigger": "POST /api/admin/health/regen records a real measurement",
@@ -727,7 +755,8 @@
         "note": "The overgrazed section below the ridge, now fenced off from stock and replanted. Absolute area under active restoration, not a claim that it is finished.",
         "isExample": true
       }
-    ]
+    ],
+    "_memberTrigger": "The first measurement a steward records clears them."
   },
   "automation": {
     "_trigger": "POST /api/admin/recordings ingests a real recording",
@@ -827,7 +856,8 @@
           ]
         }
       }
-    ]
+    ],
+    "_memberTrigger": "The first recording this village brings in clears them."
   },
   "network": {
     "_trigger": "POST /api/admin/network/share publishes a real item",
@@ -893,7 +923,8 @@
           ]
         }
       }
-    ]
+    ],
+    "_memberTrigger": "The first thing a founder offers or asks for clears them."
   },
   "exchange": {
     "_trigger": "PUT /api/admin/exchange/tokens/:slug lists a real token, or POST /api/admin/tokens creates one",
@@ -953,7 +984,8 @@
           }
         ]
       }
-    ]
+    ],
+    "_memberTrigger": "The first token this village creates or lists clears them."
   },
   "gratitude": {
     "_trigger": "The first real gratitude send",
@@ -967,7 +999,8 @@
       "a send is, what the budget means, and what arrives at cycle close. That copy",
       "lives in the client, not in this file, and is covered in docs/STANDING_EXAMPLES.md."
     ],
-    "entries": []
+    "entries": [],
+    "_memberTrigger": "The first recognition anyone sends clears them."
   },
   "profiles": {
     "_trigger": "n/a",

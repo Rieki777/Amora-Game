@@ -14,6 +14,7 @@ import { authToken } from "@/lib/gameApi";
 import { BedDouble, CreditCard, Hammer, Moon, Send } from "lucide-react";
 import { Image } from "@/components/Image";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -33,6 +34,12 @@ export default function Stay() {
   const [arriveOn, setArriveOn] = useState("");
   const [notes, setNotes] = useState("");
   const [buyNights, setBuyNights] = useState(7);
+  // The refusal, keyed to the room: the page-top error slot sits above the
+  // whole grid, and the request composer stays open, so nothing near the
+  // button moved. Declared with the other state, ABOVE the early return
+  // below: a hook after a conditional return changes the hook count between
+  // renders the moment the module catalogue loads.
+  const [refusedRoom, setRefusedRoom] = useState<{ id: string; message: string } | null>(null);
 
   const load = () => {
     fetch("/api/stays", { headers: headers() })
@@ -50,15 +57,16 @@ export default function Stay() {
   if (modules.loaded && !staysModule) return <NotFound />;
 
   const request = (accommodationId: string) => {
-    setError("");
+    setError(""); setRefusedRoom(null);
     fetch("/api/stays/request", {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ accommodationId, arriveOn: arriveOn || undefined, notes }),
     })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not request");
+        const { ok, data: d, refusal } = await readRefusal(r);
+        if (refusal) { setRefusedRoom({ id: accommodationId, message: refusal }); return; }
+        if (!ok) throw new Error(d?.error || "Could not request");
         setRequesting("");
         setNotes("");
         setNotice("Request sent. The stewards will be in touch.");
@@ -68,15 +76,16 @@ export default function Stay() {
   };
 
   const checkout = (accommodationId: string) => {
-    setError("");
+    setError(""); setRefusedRoom(null);
     fetch("/api/stays/checkout", {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ accommodationId, nights: buyNights }),
     })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not start checkout");
+        const { ok, data: d, refusal } = await readRefusal(r);
+        if (refusal) { setRefusedRoom({ id: accommodationId, message: refusal }); return; }
+        if (!ok) throw new Error(d?.error || "Could not start checkout");
         window.location.href = d.url;
       })
       .catch((e) => setError(e.message));
@@ -187,6 +196,9 @@ export default function Stay() {
                         )
                       ) : (
                         <p className="text-xs text-muted-foreground">Sign in to request a stay or buy credits.</p>
+                      )}
+                      {refusedRoom && refusedRoom.id === a.id && (
+                        <ExampleRefusal message={refusedRoom.message} className="mt-2" />
                       )}
                     </div>
                   </div>

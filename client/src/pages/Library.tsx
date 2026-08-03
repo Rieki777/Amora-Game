@@ -12,6 +12,7 @@ import { authToken } from "@/lib/gameApi";
 import { Package, RotateCcw, Undo2, Wrench } from "lucide-react";
 import { Image } from "@/components/Image";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
+import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -31,6 +32,11 @@ export default function Library() {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // The refusal, keyed to the row: the page-top error slot is a screen away
+  // from the last item on the shelf. Declared with the other state, ABOVE the
+  // early return below: a hook after a conditional return changes the hook
+  // count between renders the moment the module catalogue loads.
+  const [refusedItem, setRefusedItem] = useState<{ id: string; message: string } | null>(null);
 
   const load = () => {
     fetch("/api/library", { headers: headers() })
@@ -42,12 +48,13 @@ export default function Library() {
 
   if (modules.loaded && !libraryModule) return <NotFound />;
 
-  const call = (path: string, body?: any) => {
-    setError(""); setNotice("");
+  const call = (path: string, body?: any, itemId?: string) => {
+    setError(""); setNotice(""); setRefusedItem(null);
     fetch(path, { method: "POST", headers: headers(), body: JSON.stringify(body ?? {}) })
       .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Request failed");
+        const { ok, data: d, refusal } = await readRefusal(r);
+        if (refusal && itemId) { setRefusedItem({ id: itemId, message: refusal }); return; }
+        if (!ok) throw new Error(d?.error || "Request failed");
         if (d.escrow != null) setNotice(`Reserved. ${d.escrow} credit(s) moved to escrow until settle.`);
         if (d.released != null) setNotice(`Cancelled. ${d.released} credit(s) released back to you.`);
         load();
@@ -137,7 +144,7 @@ export default function Library() {
                     </p>
                     {user && i.status === "available" && (
                       <button
-                        onClick={() => call(`/api/library/items/${i.id}/reserve`)}
+                        onClick={() => call(`/api/library/items/${i.id}/reserve`, undefined, i.id)}
                         disabled={!eligible}
                         title={eligible ? `Locks ${i.escrow} credit(s) in escrow` : "Not open to you yet"}
                         className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
@@ -146,6 +153,9 @@ export default function Library() {
                       </button>
                     )}
                   </div>
+                  {refusedItem && refusedItem.id === i.id && (
+                    <ExampleRefusal message={refusedItem.message} className="mt-2" />
+                  )}
                 </div>
               );
             })}

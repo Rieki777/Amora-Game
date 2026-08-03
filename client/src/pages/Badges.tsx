@@ -138,6 +138,30 @@ export default function Badges() {
                         <p className="text-xs text-red-600 mt-1">Suspends: {b.denies.join(", ")}</p>
                       )}
                       {mine?.note && <p className="text-xs text-muted-foreground italic mt-1">“{mine.note}”</p>}
+                      {/* Trust can be lent for a season. Until this shipped, a
+                          member holding a badge that lapses next week saw
+                          nothing to tell them so. */}
+                      {mine?.expiresAt && (
+                        <p className="text-xs text-amber-700 mt-1">
+                          Yours until {new Date(mine.expiresAt).toLocaleDateString()}.
+                        </p>
+                      )}
+                      {(b.holders ?? []).length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Held by{" "}
+                          {b.holders.map((h: any, i: number) => (
+                            <span key={h.userId}>
+                              {i > 0 ? ", " : ""}
+                              {h.name}
+                              {h.expiresAt && (
+                                <span className="text-amber-700">
+                                  {" "}until {new Date(h.expiresAt).toLocaleDateString()}
+                                </span>
+                              )}
+                            </span>
+                          ))}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-1.5">
                       {user && b.kind === "self" && (
