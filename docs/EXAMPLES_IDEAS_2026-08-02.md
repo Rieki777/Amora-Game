@@ -45,6 +45,39 @@ what follows is what is left, plus what building them turned up.
 
 ---
 
+## Also shipped 2026-08-03 (the follow-ups)
+
+- **The seed-schema conformance test** (`server/lib/examples.schema.test.ts`).
+  Seeds each module, then walks every field the JSON declares and checks it
+  against the row that came out. A field with a column must have ARRIVED; a
+  field with no column must be named in `DERIVED_OR_CONSUMED` with the reason
+  it exists. Plus: legal enums, no seeding into a table retirement cannot
+  reach, and no author id pointing at an identity the seed never creates.
+  Proven against injected drift, both shapes, before being trusted.
+- **`/health`, `/exchange` and `/profiles` removed from `PAGE_TITLES`** —
+  three keys matched by prefix against routes that do not exist. The real
+  paths are `/village-health`, `/wallet` and `/profile`.
+- **A real listing with no card processor now says which reason it is**
+  ("Card payments aren't connected yet" / "Buying opens at the member
+  stage") instead of showing a price with no way to act on it.
+- **`prove-examples.mjs` runs again.** It was calling a `skip()` that was
+  never defined, so it crashed on the first absent subject. Two more holes
+  found by finally RUNNING it: the reply probe read `.threads` off an
+  endpoint that answers with a bare array, so it silently tested nothing on
+  every run; and the retirement section reported a spent instance as a
+  FAILURE, when publishing a real tool is one-way and one-shot per village.
+
+### Three lessons from the follow-ups
+
+- **`node --check` proves syntax, not references.** It passed a script whose
+  every `skip()` call was undefined. Only running it found that.
+- **A probe that reads the wrong response shape passes forever.** Silent
+  skips need a loud `else`, and the shape needs checking against the route.
+- **Stop the old QA server before reprovisioning the scratch schema.** A
+  still-running instance kept writing into the recreated database, so a
+  "fresh" village arrived with three real tools and seeded no examples at
+  all. The collision looked exactly like a product bug for a few minutes.
+
 ## What is left, ordered by teaching per unit of work
 
 ### Found while building the six
@@ -60,7 +93,14 @@ what follows is what is left, plus what building them turned up.
 - **Example forum tags orphan on retirement.** `forum_thread_tags` is absent
   from both `EXAMPLE_TABLES.forum` and `BY_PARENT`, so tag rows survive the
   threads they belonged to. Harmless (the filter subquery only matches live
-  thread ids) and untidy.
+  thread ids) and untidy. **STILL OPEN, and the fix is two lines** in
+  `server/lib/examples.ts`: add `"forum_thread_tags"` FIRST in
+  `EXAMPLE_TABLES.forum` (the list deletes child-first), and add
+  `forum_thread_tags: { parentTable: "forum_threads", fk: "thread_id",
+  parentKey: "id" }` to `BY_PARENT`. Left alone on 2026-08-03 only because
+  another session was mid-rewrite of that file; the seed-schema test's
+  "never seeds into a table retirement cannot reach" case does not catch it,
+  because the tags are written by a nested loop rather than a block table.
 - **The walk cannot demonstrate the map on this platform.** Every village
   seeds 8 real circles at boot, so `hasRealContent("map")` is true and map
   examples never seed. The stop is written and correctly filters itself out;
