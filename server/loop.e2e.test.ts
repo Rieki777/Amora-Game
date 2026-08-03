@@ -1229,30 +1229,61 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     );
     expect(clash.status).toBe(409);
 
-    // Assign a role to a circle with seats; the map derives vacancy.
-    const assign = await api("PUT", "/api/admin/roles/founders-circle", { circleId: "community-life-council", seats: 3 }, founderToken);
-    expect(assign.status).toBe(200);
+    // 0049: THE MAP DRAWS THE ORG CHART, NOT THE PERMISSION TABLE.
+    //
+    // This section used to put `founders-circle` on a circle and assert the
+    // map rendered it as a seat people sit in. That WAS the behaviour and it
+    // was the defect: on a default fork the map showed "Founders Circle",
+    // "Steward Circle" and "Treasury" as seats, two of them named as circles,
+    // while the circles the village actually runs on never appeared at all.
+    // Seats are their own rows now, and `roles` is left to the one gate.
+    const seat = await api("POST", "/api/admin/org/roles", {
+      name: "Welcome Host", circleId: "community-life-council", seats: 3,
+      aim: "Be the first warm face somebody meets.",
+    }, founderToken);
+    expect(seat.status).toBe(200);
+    const seatId = seat.json.id;
+
+    // A member holding, and a DOCUMENTED one: a real person the village wrote
+    // down before they had an account here.
+    expect((await api("POST", `/api/admin/org/roles/${seatId}/holders`, { userId: doerId }, founderToken)).status).toBe(200);
+    expect((await api("POST", `/api/admin/org/roles/${seatId}/holders`, { displayName: "Mira", focus: "arrivals" }, founderToken)).status).toBe(200);
+    // The same person cannot hold one seat twice while they still hold it.
+    expect((await api("POST", `/api/admin/org/roles/${seatId}/holders`, { userId: doerId }, founderToken)).status).toBe(409);
 
     // Tier check: anonymous sees structure (counts), never names; a member
     // with map.viewPeople sees holders.
     const anonMap = await api("GET", "/api/map");
     expect(anonMap.status).toBe(200);
-    const anonRole = anonMap.json.roles.find((r: any) => r.id === "founders-circle");
-    expect(anonRole.holderCount).toBeGreaterThan(0);
+    const anonRole = anonMap.json.roles.find((r: any) => r.id === seatId);
+    expect(anonRole.holderCount).toBe(2);
     expect(anonRole.holders).toEqual([]);
     expect(anonRole.circleId).toBe("community-life-council");
-    expect(anonRole.vacant).toBe(true); // 3 seats, fewer holders
+    expect(anonRole.vacant).toBe(true); // 3 seats, 2 held
+    expect(anonRole.state).toBe("partial");
+    // The permission groups are NOT on the map any more, which is the point.
+    expect(anonMap.json.roles.some((r: any) => r.id === "founders-circle")).toBe(false);
     const memberMap = await api("GET", "/api/map", undefined, doerToken);
-    const memberRole = memberMap.json.roles.find((r: any) => r.id === "founders-circle");
-    expect(memberRole.holders.length).toBeGreaterThan(0);
+    const memberRole = memberMap.json.roles.find((r: any) => r.id === seatId);
+    expect(memberRole.holders.length).toBe(2);
+    // A documented holder shows a name and carries no account to open.
+    const documented = memberRole.holders.find((h: any) => h.kind === "documented");
+    expect(documented.name).toBe("Mira");
+    expect(documented.userId).toBeNull();
     // Quests resolve to circles through aliases.
     expect(anonMap.json.quests.some((q: any) => q.circleId === "permaculture-council")).toBe(true);
 
-    // Raise a hand on the vacant seat → the existing submissions inbox.
-    const hand = await api("POST", "/api/map/roles/founders-circle/raise-hand", { note: "I hold the long view." }, doerToken);
+    // The public org chart serves the same rows, structure-only to a stranger.
+    const org = await api("GET", "/api/org");
+    expect(org.status).toBe(200);
+    expect(org.json.roles.some((r: any) => r.id === seatId)).toBe(true);
+    expect(org.json.roles.every((r: any) => r.holders.length === 0)).toBe(true);
+
+    // Raise a hand on the seat → the existing submissions inbox.
+    const hand = await api("POST", `/api/map/roles/${seatId}/raise-hand`, { note: "I hold the long view." }, doerToken);
     expect(hand.status).toBe(200);
     const subs = await api("GET", "/api/admin/submissions?type=role-application", undefined, founderToken);
-    expect(subs.json.some((s: any) => s.data?.roleId === "founders-circle")).toBe(true);
+    expect(subs.json.some((s: any) => s.data?.roleId === seatId)).toBe(true);
 
     // The contact relay: opt-out is server-enforced, then a real relay lands
     // a notification (email is fire-and-forget without a key).
@@ -1263,10 +1294,10 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const refused = await api("POST", "/api/map/contact", { toUserId: peerId, message: "hello" }, doerToken);
     expect(refused.status).toBe(403);
     await api("PUT", "/api/game/preferences", { contactable: true }, peerToken);
-    const sent = await api("POST", "/api/map/contact", { toUserId: peerId, roleId: "founders-circle", message: "Can I help with welcome duty?" }, doerToken);
+    const sent = await api("POST", "/api/map/contact", { toUserId: peerId, roleId: seatId, message: "Can I help with welcome duty?" }, doerToken);
     expect(sent.status).toBe(200);
     // Same message twice = the idempotency key absorbs it.
-    const dup = await api("POST", "/api/map/contact", { toUserId: peerId, roleId: "founders-circle", message: "Can I help with welcome duty?" }, doerToken);
+    const dup = await api("POST", "/api/map/contact", { toUserId: peerId, roleId: seatId, message: "Can I help with welcome duty?" }, doerToken);
     expect(dup.json.duplicate).toBe(true);
     const peerBell = await api("GET", "/api/notifications", undefined, peerToken);
     expect(peerBell.json.notifications.some((n: any) => n.type === "contact_request")).toBe(true);
@@ -1275,7 +1306,16 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // logged, unmatched asks become the demand signal.
     const matched = await api("POST", "/api/assistant/coordinate", { query: "I want to help with permaculture and gardens" }, doerToken);
     expect(matched.status).toBe(200);
-    expect(matched.json.match?.id).toBe("permaculture-council");
+    // Before 0049 the candidate set was circles, permission groups and
+    // quests, so a permaculture question could only ever answer with the
+    // council. Seats are candidates now, and this village has one named
+    // "Regenerative Agriculture and Permaculture Circle Lead" — a more
+    // specific match, and a better answer to "who do I ask", because a seat
+    // resolves to a person and a circle does not.
+    //
+    // Either is right. What must hold is that it resolves DETERMINISTICALLY
+    // to something about permaculture and never to something unrelated.
+    expect(["permaculture-council", "regen-ag-lead"]).toContain(matched.json.match?.id);
     expect(matched.json.method).toBe("deterministic");
     const unmatched = await api("POST", "/api/assistant/coordinate", { query: "underwater basket weaving championships" }, doerToken);
     expect(unmatched.json.match).toBeNull();

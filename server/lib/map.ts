@@ -28,11 +28,37 @@ const norm = (s: unknown) =>
     .replace(/[^a-z0-9\s-]/g, " ");
 
 /**
- * Score every candidate against the query: +3 per tag/alias hit, +2 per name
- * hit, +1 per purpose hit. Aliases count as circle-name hits (+2).
+ * Words that carry no signal about WHAT somebody wants, only about the shape
+ * of asking. A three-letter floor removes "a" and "to" and leaves "and",
+ * "with", "want" and "help" scoring, and a long prose field contains almost
+ * all of them: a seat with six accountabilities scored a point for "and" and
+ * another for "with" and beat the circle it sits inside, on a question that
+ * named the circle. Free points for length is the failure mode this closes.
+ *
+ * Kept deliberately tight. Anything a village might genuinely ask about
+ * (care, land, water, food, build, hold) has to survive, so this is function
+ * words plus the handful of verbs every request is framed with.
+ */
+const STOPWORDS: ReadonlySet<string> = new Set([
+  "and", "the", "with", "for", "from", "into", "that", "this", "these", "those",
+  "are", "was", "were", "been", "being", "has", "have", "had", "can", "could",
+  "would", "should", "will", "shall", "want", "wants", "need", "needs", "help",
+  "who", "whom", "whose", "what", "when", "where", "which", "how", "why",
+  "our", "your", "their", "its", "you", "they", "them", "some", "any", "about",
+  "out", "but", "not", "also", "just", "more", "most", "than", "then", "there",
+  "here", "does", "doing", "done", "get", "got", "give", "like", "know",
+]);
+
+/**
+ * Score every candidate against the query: +3 per quest tag hit, +2 per alias
+ * or name hit, +1 per prose hit. A circle's ALIASES are name-equivalent on
+ * purpose; prose (aims, domains, accountabilities, descriptions) is the +1
+ * bucket, because scoring prose like a name lets length decide.
  */
 export function scoreCandidates(query: string, candidates: Candidate[]): ScoredMatch[] {
-  const words = norm(query).split(/\s+/).filter((w) => w.length >= 3);
+  const words = norm(query)
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
   if (!words.length) return [];
   return candidates
     .map((c) => {

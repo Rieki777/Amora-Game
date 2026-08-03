@@ -5881,14 +5881,21 @@ async function startServer() {
       // could only ever answer with "Treasury" or "Founders Circle".
       // A seat's domain is what it decides on, which is the field a question
       // like "who handles water" is actually asking about.
+      //
+      // Aim, domain and accountabilities all go in `purpose`, the PROSE
+      // bucket, and nothing goes in `extra`. `extra` scores +2, the same as a
+      // name: it holds a circle's aliases, which are curated identity strings.
+      // Accountabilities are several sentences of prose, and scoring them
+      // like aliases let a seat outrank the circle it sits in on sheer word
+      // count. "help with permaculture and gardens" answered with the
+      // Regenerative Agriculture SEAT instead of the Permaculture Council.
       ...(await listOrgRoles(getPool()))
         .filter((r) => r.active)
         .map((r) => ({
           kind: "role" as const,
           id: r.id,
           name: r.name,
-          purpose: [r.aim, r.domain].filter(Boolean).join(" "),
-          extra: r.accountabilities,
+          purpose: [r.aim, r.domain, ...r.accountabilities].filter(Boolean).join(" "),
         })),
       ...(await questsRepo.all())
         .filter((q: any) => String(q.status).toLowerCase() === "open")
