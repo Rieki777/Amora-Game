@@ -250,7 +250,16 @@ export interface RegenEntry {
   value: number;
   unit: string;
   note: string | null;
-  recordedBy: string;
+  /**
+   * The steward who took the reading, first name only, and NULL for a caller
+   * who may not see people.
+   *
+   * This used to be `recordedBy`, carrying `recorded_by` verbatim: a stable
+   * user id on a payload the dashboard serves unauthenticated. The name says
+   * name now so a reader cannot mistake one for the other, and the id stays
+   * in the table where the audit trail needs it.
+   */
+  recordedByName: string | null;
   recordedAt: string;
   /** Set once a steward withdraws this reading; it then counts toward nothing. */
   retractedAt?: string | null;
@@ -273,10 +282,20 @@ export interface RegenEntry {
  * number must stop counting the instant it is withdrawn, or the impact tiles
  * keep reporting a figure the village has already disowned. `includeRetracted`
  * exists for the admin surface that shows the correction history.
+ *
+ * `nameFor` is the people tier, passed IN rather than decided here, and its
+ * absence means "this caller sees no people". Both routes that read this
+ * serve callers who may be anonymous, so the tier has to be unforgettable:
+ * a function that hands back an id and trusts two callers to remember to
+ * strip it is how the id reached the open internet in the first place.
  */
-export async function regenEntries(pool: Pool, limit = 100, includeRetracted = false): Promise<RegenEntry[]> {
+export async function regenEntries(
+  pool: Pool,
+  limit = 100,
+  opts: { includeRetracted?: boolean; nameFor?: (userId: string) => string | null } = {},
+): Promise<RegenEntry[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT * FROM regen_entries ${includeRetracted ? "" : "WHERE retracted_at IS NULL "}` +
+    `SELECT * FROM regen_entries ${opts.includeRetracted ? "" : "WHERE retracted_at IS NULL "}` +
       "ORDER BY recorded_at DESC, id DESC LIMIT ?",
     [limit],
   );
@@ -286,7 +305,7 @@ export async function regenEntries(pool: Pool, limit = 100, includeRetracted = f
     value: Number(r.value),
     unit: String(r.unit),
     note: r.note ?? null,
-    recordedBy: String(r.recorded_by),
+    recordedByName: opts.nameFor ? opts.nameFor(String(r.recorded_by)) : null,
     recordedAt: new Date(r.recorded_at).toISOString(),
     retractedAt: r.retracted_at ? new Date(r.retracted_at).toISOString() : null,
     retractionNote: r.retraction_note ?? null,

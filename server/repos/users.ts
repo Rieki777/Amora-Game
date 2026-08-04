@@ -68,6 +68,10 @@ const COLUMNS = [
   "wallet_verified_at",
   "joined_at",
   "is_example",
+  // 0058. Read as a gate by `hasMembership` and written by a boot migration
+  // since long before it existed as a column, so every write landed on the
+  // in-memory record and the UPDATE below dropped it.
+  "membership_granted",
 ] as const;
 
 function toIso(v: unknown): string | null {
@@ -117,6 +121,8 @@ function rowToMember(row: RowDataPacket): MemberRecord {
     // a person. Excluded from the roster, member counts and every metric that
     // counts humans; it has no password_hash, so it can never sign in.
     isExample: Number(row.is_example ?? 0) === 1,
+    /** An explicit steward grant, as opposed to an attributed signing. */
+    membershipGranted: Number(row.membership_granted ?? 0) === 1,
   };
 }
 
@@ -150,6 +156,7 @@ function memberToParams(m: MemberRecord): any[] {
     toDb(m.walletVerifiedAt),
     toDb(m.joinedAt) ?? new Date(),
     m.isExample ? 1 : 0,
+    m.membershipGranted ? 1 : 0,
   ];
 }
 

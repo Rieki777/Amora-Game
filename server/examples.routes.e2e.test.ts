@@ -567,6 +567,69 @@ describe.skipIf(!DB_CONFIGURED)("standing examples: every guard, over HTTP", () 
     }
   });
 
+  it("refuses to claim an example seating, and never offers one", async () => {
+    // `unclaimedSeatingsFor` matches a member's name against documented
+    // holders and `claimSeating` took whatever it was handed, so a member
+    // whose name matched a demo holder could become the real holder of a demo
+    // seat, and the village's first org chart would be part illustration and
+    // part fact with nothing to tell them apart.
+    //
+    // The rows are WRITTEN HERE rather than read from the seed, the same way
+    // the example-quest case above writes its own. `progression`'s example
+    // block does not actually seed on this platform: `hasRealContent` reads
+    // `roles`, the starter seed fills it with four real permission groups
+    // before `seedExamplesAtBoot` runs, and the module is skipped every boot.
+    // That is worth knowing and it is not what this guard is about — an
+    // example seating can exist (the dev seeder forces one, a fork that
+    // empties `roles` gets them), and the guard has to hold when it does.
+    const seatId = "ex-seat-guard";
+    const seatingId = "ex-seat-guard-holder";
+    const name = "Guarded Holder";
+    await pool.query(
+      "INSERT INTO org_roles (id, name, aim, seats, sort_order, is_example) " +
+        "VALUES (?, 'Guarded Seat', 'Prove the guard holds.', 1, 997, 1) " +
+        "ON DUPLICATE KEY UPDATE is_example = 1",
+      [seatId],
+    );
+    await pool.query(
+      "INSERT INTO org_role_assignments (id, org_role_id, holder_kind, display_name, holder_key, is_example) " +
+        "VALUES (?, ?, 'documented', ?, 'doc:guarded-holder', 1) " +
+        "ON DUPLICATE KEY UPDATE is_example = 1",
+      [seatingId, seatId, name],
+    );
+
+    try {
+      // A real member whose name matches the documented holder EXACTLY, which
+      // is the easiest version of the match to hit.
+      const email = `claimer-${PORT}@example.test`;
+      const reg = await call("POST", "/api/auth/register",
+        { email, password: "ExamplesTest123!", name, paths: ["resident"] }, "");
+      const token = String(reg.json?.token ?? "");
+      expect(token, `the claimer must hold a session: ${JSON.stringify(reg.json)}`).toBeTruthy();
+
+      const offered = await call("GET", "/api/org/my-unclaimed-seats", undefined, token);
+      expect(offered.status).toBe(200);
+      expect(
+        (offered.json as any[]).some((o) => o.assignmentId === seatingId),
+        "an example seating is never offered",
+      ).toBe(false);
+
+      expectRefused(
+        await call("POST", `/api/org/seatings/${seatingId}/claim`, {}, token),
+        "claiming an example seating",
+      );
+      const [[after]] = await pool.query<any[]>(
+        "SELECT holder_kind, user_id, is_example FROM org_role_assignments WHERE id = ?", [seatingId],
+      );
+      expect(after.holder_kind, "the example seating stays documented").toBe("documented");
+      expect(after.user_id, "no real account may end up holding it").toBeNull();
+      expect(Number(after.is_example)).toBe(1);
+    } finally {
+      await pool.query("DELETE FROM org_role_assignments WHERE id = ?", [seatingId]);
+      await pool.query("DELETE FROM org_roles WHERE id = ?", [seatId]);
+    }
+  });
+
   it("refuses acting on an example call task", async () => {
     const [rows] = await pool.query<any[]>(
       "SELECT id FROM call_tasks WHERE is_example = 1 LIMIT 1",

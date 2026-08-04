@@ -54,6 +54,25 @@ export interface OrgRole {
   color: string | null;
   order: number;
   isExample: boolean;
+  /**
+   * THE RECRUITMENT PACK. Six columns 0049 created and `WRITABLE` has always
+   * accepted, and which nothing ever read back: `ROLE_COLS` omitted every one,
+   * so an admin could type a seat's pay reality into the API and watch it
+   * vanish from every view forever.
+   *
+   * They are read here so the round trip is honest, and they are ADMIN ONLY on
+   * `/api/org`. They are not structure: `compensationReality` is money and the
+   * outcomes and evidence fields are what a candidate is measured against.
+   * `buildOrgExport` names its fields one by one and none of these is among
+   * them, which is the property `villageExport.test.ts` asserts against the
+   * whole serialised export rather than field by field.
+   */
+  authority: string | null;
+  firstYearOutcomes: string | null;
+  first90DayOutcomes: string | null;
+  locationExpectations: string | null;
+  compensationReality: string | null;
+  evidenceRequired: string | null;
 }
 
 export interface OrgAssignment {
@@ -82,7 +101,10 @@ export interface OrgAssignment {
 }
 
 const ROLE_COLS =
-  "id, circle_id, name, aim, domain, accountabilities, why_it_matters, seats, criticality, active, recruiting, expires_each_season, status_override, status_override_expires_at, icon, color, sort_order, is_example";
+  "id, circle_id, name, aim, domain, accountabilities, why_it_matters, seats, criticality, active, recruiting, expires_each_season, status_override, status_override_expires_at, icon, color, sort_order, is_example, " +
+  // The recruitment pack. Written since 0049, selected by nobody until now, so
+  // every one of them was a column the API accepted and then swallowed.
+  "authority, first_year_outcomes, first_90_day_outcomes, location_expectations, compensation_reality, evidence_required";
 
 const ASSIGN_COLS =
   // `is_example` rides along so the flag travels through every SELECT. It was
@@ -126,6 +148,12 @@ function rowToRole(r: any): OrgRole {
     color: r.color ?? null,
     order: Number(r.sort_order ?? 0),
     isExample: !!r.is_example,
+    authority: r.authority ?? null,
+    firstYearOutcomes: r.first_year_outcomes ?? null,
+    first90DayOutcomes: r.first_90_day_outcomes ?? null,
+    locationExpectations: r.location_expectations ?? null,
+    compensationReality: r.compensation_reality ?? null,
+    evidenceRequired: r.evidence_required ?? null,
   };
 }
 
@@ -667,6 +695,82 @@ export async function endSeating(pool: Pool, assignmentId: string, reason?: stri
 }
 
 /**
+ * Release every seat a departing member holds, and take their name off it.
+ *
+ * `anonymizeMember` ends PERMISSION holdings (`role_holders`) and touched
+ * nothing here, because "role" means two unrelated things (§3.15). So a
+ * member who exercised deletion kept a live seating under their real user id
+ * and `/api/org` went on republishing it to anyone with `map.viewPeople`.
+ *
+ * Ended, never deleted, exactly as `endSeating` does it: a seat's history is
+ * the point, and the generated active-holder key frees the seat for whoever
+ * comes next. `display_name` goes from EVERY row, live and ended, because it
+ * is the one column here that restates the person without joining to `users`:
+ * `claimSeating` keeps the name a seating was documented under, so the
+ * tombstone written on the users row never reaches it. The note goes with it,
+ * for the same reason and because it is a sentence about the person rather
+ * than about the work ("Away and inactive" is the one that leaked). `focus`
+ * stays: it says which slice of the seat was held, which is a fact about the
+ * seat.
+ */
+export async function releaseSeatingsForUser(
+  pool: Pool,
+  userId: string,
+  reason: string,
+): Promise<number> {
+  const [ended]: any = await pool.query(
+    "UPDATE org_role_assignments SET ended_at = NOW(), ended_reason = ? WHERE user_id = ? AND ended_at IS NULL",
+    [reason, userId],
+  );
+  await pool.query(
+    "UPDATE org_role_assignments SET display_name = NULL, note = NULL WHERE user_id = ?",
+    [userId],
+  );
+  return Number(ended?.affectedRows ?? 0);
+}
+
+/**
+ * Forget a documented holder across every seat they were recorded on.
+ *
+ * A documented holder is a real person with no account, which is the whole
+ * point of `holder_kind = 'documented'` — and it means `anonymizeMember` can
+ * never reach them, because nothing joins their name to a user row. This is
+ * their only door. It is an admin act because somebody has to say which
+ * recorded name the request is about; matching on a name is what the
+ * seat-claim flow puts a human in the loop for.
+ *
+ * Everything they hold goes at once, found through `holder_key` rather than
+ * the id passed in: forgetting somebody from one seat and leaving them named
+ * on the next one is not forgetting them. `holder_key` itself is rewritten,
+ * because `documentedKey` derives it from the name and a slug is a name with
+ * hyphens. Ending comes first: the key is part of a generated column under a
+ * unique index while the seating is live, and NULL once it ends.
+ */
+export async function forgetDocumentedHolder(
+  pool: Pool,
+  assignmentId: string,
+  reason: string,
+): Promise<{ found: boolean; seatings: number }> {
+  const [rows]: any = await pool.query(
+    "SELECT holder_key FROM org_role_assignments WHERE id = ? AND holder_kind = 'documented'",
+    [assignmentId],
+  );
+  const key = (rows as any[])[0]?.holder_key;
+  if (!key) return { found: false, seatings: 0 };
+  const [ended]: any = await pool.query(
+    "UPDATE org_role_assignments SET ended_at = NOW(), ended_reason = ? " +
+      "WHERE holder_key = ? AND holder_kind = 'documented' AND ended_at IS NULL",
+    [reason, key],
+  );
+  await pool.query(
+    "UPDATE org_role_assignments SET display_name = NULL, note = NULL, holder_key = CONCAT('doc:forgotten-', id) " +
+      "WHERE holder_key = ? AND holder_kind = 'documented'",
+    [key],
+  );
+  return { found: true, seatings: Number(ended?.affectedRows ?? 0) };
+}
+
+/**
  * Convert a documented holder into a real member holding, keeping the same
  * row so the seat's history does not restart when somebody finally signs up.
  */
@@ -674,7 +778,7 @@ export async function claimSeating(pool: Pool, assignmentId: string, userId: str
   const [r]: any = await pool.query(
     `UPDATE org_role_assignments
         SET holder_kind = 'member', user_id = ?, holder_key = ?
-      WHERE id = ? AND ended_at IS NULL AND holder_kind = 'documented'`,
+      WHERE id = ? AND ended_at IS NULL AND holder_kind = 'documented' AND is_example = 0`,
     [userId, userId, assignmentId],
   );
   return !!r?.affectedRows;
@@ -684,6 +788,14 @@ export async function claimSeating(pool: Pool, assignmentId: string, userId: str
  * Documented seatings whose name looks like this member's, offered to them
  * once on sign-in as "is this you?". Deliberately a suggestion: nothing is
  * claimed without the person saying so.
+ *
+ * Examples are excluded, here and in `claimSeating`. `progression` is a CORE
+ * module, so every fresh fork boots with seeded seats and seeded documented
+ * holders already in these tables, before a human has enabled anything. A
+ * member whose name happens to match one of those holders could claim a demo
+ * seat and become a real holder of it, and the village's first org chart
+ * would then be part illustration and part fact with nothing to tell them
+ * apart.
  */
 export async function unclaimedSeatingsFor(pool: Pool, fullName: string): Promise<OrgAssignment[]> {
   const name = String(fullName ?? "").trim().toLowerCase();
@@ -691,7 +803,7 @@ export async function unclaimedSeatingsFor(pool: Pool, fullName: string): Promis
   const first = name.split(/\s+/)[0];
   const [rows]: any = await pool.query(
     `SELECT ${ASSIGN_COLS} FROM org_role_assignments
-      WHERE ended_at IS NULL AND holder_kind = 'documented'`,
+      WHERE ended_at IS NULL AND holder_kind = 'documented' AND is_example = 0`,
   );
   return (rows as any[])
     .map(rowToAssignment)

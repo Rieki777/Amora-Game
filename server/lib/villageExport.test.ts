@@ -33,6 +33,8 @@ const role = (id: string, over: Partial<R> = {}): R => ({
   active: true, recruiting: false, expiresEachSeason: null,
   statusOverride: null, statusOverrideExpiresAt: null,
   icon: null, color: null, order: 0, isExample: false,
+  authority: null, firstYearOutcomes: null, first90DayOutcomes: null,
+  locationExpectations: null, compensationReality: null, evidenceRequired: null,
   ...over,
 });
 
@@ -66,12 +68,32 @@ describe("the export carries counts and never people", () => {
     "doc:bo-reyes", "Bo Reyes",            // a documented holder
     "wants to step back next season",      // a holder note
     "mornings only",                       // a focus string
+    // The recruitment pack. 0049 created these six columns, nothing read them
+    // back until now, and a column called `compensation_reality` sitting
+    // unread beside a public export is the trap this list closes. They are
+    // admin-tier on /api/org and they are not structure, so the export must
+    // never grow them by somebody adding a field it looked reasonable beside.
+    "signs cheques up to 500",
+    "the well is metered by March",
+    "first 90: walk every line",
+    "on site three days a week",
+    "unpaid, board seat after a year",
+    "two references from water work",
   ];
+
+  const pack = {
+    authority: "signs cheques up to 500",
+    firstYearOutcomes: "the well is metered by March",
+    first90DayOutcomes: "first 90: walk every line",
+    locationExpectations: "on site three days a week",
+    compensationReality: "unpaid, board seat after a year",
+    evidenceRequired: "two references from water work",
+  };
 
   const doc = build(
     [
-      role("water-steward", { circleId: "land-circle", name: "Water Steward", seats: 2, aim: "Keep the water running." }),
-      role("gate-steward", { circleId: "land-circle", name: "Gate Steward" }),
+      role("water-steward", { circleId: "land-circle", name: "Water Steward", seats: 2, aim: "Keep the water running.", ...pack }),
+      role("gate-steward", { circleId: "land-circle", name: "Gate Steward", ...pack }),
     ],
     [
       seating("water-steward", { focus: "mornings only", note: "wants to step back next season" }),

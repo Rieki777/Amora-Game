@@ -15,9 +15,11 @@
  *    not a second and looser front door, so it still demands the literal
  *    platform string.
  */
+import { generateKeyPairSync } from "crypto";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { discoverPeer } from "./network";
+import { checkPinnedKey, discoverPeer, type PeerIdentity } from "./network";
 import * as toolcheck from "./toolcheck";
+import { publicKeyBlock, signDocument, type SigningKey } from "./villageExport";
 
 const WELL_KNOWN = "/.well-known/village.json";
 const PLATFORM = "/api/platform/info";
@@ -69,6 +71,9 @@ describe("the village handshake", () => {
         version: "3.2.1",
         protocol: "village/1",
         supports: ["org/1"],
+        // This document carries no key block, which a hand-written static file
+        // never will. It federates anyway and simply pins nothing.
+        publicKey: null,
       });
     });
   });
@@ -89,6 +94,8 @@ describe("the village handshake", () => {
       version: "1.0.0",
       protocol: "platform/0",
       supports: [],
+      // The v0 document is unsigned and always was.
+      publicKey: null,
     });
   });
 
@@ -204,5 +211,149 @@ describe("the village handshake", () => {
     for (const call of spy.mock.calls) {
       expect(String(call[0])).toMatch(/\/\.well-known\/village\.json$|\/api\/platform\/info$/);
     }
+  });
+});
+
+/**
+ * The pinned key (0057), which is the half of peer identity that cannot be
+ * copied.
+ *
+ * A public key is PUBLIC. Comparing the key a document publishes against the
+ * key we stored proves nothing at all, because an impostor lifts the block
+ * verbatim out of the real village's document. What proves something is the
+ * SIGNATURE, checked against the pinned key, and these tests exist to keep
+ * that distinction from quietly eroding into a string comparison.
+ */
+describe("pinning a peer's signing key", () => {
+  const keyOf = (): SigningKey => {
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    return {
+      kid: "test",
+      publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+      privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+      createdAt: "2026-08-04T00:00:00.000Z",
+    };
+  };
+
+  /** A discovery document as this platform publishes one: key block, signed. */
+  const signedDoc = (k: SigningKey, over: Record<string, any> = {}) =>
+    signDocument(
+      { ...villageDoc(over), publicKey: publicKeyBlock(k) },
+      k,
+      "2026-08-04T12:00:00.000Z",
+    );
+
+  it("pins the key a village proved it holds", async () => {
+    const k = keyOf();
+    serve({ [WELL_KNOWN]: signedDoc(k) });
+    const id = (await discoverPeer("https://peer.example"))!;
+    expect(id.publicKey).toBe(publicKeyBlock(k).publicKeyBase64url);
+  });
+
+  it("refuses to pin a key the answerer cannot sign with", async () => {
+    // THE attack this closes. An impostor copies the real village's key block
+    // into its own document, so every visible field matches, and signs with
+    // the only private key it has. The block says one thing and the signature
+    // says another, and only the signature costs anything to produce.
+    const real = keyOf();
+    const impostor = keyOf();
+    const doc = signDocument(
+      { ...villageDoc(), publicKey: publicKeyBlock(real) },
+      impostor,
+      "2026-08-04T12:00:00.000Z",
+    );
+    serve({ [WELL_KNOWN]: doc });
+    const id = (await discoverPeer("https://peer.example"))!;
+    expect(id.instanceId).toBe("inst-abc");
+    expect(id.publicKey).toBeNull();
+  });
+
+  it("refuses to pin when the PEM and the raw bytes disagree", async () => {
+    // The same attack wearing the other encoding. The document publishes the
+    // real village's raw bytes beside the impostor's PEM, betting that a
+    // verifier reads the PEM. Verification rebuilds the PEM from the bytes, so
+    // the convenience field is never load-bearing.
+    const real = keyOf();
+    const impostor = keyOf();
+    const doc = signDocument(
+      {
+        ...villageDoc(),
+        publicKey: {
+          ...publicKeyBlock(impostor),
+          publicKeyBase64url: publicKeyBlock(real).publicKeyBase64url,
+        },
+      },
+      impostor,
+      "2026-08-04T12:00:00.000Z",
+    );
+    serve({ [WELL_KNOWN]: doc });
+    expect((await discoverPeer("https://peer.example"))!.publicKey).toBeNull();
+  });
+
+  it("refuses to pin when the body was edited after signing", async () => {
+    const k = keyOf();
+    const doc = signedDoc(k);
+    serve({ [WELL_KNOWN]: { ...doc, instanceId: "inst-somebody-else" } });
+    expect((await discoverPeer("https://peer.example"))!.publicKey).toBeNull();
+  });
+
+  it("refuses to pin a key block with no signature at all", async () => {
+    const k = keyOf();
+    serve({ [WELL_KNOWN]: { ...villageDoc(), publicKey: publicKeyBlock(k) } });
+    expect((await discoverPeer("https://peer.example"))!.publicKey).toBeNull();
+  });
+
+  it("refuses to pin a key that is not 32 bytes", async () => {
+    const k = keyOf();
+    const doc = signDocument(
+      { ...villageDoc(), publicKey: { ...publicKeyBlock(k), publicKeyBase64url: "not-a-key" } },
+      k,
+      "2026-08-04T12:00:00.000Z",
+    );
+    serve({ [WELL_KNOWN]: doc });
+    expect((await discoverPeer("https://peer.example"))!.publicKey).toBeNull();
+  });
+
+  const identity = (publicKey: string | null): PeerIdentity => ({
+    instanceId: "inst-abc", name: "Riverbend", version: "1", protocol: "village/1",
+    supports: [], publicKey,
+  });
+
+  it("pins on first use, and passes a peer that signs with the pinned key", () => {
+    expect(checkPinnedKey(null, identity("kA"))).toEqual({ state: "unpinned", pin: "kA" });
+    expect(checkPinnedKey(null, identity(null))).toEqual({ state: "unpinned", pin: null });
+    expect(checkPinnedKey("kA", identity("kA"))).toEqual({ state: "ok" });
+  });
+
+  it("pauses on a key that changed, and says a human decides which it was", () => {
+    // A rotation and an impostor are the same event from here, so this village
+    // states the ambiguity instead of resolving it. "accept & resume" is the
+    // human saying which.
+    const v = checkPinnedKey("kA", identity("kB"));
+    expect(v.state).toBe("changed");
+    expect((v as any).detail).toContain("accept & resume");
+  });
+
+  it("pauses on a peer that stopped proving a key it used to prove", () => {
+    // Going quiet is not a way out of a check. Answering without a key is what
+    // a rollback to a pre-signing build looks like AND what a downgrade attack
+    // looks like, and the second is the attack pinning exists to resist, so
+    // this refuses rather than picking the friendlier reading.
+    const v = checkPinnedKey("kA", identity(null));
+    expect(v.state).toBe("lost");
+    expect((v as any).detail).toContain("accept & resume");
+  });
+
+  it("a v0 peer cannot talk this village out of a pin either", async () => {
+    // The downgrade in its concrete form: /.well-known stops answering and the
+    // legacy /api/platform/info takes over, which is unsigned by construction.
+    // Discovery reports no key, and a peer we already pinned is paused.
+    serve({ [WELL_KNOWN]: new Error("404"), [PLATFORM]: platformDoc() });
+    const id = (await discoverPeer("https://peer.example"))!;
+    expect(id.protocol).toBe("platform/0");
+    expect(id.publicKey).toBeNull();
+    expect(checkPinnedKey("kA", id).state).toBe("lost");
+    // …and a peer that never had one keeps federating exactly as before.
+    expect(checkPinnedKey(null, id)).toEqual({ state: "unpinned", pin: null });
   });
 });

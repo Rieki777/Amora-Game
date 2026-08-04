@@ -286,10 +286,12 @@ import {
   describeOrgChange,
   documentedKey,
   endSeating,
+  forgetDocumentedHolder,
   listOrgAssignments,
   listOrgRoles,
   orgRoleHistory,
   expiringSeatings,
+  releaseSeatingsForUser,
   seatHolder,
   seatState,
   statusOverrideProblem,
@@ -2423,6 +2425,13 @@ function firstName(name: string): string {
  * A self-typed email string is no longer one of them. The boot migration
  * below converts today's email-matched members into explicit grants first, so
  * closing this demotes nobody who is legitimately here.
+ *
+ * That migration saved nothing until 0058: `membershipGranted` had no column,
+ * so `usersRepo` dropped it on the UPDATE and the freeze logged a count over
+ * an empty write. The column exists now, and the freeze is NOT re-run: its
+ * runOnce key is recorded everywhere, and replaying it today would convert
+ * every self-typed email match accumulated since into a permanent grant, which
+ * is the hole itself. It froze a moment, and the moment has passed.
  */
 function hasMembership(user: any): boolean {
   if (user.membershipGranted) return true;
@@ -2649,6 +2658,9 @@ async function runRetentionSweep(): Promise<string> {
  *    AND text-scrubbed (the title and body restate the person independently
  *    of the actor id — see the statement itself);
  *  - tool clicks de-attributed; active role appointments end;
+ *  - org seatings end and lose the name and note they carried (the OTHER
+ *    plane called "role", §3.15 — the appointments line above is a different
+ *    table and reaches none of this);
  *  - PUBLIC pulse lines naming them are deleted; ADMIN audit rows are kept
  *    (id-only, retained as the legal record — Law 8968 permits retention
  *    for accountability obligations).
@@ -2705,6 +2717,12 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<voi
     await roleHoldersRepo.replaceAll(holders);
   });
 
+  // The line above ends PERMISSION holdings. The org chart is the other plane
+  // called "role" (ARCHITECTURE §3.15) and shares nothing with it, so it went
+  // on holding a departed member's seat under their real user id while
+  // /api/org republished it to everyone with map.viewPeople.
+  await releaseSeatingsForUser(pool, target.id, "member left the village");
+
   /*
    * THE TRACES A TOMBSTONE DOES NOT COVER.
    *
@@ -2756,6 +2774,7 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<voi
     u.contributions = [];
     u.role = "member";
     u.stageGranted = null;
+    u.membershipGranted = false;
     u.walletAddress = null;
     u.walletVerifiedAt = null;
   });
@@ -7377,17 +7396,36 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   app.use("/api/network", requireModule("network"));
 
-  /** The member view: what we share, what peers share, one payload. */
+  /**
+   * The member view: what we share, what peers share, one payload.
+   *
+   * The network module can run `public`, so this answers anonymous callers.
+   * It used to run `SELECT s.*` joined to `users.name`, which put a full legal
+   * name and the author's stable user id in front of every one of them —
+   * `/api/network/published` below lists its columns and omits `created_by`,
+   * and this is its inward-facing twin. The columns are named here for the
+   * same reason, `created_by` never leaves, and the author rides behind the
+   * people tier as a first name, which is what `/api/org` and `/api/roles`
+   * publish at that tier.
+   */
   app.get("/api/network", async (req, res) => {
     const [mine] = await getPool().query<any[]>(
-      "SELECT s.*, u.name AS author_name FROM shared_items s LEFT JOIN users u ON u.id = s.created_by " +
+      "SELECT s.id, s.type, s.title, s.detail, s.contact, s.status, s.created_at, s.is_example, " +
+        "u.name AS author_name FROM shared_items s LEFT JOIN users u ON u.id = s.created_by " +
         "ORDER BY s.created_at DESC LIMIT 100",
     );
     const viewer = await authedUser(req);
     const admin = viewer && (viewer.role === "admin" || viewer.role === "founder");
+    const maySeePeople =
+      !!admin || (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
     res.json({
       village: mergedConfig().project.name,
-      mine: mine.filter((m) => admin || m.status === "open"),
+      mine: mine
+        .filter((m) => admin || m.status === "open")
+        .map(({ author_name, ...m }) => ({
+          ...m,
+          author: maySeePeople && author_name ? firstName(author_name) : null,
+        })),
       peers: await peerSharedItems(getPool()),
       types: SHARED_ITEM_TYPES,
       canManage: !!admin,
@@ -7488,8 +7526,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       const info = await discoverPeer(String(peer.base_url));
       if (!info) throw new Error("no handshake");
       await getPool().query(
-        "UPDATE peer_instances SET status = 'active', instance_id = ?, name = ?, version = ?, last_error = NULL WHERE id = ?",
-        [info.instanceId, String(info.name ?? peer.name).slice(0, 120), info.version, peer.id],
+        // The signing key is re-pinned here for the same reason the instance
+        // id is: this route IS the accept, and a rotation a human agreed to
+        // has to leave the peer bound to the key that answers now. Pinning
+        // whatever verifies today, including null when a peer stopped
+        // signing, keeps the row honest about what is actually checked.
+        "UPDATE peer_instances SET status = 'active', instance_id = ?, name = ?, version = ?, public_key = ?, last_error = NULL WHERE id = ?",
+        [info.instanceId, String(info.name ?? peer.name).slice(0, 120), info.version, info.publicKey, peer.id],
       );
       res.json({ success: true });
     } catch {
@@ -8663,6 +8706,26 @@ Send an empty drafts array when you are still listening. A role payload is {name
     };
   }
 
+  /**
+   * Who took a reading, at the tier the rest of this page already uses.
+   *
+   * The regen ledger published `recorded_by` verbatim, so a stable user id
+   * rode out on a payload that answers anonymous callers. Same tier as
+   * `structureRead` above, same first-name-only shape as `/api/org`.
+   */
+  async function regenNameFor(req: any): Promise<((userId: string) => string | null) | undefined> {
+    const viewer = await authedUser(req);
+    const maySeePeople =
+      (await isAdmin(req)) ||
+      (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
+    if (!maySeePeople) return undefined;
+    const allMembers = await members.all();
+    return (userId: string) => {
+      const u = (allMembers as any[]).find((m: any) => m.id === userId);
+      return u ? firstName(u.name) : null;
+    };
+  }
+
   /** The dashboard, one call: series, regen ledger, governance reads, season. */
   app.get("/api/health/summary", async (req, res) => {
     const snapshots = await snapshotSeries(getPool());
@@ -8678,7 +8741,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       trendsUnlocked: snapshots.lunationsCollected >= TREND_MIN_LUNATIONS,
       regen: {
         totals: await regenTotals(getPool()),
-        latest: await regenEntries(getPool(), 20),
+        latest: await regenEntries(getPool(), 20, { nameFor: await regenNameFor(req) }),
         metrics: REGEN_METRICS,
       },
       governance: await governanceReads(getPool()),
@@ -8687,10 +8750,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   /** The impact feed alone — the outward-facing regen ledger. */
-  app.get("/api/health/regen", async (_req, res) => {
+  app.get("/api/health/regen", async (req, res) => {
     res.json({
       totals: await regenTotals(getPool()),
-      entries: await regenEntries(getPool(), 100),
+      entries: await regenEntries(getPool(), 100, { nameFor: await regenNameFor(req) }),
       metrics: REGEN_METRICS,
     });
   });
@@ -13753,9 +13816,9 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.get("/api/org", async (req, res) => {
     const viewer = await authedUser(req);
+    const admin = await isAdmin(req);
     const maySeePeople =
-      (await isAdmin(req)) ||
-      (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
+      admin || (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
 
     const [roles, assignments, allMembers] = await Promise.all([
       listOrgRoles(getPool()),
@@ -13822,6 +13885,22 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
                 }))
               : [],
             isExample: r.isExample,
+            // The recruitment pack, ADMIN ONLY. 0049 created these six columns
+            // and `WRITABLE` has accepted them ever since, while `ROLE_COLS`
+            // selected none: an admin could write a seat's pay reality through
+            // the API and never see it again. They are readable now, and they
+            // stop here. This is the editing tier, `compensationReality` is
+            // money, and the export two functions down carries neither.
+            ...(admin
+              ? {
+                  authority: r.authority,
+                  firstYearOutcomes: r.firstYearOutcomes,
+                  first90DayOutcomes: r.first90DayOutcomes,
+                  locationExpectations: r.locationExpectations,
+                  compensationReality: r.compensationReality,
+                  evidenceRequired: r.evidenceRequired,
+                }
+              : {}),
           };
         }),
     });
@@ -14302,6 +14381,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.post("/api/org/seatings/:id/claim", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in first" });
+    // Answered before the name check, so the refusal says the true reason.
+    // `unclaimedSeatingsFor` no longer offers example seatings, and without
+    // this the claim would come back "that seat is not recorded under your
+    // name" to somebody whose name is written on it.
+    if (await isExampleRow(getPool(), "org_role_assignments", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
     // Only a seating whose recorded name matches this member may be claimed,
     // checked server-side: the id alone must never be enough to take a seat.
     const mine = await unclaimedSeatingsFor(getPool(), user.name);
@@ -14531,6 +14617,44 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       });
     }
     res.json({ success: true });
+  });
+
+  /**
+   * Forget a documented holder: end every seat recorded under their name, and
+   * take the name off all of them, past seats included.
+   *
+   * A member asks for this themselves and `anonymizeMember` does it. A
+   * documented holder has no account to delete, and nothing joins their name
+   * to a user row, so nothing in the codebase ever scrubbed it. That is the
+   * worse half of the same defect: `display_name` is often somebody who never
+   * signed up for anything here, and `/api/org` publishes it to every member
+   * holding `map.viewPeople`.
+   *
+   * Admin-only and one seating id in, because deciding that two recorded
+   * names are one person is the judgement the seat-claim flow keeps a human
+   * in the loop for. Ending is the same act as above, so the seat keeps its
+   * history and its count; only the person goes.
+   */
+  app.post("/api/admin/org/seatings/:id/forget", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (await isExampleRow(getPool(), "org_role_assignments", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
+    const r = await forgetDocumentedHolder(
+      getPool(),
+      req.params.id,
+      String(req.body?.reason ?? "") || "forgotten at their request",
+    );
+    if (!r.found) return res.status(404).json({ error: "No documented seating with that id" });
+    await recordEvent(getPool(), {
+      kind: "audit",
+      text: "org:holder-forgotten",
+      actorUserId: (await authedUser(req))?.id ?? adminActor(req)?.id ?? null,
+      entityType: "org_role_assignment",
+      entityRef: req.params.id,
+      audience: "admin",
+    });
+    res.json({ success: true, seatings: r.seatings });
   });
 
   /**

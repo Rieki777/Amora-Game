@@ -19,10 +19,18 @@
  * when added and RE-VERIFIED every sync. A different identity answering at
  * a known URL pauses the peer and says so — domains change hands; uuids
  * don't.
+ *
+ * That check is copyable, though: a uuid read off a public document costs
+ * nothing to claim. So the peer's SIGNING KEY is pinned alongside it (0057)
+ * and every later sweep verifies the discovery document's proof against the
+ * pinned key. A stranger who has cloned every visible field cannot produce
+ * that signature, which is the difference between a peer that says who it is
+ * and a peer that shows it.
  */
 import { randomUUID } from "crypto";
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { guardedFetchJson, guardOutboundUrl } from "./toolcheck";
+import { pemFromRawPublicKey, verifyDocument } from "./villageExport";
 
 export const SHARED_ITEM_TYPES = ["need", "offer"] as const;
 export type SharedItemType = (typeof SHARED_ITEM_TYPES)[number];
@@ -48,6 +56,78 @@ export interface PeerIdentity {
   protocol: "village/1" | "platform/0";
   /** Capability names the peer claims. Empty for a v0 peer, which claims none. */
   supports: string[];
+  /**
+   * The raw ed25519 public key the document published, base64url, and NULL
+   * unless its proof verified against that key. An unproven key is worth
+   * nothing here, so it is never carried: pinning a key the answerer has not
+   * shown it can sign with would pin whatever the last stranger said.
+   */
+  publicKey: string | null;
+}
+
+/**
+ * What a pinned key says about the document that just answered (0057).
+ *
+ * A published key proves nothing on its own, because a public key is public:
+ * an impostor copies the block verbatim out of the real village's document.
+ * The pin is worth something because the proof is verified against the PINNED
+ * key, and that is a signature only the real village can produce.
+ *
+ * - `ok`          the answerer signed with the key we pinned.
+ * - `unpinned`    nothing pinned yet, so nothing to check. `pin` is the key to
+ *                 store if there is one: trust-on-first-use, the same posture
+ *                 `instanceId` has had since this module shipped.
+ * - `lost`        we pinned a key and this document proves no key at all. A
+ *                 rollback to a pre-signing build looks exactly like a
+ *                 downgrade attack, which is the attack pinning exists to
+ *                 resist, so this refuses to be talked out of the check.
+ * - `changed`     a different key answered. A rotation and an impostor look
+ *                 identical from here, so this village does not guess.
+ */
+export type PeerKeyVerdict =
+  | { state: "ok" }
+  | { state: "unpinned"; pin: string | null }
+  | { state: "lost"; detail: string }
+  | { state: "changed"; detail: string };
+
+export function checkPinnedKey(pinned: string | null, info: PeerIdentity): PeerKeyVerdict {
+  if (!pinned) return { state: "unpinned", pin: info.publicKey };
+  if (!info.publicKey) {
+    return {
+      state: "lost",
+      detail: "signing key no longer proved: a rollback to a pre-signing build and a downgrade attack look the same from here, so accept & resume once you know which",
+    };
+  }
+  if (info.publicKey !== pinned) {
+    return {
+      state: "changed",
+      detail: "signing key changed: a rotation and an impostor look the same from here, so accept & resume to pin the new one",
+    };
+  }
+  return { state: "ok" };
+}
+
+/**
+ * The public key a discovery document has PROVED it holds, or null.
+ *
+ * Two things have to be true before a key is worth pinning. The document must
+ * publish one, and its proof must verify against that key: a document that
+ * publishes somebody else's key cannot sign for it, and this is where that
+ * shows. The PEM is rebuilt from the raw bytes rather than read from the
+ * document, so publishing the real village's `publicKeyBase64url` beside an
+ * impostor's `publicKeyPem` fails instead of passing twice.
+ *
+ * An unsigned document is not a failure. A hand-written static file answering
+ * the shape correctly is exactly the peer the discovery handshake exists to
+ * admit; it simply never pins a key and keeps the trust-on-first-use posture
+ * every peer had before 0057.
+ */
+function provenKey(doc: any): string | null {
+  const b64 = doc?.publicKey?.publicKeyBase64url;
+  if (typeof b64 !== "string" || !b64) return null;
+  const pem = pemFromRawPublicKey(b64.slice(0, 100));
+  if (!pem) return null;
+  return verifyDocument(doc, pem) ? b64.slice(0, 100) : null;
 }
 
 /**
@@ -113,6 +193,7 @@ export async function discoverPeer(baseUrl: string): Promise<PeerIdentity | null
         supports: Array.isArray(doc.supports)
           ? doc.supports.slice(0, 32).map((c: unknown) => String(c).slice(0, 64))
           : [],
+        publicKey: provenKey(doc),
       };
     }
   } catch (e) {
@@ -133,6 +214,9 @@ export async function discoverPeer(baseUrl: string): Promise<PeerIdentity | null
         version: cap(info.version, 20),
         protocol: "platform/0",
         supports: [],
+        // The v0 document is unsigned and always was. A v0 peer therefore
+        // never pins a key and keeps exactly the posture it has today.
+        publicKey: null,
       };
     }
   } catch (e) {
@@ -173,8 +257,11 @@ export async function addPeer(
   const id = `peer-${Date.now()}-${randomUUID().slice(0, 6)}`;
   try {
     await pool.query(
-      "INSERT INTO peer_instances (id, instance_id, base_url, name, version, added_by) VALUES (?,?,?,?,?,?)",
-      [id, info.instanceId, baseUrl, String(info.name ?? baseUrl).slice(0, 120), info.version, input.addedBy],
+      // The key is pinned HERE, at the one moment an admin is looking at the
+      // address they typed and deciding they mean it (0057). Everything after
+      // this is checked against it.
+      "INSERT INTO peer_instances (id, instance_id, base_url, name, version, public_key, added_by) VALUES (?,?,?,?,?,?,?)",
+      [id, info.instanceId, baseUrl, String(info.name ?? baseUrl).slice(0, 120), info.version, info.publicKey, input.addedBy],
     );
   } catch (e: any) {
     // TWO unique keys, two different problems. Both used to report "already
@@ -197,7 +284,16 @@ export async function addPeer(
     }
     throw e;
   }
-  return { ok: true, peer: { id, instanceId: info.instanceId, baseUrl, name: info.name, version: info.version, protocol: info.protocol } };
+  return {
+    ok: true,
+    peer: {
+      id, instanceId: info.instanceId, baseUrl, name: info.name,
+      version: info.version, protocol: info.protocol,
+      // So the admin can see whether this peer is bound to a key or resting on
+      // the instance id alone. A village cannot fix what it cannot see.
+      keyPinned: !!info.publicKey,
+    },
+  };
 }
 
 /**
@@ -240,6 +336,35 @@ export async function syncPeers(pool: Pool): Promise<{ synced: number; failed: n
         );
         failed += 1;
         continue;
+      }
+
+      /*
+       * The instanceId check above is the copyable half. It asks whether the
+       * answerer CLAIMS to be the village we agreed to hear, and a uuid read
+       * off a public document is as easy to claim as the platform string it
+       * replaced. The key check below is the half that cannot be copied: the
+       * proof has to be produced with a private key, so a stranger who has
+       * cloned every visible field still fails here.
+       *
+       * A pause is the same act an identity change already triggers, with the
+       * same way out: "accept & resume" re-reads the handshake and pins
+       * whatever answers, which is a human agreeing to a rotation.
+       */
+      const verdict = checkPinnedKey(p.public_key ? String(p.public_key) : null, info);
+      if (verdict.state === "changed" || verdict.state === "lost") {
+        await pool.query(
+          "UPDATE peer_instances SET status = 'paused', last_error = ? WHERE id = ?",
+          [verdict.detail.slice(0, 300), p.id],
+        );
+        failed += 1;
+        continue;
+      }
+      if (verdict.state === "unpinned" && verdict.pin) {
+        // Trust on first use, one sweep late: a peer added before 0057, or one
+        // that only just learned to sign. The window is the same window the
+        // instanceId pin has always had, and closing it retroactively would
+        // mean asking every existing village to re-add every peer.
+        await pool.query("UPDATE peer_instances SET public_key = ? WHERE id = ?", [verdict.pin, p.id]);
       }
       // Fetched unconditionally, NOT gated on `supports`. No village advertises
       // a shared-items capability yet, so branching on one would silently stop

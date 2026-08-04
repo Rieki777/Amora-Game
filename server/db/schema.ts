@@ -61,6 +61,21 @@ export const users = mysqlTable("users", {
   journeys: json("journeys"),
   /** Member preferences: notification cadence today, contact opt-outs later (0017). */
   prefs: json("prefs"),
+  /**
+   * The contact opt-out the relay enforces server-side (0018).
+   *
+   * THIS FILE IS A TYPE MIRROR, NOT A MIGRATION DRIVER. The runner applies
+   * `drizzle/*.sql` by hand, so nothing ever fails when a column lands there
+   * and not here, and this table drifted quietly for three columns: the
+   * opt-out below, `is_example` (0046) and `membership_granted` (0058). If you
+   * add a column, add it in both places. `server/repos/users.ts` COLUMNS is the
+   * list that actually decides what a write persists.
+   */
+  contactable: boolean("contactable").default(true).notNull(),
+  /** A standing-example identity: content that authors examples, never a person. */
+  isExample: boolean("is_example").default(false).notNull(),
+  /** An explicit steward grant of membership, as opposed to an attributed signing. */
+  membershipGranted: boolean("membership_granted").default(false).notNull(),
   bio: text("bio"),
   avatar: varchar("avatar", { length: 500 }),
   /** Manual admin override of the computed stage. */

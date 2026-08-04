@@ -3900,4 +3900,153 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
     await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "off" }, founderToken);
   });
+
+  /**
+   * The publish surface, from the other side: what an ANONYMOUS caller gets.
+   *
+   * The export documents were built to a rule with no exceptions, and a recon
+   * pass over everything published beside them found three surfaces that had
+   * never been held to it. Each of these is pre-existing and none of them was
+   * introduced by the export; they are here because a promise about one URL is
+   * not a promise about a village.
+   */
+  it("the surfaces beside the export answer a stranger with counts, never people", async () => {
+    // ── /api/network ran SELECT s.* joined to users.name ──────────────────
+    //
+    // A full legal name and a stable user id, together, in front of every
+    // anonymous caller. /api/network/published (the outbound one) lists its
+    // columns and omits created_by; this is its inward-facing twin.
+    await api("PUT", "/api/admin/modules/network/lifecycle", { lifecycle: "public" }, founderToken);
+    const share = await api("POST", "/api/admin/network/share", {
+      type: "offer", title: "Seed potatoes, more than we can plant",
+      detail: "Two sacks going spare, collection any weekend.",
+    }, founderToken);
+    expect(share.json.success).toBe(true);
+
+    const anonNet = await api("GET", "/api/network");
+    expect(anonNet.status).toBe(200);
+    const anonItem = anonNet.json.mine.find((m: any) => m.id === share.json.id);
+    expect(anonItem, "the item itself still serves").toBeTruthy();
+    expect(anonItem.title).toBe("Seed potatoes, more than we can plant");
+    expect(anonItem.author, "a stranger gets no author").toBeNull();
+    expect(anonItem).not.toHaveProperty("created_by");
+    expect(anonItem).not.toHaveProperty("author_name");
+    const anonNetBlob = JSON.stringify(anonNet.json.mine);
+    expect(anonNetBlob, "the full legal name").not.toContain(founder.name);
+    expect(anonNetBlob, "the stable user id").not.toContain(founderId);
+
+    // A signed-in member sees a first name, which is the tier /api/org and
+    // /api/roles already apply to every other people surface.
+    const memberNet = await api("GET", "/api/network", undefined, doerToken);
+    const memberItem = memberNet.json.mine.find((m: any) => m.id === share.json.id);
+    expect(memberItem.author).toBe(founder.name.split(" ")[0]);
+    await api("PUT", "/api/admin/modules/network/lifecycle", { lifecycle: "off" }, founderToken);
+
+    // ── regenEntries handed out recorded_by verbatim ──────────────────────
+    //
+    // A stable user id on a payload the health dashboard serves with no
+    // session at all.
+    await api("PUT", "/api/admin/modules/health/lifecycle", { lifecycle: "public" }, founderToken);
+    const reading = await api("POST", "/api/admin/health/regen",
+      { metricKey: "trees_planted", value: 7, note: "the wet corner" }, founderToken);
+    expect(reading.status, JSON.stringify(reading.json)).toBe(200);
+
+    const anonRegen = await api("GET", "/api/health/regen");
+    expect(anonRegen.status).toBe(200);
+    expect(anonRegen.json.entries.length, "the readings still publish").toBeGreaterThan(0);
+    expect(anonRegen.json.entries.every((e: any) => e.recordedByName === null)).toBe(true);
+    expect(anonRegen.json.entries.every((e: any) => !("recordedBy" in e))).toBe(true);
+    expect(JSON.stringify(anonRegen.json), "the stable user id").not.toContain(founderId);
+    // The NUMBER is the point of this page and it is untouched by any of that.
+    expect(anonRegen.json.totals.trees_planted.total).toBeGreaterThan(0);
+
+    const memberRegen = await api("GET", "/api/health/regen", undefined, doerToken);
+    expect(memberRegen.json.entries.some((e: any) => e.recordedByName === founder.name.split(" ")[0])).toBe(true);
+    await api("PUT", "/api/admin/modules/health/lifecycle", { lifecycle: "off" }, founderToken);
+  });
+
+  it("a member who leaves gives up their seat, and a documented holder can be forgotten", async () => {
+    // anonymizeMember ended PERMISSION holdings and never touched
+    // org_role_assignments, which is the other plane called "role". So a
+    // member who exercised deletion kept a live seating under their real user
+    // id, and /api/org went on republishing it. A documented holder was
+    // worse: a real person's name, often somebody with no account here at
+    // all, that nothing in the codebase ever scrubbed.
+    const seat = await api("POST", "/api/admin/org/roles",
+      { name: "Departing Seat", seats: 3, aim: "Hold the exit door open." }, founderToken);
+    expect(seat.status, JSON.stringify(seat.json)).toBe(200);
+    const seatId = seat.json.id;
+
+    // Two documented holders. One will be claimed by a member who then
+    // deletes their account; the other never signs up at all, which is the
+    // case with no door but this one.
+    const leaverName = "Departing Steward";
+    for (const [displayName, note] of [[leaverName, "Away and inactive."], ["Kept Documented", "Still on the land."]]) {
+      const r = await api("POST", `/api/admin/org/roles/${seatId}/holders`, { displayName, note }, founderToken);
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+    }
+
+    // The member arrives, is offered the seating recorded under their name,
+    // and takes it. The row keeps its display_name through the claim, which
+    // is exactly why a tombstone on the users row does not reach it.
+    const leaver = { email: `seat-leaver-${PORT}@example.test`, password: "LoopTest123!", name: leaverName };
+    const reg = await api("POST", "/api/auth/register", { ...leaver, paths: ["resident"] });
+    expect(reg.status, JSON.stringify(reg.json)).toBe(200);
+    const leaverToken = reg.json.token;
+    const leaverId = reg.json.user.id;
+
+    const offered = await api("GET", "/api/org/my-unclaimed-seats", undefined, leaverToken);
+    const mine = offered.json.find((o: any) => o.roleId === seatId);
+    expect(mine, "the seating recorded under their name is offered").toBeTruthy();
+    expect((await api("POST", `/api/org/seatings/${mine.assignmentId}/claim`, {}, leaverToken)).status).toBe(200);
+
+    // Both names are visible at the people tier before any of this.
+    const before = await api("GET", "/api/org", undefined, doerToken);
+    const beforeSeat = before.json.roles.find((r: any) => r.id === seatId);
+    expect(beforeSeat.holderCount).toBe(2);
+    expect(JSON.stringify(beforeSeat)).toContain("Kept Documented");
+
+    // The member exercises deletion.
+    expect((await api("POST", "/api/profile/delete-account", { password: leaver.password }, leaverToken)).status).toBe(200);
+
+    const after = await api("GET", "/api/org", undefined, doerToken);
+    const afterSeat = after.json.roles.find((r: any) => r.id === seatId);
+    expect(afterSeat.holderCount, "the seat is theirs no longer").toBe(1);
+    expect(afterSeat.holders.some((h: any) => h.userId === leaverId)).toBe(false);
+
+    // The history keeps the seating, because a seat's history is the point.
+    const history = await api("GET", `/api/org/roles/${seatId}/history`, undefined, doerToken);
+    expect(history.status).toBe(200);
+    expect(history.json.length, "the ended seating is still there").toBe(2);
+    // Scoped to THIS seat: the export block above seats its own documented
+    // holder carrying the same note, so an assertion over the whole /api/org
+    // payload catches that one instead of this one.
+    const seatBlob = JSON.stringify(afterSeat);
+    expect(seatBlob, "the name they were recorded under").not.toContain(leaverName);
+    expect(seatBlob, "the note written about them").not.toContain("Away and inactive.");
+    // The COLUMNS are scrubbed too — display_name and note on the ended row.
+    // Neither is published on an ended seating, so no request can see them and
+    // this test cannot prove it. server/lib/orgForget.test.ts reads the rows.
+
+    // ── The documented holder, who has no account to delete ───────────────
+    const keptId = history.json.find((h: any) => h.name === "Kept Documented")?.id;
+    expect(keptId, "the unclaimed documented seating").toBeTruthy();
+    const forget = await api("POST", `/api/admin/org/seatings/${keptId}/forget`, {}, founderToken);
+    expect(forget.status, JSON.stringify(forget.json)).toBe(200);
+    expect(forget.json.seatings).toBe(1);
+
+    const gone = await api("GET", "/api/org", undefined, doerToken);
+    const goneSeat = gone.json.roles.find((r: any) => r.id === seatId);
+    expect(goneSeat.holderCount, "forgetting ends the seating too").toBe(0);
+    const afterForget = await api("GET", `/api/org/roles/${seatId}/history`, undefined, doerToken);
+    const forgetBlob = JSON.stringify(afterForget.json);
+    expect(forgetBlob).not.toContain("Kept Documented");
+    expect(forgetBlob).not.toContain("Still on the land.");
+    // The seat keeps its count and its shape; only the people are gone.
+    expect(afterForget.json.length).toBe(2);
+    expect(goneSeat.seats).toBe(3);
+
+    // An admin cannot reach an example seating through this door either.
+    expect((await api("POST", "/api/admin/org/seatings/nope-not-a-seating/forget", {}, founderToken)).status).toBe(404);
+  });
 });

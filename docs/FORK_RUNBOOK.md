@@ -400,9 +400,12 @@ different thing and it needs per-member consent first.
 
 Every document is signed with an ed25519 key minted at your first boot and
 stored in `app_config` under `village-signing-key`. The public half is in the
-discovery document. **Back it up with your database**: losing it does not lose
-any data, but every peer that cached your key sees a new one and has to decide
-whether to trust it again.
+discovery document. **Back it up with your database.** Losing it loses no data,
+and since 0057 it has a cost that is easy to miss: every village that peered
+with you PINNED that key, so a new one pauses you on their side until one of
+their admins presses "accept & resume". Restore the key with the database and
+nothing happens; restore the database without it and every peer goes quiet at
+once.
 
 Check yours after provisioning:
 
@@ -410,3 +413,41 @@ Check yours after provisioning:
 curl -s https://<your-domain>/.well-known/village.json | jq '.supports, .publicKey.kid'
 curl -s https://<your-domain>/org/index.md | head -20
 ```
+
+## Peering with another village (0057)
+
+`drizzle/0057_peer_public_key.sql` adds `peer_instances.public_key`. When you
+add a peer, this village records the signing key their discovery document
+proved it holds, and every six-hourly sweep checks the next document against
+it. Nothing to configure.
+
+What you will see:
+
+- **A peer pauses with "signing key changed".** They rotated their key, or
+  restored a database without it, or somebody else is answering at their
+  address. Ask them, then press **accept & resume** on the Network page, which
+  re-reads their handshake and pins whatever answers now.
+- **A peer pauses with "signing key no longer proved".** They used to sign and
+  have stopped, most likely a rollback to an older build. It reads the same as
+  somebody stripping the check by serving the old unsigned document, so this
+  village refuses either way. Same door out.
+- **A peer that never signed keeps working.** A village running an older build,
+  or a hand-written static file answering the discovery shape, pins nothing and
+  is trusted exactly as much as it was before. It pins itself the first sweep
+  it starts signing.
+
+## Forgetting a documented holder
+
+A member deletes their own account and everything of theirs goes, org seats
+included. A **documented** holder is a real person with no account here, so
+nothing joins their name to a user row and nothing scrubs it. If one asks to be
+forgotten, an admin does it:
+
+```bash
+curl -X POST https://<your-domain>/api/admin/org/seatings/<seating-id>/forget \
+  -H "Authorization: Bearer <admin-token>"
+```
+
+Every seat recorded under that name ends and loses the name and the note, past
+seats included. The seats keep their history and their counts; only the person
+goes.

@@ -91,6 +91,34 @@ function rawPublicKeyB64(publicKeyPem: string): string {
   return Buffer.from(der.subarray(der.length - 32)).toString("base64url");
 }
 
+/** The fixed SPKI prefix for an ed25519 public key: 12 bytes, then the key. */
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
+/**
+ * The inverse of `rawPublicKeyB64`: rebuild a PEM from the 32 raw bytes.
+ *
+ * A peer's discovery document publishes both encodings, and a pinned key is
+ * stored as the base64url alone. Verification always rebuilds the PEM from
+ * those bytes and NEVER uses the PEM the document supplies: a peer publishing
+ * the real village's `publicKeyBase64url` beside its own `publicKeyPem` would
+ * otherwise match the pin and verify its own signature in the same breath.
+ *
+ * Returns null for anything that is not 32 decodable bytes, so a malformed or
+ * hostile string fails as "cannot verify" instead of throwing mid-sweep.
+ */
+export function pemFromRawPublicKey(base64url: string): string | null {
+  try {
+    const raw = Buffer.from(String(base64url), "base64url");
+    if (raw.length !== 32) return null;
+    const der = Buffer.concat([ED25519_SPKI_PREFIX, raw]);
+    return createPublicKey({ key: der, format: "der", type: "spki" })
+      .export({ type: "spki", format: "pem" })
+      .toString();
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureSigningKey(pool: Pool): Promise<SigningKey> {
   if (cachedKey) return cachedKey;
   // Look before minting. `identity.ts` generates its candidate unconditionally
@@ -196,17 +224,18 @@ export function signDocument<T extends Record<string, any>>(doc: T, k: SigningKe
  * signed them, which is the point: a copy that was cached, relayed or handed
  * to an agent still verifies, where TLS to the origin would have evaporated.
  *
- * It does NOT prove WHO the village is. The public key travels inside the
- * document it signs, so an impostor mints its own keypair, publishes its own
- * `publicKey` block, signs a document claiming somebody else's `instanceId`,
- * and this returns true. Verifying against a self-published key authenticates
- * bytes against whoever answered, never the answerer against an identity.
+ * It does NOT prove WHO the village is, and it cannot, because the key it is
+ * checked against is whichever key the caller passed in. Hand it the key the
+ * document itself published and an impostor passes every time: mint a keypair,
+ * publish your own `publicKey` block, sign a document claiming somebody else's
+ * `instanceId`, and this returns true.
  *
- * Binding identity needs the key pinned on first contact and compared on every
- * sweep, which is a `public_key` column on `peer_instances` and a decision
- * about what to do when it changes. Until that exists, peer identity rests on
- * the same trust-on-first-use `instanceId` check it always did, and this
- * signature is about integrity alone.
+ * Identity is bound one layer up, by the caller choosing the key. `network.ts`
+ * pins a peer's key on first contact (0057) and verifies every later sweep
+ * against the PINNED key, which is a signature an impostor cannot produce. A
+ * caller that verifies against the document's own key is asking about
+ * integrity, and that is a real question with a real answer; it is just not
+ * the question "is this who they say they are".
  */
 export function verifyDocument(signed: Record<string, any>, publicKeyPem: string): boolean {
   const { proof, ...doc } = signed;

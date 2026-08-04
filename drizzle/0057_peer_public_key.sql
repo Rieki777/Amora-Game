@@ -1,0 +1,23 @@
+-- 0057: pin a peer's signing key, so a signature says WHO and not only WHAT.
+--
+-- /.well-known/village.json publishes its own public key inside the document
+-- that key signs. That proves the bytes were not altered after signing, which
+-- is what a cached or relayed copy needs, and it proves nothing about who
+-- answered: an impostor mints a keypair, publishes its own key block, signs a
+-- document carrying another village's instanceId, and verification passes.
+--
+-- The key alone fixes nothing either, because a public key is public: an
+-- impostor copies the block verbatim out of the real village's document. What
+-- binds identity is verifying each sweep's proof AGAINST THE PINNED KEY, which
+-- an impostor cannot produce a signature for.
+--
+-- Raw ed25519 public key, base64url, 43 characters. The PEM the document also
+-- carries is a convenience for other implementations and is never what we
+-- verify against: a peer publishing the real village's base64url beside its own
+-- PEM would otherwise pass both checks at once.
+--
+-- NULL means unpinned, which is every peer added before this and every peer
+-- whose document carries no proof. Those keep the trust-on-first-use posture
+-- they already had, and pin themselves on the first sweep that offers a key.
+ALTER TABLE `peer_instances`
+  ADD COLUMN `public_key` varchar(120) NULL AFTER `version`;

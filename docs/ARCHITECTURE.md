@@ -544,6 +544,20 @@ The retention sweep never deletes an unstamped row, at any age.
   structured refs, never string matching), submission PII keys, tool
   clicks, role seats. PUBLIC pulse lines naming them are deleted; ADMIN
   audit rows are kept as the legal record.
+  **ORG SEATINGS TOO** (`releaseSeatingsForUser`), which they did not for
+  as long as 0049 has existed: "role seats" above means `role_holders`, the
+  permission plane, and the org chart is the other thing called role
+  (§3.15). A departed member kept a live seating under their real user id
+  and `/api/org` republished it at the `map.viewPeople` tier. Seatings END
+  rather than delete, the way `endSeating` does it, and `display_name` and
+  `note` go from every row live and ended: `claimSeating` keeps the name a
+  seating was documented under, so the tombstone on the users row does not
+  reach it. A **documented** holder has no account to delete and nothing
+  joins their name to a user row, so their only door is an admin act,
+  `POST /api/admin/org/seatings/:id/forget`, which ends and de-names every
+  seating sharing that `holder_key` and rewrites the key, because
+  `documentedKey` derives it from the name and a slug is a name with
+  hyphens.
 - **Member exit** (`server/lib/exit.ts`, S52/F12): `openStateCheck`
   semantics applied to a person. ENUMERATE every domain's open state
   (loans, stays, orders, debts block; balances, roles, warnings inform);
@@ -702,6 +716,38 @@ Three properties worth keeping:
 Not a `dbCollection`, on purpose: `replaceAll` writes only spec'd columns, and
 these are history tables.
 
+**Both tables ARE registered with the standing-examples machinery, and 0049's
+own header says they are not.** That header was true when it was written and
+has been false since: `examples.ts` lists
+`progression: ["org_role_assignments", "org_roles", "roles"]` and seeds both
+with `is_example = 1`. The file is not edited to fix it, because a part-applied
+migration resumes at its recorded statement offset instead of replaying DDL, so
+this line is the correction. So every read over these tables has to answer the
+example question. `unclaimedSeatingsFor` and `claimSeating` did not, and a
+member whose name matched a documented demo holder could claim the demo seat
+and become its real holder; both filter `is_example` now and the claim route
+answers `EXAMPLE_REFUSAL_BODY`.
+
+**And progression's example block does not currently seed at all.**
+`hasRealContent` reads every table in `EXAMPLE_TABLES`, `roles` is one of them,
+and `ensureDataFiles()` fills `roles` with the four starter permission groups
+one line before `seedExamplesAtBoot()` runs. So the module reads as already
+having real content on the first boot of every fork, and the `orgRoles` block
+added to the seed for the empty map state has never appeared on one. Recorded,
+not changed: making it seed would put demo seats on every fork's map, which is
+a product decision and not a correction. The guard still has to hold, because
+the dev seeder forces a seed and a fork that empties `roles` gets them.
+
+**The recruitment pack.** `authority`, `first_year_outcomes`,
+`first_90_day_outcomes`, `location_expectations`, `compensation_reality` and
+`evidence_required` are six columns 0049 created and `WRITABLE` has always
+accepted, while `ROLE_COLS` selected none of them: an admin could write a seat's
+pay reality through the API and never see it again. They are read back now and
+they are ADMIN ONLY on `/api/org`. They are not structure. A column called
+`compensation_reality` sitting unread beside a public export is a trap for the
+next author, and the fix for a trap is to make the tier explicit rather than to
+leave the column invisible.
+
 **Terms end, and nothing is revoked when they do.** `isLapsed` derives it on
 every read from `min(term_ends_at, the season boundary)` against the seating's
 own `season_id`, so a season turn writes nothing and the state cannot drift
@@ -858,14 +904,13 @@ signed; arrays keep their order because their order is meaning. `verifyDocument`
 is exported so the round trip is testable and a peer has a reference, since a
 signature nobody can check is ceremony.
 
-**It signs for INTEGRITY, not identity.** The public key travels inside the
-document it signs, so an impostor mints its own keypair, publishes its own
-`publicKey` block, signs a document claiming somebody else's `instanceId`, and
-verification passes. Verifying against a self-published key authenticates the
-bytes against whoever answered, never the answerer against an identity. Peer
-identity still rests on the trust-on-first-use `instanceId` check it always
-did. Binding the two needs the key pinned on `peer_instances` and compared each
-sweep, which is recorded as the next federation step.
+**It signs for INTEGRITY, and identity is bound one layer up.** The public key
+travels inside the document it signs, so `verifyDocument` against a
+self-published key authenticates the bytes against whoever answered, never the
+answerer against an identity: an impostor mints its own keypair, publishes its
+own `publicKey` block, signs a document claiming somebody else's `instanceId`,
+and verification passes. What decides the question is which key the caller
+verifies against, and that is `network.ts` (§3.20), not this file.
 
 Four defects a recon pass caught in the first draft, each now a test:
 
@@ -911,10 +956,11 @@ about the village. The two person-shaped fields are stripped for non-admins;
 the cards still serve, and `circles.members` stays because it is a list of seat
 titles. `/api/admin/content` is unchanged.
 
-Still open, found in the same pass and NOT fixed here: `anonymizeMember` never
-touches `org_role_assignments`, so a member who exercised deletion keeps a live
-seating, and a documented holder's `display_name` is never scrubbed by
-anything. The export cannot leak it (it carries no names) but `/api/org` can.
+Found in the same pass and NOT fixed here, CLOSED since: `anonymizeMember` never
+touched `org_role_assignments`, so a member who exercised deletion kept a live
+seating, and a documented holder's `display_name` was scrubbed by nothing. The
+export could not leak either (it carries no names) and `/api/org` could. Both
+doors are in §3.9.
 
 `/org/**` 404s like `/api/**` and `/assets/**` rather than falling through to
 the SPA, and `/.well-known/**` does the same. Both are document namespaces, so
@@ -1037,6 +1083,50 @@ Four rules, each of which was a real defect first:
    178 KB of CSS and 1.7 MB of images grew entirely unwatched. When one goes
    red, split or compress — do not raise the number.
 
+### 3.20 Peer identity — `server/lib/network.ts` (0057)
+
+Two checks, and only one of them costs an attacker anything.
+
+`instanceId` is learned at add time and re-checked every sweep. It is the
+copyable half: a uuid read off a public document is exactly as easy to claim as
+the `platform === "custom-game-foundation"` string it replaced, so it answers
+"does this address still CLAIM to be the village we agreed to hear" and nothing
+more.
+
+The **pinned signing key** is the half that cannot be copied, and the reason it
+works is not the comparison. A public key is public, so an impostor lifts the
+whole `publicKey` block out of the real village's document and matches any
+stored string. What an impostor cannot do is produce a signature over a new
+document with a private key it does not have. So the pin is only worth
+something because `discoverPeer` verifies the discovery document's proof, and
+`syncPeers` verifies it against the PINNED key. `verifyDocument` (§3.17) is
+integrity either way; identity is the caller's choice of key.
+
+Three properties worth keeping:
+
+- **A key is pinned only once its holder has proved it.** `provenKey` returns
+  null unless the document publishes a key AND its own proof verifies against
+  that key, and the PEM is rebuilt from the raw 32 bytes rather than read from
+  the document: a peer publishing the real village's `publicKeyBase64url`
+  beside its own `publicKeyPem` would otherwise match the pin and verify its
+  own signature in the same breath.
+- **An unsigned peer still federates.** A hand-written static file answering
+  the shape is the peer the discovery handshake exists to admit, and the v0
+  document was never signed at all. Those pin nothing and keep exactly the
+  trust-on-first-use posture every peer had before 0057. A peer that starts
+  signing later pins on the first sweep that offers a key.
+- **A changed key pauses the peer, and does not guess why.** A rotation and an
+  impostor are the same event from here, and this platform has no rotation
+  protocol yet, so the message says so. The way out is the door that already
+  existed for an identity change: "accept & resume" re-reads the handshake and
+  re-pins whatever answers, which is a human agreeing to the rotation.
+- **A peer that stops proving a key pauses too.** Answering without one is
+  what a rollback to a pre-signing build looks like and what a downgrade
+  attack looks like, and picking the friendlier reading would mean any
+  attacker can turn the check off by serving the unsigned v0 document. The
+  cost is real and is the right way round: a village that rolls back pauses on
+  its peers until somebody looks.
+
 ---
 
 ## 4. Modules: how to add one, how to remove one
@@ -1142,6 +1232,15 @@ fork, but drop the row deliberately when you do it.
 15. **One gate, one ledger, one event spine, one scheduler, one webhook.**
     Any second mechanism for permissions, balances, history, cron or
     settlement is a bug by definition.
+16. **Nothing person-shaped reaches an unauthenticated surface.** Not a full
+    name, not a first name, not a documented holder's `display_name`, not a
+    user id, not a focus string or a holder note. A route with a session may
+    tier those behind `map.viewPeople`; a route without one has nothing to
+    tier with, and a fetched document can be cached, relayed, indexed and
+    handed to an agent forever. `SELECT *` on any table carrying a person is
+    how this breaks every time, because the leak arrives with the next
+    migration rather than with the code that reads it. Publish the count and
+    not the person.
 
 ---
 
@@ -1205,6 +1304,16 @@ fork, but drop the row deliberately when you do it.
     `stay.credit_expiry_days` and `stay.credits_transferable` (no enforcement
     exists, deliberately — see §5). Either wire a variable when you register
     it, or make the write path refuse a value and say why.
+13. **A field the repo's column list does not carry is dropped in silence.**
+    `usersRepo` builds its UPDATE from `COLUMNS`, so `m.membershipGranted =
+    true` set the in-memory record, wrote nothing, and returned the mutated
+    record to the caller, which then logged a success. `hasMembership` read
+    that field as a gate and the boot migration that was meant to protect
+    existing members wrote a count to the log and no rows to the table. 0058
+    gives it a column. The reverse case is the same class: six `org_roles`
+    columns were in `WRITABLE` and in no SELECT, so the API accepted them and
+    swallowed them. **A write path and a read path that disagree fail
+    quietly** — check both when you add either.
 
 ---
 
