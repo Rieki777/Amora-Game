@@ -187,6 +187,18 @@ import {
   type Candidate,
 } from "./lib/map";
 import { ensureInstanceIdentity, instanceIdentity, PLATFORM_VERSION } from "./lib/identity";
+import {
+  buildOrgExport,
+  circleMarkdown,
+  ensureSigningKey,
+  EXPORT_PROTOCOL,
+  isSlug,
+  orgIndexMarkdown,
+  publicKeyBlock,
+  seatMarkdown,
+  signDocument,
+  signingKey,
+} from "./lib/villageExport";
 import { recordFeedback, relayFeedback } from "./lib/feedback";
 import { addPeer, peerSharedItems, SHARED_ITEM_TYPES, syncPeers } from "./lib/network";
 import { corpusTitles, loadKnowledgeCorpus, relevantCorpus, relevantSyntheses } from "./lib/knowledge";
@@ -809,6 +821,15 @@ async function initStores(): Promise<void> {
   // cross-instance hangs off it, so it exists before any route serves.
   const identity = await ensureInstanceIdentity(getPool());
   console.log(`[identity] instance ${identity.instanceId} (born ${identity.bornAt}) · platform v${PLATFORM_VERSION}`);
+
+  // The keypair that signs published documents, minted here for the same
+  // reason the instance id is: everything cross-instance hangs off it, so it
+  // exists before any route serves. Signing is built before anybody consumes
+  // these documents on purpose, because once peers have learned to trust
+  // unsigned payloads, adding signatures later either breaks them or is
+  // ignored forever.
+  const vk = await ensureSigningKey(getPool());
+  console.log(`[identity] publishing key ed25519 kid ${vk.kid}`);
 
   // S63: the write-only secrets store, plus a one-time migration of the keys
   // that used to live in the email-config doc. They are REMOVED from the doc
@@ -4278,11 +4299,44 @@ async function startServer() {
 
   // Content: Public Read
   // GET /api/content/:section
+  /**
+   * Public content, minus the holder names the `roles` cards still carry.
+   *
+   * This route is unauthenticated and has no module gate, and the `roles`
+   * section is the CARD-SHAPED org chart that 0049 replaced with rows. The
+   * cards kept their `holders` array and `holderNote`, so this endpoint has
+   * been answering anonymous callers with "Via", "Jessica", "Ky (interim)" and
+   * notes like "Away and inactive" for as long as the section has existed.
+   * `/api/org` tiers exactly those fields behind `map.viewPeople`; this was the
+   * side door.
+   *
+   * Stripped rather than gated, because content drives real public pages. It
+   * costs nothing: no client reads `content/roles` any more (Team.tsx reads
+   * `/api/org` plus `content/team`, which is a consented bio page), and the
+   * live editing surface for holders is Admin, Org Chart. `/api/admin/content`
+   * still returns everything.
+   *
+   * Scoped to the two fields that name people. `circles.members` is a list of
+   * SEAT TITLES and stays.
+   */
+  const PERSON_FIELDS = ["holders", "holderNote"];
+
   app.get("/api/content/:section", async (req, res) => {
     const content = contentRepo.get();
     const section = content[req.params.section];
     if (section === undefined) {
       return res.status(404).json({ error: "Section not found" });
+    }
+    if (await isAdmin(req)) return res.json(section);
+    if (Array.isArray(section)) {
+      return res.json(
+        section.map((card: any) => {
+          if (!card || typeof card !== "object" || !PERSON_FIELDS.some((f) => f in card)) return card;
+          const copy = { ...card };
+          for (const f of PERSON_FIELDS) delete copy[f];
+          return copy;
+        }),
+      );
     }
     res.json(section);
   });
@@ -6747,14 +6801,6 @@ async function startServer() {
   });
 
   /**
-   * S56, the interop handshake (invariant 2.1 #8): one public, unauthenticated
-   * endpoint that says what this deployment IS — its own name, the platform
-   * version it runs, and which modules are actually serving. A future village
-   * directory reads this; the fork smoke test reads it to prove no code path
-   * hardcodes a brand. Names come from the merged brand overlay, never a
-   * literal.
-   */
-  /**
    * Which modules are currently showing standing examples.
    *
    * Public and unauthenticated, because the banner it drives is the honest
@@ -6791,6 +6837,23 @@ async function startServer() {
     res.json({ modules: visible, triggers });
   });
 
+  /**
+   * S56, the interop handshake (invariant 2.1 #8): one public, unauthenticated
+   * endpoint that says what this deployment IS — its own name, the platform
+   * version it runs, and which modules are actually serving. A future village
+   * directory reads this; the fork smoke test reads it to prove no code path
+   * hardcodes a brand. Names come from the merged brand overlay, never a
+   * literal.
+   *
+   * (This comment spent months attached to `/api/examples`, twenty lines up,
+   * where it described nothing.)
+   *
+   * SUPERSEDED BUT PERMANENT. `/.well-known/village.json` is the v1 discovery
+   * root and carries strictly more. This one keeps answering forever anyway:
+   * a peer that learned to read it must never be broken by a newer document
+   * existing, which is the whole reason discovery is a document and not a
+   * version number.
+   */
   app.get("/api/platform/info", async (_req, res) => {
     const cfg = mergedConfig();
     res.json({
@@ -13351,6 +13414,215 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         }),
     });
   });
+
+  /*
+   * ── The village that publishes itself ─────────────────────────────────
+   *
+   * Three unauthenticated documents at predictable URLs. See
+   * server/lib/villageExport.ts for the privacy rule, which has no exceptions:
+   * these carry counts and never people, because they have no session to check
+   * and a fetched document can be cached, relayed and indexed forever.
+   *
+   * WHEN THE ORG EXPORT IS LIVE. Only while the map module is at `public`
+   * lifecycle AND `map.public_structure` is on. That pair is already the
+   * village's answer to "may a stranger see our structure", given on the map
+   * page, and publishing the same structure at a second URL when the village
+   * said no there would be a bypass wearing a different path. Nothing new is
+   * disclosed when it is on: this is the anonymous map tier, in a format an
+   * agent can read without running JavaScript.
+   *
+   * No new admin switch, deliberately. A second knob meaning almost the same
+   * thing is how two settings end up disagreeing.
+   */
+  const orgExportLive = () =>
+    effectiveLifecycle("map") === "public" && boolVar("map.public_structure");
+
+  const publicDoc = (res: any) => {
+    // Any village, hub or agent may read these, and they carry no credentials
+    // and nothing that varies by caller, so `*` is safe here in a way it would
+    // not be on a session-bearing route.
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Cache-Control", "public, max-age=300");
+  };
+
+  /**
+   * `updatedAt` is the DATA's timestamp, not the fetch's.
+   *
+   * It was `new Date()`, which meant every request produced a different
+   * document with a different signature, so nothing downstream could tell a
+   * real change from a re-fetch: no ETag ever matched, no cache ever hit, and
+   * a peer diffing two copies saw a change every time. The whole point of
+   * signing a document is that the same document has the same bytes.
+   *
+   * `org_roles.updated_at` moves on every seat edit; seatings have no update
+   * column, so `started_at` and `ended_at` stand in for a holder changing.
+   * A village with no rows at all falls back to the epoch instead of "now",
+   * because an empty chart has not changed either.
+   */
+  const orgUpdatedAt = async (): Promise<string> => {
+    const [[row]]: any = await getPool().query(
+      `SELECT GREATEST(
+         COALESCE((SELECT MAX(updated_at) FROM org_roles), '1970-01-01'),
+         COALESCE((SELECT MAX(started_at) FROM org_role_assignments), '1970-01-01'),
+         COALESCE((SELECT MAX(ended_at) FROM org_role_assignments), '1970-01-01')
+       ) AS t`,
+    );
+    const t = row?.t ? new Date(row.t) : new Date(0);
+    return (Number.isNaN(t.getTime()) ? new Date(0) : t).toISOString();
+  };
+
+  const loadOrgExport = async () => {
+    const [roles, assignments, updatedAt] = await Promise.all([
+      listOrgRoles(getPool()),
+      listOrgAssignments(getPool(), lapseContext()),
+      orgUpdatedAt(),
+    ]);
+    return buildOrgExport({
+      instanceId: instanceIdentity().instanceId,
+      villageName: mergedConfig().project.name,
+      roles,
+      assignments,
+      circles: circlesRepo.all() as any[],
+      updatedAt,
+    });
+  };
+
+  /**
+   * Discovery. Everything else is reachable from here, and `links` are DATA:
+   * a Peerdom organisation, a bioregional council or a hand-written static
+   * file can answer this shape without running this platform. That is the line
+   * between a multi-tenant feature and a protocol.
+   *
+   * Consumers branch on `supports`, never on version ordering. A fork that
+   * turned a module off is not older, it is differently shaped, and semver
+   * cannot say that.
+   *
+   * `/api/platform/info` keeps answering forever as the v0 fallback.
+   */
+  app.get("/.well-known/village.json", (_req, res) => {
+    publicDoc(res);
+    const cfg = mergedConfig();
+    const live = orgExportLive();
+    const doc = {
+      protocol: EXPORT_PROTOCOL,
+      kind: "village",
+      instanceId: instanceIdentity().instanceId,
+      name: cfg.project.name,
+      tagline: cfg.project.tagline ?? null,
+      location: cfg.project.location ?? null,
+      platform: { name: "custom-game-foundation", version: PLATFORM_VERSION, build: BUILD_MARKER },
+      publicKey: publicKeyBlock(signingKey()),
+      // Only what this deployment actually answers. Announcing `org/1` while
+      // the org export is dark would send every reader to a 404 and teach them
+      // this village is broken instead of private.
+      supports: live ? ["org/1"] : [],
+      links: {
+        humanHome: "/",
+        platformInfo: "/api/platform/info",
+        ...(live ? { org: "/api/public/org.json", orgMarkdown: "/org/index.md" } : {}),
+      },
+      // Same lifecycle floor as /api/platform/info: a module in `preview` is
+      // one a founder is still looking at, and announcing it to the open
+      // internet is exactly what preview exists to avoid.
+      modules: MODULES.filter((m) => m.core || LIFECYCLE_RANK[effectiveLifecycle(m.id)] >= LIFECYCLE_RANK.members)
+        .map((m) => ({ id: m.id, lifecycle: m.core ? "public" : effectiveLifecycle(m.id) })),
+      // The SAME floor the modules list two lines up applies. `!== "off"` was
+      // wrong here for the reason /api/network/published records at length:
+      // `preview` is a founder looking at a module, and announcing "we accept
+      // peers" while they are still deciding invites handshakes the village
+      // never agreed to.
+      policy: {
+        acceptsPeers: LIFECYCLE_RANK[effectiveLifecycle("network")] >= LIFECYCLE_RANK.members,
+      },
+    };
+    res.json(signDocument(doc, signingKey(), new Date().toISOString()));
+  });
+
+  /** The org chart as data, signed, with no names in it. */
+  app.get("/api/public/org.json", async (_req, res) => {
+    publicDoc(res);
+    if (!orgExportLive()) {
+      return res.status(404).json({ error: "This village does not publish its structure" });
+    }
+    const doc = await loadOrgExport();
+    // Signed AT the document's own updatedAt, not at now, so two fetches of an
+    // unchanged chart are byte-identical and verify to the same signature.
+    res.json(signDocument(doc, signingKey(), doc.updatedAt));
+  });
+
+  /*
+   * The Markdown mirror: the same chart, walkable by a human, a crawler and an
+   * agent, none of whom need to know the API exists.
+   *
+   * Ids double as slugs (`createOrgRole` slugifies a name into the id) and
+   * these build path-shaped URLs, so every id is checked against `isSlug`
+   * before it is used. A seat whose id is not a plain slug is dropped from the
+   * export entirely rather than escaped: there is no legitimate seat called
+   * `../../etc/passwd`, so there is nothing to rescue.
+   */
+  const md = (res: any, body: string) => {
+    publicDoc(res);
+    res.type("text/markdown; charset=utf-8").send(body);
+  };
+
+  /*
+   * The 404s carry the SAME headers as the 200s.
+   *
+   * A crawler or a peer that hits the dark branch without CORS gets an opaque
+   * network error in the browser and cannot tell "this village keeps its
+   * structure private" apart from "this village is broken". The refusal is
+   * part of the protocol, so it has to be readable.
+   */
+  const notPublished = (res: any, text: string) => {
+    publicDoc(res);
+    res.status(404).type("text/plain").send(text);
+  };
+  const DARK = "This village does not publish its structure";
+
+  app.get("/org/index.md", async (_req, res) => {
+    if (!orgExportLive()) return notPublished(res, DARK);
+    md(res, orgIndexMarkdown(await loadOrgExport()));
+  });
+
+  app.get("/org/circles/:id.md", async (req, res) => {
+    if (!orgExportLive()) return notPublished(res, DARK);
+    const id = String(req.params.id ?? "");
+    if (!isSlug(id)) return notPublished(res, "No such circle");
+    const doc = await loadOrgExport();
+    const circle = doc.circles.find((c) => c.id === id);
+    if (!circle) return notPublished(res, "No such circle");
+    md(res, circleMarkdown(doc, circle));
+  });
+
+  app.get("/org/roles/:id.md", async (req, res) => {
+    if (!orgExportLive()) return notPublished(res, DARK);
+    const id = String(req.params.id ?? "");
+    if (!isSlug(id)) return notPublished(res, "No such seat");
+    const doc = await loadOrgExport();
+    const seat = doc.seats.find((s) => s.id === id);
+    if (!seat) return notPublished(res, "No such seat");
+    md(res, seatMarkdown(doc, seat));
+  });
+
+  /*
+   * /org/** is a document folder, so it must fail like one.
+   *
+   * Without this the SPA fallback answers every unmatched non-/api path with
+   * index.html and a 200, which is right for real page URLs and wrong here for
+   * exactly the reasons the fallback's own comment gives about /api and
+   * /assets: an agent walking this folder would read HTML as a document and a
+   * typo as a success. No client route owns /org.
+   */
+  /*
+   * /.well-known/* is a registry of exact filenames, so an unknown one is a
+   * miss and not a page. Without this, /.well-known/anything falls through to
+   * the SPA and answers HTML with a 200, which is how a peer probing for a
+   * capability document concludes this village has one.
+   */
+  app.get("/.well-known/*", (req, res) => notPublished(res, `Not found: ${req.path}`));
+
+  app.get("/org", (_req, res) => res.redirect(308, "/org/index.md"));
+  app.get("/org/*", (req, res) => notPublished(res, `Not found: ${req.path}`));
 
   /**
    * Seats whose mandate has run out or is about to, most overdue first.

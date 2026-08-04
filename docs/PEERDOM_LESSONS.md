@@ -470,11 +470,16 @@ was not obvious from the Peerdom version:
 | 2 | `holder_kind` member/documented, `holder_key NOT NULL` | MySQL exempts NULLs from unique indexes, so a nullable `user_id` in the key would have admitted unlimited duplicate seatings. |
 | 3 | `seatState`, derived on every read | Needed a fifth state, `expired`: a seat whose holders all lapsed is not `filled`, and calling it `open` would erase people still doing the work. |
 | 4 | `describeOrgChange` + `health_events` index (0051) | It is a read over the existing spine, not a table. The index was the whole migration. |
+| 5 | Overdue list in the Org Chart tab + the `term-watch` job | The model was already there and nothing rendered it, so a term that ran out was recorded and never seen. One notification per assignment per event: `dedupe_key` is globally unique, so a week bucket would re-fire forever. |
 | 6 | `structuralLoad` on `/api/health/summary` | Seats-held is not the metric. `soleHeld` is, and the page's own "no leaderboards" promise forced the shape public and the names behind `map.viewPeople`. |
+| 7 | `/.well-known/village.json`, `/api/public/org.json`, `/org/**.md`, ed25519-signed | Peerdom publishes OKF as an integration feature. Here the hard part was privacy, not format: the export has no session, so it can carry no names at all, and the gate had to be the village's EXISTING answer about public structure rather than a new switch. |
 
-Still open: 5 (terms digest), 7 (OKF export), 8 (drafts), 9 (confidence voting), 10 (relationship types).
-Terms are half-built already: `term_ends_at` is enforced and `expiringSeatings` exists, so 5 is the
-urgency-sorted view and the digest, not the model.
+Still open: 8 (drafts), 9 (confidence voting), 10 (relationship types).
+
+The export is the one that unblocks the rest of the federation story. `addPeer` still hard-refuses any
+handshake whose `platform` string is not the literal `custom-game-foundation`, so only forks of this
+exact repo can peer today; teaching `syncPeers` to prefer the discovery document is what turns that
+from a product feature into a protocol, and it is the next thing here.
 
 ---
 

@@ -372,3 +372,39 @@ variables and invariants are language-free by construction.
   only, so every example member's byline came back empty) and every example
   product was `public` (the members-only branch of the catalogue had nothing
   to show). A fresh instance picks both up from the seed and needs no refresh.
+
+## Publishing your village (0051, no migration)
+
+Three unauthenticated documents. Anyone, including an AI agent, can read your
+whole org chart from one URL with no integration:
+
+- `/.well-known/village.json` — discovery. **Always on.** It publishes what
+  `/api/platform/info` already did, plus a public key and a `links` block.
+- `/api/public/org.json` — the org chart as data.
+- `/org/index.md`, `/org/circles/<id>.md`, `/org/roles/<id>.md` — the same
+  chart as linked Markdown.
+
+**The last two are dark until BOTH are true:** the `map` module is at `public`
+lifecycle, and the `map.public_structure` variable is on (it defaults on). That
+pair is already your answer to "may a stranger see our structure", so there is
+no separate publish switch to find. Set `map` to `off`, `preview` or `members`
+and the org documents 404 while discovery keeps answering with an empty
+`supports` array.
+
+**They never carry names.** Not full names, not first names, not the names of
+documented holders, not focus strings or holder notes. Seat counts and how many
+are filled, and nothing else. If you want a public people directory, that is a
+different thing and it needs per-member consent first.
+
+Every document is signed with an ed25519 key minted at your first boot and
+stored in `app_config` under `village-signing-key`. The public half is in the
+discovery document. **Back it up with your database**: losing it does not lose
+any data, but every peer that cached your key sees a new one and has to decide
+whether to trust it again.
+
+Check yours after provisioning:
+
+```bash
+curl -s https://<your-domain>/.well-known/village.json | jq '.supports, .publicKey.kid'
+curl -s https://<your-domain>/org/index.md | head -20
+```
