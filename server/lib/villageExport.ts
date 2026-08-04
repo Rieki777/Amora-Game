@@ -189,6 +189,24 @@ export function signDocument<T extends Record<string, any>>(doc: T, k: SigningKe
  * Verify a document that carries a proof block. Exported so the round trip is
  * testable and so a peer implementation has a reference: a signature nobody
  * can check is ceremony.
+ *
+ * WHAT THIS PROVES, AND WHAT IT DOES NOT.
+ *
+ * It proves the bytes were not altered after the holder of that private key
+ * signed them, which is the point: a copy that was cached, relayed or handed
+ * to an agent still verifies, where TLS to the origin would have evaporated.
+ *
+ * It does NOT prove WHO the village is. The public key travels inside the
+ * document it signs, so an impostor mints its own keypair, publishes its own
+ * `publicKey` block, signs a document claiming somebody else's `instanceId`,
+ * and this returns true. Verifying against a self-published key authenticates
+ * bytes against whoever answered, never the answerer against an identity.
+ *
+ * Binding identity needs the key pinned on first contact and compared on every
+ * sweep, which is a `public_key` column on `peer_instances` and a decision
+ * about what to do when it changes. Until that exists, peer identity rests on
+ * the same trust-on-first-use `instanceId` check it always did, and this
+ * signature is about integrity alone.
  */
 export function verifyDocument(signed: Record<string, any>, publicKeyPem: string): boolean {
   const { proof, ...doc } = signed;

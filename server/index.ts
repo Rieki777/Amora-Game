@@ -200,7 +200,7 @@ import {
   signingKey,
 } from "./lib/villageExport";
 import { recordFeedback, relayFeedback } from "./lib/feedback";
-import { addPeer, peerSharedItems, SHARED_ITEM_TYPES, syncPeers } from "./lib/network";
+import { addPeer, discoverPeer, peerSharedItems, SHARED_ITEM_TYPES, syncPeers } from "./lib/network";
 import { corpusTitles, loadKnowledgeCorpus, relevantCorpus, relevantSyntheses } from "./lib/knowledge";
 import { guardedFetchJson } from "./lib/toolcheck";
 import {
@@ -7440,13 +7440,17 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const [[peer]] = await getPool().query<any[]>("SELECT * FROM peer_instances WHERE id = ?", [req.params.id]);
     if (!peer) return res.status(404).json({ error: "no such peer" });
     try {
-      // Guarded, like every other peer call — a resume must not be the one
-      // door that dials an unvetted redirect.
-      const info = await guardedFetchJson(`${peer.base_url}/api/platform/info`);
-      if (!info?.instanceId) throw new Error("no handshake");
+      // Discovery-first, like addPeer and syncPeers. This asked for
+      // /api/platform/info directly, which meant a village that speaks ONLY
+      // the v1 document could be paused and then never resumed: the exact peer
+      // class the discovery handshake exists to admit would hit a dead end at
+      // the one endpoint for getting out of it. discoverPeer is guarded the
+      // same way, so a resume still cannot dial an unvetted redirect.
+      const info = await discoverPeer(String(peer.base_url));
+      if (!info) throw new Error("no handshake");
       await getPool().query(
         "UPDATE peer_instances SET status = 'active', instance_id = ?, name = ?, version = ?, last_error = NULL WHERE id = ?",
-        [String(info.instanceId), String(info.name ?? peer.name).slice(0, 120), info.version ?? null, peer.id],
+        [info.instanceId, String(info.name ?? peer.name).slice(0, 120), info.version, peer.id],
       );
       res.json({ success: true });
     } catch {

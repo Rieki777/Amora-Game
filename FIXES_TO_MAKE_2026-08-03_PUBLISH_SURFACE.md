@@ -93,22 +93,21 @@ standing-examples machinery... EXAMPLE_TABLES is untouched."* Since then
 offset). The correction belongs in `docs/ARCHITECTURE.md`, which is the
 as-built map, and this line is that correction.
 
-### 2.3 The peer sync job and its publish endpoint disagree
+### 2.3 The peer sync job and its publish endpoint disagree, and that is FINE
 
-`/api/network/published` floors at `>= LIFECYCLE_RANK.members` with a comment
-explaining that `preview` is a founder still deciding. The `network-sync` job is
-gated on `!== "off"`. So a village that previewed the network module does not
-publish, but does go out and fetch from peers.
+Recorded because it looks like a bug and is not, so the next reader does not
+"fix" it. `/api/network/published` floors at `>= LIFECYCLE_RANK.members`; the
+`network-sync` job is gated on `!== "off"`. So a village previewing the network
+module fetches from peers but does not publish.
 
-(The same `!== "off"` bug in the new discovery document's `policy.acceptsPeers`
-was caught and fixed before it shipped.)
+That asymmetry is the right way round. `preview` means admin-only, and an admin
+evaluating the module needs real peer data in front of them to evaluate it.
+Publishing during preview announces the village to the world before it decided;
+reading during preview is the point of previewing.
 
-### 2.4 `peer_instances` reports the wrong collision
-
-`peer_instances` carries two unique keys and `addPeer` maps every
-`ER_DUP_ENTRY` to "already peered with that village". A URL collision with a
-**different** village reports the same message, so the operator debugs the wrong
-thing.
+(The same `!== "off"` pattern in the new discovery document's
+`policy.acceptsPeers` WAS a bug and was fixed before it shipped, because that
+field is an announcement and not a read.)
 
 ---
 
@@ -132,6 +131,25 @@ thing.
 
 ---
 
+### 3.1 The signature does not bind identity, and the next step is a column
+
+`/.well-known/village.json` publishes its own public key inside the document
+that key signs. So the signature proves the bytes were not altered after
+signing, which is what a cached or relayed copy needs, and it proves nothing at
+all about WHO answered: an impostor mints a keypair, publishes its own
+`publicKey` block, signs a document carrying another village's `instanceId`,
+and `verifyDocument` returns true.
+
+That is not a regression. Peer identity has always been trust-on-first-use: the
+`instanceId` is learned at add time and re-checked every sweep, and the old
+`platform === "custom-game-foundation"` gate was equally a copyable string.
+
+The fix is one column and one decision. Add `public_key` to `peer_instances`,
+pin it on first contact, compare every sweep, and pause the peer when it changes
+the way an `instanceId` change already pauses it. The decision is what "changed"
+should mean once villages start rotating keys, which is why this is a real
+change and not an omitted call.
+
 ## 4. Worth knowing, not obviously wrong
 
 - **`**/*.test.ts` is excluded from typecheck** (`tsconfig.json`). Test files
@@ -140,8 +158,9 @@ thing.
 - **Every API route is registered above `app.use(compression())`**, so no JSON
   response on this server is compressed, including the three export documents.
   Platform-wide and long-standing; worth a measurement before a change.
-- **`addPeer` hard-refuses any handshake whose `platform` string is not the
-  literal `custom-game-foundation`.** This is the single line that keeps
-  federation a product feature instead of a protocol. Teaching `syncPeers` to
-  prefer `/.well-known/village.json` and accept anything that answers the shape
-  is the next real step, and it is what the export was built to enable.
+- ~~**`addPeer` hard-refuses any handshake whose `platform` string is not the
+  literal `custom-game-foundation`.**~~ FIXED. `discoverPeer` tries
+  `/.well-known/village.json` first and accepts any document that answers
+  `protocol: "village/*"` with an `instanceId`, whatever codebase it runs. The
+  v0 branch keeps the literal platform string exactly as strict as it was, so
+  it stays a legacy path and not a looser second front door.

@@ -858,6 +858,15 @@ signed; arrays keep their order because their order is meaning. `verifyDocument`
 is exported so the round trip is testable and a peer has a reference, since a
 signature nobody can check is ceremony.
 
+**It signs for INTEGRITY, not identity.** The public key travels inside the
+document it signs, so an impostor mints its own keypair, publishes its own
+`publicKey` block, signs a document claiming somebody else's `instanceId`, and
+verification passes. Verifying against a self-published key authenticates the
+bytes against whoever answered, never the answerer against an identity. Peer
+identity still rests on the trust-on-first-use `instanceId` check it always
+did. Binding the two needs the key pinned on `peer_instances` and compared each
+sweep, which is recorded as the next federation step.
+
 Four defects a recon pass caught in the first draft, each now a test:
 
 - **Example seatings inflated real counts.** `org_role_assignments` carries
@@ -910,6 +919,28 @@ anything. The export cannot leak it (it carries no names) but `/api/org` can.
 `/org/**` 404s like `/api/**` and `/assets/**` rather than falling through to
 the SPA, and `/.well-known/**` does the same. Both are document namespaces, so
 a typo must not read as a success.
+
+**The handshake this unlocked.** `addPeer` used to fetch `/api/platform/info`
+and refuse anything whose `platform` string was not the literal
+`custom-game-foundation`, so only forks of this repository could ever federate:
+a Peerdom organisation, a bioregional council or a hand-written static file
+could answer every question correctly and still be turned away. `discoverPeer`
+tries `/.well-known/village.json` first and accepts any document carrying
+`protocol: "village/*"` and an `instanceId`, whatever code it runs. `syncPeers`
+uses the same seam, so a peer that upgrades between sweeps keeps being
+recognised instead of looking like it went dark.
+
+The v0 branch stays EXACTLY as strict as it was. It is the legacy path, not a
+second and looser front door, so without a `protocol` field the platform string
+is still the only thing that identifies a peer. A v0 peer costs one extra
+request per six-hourly sweep; recording which document answered would need a
+column and is not worth one yet.
+
+What a peer speaks is cached in `peer_shared_cache.payload` (JSON, so no
+migration) and surfaced as `protocol`, `supports` and an `orgUrl` that appears
+only when the peer claims `org/1`. The shared-items fetch is NOT gated on
+`supports`: no village advertises a shared-items capability yet, so branching on
+one would silently stop syncing every peer that already works.
 
 ### 3.18 The serving layer — what every byte costs
 

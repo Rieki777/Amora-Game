@@ -39,6 +39,110 @@ async function fetchJson(url: string, timeoutMs = 10_000): Promise<any> {
   return guardedFetchJson(url, timeoutMs);
 }
 
+/** What a handshake tells us, whichever document answered it. */
+export interface PeerIdentity {
+  instanceId: string;
+  name: string | null;
+  version: string | null;
+  /** "village/1" if the discovery document answered, "platform/0" if not. */
+  protocol: "village/1" | "platform/0";
+  /** Capability names the peer claims. Empty for a v0 peer, which claims none. */
+  supports: string[];
+}
+
+/**
+ * Shake hands, discovery document FIRST.
+ *
+ * This is the line between a protocol and a product feature. `addPeer` used to
+ * fetch `/api/platform/info` and refuse anything whose `platform` string was
+ * not the literal `custom-game-foundation`, so only forks of THIS repo could
+ * ever federate: a Peerdom organisation, a bioregional council or a
+ * hand-written static file could not join a network of villages no matter how
+ * correctly it answered.
+ *
+ * `/.well-known/village.json` is the v1 root and needs no shared codebase, only
+ * a shape. `/api/platform/info` keeps answering forever as the v0 fallback,
+ * because a peer that learned to read it must never break when a newer document
+ * appears. A v0 peer costs one extra request per sweep, six-hourly; recording
+ * which one answered would need a column and is not worth one yet.
+ *
+ * Branch on `supports`, never on version ordering. A village that turned a
+ * module off is not older, it is differently shaped.
+ */
+export async function discoverPeer(baseUrl: string): Promise<PeerIdentity | null> {
+  /*
+   * BOUNDS. Every field below is now written by a stranger.
+   *
+   * Before this, `version` and `instanceId` came from a peer running this exact
+   * platform: a short semver and a uuid. A village document can carry any
+   * string, and `version` is varchar(20) while `instance_id` is varchar(64), so
+   * under STRICT_TRANS_TABLES a peer publishing "2.1.0+build.2026-08-04.a91f3c"
+   * would make the admin's add-peer request fail with a truncation error. Cap
+   * here, once, so every caller gets values the columns can hold.
+   */
+  const cap = (v: unknown, n: number): string | null => {
+    const s = v === null || v === undefined ? "" : String(v);
+    return s ? s.slice(0, n) : null;
+  };
+
+  /*
+   * A guard refusal is not a 404, and the operator needs to know which.
+   *
+   * `guardedFetchJson` throws a bare numeric status for an HTTP miss and a
+   * sentence for everything else ("resolves to a private address", "too many
+   * redirects", "https only"). Swallowing both would record a peer that had
+   * started redirecting into a private range as having simply "gone dark",
+   * which is the one failure an operator most needs to see. So an HTTP miss
+   * falls through quietly and anything else is remembered and rethrown if no
+   * document ends up answering.
+   */
+  let refusal: unknown = null;
+  const isHttpStatus = (e: unknown) => /^\d{3}(\s|$)/.test(String((e as any)?.message ?? e));
+
+  try {
+    const doc = await fetchJson(`${baseUrl}/.well-known/village.json`);
+    if (doc?.instanceId && String(doc?.protocol ?? "").startsWith("village/")) {
+      return {
+        instanceId: cap(doc.instanceId, 64)!,
+        name: cap(doc.name, 120),
+        version: cap(doc?.platform?.version, 20),
+        protocol: "village/1",
+        // Capped in count AND in length. `items` has been capped at 100 since
+        // this module shipped; this is peer-controlled text landing in the same
+        // cache row and deserves the same treatment.
+        supports: Array.isArray(doc.supports)
+          ? doc.supports.slice(0, 32).map((c: unknown) => String(c).slice(0, 64))
+          : [],
+      };
+    }
+  } catch (e) {
+    if (!isHttpStatus(e)) refusal = e;
+    // Otherwise: no discovery root here. Fall through, because an older village
+    // is not a broken one.
+  }
+
+  try {
+    const info = await fetchJson(`${baseUrl}/api/platform/info`);
+    // The v0 document carries no protocol field, so the platform string is the
+    // only thing that identifies it. Kept EXACTLY as strict as it was: this
+    // branch is the legacy path and must not become a second, looser front door.
+    if (info?.instanceId && info?.platform === "custom-game-foundation") {
+      return {
+        instanceId: cap(info.instanceId, 64)!,
+        name: cap(info.name, 120),
+        version: cap(info.version, 20),
+        protocol: "platform/0",
+        supports: [],
+      };
+    }
+  } catch (e) {
+    if (!isHttpStatus(e)) refusal = refusal ?? e;
+  }
+
+  if (refusal) throw refusal instanceof Error ? refusal : new Error(String(refusal));
+  return null;
+}
+
 /** Add a peer: guard the URL, shake its hand, learn who it is. */
 export async function addPeer(
   pool: Pool,
@@ -48,16 +152,21 @@ export async function addPeer(
   const guard = await guardOutboundUrl(baseUrl);
   if (!guard.ok) return { ok: false, error: `refused: ${guard.refused}` };
 
-  let info: any;
+  let info: PeerIdentity | null;
   try {
-    info = await fetchJson(`${baseUrl}/api/platform/info`);
+    info = await discoverPeer(baseUrl);
   } catch (e: any) {
-    return { ok: false, error: `no platform handshake at that address (${String(e?.message ?? e).slice(0, 60)})` };
+    // A refusal, not a miss: the address resolved somewhere it should not, or
+    // redirected too many times. Say which, so the admin can act on it.
+    return { ok: false, error: `refused: ${String(e?.message ?? e).slice(0, 120)}` };
   }
-  if (!info?.instanceId || info?.platform !== "custom-game-foundation") {
-    return { ok: false, error: "that deployment does not speak this platform's handshake (it may need upgrading)" };
+  if (!info) {
+    return {
+      ok: false,
+      error: "nothing at that address answered a village handshake (no /.well-known/village.json, and no platform info)",
+    };
   }
-  if (String(info.instanceId) === input.selfInstanceId) {
+  if (info.instanceId === input.selfInstanceId) {
     return { ok: false, error: "that is this village; a village cannot peer with itself" };
   }
 
@@ -65,13 +174,30 @@ export async function addPeer(
   try {
     await pool.query(
       "INSERT INTO peer_instances (id, instance_id, base_url, name, version, added_by) VALUES (?,?,?,?,?,?)",
-      [id, String(info.instanceId), baseUrl, String(info.name ?? baseUrl).slice(0, 120), info.version ?? null, input.addedBy],
+      [id, info.instanceId, baseUrl, String(info.name ?? baseUrl).slice(0, 120), info.version, input.addedBy],
     );
   } catch (e: any) {
-    if (e?.code === "ER_DUP_ENTRY") return { ok: false, error: "already peered with that village" };
+    // TWO unique keys, two different problems. Both used to report "already
+    // peered with that village", so an operator whose new peer collided on URL
+    // with a DIFFERENT village went and looked for a village that was not
+    // there. Ask which one it was instead of guessing.
+    if (e?.code === "ER_DUP_ENTRY") {
+      const [[byId]] = await pool.query<RowDataPacket[]>(
+        "SELECT base_url FROM peer_instances WHERE instance_id = ?", [info.instanceId],
+      );
+      if (byId) {
+        return {
+          ok: false,
+          error: String(byId.base_url) === baseUrl
+            ? "already peered with that village"
+            : `already peered with that village, at ${byId.base_url}`,
+        };
+      }
+      return { ok: false, error: "another village is already registered at that address" };
+    }
     throw e;
   }
-  return { ok: true, peer: { id, instanceId: info.instanceId, baseUrl, name: info.name, version: info.version } };
+  return { ok: true, peer: { id, instanceId: info.instanceId, baseUrl, name: info.name, version: info.version, protocol: info.protocol } };
 }
 
 /**
@@ -95,8 +221,18 @@ export async function syncPeers(pool: Pool): Promise<{ synced: number; failed: n
       const guard = await guardOutboundUrl(String(p.base_url));
       if (!guard.ok) throw new Error(`url refused: ${guard.refused}`);
 
-      const info = await fetchJson(`${p.base_url}/api/platform/info`);
-      if (String(info?.instanceId ?? "") !== String(p.instance_id)) {
+      // Discovery-first here too, so a peer that upgrades between sweeps keeps
+      // being recognised instead of looking like it went dark.
+      const info = await discoverPeer(String(p.base_url));
+      // Nothing answered a handshake: dark, not stolen. It lands in the catch
+      // below as `last_error` and the peer stays active, so a village that was
+      // simply mid-deploy recovers on the next sweep without an admin clicking
+      // anything. The PAUSE below is reserved for the case it was written for,
+      // a DIFFERENT identity answering at a known address. Either way the
+      // throw precedes the published fetch, so nothing from an address that
+      // failed the handshake ever reaches the cache.
+      if (!info) throw new Error("no village handshake at that address any more");
+      if (info.instanceId !== String(p.instance_id)) {
         // The address answers, but it is not the village we agreed to hear.
         await pool.query(
           "UPDATE peer_instances SET status = 'paused', last_error = ? WHERE id = ?",
@@ -105,11 +241,20 @@ export async function syncPeers(pool: Pool): Promise<{ synced: number; failed: n
         failed += 1;
         continue;
       }
+      // Fetched unconditionally, NOT gated on `supports`. No village advertises
+      // a shared-items capability yet, so branching on one would silently stop
+      // syncing every peer that already works. `supports` is recorded instead,
+      // which is what a reader needs to know a peer publishes its org chart.
       const published = await fetchJson(`${p.base_url}/api/network/published`);
       const items = Array.isArray(published?.items) ? published.items.slice(0, 100) : [];
       await pool.query(
         "INSERT INTO peer_shared_cache (peer_id, payload) VALUES (?, ?) ON DUPLICATE KEY UPDATE payload = VALUES(payload)",
-        [p.id, JSON.stringify({ items, name: info.name, version: info.version })],
+        // The payload column is JSON, so what a peer can do rides along without
+        // a migration.
+        [p.id, JSON.stringify({
+          items, name: info.name, version: info.version,
+          protocol: info.protocol, supports: info.supports,
+        })],
       );
       await pool.query(
         "UPDATE peer_instances SET last_sync_at = NOW(), last_error = NULL, name = ?, version = ? WHERE id = ?",
@@ -152,6 +297,16 @@ export async function peerSharedItems(pool: Pool): Promise<any[]> {
       lastSyncAt: r.last_sync_at ? new Date(r.last_sync_at).toISOString() : null,
       lastError: r.last_error ?? null,
       items: payload?.items ?? [],
+      // What this peer speaks, learned at the last sync. A v0 peer, or one that
+      // has never synced, reports "platform/0" and claims nothing, which is
+      // exactly what it was doing before any of this existed.
+      protocol: String(payload?.protocol ?? "platform/0"),
+      supports: Array.isArray(payload?.supports) ? payload.supports.map(String) : [],
+      // Only when the peer says it publishes one. A link built from a
+      // capability the peer never claimed is a 404 with extra steps.
+      orgUrl: Array.isArray(payload?.supports) && payload.supports.includes("org/1")
+        ? `${String(r.base_url)}/org/index.md`
+        : null,
     };
   });
 }
