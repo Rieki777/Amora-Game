@@ -158,7 +158,12 @@ beforeAll(async () => {
     if (m.core) continue;
     await call("PUT", `/api/admin/modules/${m.id}/lifecycle`, { lifecycle: "public" });
   }
-}, 180_000);
+  // No per-hook timeout on purpose. This hook CONTAINS the 180s boot wait
+  // above, so a local ceiling of 180s could never outlast it: the hook always
+  // died first and threw away the server log the boot deadline exists to
+  // print, while loop.e2e (which has no override) passed on the same tree.
+  // The ceiling lives in vitest.config.ts, once, and this inherits it.
+});
 
 afterAll(async () => {
   child?.kill();

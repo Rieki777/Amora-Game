@@ -693,7 +693,21 @@ export interface BackfillReport {
  *
  * Idempotent by presence: a deployment that already has org_roles is left
  * alone, so this can never overwrite work done after it first ran.
+ *
+ * BATCHED, and that is load-bearing rather than tidy. Each of the four passes
+ * used to issue one statement per item: 14 circles, 8 councils, 24 seats, then
+ * a lookup and an insert per holder. About 64 sequential round trips, and this
+ * is the LAST thing a first boot does. Against a hosted MySQL where a round
+ * trip is roughly 130ms that is tens of seconds of boot, and it made the
+ * end-to-end tests fail intermittently with "server did not start", which reads
+ * like a broken server and is not one. Four statements now, so the wait scales
+ * with the network once instead of once per seat. Every write stays an upsert,
+ * so a resumed run still finishes what a failed one started.
  */
+function rowPlaceholders(rows: number, cols: number): string {
+  return Array.from({ length: rows }, () => `(${Array.from({ length: cols }, () => "?").join(",")})`).join(",");
+}
+
 export async function backfillOrgChart(pool: Pool, input: BackfillInput): Promise<BackfillReport> {
   // Idempotent by presence, and RESUMABLE after a partial run.
   //
@@ -722,39 +736,45 @@ export async function backfillOrgChart(pool: Pool, input: BackfillInput): Promis
   const circleCardById = new Map<string, any>();
   for (const c of input.circleCards ?? []) if (c?.id) circleCardById.set(c.id, c);
 
-  let circlesWritten = 0;
-  for (const c of corr.circles ?? []) {
+  const circleRows = (corr.circles ?? []).map((c: any) => {
     const card = circleCardById.get(c.id);
-    const purpose = c.purpose ?? card?.description ?? null;
+    return [
+      c.id,
+      c.name,
+      c.purpose ?? card?.description ?? null,
+      c.parentCircleId ?? null,
+      c.grownFromOrgRoleId ?? null,
+      c.icon ?? card?.icon ?? null,
+      c.color ?? card?.color ?? null,
+      c.status ?? "active",
+      Number(c.sortOrder ?? 0),
+    ];
+  });
+  if (circleRows.length) {
     await pool.query(
       `INSERT INTO circles (id, name, purpose, parent_circle_id, grown_from_org_role_id, icon, color, status, sort_order)
-       VALUES (?,?,?,?,?,?,?,?,?)
+       VALUES ${rowPlaceholders(circleRows.length, 9)}
        ON DUPLICATE KEY UPDATE
          name = VALUES(name), purpose = VALUES(purpose),
          parent_circle_id = VALUES(parent_circle_id),
          grown_from_org_role_id = VALUES(grown_from_org_role_id),
          status = VALUES(status), sort_order = VALUES(sort_order)`,
-      [
-        c.id,
-        c.name,
-        purpose,
-        c.parentCircleId ?? null,
-        c.grownFromOrgRoleId ?? null,
-        c.icon ?? card?.icon ?? null,
-        c.color ?? card?.color ?? null,
-        c.status ?? "active",
-        Number(c.sortOrder ?? 0),
-      ],
+      circleRows.flat(),
     );
-    circlesWritten += 1;
   }
+  const circlesWritten = circleRows.length;
 
   // The aspirational councils already exist as rows. None of them is a
   // working circle, so they move to forming and render as calls.
   let councilsToForming = 0;
-  for (const id of corr.councilsToForming ?? []) {
-    const [r]: any = await pool.query("UPDATE circles SET status = 'forming' WHERE id = ? AND status <> 'forming'", [id]);
-    if (r?.affectedRows) councilsToForming += 1;
+  const councilIds = (corr.councilsToForming ?? []).filter(Boolean);
+  if (councilIds.length) {
+    const [r]: any = await pool.query(
+      `UPDATE circles SET status = 'forming'
+        WHERE status <> 'forming' AND id IN (${councilIds.map(() => "?").join(",")})`,
+      councilIds,
+    );
+    councilsToForming = Number(r?.affectedRows ?? 0);
   }
 
   // ── Seats ────────────────────────────────────────────────────────────────
@@ -780,30 +800,16 @@ export async function backfillOrgChart(pool: Pool, input: BackfillInput): Promis
     }
   }
 
-  let seatsWritten = 0;
-  for (const card of cards) {
-    if (!card?.id) continue;
-    const fix = seatCorrections.get(card.id) ?? {};
-    const circleId =
-      fix.circleId ?? circleIdByName.get(String(card.group ?? "").toLowerCase()) ?? null;
-
-    let overrideUntil: Date | null = null;
-    if (fix.statusOverride && fix.statusOverrideDays) {
-      overrideUntil = new Date(Date.now() + Number(fix.statusOverrideDays) * 24 * 60 * 60 * 1000);
-    }
-
-    // Upsert, so a resumed run finishes rather than colliding on a seat the
-    // failed attempt already wrote.
-    await pool.query(
-      `INSERT INTO org_roles
-         (id, circle_id, name, aim, domain, accountabilities, why_it_matters, seats, criticality,
-          status_override, status_override_expires_at, icon, color, sort_order)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-       ON DUPLICATE KEY UPDATE
-         circle_id = VALUES(circle_id), name = VALUES(name), aim = VALUES(aim),
-         domain = VALUES(domain), accountabilities = VALUES(accountabilities),
-         why_it_matters = VALUES(why_it_matters), sort_order = VALUES(sort_order)`,
-      [
+  const seatRows = cards
+    .filter((card: any) => card?.id)
+    .map((card: any) => {
+      const fix = seatCorrections.get(card.id) ?? {};
+      const circleId = fix.circleId ?? circleIdByName.get(String(card.group ?? "").toLowerCase()) ?? null;
+      const overrideUntil =
+        fix.statusOverride && fix.statusOverrideDays
+          ? new Date(Date.now() + Number(fix.statusOverrideDays) * 24 * 60 * 60 * 1000)
+          : null;
+      return [
         card.id,
         circleId,
         fix.name ?? card.name ?? card.id,
@@ -818,26 +824,51 @@ export async function backfillOrgChart(pool: Pool, input: BackfillInput): Promis
         card.icon ?? null,
         card.color ?? null,
         Number(fix.sortOrder ?? 0),
-      ],
+      ];
+    });
+  if (seatRows.length) {
+    // Upserts, so a resumed run finishes rather than colliding on a seat the
+    // failed attempt already wrote.
+    await pool.query(
+      `INSERT INTO org_roles
+         (id, circle_id, name, aim, domain, accountabilities, why_it_matters, seats, criticality,
+          status_override, status_override_expires_at, icon, color, sort_order)
+       VALUES ${rowPlaceholders(seatRows.length, 14)}
+       ON DUPLICATE KEY UPDATE
+         circle_id = VALUES(circle_id), name = VALUES(name), aim = VALUES(aim),
+         domain = VALUES(domain), accountabilities = VALUES(accountabilities),
+         why_it_matters = VALUES(why_it_matters), sort_order = VALUES(sort_order)`,
+      seatRows.flat(),
     );
-    seatsWritten += 1;
   }
+  const seatsWritten = seatRows.length;
 
   // ── Holders ──────────────────────────────────────────────────────────────
   // Documented, every one: a real person in a real seat who may not have an
   // account. The seat-claim card converts them on their next login.
   let holdersWritten = 0;
-  for (const h of corr.holders ?? []) {
-    if (!h?.seat || !h?.name) continue;
-    const [seatExists]: any = await pool.query("SELECT 1 FROM org_roles WHERE id = ?", [h.seat]);
-    if (!(seatExists as any[]).length) continue;
-    await pool.query(
-      `INSERT IGNORE INTO org_role_assignments
-         (id, org_role_id, holder_kind, display_name, holder_key, focus, note)
-       VALUES (?,?, 'documented', ?,?,?,?)`,
-      [newId("orgasg"), h.seat, h.name, documentedKey(h.name), h.focus || null, h.note || null],
+  const named = (corr.holders ?? []).filter((h: any) => h?.seat && h?.name);
+  if (named.length) {
+    // One lookup for every seat named, instead of one per holder. A holder
+    // whose seat does not exist is still skipped, exactly as before.
+    const wanted = Array.from(new Set(named.map((h: any) => String(h.seat))));
+    const [seatRowsFound]: any = await pool.query(
+      `SELECT id FROM org_roles WHERE id IN (${wanted.map(() => "?").join(",")})`,
+      wanted,
     );
-    holdersWritten += 1;
+    const seatExists = new Set((seatRowsFound as any[]).map((r) => String(r.id)));
+    const holderRows = named
+      .filter((h: any) => seatExists.has(String(h.seat)))
+      .map((h: any) => [newId("orgasg"), h.seat, h.name, documentedKey(h.name), h.focus || null, h.note || null]);
+    if (holderRows.length) {
+      await pool.query(
+        `INSERT IGNORE INTO org_role_assignments
+           (id, org_role_id, holder_kind, display_name, holder_key, focus, note)
+         VALUES ${holderRows.map(() => "(?,?, 'documented', ?,?,?,?)").join(",")}`,
+        holderRows.flat(),
+      );
+    }
+    holdersWritten = holderRows.length;
   }
 
   // Seats holding more than one documented holder advertise the seat count

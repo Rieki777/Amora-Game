@@ -155,13 +155,25 @@ outside.
 
 | Endpoint | Gives you |
 |---|---|
-| `GET /api/platform/info` | The handshake: `instanceId` (a permanent uuid), `name`, platform `version` and `build`. Identity is the uuid; names collide and change hands |
+| `GET /.well-known/village.json` | **Start here.** The discovery root: `protocol`, `instanceId`, name, tagline, location, platform version and build, the village's **public signing key**, which document types it `supports`, `links` to everything else, and every module with its lifecycle |
+| `GET /api/public/org.json` | The org chart: circles and seats, **signed**, with an `updatedAt` |
+| `GET /org/index.md` | The same org chart as linked Markdown with YAML frontmatter, for a human or a model that would rather read than parse |
 | `GET /api/game/mechanics` | The village's rules as data: every behaviour variable with its bounds, default, current value, who may change it, and when a change takes effect. Plus the constitution and which modules are running |
+| `GET /api/platform/info` | The v0 handshake. Kept answering forever; prefer the well-known document |
 | `GET /api/network/published` | Needs and offers this village has chosen to publish |
 | `GET /health` | Liveness and the running build marker |
 
-`GET /api/game/mechanics` is the most useful single call for a machine: it tells
-you what kind of village this is, in numbers, without asking anyone.
+**Branch on `supports`, never on version ordering.** A village that disabled a
+module is differently shaped, not older, and semver cannot say that.
+
+**Verify signatures, do not trust the transport.** Published documents carry a
+detached `proof` (`alg`, `kid`, `signedAt`, `signature`) and the matching public
+key is in the well-known document, as both base64url and PEM. That matters
+because a cached or relayed copy has no TLS connection to vouch for it: the
+signature is what survives being handed around.
+
+`GET /api/game/mechanics` remains the most useful single call for deciding what
+kind of village this is, in numbers, without asking anyone.
 
 ### 6.2 Authenticated, as a member
 
@@ -267,12 +279,23 @@ can be rotated by someone else.
 
 ## 9. Status, honestly
 
-Built and running: everything in sections 1 through 6.2, the modules, the ledger,
-the capability gate, the brain and its markdown endpoint, the reader registry, the
-draft queue, and the assistant.
+**Built and running.** Everything in sections 1 through 6.2: the modules, the
+ledger, the capability gate, the brain and its markdown endpoint, the reader
+registry, the draft queue, and the assistant. Plus the first layer of the
+protocol: `/.well-known/village.json` as a discovery root, an ed25519 key minted
+at first boot, and a signed org chart published as both JSON and Markdown.
 
-Designed and not yet built: `/.well-known/village.json` as a discovery root, an
-MCP mount over the same reader registry, per-agent tokens, signed documents, and
-the inbound intent inbox. `COORDINATION_SUBSTRATE.md` argues for those and the
-order to build them in. Until they exist, integration is section 6.1 and 6.2:
-plain HTTP, a member's session, and a markdown document.
+**Designed and not yet built.** An MCP mount over the same reader registry,
+per-agent tokens, a cursored public event feed, portable role attestations, and
+the single signed inbound door. `COORDINATION_SUBSTRATE.md` argues for those and
+the order to build them in.
+
+**What that means for you today.** Discovery and the org chart are real and
+verifiable without an account. Everything else about a village still needs a
+member's session over plain HTTP. Nothing yet lets an outside system WRITE to a
+village except through a human, and that is deliberate: the write path is being
+built draft-first on purpose, not deferred by accident.
+
+This section dates faster than the rest of the document. The well-known
+document's `supports` array is the machine-readable version of it, and it cannot
+go stale, so trust that over this paragraph.
