@@ -1,11 +1,12 @@
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { TreePine, Menu, X, User, LogOut, ChevronDown, TrendingUp, Users, Home as HomeIcon, Sparkles } from "lucide-react";
+import { TreePine, Menu, X, User, LogOut, ChevronDown } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useModule } from "@/modules/ModuleProvider";
+import { useModules } from "@/modules/ModuleProvider";
 import NotificationBell from "@/components/NotificationBell";
 import { useGameConfig } from "@/lib/gameApi";
+import { NAV, ACCOUNT_MENU, isGroup, type NavLink, type NavGroup } from "@/config/nav";
 import MobileTabBar from "./mobile/MobileTabBar";
 import MobileFab from "./mobile/MobileFab";
 
@@ -13,18 +14,12 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-const paths = [
-  { href: "/investor", label: "Investor", subtitle: "Capital Contributor", icon: TrendingUp },
-  { href: "/steward", label: "Village Steward", subtitle: "Co-Creator", icon: Users },
-  { href: "/resident", label: "Resident", subtitle: "Co-Creator", icon: HomeIcon },
-  { href: "/prosperity", label: "Prosperity Creator", subtitle: "Business Builder", icon: Sparkles },
-];
-
 export default function Layout({ children }: LayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [pathsOpen, setPathsOpen] = useState(false);
-  const [mobilePathsOpen, setMobilePathsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [openMobileGroup, setOpenMobileGroup] = useState<string | null>(null);
+  const accountRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
   // The shell's identity — logo, name, outside links, footer copy — comes
   // from the live config, never from literals: this is what makes a fork's
@@ -35,19 +30,40 @@ export default function Layout({ children }: LayoutProps) {
   const siteUrl = String(cfg?.project?.siteUrl ?? "").trim();
   const eventsUrl = String(cfg?.project?.eventsUrl ?? "").trim();
   const villageName = String(cfg?.project?.name ?? "").trim();
-  const toolsModule = useModule("tools");
-  const mapModule = useModule("map");
-  const forumModule = useModule("forum");
-  const feedModule = useModule("feed");
-  const staysModule = useModule("stays");
-  const exchangeModule = useModule("exchange");
-  const badgesModule = useModule("badges");
-  const libraryModule = useModule("library");
-  const healthModule = useModule("health");
-  // Footer-only (see the note by the desktop nav: it is already ~1250px wide
-  // and two more header links reopen the sideways-scroll bug below xl).
-  const commerceModule = useModule("commerce");
-  const networkModule = useModule("network");
+  // One subscription for the whole shell instead of thirteen useModule calls.
+  // The nav is data now (config/nav.ts), and a list cannot call a hook per row.
+  const { modules } = useModules();
+  const moduleOn = (id?: string) => !id || modules.some((m) => m.id === id);
+  const lifecycleOf = (id?: string) => modules.find((m) => m.id === id)?.lifecycle;
+
+  // A link survives when its module is on AND the viewer holds one of its
+  // roles. Both absent means everyone sees it. The role is read once into a
+  // local so a signed-out viewer (no user, no role) filters out by the same
+  // test rather than a second branch.
+  const role = user?.role;
+  const visible = (item: NavLink) =>
+    moduleOn(item.module) && (!item.roles || (!!role && item.roles.includes(role)));
+
+  // Groups collapse to nothing when every child is filtered out, so a fork with
+  // its optional modules off never renders an empty dropdown.
+  const groupItems = (group: NavGroup) => group.items.filter(visible);
+  const navEntries = NAV.filter((e) => (isGroup(e) ? groupItems(e).length > 0 : visible(e)));
+  const accountItems = ACCOUNT_MENU.filter(visible);
+
+  // Footer-only modules.
+  const commerceModule = moduleOn("commerce");
+  const networkModule = moduleOn("network");
+
+  // A click anywhere else closes the account menu. Without this the only way
+  // out was to click the trigger again, and the menu covered the page beneath.
+  useEffect(() => {
+    if (!accountOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (accountRef.current && !accountRef.current.contains(e.target as Node)) setAccountOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [accountOpen]);
 
   // The bottom tab bar's "More" slot opens this same drawer rather than being a
   // second, separately-maintained menu. No scrolling: the header is sticky, so
@@ -91,194 +107,101 @@ export default function Layout({ children }: LayoutProps) {
           </Link>
 
           {/* Desktop Menu.
-              Shown from `xl`, not `md`. This nav is ~1250px wide, so between
-              the md breakpoint (768px) and ~1310px it overflowed the viewport
-              and every page on the site scrolled sideways — iPads, small
-              laptops and split-screen windows all landed in that gap. The
-              mobile menu below carries those widths instead; the two
-              breakpoints are a matched pair and must always move together, or
-              some viewport gets no navigation at all. */}
-          <div className="hidden xl:flex items-center gap-3 2xl:gap-6">
-            <Link href="/" className="text-white hover:underline transition-colors text-sm">
-              Home
-            </Link>
-
-            {/* Your Path Dropdown */}
-            {/* Hover was the ONLY way to open this: the button had no
-                onClick, so Enter and Space fired a click with no listener and
-                the four path links never entered the tab order at all. The
-                keyboard-correct twin lives in the mobile block, which is
-                display:none at this width — so no code path covered a
-                keyboard user on a desktop screen. Escape closes, because a
-                click-toggle that a mouse user cannot re-open (the pointer is
-                still inside the wrapper, so no fresh mouseenter fires) needs
-                a second way out. */}
-            <div
-              ref={dropdownRef}
-              className="relative"
-              onMouseEnter={() => setPathsOpen(true)}
-              onMouseLeave={() => setPathsOpen(false)}
-              onKeyDown={(e) => { if (e.key === "Escape") setPathsOpen(false); }}
-            >
-              <button
-                type="button"
-                onClick={() => setPathsOpen((v) => !v)}
-                aria-expanded={pathsOpen}
-                aria-haspopup="true"
-                aria-controls="paths-menu"
-                className="flex items-center gap-1 text-white hover:underline transition-colors text-sm"
-              >
-                Your Path
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${pathsOpen ? "rotate-180" : ""}`} />
-              </button>
-              <AnimatePresence>
-                {pathsOpen && (
-                  <motion.div
-                    id="paths-menu"
-                    initial={{ opacity: 0, y: -6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-56 bg-white rounded-xl shadow-xl overflow-hidden z-50"
-                  >
-                    {paths.map((path) => (
-                      <Link key={path.href} href={path.href}>
-                        <a
-                          className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group"
-                          onClick={() => setPathsOpen(false)}
-                        >
-                          <div className="mt-0.5 w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
-                            <path.icon className="w-3.5 h-3.5 text-primary" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-semibold text-gray-900">{path.label}</div>
-                            <div className="text-xs text-gray-500">{path.subtitle}</div>
-                          </div>
-                        </a>
-                      </Link>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            <Link href="/circles" className="text-white hover:underline transition-colors text-sm">
-              Circles
-            </Link>
-            <Link href="/roles" className="text-white hover:underline transition-colors text-sm">
-              Roles
-            </Link>
-            <Link href="/quests" className="text-white hover:underline transition-colors text-sm">
-              Quests
-            </Link>
-            {feedModule && (
-              <Link href="/feed" className="text-white hover:underline transition-colors text-sm">
-                Feed
-                {feedModule.lifecycle === "preview" && (
-                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
-                )}
-              </Link>
-            )}
-            {staysModule && (
-              <Link href="/stay" className="text-white hover:underline transition-colors text-sm">
-                Stay
-                {staysModule.lifecycle === "preview" && (
-                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
-                )}
-              </Link>
-            )}
-            {exchangeModule && (
-              <Link href="/wallet" className="text-white hover:underline transition-colors text-sm">
-                Wallet
-                {exchangeModule.lifecycle === "preview" && (
-                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
-                )}
-              </Link>
-            )}
-            {badgesModule && (
-              <Link href="/badges" className="text-white hover:underline transition-colors text-sm">
-                Badges
-                {badgesModule.lifecycle === "preview" && (
-                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
-                )}
-              </Link>
-            )}
-            {libraryModule && (
-              <Link href="/library" className="text-white hover:underline transition-colors text-sm">
-                Library
-                {libraryModule.lifecycle === "preview" && (
-                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
-                )}
-              </Link>
-            )}
-            {healthModule && (
-              <Link href="/village-health" className="text-white hover:underline transition-colors text-sm">
-                Health
-                {healthModule.lifecycle === "preview" && (
-                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
-                )}
-              </Link>
-            )}
-            {forumModule && (
-              <Link href="/forum" className="text-white hover:underline transition-colors text-sm">
-                Forum
-                {forumModule.lifecycle === "preview" && (
-                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
-                )}
-              </Link>
-            )}
-            {mapModule && (
-              <Link href="/map" className="text-white hover:underline transition-colors text-sm">
-                Map
-                {mapModule.lifecycle === "preview" && (
-                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
-                )}
-              </Link>
-            )}
-            {toolsModule && (
-              <Link href="/tools" className="text-white hover:underline transition-colors text-sm">
-                Tools
-                {toolsModule.lifecycle === "preview" && (
-                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
-                )}
-              </Link>
-            )}
-            <Link href="/work-with-us" className="text-white hover:underline transition-colors text-sm">
-              Work With Us
-            </Link>
-            <Link href="/how-we-create" className="text-white hover:underline transition-colors text-sm">
-              How We Create
-            </Link>
-            {/* Team-only page, team-only link (audit 2026-07-27 flagged it
-                showing to logged-out visitors). */}
-            {user && (user.role === "admin" || user.role === "founder") && (
-              <Link href="/journey-to-launch" className="text-amber/80 hover:text-amber transition-colors text-sm font-medium">
-                🌳 Launch Plan
-              </Link>
+              Shown from `lg`. The old bar carried seventeen top-level links,
+              measured ~1250px, and could only render from `xl`: every viewport
+              between 768px and ~1310px got no desktop nav at all, and below xl
+              some pages scrolled sideways. Six grouped entries fit in roughly
+              half the width. This breakpoint and the mobile button's below are
+              a matched pair and must always move together, or some viewport
+              gets no navigation at all. */}
+          <div className="hidden lg:flex items-center gap-4 xl:gap-6">
+            {navEntries.map((entry) =>
+              isGroup(entry) ? (
+                <NavDropdown
+                  key={entry.label}
+                  group={entry}
+                  items={groupItems(entry)}
+                  open={openGroup === entry.label}
+                  setOpen={(v) => setOpenGroup(v ? entry.label : null)}
+                  lifecycleOf={lifecycleOf}
+                />
+              ) : (
+                <Link
+                  key={entry.href}
+                  href={entry.href}
+                  className="text-white hover:underline transition-colors text-sm whitespace-nowrap"
+                >
+                  {entry.label}
+                </Link>
+              )
             )}
 
             {user ? (
               <div className="flex items-center gap-3">
                 <NotificationBell />
-                <Link href="/profile" className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
-                  <User className="w-4 h-4" />
-                  <span>{user.name.split(" ")[0]}</span>
-                </Link>
-                <button
-                  onClick={logout}
-                  className="text-white hover:opacity-80 transition-opacity pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:-m-2"
-                  // title is a hover tooltip and a phone has no hover, so an
-                  // icon-only control needs a real name as well. "Everywhere"
-                  // is honest, not decorative: tokenVersion is the only
-                  // revocation lever, so this ends the session on every device.
-                  aria-label="Sign out everywhere"
-                  title="Sign out everywhere"
+                {/* The profile link and sign out used to sit side by side with
+                    twelve pixels between them, and sign out was a bare icon
+                    with no background of its own: at a glance the arrow read
+                    as part of the name pill, so the bar said "Rye→". One stray
+                    click ended the session on every device, because
+                    tokenVersion is the only revocation lever there is. Sign
+                    out now lives inside this menu, under a divider. */}
+                <div
+                  className="relative"
+                  ref={accountRef}
+                  onKeyDown={(e) => { if (e.key === "Escape") setAccountOpen(false); }}
                 >
-                  <LogOut className="w-4 h-4" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setAccountOpen((v) => !v)}
+                    aria-expanded={accountOpen}
+                    aria-haspopup="true"
+                    aria-controls="account-menu"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>{user.name.split(" ")[0]}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${accountOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  <AnimatePresence>
+                    {accountOpen && (
+                      <motion.div
+                        id="account-menu"
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute top-full right-0 mt-2 w-52 bg-white rounded-xl shadow-xl overflow-hidden z-50"
+                      >
+                        {accountItems.map((item) => (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            className="block px-4 py-2.5 text-sm text-gray-900 hover:bg-gray-50 transition-colors"
+                            onClick={() => setAccountOpen(false)}
+                          >
+                            {item.label}
+                          </Link>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => { setAccountOpen(false); logout(); }}
+                          className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-coral hover:bg-gray-50 transition-colors text-left border-t border-gray-100"
+                          // "Everywhere" is honest, not decorative: tokenVersion
+                          // is the only revocation lever, so this ends the
+                          // session on every device the member is signed in on.
+                          title="Sign out everywhere"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          Sign Out Everywhere
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
             ) : (
-              <Link href="/login" className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
+              <Link href="/login" className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors whitespace-nowrap">
                 <User className="w-4 h-4" />
                 Sign In
               </Link>
@@ -289,7 +212,7 @@ export default function Layout({ children }: LayoutProps) {
                 href={siteUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-sm"
+                className="px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-sm whitespace-nowrap"
               >
                 Main Site
               </a>
@@ -297,7 +220,7 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           {/* Mobile Menu Button (bell beside it when signed in) */}
-          <div className="xl:hidden flex items-center gap-1 text-white">
+          <div className="lg:hidden flex items-center gap-1 text-white">
             {user && <NotificationBell />}
             {/* Icon-only, so it needs a spoken name and a state a screen
                 reader can hear — otherwise it announces as bare "button". */}
@@ -321,123 +244,98 @@ export default function Layout({ children }: LayoutProps) {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              className="xl:hidden bg-teal-deep/95 border-t border-white/10 overflow-hidden"
+              className="lg:hidden bg-teal-deep/95 border-t border-white/10 overflow-hidden"
             >
-              <div className="container py-4 space-y-3">
-                <Link href="/" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                  Home
-                </Link>
-
-                {/* Mobile Paths Accordion */}
-                <div>
-                  <button
-                    onClick={() => setMobilePathsOpen(!mobilePathsOpen)}
-                    className="flex items-center justify-between w-full text-white hover:underline transition-colors text-sm py-2"
-                  >
-                    <span>Your Path</span>
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${mobilePathsOpen ? "rotate-180" : ""}`} />
-                  </button>
-                  <AnimatePresence>
-                    {mobilePathsOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden pl-3 border-l border-white/20 ml-1 space-y-1"
+              <div className="container py-4 space-y-1">
+                {navEntries.map((entry) =>
+                  isGroup(entry) ? (
+                    <div key={entry.label}>
+                      <button
+                        type="button"
+                        onClick={() => setOpenMobileGroup(openMobileGroup === entry.label ? null : entry.label)}
+                        aria-expanded={openMobileGroup === entry.label}
+                        className="flex items-center justify-between w-full text-white hover:underline transition-colors text-sm py-2"
                       >
-                        {paths.map((path) => (
-                          <Link key={path.href} href={path.href} className="block text-white hover:underline transition-colors text-sm py-1.5" onClick={() => { setMobileMenuOpen(false); setMobilePathsOpen(false); }}>
-                            {path.label}
-                          </Link>
-                        ))}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                        <span>{entry.label}</span>
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${openMobileGroup === entry.label ? "rotate-180" : ""}`} />
+                      </button>
+                      <AnimatePresence>
+                        {openMobileGroup === entry.label && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="overflow-hidden pl-3 border-l border-white/20 ml-1"
+                          >
+                            {groupItems(entry).map((item) => (
+                              <Link
+                                key={item.href}
+                                href={item.href}
+                                className={`block transition-colors text-sm py-1.5 ${item.accent ? "text-amber/80 hover:text-amber" : "text-white hover:underline"}`}
+                                onClick={() => { setMobileMenuOpen(false); setOpenMobileGroup(null); }}
+                              >
+                                {item.label}
+                                {lifecycleOf(item.module) === "preview" ? " (preview)" : ""}
+                              </Link>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  ) : (
+                    <Link
+                      key={entry.href}
+                      href={entry.href}
+                      className="block text-white hover:underline transition-colors text-sm py-2"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      {entry.label}
+                    </Link>
+                  )
+                )}
+
+                {/* The account block sits under a rule of its own, so sign out
+                    is never the neighbour of an ordinary destination. These
+                    links also close the drawer now: the old pair did not, so
+                    tapping "My Profile" navigated with the menu still open
+                    over the page. */}
+                <div className="pt-2 mt-2 border-t border-white/10 space-y-1">
+                  {user ? (
+                    <>
+                      {accountItems.map((item) => (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className="block text-white hover:underline transition-colors text-sm py-2"
+                          onClick={() => setMobileMenuOpen(false)}
+                        >
+                          {item.label === "My Profile" ? `My Profile (${user.name.split(" ")[0]})` : item.label}
+                        </Link>
+                      ))}
+                      <button
+                        onClick={() => { setMobileMenuOpen(false); logout(); }}
+                        className="block text-white hover:opacity-80 transition-opacity text-sm py-2 text-left"
+                      >
+                        Sign Out Everywhere
+                      </button>
+                    </>
+                  ) : (
+                    <Link
+                      href="/login"
+                      className="block text-white hover:underline transition-colors text-sm py-2"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      Sign In / Register
+                    </Link>
+                  )}
                 </div>
 
-                <Link href="/circles" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                  Circles
-                </Link>
-                <Link href="/roles" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                  Roles
-                </Link>
-                <Link href="/quests" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                  Quests
-                </Link>
-                {feedModule && (
-                  <Link href="/feed" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                    Feed{feedModule.lifecycle === "preview" ? " (preview)" : ""}
-                  </Link>
-                )}
-                {staysModule && (
-                  <Link href="/stay" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                    Stay{staysModule.lifecycle === "preview" ? " (preview)" : ""}
-                  </Link>
-                )}
-                {exchangeModule && (
-                  <Link href="/wallet" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                    Wallet{exchangeModule.lifecycle === "preview" ? " (preview)" : ""}
-                  </Link>
-                )}
-                {badgesModule && (
-                  <Link href="/badges" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                    Badges{badgesModule.lifecycle === "preview" ? " (preview)" : ""}
-                  </Link>
-                )}
-                {libraryModule && (
-                  <Link href="/library" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                    Library{libraryModule.lifecycle === "preview" ? " (preview)" : ""}
-                  </Link>
-                )}
-                {healthModule && (
-                  <Link href="/village-health" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                    Health{healthModule.lifecycle === "preview" ? " (preview)" : ""}
-                  </Link>
-                )}
-                {forumModule && (
-                  <Link href="/forum" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                    Forum{forumModule.lifecycle === "preview" ? " (preview)" : ""}
-                  </Link>
-                )}
-                {mapModule && (
-                  <Link href="/map" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                    Map{mapModule.lifecycle === "preview" ? " (preview)" : ""}
-                  </Link>
-                )}
-                {toolsModule && (
-                  <Link href="/tools" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                    Tools{toolsModule.lifecycle === "preview" ? " (preview)" : ""}
-                  </Link>
-                )}
-                <Link href="/work-with-us" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                  Work With Us
-                </Link>
-                <Link href="/how-we-create" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
-                  How We Create
-                </Link>
-                {user ? (
-                  <>
-                    <Link href="/profile" className="block text-white hover:underline transition-colors text-sm py-2">
-                      My Profile ({user.name.split(" ")[0]})
-                    </Link>
-                    <button
-                      onClick={logout}
-                      className="block text-white hover:underline transition-colors text-sm py-2 text-left"
-                    >
-                      Sign Out Everywhere
-                    </button>
-                  </>
-                ) : (
-                  <Link href="/login" className="block text-white hover:underline transition-colors text-sm py-2">
-                    Sign In / Register
-                  </Link>
-                )}
                 {siteUrl && (
                   <a
                     href={siteUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-center"
+                    className="block px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-center mt-3"
                   >
                     Main Site
                   </a>
@@ -687,6 +585,95 @@ export default function Layout({ children }: LayoutProps) {
 
       <MobileTabBar />
       <MobileFab />
+    </div>
+  );
+}
+
+/**
+ * One grouped menu in the desktop bar.
+ *
+ * Hover opens it for a mouse, click toggles it for a keyboard, and Escape
+ * closes it. All three matter: the dropdown this replaces opened on hover
+ * ONLY, because its trigger carried no onClick, so Enter and Space fired a
+ * click with no listener and its children never entered the tab order at any
+ * desktop width. Escape is the second way out that a click-toggle needs, since
+ * a mouse user whose pointer is still inside the wrapper fires no fresh
+ * mouseenter and could not otherwise reopen it.
+ */
+function NavDropdown({
+  group,
+  items,
+  open,
+  setOpen,
+  lifecycleOf,
+}: {
+  group: NavGroup;
+  items: readonly NavLink[];
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  lifecycleOf: (id?: string) => string | undefined;
+}) {
+  // The join paths carry a second line; the rest are one word. A single width
+  // for both leaves either the paths cramped or the short menus floating.
+  const wide = items.some((i) => i.subtitle);
+  const menuId = `nav-menu-${group.label.toLowerCase()}`;
+
+  return (
+    <div
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-haspopup="true"
+        aria-controls={menuId}
+        className="flex items-center gap-1 text-white hover:underline transition-colors text-sm whitespace-nowrap"
+      >
+        {group.label}
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            id={menuId}
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.15 }}
+            className={`absolute top-full left-1/2 -translate-x-1/2 mt-2 ${wide ? "w-60" : "w-48"} bg-white rounded-xl shadow-xl overflow-hidden z-50`}
+          >
+            {items.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors group"
+                onClick={() => setOpen(false)}
+              >
+                {item.icon && (
+                  <span className="mt-0.5 w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
+                    <item.icon className="w-3.5 h-3.5 text-primary" />
+                  </span>
+                )}
+                <span className="min-w-0">
+                  <span className={`block text-sm font-semibold ${item.accent ? "text-gold" : "text-gray-900"}`}>
+                    {item.label}
+                    {/* Same badge the bar used to carry, in the ink the white
+                        sheet needs: amber-200 on white measured below 2:1. */}
+                    {lifecycleOf(item.module) === "preview" && (
+                      <span className="ml-1.5 text-[9px] bg-amber/30 text-gold px-1 py-0.5 rounded uppercase align-middle">preview</span>
+                    )}
+                  </span>
+                  {item.subtitle && <span className="block text-xs text-gray-500">{item.subtitle}</span>}
+                </span>
+              </Link>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

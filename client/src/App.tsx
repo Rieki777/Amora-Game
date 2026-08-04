@@ -103,7 +103,12 @@ const PAGE_TITLES: Record<string, string> = {
   // the health dashboard is /village-health, the exchange lives inside the
   // wallet, and the member directory is /profile.
   "/village-health": "Village health",
-  "/wallet": "Wallet",
+  // Both spellings resolve to the same page. /tokens is what the nav links to
+  // and what a member sees; /wallet stays mounted because Stripe return URLs
+  // and order notifications already carry it (server/index.ts), and a member's
+  // own balances now also live in a Wallet section on their profile.
+  "/tokens": "Tokens",
+  "/wallet": "Tokens",
   "/profile": "My profile",
   "/login": "Sign in",
   "/set-password": "Choose a password",
@@ -278,6 +283,7 @@ function Router() {
       <Route path="/first-walk" component={FirstWalk} />
       <Route path="/feed" component={Feed} />
       <Route path="/stay" component={Stay} />
+      <Route path="/tokens" component={Wallet} />
       <Route path="/wallet" component={Wallet} />
       <Route path="/badges" component={Badges} />
       <Route path="/library" component={Library} />

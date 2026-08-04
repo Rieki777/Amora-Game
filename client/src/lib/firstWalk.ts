@@ -60,8 +60,8 @@ export const WALK_STEPS: WalkStep[] = [
     title: "Try to buy something, and be refused",
     todo: "Tap Buy on Example Credits. Read what comes back.",
     teaches: "Every example is inert. Nothing here can take your money, and the refusal says so where you tapped.",
-    href: "/wallet",
-    cta: "Open the wallet",
+    href: "/tokens",
+    cta: "Open Tokens",
   },
   {
     id: "open-steward",

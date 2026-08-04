@@ -1,7 +1,14 @@
 /**
- * Wallet (S35): every token the member holds, the buy-only exchange, and a
+ * Tokens (S35): every token the member holds, the buy-only exchange, and a
  * READ-ONLY window to Hypha-governed holdings (a deep link — this platform
  * never moves what Hypha governs). Buying rides the same trio as stays.
+ *
+ * Named "Wallet" until the nav regroup. Two things carried that one word: this
+ * page, and /api/wallet, which is the on-chain ADDRESS binding behind
+ * OnchainCard. The page is the village's token economy, so it took the plainer
+ * name; "Wallet" now means one member's own holdings and lives on the profile.
+ * The component and the /wallet route keep their old names on purpose, because
+ * Stripe return URLs and order notifications in server/index.ts point at them.
  */
 import Layout from "@/components/Layout";
 import NotFound from "@/pages/NotFound";
@@ -85,10 +92,12 @@ export default function Wallet() {
     <Layout>
       <section className="py-12 bg-gradient-to-b from-teal-deep/5 to-background">
         <div className="container text-center">
-          <h1 className="font-display text-4xl font-bold text-foreground mb-3">Wallet</h1>
+          <h1 className="font-display text-4xl font-bold text-foreground mb-3">Tokens</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
             What you hold, and the village exchange. Recognition is earned, never
             bought. Only the village's own credit tokens are ever listed here.
+            Your own balances also sit on{" "}
+            <a href="/profile#wallet" className="text-teal-deep font-medium hover:underline">your profile</a>.
           </p>
           <ExamplesBanner moduleId="exchange" noun="listing" />
         </div>

@@ -1,0 +1,115 @@
+/**
+ * The member's own token balances, on their own profile.
+ *
+ * The nav regroup split one overloaded word in two: the village's token
+ * economy and its buy-only exchange keep a page of their own at /tokens, and
+ * "Wallet" now means the half of it that is nobody else's business. This is
+ * that half. It reads the same /api/exchange payload the Tokens page does, so
+ * there is no second endpoint to keep honest.
+ *
+ * Renders NOTHING when the exchange module is off, which is the default for a
+ * fresh fork. An empty "what you hold" card on a village with no token economy
+ * reads as a promise the village never made.
+ *
+ * "Loading", "loaded and genuinely empty" and "the request failed" are three
+ * different facts, kept apart here for the same reason they are kept apart on
+ * the Tokens page: collapsing them rendered a dropped connection as "nothing
+ * yet", which tells a member who holds tokens that they hold none, in one of
+ * the two places they come to check.
+ */
+import { useEffect, useRef, useState } from "react";
+import { Link } from "wouter";
+import { useModule } from "@/modules/ModuleProvider";
+import { useAuth } from "@/contexts/AuthContext";
+import { authToken } from "@/lib/gameApi";
+import { ArrowRight, Wallet as WalletIcon } from "lucide-react";
+
+const headers = (): Record<string, string> => {
+  const t = authToken();
+  return t ? { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+};
+
+export default function WalletCard() {
+  const exchangeModule = useModule("exchange");
+  const { user } = useAuth();
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
+  const section = useRef<HTMLDivElement>(null);
+
+  const load = () => {
+    setStatus("loading");
+    fetch("/api/exchange", { headers: headers() })
+      .then((r) => {
+        if (!r.ok) throw new Error(`exchange ${r.status}`);
+        return r.json();
+      })
+      .then((d) => {
+        setBalances(d?.mine?.balances ?? {});
+        setStatus("ready");
+      })
+      .catch(() => setStatus("failed"));
+  };
+
+  useEffect(() => {
+    if (exchangeModule && user) load();
+  }, [exchangeModule?.id, user?.id]);
+
+  // The account menu links straight here with /profile#wallet. A browser only
+  // honours that hash against markup that already exists, and this card mounts
+  // after its fetch resolves, so the jump has to be re-run by hand. The
+  // hashchange listener covers the second case: a member already ON the
+  // profile page picking Wallet from the menu changes the hash with no
+  // remount at all.
+  useEffect(() => {
+    const jump = () => {
+      if (window.location.hash === "#wallet") {
+        section.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    };
+    jump();
+    window.addEventListener("hashchange", jump);
+    return () => window.removeEventListener("hashchange", jump);
+  }, [status]);
+
+  if (!exchangeModule || !user) return null;
+
+  return (
+    <div id="wallet" ref={section} className="bg-white rounded-2xl shadow-lg p-8 scroll-mt-24">
+      <div className="flex items-center justify-between gap-4 mb-6">
+        <h3 className="text-xl font-display font-bold text-teal-deep flex items-center gap-2">
+          <WalletIcon className="w-6 h-6" />
+          Wallet
+        </h3>
+        <Link
+          href="/tokens"
+          className="text-sm font-medium text-teal-deep hover:underline flex items-center gap-1 shrink-0"
+        >
+          Village exchange
+          <ArrowRight className="w-4 h-4" />
+        </Link>
+      </div>
+
+      {status === "loading" ? (
+        <p className="text-sm text-gray-600">Loading your balances…</p>
+      ) : status === "failed" ? (
+        <p className="text-sm text-gray-600">
+          Couldn't load your balances.{" "}
+          <button type="button" onClick={load} className="text-teal-deep font-medium hover:underline">
+            Retry
+          </button>
+        </p>
+      ) : Object.keys(balances).length === 0 ? (
+        <p className="text-sm text-gray-600">Nothing yet. Contribution is where value starts.</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {Object.entries(balances).map(([slug, bal]) => (
+            <div key={slug} className="border border-gray-200 rounded-lg px-3 py-2">
+              <p className={`text-lg font-bold ${Number(bal) < 0 ? "text-coral" : "text-gray-900"}`}>{bal}</p>
+              <p className="text-xs text-gray-500">{slug}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

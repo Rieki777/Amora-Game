@@ -3,6 +3,7 @@ import GameDashboard from "@/components/GameDashboard";
 import ProfileJourney from "@/components/ProfileJourney";
 import NotifyPrefsPanel from "@/components/NotifyPrefsPanel";
 import OnchainCard from "@/components/OnchainCard";
+import WalletCard from "@/components/WalletCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -129,6 +130,13 @@ export default function Profile() {
             {/* S4: the journey in numbers — progression history, flows, ledger */}
             <div className="mb-8">
               <ProfileJourney />
+            </div>
+
+            {/* The member's own token balances. Target of /profile#wallet from
+                the account menu, and renders nothing when the exchange module
+                is off. The village exchange itself stays on /tokens. */}
+            <div className="mb-8">
+              <WalletCard />
             </div>
 
             {/* S47: on-chain holdings — renders nothing until the village
