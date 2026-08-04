@@ -209,6 +209,24 @@ export default function Feed() {
                 {item.title && <p className="font-semibold text-foreground text-sm mb-1">{item.title}</p>}
                 <p className="text-sm text-foreground whitespace-pre-wrap">{item.body}</p>
                 {item.imageUrl && <Image src={item.imageUrl} alt={item.title || "Photo attached to this post"} ratio={16 / 9} className="rounded-lg mt-2" />}
+                {/* The tags a card carries. The filter above has always
+                    accepted a tag and no card ever showed one, so the only way
+                    to use it was to guess a word. Tapping a chip fills the
+                    filter, which the effect above already watches. */}
+                {(item.tags ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {item.tags.map((t: string) => (
+                      <button
+                        key={t}
+                        onClick={() => setTag(t)}
+                        aria-label={`Show only posts tagged ${t}`}
+                        className="text-[10px] bg-muted text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded-full"
+                      >
+                        #{t}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {/* Tap targets clear WCAG 2.5.8's 24px floor: a heart sends a
                     REAL gift from the sender's budget, so a thumb that misses
                     by 4px is not a cosmetic problem. Negative margin keeps the

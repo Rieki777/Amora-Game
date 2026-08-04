@@ -2,6 +2,68 @@
 
 Started 2026-08-02. **Revised 2026-08-03**: the top six are BUILT and shipped;
 what follows is what is left, plus what building them turned up.
+**Revised 2026-08-04**: eight more closed (below). What remains is three items
+waiting on a decision from Rye and one that belongs to whoever is rebuilding
+the map.
+
+---
+
+## Shipped 2026-08-04
+
+Every one of these was content already seeded, already stored, and already on
+the wire, thrown away by the page that received it. The pattern is worth
+naming: **the seed is not the feature. The render is.**
+
+1. **Automation reads as a call, not a filename.** The detail payload carried
+   the transcript body, its five timestamped segments, the chapters, and the
+   decisions. The page rendered a title, a status, and the negative branch of
+   `!detail.transcript`. All of it now renders, the detail opens on load
+   instead of waiting for a click, and a task's role chip shows a name rather
+   than a slug (it resolves real role ids through `/api/roles`, and reads an
+   unresolved one back as words, which the example tasks need: see the
+   dangling ids found below).
+2. **Forum replies nest.** `parentReplyId` was seeded, stored and returned,
+   and drawn flat. Now indented, with three ways a reply could have gone
+   missing handled: a parent hidden from this viewer, a cycle making a reply
+   unreachable from the root, and unbounded depth.
+3. **A member can answer a reply at all.** The POST route has always accepted
+   `parentReplyId`; nothing in the UI ever sent it, so the only nested replies
+   in existence came from the seed.
+4. **Feed cards show their tags.** The `?tag` filter shipped with the feed and
+   no card ever displayed a tag, so the only way to use the filter was to
+   guess a word. One batched query, chips that fill the filter on tap.
+5. **Stays show capacity and both price tiers.** `capacity` was admin-only;
+   both audience tiers ship to every viewer and the page kept one. The second
+   number is shown only where there IS a second number, because one seeded
+   room charges the same credits either way.
+6. **Bylines can show a lapsing badge.** Two halves: the route selected
+   `expires_at` and never returned it, AND no example award was ever marked
+   `featured`, which bylines render exclusively. Either alone would have
+   changed nothing on screen.
+7. **The commerce members-only branch demonstrates.** All three example
+   products were `public`.
+8. **Network says what it did.** Peer version was recorded on every sweep and
+   never returned; "Sync now" reported nothing either way, and on an
+   example-only network it deliberately reaches no one, so it looked broken
+   rather than finished.
+
+Also: clearing a module's examples now names the twin it takes with it (the
+forum and the feed retire as a pair, and the question named one module), and
+the walk ends by pointing at publishing the first real thing.
+
+### What this batch taught
+
+- **Recon against the working tree, ship against the base.** The first pass
+  read a checkout that was 44 files and 5151 insertions behind `origin/main`.
+  Every line number was wrong and one file had moved 500 lines. Re-verify
+  findings against the commit you will actually build on.
+- **`GET /api/roles` returns a bare array.** Reading `.roles` off it yields
+  undefined and the failure is silent, which is the same shape that made a
+  probe pass hollowly last session.
+- **A countdown that only appears near the end demonstrates nothing.** The
+  seeded steward badge is lent for a year, so a lapse-window-only treatment
+  would have shown an ordinary chip for ten months. Time-limited badges wear
+  the clock from day one and turn amber near the end.
 
 ---
 
@@ -109,49 +171,72 @@ what follows is what is left, plus what building them turned up.
 
 ### Per module, still open
 
-**Feed.** Reply nesting is seeded, stored, returned, and rendered flat.
-Either indent by `parentReplyId` or stop seeding it. Tags are seeded and the
-feed has a tag filter; the tags never render as chips, so the filter looks
-like it filters nothing.
+~~**Feed.** Reply nesting. Tag chips.~~ **CLOSED 2026-08-04.**
 
-**Exchange.** The swap card renders only when a member holds a swappable
-balance, so the whole swap mechanic stays invisible until real trading opens.
-A display-only example pair would need care with the swap firewall; design
-pass first.
+~~**Stays.** `capacity`. Two-tier pricing.~~ **CLOSED 2026-08-04.**
 
-**Stays.** `capacity` is seeded, read into the row type, and never rendered.
-Show "sleeps N" or drop the field. One room carrying both a member price and
-a visitor price would make the two-tier pricing visible.
+~~**Automation.** Transcript and synthesis invisible.~~ **CLOSED 2026-08-04.**
 
-**Automation.** The example transcript is seeded and invisible: the admin
-shows title and status, never the transcript or the synthesis. Rendering the
-synthesis (chapters, decisions, tasks) for the example recording is the
-module's whole story; today it reads as a list of filenames.
+~~**Network.** Peer version. Silent "Sync now".~~ **CLOSED 2026-08-04.**
 
-**Network.** Peer version is written and never rendered. "Sync now" on an
-example-only network silently no-ops and should say so.
+~~**Commerce.** Every example product `audience: public`.~~ **CLOSED
+2026-08-04.** Note the checkout branch still cannot demonstrate: the example
+refusal fires before the members-only 401, so the seed change exercises the
+LIST branch alone. That is correct behaviour, not a gap.
 
-**Commerce.** Every example product is `provider: stripe`, `audience:
-public`, so the members-only visibility branch never demonstrates.
+~~**Badges.** `/api/badges/of/:userId` never returns `expires_at`.~~
+**CLOSED 2026-08-04**, along with the second half nobody had noticed: no
+example award was `featured`, and bylines render featured awards only.
 
-**Health.** The capitals wheel from the Hypha reference has no data source
-in the platform. Deciding what feeds it is a design conversation; building
-it first would be decoration. Per-village doughnut floors already work
-through the health module config; an admin editor is a small addition.
+**Exchange.** STILL OPEN, and deliberately. The swap card renders only when a
+member holds a swappable balance, so the whole swap mechanic stays invisible
+until real trading opens. A display-only example pair has to be designed
+against the swap firewall (faucet-issued tokens are never swappable, and the
+test is destination-based) before anyone writes code. **Design pass first.**
 
-**Map.** Circle icons are seeded and unused on the canvas. Member initials
-on filled seats (for viewers with `map.viewPeople`) and a double-click focus
-mode would finish the Peerdom look.
+**Health.** STILL OPEN, waiting on Rye. The capitals wheel from the Hypha
+reference has no data source in the platform. Deciding what feeds it is the
+whole question; building it first would be decoration. Separately, per-village
+doughnut floors already work through the health module config, and an admin
+editor for them is a small addition that needs no decision.
 
-**Badges.** Expiry now renders. The remaining gap is that
-`/api/badges/of/:userId` selects `expires_at` and never returns it, so
-`BylineChips` cannot show a lapsing badge next to a name.
+**Map.** STILL OPEN, and **not ours to take**. Circle icons unused on the
+canvas, member initials on filled seats, double-click focus mode. Another
+session is actively rebuilding the map (it has its own
+`FIXES_TO_MAKE_2026-08-04_VILLAGE_MAP.md` and a directions file), so these
+belong to that work, not to a parallel edit of the same canvas.
 
 ### Cross-cutting
 
-- **A "clear examples" preview.** The admin button retires a module's
-  examples permanently. Showing the honest empty state first would prevent
-  regret clicks.
-- **The walk could offer the publish.** Every stop ends at a page where the
-  founder could make the real thing. A "publish your first one" affordance
-  on the last stop would close the loop from reading to doing.
+- ~~**A "clear examples" preview.**~~ **PARTLY CLOSED 2026-08-04.** The
+  confirmation now names the twin module that empties with it, which was the
+  dishonest part. A row COUNT before the delete would still be an
+  improvement and needs a small dry-run endpoint.
+- ~~**The walk could offer the publish.**~~ **CLOSED 2026-08-04.** The last
+  card now says the way out of the walk is to publish the first real thing,
+  and that the stop retires itself when you do.
+- **The Buy button needs Stripe, and a fresh village has none.** Still open
+  for REAL listings (the example case is fixed). A village that lists a token
+  before connecting Stripe shows a price and no way to act on it, with
+  nothing saying why.
+
+---
+
+## Found 2026-08-04 by booting the thing
+
+The suite was green and asserted none of the fields this batch added, so the
+batch was checked by booting the built server against a schema of its own and
+reading the real payloads: 22 of 23 checks passed first time. The one failure
+was not in the new code.
+
+- **The example call tasks name roles that do not exist.** They carry
+  `ex-role-land-steward` and `ex-role-tool-keeper`, and the map example seed
+  carries circles and NO roles, so those two ids were never created by
+  anything and no village will ever resolve them. The admin now renders an
+  unresolved id readably instead of printing the slug. Seeding the two roles,
+  or pointing the tasks at roles that do get seeded, would close it properly.
+- **The probe was wrong twice before the code was wrong once.** It used POST
+  where the lifecycle route is PUT, and it sent the shared admin password as
+  a bearer token, which authenticates nothing: that password's single power
+  is to elevate one registered member to founder. Both failures looked
+  exactly like product bugs. Read the route before believing the probe.

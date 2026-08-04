@@ -685,6 +685,10 @@ export async function seedExamples(
             expires_at: a.expiresInDays === undefined
               ? null
               : new Date(Date.now() + Number(a.expiresInDays) * 86400_000),
+            // Bylines render FEATURED awards only. No example award set this,
+            // so every example member's byline came back empty and the whole
+            // wearing-a-badge surface demonstrated nothing.
+            featured: a.featured ? 1 : 0,
             is_example: 1,
           });
         }

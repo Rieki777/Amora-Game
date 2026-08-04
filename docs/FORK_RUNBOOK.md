@@ -366,3 +366,9 @@ variables and invariants are language-free by construction.
 - The public `/roles`, `/circles` and `/team` pages read `GET /api/org`. The
   Content card editors for those three sections no longer drive them; the
   editing surface is Admin, Org Chart.
+- Seed refresh: the `examples-refresh-featured-awards-and-members-product`
+  runOnce reapplies the `badges` and `commerce` example rows. It exists
+  because no example award carried `featured` (bylines render featured awards
+  only, so every example member's byline came back empty) and every example
+  product was `public` (the members-only branch of the catalogue had nothing
+  to show). A fresh instance picks both up from the seed and needs no refresh.

@@ -6,7 +6,7 @@
 import Layout from "@/components/Layout";
 import BylineChips from "@/components/badges/BylineChips";
 import NotFound from "@/pages/NotFound";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useRoute } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
@@ -197,6 +197,10 @@ function ThreadView({ id }: { id: string }) {
   // how someone saves the wrong one.
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  // Which reply the composer is answering. The POST route has always accepted
+  // parentReplyId and the page never sent it, so no member could answer one
+  // another: the only nested replies in existence came from the seed.
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
 
   const load = () => {
     fetch(`/api/forum/threads/${id}`, { headers: headers() })
@@ -208,6 +212,40 @@ function ThreadView({ id }: { id: string }) {
       .catch(() => {});
   };
   useEffect(load, [id]);
+
+  // Replies arrive flat and time-ordered, each carrying the one it answers.
+  // Drawn as a single column, an answer to the first reply sat below the
+  // twentieth and read as an unrelated remark.
+  //
+  // Three ways a reply could otherwise disappear, all handled: a parent
+  // hidden from this viewer is filtered out server-side, so its visible
+  // children point at an id that is not here and come back to the root; the
+  // walk descends only from the root, so any reply a loop made unreachable
+  // is appended afterwards; and depth is clamped for the indent alone,
+  // because the server puts no limit on how deep a chain runs.
+  const threaded = useMemo(() => {
+    const all: any[] = thread?.replies ?? [];
+    const present = new Set(all.map((r) => r.id));
+    const kids = new Map<string, any[]>();
+    for (const r of all) {
+      const parent = r.parentReplyId && r.parentReplyId !== r.id && present.has(r.parentReplyId) ? r.parentReplyId : "";
+      if (!kids.has(parent)) kids.set(parent, []);
+      kids.get(parent)!.push(r);
+    }
+    const out: { r: any; depth: number }[] = [];
+    const walk = (parent: string, depth: number) => {
+      for (const r of kids.get(parent) ?? []) {
+        out.push({ r, depth });
+        walk(r.id, depth + 1);
+      }
+    };
+    walk("", 0);
+    if (out.length < all.length) {
+      const shown = new Set(out.map((x) => x.r.id));
+      for (const r of all) if (!shown.has(r.id)) out.push({ r, depth: 0 });
+    }
+    return out;
+  }, [thread]);
 
   // In-flight guard: without it an impatient double-tap posts the reply
   // twice, or races the decision primitive's record-once gate into a
@@ -229,6 +267,7 @@ function ThreadView({ id }: { id: string }) {
         if (!ok) throw new Error(d?.error || "Failed");
         setStatus("Done.");
         setReply("");
+        setReplyingTo(null);
         setOutcome("");
         load();
       })
@@ -403,8 +442,12 @@ function ThreadView({ id }: { id: string }) {
           </div>
 
           <div className="space-y-3">
-            {thread.replies.map((r: any) => (
-              <div key={r.id} className={`bg-card border border-border rounded-xl px-4 py-3 ${r.hidden ? "opacity-50" : ""}`}>
+            {threaded.map(({ r, depth }) => (
+              <div
+                key={r.id}
+                style={{ marginLeft: Math.min(depth, 4) * 20 }}
+                className={`bg-card border border-border rounded-xl px-4 py-3 ${r.hidden ? "opacity-50" : ""} ${depth > 0 ? "border-l-2 border-l-teal-deep/30" : ""}`}
+              >
                 <p className="text-xs text-muted-foreground mb-1">
                   {r.author.name}{r.author.handle ? ` (@${r.author.handle})` : ""}
                   <BylineChips userId={r.author.id} />
@@ -446,12 +489,37 @@ function ThreadView({ id }: { id: string }) {
                       Edit
                     </button>
                   )}
+                  {user && !r.hidden && !thread.lockedAt && !isExample && (
+                    <button
+                      onClick={() => { setReplyingTo(replyingTo === r.id ? null : r.id); setReply(""); }}
+                      className="text-xs text-muted-foreground hover:text-teal-deep"
+                    >
+                      {replyingTo === r.id ? "Cancel" : "Reply"}
+                    </button>
+                  )}
                 </div>
+                {replyingTo === r.id && (
+                  <div className="mt-2 space-y-2 border-t border-border pt-2">
+                    <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={2}
+                      placeholder={`Answering ${r.author.name}…`}
+                      className="w-full text-sm border border-border rounded-lg px-3 py-2" />
+                    <button
+                      onClick={() => act(`/api/forum/threads/${id}/replies`, { body: reply, parentReplyId: r.id }, "reply")}
+                      disabled={busy || !reply.trim()}
+                      className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                    >
+                      Reply
+                    </button>
+                    {refusal?.where === "reply" && <ExampleRefusal message={refusal.message} />}
+                  </div>
+                )}
               </div>
             ))}
           </div>
 
-          {user && !thread.lockedAt && !isExample && (
+          {/* One composer at a time: this and the inline one share `reply`,
+              so both on screen would mirror each other's typing. */}
+          {user && !thread.lockedAt && !isExample && !replyingTo && (
             <div className="bg-card border border-border rounded-xl p-4 space-y-2">
               <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3}
                 placeholder="Reply… mention people with @handle."

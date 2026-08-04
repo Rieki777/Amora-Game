@@ -139,6 +139,17 @@ export default function Stay() {
             {(data?.accommodations ?? []).map((a: any) => {
               const credit = a.prices?.["stay-credit"]?.[audience] ?? a.prices?.["stay-credit"]?.guest;
               const money = a.prices?.usd?.[audience] ?? a.prices?.usd?.guest;
+              // Both tiers ship to every viewer, and the page kept only the
+              // one it was standing in. A visitor never learned a member rate
+              // existed, and a member had nothing to compare theirs against.
+              //
+              // A room may genuinely post one price for everyone, and one of
+              // the seeded rooms charges the same credits either way while
+              // its dollar rates differ. Show the second number only where
+              // there IS a second number.
+              const memberCredit = a.prices?.["stay-credit"]?.member;
+              const guestCredit = a.prices?.["stay-credit"]?.guest;
+              const tiered = memberCredit != null && guestCredit != null && memberCredit !== guestCredit;
               return (
                 <div key={a.id} className="bg-card border border-border rounded-xl overflow-hidden flex flex-col">
                   {a.photoUrl && <Image src={a.photoUrl} alt={a.name} className="h-40 w-full" />}
@@ -147,13 +158,27 @@ export default function Stay() {
                       <BedDouble className="w-4 h-4 text-teal-deep" />
                       <p className="font-semibold text-foreground">{a.name}</p>
                     </div>
+                    {/* Recorded on every room since stays shipped, clamped to
+                        at least 1 server-side, and shown only to admins. */}
+                    {a.capacity > 0 && (
+                      <p className="text-xs text-muted-foreground mb-2">Sleeps {a.capacity}</p>
+                    )}
                     {a.description && <p className="text-sm text-muted-foreground mb-3">{a.description}</p>}
                     <div className="mt-auto space-y-2">
                       <p className="text-sm text-foreground">
                         {credit ? <><b>{credit}</b> credit(s)/night</> : <span className="text-muted-foreground">rate coming soon</span>}
                         {money ? <span className="text-muted-foreground"> · {usd(money)}/night</span> : null}
-                        {audience === "member" && <span className="ml-1 text-[10px] bg-teal-deep/10 text-teal-deep px-1.5 py-0.5 rounded-full">member rate</span>}
+                        {tiered && audience === "member" && (
+                          <span className="ml-1 text-[10px] bg-teal-deep/10 text-teal-deep px-1.5 py-0.5 rounded-full">member rate</span>
+                        )}
                       </p>
+                      {tiered && (
+                        <p className="text-xs text-muted-foreground">
+                          {audience === "member"
+                            ? <>Visitors pay {guestCredit} credit(s)/night.</>
+                            : <>Members pay {memberCredit} credit(s)/night.</>}
+                        </p>
+                      )}
                       {user ? (
                         requesting === a.id ? (
                           <div className="space-y-2">

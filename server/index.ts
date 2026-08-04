@@ -3932,6 +3932,21 @@ async function startServer() {
     if (!seed) return;
     await refreshExamples(getPool(), "badges", seed, { baseCycle: currentCycle().cycleNumber });
   });
+  // Two seed corrections that only reach an already-seeded instance through a
+  // refresh: no example award was ever marked `featured`, and bylines render
+  // featured awards alone, so every example member's byline came back empty;
+  // and all three example products were `public`, so the members-only branch
+  // of the catalogue had nothing to demonstrate with.
+  //
+  // Keyed by what it changes, for the reason written above.
+  await runOnce("examples-refresh-featured-awards-and-members-product", async () => {
+    const seed = loadExampleSeed(SEEDS_DIR);
+    if (!seed) return;
+    const baseCycle = currentCycle().cycleNumber;
+    for (const moduleId of ["badges", "commerce"]) {
+      await refreshExamples(getPool(), moduleId, seed, { baseCycle });
+    }
+  });
 
   const app = express();
   const server = createServer(app);
@@ -4953,6 +4968,23 @@ async function startServer() {
       );
       heartedIds = new Set(hearts.map((h) => String(h.context_ref)));
     }
+    // The tags each card carries — one query, not N. The ?tag filter above has
+    // worked since the feed shipped, and a card never showed what it was
+    // tagged with, so there was nothing to filter FROM. No ordering column
+    // exists on the table, so sort by tag to keep the chips stable.
+    const tagsByThread = new Map<string, string[]>();
+    if (threadRows.length) {
+      const [tagRows] = await getPool().query<any[]>(
+        `SELECT thread_id, tag FROM forum_thread_tags WHERE thread_id IN (${threadRows.map(() => "?").join(",")}) ORDER BY tag`,
+        threadRows.map((t) => t.id),
+      );
+      for (const row of tagRows) {
+        const key = String(row.thread_id);
+        const list = tagsByThread.get(key);
+        if (list) list.push(String(row.tag));
+        else tagsByThread.set(key, [String(row.tag)]);
+      }
+    }
     const posts = threadRows.map((t) => {
       let meta = t.meta;
       if (typeof meta === "string") { try { meta = JSON.parse(meta); } catch { meta = null; } }
@@ -4968,6 +5000,7 @@ async function startServer() {
         replyCount: Number(t.reply_count),
         heartedByMe: heartedIds.has(String(t.id)),
         isExample: Number(t.is_example ?? 0) === 1,
+        tags: tagsByThread.get(String(t.id)) ?? [],
         author: { id: t.author_id, name: firstName(t.author_name ?? "Member"), handle: t.author_handle },
         at: new Date(t.created_at).toISOString(),
       };
@@ -8809,6 +8842,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       badges: rows.map((r) => ({
         id: r.id, name: r.name, kind: r.kind, description: r.description,
         count: Number(r.count), featured: !!r.featured,
+        // Selected since this route shipped, used only to drop lapsed awards,
+        // and never handed over, so a badge that runs out looked permanent
+        // right up to the day it vanished. Same spelling as /api/badges.
+        expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
       })),
       skills: await skillsFor(getPool(), String(req.params.userId)),
       maxFeatured: numberVar("badges.max_featured"),

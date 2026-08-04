@@ -673,7 +673,7 @@
         "minAmountMinor": 2500,
         "recurring": "month",
         "provider": "stripe",
-        "audience": "public",
+        "audience": "members",
         "active": true,
         "sortOrder": 3,
         "isExample": true
@@ -715,7 +715,8 @@
         "awards": [
           {
             "userId": "ex-user-aditi",
-            "note": "Three baskets of squash from the north beds."
+            "note": "Three baskets of squash from the north beds.",
+            "featured": true
           }
         ]
       },
@@ -736,7 +737,8 @@
           {
             "userId": "ex-user-mira",
             "note": "Stewarding through the wet season. The village lends this for one year at a time.",
-            "expiresInDays": 365
+            "expiresInDays": 365,
+            "featured": true
           }
         ]
       },
@@ -761,7 +763,8 @@
           {
             "userId": "ex-user-tomas",
             "count": 2,
-            "note": "Earned twice over: twenty-three consented quests."
+            "note": "Earned twice over: twenty-three consented quests.",
+            "featured": true
           }
         ]
       },

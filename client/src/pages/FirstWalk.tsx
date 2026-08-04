@@ -124,6 +124,29 @@ export default function FirstWalk() {
                 );
               })}
 
+              {/* The walk ends by reading, and reading is half of it. Every
+                  stop stands on a module that is still showing examples, so
+                  the way OUT of the walk is to publish the first real thing:
+                  that module's examples retire on the spot and the stop
+                  disappears. Say so where the founder has just finished. */}
+              {progress.done === progress.total && (
+                <div className="rounded-xl border border-teal-deep/30 bg-teal-deep/5 p-5">
+                  <p className="font-semibold text-sm text-foreground">Now make one of your own</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Every stop here rests on an example. Publish the first real
+                    thing in a module and its examples retire that moment, the
+                    stop leaves this list, and the page goes when the last one
+                    does. Nothing needs clearing by hand.
+                  </p>
+                  <Link
+                    href="/admin"
+                    className="inline-block mt-3 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium hover:opacity-90"
+                  >
+                    Open the admin
+                  </Link>
+                </div>
+              )}
+
               <p className="text-xs text-muted-foreground text-center pt-2">
                 Ticks live in this browser only. Nothing here is reported to anyone.
               </p>

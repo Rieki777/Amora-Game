@@ -60,7 +60,7 @@ const retired = new Set<string>();
  * rendering with no label. Keeping the rule here rather than at the two call
  * sites means neither page can forget its twin.
  */
-const RETIRES_WITH: Record<string, string[]> = {
+export const RETIRES_WITH: Record<string, string[]> = {
   forum: ["feed"],
   feed: ["forum"],
 };

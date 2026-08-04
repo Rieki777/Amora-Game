@@ -51,6 +51,11 @@ export default function Network() {
   const [peerUrl, setPeerUrl] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  // What the last sync actually did. The button reported nothing either way,
+  // and on a network holding only the example village it reaches no one at
+  // all (the sweep skips example rows on purpose), so pressing it looked
+  // broken rather than finished.
+  const [syncNote, setSyncNote] = useState("");
 
   const load = useCallback(() => {
     fetch("/api/network", { headers: headers() })
@@ -194,7 +199,19 @@ export default function Network() {
               <p className="font-semibold text-foreground text-sm">From other villages</p>
               {canManage && (
                 <button
-                  onClick={async () => { const d = await call("/api/admin/network/sync", { method: "POST" }, "sync"); if (d) load(); }}
+                  onClick={async () => {
+                    setSyncNote("");
+                    const d = await call("/api/admin/network/sync", { method: "POST" }, "sync");
+                    if (!d) return;
+                    const heard = Number(d.synced ?? 0);
+                    const quiet = Number(d.failed ?? 0);
+                    setSyncNote(
+                      heard === 0 && quiet === 0
+                        ? "Nothing to reach. Every village listed here is an example, so there is no address to call."
+                        : `Heard from ${heard} village(s)${quiet > 0 ? `, ${quiet} did not answer` : ""}.`,
+                    );
+                    load();
+                  }}
                   disabled={busy === "sync"}
                   className="inline-flex items-center gap-1.5 text-xs text-teal-deep font-medium"
                 >
@@ -202,6 +219,9 @@ export default function Network() {
                 </button>
               )}
             </div>
+            {syncNote && (
+              <p role="status" className="text-xs text-teal-deep bg-teal-deep/10 rounded-lg px-3 py-2 mb-3">{syncNote}</p>
+            )}
             {(data?.peers ?? []).length === 0 && (
               <p className="text-sm text-muted-foreground">
                 Not listening to any villages yet{canManage ? ". Add one below." : "."}
@@ -218,6 +238,7 @@ export default function Network() {
                         page an example. The row says which is which. */}
                     {p.isExample && <ExampleChip className="ml-1.5 align-middle" />}
                     <span className="text-muted-foreground font-normal">
+                      {p.version ? ` · ${p.version}` : ""}
                       {" "}· {p.lastSyncAt ? `heard ${day(p.lastSyncAt)}` : "not heard yet"}
                       {p.status === "paused" && " · paused"}
                     </span>

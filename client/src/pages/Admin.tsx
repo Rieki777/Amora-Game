@@ -11,7 +11,7 @@ const API_BASE = "/api";
 import TypographyPanel from "@/components/TypographyPanel";
 import LookPanel from "@/components/LookPanel";
 import IdentityPackPanel from "@/components/IdentityPackPanel";
-import { ExampleChip, ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
+import { ExampleChip, ExamplesBanner, forgetExamplesCache, RETIRES_WITH } from "@/components/ExamplesBanner";
 const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
 
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
@@ -3135,8 +3135,18 @@ function ModulesTab({ password }: { password: string }) {
    * button cannot be undone by turning the module off and on again.
    */
   const clearExamples = async (mod: any) => {
+    // The route retires the PAIR, and the question named one module, so a
+    // founder clearing the forum was never told the feed empties with it.
+    // Only name a twin that is actually holding examples right now.
+    const twins = (RETIRES_WITH[mod.id] ?? [])
+      .map((id) => (data?.modules ?? []).find((m: any) => m.id === id))
+      .filter((m: any) => m?.showingExamples)
+      .map((m: any) => String(m.name));
     const sure = window.confirm(
       `Clear the standing examples from ${mod.name}?\n\n` +
+        (twins.length
+          ? `This clears ${twins.join(" and ")} too: they are lenses over the same rows, so one cannot keep its examples while the other loses them.\n\n`
+          : "") +
         "They are removed permanently. Publishing your first real item would " +
         "have done this anyway; this just does it now, leaving the module empty.",
     );
@@ -5906,6 +5916,11 @@ function CallsAdminTab({ password }: { password: string }) {
   const [selected, setSelected] = useState("");
   const [detail, setDetail] = useState<any>(null);
   const [bodyDraft, setBodyDraft] = useState("");
+  // Task rows carry a role id, and the page printed the raw id where a name
+  // belongs. The roles list is small and public, so one fetch names every
+  // task on the page.
+  const [roleNames, setRoleNames] = useState<Record<string, string>>({});
+  const autoOpened = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -5919,6 +5934,26 @@ function CallsAdminTab({ password }: { password: string }) {
   }, [password]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    // GET /api/roles answers with a BARE ARRAY. Reading `.roles` off it gives
+    // undefined and every task quietly keeps showing its raw id.
+    fetch(`${API_BASE}/roles`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        if (Array.isArray(rows)) setRoleNames(Object.fromEntries(rows.map((r: any) => [r.id, r.name])));
+      })
+      .catch(() => {});
+  }, []);
+
+  // Everything this module does lives in the detail card, and the card only
+  // appeared after a click, so the page opened as a list of titles. Open the
+  // newest one once. The ref keeps a deliberate close from springing back.
+  useEffect(() => {
+    if (autoOpened.current || selected || !data?.recordings?.length) return;
+    autoOpened.current = true;
+    setSelected(data.recordings[0].id);
+  }, [data, selected]);
 
   const loadDetail = useCallback(async (id: string) => {
     if (!id) { setDetail(null); return; }
@@ -5949,6 +5984,24 @@ function CallsAdminTab({ password }: { password: string }) {
   const fmtTs = (ms: number) => {
     const s = Math.floor(ms / 1000);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+  // A task names the role that should carry it. Real recordings name real
+  // roles, and the seeded example tasks name `ex-role-land-steward` and
+  // `ex-role-tool-keeper`, which resolve NOWHERE: the map example seed
+  // carries circles and no roles, so those two ids were never created by
+  // anything and no village will ever have them. Falling back to the raw id
+  // put a slug on screen, so an unresolved id is made readable instead.
+  const roleLabel = (id: string): string =>
+    roleNames[id] ?? id.replace(/^ex-role-/, "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  // `chapters` and `decisions` are MySQL json columns. mysql2 parses them for
+  // us today, so this only matters the day a pool is built with jsonStrings
+  // set, when the old code would have thrown on .map of a string.
+  const asArray = (v: any): any[] => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === "string") {
+      try { const parsed = JSON.parse(v); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+    }
+    return [];
   };
 
   if (off) {
@@ -6107,7 +6160,33 @@ function CallsAdminTab({ password }: { password: string }) {
             )}
           </div>
 
-          {!detail.transcript && (
+          {/* The tape. It was fetched on every open and thrown away, so the
+              page could never show what a synthesis had been made FROM, and
+              the evidence quotes below had nothing to point back at. Closed
+              once a synthesis exists, because by then the summary leads. */}
+          {detail.transcript ? (
+            <details className="border border-gray-200 rounded-lg" open={!detail.synthesis}>
+              <summary className="cursor-pointer select-none px-4 py-2.5 text-sm font-medium text-gray-900">
+                Transcript
+                <span className="ml-2 text-xs font-normal text-gray-400">
+                  {(detail.transcript.segments ?? []).length} segment(s)
+                  {detail.recording.durationS ? `, ${fmtTs(detail.recording.durationS * 1000)} long` : ""}
+                </span>
+              </summary>
+              <div className="max-h-72 space-y-2 overflow-y-auto px-4 pb-3">
+                {(detail.transcript.segments ?? []).length > 0 ? (
+                  detail.transcript.segments.map((s: any, i: number) => (
+                    <p key={i} className="text-sm text-gray-600">
+                      <span className="mr-2 text-xs tabular-nums text-gray-400">{fmtTs(s.startMs ?? 0)}</span>
+                      {s.text}
+                    </p>
+                  ))
+                ) : (
+                  <p className="whitespace-pre-wrap text-sm text-gray-600">{detail.transcript.body}</p>
+                )}
+              </div>
+            </details>
+          ) : (
             <p className="text-sm text-gray-400">No transcript yet. Paste one via the transcript endpoint or re-ingest with it.</p>
           )}
 
@@ -6132,6 +6211,41 @@ function CallsAdminTab({ password }: { password: string }) {
                 </div>
               </div>
 
+              {/* Chapters and decisions were written by the synthesis, stored,
+                  served on this very payload, and rendered nowhere. The
+                  decisions are the part a village actually returns to. */}
+              {(asArray(detail.synthesis.chapters).length > 0 || asArray(detail.synthesis.decisions).length > 0) && (
+                <div className="grid md:grid-cols-2 gap-4">
+                  {asArray(detail.synthesis.chapters).length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">What the call covered</p>
+                      <ol className="space-y-1">
+                        {asArray(detail.synthesis.chapters).map((c: any, i: number) => (
+                          <li key={i} className="flex gap-2 text-sm text-gray-600">
+                            {c?.startMs != null && (
+                              <span className="shrink-0 pt-px text-xs tabular-nums text-gray-400">{fmtTs(c.startMs)}</span>
+                            )}
+                            <span>{typeof c === "string" ? c : c?.title}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                  {asArray(detail.synthesis.decisions).length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Decisions the call reached</p>
+                      <ul className="space-y-1.5">
+                        {asArray(detail.synthesis.decisions).map((d: any, i: number) => (
+                          <li key={i} className="rounded-lg border border-purple-100 bg-purple-50 px-3 py-2 text-sm text-purple-900">
+                            {typeof d === "string" ? d : d?.text ?? ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Suggested tasks, each one evidenced from the tape
@@ -6145,7 +6259,11 @@ function CallsAdminTab({ password }: { password: string }) {
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <p className="text-sm font-medium text-gray-900">{t.description}</p>
                         <span className="flex items-center gap-2">
-                          {t.role_id && <span className="text-xs bg-teal-deep/10 text-teal-deep px-2 py-0.5 rounded-full">{t.role_id}</span>}
+                          {t.role_id && (
+                            <span className="text-xs bg-teal-deep/10 text-teal-deep px-2 py-0.5 rounded-full">
+                              {roleLabel(t.role_id)}
+                            </span>
+                          )}
                           {flagged(t) && <ExampleChip />}
                           {t.status === "suggested" && !flagged(t) && !exampleDetail ? (
                             <>
