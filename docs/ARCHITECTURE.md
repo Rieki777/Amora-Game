@@ -814,7 +814,104 @@ ends with "no leaderboards, no ranks", and a list of members sorted by seats
 held is a rank; a count of seats with no second holder is a fact about the
 village that names nobody.
 
-### 3.17 The serving layer — what every byte costs
+### 3.17 The village that publishes itself — `server/lib/villageExport.ts`
+
+Three unauthenticated documents at predictable URLs: `/.well-known/village.json`
+(discovery), `/api/public/org.json` (the org chart as data), and a Markdown
+mirror at `/org/index.md`, `/org/circles/<id>.md`, `/org/roles/<id>.md`. Peerdom's
+OKF export is the idea, and it pays off with ONE village: a founder points an
+agent at a URL and gets the whole organisation with no integration.
+
+**The privacy rule has no exceptions: no names.** Not full ones, not first
+ones, not documented holders' display names, not user ids, not `focus` strings
+or holder notes. `/api/org` can tier those behind `map.viewPeople` because it
+has a session to check; these documents have none by construction, and a
+fetched document can be cached, relayed, indexed and handed to an agent
+forever. The test that enforces this serialises the whole export plus every
+Markdown page and asserts no private string survives anywhere in the bytes,
+because a field-by-field assertion only catches the fields somebody remembered.
+
+**Live only while `effectiveLifecycle("map") === "public"` AND
+`map.public_structure` is on.** That pair is already the village's answer to
+"may a stranger see our structure", given on the map page; publishing the same
+structure at a second URL when the village said no there would be a bypass
+wearing a different path. `members` is deliberately not enough: that lifecycle
+means signed-in members only. No new admin switch, because a second knob
+meaning almost the same thing is how two settings end up disagreeing.
+
+**Discovery answers unconditionally and degrades by shrinking.** When the org
+export is dark, `supports` is `[]` and the `org` links are absent, rather than
+advertising `org/1` and sending every reader to a 404, which would teach them
+this village is broken instead of private. Consumers branch on `supports`,
+never on version ordering: a fork that turned a module off is not older, it is
+differently shaped. `/api/platform/info` keeps answering forever as the v0
+fallback, because a peer that learned to read it must never break when a newer
+document appears.
+
+**Signed with ed25519, minted at first boot** by the same INSERT IGNORE
+read-or-mint that mints `instanceId`. Built before anybody consumes these
+documents on purpose: it is the one piece that is painful to retrofit, since
+once peers trust unsigned payloads, adding signatures later either breaks them
+or is ignored. `canonicalJson` sorts keys recursively so a verifier
+reconstructing the document from parsed JSON gets the same bytes that were
+signed; arrays keep their order because their order is meaning. `verifyDocument`
+is exported so the round trip is testable and a peer has a reference, since a
+signature nobody can check is ceremony.
+
+Four defects a recon pass caught in the first draft, each now a test:
+
+- **Example seatings inflated real counts.** `org_role_assignments` carries
+  `is_example` and `ASSIGN_COLS` was not selecting it, so every read in the
+  codebase handed back demo seatings nothing could tell from real ones. The
+  `progression` module is CORE, so a fresh fork has them before a human enables
+  anything.
+- **A seat could argue with itself.** `land-steward` ships with a 60-day
+  `statusOverride` of "filled" and no holder recorded, which published as
+  `{seats: 1, filled: 0, state: "filled"}` and read "Held. 0 of 1 held." The
+  override survives (it exists for when a village knows better than the count)
+  and now carries `stateSource: "declared"`, and the Markdown states the two as
+  the separate facts they are.
+- **Dangling cross-references.** `circleId` was guarded from the start;
+  `parentCircleId` and `grownFromOrgRoleId` were not, so an agent following
+  links walked into a 404.
+- **The refusals carried no CORS headers**, so a browser could not tell "this
+  village keeps its structure private" from "this village is broken". The
+  refusal is part of the protocol, so it answers with the same headers as the
+  answer.
+- **`updatedAt` was the fetch timestamp**, so every response was a different
+  document with a different signature and nothing could tell a real change from
+  a re-fetch. It is now the max of `org_roles.updated_at` and the seating
+  timestamps, and the document is signed AT that time, so two fetches of an
+  unchanged chart are byte-identical.
+- **`policy.acceptsPeers` used `!== "off"`** while the `modules` list two lines
+  above correctly floored at `members`, so a village that had only PREVIEWED
+  the network module announced that it accepts peers.
+- **A village's own punctuation broke the Markdown.** A seat named
+  "Water (springs)" closed every link that mentioned it, and an aim beginning
+  `#` opened a heading mid-page. Link labels and prose are escaped; the words
+  are untouched.
+
+**One pre-existing leak had to close with it.** `/api/content/:section` is
+unauthenticated with no module gate, and the `roles` section is the CARD-shaped
+org chart 0049 replaced. Its cards kept `holders` and `holderNote`, so that
+endpoint was answering anonymous callers with real names and notes like "Away
+and inactive" (verified live in production, 2026-08-03) while `/api/org` tiered
+the same fields behind `map.viewPeople`. Publishing a document that promises
+anonymity beside an open side door would be a promise about one URL and not
+about the village. The two person-shaped fields are stripped for non-admins;
+the cards still serve, and `circles.members` stays because it is a list of seat
+titles. `/api/admin/content` is unchanged.
+
+Still open, found in the same pass and NOT fixed here: `anonymizeMember` never
+touches `org_role_assignments`, so a member who exercised deletion keeps a live
+seating, and a documented holder's `display_name` is never scrubbed by
+anything. The export cannot leak it (it carries no names) but `/api/org` can.
+
+`/org/**` 404s like `/api/**` and `/assets/**` rather than falling through to
+the SPA, and `/.well-known/**` does the same. Both are document namespaces, so
+a typo must not read as a success.
+
+### 3.18 The serving layer — what every byte costs
 
 Every image, script and stylesheet is served by the **same single Node process**
 that runs the ledger, the scheduler and every module route. There is no CDN and

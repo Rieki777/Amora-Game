@@ -77,13 +77,20 @@ export interface OrgAssignment {
    */
   lapsed?: boolean;
   lapsedReason?: "term" | "season" | null;
+  /** A standing-example seating (0046), seeded for an empty village to read. */
+  isExample: boolean;
 }
 
 const ROLE_COLS =
   "id, circle_id, name, aim, domain, accountabilities, why_it_matters, seats, criticality, active, recruiting, expires_each_season, status_override, status_override_expires_at, icon, color, sort_order, is_example";
 
 const ASSIGN_COLS =
-  "id, org_role_id, holder_kind, user_id, display_name, holder_key, focus, note, season_id, term_ends_at, started_at, ended_at, ended_reason";
+  // `is_example` rides along so the flag travels through every SELECT. It was
+  // missing here while `org_role_assignments` WAS registered with the
+  // standing-examples machinery (examples.ts seeds rows with is_example = 1),
+  // so every read handed back demo seatings that nothing downstream could tell
+  // from real ones. The public export is the first reader that must not.
+  "id, org_role_id, holder_kind, user_id, display_name, holder_key, focus, note, season_id, term_ends_at, started_at, ended_at, ended_reason, is_example";
 
 /** MySQL hands JSON back already parsed on some drivers and as text on others. */
 function asList(v: unknown): string[] {
@@ -137,6 +144,7 @@ function rowToAssignment(r: any): OrgAssignment {
     startedAt: r.started_at,
     endedAt: r.ended_at ?? null,
     endedReason: r.ended_reason ?? null,
+    isExample: !!r.is_example,
   };
 }
 

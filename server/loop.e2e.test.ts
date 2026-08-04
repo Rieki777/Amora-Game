@@ -28,6 +28,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
+import { verifyDocument } from "./lib/villageExport";
 
 /**
  * UNIQUE PER PROCESS, like the scratch schema (see testDb.ts). This was a
@@ -123,7 +124,24 @@ beforeAll(async () => {
   child.stdout?.on("data", (d) => logs.push(String(d)));
   child.stderr?.on("data", (d) => logs.push(String(d)));
 
-  const deadline = Date.now() + 60_000;
+  /*
+   * Three minutes, not one.
+   *
+   * A first boot against a fresh scratch schema runs every SQL migration, then
+   * every data migration, and the last of those is the 0049 org-chart backfill,
+   * which walks 14 circles, 8 councils, 24 seats and 8 holders as SEPARATE
+   * statements: about 64 sequential round trips. Against a remote MySQL that is
+   * tens of seconds on its own, and it made this test fail intermittently with
+   * "server did not start", which reads like a broken server and is not one.
+   * The captured log proved it every time: the last line was always the
+   * migration immediately BEFORE the backfill, and the backfill's own
+   * completion line never arrived.
+   *
+   * The real fix is to batch the backfill, which is a change to shipped
+   * migration logic and wants its own review. Until then the budget matches
+   * what the boot actually does; a hung server still fails, three minutes later.
+   */
+  const deadline = Date.now() + 180_000;
   for (;;) {
     if (Date.now() > deadline) {
       throw new Error(`server did not start in 60s. Output:\n${logs.join("")}`);
@@ -3620,5 +3638,169 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const rec = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
     expect(rec.json.invariants.problems).toEqual([]);
     await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);
+  });
+
+  /*
+   * The village that publishes itself: discovery, the org export, and the
+   * Markdown mirror, over real HTTP against the built server.
+   *
+   * The unit tests in server/lib/villageExport.test.ts prove the documents
+   * carry no names. This proves the ROUTES do: that they are reachable
+   * unauthenticated, that they refuse to answer when the village has not said
+   * its structure may be public, and that a signature made on this server
+   * verifies against the key this server publishes.
+   */
+  it("publishes a signed village, and refuses to until the village says its structure is public", async () => {
+    // ── Discovery answers whatever the modules are doing ──────────────────
+    const wk = await api("GET", "/.well-known/village.json");
+    expect(wk.status).toBe(200);
+    expect(wk.json.protocol).toBe("village/1");
+    expect(wk.json.kind).toBe("village");
+    expect(wk.json.publicKey.alg).toBe("ed25519");
+    expect(typeof wk.json.publicKey.publicKeyPem).toBe("string");
+
+    // The two public docs must agree on WHO this is.
+    const info = await api("GET", "/api/platform/info");
+    expect(wk.json.instanceId).toBe(info.json.instanceId);
+
+    // A signature nobody can check is ceremony, so check it with the key the
+    // document itself published.
+    expect(verifyDocument(wk.json, wk.json.publicKey.publicKeyPem)).toBe(true);
+    const tampered = { ...wk.json, name: "Somewhere Else" };
+    expect(verifyDocument(tampered, wk.json.publicKey.publicKeyPem)).toBe(false);
+
+    // ── Dark until the village says otherwise ─────────────────────────────
+    await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "off" }, founderToken);
+    const darkWk = await api("GET", "/.well-known/village.json");
+    // Announcing org/1 while the export is dark would send every reader to a
+    // 404 and teach them this village is broken instead of private.
+    expect(darkWk.json.supports).toEqual([]);
+    expect(darkWk.json.links.org).toBeUndefined();
+    expect((await api("GET", "/api/public/org.json")).status).toBe(404);
+    expect((await api("GET", "/org/index.md")).status).toBe(404);
+
+    // `members` is not enough: that lifecycle means signed-in members only,
+    // and publishing to the open internet would contradict what it says.
+    await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "members" }, founderToken);
+    expect((await api("GET", "/api/public/org.json")).status).toBe(404);
+
+    // ── Public, with a real seat and a real holder ────────────────────────
+    await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "public" }, founderToken);
+    await api("PUT", "/api/admin/variables/map.public_structure", { value: "true" }, founderToken);
+
+    const circleRes = await api("POST", "/api/admin/circles",
+      { id: "export-water-circle", name: "Water Circle", purpose: "Springs, tanks and the growing year." }, founderToken);
+    expect([200, 201], JSON.stringify(circleRes.json)).toContain(circleRes.status);
+    const seatRes = await api("POST", "/api/admin/org/roles",
+      { id: "export-water-steward", name: "Water Steward", circleId: "export-water-circle",
+        aim: "Keep the water running.", seats: 2 }, founderToken);
+    expect([200, 201], JSON.stringify(seatRes.json)).toContain(seatRes.status);
+    // A named holder is the whole point of the leak assertion, and a
+    // DOCUMENTED one is the sharper case: /api/org passes member names through
+    // firstName() but publishes `displayName` RAW, so this is the path a full
+    // name would escape by if the export ever grew a holder field.
+    //
+    // Every write here is status-checked. The first version of this test was
+    // not, so a mistyped seat id in the URL silently 404'd and surfaced twelve
+    // minutes later as `filled` being 0, with nothing saying why.
+    const seated = await api("POST", "/api/admin/org/roles/export-water-steward/holders",
+      { displayName: "Ada Vance", focus: "mornings only", note: "Away and inactive." }, founderToken);
+    expect(seated.status, JSON.stringify(seated.json)).toBe(200);
+
+    const org = await api("GET", "/api/public/org.json");
+    expect(org.status).toBe(200);
+    expect(verifyDocument(org.json, wk.json.publicKey.publicKeyPem)).toBe(true);
+
+    const seat = org.json.seats.find((s: any) => s.id === "export-water-steward");
+    expect(seat).toBeTruthy();
+    expect(seat.name).toBe("Water Steward");
+    expect(seat.seats).toBe(2);
+    expect(seat.filled).toBe(1);
+    expect(seat.state).toBe("partial");
+
+    // THE PROMISE. Nothing person-shaped survives the trip, including the
+    // focus string, which is the field most likely to be forgotten.
+    const blob = JSON.stringify(org.json);
+    expect(blob).not.toContain("mornings only");
+    expect(blob).not.toContain("Ada Vance");
+    expect(blob).not.toContain("Away and inactive");
+    expect(blob).not.toContain(founderId);
+    // Structurally, not by substring: a seat really is accountable for
+    // "external financial and legal stakeholders", and scanning the bytes for
+    // the word `holders` fails on the village's own prose. What must not exist
+    // is the FIELD.
+    for (const s of org.json.seats) {
+      expect(Object.keys(s)).not.toContain("holders");
+      expect(Object.keys(s)).not.toContain("holderCount");
+    }
+    // And nothing from the seat an EARLIER test built, which is the realistic
+    // case: a documented holder's name and their focus string, written by
+    // code that never thought about this export.
+    expect(blob).not.toContain("Mira");
+    expect(blob).not.toContain("arrivals");
+    // Demo rows are dropped, not flagged: a crawler cannot read a flag.
+    expect(blob).not.toContain("isExample");
+
+    // ── The Markdown mirror ──────────────────────────────────────────────
+    const index = await api("GET", "/org/index.md");
+    expect(index.status).toBe(200);
+    expect(String(index.json)).toContain("(roles/export-water-steward.md)");
+    expect(String(index.json)).toContain("1 of 2 held");
+
+    const seatPage = await api("GET", "/org/roles/export-water-steward.md");
+    expect(seatPage.status).toBe(200);
+    expect(String(seatPage.json)).toContain("(../circles/export-water-circle.md)");
+    expect(String(seatPage.json)).not.toContain("mornings only");
+    expect(String(seatPage.json)).not.toContain("Ada Vance");
+
+    // A document folder must fail like one. The SPA fallback would otherwise
+    // answer HTML with a 200 and an agent would read a typo as a success.
+    const stray = await fetch(`${BASE}/org/roles/nope`);
+    expect(stray.status).toBe(404);
+    expect(String(stray.headers.get("content-type"))).not.toContain("html");
+    expect((await api("GET", "/org/roles/..%2F..%2Fsecret.md")).status).toBe(404);
+
+    // The side door beside it. /api/content/:section is unauthenticated with
+    // no module gate, and the `roles` section is the CARD-shaped org chart
+    // that 0049 replaced. Its cards kept a `holders` array and a `holderNote`,
+    // so this endpoint answered anonymous callers with real people's names and
+    // notes like "Away and inactive" while /api/org tiered the same fields
+    // behind map.viewPeople. An export promising anonymity beside an open side
+    // door is a promise about one URL, not about the village.
+    await api("PUT", "/api/admin/content/roles",
+      [{ id: "hidden-seat", name: "Hidden Seat", holders: ["Ada Vance"], holderNote: "Away and inactive." }],
+      founderToken);
+    const anon = await api("GET", "/api/content/roles");
+    expect(anon.status).toBe(200);
+    expect(JSON.stringify(anon.json)).not.toContain("Ada Vance");
+    expect(JSON.stringify(anon.json)).not.toContain("Away and inactive");
+    // The card itself still serves, so the public pages that read content keep
+    // working; only the two fields that name a person are gone.
+    expect(anon.json[0].name).toBe("Hidden Seat");
+    // And an admin still sees everything, because this is the editing surface.
+    const asAdmin = await api("GET", "/api/content/roles", undefined, founderToken);
+    expect(JSON.stringify(asAdmin.json)).toContain("Ada Vance");
+
+    // /.well-known is a registry of exact filenames, so an unknown one is a
+    // miss. Falling through to the SPA would tell a peer probing for a
+    // capability document that this village has one.
+    const wkStray = await fetch(`${BASE}/.well-known/openid-configuration`);
+    expect(wkStray.status).toBe(404);
+    expect(String(wkStray.headers.get("content-type"))).not.toContain("html");
+
+    // Two fetches of an unchanged chart are the SAME document. It used to
+    // stamp `updatedAt` at fetch time, so every response carried a different
+    // signature and no consumer could tell a real change from a re-fetch.
+    const again = await api("GET", "/api/public/org.json");
+    expect(again.json.updatedAt).toBe(org.json.updatedAt);
+    expect(again.json.proof.signature).toBe(org.json.proof.signature);
+
+    // Open CORS and a cache window: any village, hub or agent may read these,
+    // and they carry no credentials and nothing that varies by caller.
+    const raw = await fetch(`${BASE}/api/public/org.json`);
+    expect(raw.headers.get("access-control-allow-origin")).toBe("*");
+    expect(String(raw.headers.get("cache-control"))).toContain("max-age=300");
+
+    await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "off" }, founderToken);
   });
 });
