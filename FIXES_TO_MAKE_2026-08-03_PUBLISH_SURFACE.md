@@ -131,7 +131,7 @@ field is an announcement and not a read.)
 
 ---
 
-### 3.1 The signature does not bind identity, and the next step is a column
+## 4. The next federation step: pin the key
 
 `/.well-known/village.json` publishes its own public key inside the document
 that key signs. So the signature proves the bytes were not altered after
@@ -150,7 +150,7 @@ the way an `instanceId` change already pauses it. The decision is what "changed"
 should mean once villages start rotating keys, which is why this is a real
 change and not an omitted call.
 
-## 4. Worth knowing, not obviously wrong
+## 5. Worth knowing, not obviously wrong
 
 - **`**/*.test.ts` is excluded from typecheck** (`tsconfig.json`). Test files
   are never type-checked, so a helper returning a type that has since gained a
