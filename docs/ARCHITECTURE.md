@@ -942,7 +942,62 @@ only when the peer claims `org/1`. The shared-items fetch is NOT gated on
 `supports`: no village advertises a shared-items capability yet, so branching on
 one would silently stop syncing every peer that already works.
 
-### 3.18 The serving layer — what every byte costs
+### 3.18 Links, confidence and drafts — the last three Peerdom lessons
+
+**Links between nodes** (`server/lib/orgRelations.ts`, 0054). Types are the
+village's own vocabulary (deputy, successor, mentor, prerequisite, works-with
+ship as a starter set seeded ONLY into an empty table, so a deleted one never
+comes back). The rule that makes this safe: **endpoints are nodes, never
+people.** There is no `user` node kind. "Ada mentors Bo" would be a statement
+about two people that then has to be kept out of the public export by
+filtering, and filtering is how leaks happen; "the Water Steward seat is
+deputised by the Gate Steward seat" says the useful part, outlives both
+holders, and publishes by construction.
+
+`is_cover` is what stops this being a table nobody reads. `structuralLoad`
+already reports seats with no second holder; a seat with a deputy written down
+is the difference between a risk and a plan, and `soleHeldWithCover` is how the
+health read can now tell them apart. Cover is DIRECTIONAL: a seat deputised by
+another is covered, the deputy is not thereby covered itself, or one link would
+report a whole chain as safe.
+
+**Confidence on a claim** (0055). `quest_claims.confidence` is
+`on_track | at_risk | stuck`, NULL by default, set only by the holder and only
+while the claim is open. It catches a failure nothing else could see: a claim
+sits in `claimed` for six weeks and looks identical whether somebody is halfway
+through or quietly stuck, and the retrospective can already spot "claimed,
+never consented" but only once the season has ENDED. Nothing is computed from
+it and nothing is paid on it, because a confidence rating that feeds a reward
+is one people learn to inflate. A steward cannot set it: that would make it a
+judgement of somebody's work instead of a signal from them.
+
+**Structural drafts** (`server/lib/orgDrafts.ts`, 0054). A reorganisation you
+can read before it is true, applied all-or-nothing on one transaction, with
+`before_json` captured AT APPLY TIME so a revert undoes what was actually there
+rather than what somebody saw a fortnight ago.
+
+**Scope is the org plane only: seats, their circle assignment, and their
+holders. Creating or deleting a CIRCLE is not draftable.** That is a real
+constraint. `circles` is written through a dbCollection whose `replaceAll`
+opens its OWN transaction on its OWN connection and swaps the in-memory cache
+after committing, so a circle write cannot join anybody else's transaction and
+cannot be rolled back once it returns. A draft claiming atomicity across both
+planes would be lying about the half it cannot undo. Moving a seat BETWEEN
+circles is `org_roles.circle_id` and is fully covered.
+
+It follows the shape `applyMechanicsProposal` already set: revalidate against
+current reality rather than trusting the captured proposal, idempotent by
+status, and refuse the WHOLE thing rather than half-applying. `thread_id` is a
+soft link to a forum decision because there is nothing firmer to bind to:
+`forum_threads.kind` is a frozen enum, and deciding LOCKS the thread. And
+`before_json` is revert data, not history: the journal cannot serve that
+purpose, because `recordEvent` swallows its own errors by design and an archive
+may not be lossy.
+
+A seat the draft created is RESTED on revert, never deleted, because deleting
+it would take its journal and holding history with it.
+
+### 3.19 The serving layer — what every byte costs
 
 Every image, script and stylesheet is served by the **same single Node process**
 that runs the ledger, the scheduler and every module route. There is no CDN and

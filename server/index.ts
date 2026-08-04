@@ -188,6 +188,24 @@ import {
 } from "./lib/map";
 import { ensureInstanceIdentity, instanceIdentity, PLATFORM_VERSION } from "./lib/identity";
 import {
+  addChange,
+  createDraft,
+  listDrafts,
+  previewDraft,
+  publishDraft,
+  revertDraft,
+} from "./lib/orgDrafts";
+import {
+  coveredSeatIds,
+  createRelation,
+  deleteRelation,
+  listRelations,
+  listRelationTypes,
+  relationsFor,
+  seedStarterTypes,
+  type NodeKind,
+} from "./lib/orgRelations";
+import {
   buildOrgExport,
   circleMarkdown,
   ensureSigningKey,
@@ -274,6 +292,7 @@ import {
   expiringSeatings,
   seatHolder,
   seatState,
+  statusOverrideProblem,
   structuralLoad,
   unclaimedSeatingsFor,
   updateOrgRole,
@@ -1176,6 +1195,13 @@ async function ensureDataFiles() {
   await runOnce("voice-sweep-2026-08-01-part-2", applyVoiceSweepToSeededDocuments);
   await runOnce("voice-sweep-2026-08-01-part-3", applyVoiceSweepWhereWordsChanged);
   await runOnce("org-roles-backfill-2026-08", applyOrgRolesBackfill);
+
+  // 0054: a starter relationship vocabulary, into an EMPTY table only. Same
+  // rule the quest library follows, and the reason matters here: these are
+  // suggestions the village owns, so a deleted one coming back would make an
+  // intentional deletion look like a bug.
+  const seededTypes = await seedStarterTypes(getPool());
+  if (seededTypes) console.log(`[seed] ${seededTypes} relationship type(s) seeded`);
 }
 
 /**
@@ -8596,23 +8622,31 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const maySeePeople =
       (await isAdmin(req)) ||
       (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
-    const [roles, assignments, allMembers] = await Promise.all([
+    const [roles, assignments, allMembers, relations, relTypes] = await Promise.all([
       listOrgRoles(getPool()),
       listOrgAssignments(getPool()),
       members.all(),
+      listRelations(getPool()),
+      listRelationTypes(getPool()),
     ]);
     const byId = new Map((allMembers as any[]).map((u: any) => [u.id, u.name]));
-    const load = structuralLoad(roles, assignments, (id) => byId.get(id) ?? null);
+    // 0054: a sole-held seat with a deputy written down is a plan; the same
+    // seat with nobody named is the risk. Until relations existed this read
+    // could not tell those apart and reported both as equally fragile.
+    const covered = coveredSeatIds(relations, new Map(relTypes.map((t) => [t.id, t])));
+    const load = structuralLoad(roles, assignments, (id) => byId.get(id) ?? null, covered);
     // Sole-held seats are the headline, so it must be countable WITHOUT the
     // names: summed here rather than left for a client that cannot see them.
     const soleHeldSeats = load.holders.reduce((n, h) => n + h.soleHeld, 0);
     const soleHeldCritical = load.holders.reduce((n, h) => n + h.soleHeldCritical, 0);
+    const soleHeldWithCover = load.holders.reduce((n, h) => n + h.soleHeldWithCover, 0);
     const shape = {
       seatingsLive: load.seatingsLive,
       distinctHolders: load.distinctHolders,
       unheldSeats: load.unheldSeats,
       soleHeldSeats,
       soleHeldCritical,
+      soleHeldWithCover,
       concentration: load.concentration,
       note: load.note,
       maySeePeople,
@@ -11968,6 +12002,68 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(claims);
   });
 
+  /**
+   * How it is going, said by the person doing it (0055).
+   *
+   * The failure this catches: a claim sits in `claimed` for six weeks and
+   * looks identical whether somebody is halfway through or quietly stuck. The
+   * season retrospective can already see "claimed, never consented", but only
+   * once the season has ENDED, which is exactly too late to help.
+   *
+   * Only the holder may set it, and only while the claim is still open. A
+   * steward setting it would make it a judgement of somebody's work instead of
+   * a signal from them, and the whole value is that asking for help costs
+   * nothing here.
+   */
+  app.put("/api/game/quest-claims/:id/confidence", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const value = String(req.body?.confidence ?? "");
+    // Clearing it is allowed: somebody who flagged a wobble and then sorted it
+    // out should not have to leave the flag up.
+    const allowed = ["on_track", "at_risk", "stuck", ""];
+    if (!allowed.includes(value)) {
+      return res.status(400).json({ error: "confidence must be on_track, at_risk, stuck, or empty" });
+    }
+    const note = String(req.body?.note ?? "").slice(0, 280) || null;
+    const [r]: any = await getPool().query(
+      `UPDATE quest_claims
+          SET confidence = ?, confidence_note = ?, confidence_at = ${value ? "CURRENT_TIMESTAMP" : "NULL"}
+        WHERE id = ? AND user_id = ? AND status IN ('claimed','submitted')`,
+      [value || null, value ? note : null, req.params.id, user.id],
+    );
+    if (!r.affectedRows) {
+      return res.status(404).json({ error: "No open claim of yours with that id" });
+    }
+    res.json({ success: true });
+  });
+
+  /**
+   * Open claims that somebody has flagged, worst first.
+   *
+   * The point of collecting the signal is that a steward SEES it, and a signal
+   * nobody reads is a form nobody fills in.
+   */
+  app.get("/api/admin/quest-claims/attention", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [rows]: any = await getPool().query(
+      `SELECT id, quest_title, user_name, status, confidence, confidence_note, confidence_at, claimed_at
+         FROM quest_claims
+        WHERE status IN ('claimed','submitted') AND confidence IN ('at_risk','stuck')
+        ORDER BY FIELD(confidence, 'stuck', 'at_risk'), confidence_at`,
+    );
+    res.json((rows as any[]).map((c) => ({
+      id: String(c.id),
+      questTitle: c.quest_title ?? "",
+      holder: firstName(String(c.user_name ?? "Member")),
+      status: String(c.status),
+      confidence: String(c.confidence),
+      note: c.confidence_note ?? null,
+      saidAt: c.confidence_at ? new Date(c.confidence_at).toISOString() : null,
+      claimedAt: c.claimed_at ? new Date(c.claimed_at).toISOString() : null,
+    })));
+  });
+
   app.post("/api/admin/quest-claims/:id/consent", async (req, res) => {
     const actor = await consentActor(req);
     if (!actor.ok) return res.status(actor.status).json({ error: actor.error });
@@ -13788,11 +13884,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   };
 
   const loadOrgExport = async () => {
-    const [roles, assignments, updatedAt] = await Promise.all([
+    const [roles, assignments, updatedAt, relations, relTypes] = await Promise.all([
       listOrgRoles(getPool()),
       listOrgAssignments(getPool(), lapseContext()),
       orgUpdatedAt(),
+      listRelations(getPool()),
+      listRelationTypes(getPool()),
     ]);
+    const typeById = new Map(relTypes.map((t) => [t.id, t]));
     return buildOrgExport({
       instanceId: instanceIdentity().instanceId,
       villageName: mergedConfig().project.name,
@@ -13800,6 +13899,18 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       assignments,
       circles: circlesRepo.all() as any[],
       updatedAt,
+      // Resolved here so the export module stays a pure function of its
+      // inputs. A link whose type was deleted is dropped rather than published
+      // with a blank label.
+      relations: relations.flatMap((r) => {
+        const t = typeById.get(r.typeId);
+        if (!t || t.isExample) return [];
+        return [{
+          typeId: r.typeId, label: t.label, inverseLabel: t.inverseLabel,
+          fromKind: r.fromKind, fromId: r.fromId, toKind: r.toKind, toId: r.toId,
+          isExample: r.isExample,
+        }];
+      }),
     });
   };
 
@@ -13939,6 +14050,141 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.get("/org", (_req, res) => res.redirect(308, "/org/index.md"));
   app.get("/org/*", (req, res) => notPublished(res, `Not found: ${req.path}`));
+
+  /*
+   * ── Links between seats and circles (0054) ───────────────────────────
+   *
+   * Types are the village's own vocabulary, so both are editable. Reading them
+   * is public at the same tier the rest of the org chart is, because a link
+   * between two SEATS names nobody: that is the whole reason endpoints are
+   * nodes and not people.
+   */
+  app.get("/api/org/relations", async (_req, res) => {
+    const [types, relations] = await Promise.all([
+      listRelationTypes(getPool()),
+      listRelations(getPool()),
+    ]);
+    res.json({
+      types: types.filter((t) => !t.isExample),
+      relations: relations.filter((r) => !r.isExample),
+    });
+  });
+
+  /** Every link touching one node, phrased from that node's side. */
+  app.get("/api/org/:kind/:id/relations", async (req, res) => {
+    const kind = req.params.kind === "circle" ? "circle" : req.params.kind === "org_role" ? "org_role" : null;
+    if (!kind) return res.status(400).json({ error: "kind must be org_role or circle" });
+    const [types, relations] = await Promise.all([
+      listRelationTypes(getPool()),
+      listRelations(getPool()),
+    ]);
+    res.json(relationsFor({ kind: kind as NodeKind, id: String(req.params.id) }, relations, new Map(types.map((t) => [t.id, t]))));
+  });
+
+  /*
+   * ── Structural drafts (0056) ─────────────────────────────────────────
+   *
+   * A reorganisation you can read before it is true. Admin-only throughout:
+   * a draft is a proposal about the village's shape, and until it publishes it
+   * is not the chart.
+   */
+  app.get("/api/admin/org/drafts", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    res.json(await listDrafts(getPool()));
+  });
+
+  app.post("/api/admin/org/drafts", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const id = await createDraft(getPool(), {
+      title: String(req.body?.title ?? ""),
+      rationale: req.body?.rationale ?? null,
+      threadId: req.body?.threadId ?? null,
+      createdBy: (await authedUser(req))?.id ?? null,
+    });
+    res.json({ success: true, id });
+  });
+
+  app.post("/api/admin/org/drafts/:id/changes", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const ops = ["create_seat", "update_seat", "rest_seat", "seat_holder", "end_holding"];
+    const op = String(req.body?.op ?? "");
+    if (!ops.includes(op)) return res.status(400).json({ error: `op must be one of: ${ops.join(", ")}` });
+    const r = await addChange(getPool(), req.params.id, {
+      op: op as any,
+      orgRoleId: String(req.body?.orgRoleId ?? ""),
+      payload: req.body?.payload ?? {},
+    });
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    res.json({ success: true, id: r.id });
+  });
+
+  /** What it would do, and what refuses. Nothing is written. */
+  app.get("/api/admin/org/drafts/:id/preview", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    res.json(await previewDraft(getPool(), req.params.id));
+  });
+
+  app.post("/api/admin/org/drafts/:id/publish", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const actor = await authedUser(req);
+    const r = await publishDraft(getPool(), req.params.id, actor?.id ?? null);
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    // One journal line per seat the draft touched, so a reorganisation shows up
+    // in the history of every node it moved rather than only in a draft list
+    // nobody opens twice.
+    const drafts = await listDrafts(getPool());
+    const draft = drafts.find((d) => d.id === req.params.id);
+    for (const seatId of Array.from(new Set((draft?.changes ?? []).map((c) => c.orgRoleId)))) {
+      void recordEvent(getPool(), {
+        kind: "org", text: `reorganised: ${draft?.title ?? "a draft"}`,
+        actorUserId: actor?.id ?? null,
+        entityType: "org_role", entityRef: seatId, audience: "admin",
+      });
+    }
+    res.json({ success: true, applied: r.applied });
+  });
+
+  app.post("/api/admin/org/drafts/:id/revert", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const r = await revertDraft(getPool(), req.params.id);
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    res.json({ success: true, reverted: r.reverted });
+  });
+
+  app.post("/api/admin/org/relations", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const r = await createRelation(getPool(), {
+      typeId: String(req.body?.typeId ?? ""),
+      fromKind: String(req.body?.fromKind ?? ""),
+      fromId: String(req.body?.fromId ?? ""),
+      toKind: String(req.body?.toKind ?? ""),
+      toId: String(req.body?.toId ?? ""),
+      note: req.body?.note ?? null,
+      createdBy: (await authedUser(req))?.id ?? null,
+    });
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    // The journal already reads by node, so a link shows up on BOTH ends'
+    // history without a second write: two events, one row.
+    for (const end of [
+      { kind: String(req.body?.fromKind), id: String(req.body?.fromId) },
+      { kind: String(req.body?.toKind), id: String(req.body?.toId) },
+    ]) {
+      void recordEvent(getPool(), {
+        kind: "org",
+        text: `linked: ${String(req.body?.typeId)}`,
+        actorUserId: (await authedUser(req))?.id ?? null,
+        entityType: end.kind, entityRef: end.id, audience: "admin",
+      });
+    }
+    res.json({ success: true, id: r.id });
+  });
+
+  app.delete("/api/admin/org/relations/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const ok = await deleteRelation(getPool(), String(req.params.id));
+    if (!ok) return res.status(404).json({ error: "No such link" });
+    res.json({ success: true });
+  });
 
   /**
    * Seats whose mandate has run out or is about to, most overdue first.
@@ -14096,6 +14342,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const role = (await listOrgRoles(getPool())).find((r) => r.id === req.params.id);
     if (!role) return res.status(404).json({ error: "Seat not found" });
     if (role.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    // Refused with a sentence, not a truncation error. `expired` is a SeatState
+    // in TypeScript but is DERIVED, so it is not one of the states the 0049
+    // column lets a village declare.
+    const badState = statusOverrideProblem(req.body?.statusOverride);
+    if (badState) return res.status(400).json({ error: badState });
     // Described BEFORE the write, while the old values still exist. The
     // generic admin audit records "PUT /api/admin/org/roles/x", which cannot
     // answer "what has already been tried with this seat".
@@ -14126,6 +14377,18 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       grantedBy: actor?.id ?? null,
     });
     if (!r.ok) return res.status(409).json({ error: r.reason });
+    // WHO was put in a seat is the history a village most wants when it opens
+    // one, and it was the one structural change the journal did not record:
+    // only edits to the seat's card were. Names are not written into the line;
+    // the journal is admin-audience and the seat's holders are already
+    // readable at their own tier, so the event says that the seat changed
+    // hands and lets the reader look.
+    void recordEvent(getPool(), {
+      kind: "org",
+      text: req.body?.userId ? "seated a member" : `seated ${String(req.body?.displayName ?? "someone")}`,
+      actorUserId: actor?.id ?? null,
+      entityType: "org_role", entityRef: req.params.id, audience: "admin",
+    });
     res.json({ success: true });
   });
 
@@ -14249,8 +14512,24 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.delete("/api/admin/org/seatings/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
-    const ok = await endSeating(getPool(), req.params.id, String(req.body?.reason ?? "") || undefined);
+    // Read the seating BEFORE ending it, so the journal entry can name which
+    // seat it was against. Afterwards the row is history and the route only
+    // has an id.
+    const [[before]] = await getPool().query<any[]>(
+      "SELECT org_role_id FROM org_role_assignments WHERE id = ? AND ended_at IS NULL",
+      [req.params.id],
+    );
+    const reason = String(req.body?.reason ?? "") || undefined;
+    const ok = await endSeating(getPool(), req.params.id, reason);
     if (!ok) return res.status(404).json({ error: "No live seating with that id" });
+    if (before?.org_role_id) {
+      void recordEvent(getPool(), {
+        kind: "org",
+        text: reason ? `a holding ended: ${reason}` : "a holding ended",
+        actorUserId: (await authedUser(req))?.id ?? null,
+        entityType: "org_role", entityRef: String(before.org_role_id), audience: "admin",
+      });
+    }
     res.json({ success: true });
   });
 

@@ -474,12 +474,18 @@ was not obvious from the Peerdom version:
 | 6 | `structuralLoad` on `/api/health/summary` | Seats-held is not the metric. `soleHeld` is, and the page's own "no leaderboards" promise forced the shape public and the names behind `map.viewPeople`. |
 | 7 | `/.well-known/village.json`, `/api/public/org.json`, `/org/**.md`, ed25519-signed | Peerdom publishes OKF as an integration feature. Here the hard part was privacy, not format: the export has no session, so it can carry no names at all, and the gate had to be the village's EXISTING answer about public structure rather than a new switch. |
 
-Still open: 8 (drafts), 9 (confidence voting), 10 (relationship types).
+| 8 | `org_drafts` + `org_draft_changes` (0056), all-or-nothing on one transaction | Scope had to SHRINK to be honest. `circles` is a dbCollection whose `replaceAll` owns its own transaction and cannot be rolled back once it returns, so a draft covers seats, their circle assignment and their holders, and NOT creating or deleting circles. |
+| 9 | `quest_claims.confidence` (0055) | The column was the easy part. The rule that matters is that only the HOLDER can set it and nothing is computed from it: a confidence rating that feeds a reward is one people learn to inflate. |
+| 10 | `org_relation_types` + `org_relations` (0054) | Endpoints are nodes, never people. That one decision is what makes the links publishable by construction instead of by filtering, and filtering is how leaks happen. |
 
-The export is the one that unblocks the rest of the federation story. `addPeer` still hard-refuses any
-handshake whose `platform` string is not the literal `custom-game-foundation`, so only forks of this
-exact repo can peer today; teaching `syncPeers` to prefer the discovery document is what turns that
-from a product feature into a protocol, and it is the next thing here.
+**All ten are built.** The federation handshake that the export unblocked is built too: `discoverPeer`
+accepts any document answering `protocol: "village/*"`, so a Peerdom organisation or a hand-written
+static file can peer without sharing a line of code with this repo.
+
+The most useful thing to come out of doing all ten is that they compound. Terms say when a mandate
+runs out; role hoarding says which seats one person carries alone; relations say who is named to carry
+them. Any one of those is a report. Together they are the sentence a village actually needs: *this
+seat, that person, no cover, and their term ended in March.*
 
 ---
 

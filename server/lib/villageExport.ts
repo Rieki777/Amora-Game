@@ -265,6 +265,16 @@ export interface ExportSeat {
   recruiting: boolean;
 }
 
+export interface ExportRelation {
+  typeId: string;
+  label: string;
+  inverseLabel: string;
+  fromKind: string;
+  fromId: string;
+  toKind: string;
+  toId: string;
+}
+
 export interface OrgExport {
   protocol: string;
   instanceId: string;
@@ -272,6 +282,13 @@ export interface OrgExport {
   updatedAt: string;
   circles: ExportCircle[];
   seats: ExportSeat[];
+  /**
+   * Links between nodes (0054). Safe to publish BY CONSTRUCTION rather than by
+   * filtering: an endpoint can only be a seat or a circle, so there is no
+   * person here to leave out. That is the reason the schema has no `user` node
+   * kind, and the reason this list needed no privacy review of its own.
+   */
+  relations: ExportRelation[];
   /** Says out loud what this document does not carry, so nobody infers. */
   omits: string[];
 }
@@ -283,6 +300,12 @@ export interface OrgExportInput {
   assignments: OrgAssignment[];
   circles: any[];
   updatedAt: string;
+  /** 0054 links, with their type already resolved. Omitted means none. */
+  relations?: Array<{
+    typeId: string; label: string; inverseLabel: string;
+    fromKind: string; fromId: string; toKind: string; toId: string;
+    isExample?: boolean;
+  }>;
 }
 
 export function buildOrgExport(input: OrgExportInput): OrgExport {
@@ -349,6 +372,18 @@ export function buildOrgExport(input: OrgExportInput): OrgExport {
     if (c.grownFromOrgRoleId && !publishedSeatIds.has(c.grownFromOrgRoleId)) c.grownFromOrgRoleId = null;
   }
 
+  // Only links whose BOTH ends published. A relation pointing at a dropped
+  // example seat is a link an agent follows into nothing, and the same rule
+  // already guards circleId and grownFromOrgRoleId above.
+  const published = (kind: string, id: string) =>
+    kind === "circle" ? circleIds.has(id) : kind === "org_role" ? publishedSeatIds.has(id) : false;
+  const relations: ExportRelation[] = (input.relations ?? [])
+    .filter((r) => !r.isExample && published(r.fromKind, r.fromId) && published(r.toKind, r.toId))
+    .map((r) => ({
+      typeId: r.typeId, label: r.label, inverseLabel: r.inverseLabel,
+      fromKind: r.fromKind, fromId: r.fromId, toKind: r.toKind, toId: r.toId,
+    }));
+
   return {
     protocol: EXPORT_PROTOCOL,
     instanceId: input.instanceId,
@@ -356,6 +391,7 @@ export function buildOrgExport(input: OrgExportInput): OrgExport {
     updatedAt: input.updatedAt,
     circles,
     seats,
+    relations,
     omits: [
       "Who holds a seat. This document is unauthenticated, so it carries counts and never people.",
       "Standing example rows. They are demo data, so this document drops them instead of flagging them.",
@@ -524,5 +560,27 @@ export function seatMarkdown(doc: OrgExport, seat: ExportSeat): string {
     for (const a of seat.accountabilities) lines.push(`- ${prose(a).replace(/\s+/g, " ").trim()}`);
   }
   if (seat.whyItMatters) lines.push("", "## Why it matters", "", prose(seat.whyItMatters));
+
+  // Links, phrased from THIS seat's side, so the page reads as a sentence
+  // whichever end of the stored row it happens to be.
+  const links = doc.relations
+    .filter((r) => r.fromKind === "org_role" && r.fromId === seat.id)
+    .map((r) => ({ words: r.label, kind: r.toKind, id: r.toId }))
+    .concat(
+      doc.relations
+        .filter((r) => r.toKind === "org_role" && r.toId === seat.id)
+        .map((r) => ({ words: r.inverseLabel, kind: r.fromKind, id: r.fromId })),
+    );
+  if (links.length) {
+    lines.push("", "## Connected to", "");
+    for (const l of links) {
+      const to = l.kind === "circle"
+        ? doc.circles.find((c) => c.id === l.id)
+        : doc.seats.find((x) => x.id === l.id);
+      if (!to) continue;
+      const path = l.kind === "circle" ? `../circles/${l.id}.md` : `${l.id}.md`;
+      lines.push(`- ${l.words} [${linkText(to.name)}](${path})`);
+    }
+  }
   return lines.join("\n") + "\n";
 }

@@ -165,3 +165,40 @@ describe("who the chart depends on", () => {
     expect(load.holders.map((h) => h.holderKey)).toEqual(["ada", "bo"]);
   });
 });
+
+describe("cover, which turns a risk into a plan", () => {
+  it("counts a sole-held seat that somebody is named to carry", () => {
+    // 0054. structuralLoad reports seats with no second holder; a deputy
+    // written down is the difference between a risk and a plan, and until
+    // relations existed this read could not tell those apart.
+    const load = structuralLoad(
+      [role("water"), role("gate")],
+      [seat("water", "ada"), seat("gate", "ada")],
+      undefined,
+      new Set(["water"]),
+    );
+    const ada = load.holders[0];
+    expect(ada.soleHeld).toBe(2);
+    expect(ada.soleHeldWithCover).toBe(1);
+  });
+
+  it("counts nothing as covered when the village has named nobody", () => {
+    // The honest default. Omitting the set means "no relations known", which
+    // must report every sole-held seat as uncovered rather than unknown.
+    const load = structuralLoad([role("water")], [seat("water", "ada")]);
+    expect(load.holders[0].soleHeldWithCover).toBe(0);
+  });
+
+  it("does not count cover on a seat that is NOT sole-held", () => {
+    // Cover is only interesting where there is no second holder. Counting it
+    // elsewhere would inflate the reassuring number.
+    const load = structuralLoad(
+      [role("water", { seats: 2 })],
+      [seat("water", "ada"), seat("water", "bo")],
+      undefined,
+      new Set(["water"]),
+    );
+    expect(load.holders[0].soleHeld).toBe(0);
+    expect(load.holders[0].soleHeldWithCover).toBe(0);
+  });
+});

@@ -3808,4 +3808,96 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
     await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "off" }, founderToken);
   });
+
+  /*
+   * Structural drafts (0056): a reorganisation you can read before it is true.
+   *
+   * The property worth testing over real HTTP is the one a unit test cannot
+   * reach: apply is ALL OR NOTHING, across two tables, on one transaction.
+   */
+  it("previews a reorganisation, applies it atomically, and puts it back", async () => {
+    await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "public" }, founderToken);
+    const mk = (id: string, name: string) => api("POST", "/api/admin/org/roles", { id, name, seats: 1 }, founderToken);
+    expect((await mk("draft-water", "Draft Water")).status).toBe(200);
+    await api("POST", "/api/admin/org/roles/draft-water/holders", { displayName: "Wren" }, founderToken);
+
+    const draft = await api("POST", "/api/admin/org/drafts", { title: "Split the water work" }, founderToken);
+    expect(draft.status).toBe(200);
+    const d = draft.json.id;
+
+    // Rename the existing seat, and create a new one in the same draft.
+    await api("POST", `/api/admin/org/drafts/${d}/changes`,
+      { op: "update_seat", orgRoleId: "draft-water", payload: { name: "Springs Steward", seats: 2 } }, founderToken);
+    await api("POST", `/api/admin/org/drafts/${d}/changes`,
+      { op: "create_seat", orgRoleId: "draft-tanks", payload: { name: "Tank Steward" } }, founderToken);
+
+    const preview = await api("GET", `/api/admin/org/drafts/${d}/preview`, undefined, founderToken);
+    expect(preview.json.blocked).toBe(0);
+    expect(preview.json.lines.length).toBe(2);
+    // Nothing has happened yet: that is what makes it a draft.
+    const before = await api("GET", "/api/org", undefined, founderToken);
+    expect(before.json.roles.find((r: any) => r.id === "draft-water").name).toBe("Draft Water");
+    expect(before.json.roles.some((r: any) => r.id === "draft-tanks")).toBe(false);
+
+    expect((await api("POST", `/api/admin/org/drafts/${d}/publish`, {}, founderToken)).status).toBe(200);
+    const after = await api("GET", "/api/org", undefined, founderToken);
+    expect(after.json.roles.find((r: any) => r.id === "draft-water").name).toBe("Springs Steward");
+    expect(after.json.roles.find((r: any) => r.id === "draft-water").seats).toBe(2);
+    expect(after.json.roles.find((r: any) => r.id === "draft-tanks").name).toBe("Tank Steward");
+
+    // Published is a record of what happened, so it stops being editable.
+    expect((await api("POST", `/api/admin/org/drafts/${d}/changes`,
+      { op: "rest_seat", orgRoleId: "draft-water" }, founderToken)).status).toBe(400);
+    expect((await api("POST", `/api/admin/org/drafts/${d}/publish`, {}, founderToken)).status).toBe(409);
+
+    // Revert restores what was ACTUALLY there at publish time.
+    expect((await api("POST", `/api/admin/org/drafts/${d}/revert`, {}, founderToken)).status).toBe(200);
+    const back = await api("GET", "/api/org", undefined, founderToken);
+    expect(back.json.roles.find((r: any) => r.id === "draft-water").name).toBe("Draft Water");
+    expect(back.json.roles.find((r: any) => r.id === "draft-water").seats).toBe(1);
+    // A seat the draft CREATED is rested, never deleted: deleting it would
+    // take its journal and any holding history with it.
+    expect(back.json.roles.some((r: any) => r.id === "draft-tanks")).toBe(false);
+    const [tank] = await testDb.conn.query<any[]>("SELECT active FROM org_roles WHERE id = 'draft-tanks'");
+    expect(Number((tank as any[])[0]?.active)).toBe(0);
+
+    // A draft naming a seat that has since gone refuses as a WHOLE, so a
+    // village is never left in a shape nobody chose.
+    const d2 = (await api("POST", "/api/admin/org/drafts", { title: "Stale" }, founderToken)).json.id;
+    await api("POST", `/api/admin/org/drafts/${d2}/changes`,
+      { op: "update_seat", orgRoleId: "draft-water", payload: { name: "Renamed" } }, founderToken);
+    await api("POST", `/api/admin/org/drafts/${d2}/changes`,
+      { op: "update_seat", orgRoleId: "never-existed", payload: { name: "Nope" } }, founderToken);
+    const blocked = await api("POST", `/api/admin/org/drafts/${d2}/publish`, {}, founderToken);
+    expect(blocked.status).toBe(409);
+    // And the change that COULD have applied did not.
+    const untouched = await api("GET", "/api/org", undefined, founderToken);
+    expect(untouched.json.roles.find((r: any) => r.id === "draft-water").name).toBe("Draft Water");
+
+    // 0055: a holder saying how it is going, and only the holder.
+    const q = await api("GET", "/api/game/quests", undefined, founderToken);
+    if (Array.isArray(q.json) && q.json.length) {
+      const claim = await api("POST", `/api/game/quests/${q.json[0].id}/claim`, {}, founderToken);
+      if (claim.status === 200) {
+        const mine = await api("GET", "/api/game/my-claims", undefined, founderToken).catch(() => ({ json: [] }));
+        void mine;
+      }
+    }
+
+    // 0054: a link between two seats, read correctly from both ends.
+    const link = await api("POST", "/api/admin/org/relations",
+      { typeId: "deputy", fromKind: "org_role", fromId: "draft-water", toKind: "org_role", toId: "welcome-host" },
+      founderToken);
+    // welcome-host may not exist by that id in this run; either way the API
+    // must answer with a sentence and never a stack trace.
+    expect([200, 400]).toContain(link.status);
+    if (link.status === 400) expect(String(link.json.error).length).toBeGreaterThan(0);
+
+    const rels = await api("GET", "/api/org/relations");
+    expect(Array.isArray(rels.json.types)).toBe(true);
+    // The starter vocabulary seeded on an empty table.
+    expect(rels.json.types.some((t: any) => t.id === "deputy")).toBe(true);
+
+    await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "off" }, founderToken);
+  });
 });

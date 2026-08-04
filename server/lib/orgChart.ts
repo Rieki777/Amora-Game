@@ -297,6 +297,15 @@ export interface HolderLoad {
   /** Seats where this person is the ONLY current holder. */
   soleHeld: number;
   soleHeldCritical: number;
+  /**
+   * Of the sole-held seats, how many have somebody NAMED to carry them (0054).
+   *
+   * This is the difference between a risk and a plan. A seat one person holds
+   * alone with a deputy written down survives them being ill; the same seat
+   * with nobody named does not, and until relations existed the read could not
+   * tell those two apart.
+   */
+  soleHeldWithCover: number;
   /** This person's share of every live seating in the village, 0..1. */
   share: number;
   /** The sole-held seats by name, which are the ones that go dark. */
@@ -372,6 +381,13 @@ export function structuralLoad(
    * documented key, and the split-identity flag never fires.
    */
   nameOf?: (userId: string) => string | null,
+  /**
+   * Seat ids that somebody is named to carry (0054 cover relations). Passed in
+   * rather than read here, because this file stays a pure function of its
+   * inputs. Omitted means "no relations known", which reports every sole-held
+   * seat as uncovered: the honest answer for a village that has named nobody.
+   */
+  covered: Set<string> = new Set(),
 ): StructuralLoad {
   const live = assignments.filter((a) => !a.endedAt);
   const byRole = new Map<string, OrgAssignment[]>();
@@ -396,6 +412,7 @@ export function structuralLoad(
           seatsHeld: 0,
           soleHeld: 0,
           soleHeldCritical: 0,
+          soleHeldWithCover: 0,
           share: 0,
           soleHeldNames: [],
         };
@@ -404,6 +421,7 @@ export function structuralLoad(
         cur.soleHeld += 1;
         cur.soleHeldNames.push(role.name);
         if (role.criticality === "high") cur.soleHeldCritical += 1;
+        if (covered.has(role.id)) cur.soleHeldWithCover += 1;
       }
       acc.set(h.holderKey, cur);
     }
@@ -438,7 +456,7 @@ export function structuralLoad(
     concentration: readable && seatingsLive > 0 ? holders.reduce((m, h) => Math.max(m, h.share), 0) : null,
     possibleDuplicates,
     note: readable
-      ? "Sole-held seats are the ones with no second holder, so they are what stops if that person stops. Carrying a lot is a load and not a fault; the move is to spread it, and a seat one person carries alone is the first candidate to grow into a circle."
+      ? "Sole-held seats are the ones with no second holder, so they are what stops if that person stops. A seat with somebody named to carry it is a plan; the rest are the ones to name somebody for. Carrying a lot is a load and not a fault, and a seat one person carries alone is the first candidate to grow into a circle."
       : holders.length === 0
         ? "No seats have holders yet, so there is no load to read."
         : "One person holds every seat. That is what a founding looks like, not a finding. This reads once a second person is seated.",
@@ -539,6 +557,27 @@ export async function createOrgRole(pool: Pool, body: any): Promise<string> {
  * Partial update. Only keys present in the body move, so a client that knows
  * about six fields cannot blank the other twelve by omitting them.
  */
+/**
+ * The states a village may DECLARE. Narrower than `SeatState` on purpose.
+ *
+ * `expired` is derived: it means every holder's mandate has run out, which is
+ * a fact about dates and not something to assert. The 0049 column is
+ * enum('open','filled','partial','forming') and `updateOrgRole` used to pass
+ * whatever arrived straight into the UPDATE, so a client sending "expired"
+ * (a value the TypeScript type says is a SeatState) failed at the database
+ * with a truncation error instead of a sentence.
+ */
+export const DECLARABLE_STATES: SeatState[] = ["open", "filled", "partial", "forming"];
+
+export function statusOverrideProblem(v: unknown): string | null {
+  if (v === null || v === undefined || v === "") return null;
+  if (DECLARABLE_STATES.includes(v as SeatState)) return null;
+  if (v === "expired") {
+    return "A seat cannot be declared expired. That is worked out from the terms on its holders.";
+  }
+  return `A declared state must be one of: ${DECLARABLE_STATES.join(", ")}`;
+}
+
 export async function updateOrgRole(pool: Pool, id: string, body: any): Promise<boolean> {
   const sets: string[] = [];
   const args: any[] = [];

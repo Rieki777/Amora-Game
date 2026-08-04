@@ -453,6 +453,45 @@ describe("the fixes the recon pass found", () => {
     expect(seatMarkdown(doc, doc.seats[0])).toContain("- Checks the tanks every week");
   });
 
+  it("publishes links between nodes, and only when both ends published", () => {
+    // 0054. Safe by construction: an endpoint can only be a seat or a circle,
+    // so there is no person to leave out. What still needs guarding is a link
+    // pointing at something this document dropped, which an agent following
+    // links would walk into.
+    const doc = buildOrgExport({
+      instanceId: "i", villageName: "Riverbend", updatedAt: "2026-08-04T00:00:00.000Z",
+      roles: [role("water"), role("gate"), role("demo", { isExample: true })],
+      assignments: [],
+      circles: [circle("land")],
+      relations: [
+        { typeId: "deputy", label: "is deputised by", inverseLabel: "deputises for",
+          fromKind: "org_role", fromId: "water", toKind: "org_role", toId: "gate" },
+        { typeId: "deputy", label: "is deputised by", inverseLabel: "deputises for",
+          fromKind: "org_role", fromId: "water", toKind: "org_role", toId: "demo" },
+        { typeId: "deputy", label: "is deputised by", inverseLabel: "deputises for",
+          fromKind: "org_role", fromId: "water", toKind: "circle", toId: "vanished" },
+        { typeId: "secret", label: "x", inverseLabel: "y", isExample: true,
+          fromKind: "org_role", fromId: "water", toKind: "org_role", toId: "gate" },
+      ],
+    });
+    expect(doc.relations.length).toBe(1);
+    expect(doc.relations[0]).toMatchObject({ fromId: "water", toId: "gate" });
+  });
+
+  it("phrases a link from the side of the seat whose page it is", () => {
+    const doc = buildOrgExport({
+      instanceId: "i", villageName: "Riverbend", updatedAt: "2026-08-04T00:00:00.000Z",
+      roles: [role("water", { name: "Water Steward" }), role("gate", { name: "Gate Steward" })],
+      assignments: [], circles: [],
+      relations: [{ typeId: "deputy", label: "is deputised by", inverseLabel: "deputises for",
+        fromKind: "org_role", fromId: "water", toKind: "org_role", toId: "gate" }],
+    });
+    const water = seatMarkdown(doc, doc.seats.find((s) => s.id === "water")!);
+    expect(water).toContain("is deputised by [Gate Steward](gate.md)");
+    const gate = seatMarkdown(doc, doc.seats.find((s) => s.id === "gate")!);
+    expect(gate).toContain("deputises for [Water Steward](water.md)");
+  });
+
   it("keeps a cross-reference that DOES resolve", () => {
     const doc = build(
       [role("lead-seat")],

@@ -192,6 +192,14 @@ export interface ClaimRecord {
   submittedAt?: string | null;
   /** Historical JSON name for when the claim was consented or declined. */
   resolvedAt?: string | null;
+  /**
+   * How the person doing the work says it is going (0055). Self-reported,
+   * never computed, and nothing is paid or scored from it: a confidence
+   * rating that feeds a reward is a rating people learn to inflate.
+   */
+  confidence?: "on_track" | "at_risk" | "stuck" | null;
+  confidenceNote?: string | null;
+  confidenceAt?: string | null;
 }
 
 export interface ClaimsRepo {
@@ -207,7 +215,10 @@ export interface ClaimsRepo {
 }
 
 const CLAIM_SELECT =
-  "SELECT id, quest_id, quest_title, user_id, user_name, status, artifact_url, note, amount, claimed_at, submitted_at, consented_at FROM quest_claims";
+  // confidence (0055) rides along so every read carries it. It is written by
+  // its own targeted UPDATE and is deliberately absent from the generic
+  // `update()` SET list below, which means no other write path can clobber it.
+  "SELECT id, quest_id, quest_title, user_id, user_name, status, artifact_url, note, amount, claimed_at, submitted_at, consented_at, confidence, confidence_note, confidence_at FROM quest_claims";
 
 function rowToClaim(r: RowDataPacket): ClaimRecord {
   return {
@@ -223,6 +234,11 @@ function rowToClaim(r: RowDataPacket): ClaimRecord {
     claimedAt: toIso(r.claimed_at),
     submittedAt: toIso(r.submitted_at),
     resolvedAt: toIso(r.consented_at),
+    // NULL is the common case and means nobody has said, which is not the
+    // same as saying it is fine.
+    confidence: (r.confidence ?? null) as ClaimRecord["confidence"],
+    confidenceNote: r.confidence_note ?? null,
+    confidenceAt: toIso(r.confidence_at),
   };
 }
 

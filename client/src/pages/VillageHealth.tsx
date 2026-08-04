@@ -226,6 +226,9 @@ export default function VillageHealth() {
                 {data.structure.soleHeldCritical > 0 && (
                   <>, {data.structure.soleHeldCritical} of them marked critical</>
                 )}
+                {data.structure.soleHeldWithCover > 0 && (
+                  <>, and {data.structure.soleHeldWithCover} of them have somebody named to carry it</>
+                )}
                 {data.structure.unheldSeats > 0 && (
                   <>, and {data.structure.unheldSeats} seat(s) have nobody on them at all</>
                 )}

@@ -238,7 +238,8 @@ export async function buildRetrospective(
       `SELECT q.id, q.title,
               (SELECT COUNT(*) FROM quest_claims c WHERE c.quest_id = q.id) AS claims,
               (SELECT COUNT(*) FROM quest_claims c2 WHERE c2.quest_id = q.id AND c2.status = 'consented') AS consented,
-              (SELECT COUNT(*) FROM quest_claims c3 WHERE c3.quest_id = q.id AND c3.status IN ('claimed','submitted')) AS inFlight
+              (SELECT COUNT(*) FROM quest_claims c3 WHERE c3.quest_id = q.id AND c3.status IN ('claimed','submitted')) AS inFlight,
+              (SELECT COUNT(*) FROM quest_claims c4 WHERE c4.quest_id = q.id AND c4.confidence IN ('at_risk','stuck')) AS flagged
          FROM quests q WHERE q.is_example = 0`,
     );
     for (const q of quests as any[]) {
@@ -253,13 +254,21 @@ export async function buildRetrospective(
           evidence: { claims: 0 },
         }));
       } else if (Number(q.inFlight) > 0) {
+        // 0053: somebody SAID it was going badly, which is a different
+        // reading from a claim that merely sat there. Reported first, because
+        // an asked-for hand is the one thing here that was never a guess.
+        const flagged = Number(q.flagged);
         observations.push(obs({
           id: `quest-unsettled:${q.id}`,
           kind: "quest", entityId: q.id, name: q.title,
-          reading: `${q.inFlight} claim(s) still waiting on a decision.`,
-          meaning: "Somebody did the work and is waiting. This is a settlement problem, and dropping the quest would strand them.",
-          action: "chase_settlement",
-          evidence: { inFlight: Number(q.inFlight), consented: Number(q.consented) },
+          reading: flagged > 0
+            ? `${q.inFlight} claim(s) still waiting, and ${flagged} of them were flagged as at risk or stuck.`
+            : `${q.inFlight} claim(s) still waiting on a decision.`,
+          meaning: flagged > 0
+            ? "Somebody said out loud that this was going badly and the season ended anyway. Whatever else changes, that signal reached nobody in time."
+            : "Somebody did the work and is waiting. This is a settlement problem, and dropping the quest would strand them.",
+          action: flagged > 0 ? "support_holder" : "chase_settlement",
+          evidence: { inFlight: Number(q.inFlight), consented: Number(q.consented), flagged },
         }));
       }
     }

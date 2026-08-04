@@ -131,6 +131,44 @@ field is an announcement and not a read.)
 
 ---
 
+### 3.2 The circle write path corrupts and races, and nothing atomic can join it
+
+Found by the drafts recon and verified against `server/repos/store-db.ts`. These
+are why structural drafts cover seats and not circles.
+
+- **Every admin circle edit resets every circle's `created_at`.** `replaceAll`
+  writes only the columns in the collection spec, and `created_at` is not in it,
+  so each save re-inserts every row with a fresh default. Any feature that reads
+  a circle's birth date is reading a lie.
+- **`replaceAll` does `DELETE FROM circles` with no WHERE**, then re-inserts
+  what the caller read a moment earlier. A circle inserted by another writer in
+  between is lost. `role_holders` needed an in-process mutex for exactly this
+  class; `circles` has none.
+- **It swaps the in-memory cache AFTER its own commit**, so a circle write is a
+  point of no return in the middle of any multi-table apply.
+- **`applyRoll` writes circles with raw SQL and does not reload the cache.**
+  Only the route does, one frame up. Any second caller leaves `/api/map`,
+  `/api/org` and the public export serving stale circle statuses.
+
+Fixing the first three means letting a `dbCollection` join a caller's
+transaction, which touches every repo built on it. Worth doing, worth its own
+review, and worth doing BEFORE anyone extends drafts to cover circles.
+
+### 3.3 Two smaller ones, verified
+
+- **`updateOrgRole` returns changed-rows, not matched-rows.** Re-applying an
+  already-applied change answers `{success:false}` while the database is in the
+  intended state, so no retry path can use that return value.
+- **No foreign keys exist anywhere in `drizzle/`.** Deleting a circle orphans
+  `org_roles.circle_id` silently; the only protection is a hand-written check in
+  one delete route, which any other write path bypasses.
+
+**Checked and NOT a bug:** the recon claimed `backfillOrgChart`'s count guard
+lets the seed chart re-impose itself after seats are deleted. `runOnce` records
+its id permanently on success, so the backfill cannot run a second time at all;
+the count guard is a resumability aid for a partial FIRST run. Recorded here so
+nobody re-derives the same false alarm.
+
 ## 4. The next federation step: pin the key
 
 `/.well-known/village.json` publishes its own public key inside the document
