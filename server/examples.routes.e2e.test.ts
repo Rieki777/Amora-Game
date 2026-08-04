@@ -117,10 +117,14 @@ beforeAll(async () => {
   child.stdout?.on("data", (d) => logs.push(String(d)));
   child.stderr?.on("data", (d) => logs.push(String(d)));
 
-  const deadline = Date.now() + 60_000;
+  // 180s, matching loop.e2e: this boots the same server, so it pays the same
+  // 0049 org-chart backfill (about 64 sequential round trips) before /health
+  // answers. See loop.e2e for the diagnosis and for why the hookTimeout has to
+  // stay above this.
+  const deadline = Date.now() + 180_000;
   for (;;) {
     if (Date.now() > deadline) {
-      throw new Error(`server did not start in 60s. Output:\n${logs.join("")}`);
+      throw new Error(`server did not start in 180s. Output:\n${logs.join("")}`);
     }
     try {
       const res = await fetch(`${BASE}/health`);

@@ -176,6 +176,16 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     fixAt: "/admin?tab=integrations",
     fixLabel: "Open Integrations",
   },
+  {
+    id: "assistant-own-key",
+    group: "integrations",
+    title: "Move the AI guide onto your own key",
+    why: "This deployment is running the guide on a key the platform lends it. That key can be rotated at any time, and when it is, your guide stops answering. Your own key means nobody else's decision can switch her off.",
+    severity: "recommended",
+    checkKey: "assistant-own-key",
+    fixAt: "/admin?tab=integrations",
+    fixLabel: "Open Integrations",
+  },
 
   // ── Modules: an explicit decision, not a default ──────────────────────────
   {

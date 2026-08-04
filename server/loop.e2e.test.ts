@@ -140,11 +140,16 @@ beforeAll(async () => {
    * The real fix is to batch the backfill, which is a change to shipped
    * migration logic and wants its own review. Until then the budget matches
    * what the boot actually does; a hung server still fails, three minutes later.
+   *
+   * This budget only means anything because vitest's hookTimeout was raised to
+   * 300s alongside it. The hook covers provisioning AND this wait, so while
+   * both were 180s the hook always fired first and threw away the captured log
+   * this deadline exists to print.
    */
   const deadline = Date.now() + 180_000;
   for (;;) {
     if (Date.now() > deadline) {
-      throw new Error(`server did not start in 60s. Output:\n${logs.join("")}`);
+      throw new Error(`server did not start in 180s. Output:\n${logs.join("")}`);
     }
     try {
       const res = await fetch(`${BASE}/health`);

@@ -112,7 +112,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Gratitude",
     label: "Value pool distributed at each cycle close",
     description:
-      "The ReGen Civics model (Rye, 2026-07-26): recognition itself is a signal, and the VALUE arrives when a lunar cycle closes. This pool of tokens is split among everyone in proportion to the recognition they received that cycle. You set how big the pool is; the community's appreciation decides where it flows. 0 turns distribution off (signal only).",
+      "How many tokens the village shares out when a lunar cycle closes. The pool is split among everyone in proportion to the recognition they received that cycle, so you decide how much there is and the community's appreciation decides where it goes. Set it to 0 to turn distribution off and let gratitude stay a signal on its own.",
     type: "integer",
     default: "1000",
     min: 0,
@@ -124,7 +124,12 @@ export const VARIABLES: VariableDef[] = [
     category: "Gratitude",
     label: "Which token the pool pays",
     description:
-      "The registry slug of the platform token the cycle pool distributes (rename or add tokens as you configure modules; per-module tokens are yours to name). It must be platform-governed and must NOT be the recognition token itself: recognition is the signal, this is the value, and keeping them separate is what stops appreciation from becoming a price.",
+      "The token the cycle pool pays out, for example your village's credits. The list holds the tokens this village issues itself, and it leaves out the recognition token on purpose: recognition is the signal, this is the value, and keeping them apart is what stops appreciation from becoming a price. Rename your tokens in the token registry and they change here too.",
+    // Kept as text in the registry so validation stays permissive: the
+    // fail-loud refusal at cycle close is the real guard, and it must keep
+    // catching a value set by any other route. Admin decorates this key with
+    // the deployment's own tokens (server/index.ts, GET /api/admin/variables),
+    // so the ordinary path cannot reach the misconfiguration at all.
     type: "text",
     default: "credits",
   },
