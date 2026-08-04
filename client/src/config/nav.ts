@@ -46,10 +46,26 @@ export type NavEntry = NavLink | NavGroup;
 export const isGroup = (entry: NavEntry): entry is NavGroup => "items" in entry;
 
 /**
- * The bar, left to right. Six entries plus the account menu, down from
- * seventeen. The count is the point: at seventeen the bar measured ~1250px and
- * could only render from `xl`, which left every viewport between 768px and
- * ~1310px with no desktop navigation at all.
+ * The bar, left to right. Seven entries plus the account menu.
+ *
+ * The width rule that produced this shape still governs it: at seventeen
+ * TOP-LEVEL links the bar measured ~1250px and could only render from `xl`,
+ * which left every viewport between 768px and ~1310px with no desktop
+ * navigation at all. What costs bar width is an entry, not an item — a group
+ * of nine costs exactly what a group of four costs, because the items live in
+ * a dropdown. So the seventeen pages the app had mounted and never linked from
+ * the header cost nothing here; they are items, and the bar stays short.
+ *
+ * Groups run 6-9 items each on purpose. A group past ~10 is a list nobody
+ * reads, which is why the reference docs split off into Guides rather than
+ * making About fourteen entries long: About is what the village IS, Guides is
+ * how to take part in it.
+ *
+ * Two links carry a `module` because their pages render NotFound when that
+ * module is off (Network, Contribute) — an ungated link to either would be a
+ * dead end on a fresh fork. Everything else added here is ungated core content.
+ * Gratitude needs no gate for the same reason Quests does not: both are `core`
+ * in shared/modules.ts and cannot be turned off in v1.
  */
 export const NAV: readonly NavEntry[] = [
   { href: "/", label: "Home" },
@@ -61,6 +77,9 @@ export const NAV: readonly NavEntry[] = [
       { href: "/forum", label: "Forum", module: "forum" },
       { href: "/circles", label: "Circles" },
       { href: "/roles", label: "Roles" },
+      { href: "/gratitude", label: "Gratitude" },
+      { href: "/seasonal-festivals", label: "Seasonal Festivals" },
+      { href: "/feedback", label: "Share Feedback" },
     ],
   },
   {
@@ -72,6 +91,9 @@ export const NAV: readonly NavEntry[] = [
       { href: "/tools", label: "Tools", module: "tools" },
       { href: "/village-health", label: "Health", module: "health" },
       { href: "/tokens", label: "Tokens", module: "exchange" },
+      { href: "/housing", label: "Housing" },
+      { href: "/network", label: "Village Network", module: "network" },
+      { href: "/contribute", label: "Contribute", module: "commerce" },
     ],
   },
   {
@@ -81,7 +103,29 @@ export const NAV: readonly NavEntry[] = [
       { href: "/steward", label: "Village Steward", subtitle: "Co-Creator", icon: Users },
       { href: "/resident", label: "Resident", subtitle: "Co-Creator", icon: HomeIcon },
       { href: "/prosperity", label: "Prosperity Creator", subtitle: "Business Builder", icon: Sparkles },
+      { href: "/opportunities", label: "Business Opportunities" },
+      { href: "/visit", label: "Plan a Visit" },
+      { href: "/love-letter", label: "Sign the Love Letter" },
       { href: "/work-with-us", label: "Work With Us" },
+    ],
+  },
+  {
+    /**
+     * The reference shelf: what a member reads to take part well. Ordered as a
+     * newcomer meets them — the guide, then the walk, then the rules of play,
+     * then the two rights pages, then the one about leaving. Rights sit here
+     * rather than under Join because they matter most AFTER someone has joined.
+     */
+    label: "Guides",
+    items: [
+      { href: "/co-creators-guide", label: "Co-Creators Guide" },
+      { href: "/first-walk", label: "Your First Walk" },
+      { href: "/game-mechanics", label: "Game Mechanics" },
+      { href: "/good-neighbor", label: "Good Neighbor" },
+      { href: "/training", label: "Training" },
+      { href: "/resident-rights", label: "Resident Rights" },
+      { href: "/steward-rights", label: "Steward Rights" },
+      { href: "/exit-policy", label: "Leaving Well" },
     ],
   },
   {
@@ -91,10 +135,23 @@ export const NAV: readonly NavEntry[] = [
       { href: "/governance", label: "Governance" },
       { href: "/master-plan", label: "Master Plan" },
       { href: "/team", label: "Our Team" },
-      { href: "/game-mechanics", label: "Game Mechanics" },
       {
         href: "/journey-to-launch",
         label: "🌳 Launch Plan",
+        roles: ["admin", "founder"],
+        accent: true,
+      },
+      /**
+       * /project-history is the Command Centre, not a public history page. Its
+       * own gate auto-unlocks for admin and founder and shows everyone else a
+       * sign-in wall — signed out it renders 94 characters and no heading — so
+       * an ungated entry here would have put a locked door in the public menu.
+       * Same roles and the same amber as the Launch Plan above it, because it
+       * is the same kind of entry.
+       */
+      {
+        href: "/project-history",
+        label: "🛠 Command Centre",
         roles: ["admin", "founder"],
         accent: true,
       },
