@@ -280,6 +280,163 @@ export function documentedKey(displayName: string): string {
   return `doc:${slug || "unnamed"}`;
 }
 
+export interface HolderLoad {
+  holderKey: string;
+  name: string;
+  /** A claimed member, or a name written on a card nobody has claimed yet. */
+  isMember: boolean;
+  seatsHeld: number;
+  /** Seats where this person is the ONLY current holder. */
+  soleHeld: number;
+  soleHeldCritical: number;
+  /** This person's share of every live seating in the village, 0..1. */
+  share: number;
+  /** The sole-held seats by name, which are the ones that go dark. */
+  soleHeldNames: string[];
+}
+
+export interface StructuralLoad {
+  holders: HolderLoad[];
+  seatingsLive: number;
+  distinctHolders: number;
+  /** Active seats with nobody current on them at all. */
+  unheldSeats: number;
+  /** The largest single share, or null when the chart cannot support it. */
+  concentration: number | null;
+  /**
+   * Pairs that look like one human counted twice: a name written on a card
+   * that slugifies to the same key as a claimed member's name. Reported,
+   * never merged. See the note in `structuralLoad`.
+   */
+  possibleDuplicates: Array<{ documentedKey: string; memberKey: string; name: string }>;
+  note: string;
+}
+
+/**
+ * Role hoarding: who the chart depends on, read from its shape.
+ *
+ * Peerdom surfaces this as an insight and it is the one structural read
+ * nothing else here does. The map reads VACANCY (seats with nobody on them)
+ * and the season retrospective reads ACTIVITY (who produced what). Neither
+ * answers the question that actually ends projects: if this person stops,
+ * what stops with them.
+ *
+ * Three numbers, and only the second is a finding:
+ *
+ *  - `seatsHeld` is context, not a signal. A four-person village with twenty
+ *    seats gives everybody five, and that is a description of being early
+ *    rather than evidence of anything.
+ *  - `soleHeld` is the honest read. It needs no threshold to be picked and no
+ *    judgement to be interpreted: these are the seats with no second holder,
+ *    so these are the ones that go dark. `soleHeldCritical` separates the
+ *    seats the village already marked high-criticality, because sole-holding
+ *    the one critical seat is a different risk from sole-holding three
+ *    ordinary ones.
+ *  - `share` is what makes any of it comparable between a village of six and
+ *    a village of sixty.
+ *
+ * Reported without judgement, deliberately. Somebody holding half the seats
+ * in a founding season is doing the necessary thing, and the action is to
+ * spread the load rather than to correct them.
+ *
+ * TWO HONEST LIMITS, both in the returned data rather than hidden here.
+ *
+ * A lapsed holding still counts. Nothing is revoked at a season turn, the
+ * person is still doing the work, and dropping them from the load would
+ * report a village as less dependent on someone precisely when their mandate
+ * has run out.
+ *
+ * A person can be counted twice: named on one card as a documented holder and
+ * seated on another as a claimed member, under two different holder keys.
+ * That UNDERSTATES their load, which is the wrong direction to be wrong in.
+ * The fix is the seat-claim flow, where a human confirms the match. Merging
+ * them here on a name would assert an identity nobody confirmed, so this
+ * flags the pair and leaves it alone.
+ */
+export function structuralLoad(
+  roles: OrgRole[],
+  assignments: OrgAssignment[],
+  /**
+   * Resolves a member's user id to their name. Passed in so this file stays a
+   * pure function of its inputs, and REQUIRED for the duplicate check to work
+   * at all: a member seating often carries no `display_name` (the user row has
+   * the name), so without this a member reads as a raw user id, matches no
+   * documented key, and the split-identity flag never fires.
+   */
+  nameOf?: (userId: string) => string | null,
+): StructuralLoad {
+  const live = assignments.filter((a) => !a.endedAt);
+  const byRole = new Map<string, OrgAssignment[]>();
+  for (const a of live) byRole.set(a.orgRoleId, [...(byRole.get(a.orgRoleId) ?? []), a]);
+
+  const seatById = new Map(roles.filter((r) => r.active && !r.isExample).map((r) => [r.id, r]));
+  const acc = new Map<string, HolderLoad>();
+  let seatingsLive = 0;
+
+  for (const [roleId, holders] of Array.from(byRole.entries())) {
+    const role = seatById.get(roleId);
+    if (!role) continue; // an inactive or example seat is not a load on anyone
+    const sole = holders.length === 1;
+    for (const h of holders) {
+      seatingsLive += 1;
+      const cur =
+        acc.get(h.holderKey) ??
+        {
+          holderKey: h.holderKey,
+          name: (h.userId ? nameOf?.(h.userId) : null) || h.displayName || h.holderKey,
+          isMember: h.holderKind === "member",
+          seatsHeld: 0,
+          soleHeld: 0,
+          soleHeldCritical: 0,
+          share: 0,
+          soleHeldNames: [],
+        };
+      cur.seatsHeld += 1;
+      if (sole) {
+        cur.soleHeld += 1;
+        cur.soleHeldNames.push(role.name);
+        if (role.criticality === "high") cur.soleHeldCritical += 1;
+      }
+      acc.set(h.holderKey, cur);
+    }
+  }
+
+  const holders = Array.from(acc.values());
+  for (const h of holders) h.share = seatingsLive > 0 ? h.seatsHeld / seatingsLive : 0;
+  holders.sort((a, b) => b.soleHeld - a.soleHeld || b.seatsHeld - a.seatsHeld || a.name.localeCompare(b.name));
+
+  const unheldSeats = Array.from(seatById.values()).filter((r) => !(byRole.get(r.id) ?? []).length).length;
+
+  // The same human under two keys. Compared by slug on BOTH sides so a member
+  // named "Ada Vance" matches the card that says "ada vance".
+  const memberBySlug = new Map<string, string>();
+  for (const h of holders) if (h.isMember) memberBySlug.set(documentedKey(h.name), h.holderKey);
+  const possibleDuplicates: StructuralLoad["possibleDuplicates"] = [];
+  for (const h of holders) {
+    if (h.isMember) continue;
+    const memberKey = memberBySlug.get(h.holderKey);
+    if (memberKey) possibleDuplicates.push({ documentedKey: h.holderKey, memberKey, name: h.name });
+  }
+
+  // Below two holders every seat is sole-held by definition, so the number
+  // describes the village's size and nothing else. Say that instead.
+  const readable = holders.length >= 2;
+
+  return {
+    holders,
+    seatingsLive,
+    distinctHolders: holders.length,
+    unheldSeats,
+    concentration: readable && seatingsLive > 0 ? holders.reduce((m, h) => Math.max(m, h.share), 0) : null,
+    possibleDuplicates,
+    note: readable
+      ? "Sole-held seats are the ones with no second holder, so they are what stops if that person stops. Carrying a lot is a load and not a fault; the move is to spread it, and a seat one person carries alone is the first candidate to grow into a circle."
+      : holders.length === 0
+        ? "No seats have holders yet, so there is no load to read."
+        : "One person holds every seat. That is what a founding looks like, not a finding. This reads once a second person is seated.",
+  };
+}
+
 let seq = 0;
 function newId(prefix: string): string {
   seq += 1;

@@ -98,7 +98,7 @@ export async function buildRetrospective(
 
   // ── Seats ────────────────────────────────────────────────────────────────
   const [seats]: any = await pool.query(
-    `SELECT r.id, r.name, r.seats, r.accountabilities,
+    `SELECT r.id, r.name, r.seats, r.accountabilities, r.criticality,
             (SELECT COUNT(*) FROM org_role_assignments a
               WHERE a.org_role_id = r.id AND a.ended_at IS NULL) AS held,
             (SELECT COUNT(*) FROM org_role_assignments a2 WHERE a2.org_role_id = r.id) AS everHeld
@@ -170,6 +170,28 @@ export async function buildRetrospective(
         meaning: "A seat answerable for this many separate things cannot be held well by one person, and cannot be handed over cleanly either.",
         action: "grow_into_circle",
         evidence: { accountabilities },
+      }));
+    }
+
+    // The bus factor, on the seats the village itself marked critical.
+    //
+    // This is invisible to every other read here. A seat with one holder who
+    // was active all season passes the silent check, passes the never-filled
+    // check, and passes the vacancy read on the map, because on paper it is
+    // simply working. What it has is no second holder, and the season it
+    // stops working is the season that person is ill.
+    //
+    // Only critical seats, deliberately. In a small village nearly every seat
+    // has one holder, and firing on all of them would produce a wall of
+    // observations that says "you are small" and buries the one that matters.
+    if (held === 1 && s.criticality === "high") {
+      observations.push(obs({
+        id: `seat-sole-critical:${s.id}`,
+        kind: "org_role", entityId: s.id, name: s.name,
+        reading: "Marked critical, and one person is the only holder.",
+        meaning: "Nothing is wrong with the seat or the holder. It has no second pair of hands, so it stops when they do, and a second holder is cheaper to find now than in the week it stops.",
+        action: "recruit",
+        evidence: { holders: 1, criticality: "high" },
       }));
     }
   }

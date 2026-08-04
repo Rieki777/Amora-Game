@@ -459,6 +459,23 @@ Peerdom has no answer for any of this, and we should not lose it while borrowing
 10. **Owner-defined relationship types.** Deputy, mentor, successor, prerequisite. One generic
     bidirectional table absorbs the half-dozen link kinds a village will ask for over the next two years.
 
+### Where this stands
+
+Five of the ten are built, as of 2026-08-03. What each turned into, and the thing about it that
+was not obvious from the Peerdom version:
+
+| | Built as | The part that surprised |
+|---|---|---|
+| 1 | `org_roles` + `org_role_assignments` (0049) | The permission plane keeps the name `roles` and is untouched. Nothing in the org plane reaches the capability gate. |
+| 2 | `holder_kind` member/documented, `holder_key NOT NULL` | MySQL exempts NULLs from unique indexes, so a nullable `user_id` in the key would have admitted unlimited duplicate seatings. |
+| 3 | `seatState`, derived on every read | Needed a fifth state, `expired`: a seat whose holders all lapsed is not `filled`, and calling it `open` would erase people still doing the work. |
+| 4 | `describeOrgChange` + `health_events` index (0051) | It is a read over the existing spine, not a table. The index was the whole migration. |
+| 6 | `structuralLoad` on `/api/health/summary` | Seats-held is not the metric. `soleHeld` is, and the page's own "no leaderboards" promise forced the shape public and the names behind `map.viewPeople`. |
+
+Still open: 5 (terms digest), 7 (OKF export), 8 (drafts), 9 (confidence voting), 10 (relationship types).
+Terms are half-built already: `term_ends_at` is enforced and `expiringSeatings` exists, so 5 is the
+urgency-sorted view and the digest, not the model.
+
 ---
 
 ## 11. What to skip, and why

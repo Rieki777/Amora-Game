@@ -233,6 +233,8 @@ breaks for people who will never have an account.
 | Terms and season lapsing, derived | The columns shipped with 0049 and nothing read them; `isLapsed` and the `expired` seat state close it |
 | Concierge stopword filtering | Adding seats to the candidate set let long prose outscore a circle on function words |
 | `commerce-reap` join fix | Found in a boot log while verifying this work; it had thrown hourly since it shipped |
+| The per-node change journal (0051) | Listed below as out of scope because it wanted assignments to be rows. They are rows now, and it turned out to be an index plus a differ, not a table |
+| Role hoarding on the health dashboard | Same: it wanted the assignment rows that 0049 shipped |
 
 ### Explicitly out of scope
 
@@ -240,8 +242,10 @@ breaks for people who will never have an account.
   the gate. Separate change.
 - **Terms** (`term_ends_at`, expiring list, re-selection sweep). Wants the model to exist first. Next
   document.
-- **A per-node change journal**, the org export, and the founder-concentration metric. All three want
-  assignments to be rows. Next document.
+- ~~**A per-node change journal**, the org export, and the founder-concentration metric. All three want
+  assignments to be rows. Next document.~~ The journal and the concentration metric shipped once the
+  rows existed; see the table above. **The org export is still out of scope** and is the one of the
+  three that is genuinely a separate change, because it publishes.
 - **Renaming `roles` to `permission_groups`.** Correct eventually. Not while it is the only thing
   standing between an account and `proposal.decide`.
 

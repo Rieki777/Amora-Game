@@ -3324,6 +3324,9 @@ function OrgChartTab({ password }: { password: string }) {
   // Opened per seat, because the point of a journal is reading one node's
   // history before you change it, not scrolling a feed of everything.
   const [journal, setJournal] = useState<Record<string, any[] | "loading">>({});
+  // Mandates that have run out or are about to. Sorted most overdue first by
+  // the server, which is the only order that makes this list get acted on.
+  const [expiring, setExpiring] = useState<any[]>([]);
   const inputCls = "border border-gray-200 rounded-lg px-2 py-1.5 text-sm";
 
   const openJournal = async (id: string) => {
@@ -3339,12 +3342,16 @@ function OrgChartTab({ password }: { password: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [o, m] = await Promise.all([
+      const [o, m, e] = await Promise.all([
         fetch(`${API_BASE}/org`, { headers: authHeaders(password) }).then((r) => r.json()),
         fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }).then((r) => (r.ok ? r.json() : [])),
+        fetch(`${API_BASE}/admin/org/expiring?days=45`, { headers: authHeaders(password) })
+          .then((r) => (r.ok ? r.json() : []))
+          .catch(() => []),
       ]);
       setOrg(o);
       setMembers(Array.isArray(m) ? m : []);
+      setExpiring(Array.isArray(e) ? e : []);
     } catch { setOrg(null); }
     setLoading(false);
   }, [password]);
@@ -3390,6 +3397,43 @@ function OrgChartTab({ password }: { password: string }) {
           so it can never say filled with nobody in it.
         </p>
       </div>
+
+      {/*
+        The mandates that have run out, at the top where they get seen.
+
+        This list is the whole reason terms are worth recording. Nothing on it
+        has been revoked and nobody has been removed: a seat going dark on a
+        Tuesday for reasons nobody chose is worse than one saying out loud that
+        it is overdue. Reassigning happens in the seat below, so this points
+        rather than acts.
+      */}
+      {expiring.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+          <p className="font-semibold text-gray-900 text-sm">
+            {expiring.filter((e: any) => e.lapsed).length > 0
+              ? `${expiring.filter((e: any) => e.lapsed).length} mandate(s) have run out`
+              : "Mandates coming up"}
+          </p>
+          <p className="text-xs text-gray-600 mt-0.5">
+            Everyone here is still holding their seat and still doing the work. What has run out is the
+            agreement to keep doing it unasked.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {expiring.map((e: any) => (
+              <li key={e.assignmentId} className="text-xs text-gray-800">
+                <span className="font-medium">{e.roleName}</span>
+                {e.holder ? <> held by {e.holder}</> : null}
+                {": "}
+                {e.lapsed
+                  ? e.reason === "season"
+                    ? "the season it was filled in has turned"
+                    : "the term has passed"
+                  : `${e.daysLeft} day(s) left`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="space-y-6">
         {circles.map((c) => {

@@ -82,6 +82,10 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
     case "quest_declined":
       return p.questsEmail;
     case "role_appointed":
+    // A mandate running out is the same conversation as being appointed to it,
+    // so it rides the same preference. Somebody who turned role emails off
+    // does not want this one either, and it needs no new knob to say so.
+    case "term_expiring":
       return p.rolesEmail;
     case "mention":
       return p.mentionsEmail;

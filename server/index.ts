@@ -247,6 +247,7 @@ import {
   expiringSeatings,
   seatHolder,
   seatState,
+  structuralLoad,
   unclaimedSeatingsFor,
   updateOrgRole,
   type LapseContext,
@@ -3280,6 +3281,46 @@ async function startServer() {
       });
     }
     if (expired.length > 0) console.log(`[badges] ${expired.length} warning(s) expired and members told`);
+  });
+
+  /**
+   * Terms: tell the HOLDER, once, and never again.
+   *
+   * The admin panel already lists overdue mandates, so this exists for the
+   * person actually holding the seat, who is the one who can say whether they
+   * want to keep it. Nothing here revokes anything, and the copy has to carry
+   * that or the notification reads as a dismissal.
+   *
+   * ONE notification per assignment per event, deliberately. `dedupe_key` is
+   * globally unique, so a key with a week bucket in it would re-fire forever,
+   * and a mandate nobody has acted on is a governance problem that a weekly
+   * ping does not solve; it just teaches people to ignore notifications. Two
+   * events are worth telling apart, so two keys: the warning and the fact.
+   *
+   * Member holders only. A documented holder is a name written on a card with
+   * no account behind it, and the admin panel is where those get seen.
+   */
+  registerJob("term-watch", 24 * 60 * 60 * 1000, async () => {
+    const rows = await expiringSeatings(getPool(), lapseContext(), 14);
+    let told = 0;
+    for (const a of rows) {
+      if (a.holderKind !== "member" || !a.userId) continue;
+      const ended = !!a.lapsed;
+      const r = await notify({
+        userId: a.userId,
+        type: "term_expiring",
+        title: ended
+          ? `Your term on ${a.roleName} has ended`
+          : `Your term on ${a.roleName} ends in ${a.daysLeft} day(s)`,
+        body: ended
+          ? "You are still holding the seat and nothing has been taken away. What has run out is the agreement to keep holding it unasked, so it is a good moment to say whether you want to carry on."
+          : "Nothing happens automatically when it does. This is the nudge to say whether you want to carry on.",
+        link: "/roles",
+        dedupeKey: `${ended ? "term-ended" : "term-soon"}:${a.id}`,
+      });
+      if (r.fresh) told += 1;
+    }
+    if (told > 0) console.log(`[org] ${told} holder(s) told their term is ending or has ended`);
   });
 
   // S67: peer sync — refresh what other villages share, every 6 hours,
@@ -8108,8 +8149,67 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   app.use("/api/health", requireModule("health"));
   app.use("/api/admin/health", requireModule("health"));
 
+  /**
+   * Role hoarding, tiered.
+   *
+   * The dashboard ends with a promise: "Absolute counts only. No leaderboards,
+   * no ranks. The village is not a scoreboard." A list of people sorted by how
+   * many seats they hold is a rank, so the SHAPE and the PEOPLE separate here.
+   *
+   * The shape is public: how many seats have no second holder, how many have
+   * nobody at all, and the largest single share as a bare number. That is a
+   * fact about the village and it names nobody, which is what makes it safe on
+   * a page members read about themselves.
+   *
+   * The people ride behind `map.viewPeople`, the same tier `/api/roles` and
+   * `/api/org` already apply. Rank is not the point even there: nobody is
+   * ahead of anybody, the order is just "look here first", and the list exists
+   * so a steward can go spread a load rather than admire it.
+   *
+   * Not gated on the map MODULE: the map is one view of the seats and this is
+   * another, and a village that never turns the map on can still be resting
+   * entirely on one person.
+   */
+  async function structureRead(req: any) {
+    const viewer = await authedUser(req);
+    const maySeePeople =
+      (await isAdmin(req)) ||
+      (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
+    const [roles, assignments, allMembers] = await Promise.all([
+      listOrgRoles(getPool()),
+      listOrgAssignments(getPool()),
+      members.all(),
+    ]);
+    const byId = new Map((allMembers as any[]).map((u: any) => [u.id, u.name]));
+    const load = structuralLoad(roles, assignments, (id) => byId.get(id) ?? null);
+    // Sole-held seats are the headline, so it must be countable WITHOUT the
+    // names: summed here rather than left for a client that cannot see them.
+    const soleHeldSeats = load.holders.reduce((n, h) => n + h.soleHeld, 0);
+    const soleHeldCritical = load.holders.reduce((n, h) => n + h.soleHeldCritical, 0);
+    const shape = {
+      seatingsLive: load.seatingsLive,
+      distinctHolders: load.distinctHolders,
+      unheldSeats: load.unheldSeats,
+      soleHeldSeats,
+      soleHeldCritical,
+      concentration: load.concentration,
+      note: load.note,
+      maySeePeople,
+    };
+    if (!maySeePeople) return shape;
+    // First names only, matching what `/api/org` publishes at this same tier.
+    // The MATCH above ran on full names on purpose: comparing first names
+    // would flag two different Adas as one person and send a steward off to
+    // merge them, which is worse than missing a duplicate.
+    return {
+      ...shape,
+      holders: load.holders.map((h) => ({ ...h, name: firstName(h.name) })),
+      possibleDuplicates: load.possibleDuplicates.map((d) => ({ ...d, name: firstName(d.name) })),
+    };
+  }
+
   /** The dashboard, one call: series, regen ledger, governance reads, season. */
-  app.get("/api/health/summary", async (_req, res) => {
+  app.get("/api/health/summary", async (req, res) => {
     const snapshots = await snapshotSeries(getPool());
     // Floor overrides ride the module's own config JSON: no new knob surface,
     // and a fresh village needs to set nothing.
@@ -8127,6 +8227,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
         metrics: REGEN_METRICS,
       },
       governance: await governanceReads(getPool()),
+      structure: await structureRead(req),
     });
   });
 

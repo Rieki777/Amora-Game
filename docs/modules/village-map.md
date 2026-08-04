@@ -4,6 +4,32 @@
 > the AMORA_FOUNDATION_UPGRADE_PLAN constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
 > where this file and the master plan disagree, **the master plan wins** (it applies the two critique passes).
 
+> **Superseded on one point, 2026-08-03: what a "role" on this map is.**
+>
+> Everywhere below, "role" means a row in the `roles` table with the `circle_id`
+> and `seats` columns that `0018_village_map.sql` added. That is no longer what
+> the map renders. `roles` is a PERMISSION-GROUP carrier whose `capabilities[]`
+> is the only per-village source feeding the capability gate, and it held four
+> rows (`founders-circle`, `steward-circle`, `treasury`, `practitioners`), so
+> the map was drawing permission groups as org-chart seats. Nobody saw it
+> because the module ships off.
+>
+> `0049_org_roles.sql` split them. Seats now live in `org_roles`, holders in
+> `org_role_assignments` as dated rows with terms and history, and `/api/map`
+> reads that plane. Nothing in it reaches the gate.
+>
+> What still holds exactly as written: vacancy stays DERIVED with no status
+> column (now `seatState`, which gained a fifth state, `expired`, for a seat
+> whose holders' mandates have run out); the `map.viewPeople` / `map.contact`
+> tiers; the deterministic-first concierge and its unmatched-query log as the
+> demand signal. What changed underneath: the concierge scores seat prose in
+> the `purpose` bucket and filters stopwords, because seats joining the
+> candidate set let a long accountability list outrank the circle it sits in.
+>
+> `docs/ARCHITECTURE.md` §3.15 is the as-built description of the two planes,
+> and §3.16 covers what a season turn does to a seat. Where this file disagrees
+> with either, they win.
+
 **A deterministic radial SVG map of circles, roles (holders' faces, vacancies greyed as open calls) and quest satellites that doubles as a coordination tool: type "I want to plant trees" and it routes you to the Food Forest circle lead with a one-click, privacy-respecting contact relay.**
 
 Estimated sessions: 7

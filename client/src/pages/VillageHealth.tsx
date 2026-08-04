@@ -206,6 +206,54 @@ export default function VillageHealth() {
             <p className="text-xs text-muted-foreground mt-1">{data?.governance?.note}</p>
           </div>
 
+          {/*
+            Role hoarding, kept off the scoreboard.
+
+            The headline is a count of SEATS, not of people, so the fragility
+            reads without naming anybody. Names appear only for a viewer the
+            server already trusted with map.viewPeople, and even then the list
+            is sole-held seats and not a standing. Nobody is ahead of anybody.
+          */}
+          {data?.structure?.seatingsLive > 0 && (
+            <div className="bg-card border border-border rounded-xl p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <Users className="w-4 h-4 text-teal-deep" />
+                <p className="font-semibold text-foreground text-sm">What the village depends on</p>
+              </div>
+              <p className="text-sm text-foreground">
+                {data.structure.soleHeldSeats} of {data.structure.seatingsLive} filled seat(s) have no
+                second holder
+                {data.structure.soleHeldCritical > 0 && (
+                  <>, {data.structure.soleHeldCritical} of them marked critical</>
+                )}
+                {data.structure.unheldSeats > 0 && (
+                  <>, and {data.structure.unheldSeats} seat(s) have nobody on them at all</>
+                )}
+                .
+              </p>
+              {data.structure.holders?.some((h: any) => h.soleHeld > 0) && (
+                <ul className="mt-2 space-y-1">
+                  {data.structure.holders
+                    .filter((h: any) => h.soleHeld > 0)
+                    .map((h: any) => (
+                      <li key={h.holderKey} className="text-xs text-foreground">
+                        <span className="font-medium">{h.name}</span> is the only holder of{" "}
+                        {h.soleHeldNames.join(", ")}
+                      </li>
+                    ))}
+                </ul>
+              )}
+              {data.structure.possibleDuplicates?.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  {data.structure.possibleDuplicates.map((d: any) => d.name).join(", ")} appears both as a
+                  member and as a name written on a card, so the load above is split across two entries and
+                  reads lighter than it is. Claiming the seat joins them.
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground mt-1">{data.structure.note}</p>
+            </div>
+          )}
+
           <p className="text-center text-xs text-muted-foreground flex items-center justify-center gap-1.5">
             <Activity className="w-3.5 h-3.5" />
             Absolute counts only. No leaderboards, no ranks. The village is not a scoreboard.

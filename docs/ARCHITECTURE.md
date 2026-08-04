@@ -83,9 +83,15 @@ pipeline by a one-time patch of the four registration verbs
    permanent UUID.
 6. **Secrets** (703). `loadSecrets`, plus a one-time migration of legacy
    keys out of the email-config document (704–724).
-7. **Scheduler** (1887–1941). Seven jobs registered — among them
-   network-sync (6 h), which sleeps while the network module is off — then
-   `startScheduler`.
+7. **Scheduler.** Twelve jobs registered, then `startScheduler`:
+   notification-digest, retention-sweep, stay-nightly, commerce-reap,
+   exchange-reconcile, feedback-relay, tools-link-check, library-sweep,
+   badge-expiry-sweep, term-watch, network-sync, recording-rss. Each
+   module-owned job checks `effectiveLifecycle` and sleeps while its module is
+   off, so a village that runs three modules pays for three. (This said
+   "Seven" for months while jobs were added around it; the count is worth
+   naming them out for, since a job registered and never listed is a job
+   nobody remembers is running.)
 8. **Module framework** (1946–1958). `loadModuleSettings`,
    `assertModuleGraph` (loud demotion, one-seller-per-token assertion),
    `wireModuleAuth`, then server-side `openStateCheck` closures are attached
@@ -696,6 +702,28 @@ Three properties worth keeping:
 Not a `dbCollection`, on purpose: `replaceAll` writes only spec'd columns, and
 these are history tables.
 
+**Terms end, and nothing is revoked when they do.** `isLapsed` derives it on
+every read from `min(term_ends_at, the season boundary)` against the seating's
+own `season_id`, so a season turn writes nothing and the state cannot drift
+from the calendar. A lapsed holding is still a holding: the person is still
+acting, and a seat going dark on a Tuesday for reasons nobody chose is worse
+than one saying out loud that it is overdue. `seatState` needed a fifth value
+for this, `expired`, because a seat whose holders have all lapsed is not
+`filled` and calling it `open` would erase people still doing the work.
+
+A seat can opt out on its own card (`expires_each_season = false`, for a
+treasurer or an entity steward), and a term written on ONE seating outranks the
+village-wide cadence even when that cadence is `never`: somebody wrote a date
+down, and a global setting does not get to quietly overrule a commitment made
+about one seat.
+
+Surfaced twice, to two audiences. The Org Chart admin tab lists overdue
+mandates first, and the `term-watch` job tells the HOLDER, who is the one who
+can say whether they want to carry on. That job fires **once per assignment per
+event** (`term-soon:` and `term-ended:` keys): `dedupe_key` is globally unique,
+so a key carrying a week bucket would re-fire forever, and a mandate nobody has
+acted on is a governance problem that a weekly ping does not solve.
+
 **The fractal.** `circles.grown_from_org_role_id` records which seat a circle
 grew out of. A project starts with one seat covering a whole domain; as it
 grows the seat becomes a circle and its accountabilities fan out into new seats
@@ -759,6 +787,32 @@ Gate Steward -> Gatekeeper" instead of "PUT /api/admin/org/roles/gate", which
 is all the generic admin audit can say. Prose fields report as "domain
 rewritten" and accountabilities as a count, because a journal entry carrying
 two paragraphs is one nobody reads.
+
+**Role hoarding** (`structuralLoad`, `orgChart.ts`) is the third read over the
+same rows, and the only one that answers "if this person stops, what stops with
+them". The map reads VACANCY, the retrospective reads ACTIVITY, and a village
+can pass both while resting entirely on one person: a sole-held seat whose
+holder was busy all season looks like a seat that works.
+
+The finding is `soleHeld`, seats with no second holder. Seats-held alone is
+context and not a signal (a four-person village with twenty seats gives
+everybody five, which describes being early), and `soleHeldCritical` separates
+the seats the village already marked high, because sole-holding the one
+critical seat is a different risk from sole-holding three ordinary ones.
+
+Two properties that are load-bearing. A **lapsed** holding still counts: nothing
+is revoked at a season turn, so dropping lapsed holders would report a village
+as less dependent on someone exactly when their mandate ran out. And one human
+under two holder keys (named on a card, seated as a member) is **flagged, never
+merged** — merging on a name asserts an identity nobody confirmed, and that is
+what the seat-claim flow exists to do with a human in the loop. The split
+understates load, so the flag says which direction the number is wrong in.
+
+On `/api/health/summary` the SHAPE is public and the PEOPLE ride behind
+`map.viewPeople`, the tier `/api/roles` and `/api/org` already apply. That page
+ends with "no leaderboards, no ranks", and a list of members sorted by seats
+held is a rank; a count of seats with no second holder is a fact about the
+village that names nobody.
 
 ### 3.17 The serving layer — what every byte costs
 
