@@ -8169,9 +8169,18 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const shelf = relevantSections(query);
     const roles = rolesRepo.all().filter((r: any) => !r.isExample);
     const circles = circlesRepo.all().filter((c: any) => !c.isExample);
-    const [[memberRow]] = await getPool().query<any[]>("SELECT COUNT(*) AS n FROM users WHERE is_example = 0");
-    const members = Number(memberRow?.n ?? 0);
-    const cap = roleBatchCap(members);
+    // Accounts that actually hold membership, NOT registrations.
+    //
+    // `SELECT COUNT(*) FROM users` was wrong in the direction that matters:
+    // registration is public, so a village with four members and forty-six
+    // curious signups (plus anonymised exit tombstones, which are still rows)
+    // reported fifty. The restraint cap then permitted fifty role drafts in one
+    // batch, which is precisely the "twenty-four seats over eight people"
+    // outcome the cap exists to prevent, and she was told to size structure to
+    // fifty as well. MAIA_BRAIN_SPEC 5.5 always said "at or past member".
+    const memberRows = ((await members.all()) as any[]).filter((u) => !u.isExample && hasMembership(u));
+    const memberCount = memberRows.length;
+    const cap = roleBatchCap(memberCount);
     const wcfg = getWorkWithUs();
     const assistantName = wcfg.assistantName || "Maia";
     const villageName = mergedConfig().project.name;
@@ -8189,7 +8198,7 @@ ${JSON.stringify({ members, roles: roles.map((r: any) => r.name), circles: circl
 
 ${shelf.length ? `REFERENCE, counsel only:\n${shelf.map((s) => `=== ${sectionCitation(s)} ===\n${s.body}`).join("\n\n")}\n` : ""}
 Rules:
-- ${members} people can hold seats here. Propose the FEWEST roles that cover the aims they stated, and say which aim each one serves. If they ask for more structure than they have people for, say so plainly.
+- ${memberCount} people can hold seats here. Propose the FEWEST roles that cover the aims they stated, and say which aim each one serves. If they ask for more structure than they have people for, say so plainly.
 - At most ${cap} role drafts in one batch. Prioritize when there are more.
 - Ground every proposal in a brief section and name it. If the section you need is blank, ask for it instead of guessing.
 - Ask about their world, never about the software. No module choices, no settings.
@@ -8210,7 +8219,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const roleCount = proposed.filter((d: any) => d?.kind === "role").length;
     if (roleCount > cap && req.body?.overrideBatchCap !== true) {
       return res.status(409).json({
-        error: `That is ${roleCount} roles for ${members} people. Ask her to prioritize, or send overrideBatchCap to accept the batch anyway.`,
+        error: `That is ${roleCount} roles for ${memberCount} people. Ask her to prioritize, or send overrideBatchCap to accept the batch anyway.`,
         reply: parsed.reply,
       });
     }
@@ -8225,7 +8234,17 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const batchId = `batch-${Date.now().toString(36)}`;
     const created: string[] = [];
     const refused: string[] = [];
-    for (const d of proposed.slice(0, cap + 5)) {
+    const overrode = roleCount > cap && req.body?.overrideBatchCap === true;
+    // A hard stop, and a REPORTED one. `slice(0, cap + 5)` used to drop the
+    // remainder in silence, so an over-cap batch looked identical to a normal
+    // one and proposals vanished with nobody told. Silent truncation reads as
+    // "she only suggested eight", which is a lie about what she said.
+    const admitted = proposed.slice(0, cap + 5);
+    const dropped = proposed.length - admitted.length;
+    if (dropped > 0) {
+      refused.push(`${dropped} further proposal(s) were not stored: one batch holds at most ${cap + 5}`);
+    }
+    for (const d of admitted) {
       const r = await proposeDraft(getPool(), {
         batchId,
         kind: d?.kind,
@@ -8241,7 +8260,15 @@ Send an empty drafts array when you are still listening. A role payload is {name
     }
     if (created.length) {
       void recordEvent(getPool(), {
-        kind: "audit", text: `studio:proposed:${created.length} draft(s)`, actorUserId: actor,
+        kind: "audit",
+        // The override rides the audit line, because a later reviewer must be
+        // able to tell that this batch bypassed the restraint rule. Without it
+        // an over-cap batch is indistinguishable from an ordinary one.
+        text:
+          `studio:proposed:${created.length} draft(s) for ${memberCount} member(s), cap ${cap}` +
+          (overrode ? `, CAP OVERRIDDEN (${roleCount} roles asked for)` : "") +
+          (dropped > 0 ? `, ${dropped} dropped` : ""),
+        actorUserId: actor,
         actorKind: "agent", entityType: "draft", entityRef: batchId, audience: "admin",
       });
     }
@@ -8309,12 +8336,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
         description: String(payload.description).trim(),
         capabilities,
         minStage: payload.minStage ?? null,
+        // `seats` is NOT NULL and the repo writes every spec'd column, so an
+        // omitted field lands as NULL and the insert is refused. RoleDef does
+        // not declare it, which is exactly why the compiler could not say so
+        // and a live accept had to.
+        seats: 1,
+        circleId: null,
+        isExample: false,
         order: rolesRepo.all().length + 1,
-      });
+      } as RoleDef);
       createdRef = id;
     } else {
       const id = slugify(String(payload.name), `circle-${Date.now().toString(36)}`).slice(0, 64);
       if (circlesRepo.all().some((c: any) => c.id === id)) return res.status(409).json({ error: "That circle already exists" });
+      // Every column in the repo's spec, on purpose: it writes exactly what is
+      // listed, so an omitted field is NULL rather than a default. `isExample`
+      // and `grownFromOrgRoleId` matter beyond this insert, because a later
+      // replaceAll would otherwise launder them away.
       await circlesRepo.insert({
         id,
         name: String(payload.name).trim().slice(0, 120),
@@ -8322,9 +8360,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
         aliases: [],
         parentCircleId: payload.parentCircleId ?? null,
         leadRoleId: null,
+        grownFromOrgRoleId: null,
         icon: null,
         color: null,
         status: payload.status ?? "forming",
+        isExample: false,
         order: circlesRepo.all().length + 1,
       } as any);
       onRealItemPublished(getPool(), "map", actor);

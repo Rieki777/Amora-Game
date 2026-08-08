@@ -5,6 +5,8 @@
  * members and `legal` names title holders, and a markdown endpoint written
  * without an audience filter would have shipped both to anyone signed in.
  */
+import fs from "fs";
+import path from "path";
 import { describe, expect, it } from "vitest";
 import { BRIEF_SECTIONS, MINIMUM_BRIEF } from "../../shared/villageBrief";
 import {
@@ -30,6 +32,36 @@ const brief = (over: Partial<BriefRow>): BriefRow => ({
   revision: 2,
   updatedAt: "2026-08-14T09:22:00.000Z",
   ...over,
+});
+
+describe("the brain never leaves the fork", () => {
+  // The spec promises this as a test and not a comment, because the guarantee
+  // is what makes a founder willing to write "who holds the land title" into
+  // it. Every path that sends anything OUTWARD is checked for any mention of
+  // the brain's tables. Source-level on purpose: a runtime assertion only
+  // covers the payloads a test happens to build, and this covers the code.
+  const OUTWARD = [
+    "server/lib/feedback.ts", // relays to the ReGen hub
+    "server/lib/network.ts", // publishes to peer villages
+    "server/lib/villageExport.ts", // the signed public documents
+  ];
+  const BRAIN = ["village_brief", "village_record", "village_brief_revisions", "briefAll", "recordSummaries"];
+
+  it("no outward-facing module references the brain at all", () => {
+    const root = path.join(__dirname, "..", "..");
+    let checked = 0;
+    for (const rel of OUTWARD) {
+      const file = path.join(root, rel);
+      if (!fs.existsSync(file)) continue; // a module that does not exist cannot leak
+      checked += 1;
+      const src = fs.readFileSync(file, "utf8");
+      for (const token of BRAIN) {
+        expect(src, `${rel} must not touch ${token}: the brain is fork-local`).not.toContain(token);
+      }
+    }
+    // Without this the sweep passes by checking nothing at all.
+    expect(checked, "no outward-facing module was found to check").toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe("the section registry", () => {

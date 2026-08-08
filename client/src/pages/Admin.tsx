@@ -226,6 +226,16 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         { key: "integrations", label: "Integrations", icon: KeyRound },
       ],
     },
+    {
+      // The guide's own two surfaces. What she knows, and what she has asked
+      // for. Both are hers to propose and yours to decide, so they sit
+      // together and away from the tabs that take effect the moment you save.
+      title: "The Guide",
+      items: [
+        { key: "brain", label: "Village Brain", icon: FileText },
+        { key: "drafts", label: "Her Drafts", icon: Inbox },
+      ],
+    },
     { title: "Documents", items: [{ key: "investor-vault", label: "Investor Vault", icon: FileText }] },
     { title: "Training", items: [{ key: "training-modules", label: "Training Modules", icon: GraduationCap }] },
     {
@@ -3331,6 +3341,376 @@ function ModulesTab({ password }: { password: string }) {
  * no status dropdown, because a hand-set one drifts: the cards this replaced
  * shipped two seats marked "filled" with nobody named in them.
  */
+/**
+ * The village brain: what this place says it is for.
+ *
+ * Every section shows, written or not, because the BLANKS are the useful part.
+ * A guide that knows membership has never been described can raise it six weeks
+ * later; one that only sees what exists cannot. The three marked essential are
+ * the ones that unblock everything else, so a founder who fills only those has
+ * a usable game.
+ *
+ * Confirming is its own act, separate from saving. A section seeded from the
+ * application is real and usable and nobody has agreed to it yet, and that
+ * difference is what the guide cites when she leans on it.
+ */
+function VillageBrainTab({ password }: { password: string }) {
+  const [sections, setSections] = useState<any[]>([]);
+  const [record, setRecord] = useState<any[]>([]);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  // A refused read and an empty brief look identical unless the difference is
+  // kept. On a screen whose whole job is showing what is missing, silently
+  // reporting "nothing written" when the server said no is the worst failure
+  // it has.
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const call = async (path: string, body?: any, method = "POST") => {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d?.error ?? "That did not save"); return null; }
+      return d;
+    } catch {
+      toast.error("That did not reach the server");
+      return null;
+    }
+  };
+
+  /** `keepDrafts` is the whole point: reloading must never eat unsaved text in
+   *  the OTHER thirteen boxes on this page. */
+  const load = useCallback(async (savedId?: string) => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API_BASE}/admin/brain`, { headers: authHeaders(password) });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setLoadError(d?.error ?? "Could not read the brief");
+        return;
+      }
+      const d = await r.json();
+      setLoadError(null);
+      setSections(d.sections ?? []);
+      setRecord(d.record ?? []);
+      // Only the section that just saved is cleared: its stored body is now the
+      // truth, and everything else may still be half-typed.
+      if (savedId) setDraft((p) => { const n = { ...p }; delete n[savedId]; return n; });
+    } catch {
+      setLoadError("Could not reach the server");
+    } finally {
+      setLoading(false);
+    }
+  }, [password]);
+  useEffect(() => { void load(); }, [load]);
+
+  const save = async (id: string, confirm: boolean) => {
+    setBusy(id);
+    try {
+      const body = draft[id];
+      // A refusal keeps the typed text on screen. Discarding what somebody
+      // wrote because the server said no is unrecoverable and unforgivable.
+      const ok =
+        body !== undefined
+          ? await call(`/admin/brain/${id}`, { body, confirm }, "PUT")
+          : confirm
+            ? await call(`/admin/brain/${id}/confirm`)
+            : null;
+      if (ok) {
+        toast.success(confirm ? "Saved and confirmed" : "Saved, not yet confirmed");
+        await load(id);
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (loading) return <div className="text-sm text-gray-500">Reading what this village has said about itself.</div>;
+  if (loadError) {
+    return (
+      <div className="bg-white rounded-xl border border-red-200 p-4">
+        <h3 className="font-semibold text-red-800">The brief did not load</h3>
+        <p className="text-sm text-gray-600 mt-1">{loadError}</p>
+        <button onClick={() => void load()} className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 mt-3">
+          Try again
+        </button>
+      </div>
+    );
+  }
+  const blanks = sections.filter((s) => s.status === "blank");
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <h3 className="font-semibold text-gray-900">What this village is for</h3>
+        <p className="text-sm text-gray-600 mt-1">
+          Your guide reads this before she suggests anything. She ranks it above the shipped
+          literature and below what is live in the game, and she names which section she drew on.
+          None of it leaves this village.
+        </p>
+        {blanks.length > 0 && (
+          <p className="text-sm text-gray-600 mt-2">
+            Still blank: {blanks.map((s) => s.id).join(", ")}. She will ask about these when a
+            conversation touches them, one at a time.
+          </p>
+        )}
+        {record.length > 0 && (
+          <p className="text-xs text-gray-500 mt-2">
+            The record holds {record.reduce((a, r) => a + Number(r.entries ?? 0), 0)} entr
+            {record.reduce((a, r) => a + Number(r.entries ?? 0), 0) === 1 ? "y" : "ies"} across{" "}
+            {record.length} section(s), derived from calls, decisions and closed cycles.
+          </p>
+        )}
+      </div>
+
+      {sections.map((s) => {
+        const body = draft[s.id] ?? s.body ?? "";
+        const dirty = draft[s.id] !== undefined && draft[s.id] !== (s.body ?? "");
+        return (
+          <div key={s.id} className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-medium text-gray-900">{s.title}</h4>
+                  <span className="text-xs text-gray-400">{s.id}</span>
+                  {s.minimum && (
+                    <span className="text-xs bg-amber-50 text-amber-700 rounded px-1.5 py-0.5">essential</span>
+                  )}
+                  {s.audience === "admin" && (
+                    <span className="text-xs bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">admins only</span>
+                  )}
+                  <span
+                    className={`text-xs rounded px-1.5 py-0.5 ${
+                      s.status === "confirmed"
+                        ? "bg-green-50 text-green-700"
+                        : s.status === "proposed"
+                          ? "bg-blue-50 text-blue-700"
+                          : "bg-gray-100 text-gray-500"
+                    }`}
+                  >
+                    {s.status === "confirmed"
+                      ? `confirmed${s.confirmedBy ? ` by ${s.confirmedBy}` : ""}`
+                      : s.status === "proposed"
+                        ? `from ${s.source ?? "elsewhere"}, not confirmed`
+                        : "not yet written"}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">{s.feeds}</p>
+              </div>
+            </div>
+            <textarea
+              value={body}
+              placeholder={s.ask}
+              onChange={(e) => setDraft((d) => ({ ...d, [s.id]: e.target.value }))}
+              className="mt-3 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm min-h-[110px]"
+            />
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <button
+                onClick={() => save(s.id, true)}
+                // `!body.trim()` matters on a blank section: without it the
+                // button is live, promises an action, and posts a confirm
+                // against a row that does not exist yet.
+                disabled={busy === s.id || !body.trim() || (!dirty && s.status === "confirmed")}
+                className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+              >
+                {busy === s.id ? "Saving" : s.status === "confirmed" ? "Save" : "Save and confirm"}
+              </button>
+              {dirty && (
+                <button
+                  onClick={() => save(s.id, false)}
+                  disabled={busy === s.id}
+                  className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 disabled:opacity-40"
+                >
+                  Save without confirming
+                </button>
+              )}
+              {s.revision > 1 && <span className="text-xs text-gray-400">revision {s.revision}</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Her drafts, and the one screen where a permission gets granted on purpose.
+ *
+ * ESCALATIONS ARE THE POINT. Any capability a proposed role asks for that no
+ * existing role already grants is listed as its own checkbox, in a sentence
+ * about what a holder could DO. Anything left unticked is stripped from the
+ * role that gets created, so silence is refusal. A single Accept button on a
+ * role quietly carrying `exchange.manage` is exactly how this goes wrong.
+ */
+function DraftQueueTab({ password }: { password: string }) {
+  const [drafts, setDrafts] = useState<any[]>([]);
+  const [granted, setGranted] = useState<Record<string, string[]>>({});
+  const [note, setNote] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  /**
+   * A failed read must NEVER render as "nothing waiting".
+   *
+   * This is the one screen where a capability gets granted. A queue of drafts
+   * carrying unreviewed escalations sitting on the server while the page says
+   * positively that there is nothing to review is a governance failure, not a
+   * cosmetic one.
+   */
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API_BASE}/admin/drafts`, { headers: authHeaders(password) });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setLoadError(d?.error ?? "Could not read the queue");
+        return;
+      }
+      const d = await r.json();
+      setLoadError(null);
+      setDrafts(d.drafts ?? []);
+    } catch {
+      setLoadError("Could not reach the server");
+    } finally {
+      setLoading(false);
+    }
+  }, [password]);
+  useEffect(() => { void load(); }, [load]);
+
+  const decide = async (id: string, accept: boolean) => {
+    setBusy(id);
+    try {
+      const res = await fetch(`${API_BASE}/admin/drafts/${id}/${accept ? "accept" : "reject"}`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify(accept ? { grantedEscalations: granted[id] ?? [] } : { note: note[id] ?? "" }),
+      }).catch(() => null);
+      const d = res ? await res.json().catch(() => ({})) : {};
+      if (!res || !res.ok) {
+        // Without this the draft simply reappears with its boxes still ticked,
+        // which reads as "nothing happened", so the admin clicks into the same
+        // refusal forever with no reason ever shown.
+        toast.error((d as any)?.error ?? "That draft did not go through");
+        return;
+      }
+      toast.success(accept ? "Accepted" : "Rejected");
+      setGranted((g) => { const n = { ...g }; delete n[id]; return n; });
+      setNote((n) => { const c = { ...n }; delete c[id]; return c; });
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const toggle = (id: string, cap: string) =>
+    setGranted((g) => {
+      const have = g[id] ?? [];
+      return { ...g, [id]: have.includes(cap) ? have.filter((c) => c !== cap) : [...have, cap] };
+    });
+
+  if (loading) return <div className="text-sm text-gray-500">Loading what she has proposed.</div>;
+  if (loadError) {
+    return (
+      <div className="bg-white rounded-xl border border-red-200 p-4">
+        <h3 className="font-semibold text-red-800">The queue did not load</h3>
+        <p className="text-sm text-gray-600 mt-1">
+          {loadError}. There may be drafts waiting; this is not an empty queue.
+        </p>
+        <button onClick={() => void load()} className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 mt-3">
+          Try again
+        </button>
+      </div>
+    );
+  }
+  if (!drafts.length) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <h3 className="font-semibold text-gray-900">Nothing waiting</h3>
+        <p className="text-sm text-gray-600 mt-1">
+          Roles and circles your guide proposes land here for you to read before they exist.
+          She never creates anything herself.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {drafts.map((d) => {
+        const esc: Array<{ capability: string; consequence: string }> = d.escalations ?? [];
+        const ticked = granted[d.id] ?? [];
+        return (
+          <div key={d.id} className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">{d.kind}</span>
+              <h4 className="font-medium text-gray-900">{d.payload?.name ?? "Untitled"}</h4>
+            </div>
+            <p className="text-sm text-gray-700 mt-2">{d.payload?.description ?? d.payload?.purpose}</p>
+            <p className="text-sm text-gray-600 mt-2 italic">{d.rationale}</p>
+            {Array.isArray(d.cites) && d.cites.length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">Drawn from: {d.cites.join(", ")}</p>
+            )}
+
+            {esc.length > 0 && (
+              <div className="mt-3 border border-amber-200 bg-amber-50 rounded-lg p-3">
+                <p className="text-sm font-medium text-amber-900">
+                  This asks for {esc.length === 1 ? "a power" : "powers"} no existing role has.
+                  Tick each one you mean to grant. Anything you leave unticked is removed before
+                  the role is created.
+                </p>
+                <div className="mt-2 space-y-2">
+                  {esc.map((e) => (
+                    <label key={e.capability} className="flex items-start gap-2 text-sm text-amber-900">
+                      <input
+                        type="checkbox"
+                        checked={ticked.includes(e.capability)}
+                        onChange={() => toggle(d.id, e.capability)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        Let a holder {e.consequence}
+                        <span className="text-xs text-amber-700"> ({e.capability})</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <button
+                onClick={() => decide(d.id, true)}
+                disabled={busy === d.id}
+                className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+              >
+                {esc.length && ticked.length < esc.length ? "Accept without the unticked" : "Accept"}
+              </button>
+              <input
+                value={note[d.id] ?? ""}
+                onChange={(e) => setNote((n) => ({ ...n, [d.id]: e.target.value }))}
+                placeholder="Why not, so she learns"
+                className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs flex-1 min-w-[180px]"
+              />
+              <button
+                onClick={() => decide(d.id, false)}
+                disabled={busy === d.id}
+                className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 disabled:opacity-40"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function OrgChartTab({ password }: { password: string }) {
   const [org, setOrg] = useState<any>(null);
   const [members, setMembers] = useState<any[]>([]);
@@ -8069,6 +8449,8 @@ export default function Admin() {
           {activeTab === "game-roles" && <GameRolesTab password={password} />}
           {activeTab === "modules" && <ModulesTab password={password} />}
           {activeTab === "org-chart" && <OrgChartTab password={password} />}
+          {activeTab === "brain" && <VillageBrainTab password={password} />}
+          {activeTab === "drafts" && <DraftQueueTab password={password} />}
           {activeTab === "seasons-patterns" && <SeasonPatternsTab password={password} />}
           {activeTab === "circles-map" && <CirclesMapTab password={password} />}
           {activeTab === "tools-admin" && <ToolsAdminTab password={password} />}
