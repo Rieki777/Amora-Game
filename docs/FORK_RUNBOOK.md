@@ -310,6 +310,29 @@ The founder's own words for roads, water and zones live in the
 (behind the `map` module's gate) and written by `PUT
 /api/admin/map/vocabulary`.
 
+### App mode, the Welcome Walk, and installing the map
+
+`/map` renders with no site header and no page scroll: the frame is `100dvh`
+(not `vh`, which on a phone measures the viewport with the browser chrome
+hidden and leaves the last strip behind the address bar). Leaving happens two
+ways that run the same code: the artifact's own exit posts `{type:'exit'}`,
+and the browser Back button pops a marker history entry pushed on open.
+
+`GET /api/map/config` returns `{skin, walk, vocabulary}` in one call, and the
+shell pushes it as a single `{type:'config'}` message on `grounds-ready`. The
+walk lives in a `map_walk` document keyed by language (`en` default);
+**an absent or empty walk means the artifact runs its own seed**, which is why
+the shell omits the key instead of sending `[]`. Edit it in Admin, Make This
+Yours, step 5, which can preview a draft on a real map without saving.
+`GET /api/admin/map/structures` feeds the step picker from addresses the
+village has actually set (0060).
+
+`/manifest.webmanifest` is generated from the brand overlay, so a fork gets
+its own install prompt with no deploy, and `client/index.html` stays neutral.
+`client/public/sw.js` caches ONLY the content-hashed map artifact and passes
+everything else straight through; a broader worker is how a village ends up
+served yesterday's build with no way to force a refresh.
+
 ### Importing a map scene
 
 ```bash

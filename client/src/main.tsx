@@ -68,3 +68,20 @@ import "@fontsource/caveat/latin-400.css";
 import "@fontsource/caveat/latin-700.css";
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+/*
+ * Register the service worker, which exists to cache the Living Map artifact
+ * and nothing else (client/public/sw.js explains why it stays that narrow).
+ *
+ * After `load`, so it never competes with first paint, and wrapped because a
+ * registration failure is a missing optimisation and must never be an error a
+ * member sees. Served over http in dev, where browsers refuse to register on
+ * anything but localhost; the catch covers that too.
+ */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      /* No caching this visit. The site is unaffected. */
+    });
+  });
+}

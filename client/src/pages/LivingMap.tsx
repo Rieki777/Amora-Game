@@ -107,6 +107,44 @@ export default function LivingMap() {
   }, [modules.loaded, mapModule?.id]);
 
   /**
+   * Leaving app mode, by one path.
+   *
+   * A marker entry goes on the history stack when the map opens, so the
+   * browser Back button pops it and lands here in `popstate`. The artifact's
+   * own exit button posts `{type:'exit'}` and calls `history.back()`, which
+   * arrives at the SAME handler. One way out, two triggers, no chance of the
+   * button and the gesture disagreeing.
+   *
+   * The marker keeps the `/map` URL, so popping it does not navigate on its
+   * own; this handler does that, replacing rather than pushing so a second
+   * Back does not walk straight back into the map.
+   */
+  const exitApp = useCallback(() => {
+    if (window.history.state?.villageMapApp) window.history.back();
+    else navigate("/", { replace: true });
+  }, [navigate]);
+
+  useEffect(() => {
+    window.history.pushState({ villageMapApp: true }, "");
+    const onPop = () => navigate("/", { replace: true });
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [navigate]);
+
+  /**
+   * Nothing behind the map scrolls while it is open.
+   *
+   * The frame is `position: fixed`, so without this the document underneath
+   * keeps its own scroll height and a phone still rubber-bands the page
+   * behind the map when a drag crosses an edge.
+   */
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  /**
    * Push the village's styling into the map.
    *
    * Kept as a callback rather than inlined because it runs from two places:
@@ -119,10 +157,23 @@ export default function LivingMap() {
     const win = frame.current?.contentWindow;
     if (!win) return;
     try {
-      const res = await fetch("/api/map/skin");
+      const res = await fetch("/api/map/config");
       if (!res.ok) return;
       const body = await res.json();
-      if (body?.skin) win.postMessage({ type: "skin", skin: body.skin }, window.location.origin);
+      /*
+       * One push carries skin, walk and vocabulary. The artifact applies each
+       * part only when present, so a village that has customised none of them
+       * gets its own seed and nothing is overwritten with blanks.
+       *
+       * A null walk means "use the artifact's seed", so it is omitted rather
+       * than sent as an empty array: the artifact treats a non-empty array as
+       * a replacement, and an empty one would read as a walk with no steps.
+       */
+      const payload: Record<string, unknown> = { type: "config" };
+      if (body?.skin) payload.skin = body.skin;
+      if (Array.isArray(body?.walk) && body.walk.length) payload.walk = body.walk;
+      if (body?.vocabulary) payload.vocabulary = body.vocabulary;
+      win.postMessage(payload, window.location.origin);
     } catch {
       /* The map keeps whatever it is already wearing. */
     }
@@ -152,6 +203,11 @@ export default function LivingMap() {
         pushSkin();
         return;
       }
+      // The map asking to be closed. Same path as the browser Back button.
+      if (data.type === "exit") {
+        exitApp();
+        return;
+      }
       if (data.type !== "nav") return;
       const route = typeof data.route === "string" ? data.route : "";
       if (!/^\/[^/]/.test(route) && route !== "/") return;
@@ -159,7 +215,7 @@ export default function LivingMap() {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [navigate, pushSkin]);
+  }, [navigate, pushSkin, exitApp]);
 
   /**
    * A save in the wizard retints an open map.
@@ -249,48 +305,65 @@ export default function LivingMap() {
 
   if (modules.loaded && !mapModule) return <NotFound />;
 
+  /*
+   * APP MODE. No Layout, no header, no bottom nav, and no page scroll.
+   *
+   * The map used to sit under the site header at `calc(100vh - 4rem)`, which
+   * made the document taller than the viewport: the page scrolled, and on a
+   * desktop the last strip of the map (the "what needs hands" bar) ended up
+   * under the OS taskbar until you scrolled. A surface that fills the screen
+   * has to BE the screen.
+   *
+   * `100dvh` and not `100vh`: on a phone, `vh` is the height with the browser
+   * chrome hidden, so a `100vh` element sits partly behind the address bar
+   * until you scroll. `dvh` tracks the chrome as it comes and goes, which is
+   * the whole difference between "fills the screen" and "nearly fills it".
+   *
+   * Leaving is the artifact's `{type:'exit'}` and the browser Back button, and
+   * both run the same path (see the history effect above).
+   */
   return (
-    <Layout>
-      {/* The header stays: the map is the primary surface and it still has to
-          be possible to leave it. The frame takes everything below. */}
-      <div className="h-[calc(100vh-4rem)] min-h-[520px] w-full bg-background">
-        {presence === "checking" && (
-          <p className="text-center text-muted-foreground py-24">Opening the map...</p>
-        )}
+    <div className="fixed inset-0 z-50 h-[100dvh] w-screen overflow-hidden bg-background">
+      {presence === "checking" && (
+        <p className="text-center text-muted-foreground py-24">Opening the map...</p>
+      )}
 
-        {presence === "absent" && (
-          <div className="container max-w-xl py-24 text-center">
-            <h1 className="font-display text-2xl font-bold text-foreground mb-3">
-              The Living Map is not installed
-            </h1>
-            <p className="text-muted-foreground mb-4">
-              This deployment has no map artifact. The server serves it from{" "}
-              <code>docs/prototypes/grounds-v0.html</code>, and that file is not
-              present here.
-            </p>
-            <p className="text-muted-foreground">
-              The village's circles and seats are on the{" "}
-              <a href="/map/circles" className="underline underline-offset-2 hover:text-foreground">
-                org view
-              </a>
-              , which needs no artifact.
-            </p>
-          </div>
-        )}
+      {presence === "absent" && (
+        <div className="mx-auto max-w-xl py-24 px-6 text-center">
+          <h1 className="font-display text-2xl font-bold text-foreground mb-3">
+            The Living Map is not installed
+          </h1>
+          <p className="text-muted-foreground mb-4">
+            This deployment has no map artifact. The server serves it from{" "}
+            <code>docs/prototypes/grounds-v0.html</code>, and that file is not
+            present here.
+          </p>
+          <p className="text-muted-foreground">
+            The village's circles and seats are on the{" "}
+            <a href="/map/circles" className="underline underline-offset-2 hover:text-foreground">
+              org view
+            </a>
+            , which needs no artifact.
+          </p>
+          <button type="button" onClick={exitApp}
+            className="mt-6 px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted">
+            Back to the village
+          </button>
+        </div>
+      )}
 
-        {presence === "present" && (
-          <iframe
-            ref={frame}
-            src={`${groundsUrl}${initialHash}`}
-            onLoad={onLoad}
-            title="Living map of the village"
-            className="block h-full w-full border-0"
-            /* Same-origin: the shell reads `contentWindow` for the skin and
-               the nav shim, so this frame is not sandboxed away from us. */
-            allow="fullscreen"
-          />
-        )}
-      </div>
-    </Layout>
+      {presence === "present" && (
+        <iframe
+          ref={frame}
+          src={`${groundsUrl}${initialHash}`}
+          onLoad={onLoad}
+          title="Living map of the village"
+          className="block h-full w-full border-0"
+          /* Same-origin: the shell reads `contentWindow` for the skin and
+             the nav shim, so this frame is not sandboxed away from us. */
+          allow="fullscreen"
+        />
+      )}
+    </div>
   );
 }

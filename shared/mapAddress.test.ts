@@ -15,6 +15,7 @@ import {
   mayOverwriteAddress,
   normaliseAddressSource,
   sanitiseMapVocabulary,
+  sanitiseWalk,
   unknownWireSources,
   WIRE_ADDRESS_SOURCES,
 } from "./mapAddress";
@@ -137,6 +138,70 @@ describe("mayOverwriteAddress: the doctrine", () => {
   it("refuses an incoming value it does not recognise", () => {
     expect(mayOverwriteAddress(null, "pool")).toBe(false);
     expect(mayOverwriteAddress("resolver-guess", "vibes")).toBe(false);
+  });
+});
+
+describe("sanitiseWalk", () => {
+  const step = (over: Record<string, unknown> = {}) => ({
+    id: "s1", structure_key: "greenhouse", title: "The greenhouse",
+    body: "Where seedlings start.", gesture: "tap", ...over,
+  });
+
+  it("keeps a well-formed walk, per language", () => {
+    const w = sanitiseWalk({ en: [step()], es: [step({ title: "El invernadero" })] });
+    expect(Object.keys(w).sort()).toEqual(["en", "es"]);
+    expect(w.en[0].title).toBe("The greenhouse");
+    expect(w.en[0].gesture).toBe("tap");
+  });
+
+  it("drops a step with no title, because a step with nothing to say is not a step", () => {
+    const w = sanitiseWalk({ en: [step(), step({ title: "   " }), step({ title: "Third" })] });
+    expect(w.en).toHaveLength(2);
+    expect(w.en[1].title).toBe("Third");
+  });
+
+  it("keeps array order as the walk order", () => {
+    const w = sanitiseWalk({ en: [step({ title: "A" }), step({ title: "B" }), step({ title: "C" })] });
+    expect(w.en.map((s) => s.title)).toEqual(["A", "B", "C"]);
+  });
+
+  it("falls back to a no-op gesture rather than storing one the map cannot gate on", () => {
+    expect(sanitiseWalk({ en: [step({ gesture: "somersault" })] }).en[0].gesture).toBe("none");
+    expect(sanitiseWalk({ en: [step({ gesture: "pinch" })] }).en[0].gesture).toBe("pinch");
+  });
+
+  it("gives every step an id, so walk.log can be joined back to a step", () => {
+    const w = sanitiseWalk({ en: [step({ id: undefined }), step({ id: "" })] });
+    expect(w.en.every((s) => !!s.id)).toBe(true);
+    expect(new Set(w.en.map((s) => s.id)).size).toBe(2);
+  });
+
+  it("omits an empty language instead of storing a walk with no steps", () => {
+    /*
+     * The distinction the shell depends on. An absent or empty walk means
+     * "run the artifact's own seed"; an empty ARRAY pushed over the bridge
+     * would read as a walk that exists and has nothing in it, which is a very
+     * short and confusing welcome.
+     */
+    expect(sanitiseWalk({ en: [] })).toEqual({});
+    expect(sanitiseWalk({ en: [step({ title: "" })] })).toEqual({});
+  });
+
+  it("ignores junk languages and junk input", () => {
+    expect(sanitiseWalk({ "not-a-lang!": [step()] })).toEqual({});
+    expect(sanitiseWalk({ en: "nope" })).toEqual({});
+    expect(sanitiseWalk(undefined)).toEqual({});
+  });
+
+  it("caps a step's prose and the number of steps", () => {
+    expect(sanitiseWalk({ en: [step({ body: "x".repeat(900) })] }).en[0].body).toHaveLength(600);
+    const many = Array.from({ length: 90 }, (_, i) => step({ title: `Step ${i}` }));
+    expect(sanitiseWalk({ en: many }).en).toHaveLength(40);
+  });
+
+  it("drops a blank gate hint instead of storing an empty nudge", () => {
+    expect(sanitiseWalk({ en: [step({ gate_hint: "  " })] }).en[0]).not.toHaveProperty("gate_hint");
+    expect(sanitiseWalk({ en: [step({ gate_hint: " drag the land " })] }).en[0].gate_hint).toBe("drag the land");
   });
 });
 

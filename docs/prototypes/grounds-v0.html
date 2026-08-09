@@ -455,6 +455,58 @@
   @media (max-width:1290px){ #villageName small{display:none} #vitals .vital{padding:6px 8px} }
   @media (max-width:1160px){ #villageName{display:none} }
 
+
+  /* ---------- POCKET profile — the village in your hand ---------- */
+  body.pocket :is(#dock,#mapSel,#wallBtn,#loomBtn,#buildBtn,#minimapWrap,#attention,#themeBtn,#dayBtn,#layers,#skin,#buildBar){display:none!important}
+  body.pocket #vitals .vital small{display:none}
+  body.pocket #vitals{top:0;left:0;right:0;transform:none;width:100%;justify-content:center}
+  body.pocket #maia{display:none}
+  body.pocket.msheet #maia{display:block;left:0;right:0;bottom:64px;width:auto;border-radius:14px 14px 0 0;z-index:56}
+  #pbar{display:none}
+  body.pocket #pbar{position:fixed;left:0;right:0;bottom:0;height:60px;z-index:60;display:flex;align-items:stretch;
+    background:linear-gradient(180deg,rgba(28,20,12,.97),rgba(18,13,7,.99));border-top:1px solid #8a6a33;
+    padding-bottom:env(safe-area-inset-bottom)}
+  #pbar button{flex:1;appearance:none;border:none;background:none;color:var(--parch);font-family:inherit;
+    font-size:9.5px;font-variant:small-caps;letter-spacing:.08em;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:3px;position:relative}
+  #pbar button b{font-size:19px;font-weight:normal;line-height:1}
+  #pbar .pbadge{position:absolute;top:6px;right:22%;background:#c0392b;color:#fff;border-radius:9px;
+    font-size:9px;padding:0 5px;min-width:15px;text-align:center}
+  #pdrawer{position:fixed;left:0;right:0;bottom:-90%;height:78%;z-index:59;display:flex;flex-direction:column;
+    background:linear-gradient(180deg,rgba(26,19,11,.99),rgba(16,11,6,.99));border-top:2px solid #8a6a33;
+    border-radius:16px 16px 0 0;transition:bottom .3s cubic-bezier(.2,.8,.3,1);color:var(--parch);
+    padding:10px 16px calc(70px + env(safe-area-inset-bottom));overflow-y:auto}
+  #pdrawer.open{bottom:0}
+  #pdrawer h4{font-variant:small-caps;letter-spacing:.18em;font-weight:normal;color:var(--gold-b);font-size:12px;margin:10px 0 6px}
+  #pdrawer .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #pdrawer .pcell{border:1px solid #6b5430;border-radius:10px;background:rgba(44,33,20,.6);color:var(--parch);
+    font-family:inherit;font-size:12px;padding:11px 10px;display:flex;align-items:center;gap:8px;text-align:left}
+  #pdrawer .pcell svg{width:18px;height:18px;flex:0 0 18px}
+  body.pocket #panel{top:auto;left:0;right:0;bottom:-102%;width:100%;height:74%;border-left:none;
+    border-top:2px solid #8a6a33;border-radius:16px 16px 0 0;transition:bottom .3s cubic-bezier(.2,.8,.3,1)}
+  body.pocket #panel.open{bottom:0;right:0}
+  body.pocket #moduleCard{position:fixed;left:0;right:0;bottom:0;top:auto;width:100%;max-width:none;
+    border-radius:16px 16px 0 0;max-height:80%;overflow-y:auto;padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+  body.pocket #module{align-items:flex-end}
+  body.pocket #loomBody{flex-direction:column;gap:14px}
+  body.pocket #loomLeft{width:100%;flex:none;flex-direction:row;flex-wrap:wrap;gap:4px}
+  body.pocket #loomLeft .lrow{min-height:30px;padding:3px 7px}
+  body.pocket .lgrip{pointer-events:none} /* read-only loom on pocket — rewire on desktop */
+  body.pocket #loomSaveBar{display:none!important}
+  #walkCard{position:fixed;left:10px;right:10px;bottom:74px;z-index:58;display:none;flex-direction:column;gap:7px;
+    background:linear-gradient(180deg,#fdf3d7,#ecd8a9);border:2px solid #8a6a33;border-radius:13px;color:#3a2b12;
+    padding:13px 15px;box-shadow:0 10px 30px rgba(0,0,0,.55)}
+  #walkCard.show{display:flex}
+  #walkCard h5{font-variant:small-caps;letter-spacing:.14em;font-weight:normal;font-size:13px;color:#6b4d1e}
+  #walkCard p{font-size:13px;line-height:1.5;margin:0}
+  #walkCard .wgate{font-size:10.5px;color:#8a6a33;font-style:italic}
+  #walkCard .wrow{display:flex;gap:8px;align-items:center}
+  #walkCard .wrow .btn{font-size:11px;padding:5px 12px}
+  #walkCard .wn{margin-left:auto;font-size:10px;color:#8a7347}
+  @media (prefers-reduced-motion:reduce){
+    .evbadge,#loomWires .lw.staged,#orgSvg .ovac,.poi.talk{animation:none!important}
+    #pdrawer,#panel,#walkCard{transition:none!important}}
+
   /* module stub */
   #module{position:absolute;inset:0;z-index:60;display:none;align-items:center;justify-content:center;background:rgba(10,7,3,.72);backdrop-filter:blur(3px)}
   #module.show{display:flex}
@@ -608,6 +660,14 @@
  <button data-m="admin" data-tip="Make this map yours — theme, accent, labels, mist. · /admin?tab=setup"></button>
 </div>
 <div id="vdrop"></div>
+<div id="pbar">
+ <button id="pbMap"><b>🏞</b>map</button>
+ <button id="pbAsk"><b>💬</b>ask maia</button>
+ <button id="pbAttn"><b>⚑</b>help<span class="pbadge" id="pbBadge">0</span></button>
+ <button id="pbMore"><b>☰</b>more</button>
+</div>
+<div id="pdrawer"></div>
+<div id="walkCard"></div>
 <div id="orgmap">
  <div id="orgHead"><h3>◎ The Circles</h3>
   <span class="sub">the village as organism — same data as the land, drawn as the org chart. Click any node to walk to its door · scroll zooms, drag pans · open seats pulse as open calls</span></div>
@@ -1976,7 +2036,7 @@ function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].
   if(i===3)body.innerHTML=((s.modules&&s.modules.length)?s.modules.map(m=>`<button class="doorbtn" onclick="openModule('${m[0]}','${m[1]}')"><span><b>${m[0]}</b><br><span>${m[1]}</span></span><span class="arr">➤</span></button>`).join(''):`<p>No doors bound here yet — the founder binds modules in build mode.</p>`)+
     `<div class="lastv">Every door carries a route — the same room, reachable from the menu or the land.</div>`}
 $('panelClose').onclick=()=>{$('panel').classList.remove('open');panelKey=null;setHash('')};
-function claimQuest(q,at){toast(`⚑ Claimed: “${q}” at ${at}. See you out there.`);maiaSay(`Claimed. <b>${q}</b> is yours — it lives at the ${at}. That's the whole point of this map: now go make it true, and I'll light the building up when you do.`)}
+function claimQuest(q,at){window.hap&&hap([12,50,12,50,12]);toast(`⚑ Claimed: “${q}” at ${at}. See you out there.`);maiaSay(`Claimed. <b>${q}</b> is yours — it lives at the ${at}. That's the whole point of this map: now go make it true, and I'll light the building up when you do.`)}
 function openModule(a,b){return openDoor(a,b)} // legacy (label,route) doors and the new (moduleKey,ctx) both land on openDoor
 
 /* toasts */
@@ -2333,6 +2393,7 @@ function buildExportJSON(){
     stays_occupancy:{lots:window.LOTS||null,rooms:window.ROOMS||null,note:'sample until the Stays module feeds it — one source, every surface reads it'},
     concierge_queries:(window.CONCIERGE_LOG||[]).map(c=>({...c})),
     vital_overrides:window.VITAL_OVR||{},
+    walk:{steps:(window.WALK||window.WALK_SEED||[]),log:(window.WALK_LOG||[]).slice(),note:'walk steps are village data — the seed is Amora’s voice; overrides come from /api/map/config'},
     counts:'computed on read, never stored — recompute, never increment (§5.2 scaling contract)'};
   return out}
 $('exportBtn').onclick=()=>{const out=buildExportJSON();
@@ -3664,6 +3725,125 @@ addEventListener('message',e=>{try{
   if(d.type==='goto'&&typeof d.hash==='string'){leaveIntro();location.hash=d.hash;routeHash()}
 }catch(_){}});
 try{if(window.parent!==window)window.parent.postMessage({type:'grounds-ready',version:window.BUILD_VERSION||'v0.7'},'*')}catch(_){}
+
+
+/* ---------- POCKET — layout profile, gestures, app-mode exit, and the Welcome Walk as village data ---------- */
+window.HUD_PROFILE=(()=>{if(/hud=pocket/.test(location.hash))return'pocket';if(/hud=desk/.test(location.hash))return'desk';
+  return(('ontouchstart'in window)&&Math.min(innerWidth,innerHeight)<820)?'pocket':'desk'})();
+if(HUD_PROFILE==='pocket')document.body.classList.add('pocket');
+function hap(p){try{if(navigator.vibrate&&document.body.classList.contains('pocket'))navigator.vibrate(p)}catch(_){}}
+window.hap=hap;
+/* gestures: one-finger pan, two-finger pinch, on the canvas */
+(function touchNav(){const el=$('cv');if(!el)return;let T=null;
+  el.addEventListener('touchstart',e=>{if(!document.body.classList.contains('pocket'))return;
+    if(e.touches.length===1){const t=e.touches[0];T={m:'pan',x:t.clientX,y:t.clientY}}
+    else if(e.touches.length===2){const[a,b]=e.touches;
+      T={m:'pinch',d:Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY),z:cam.z}}},{passive:true});
+  el.addEventListener('touchmove',e=>{if(!T)return;e.preventDefault();
+    if(T.m==='pan'&&e.touches.length===1){const t=e.touches[0];
+      cam.x-=(t.clientX-T.x)/cam.z;cam.y-=(t.clientY-T.y)/cam.z;T.x=t.clientX;T.y=t.clientY;
+      travel=null;clampCam();window.WGATE&&(WGATE.pan=true)}
+    if(T.m==='pinch'&&e.touches.length===2){const[a,b]=e.touches;
+      const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+      cam.z=Math.max(.4,Math.min(2.6,T.z*d/T.d));clampCam();window.WGATE&&(WGATE.pinch=true)}},{passive:false});
+  el.addEventListener('touchend',()=>{T=null},{passive:true})})();
+/* bottom bar */
+if($('pbMap'))$('pbMap').onclick=()=>{const c=document.body.classList.contains('circles');setMapType(c?'living':'circles');
+  $('pbMap').firstElementChild.textContent=c?'🏞':'◎';hap(8);window.WGATE&&(WGATE.toggle=true)};
+if($('pbAsk'))$('pbAsk').onclick=()=>{document.body.classList.toggle('msheet');
+  if(document.body.classList.contains('msheet')){$('maia').classList.remove('min');setTimeout(()=>$('maiaText').focus(),250)}hap(8)};
+if($('pbAttn'))$('pbAttn').onclick=()=>{$('attnBtn')&&$('attnBtn').click();hap(8)};
+setInterval(()=>{const b=$('pbBadge');if(b&&$('attnBadge'))b.textContent=$('attnBadge').textContent},3000);
+function renderDrawer(){const d=$('pdrawer');if(!d)return;
+  d.innerHTML=`<h4>the village</h4><div class="pgrid">`+
+   Object.keys(MODULES).map(k=>`<button class="pcell" data-pm="${k}">${MODULES[k].icon}<span>${MODULES[k].name.split(' — ')[0]}</span></button>`).join('')+
+   `</div><h4>ways in</h4><div class="pgrid">
+    <button class="pcell" data-pa="wall">⚑ <span>Get Involved</span></button>
+    <button class="pcell" data-pa="loom">⧉ <span>The Loom (view)</span></button>
+    <button class="pcell" data-pa="walk">➹ <span>Take the walk again</span></button>
+    <button class="pcell" data-pa="exit">⏏ <span>Leave the map</span></button></div>
+   <div style="font-size:10px;color:#8f855f;margin-top:10px">building and rewiring live on the desktop map — the land is yours to wander here.</div>`;
+  d.querySelectorAll('[data-pm]').forEach(b=>b.onclick=()=>{d.classList.remove('open');openDoor(b.dataset.pm,{});hap(8)});
+  d.querySelectorAll('[data-pa]').forEach(b=>b.onclick=()=>{d.classList.remove('open');const a=b.dataset.pa;hap(8);
+    if(a==='wall'){$('wall').classList.add('show');buildWall()}
+    if(a==='loom')openLoom();
+    if(a==='walk')startWalk(true);
+    if(a==='exit')exitMap()})}
+if($('pbMore'))$('pbMore').onclick=()=>{renderDrawer();$('pdrawer').classList.toggle('open');hap(8)};
+function exitMap(){try{if(window.parent!==window){window.parent.postMessage({type:'exit'},'*');return}}catch(_){}
+  toast('⏏ On the site, this returns you to the village menu.')}
+window.exitMap=exitMap;
+/* ---------- THE WELCOME WALK — village data, Amora's words as the seed ---------- */
+window.WALK_SEED=[
+ {id:'w1',structure_key:'gate',title:'Welcome to Amora',gesture:'pan',
+  body:'Every story here walked in through this gate. Today that’s you. This map is the living land, 123 hectares on the Osa Peninsula, drawn from what is real.',
+  gate_hint:'drag the land to look around'},
+ {id:'w2',structure_key:'welcome',title:'The Welcome Lodge',gesture:'tap',
+  body:'First meals, first questions. And our first rule: Hearts are gratitude. We thank each other. We never pay each other to care.',
+  gate_hint:'tap the Lodge to open its door'},
+ {id:'w3',structure_key:'ponds',title:'The Ponds',gesture:'pinch',
+  body:'Rain, caught and kept. The herons arrived within a month and act like landlords. The land breathes. So does the map.',
+  gate_hint:'pinch to zoom the world'},
+ {id:'w4',structure_key:'greenhouse',title:'The Growing Engine',gesture:'none',
+  body:'Quests live where the work lives. Small acts, real impact. The ⚑ flags mark where hands are wanted. Find the work you love that the village needs, and it will thank you in Hearts.'},
+ {id:'w5',structure_key:'community',title:'The Village Heart',gesture:'none',
+  body:'No bosses here. We are circles, and every circle keeps a home on this land. Tap ◎ any time to see the village as one living organism.'},
+ {id:'w6',structure_key:'ridgeA',title:'Walls Rising',gesture:'none',
+  body:'This hamlet is being pooled into existence. Watch the gold ring fill as funding becomes walls. The ✦ lantern burns brighter as build day comes near.'},
+ {id:'w7',structure_key:'sanctuary',title:'Where the Land Still Dreams',gesture:'none',
+  body:'The Sanctuary is coming. Everything on this map traces to something true: a funded build, a claimed quest, a filled seat. Delete the map and no truth dies.'},
+ {id:'w8',structure_key:'council',title:'Where Shall We Start?',gesture:'choice',
+  body:'The whole point of this map is to get you off it and into the real one. Pick a door.'}];
+window.WALK=null;window.WGATE={};window.WALK_LOG=window.WALK_LOG||[];
+function walkSteps(){return(window.WALK&&WALK.length?WALK:WALK_SEED).filter(st=>st.structure_key&&BY[st.structure_key])}
+let WIDX=-1,WTMR=null;
+function startWalk(replay){const steps=walkSteps();if(!steps.length)return;
+  if(!replay&&localStorage.getItem('amora-walk-done'))return;
+  leaveIntro();closeLoom();$('panel').classList.remove('open');panelKey=null;$('module').classList.remove('show');
+  if(document.body.classList.contains('circles'))setMapType('living',true);
+  WIDX=-1;nextWalk()}
+window.startWalk=startWalk;
+function endWalk(done){clearTimeout(WTMR);WIDX=-1;$('walkCard').classList.remove('show');
+  if(done){try{localStorage.setItem('amora-walk-done','1')}catch(_){}}
+  WALK_LOG.push({step:done?'complete':'abandoned',at_index:WIDX,ts_seq:WALK_LOG.length})}
+function nextWalk(){clearTimeout(WTMR);const steps=walkSteps();WIDX++;
+  if(WIDX>=steps.length){endWalk(true);return}
+  const st=steps[WIDX];const sBY=BY[st.structure_key];
+  WALK_LOG.push({step:st.id,at_index:WIDX,ts_seq:WALK_LOG.length});
+  window.WGATE={};hap(15);
+  travelTo(sBY.x,sBY.y,1.3,()=>{
+    const wc=$('walkCard');
+    const choice=st.gesture==='choice';
+    wc.innerHTML=`<h5>${st.title}</h5><p>${st.body}</p>
+      ${(!choice&&st.gesture&&st.gesture!=='none')?`<div class="wgate">✋ ${st.gate_hint||st.gesture}</div>`:''}
+      ${choice?`<div class="wrow" style="flex-wrap:wrap">
+        <button class="btn" onclick="claimQuest('Welcome Ambassador','the Welcome Lodge');endWalk(true)">⚑ Claim a first quest</button>
+        <button class="btn" onclick="evRSVP('e1');endWalk(true)">✦ Join tonight’s feast</button>
+        <button class="btn ghostbtn" onclick="endWalk(true);openDoor('journeys',{})">➹ Begin a journey</button></div>`:''}
+      <div class="wrow"><button class="btn ghostbtn" style="font-size:10.5px" onclick="endWalk(false)">skip</button>
+       ${!choice?`<button class="btn" style="font-size:10.5px" onclick="nextWalk()">next ›</button>`:''}
+       <span class="wn">${WIDX+1} / ${steps.length}</span></div>`;
+    wc.classList.add('show');
+    if(!choice){const need=st.gesture&&st.gesture!=='none'?st.gesture:null;
+      if(need){let waited=0;const poll=()=>{if(WIDX<0)return;
+        if(WGATE[need]||waited>12000){hap([10,40,10]);nextWalk()}else{waited+=400;WTMR=setTimeout(poll,400)}};WTMR=setTimeout(poll,400)}
+      else WTMR=setTimeout(nextWalk,6500)}})}
+/* gates fed by real use */
+const _openPanelW=openPanel;openPanel=function(k,t){window.WGATE&&(WGATE.tap=true);return _openPanelW(k,t)};
+/* config over the bridge: skin + walk + vocabulary in one push */
+addEventListener('message',e=>{try{
+  if(location.protocol!=='file:'&&e.origin!==location.origin)return;
+  const d=e.data;if(!d||d.type!=='config')return;
+  if(d.skin)applySkinExport(d.skin);
+  if(Array.isArray(d.walk)&&d.walk.length)window.WALK=d.walk;
+  if(d.vocabulary)['road','water','zone'].forEach(k=>{if(Array.isArray(d.vocabulary[k])&&d.vocabulary[k].length)SUBTYPES[k]=d.vocabulary[k].slice()});
+}catch(_){}});
+/* pocket boot: skip the intro ceremony, walk the newcomer */
+if(document.body.classList.contains('pocket')){
+  setTimeout(()=>{leaveIntro();
+    if(!location.hash||location.hash.length<3||/hud=/.test(location.hash)){
+      if(!localStorage.getItem('amora-walk-done'))startWalk(false);
+      else{cam.x=1100;cam.y=650;cam.z=.9;clampCam()}}},700)}
 
 
 /* intro */

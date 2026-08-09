@@ -13,6 +13,7 @@ import LookPanel from "@/components/LookPanel";
 import IdentityPackPanel from "@/components/IdentityPackPanel";
 import MapSkinPanel from "@/components/MapSkinPanel";
 import EventsAdminPanel from "@/components/EventsAdminPanel";
+import WalkEditorPanel from "@/components/WalkEditorPanel";
 import { ExampleChip, ExamplesBanner, forgetExamplesCache, RETIRES_WITH } from "@/components/ExamplesBanner";
 const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
 
@@ -7447,6 +7448,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
 
       <Section id="map" n={5} title="Map & styling" subtitle="How the Living Map draws your land. Blank keeps the map's own look.">
         <MapSkinPanel password={password} />
+        <WalkEditorPanel password={password} />
       </Section>
 
       <Section id="technical" n={6} title="Go live" subtitle="One-time technical setup. Hand these to your developer or Claude Code.">

@@ -20,8 +20,12 @@ import { CONSTITUTION } from "../shared/constitution";
 import { DEFAULT_MAP_SKIN, sanitiseMapSkin } from "../shared/mapSkin";
 import {
   DEFAULT_MAP_VOCABULARY,
+  DEFAULT_WALK_LANG,
   MAP_VOCABULARY_DOC,
+  MAP_WALK_DOC,
   sanitiseMapVocabulary,
+  sanitiseWalk,
+  WALK_GESTURES,
 } from "../shared/mapAddress";
 import { toSchemaOrg } from "../shared/gatherings";
 import {
@@ -765,6 +769,15 @@ const brandRepo = dbDocument(getPool(), "brand", DEFAULT_BRAND as any);
  * make a scene import able to clobber an unrelated brand field.
  */
 const mapVocabRepo = dbDocument(getPool(), MAP_VOCABULARY_DOC, DEFAULT_MAP_VOCABULARY as any);
+/**
+ * The Welcome Walk, per language, beside the skin and the vocabulary.
+ *
+ * Its own document for the same reason vocabulary got one: a village replaces
+ * the whole walk at once, and folding it into `brand` would put it behind the
+ * Setup Wizard's read-modify-write. An EMPTY document means the artifact runs
+ * its own seed, which is what an untouched fork should get.
+ */
+const mapWalkRepo = dbDocument(getPool(), MAP_WALK_DOC, {} as any);
 const workWithUsRepo = dbDocument(getPool(), "work-with-us", DEFAULT_WORK_WITH_US as any);
 const visitConfigRepo = dbDocument(getPool(), "visit-config", DEFAULT_VISIT_CONFIG as any);
 const investorSummaryRepo = dbDocument(getPool(), "investor-summary", DEFAULT_INVESTOR_SUMMARY as any);
@@ -877,6 +890,7 @@ async function initStores(): Promise<void> {
     settingsRepo.load(),
     brandRepo.load(),
     mapVocabRepo.load(),
+    mapWalkRepo.load(),
     workWithUsRepo.load(),
     visitConfigRepo.load(),
     investorSummaryRepo.load(),
@@ -12137,6 +12151,64 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ vocabulary: mapVocabRepo.get() });
   });
 
+  /**
+   * Everything the map needs, in one call: skin, walk and vocabulary.
+   *
+   * The shell fetches this once on `grounds-ready` and pushes it as a single
+   * `{type:'config'}` message, so the map applies all three in one pass with
+   * no chance of a half-configured frame between two round trips.
+   *
+   * `walk` is null when the village has written none for the requested
+   * language. Null is the instruction to use the artifact's own seed, and it
+   * is deliberately not an empty array: the artifact reads a non-empty array
+   * as a replacement and would treat `[]` as a walk with no steps.
+   */
+  app.get("/api/map/config", async (req, res) => {
+    const lang = typeof req.query.lang === "string" && /^[a-z]{2}$/.test(req.query.lang)
+      ? req.query.lang
+      : DEFAULT_WALK_LANG;
+    const walkDoc = sanitiseWalk(mapWalkRepo.get());
+    const steps = walkDoc[lang] ?? walkDoc[DEFAULT_WALK_LANG] ?? null;
+    res.json({
+      skin: getBrand().skin,
+      walk: steps && steps.length ? steps : null,
+      vocabulary: mapVocabRepo.get(),
+      lang,
+    });
+  });
+
+  /** The whole walk document, every language, for the editor. */
+  app.get("/api/admin/map/walk", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    res.json({ walk: sanitiseWalk(mapWalkRepo.get()), gestures: WALK_GESTURES });
+  });
+
+  app.put("/api/admin/map/walk", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const next = sanitiseWalk(req.body?.walk ?? req.body);
+    await mapWalkRepo.put(next as any);
+    res.json({ success: true, walk: next });
+  });
+
+  /**
+   * The structure keys a walk step can point at.
+   *
+   * Sourced from the circles and seats the village has actually addressed
+   * (0060), so the editor offers real places instead of a free-text field
+   * where a typo becomes a step that never fires.
+   */
+  app.get("/api/admin/map/structures", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const [rows] = await getPool().query<any[]>(
+      `SELECT DISTINCT k FROM (
+         SELECT home_structure_key AS k FROM circles WHERE home_structure_key IS NOT NULL
+         UNION SELECT structure_key FROM org_roles WHERE structure_key IS NOT NULL
+         UNION SELECT structure_key FROM quests WHERE structure_key IS NOT NULL
+       ) t WHERE k <> '' ORDER BY k`,
+    );
+    res.json({ structures: rows.map((r) => String(r.k)) });
+  });
+
   app.put("/api/admin/map/vocabulary", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const next = sanitiseMapVocabulary(req.body?.vocabulary ?? req.body);
@@ -15387,6 +15459,42 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * `present` and `bytes` are the original contract and are unchanged. `url`
    * is additive: a shell that ignores it still works off /grounds/index.html.
    */
+  /**
+   * The PWA manifest, built from the brand overlay.
+   *
+   * Generated rather than shipped as a static file for the same reason
+   * `/api/brand/theme.css` is: `client/index.html` goes byte-for-byte to every
+   * deployment, so no village's name can live in it. A fork gets its own
+   * install prompt by filling in the Setup Wizard, with no deploy.
+   *
+   * `start_url` is /map because that is what anyone installs this for: the
+   * installed launch opens the map full-bleed, which is app mode by
+   * definition and needs no display flag beyond `standalone`.
+   */
+  app.get("/manifest.webmanifest", async (_req, res) => {
+    const cfg = mergedConfig();
+    const icon = cfg.images?.favicon || "/assets/images/platform-favicon.svg";
+    res.type("application/manifest+json");
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.json({
+      name: cfg.project.name,
+      short_name: cfg.project.name,
+      description: cfg.project.tagline,
+      start_url: "/map",
+      scope: "/",
+      display: "standalone",
+      orientation: "any",
+      background_color: "#ffffff",
+      theme_color: "#2D5A5A",
+      icons: [
+        // One entry, `any` sized: the brand icon is an SVG on most forks and
+        // a raster on some, and claiming sizes we have not measured would put
+        // a wrong number in front of the installer.
+        { src: icon, sizes: "any", type: icon.endsWith(".svg") ? "image/svg+xml" : "image/png", purpose: "any" },
+      ],
+    });
+  });
+
   app.get("/grounds/manifest.json", (_req, res) => {
     const info = groundsInfo();
     if (!info) return res.status(404).json({ present: false });

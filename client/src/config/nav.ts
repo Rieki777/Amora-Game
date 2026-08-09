@@ -70,6 +70,15 @@ export const isGroup = (entry: NavEntry): entry is NavGroup => "items" in entry;
 export const NAV: readonly NavEntry[] = [
   { href: "/", label: "Home" },
   { href: "/quests", label: "Quests" },
+  /**
+   * Top level, and worth the bar width.
+   *
+   * The map is the village's primary surface, and it spent a release buried
+   * as the first item of a nine-item Village dropdown where nobody arriving
+   * for the first time would find it. What costs bar width is an ENTRY, and
+   * this is the one entry that earns it.
+   */
+  { href: "/map", label: "Living Map", module: "map" },
   {
     label: "Community",
     items: [
@@ -86,7 +95,7 @@ export const NAV: readonly NavEntry[] = [
   {
     label: "Village",
     items: [
-      { href: "/map", label: "Map", module: "map" },
+      // The map itself is a top-level entry now; this is the org view.
       { href: "/map/circles", label: "Circles & Seats", module: "map" },
       { href: "/stay", label: "Stay", module: "stays" },
       { href: "/library", label: "Library", module: "library" },

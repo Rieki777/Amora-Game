@@ -133,6 +133,70 @@ export function mayOverwriteAddress(
 /** The `app_config` document key the map's founder-named words live under. */
 export const MAP_VOCABULARY_DOC = "map_vocabulary";
 
+/** The `app_config` document key the Welcome Walk lives under. */
+export const MAP_WALK_DOC = "map_walk";
+
+/** Gestures a walk step can gate on. Mirrors the artifact's WGATE keys. */
+export const WALK_GESTURES = ["pan", "tap", "pinch", "toggle", "none", "choice"] as const;
+export type WalkGesture = (typeof WALK_GESTURES)[number];
+
+export interface WalkStep {
+  id: string;
+  structure_key: string;
+  title: string;
+  body: string;
+  gesture: WalkGesture;
+  gate_hint?: string;
+}
+
+/**
+ * The walk, per language.
+ *
+ * Stored as `{ [lang]: WalkStep[] }` with `en` the default, so a village that
+ * hosts in two languages does not have to choose which newcomers get a guided
+ * arrival. An EMPTY walk for a language means "use the artifact's own seed",
+ * which is why the shell omits the key instead of pushing `[]`: the artifact
+ * reads a non-empty array as a replacement, and an empty one as a walk with
+ * no steps, which is a very short and confusing welcome.
+ */
+export const DEFAULT_WALK_LANG = "en";
+export type MapWalk = Record<string, WalkStep[]>;
+
+/**
+ * Coerce stored or submitted walk data into steps the artifact can run.
+ *
+ * Order is positional, so the array order IS the walk order and no sort key
+ * has to be kept in sync. Ids are stable per step so analytics in `walk.log`
+ * can be joined back to the step a newcomer stopped on.
+ */
+export function sanitiseWalk(input: unknown): MapWalk {
+  const byLang = (input ?? {}) as Record<string, unknown>;
+  const out: MapWalk = {};
+  for (const [lang, steps] of Object.entries(byLang)) {
+    if (!/^[a-z]{2}(-[A-Za-z0-9]{2,8})?$/.test(lang) || !Array.isArray(steps)) continue;
+    const clean: WalkStep[] = [];
+    for (const raw of steps.slice(0, 40)) {
+      const s = (raw ?? {}) as Record<string, unknown>;
+      const title = typeof s.title === "string" ? s.title.trim().slice(0, 120) : "";
+      if (!title) continue;
+      clean.push({
+        id: typeof s.id === "string" && s.id ? s.id.slice(0, 64) : `step-${clean.length + 1}`,
+        structure_key: typeof s.structure_key === "string" ? s.structure_key.slice(0, 64) : "",
+        title,
+        body: typeof s.body === "string" ? s.body.slice(0, 600) : "",
+        gesture: (WALK_GESTURES as readonly string[]).includes(String(s.gesture))
+          ? (s.gesture as WalkGesture)
+          : "none",
+        ...(typeof s.gate_hint === "string" && s.gate_hint.trim()
+          ? { gate_hint: s.gate_hint.trim().slice(0, 160) }
+          : {}),
+      });
+    }
+    if (clean.length) out[lang] = clean;
+  }
+  return out;
+}
+
 /**
  * The founder's own words for the things they draw. The map renames every
  * drawn feature from these, so they are village data and not platform copy.
