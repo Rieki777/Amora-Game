@@ -15,6 +15,8 @@ import {
   mayOverwriteAddress,
   normaliseAddressSource,
   sanitiseMapVocabulary,
+  unknownWireSources,
+  WIRE_ADDRESS_SOURCES,
 } from "./mapAddress";
 
 describe("the vocabulary", () => {
@@ -24,6 +26,13 @@ describe("the vocabulary", () => {
     expect(isAddressSource("pool")).toBe(false);
     expect(isAddressSource("")).toBe(false);
     expect(isAddressSource(null)).toBe(false);
+  });
+
+  it("stores three values and accepts four off the wire", () => {
+    // `pool` is legal to RECEIVE and never legal to STORE. That asymmetry is
+    // the whole mapping, so it is pinned rather than left to a comment.
+    expect([...WIRE_ADDRESS_SOURCES]).toEqual(["creator", "resolver-guess", "creator-board", "pool"]);
+    expect(isAddressSource("pool")).toBe(false);
   });
 
   it("fits the column the migration declares", () => {
@@ -50,10 +59,45 @@ describe("normaliseAddressSource", () => {
     expect(mayOverwriteAddress(normaliseAddressSource("pool"), "resolver-guess")).toBe(true);
   });
 
+  it("carries the legacy 'lexicon guess' through as a guess", () => {
+    /*
+     * The map normalises this at its export boundary now, so fresh scenes
+     * never carry it. A scene file exported before that fix still does, and
+     * dropping it to NULL would discard a real guess, which then lets the next
+     * resolver overwrite something it should only have refined.
+     */
+    expect(normaliseAddressSource("lexicon guess")).toBe("resolver-guess");
+    expect(mayOverwriteAddress(normaliseAddressSource("lexicon guess"), "creator")).toBe(true);
+  });
+
   it("drops anything it does not recognise rather than storing it raw", () => {
     expect(normaliseAddressSource("vibes")).toBeNull();
     expect(normaliseAddressSource(42)).toBeNull();
     expect(normaliseAddressSource(undefined)).toBeNull();
+  });
+});
+
+describe("unknownWireSources: the declared contract", () => {
+  it("agrees with the vocabulary the artifact publishes", () => {
+    // Verbatim from map_scene.address_source_vocabulary in grounds-v0.html.
+    const declared = { values: ["creator", "resolver-guess", "creator-board", "pool"] };
+    expect(unknownWireSources(declared)).toEqual([]);
+  });
+
+  it("names a value the scene declares and this importer cannot handle", () => {
+    expect(unknownWireSources({ values: ["creator", "oracle-hunch"] })).toEqual(["oracle-hunch"]);
+  });
+
+  it("treats a scene with no declared vocabulary as agreement, not conflict", () => {
+    // Anything exported before the contract was published. Absence is not
+    // disagreement, and the importer falls back to the mapping it has.
+    expect(unknownWireSources(undefined)).toEqual([]);
+    expect(unknownWireSources({})).toEqual([]);
+    expect(unknownWireSources({ values: "creator" })).toEqual([]);
+  });
+
+  it("accepts the legacy alias as known, since it is handled", () => {
+    expect(unknownWireSources({ values: ["lexicon guess"] })).toEqual([]);
   });
 });
 

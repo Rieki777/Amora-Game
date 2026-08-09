@@ -50,6 +50,7 @@ import {
   mayOverwriteAddress,
   normaliseAddressSource,
   sanitiseMapVocabulary,
+  unknownWireSources,
 } from "../shared/mapAddress";
 
 /**
@@ -191,6 +192,25 @@ async function addressRows(
 
 async function main() {
   console.log(`\n  Scene: ${meta.name ?? sceneKey} (${meta.version})`);
+
+  /*
+   * The scene now STATES its address vocabulary rather than leaving an
+   * importer to infer it from whatever a sample happened to contain. Check it
+   * against what this script implements, and say so when they diverge.
+   *
+   * A warning, not a refusal: an unknown source affects only the rows that
+   * carry it, and those fall to NULL, which is safe. Refusing the whole import
+   * over one new word would be worse than landing the rest and naming the gap.
+   */
+  const strangers = unknownWireSources(meta.address_source_vocabulary);
+  if (strangers.length) {
+    console.log(
+      `  NOTE   the scene declares address source(s) this importer does not handle: ${strangers.join(", ")}.\n` +
+        "         Rows carrying them import as unaddressed. Teach shared/mapAddress.ts before relying on them.",
+    );
+  } else if (meta.address_source_vocabulary) {
+    console.log("  vocab  address sources agree with the scene's declared contract");
+  }
   console.log(`  Mode:  ${DRY ? "DRY RUN, nothing is written" : "writing"}\n`);
 
   /*

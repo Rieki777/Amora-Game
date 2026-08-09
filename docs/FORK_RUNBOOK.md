@@ -280,6 +280,16 @@ anything automated.** Only NULL and a stale `resolver-guess` may be replaced.
 Every writer asks `mayOverwriteAddress()`; nothing reimplements the comparison.
 The scene importer obeys it and prints what it left alone.
 
+Four values travel, three are stored. A scene may carry `pool`, which is the
+exporter's derived "no structure was set", and it lands as NULL. The artifact
+publishes the whole contract in `map_scene.address_source_vocabulary` (values
+plus the law), and the importer compares that list against its own on every
+run: a scene declaring a source this platform cannot handle prints a NOTE
+naming it, and those rows import unaddressed rather than silently vanishing.
+One legacy spelling, `lexicon guess`, maps to `resolver-guess`; the map
+normalises it at its own export boundary now, so only older scene files carry
+it.
+
 The founder's own words for roads, water and zones live in the
 `map_vocabulary` document in `app_config`, served at `GET /api/map/vocabulary`
 (behind the `map` module's gate) and written by `PUT
