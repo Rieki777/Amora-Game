@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite --host",
-    "build": "node scripts/copy-grounds.mjs && vite build && node scripts/build-server.mjs",
+    "build": "vite build && node scripts/build-server.mjs",
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
@@ -69,7 +69,6 @@
     "lucide-react": "^0.453.0",
     "multer": "^2.2.0",
     "mysql2": "^3.23.1",
-    "nanoid": "^5.1.5",
     "next-themes": "^0.4.6",
     "react": "^19.2.1",
     "react-day-picker": "^9.11.1",

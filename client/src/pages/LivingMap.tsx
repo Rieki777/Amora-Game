@@ -2,11 +2,12 @@
  * The Living Map at `/map`: the geographic picture of the village.
  *
  * This page is a SHELL. The map itself is `docs/prototypes/grounds-v0.html`,
- * a self-contained artifact the map workstream owns, staged into
- * `client/public/grounds/index.html` by `scripts/copy-grounds.mjs` at build
- * time. Nothing here reimplements any of it, and nothing here edits it: the
- * shell's whole job is to mount it, hand it the village's skin, and turn its
- * door clicks into navigation.
+ * a self-contained artifact the map workstream owns, served straight from
+ * there by the server at `/grounds/index.html` (there is deliberately no
+ * second copy: a 4 MB duplicate in `dist/public` blew the CI bundle budget).
+ * Nothing here reimplements any of it, and nothing here edits it: the shell's
+ * whole job is to mount it, hand it the village's skin, and turn its door
+ * clicks into navigation.
  *
  * The nested-circles org view still exists and still works. It lives at
  * `/map/circles` (client/src/pages/VillageMap.tsx) and keeps the concierge,
@@ -250,10 +251,9 @@ export default function LivingMap() {
               The Living Map is not installed
             </h1>
             <p className="text-muted-foreground mb-4">
-              This deployment has no map artifact staged. It is built from{" "}
-              <code>docs/prototypes/grounds-v0.html</code> by{" "}
-              <code>scripts/copy-grounds.mjs</code> during{" "}
-              <code>pnpm build</code>.
+              This deployment has no map artifact. The server serves it from{" "}
+              <code>docs/prototypes/grounds-v0.html</code>, and that file is not
+              present here.
             </p>
             <p className="text-muted-foreground">
               The village's circles and seats are on the{" "}

@@ -7,11 +7,6 @@ dist/
 build/
 *.dist
 
-# Derived from docs/prototypes/grounds-v0.html by scripts/copy-grounds.mjs.
-# The prototype is the source; this copy is staged at build time. Editing it
-# is silently reverted by the next build — change the source instead.
-client/public/grounds/
-
 # Environment variables
 .env
 .env.local

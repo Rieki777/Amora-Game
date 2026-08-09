@@ -15305,6 +15305,44 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * stale-index white screen the comment further down exists to prevent.
    */
   app.use(compression());
+  /*
+   * The Living Map artifact, served from its SOURCE.
+   *
+   * `docs/prototypes/grounds-v0.html` is ~4 MB of self-contained page. It used
+   * to be copied into `client/public/grounds/` at build time, which put it in
+   * `dist/public` and took the total from 3.7 MB to 7.8 MB against the CI
+   * bundle budget's 6 MB ceiling. That gate exists to catch exactly this
+   * ("something large landed in client/public"), and the honest fix is to stop
+   * shipping a second copy rather than to raise the number.
+   *
+   * So there is one copy on disk and the server hands it out. `..` from
+   * `__dirname` is the repo root in both shapes: `server/` in dev, `dist/` in
+   * production. Nothing else moves, and `/grounds/index.html` is the same URL
+   * the shell has always asked for.
+   *
+   * Registered ahead of the SPA catch-all. A missing artifact 404s here rather
+   * than falling through and returning the app's own HTML, which an iframe
+   * would render as the site inside itself.
+   */
+  const groundsFile = path.resolve(__dirname, "..", "docs", "prototypes", "grounds-v0.html");
+
+  app.get("/grounds/index.html", (_req, res) => {
+    if (!fs.existsSync(groundsFile)) return res.status(404).json({ error: "map_artifact_absent" });
+    res.type("html");
+    res.sendFile(groundsFile);
+  });
+
+  /*
+   * The presence probe. `/map` cannot tell a served artifact from the SPA
+   * fallback by status code alone, so it reads a few bytes of JSON instead.
+   * Computed rather than written to disk, so it can never claim an artifact
+   * that is no longer there.
+   */
+  app.get("/grounds/manifest.json", (_req, res) => {
+    if (!fs.existsSync(groundsFile)) return res.status(404).json({ present: false });
+    res.json({ present: true, bytes: fs.statSync(groundsFile).size });
+  });
+
   app.use("/assets", express.static(path.join(staticPath, "assets"), { maxAge: "1y", immutable: true }));
   app.use(express.static(staticPath));
 

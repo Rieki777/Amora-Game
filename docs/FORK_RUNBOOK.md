@@ -253,13 +253,18 @@ identities first.
 
 ### The Living Map artifact (`/map`)
 
-`/map` serves `docs/prototypes/grounds-v0.html`, staged into
-`client/public/grounds/index.html` by `scripts/copy-grounds.mjs`, which runs
-first in `pnpm build`. The staged copy is gitignored: the prototype is the
-source and editing the copy is reverted by the next build. A deployment with
-no prototype present builds fine and `/map` says the map is not installed;
-the org view at `/map/circles` needs no artifact. Nothing new to provision,
-and no env var.
+`/map` serves `docs/prototypes/grounds-v0.html` straight from that path: the
+server routes `/grounds/index.html` and `/grounds/manifest.json` to it
+(`server/index.ts`), and the vite dev plugin does the same for `pnpm dev`.
+
+**There is deliberately no second copy.** It was briefly staged into
+`client/public/grounds/` at build time, which put 4 MB into `dist/public` and
+took the total to 7.8 MB against the CI bundle budget's 6 MB ceiling. That gate
+exists to catch exactly that, and the fix is to serve one copy rather than to
+raise the number. Nothing to provision and no env var; the artifact simply
+needs to be committed. A deployment without it builds and runs fine, `/map`
+says the map is not installed, and the org view at `/map/circles` needs no
+artifact at all.
 
 ### The map address plane (0060)
 

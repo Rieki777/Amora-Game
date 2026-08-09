@@ -5,37 +5,36 @@ import path from "node:path";
 import { defineConfig, type Plugin } from "vite";
 
 /**
- * Serve the staged Living Map artifact in DEV.
+ * Serve the Living Map artifact in DEV, from the same source the server uses.
  *
- * `client/public/grounds/index.html` is served correctly in production, where
- * Express hands out `dist/public` with `express.static`. Dev is different: a
- * request ending in `.html` is claimed by vite's own HTML middleware, which
- * resolves it against `root` (`client/`), finds no `client/grounds/index.html`
- * and falls through to the SPA. `/map` then probes the manifest, gets the
- * app's own HTML back, and honestly reports the map as not installed, which is
- * safe and completely baffling on a laptop where the file plainly exists.
+ * In production Express hands out `docs/prototypes/grounds-v0.html` directly
+ * (server/index.ts). It is deliberately NOT copied into `client/public`: a
+ * second 4 MB copy in `dist/public` blew the CI bundle budget, which exists to
+ * catch exactly that.
  *
- * Registering the middleware directly (rather than returning a function from
- * configureServer) puts it AHEAD of vite's internal middlewares, which is the
- * whole point. Two exact paths, no directory walking.
+ * Dev needs its own answer because `pnpm dev` runs no Express. It also cannot
+ * simply drop the file in `public/`: a request ending in `.html` is claimed by
+ * vite's own HTML middleware, which resolves it against `root` (`client/`) and
+ * falls through to the SPA. Registering this middleware directly, rather than
+ * returning a function from configureServer, puts it AHEAD of vite's internal
+ * ones, which is the whole point. Two exact paths, no directory walking.
  */
 function serveGroundsInDev(): Plugin {
-  const dir = path.resolve(import.meta.dirname, "client", "public", "grounds");
-  const types: Record<string, string> = {
-    "/grounds/index.html": "text/html; charset=utf-8",
-    "/grounds/manifest.json": "application/json; charset=utf-8",
-  };
+  const file = path.resolve(import.meta.dirname, "docs", "prototypes", "grounds-v0.html");
   return {
     name: "serve-grounds-in-dev",
     apply: "serve",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = (req.url ?? "").split("?")[0];
-        const contentType = types[url];
-        if (!contentType) return next();
-        const file = path.join(dir, path.basename(url));
+        if (url !== "/grounds/index.html" && url !== "/grounds/manifest.json") return next();
         if (!fs.existsSync(file)) return next();
-        res.setHeader("Content-Type", contentType);
+        if (url === "/grounds/manifest.json") {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.end(JSON.stringify({ present: true, bytes: fs.statSync(file).size }));
+          return;
+        }
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
         fs.createReadStream(file).pipe(res);
       });
     },
