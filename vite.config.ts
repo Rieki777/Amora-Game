@@ -27,11 +27,21 @@ function serveGroundsInDev(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = (req.url ?? "").split("?")[0];
-        if (url !== "/grounds/index.html" && url !== "/grounds/manifest.json") return next();
+        const isArtifact = url === "/grounds/index.html" || /^\/grounds\/grounds-[a-f0-9]+\.html$/.test(url);
+        if (!isArtifact && url !== "/grounds/manifest.json") return next();
         if (!fs.existsSync(file)) return next();
         if (url === "/grounds/manifest.json") {
           res.setHeader("Content-Type", "application/json; charset=utf-8");
-          res.end(JSON.stringify({ present: true, bytes: fs.statSync(file).size }));
+          /*
+           * Dev answers the same SHAPE as production so the shell takes one
+           * code path in both. The url is the stable name here: hashing 4 MB
+           * on every reload would buy nothing when nothing is cached anyway.
+           */
+          res.end(JSON.stringify({
+            present: true,
+            bytes: fs.statSync(file).size,
+            url: "/grounds/index.html",
+          }));
           return;
         }
         res.setHeader("Content-Type", "text/html; charset=utf-8");

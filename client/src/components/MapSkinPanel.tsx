@@ -6,6 +6,7 @@ import {
   MAP_SKIN_SAVED_EVENT,
   MAP_SKIN_SAVED_KEY,
   MAP_THEMES,
+  RUNTIME_PAINTERLY,
   SKIN_BOUNDS,
   type MapSkin,
 } from "@shared/mapSkin";
@@ -29,11 +30,25 @@ export default function MapSkinPanel({ password }: { password: string }) {
   const [skin, setSkin] = useState<MapSkin | null>(null);
   const [saving, setSaving] = useState(false);
 
+  /**
+   * Read the skin the MAP reads.
+   *
+   * `/api/map/skin` is the same document the shell hands the iframe, so the
+   * panel and the land can never show different answers. It sits behind the
+   * map module's gate, so a village with the map off gets a 404 there; the
+   * brand document is the fallback for exactly that case, and it is the same
+   * object either way (both are `getBrand().skin`).
+   */
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/brand", { headers: { Authorization: `Bearer ${password}` } });
-      const data = await res.json();
-      setSkin({ ...DEFAULT_MAP_SKIN, ...(data.brand?.skin ?? {}) });
+      let stored: any = null;
+      const viaMap = await fetch("/api/map/skin");
+      if (viaMap.ok) stored = (await viaMap.json())?.skin;
+      if (!stored) {
+        const res = await fetch("/api/admin/brand", { headers: { Authorization: `Bearer ${password}` } });
+        stored = (await res.json())?.brand?.skin;
+      }
+      setSkin({ ...DEFAULT_MAP_SKIN, ...(stored ?? {}) });
     } catch { toast.error("Could not load the map settings"); }
   }, [password]);
   useEffect(() => { load(); }, [load]);
@@ -109,12 +124,18 @@ export default function MapSkinPanel({ password }: { password: string }) {
     const value = skin.painterly[key];
     const setDial = (v: number | null) =>
       set({ painterly: { ...skin.painterly, [key]: v } });
+    /*
+     * An unset dial shows what the map ACTUALLY draws, not a middle guess.
+     * The slider sits at the runtime default and storage stays null until the
+     * founder moves it, so opening this panel and saving changes nothing.
+     */
+    const shown = value ?? RUNTIME_PAINTERLY[key];
     return (
       <div>
         <label className="block text-sm font-medium text-gray-900 mb-1" htmlFor={`skin-${key}`}>
           {label}{" "}
           <span className="font-normal text-gray-500">
-            {value === null ? "map default" : `${Math.round(value * 100)}%`}
+            {Math.round(shown * 100)}%{value === null ? " (map default)" : ""}
           </span>
         </label>
         <div className="flex items-center gap-2">
@@ -123,13 +144,15 @@ export default function MapSkinPanel({ password }: { password: string }) {
             type="range"
             min={Math.round(SKIN_BOUNDS.painterly.min * 100)}
             max={Math.round(SKIN_BOUNDS.painterly.max * 100)}
-            value={Math.round((value ?? 0.5) * 100)}
+            value={Math.round(shown * 100)}
             onChange={(e) => setDial(Number(e.target.value) / 100)}
             className="flex-1 accent-[#2D5A5A]"
           />
           {value !== null && (
             <button type="button" onClick={() => setDial(null)}
-              className="text-xs text-gray-400 underline underline-offset-2 shrink-0">clear</button>
+              className="text-xs text-gray-400 underline underline-offset-2 shrink-0">
+              reset
+            </button>
           )}
         </div>
       </div>

@@ -6,7 +6,7 @@
  * not a plain six-digit hex has to come back blank, whatever it looks like.
  */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MAP_SKIN, sanitiseMapSkin } from "./mapSkin";
+import { DEFAULT_MAP_SKIN, RUNTIME_PAINTERLY, sanitiseMapSkin, type MapSkin } from "./mapSkin";
 
 describe("sanitiseMapSkin", () => {
   it("returns the defaults for junk input", () => {
@@ -95,5 +95,78 @@ describe("sanitiseMapSkin", () => {
 
   it("truncates the words field rather than storing an essay", () => {
     expect(sanitiseMapSkin({ words: "x".repeat(500) }).words).toHaveLength(160);
+  });
+});
+
+/**
+ * The server's write path, exactly as `PUT /api/admin/brand` performs it:
+ *   sanitiseMapSkin({ ...getBrand().skin, ...req.body.skin })
+ * Reproduced here so the merge semantics are pinned without a database.
+ */
+const putSkin = (stored: Partial<MapSkin>, sent: Partial<MapSkin>) =>
+  sanitiseMapSkin({ ...DEFAULT_MAP_SKIN, ...stored, ...sent });
+
+describe("B2/F1: an untouched Save changes nothing", () => {
+  it("keeps painterly null through open-then-save on a fresh village", () => {
+    /*
+     * The regression. The panel used to render an unset dial at 50%, so a
+     * founder opening the step saw a number the map was not drawing; the fix
+     * shows the runtime default instead. What must NOT follow is the panel
+     * writing that display value down. Storage stays null until a dial moves,
+     * so a no-op save cannot repaint the land.
+     */
+    const stored = sanitiseMapSkin({});
+    expect(stored.painterly).toEqual({ brush: null, palette: null });
+
+    // Exactly what the panel sends when nothing was touched: the loaded skin.
+    const afterSave = putSkin(stored, stored);
+    expect(afterSave).toEqual(stored);
+    expect(afterSave.painterly).toEqual({ brush: null, palette: null });
+  });
+
+  it("displays the map's own defaults for an unset dial, and never stores them", () => {
+    // These are what the artifact draws with no skin applied.
+    expect(RUNTIME_PAINTERLY.brush).toBe(1);
+    expect(RUNTIME_PAINTERLY.palette).toBe(0.3);
+    // Reading them for display must not make them stored values.
+    expect(sanitiseMapSkin({}).painterly.brush).toBeNull();
+  });
+
+  it("records a dial only once a founder actually moves it, and reset clears it", () => {
+    const stored = sanitiseMapSkin({});
+    const moved = putSkin(stored, { painterly: { brush: 0.25, palette: null } });
+    expect(moved.painterly).toEqual({ brush: 0.25, palette: null });
+    // A second untouched save preserves the choice.
+    expect(putSkin(moved, moved).painterly).toEqual({ brush: 0.25, palette: null });
+    // Reset puts it back to unset, which is distinct from zero.
+    expect(putSkin(moved, { painterly: { brush: null, palette: null } }).painterly)
+      .toEqual({ brush: null, palette: null });
+  });
+});
+
+describe("B1: booleans survive the brand merge", () => {
+  it("persists mist ON through the write path", () => {
+    /*
+     * Dream mist defaults false, so it is the field most exposed to a merge
+     * that drops it: anything losing the sent value falls back to the default
+     * and the toggle silently reverts. `getBrand()` rebuilds the document from
+     * NAMED SECTIONS, which has swallowed a whole section before (theme), so
+     * this pins the boolean end to end.
+     */
+    const stored = sanitiseMapSkin({});
+    expect(stored.mist).toBe(false);
+    const on = putSkin(stored, { mist: true });
+    expect(on.mist).toBe(true);
+    // And it survives a subsequent unrelated save.
+    expect(putSkin(on, { accent: "#112233" }).mist).toBe(true);
+    // Turning it back off is honoured too, which a `||` merge would break.
+    expect(putSkin(on, { mist: false }).mist).toBe(false);
+  });
+
+  it("keeps the pulse lit unless explicitly turned off", () => {
+    const stored = sanitiseMapSkin({});
+    expect(stored.glow).toBe(true);
+    expect(putSkin(stored, { glow: false }).glow).toBe(false);
+    expect(putSkin(sanitiseMapSkin({ glow: false }), { glow: true }).glow).toBe(true);
   });
 });

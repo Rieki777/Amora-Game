@@ -58,8 +58,30 @@ import {
  *
  * A refusal, not a warning. The scene's shape IS the contract, and importing
  * an unknown one would write plausible rows from fields that have moved.
+ *
+ * ── WHY THIS IS A FAMILY AND NOT A LIST ──────────────────────────────────
+ * `map_scene.version` used to be a hand-written schema string
+ * (`v0.6-buildmode`). Round C1 unified it with the artifact's own
+ * `BUILD_VERSION` so the export and the `grounds-ready` handshake could stop
+ * disagreeing, which is a good fix and a breaking one here: the field now
+ * tracks the map BUILD, so it moves on every map release. An exact-match pin
+ * would refuse every fresh export, and re-pinning per build is a chore that
+ * gets skipped once and then silently drops a founder's scene.
+ *
+ * So: exact matches for the legacy string, plus the current MAJOR-MINOR
+ * family. `v0.7-roundC1` and `v0.7-roundD` import; `v0.8-anything` refuses and
+ * says so, because a minor bump is where fields actually move.
  */
 const SUPPORTED_VERSIONS = ["v0.6-buildmode"];
+const SUPPORTED_FAMILIES = ["v0.7"];
+
+function isSupportedVersion(v: unknown): boolean {
+  if (typeof v !== "string" || !v) return false;
+  if (SUPPORTED_VERSIONS.includes(v)) return true;
+  // "v0.7-roundC1" -> family "v0.7". Anything with no dash is its own family.
+  const family = v.split("-")[0];
+  return SUPPORTED_FAMILIES.includes(family);
+}
 
 const SKIPPED_BLOCKS: Array<{ block: string; reason: string }> = [
   { block: "structures", reason: "no map_structures table; the scene's geometry has no home yet" },
@@ -105,9 +127,10 @@ try {
 
 const meta = scene?.map_scene;
 if (!meta) die("This does not look like a map scene: no `map_scene` block.");
-if (!SUPPORTED_VERSIONS.includes(meta.version)) {
+if (!isSupportedVersion(meta.version)) {
   die(
-    `Scene version "${meta.version}" is not supported (this importer knows ${SUPPORTED_VERSIONS.join(", ")}).\n` +
+    `Scene version "${meta.version}" is not supported (this importer knows ` +
+      `${SUPPORTED_VERSIONS.join(", ")} and the ${SUPPORTED_FAMILIES.join(", ")} famil${SUPPORTED_FAMILIES.length === 1 ? "y" : "ies"}).\n` +
       "  Re-export from a matching map build, or teach this importer the new shape.\n" +
       "  Importing an unknown version would write plausible rows from fields that have moved.",
   );

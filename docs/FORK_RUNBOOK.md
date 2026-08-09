@@ -257,6 +257,16 @@ identities first.
 server routes `/grounds/index.html` and `/grounds/manifest.json` to it
 (`server/index.ts`), and the vite dev plugin does the same for `pnpm dev`.
 
+**Caching.** The artifact also answers on a content-hashed name,
+`/grounds/grounds-<hash>.html`, served `immutable` for a year; the manifest
+names the current one in its `url` field and is itself `no-store`. The shell
+uses that url, so a 4 MB map is fetched once per version instead of
+revalidated on every visit. The hash is memoised on (size, mtime), so swapping
+the artifact is picked up without a restart, and a request for a stale hash
+redirects to the current one rather than 404ing. `/grounds/index.html` still
+works and revalidates. The probe contract (`present`, `bytes`) is unchanged;
+`url` is additive.
+
 **There is deliberately no second copy.** It was briefly staged into
 `client/public/grounds/` at build time, which put 4 MB into `dist/public` and
 took the total to 7.8 MB against the CI bundle budget's 6 MB ceiling. That gate

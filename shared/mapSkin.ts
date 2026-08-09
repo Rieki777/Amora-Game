@@ -74,6 +74,21 @@ export const DEFAULT_MAP_SKIN: MapSkin = {
  * came through `Math.round` as 0 and a stored 40 drove the slider to 4000.
  * The panel shows percent; the fraction is what travels.
  */
+/**
+ * What the map actually draws when a painterly dial is UNSET.
+ *
+ * Mirrors the artifact's own initial state (`brushVal=1`, `palVal=0.3`, and
+ * its two sliders ship at 100 and 30). Stored `null` means "the founder has
+ * not chosen", and the panel has to render THESE rather than an invented
+ * middle: showing 50% for an unset dial tells a founder the land is
+ * half-brushed when it is fully brushed, and the first save would write that
+ * lie down as fact.
+ *
+ * Display only. Nothing writes these to storage; null stays null until a
+ * founder moves the slider.
+ */
+export const RUNTIME_PAINTERLY = { brush: 1, palette: 0.3 } as const;
+
 export const SKIN_BOUNDS = {
   label_scale: { min: 0.8, max: 1.3 },
   global_scale: { min: 0.5, max: 3 },

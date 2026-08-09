@@ -54,14 +54,25 @@ type Presence = "checking" | "present" | "absent";
  * few bytes of JSON beside the artifact; HTML arriving here fails to parse,
  * and that failure is the answer.
  */
-async function probeGrounds(): Promise<Presence> {
+async function probeGrounds(): Promise<{ presence: Presence; url: string }> {
   try {
     const res = await fetch(GROUNDS_MANIFEST, { headers: { Accept: "application/json" } });
-    if (!res.ok) return "absent";
+    if (!res.ok) return { presence: "absent", url: GROUNDS };
     const body = await res.json();
-    return body?.present === true ? "present" : "absent";
+    if (body?.present !== true) return { presence: "absent", url: GROUNDS };
+    /*
+     * Prefer the content-hashed URL the manifest names: it is served
+     * immutable, so the 4 MB map is fetched once per version instead of
+     * revalidated on every visit. Only a same-origin absolute path is
+     * followed, and anything else falls back to the stable name, so a
+     * malformed manifest cannot point the iframe somewhere else.
+     */
+    const named = typeof body.url === "string" && /^\/grounds\/[A-Za-z0-9._-]+$/.test(body.url)
+      ? body.url
+      : GROUNDS;
+    return { presence: "present", url: named };
   } catch {
-    return "absent";
+    return { presence: "absent", url: GROUNDS };
   }
 }
 
@@ -71,6 +82,8 @@ export default function LivingMap() {
   const [, navigate] = useLocation();
   const frame = useRef<HTMLIFrameElement | null>(null);
   const [presence, setPresence] = useState<Presence>("checking");
+  /** The URL the manifest names, hashed and immutable where available. */
+  const [groundsUrl, setGroundsUrl] = useState<string>(GROUNDS);
 
   /**
    * The hash the map opens on, captured once. Reading it during render on
@@ -83,7 +96,7 @@ export default function LivingMap() {
 
   useEffect(() => {
     let live = true;
-    probeGrounds().then((p) => { if (live) setPresence(p); });
+    probeGrounds().then((p) => { if (live) { setPresence(p.presence); setGroundsUrl(p.url); } });
     return () => { live = false; };
   }, []);
 
@@ -268,7 +281,7 @@ export default function LivingMap() {
         {presence === "present" && (
           <iframe
             ref={frame}
-            src={`${GROUNDS}${initialHash}`}
+            src={`${groundsUrl}${initialHash}`}
             onLoad={onLoad}
             title="Living map of the village"
             className="block h-full w-full border-0"

@@ -2285,7 +2285,7 @@ function buildExportJSON(){
   const ring=SCENE.bound.map(pt=>{const[la,lo]=worldToLatLon(pt[0],pt[1]);return[+lo.toFixed(7),+la.toFixed(7)]});
   ring.push(ring[0]);
   const out={
-    map_scene:{key:'amora-grounds',name:SCENE.name,status:'draft',visibility:'founders',version:'v0.6-buildmode',
+    map_scene:{key:'amora-grounds',name:SCENE.name,status:'draft',visibility:'founders',version:(window.BUILD_VERSION||'v0.7'),
       bounds:{w:W,h:H,units:'scene'},
       georef:{pin:[GEOREF.lat,GEOREF.lon],pin_world:GEOREF.pinW,zoom:GEOREF.z,meters_per_unit:GEOREF.mPerUnit,
         masterplan_affine:AF,note:'world = masterplan·(sx,sy)+(dx,dy); IAF inverts; worldToLatLon maps world→WGS84'},
@@ -3165,6 +3165,7 @@ refreshWork();
 /* ---------- MODULE DOORS — the map as the primary point of interaction.
    Every module has two doors: the menu (site nav) and the land (this map). Same routes, same data — D9 holds. ---------- */
 window.SITE_BASE='https://amora.regencivics.earth'; // forks set their own in Make This Yours
+window.BUILD_VERSION='v0.7-roundC1';
 const SITE_ROUTES={j1:'/first-walk',j2:'/resident',j3:'/steward',j4:'/investor'};
 const DOOR_DEFS={
   stay:{module:'stay',icon:'🛏',cta:'Book a room'},
@@ -3307,6 +3308,7 @@ document.querySelectorAll('#dock button').forEach(b=>b.onclick=()=>openDoor(b.da
 let JWALK=null;
 function playJourney(id){const j=jById(id);if(!j)return;
   closeLoom();$('panel').classList.remove('open');panelKey=null;$('module').classList.remove('show');closeInspect&&closeInspect();
+  if(document.body.classList.contains('circles'))setMapType('living',true);
   const stops=j.steps.map((st,si)=>({st,si})).filter(x=>x.st.at&&BY[x.st.at]);
   if(!stops.length){toast('No steps of this journey have a place yet — the Loom awaits.');return}
   const skipped=j.steps.length-stops.length;
@@ -3391,10 +3393,12 @@ function leaveIntro(){if(!document.body.classList.contains('intro'))return;
   document.body.classList.remove('intro');const ic=$('introCard');if(ic)ic.remove()}
 function routeHash(){if(HASHMUTE)return;const h=location.hash||'';
   if(h==='#/circles'){leaveIntro();if(!document.body.classList.contains('circles'))setMapType('circles',true);return}
-  if(h==='#/loom'){leaveIntro();if(!document.body.classList.contains('loom'))openLoom();return}
+  if(h==='#/loom'){leaveIntro();if(document.body.classList.contains('circles'))setMapType('living',true);if(!document.body.classList.contains('loom'))openLoom();return}
   const m=h.match(/^#\/(place|module|journey)\/([A-Za-z0-9_?=-]+)/);if(!m)return;
   leaveIntro();
-  if(m[1]==='place'&&BY[m[2]]){if(document.body.classList.contains('circles'))setMapType('living',true);openPanel(m[2])}
+  if(m[1]==='place'){if(BY[m[2]]){if(document.body.classList.contains('loom'))closeLoom();
+      if(document.body.classList.contains('circles'))setMapType('living',true);openPanel(m[2])}
+    else{toast('That place is no longer on the map.');setHash('')}}
   else if(m[1]==='module'&&MODULES[m[2]])openDoor(m[2],{});
   else if(m[1]==='journey')setTimeout(()=>playJourney(m[2]),500)}
 addEventListener('hashchange',routeHash);
@@ -3406,7 +3410,7 @@ if(location.hash&&location.hash.length>2)setTimeout(routeHash,400);
 function setMapType(t,quiet){const circ=t==='circles';
   document.body.classList.toggle('circles',circ);
   $('msLiving').classList.toggle('on',!circ);$('msCircles').classList.toggle('on',circ);
-  if(circ){buildOrgMap();setHash('#/circles')}else if(location.hash==='#/circles')setHash('');
+  if(circ){if(document.body.classList.contains('loom'))closeLoom();buildOrgMap();setHash('#/circles')}else if(location.hash==='#/circles')setHash('');
   if(!quiet)toast(circ?'◎ The Circles — the same village as an organism. Click any node to walk to its door.':'🏞 The Living Map — the land itself.')}
 window.setMapType=setMapType;
 $('msLiving').onclick=()=>setMapType('living');
@@ -3659,7 +3663,7 @@ addEventListener('message',e=>{try{
   if(d.type==='skin'&&d.skin){applySkinExport(d.skin);toast('✂ Skin applied from Village Settings.')}
   if(d.type==='goto'&&typeof d.hash==='string'){leaveIntro();location.hash=d.hash;routeHash()}
 }catch(_){}});
-try{if(window.parent!==window)window.parent.postMessage({type:'grounds-ready',version:'v0.7-roundC'},'*')}catch(_){}
+try{if(window.parent!==window)window.parent.postMessage({type:'grounds-ready',version:window.BUILD_VERSION||'v0.7'},'*')}catch(_){}
 
 
 /* intro */

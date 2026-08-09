@@ -15326,9 +15326,55 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   const groundsFile = path.resolve(__dirname, "..", "docs", "prototypes", "grounds-v0.html");
 
+  /**
+   * Identify the artifact by content, so it can be cached forever.
+   *
+   * Four megabytes revalidated on every navigation is four megabytes of
+   * nothing, and the map is the surface members open most. Hashed URLs let it
+   * be `immutable`, the same bargain `/assets` already takes.
+   *
+   * The hash is memoised on (size, mtime) rather than recomputed per request:
+   * reading 4 MB to answer a probe would trade one waste for another. It is
+   * also computed LAZILY, so boot does not pay for a file most deployments
+   * never serve, and a mid-flight artifact swap is picked up by the mtime
+   * check rather than needing a restart.
+   */
+  let groundsTag: { key: string; hash: string } | null = null;
+  const groundsInfo = (): { bytes: number; hash: string } | null => {
+    if (!fs.existsSync(groundsFile)) return null;
+    const st = fs.statSync(groundsFile);
+    const key = `${st.size}:${st.mtimeMs}`;
+    if (groundsTag?.key !== key) {
+      const digest = crypto.createHash("sha256").update(fs.readFileSync(groundsFile)).digest("hex");
+      groundsTag = { key, hash: digest.slice(0, 12) };
+    }
+    return { bytes: st.size, hash: groundsTag.hash };
+  };
+
+  /*
+   * The immutable URL. `grounds-<hash>.html` changes name whenever the bytes
+   * change, so a year-long cache can never serve a stale map.
+   */
+  app.get("/grounds/grounds-:hash.html", (req, res) => {
+    const info = groundsInfo();
+    if (!info) return res.status(404).json({ error: "map_artifact_absent" });
+    // A stale hash means a client is asking for a version we no longer have.
+    // Redirect rather than 404: the shell re-reads the manifest and recovers.
+    if (req.params.hash !== info.hash) return res.redirect(302, `/grounds/grounds-${info.hash}.html`);
+    res.type("html");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.sendFile(groundsFile);
+  });
+
+  /*
+   * The stable URL stays, for anything holding the old address and for a
+   * hand-typed check. It revalidates instead of caching hard, because this
+   * name does not change when the bytes do. sendFile's ETag makes that a 304.
+   */
   app.get("/grounds/index.html", (_req, res) => {
     if (!fs.existsSync(groundsFile)) return res.status(404).json({ error: "map_artifact_absent" });
     res.type("html");
+    res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
     res.sendFile(groundsFile);
   });
 
@@ -15337,10 +15383,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * fallback by status code alone, so it reads a few bytes of JSON instead.
    * Computed rather than written to disk, so it can never claim an artifact
    * that is no longer there.
+   *
+   * `present` and `bytes` are the original contract and are unchanged. `url`
+   * is additive: a shell that ignores it still works off /grounds/index.html.
    */
   app.get("/grounds/manifest.json", (_req, res) => {
-    if (!fs.existsSync(groundsFile)) return res.status(404).json({ present: false });
-    res.json({ present: true, bytes: fs.statSync(groundsFile).size });
+    const info = groundsInfo();
+    if (!info) return res.status(404).json({ present: false });
+    // The manifest itself must never be cached, or it would pin the shell to
+    // a hashed URL that has since moved.
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ present: true, bytes: info.bytes, url: `/grounds/grounds-${info.hash}.html` });
   });
 
   app.use("/assets", express.static(path.join(staticPath, "assets"), { maxAge: "1y", immutable: true }));
