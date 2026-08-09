@@ -49,6 +49,20 @@ const EXEMPT = [
   "shared/gameConfig.ts",
   "server/seeds/",
   "docs/",
+  /*
+   * The staged Living Map artifact. It is a byte-for-byte COPY of
+   * docs/prototypes/grounds-v0.html (exempt, one line above) that
+   * scripts/copy-grounds.mjs writes at build time, and it is gitignored: the
+   * prototype is the source and this is a build product.
+   *
+   * Without this line the guard's answer depended on whether you had run a
+   * build. A fresh checkout has no client/public/grounds, so CI passed; any
+   * developer who ran `pnpm build` first got 31 failures in a file they had
+   * not written and could not fix, since editing it is reverted by the next
+   * build. A guard that says different things on different machines is the
+   * exact failure this script has already been fixed for twice.
+   */
+  "client/public/grounds/",
   "scripts/check-brand-refs.mjs",
   "scripts/brand-refs-baseline.json",
   "package.json",

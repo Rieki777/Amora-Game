@@ -673,6 +673,46 @@ export const VARIABLES: VariableDef[] = [
     unit: "days",
   },
 
+  // ── Events (0059; visible in Admin only while the module is non-off) ─────
+  //
+  // Three knobs, and all three are READ. A registered variable nothing reads
+  // is a lie with a save button: an admin changes it, believes the village
+  // behaves differently, and says so out loud. rsvp_enabled gates the RSVP
+  // route, and the two windows bound the list query.
+  {
+    key: "events.rsvp_enabled",
+    category: "Events",
+    label: "Let members RSVP",
+    description:
+      "Members can say they are coming, and a gathering with a capacity counts them against it. Off leaves the calendar readable and takes no answers, which suits a village that handles attendance elsewhere.",
+    type: "boolean",
+    default: "true",
+  },
+  {
+    key: "events.upcoming_days",
+    category: "Events",
+    label: "Show gatherings this far ahead",
+    description:
+      "How far into the future the calendar looks. Anything starting beyond this is stored and stays hidden until it comes into range.",
+    type: "integer",
+    default: "90",
+    min: 1,
+    max: 730,
+    unit: "days",
+  },
+  {
+    key: "events.past_visible_days",
+    category: "Events",
+    label: "Keep finished gatherings listed for",
+    description:
+      "A gathering that has ended stays on the calendar this long. Dropping one the moment it starts tells somebody standing at the door that nothing is happening.",
+    type: "integer",
+    default: "30",
+    min: 0,
+    max: 365,
+    unit: "days",
+  },
+
   // ── Forum (S24-S26; visible in Admin only while the module is non-off) ────
   {
     key: "forum.report_hide_threshold",

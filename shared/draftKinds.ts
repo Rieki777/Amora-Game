@@ -118,4 +118,6 @@ export const CAPABILITY_CONSEQUENCE: Record<Capability, string> = {
   "exchange.manage": "list tokens, post prices, and stock the treasury",
   "health.record": "log the land's own measurements",
   "mechanics.propose": "propose changes to the game's own rules",
+  "event.rsvp": "say they are coming to a gathering",
+  "event.manage": "put gatherings on the village calendar, edit them, and cancel them",
 };

@@ -71,6 +71,44 @@ const tool = await api("POST", "/api/admin/tools", { name: `Village Chat ${RUN}`
 check("add a tool", tool.status === 200, `${tool.status} ${JSON.stringify(tool.json).slice(0,120)}`);
 check("tool visible publicly", (await api("GET", "/api/tools")).json.tools.some(t => t.name === `Village Chat ${RUN}`));
 
+console.log("\n── EVENTS ──");
+// Capacity 1 on purpose: the point of this section is that the cap is real.
+const soon = new Date(Date.now() + 3 * 86400000).toISOString();
+const gathering = await api("POST", "/api/admin/events", {
+  title: `Harvest work party ${RUN}`, startsAt: soon, locationText: "The greenhouse",
+  structureKeys: ["greenhouse"], capacity: 1, status: "scheduled",
+}, founder);
+check("create a gathering", gathering.status === 200, `${gathering.status} ${JSON.stringify(gathering.json).slice(0,120)}`);
+const evId = gathering.json?.event?.id;
+check("gathering listed publicly", (await api("GET", "/api/events")).json.events.some(e => e.id === evId));
+// A draft must never reach the member-facing list.
+const draft = await api("POST", "/api/admin/events", { title: `Secret ${RUN}`, startsAt: soon }, founder);
+check("draft stays off the public calendar",
+  draft.status === 200 && !(await api("GET", "/api/events")).json.events.some(e => e.id === draft.json.event.id));
+check("member RSVPs", (await api("POST", `/api/events/${evId}/rsvp`, { status: "going" }, aT)).status === 200);
+// The seat is gone, so the second member is refused. This is the check that
+// would pass anyway if capacity were enforced outside the transaction.
+const second = await api("POST", `/api/events/${evId}/rsvp`, { status: "going" }, bT);
+check("capacity refuses the second member", second.status === 409 && second.json.reason === "full", `${second.status}`);
+check("a full gathering still takes maybe", (await api("POST", `/api/events/${evId}/rsvp`, { status: "maybe" }, bT)).status === 200);
+// Withdrawing frees the seat, which proves the count is derived and not a
+// counter somebody has to remember to decrement.
+await api("DELETE", `/api/events/${evId}/rsvp`, undefined, aT);
+check("withdrawing frees the seat", (await api("POST", `/api/events/${evId}/rsvp`, { status: "going" }, bT)).status === 200);
+const oneEvent = await api("GET", `/api/events/${evId}`, undefined, aT);
+check("event carries schema.org markup",
+  oneEvent.json?.schemaOrg?.["@type"] === "Event"
+  && oneEvent.json.schemaOrg.eventStatus === "https://schema.org/EventScheduled");
+check("map reads gatherings by structure",
+  (await api("GET", "/api/events/by-structure")).json.structures?.greenhouse?.eventId === evId);
+// The organiser's list: names for whoever is catering, and never emails.
+const answers = await api("GET", `/api/admin/events/${evId}/rsvps`, undefined, founder);
+check("organiser sees who answered, with no emails",
+  answers.status === 200
+  && answers.json.rsvps.length >= 1
+  && answers.json.rsvps.every(r => !("email" in r)),
+  JSON.stringify(answers.json).slice(0, 140));
+
 console.log("\n── BADGES ──");
 const selfB = await api("POST", "/api/admin/badges", { name: `Composter ${RUN}`, kind: "self", description: "I compost" }, founder);
 const earnedB = await api("POST", "/api/admin/badges", { name: `Quest Doer ${RUN}`, kind: "earned", rule: { metric: "quests_consented", threshold: 1, stackable: true, maxStack: 5 } }, founder);

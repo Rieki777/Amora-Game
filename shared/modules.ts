@@ -391,6 +391,21 @@ export const MODULES: ModuleDef[] = [
       return null;
     },
   },
+  {
+    id: "events",
+    name: "Events",
+    description:
+      "The village's calendar: gatherings with a time, a place, a capacity and an RSVP. Other surfaces read it, so the map can light the building something is happening in.",
+    // Nothing hard-required. A gathering is a time and a place, and neither
+    // needs another module to exist. The map is a RECOMMEND because events
+    // are what make its buildings light up, and the calendar is worth having
+    // on its own for a village with no map at all.
+    requires: [],
+    recommends: ["map"],
+    capabilities: ["event.rsvp", "event.manage"],
+    variableKeys: ["events.rsvp_enabled", "events.upcoming_days", "events.past_visible_days"],
+    apiPrefixes: ["/api/events", "/api/admin/events"],
+  },
 ];
 
 export const MODULES_BY_ID: Record<string, ModuleDef> = Object.fromEntries(

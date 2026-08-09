@@ -287,6 +287,7 @@ export const MODULE_DOCS: Readonly<Record<string, string>> = {
   tools: "tools-hub.md",
   badges: "badges.md",
   stays: "stays.md",
+  events: "events.md",
 };
 
 /** Deterministic and close enough for a budget. Four characters per token. */

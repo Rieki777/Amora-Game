@@ -78,6 +78,7 @@ export const NAV: readonly NavEntry[] = [
       { href: "/circles", label: "Circles" },
       { href: "/roles", label: "Roles" },
       { href: "/gratitude", label: "Gratitude" },
+      { href: "/events", label: "What's On", module: "events" },
       { href: "/seasonal-festivals", label: "Seasonal Festivals" },
       { href: "/feedback", label: "Share Feedback" },
     ],
@@ -86,6 +87,7 @@ export const NAV: readonly NavEntry[] = [
     label: "Village",
     items: [
       { href: "/map", label: "Map", module: "map" },
+      { href: "/map/circles", label: "Circles & Seats", module: "map" },
       { href: "/stay", label: "Stay", module: "stays" },
       { href: "/library", label: "Library", module: "library" },
       { href: "/tools", label: "Tools", module: "tools" },

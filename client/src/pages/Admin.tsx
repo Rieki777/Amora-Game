@@ -11,6 +11,8 @@ const API_BASE = "/api";
 import TypographyPanel from "@/components/TypographyPanel";
 import LookPanel from "@/components/LookPanel";
 import IdentityPackPanel from "@/components/IdentityPackPanel";
+import MapSkinPanel from "@/components/MapSkinPanel";
+import EventsAdminPanel from "@/components/EventsAdminPanel";
 import { ExampleChip, ExamplesBanner, forgetExamplesCache, RETIRES_WITH } from "@/components/ExamplesBanner";
 const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
 
@@ -243,6 +245,9 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         // tab's dates: this is what a season CARRIES, not when it runs.
         { key: "seasons-patterns", label: "Season Shapes", icon: Calendar },
         { key: "circles-map", label: "Circles & Map", icon: Circle },
+        // Next to the map on purpose: a gathering's structure keys are what
+        // light the map's buildings, so the two are edited in the same visit.
+        { key: "events-admin", label: "Gatherings", icon: Calendar },
         { key: "tools-admin", label: "Tools", icon: Handshake },
         { key: "stays-admin", label: "Stays & Payments", icon: Home },
         { key: "exchange-admin", label: "Exchange", icon: TrendingUp },
@@ -7211,6 +7216,28 @@ function BrandImageField({
 
 // ── Setup Wizard: the white-label front door — make this site your project's ───
 
+/**
+ * The steps, in order, in ONE place.
+ *
+ * There used to be two lists: the wizard's own, and a copy in the Admin shell
+ * that decides whether setup is finished. Adding a sixth step to one of them
+ * would have left the shell calling setup complete while a step sat undone,
+ * which is the kind of drift that only shows up as "why is it still telling me
+ * I'm done".
+ *
+ * Order is the order a founder works: name the place, dress it, set its
+ * numbers, write its words, style its map, then ship. Go live stays last
+ * because it is the step you stop coming back to.
+ */
+const SETUP_STEPS = [
+  { key: "identity", label: "Identity" },
+  { key: "images", label: "Pictures" },
+  { key: "numbers", label: "Numbers" },
+  { key: "content", label: "Content" },
+  { key: "map", label: "Map & styling" },
+  { key: "technical", label: "Go live" },
+] as const;
+
 function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (tab: string) => void }) {
   const [brand, setBrand] = useState<any>(null);
   const [defaults, setDefaults] = useState<any>(null);
@@ -7254,13 +7281,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
 
   if (!brand || !defaults) return <div className="text-center py-12 text-gray-400">Loading...</div>;
 
-  const steps = [
-    { key: "identity", label: "Identity" },
-    { key: "images", label: "Pictures" },
-    { key: "numbers", label: "Numbers" },
-    { key: "content", label: "Content" },
-    { key: "technical", label: "Go live" },
-  ];
+  const steps = SETUP_STEPS;
   const doneCount = steps.filter((s) => brand.setup?.[s.key]).length;
   const setupComplete = doneCount === steps.length;
 
@@ -7424,7 +7445,11 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
         </div>
       </Section>
 
-      <Section id="technical" n={5} title="Go live" subtitle="One-time technical setup. Hand these to your developer or Claude Code.">
+      <Section id="map" n={5} title="Map & styling" subtitle="How the Living Map draws your land. Blank keeps the map's own look.">
+        <MapSkinPanel password={password} />
+      </Section>
+
+      <Section id="technical" n={6} title="Go live" subtitle="One-time technical setup. Hand these to your developer or Claude Code.">
         <ol className="space-y-4 text-sm text-gray-700">
           <li>
             <p className="font-medium text-gray-900">1. Deploy on Railway</p>
@@ -7973,8 +7998,7 @@ export default function Admin() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         const s = d?.brand?.setup ?? {};
-        const keys = ["identity", "images", "numbers", "content", "technical"];
-        setSetupComplete(keys.every((k) => s[k]));
+        setSetupComplete(SETUP_STEPS.every((step) => s[step.key]));
       })
       .catch(() => { /* leave as incomplete; the wizard just stays pinned */ });
   }, [password, activeTab]);
@@ -8023,6 +8047,7 @@ export default function Admin() {
             tenth of the width. */}
         <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 max-w-4xl">
           {activeTab === "setup" && <SetupWizard password={password} onOpenTab={setActiveTab} />}
+          {activeTab === "events-admin" && <EventsAdminPanel password={password} />}
           {activeTab === "submissions" && <SubmissionsTab password={password} />}
           {CONTENT_SECTIONS.map(({ key, label }) =>
             activeTab === key ? (

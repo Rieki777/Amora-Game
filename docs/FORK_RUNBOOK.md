@@ -140,7 +140,15 @@ two from the admin panel and almost never touches the first.
   name, main-site / events URLs, footer introduction) → Pictures (uploaded,
   sharp-compressed, never hotlinked — including the header logo, footer mark
   and browser tab icon, all live with no deploy) → Numbers (dues, budgets —
-  these write game variables) → Content (page copy, FAQs) → Go live.
+  these write game variables) → Content (page copy, FAQs) → Map & styling →
+  Go live.
+- **Map & styling (step 5)** writes `brand.skin`, which is the Living Map's
+  OWN export format, field for field (`shared/mapSkin.ts`). Style the land
+  inside the map, export, and the JSON drops straight in. Blank keeps the
+  map's own look. Served to the map at `GET /api/map/skin`, which inherits
+  the `map` module's gate. `painterly.brush` / `painterly.palette` are stored
+  and round-trip through export, and the map does not re-apply them on load
+  yet, so they change nothing on screen today.
 - **The shell is overlay-driven.** The header logo, tab icon, footer mark,
   footer introduction, "Main Site"/"Events" links and copyright name all come
   from the brand config; a blank `siteUrl` renders NO outside links rather
@@ -242,6 +250,62 @@ node scripts/enable-all-modules.mjs --base https://your-village.example --email 
 them admin-only first. Funds-bearing modules (stays, exchange) refuse while
 a shared password is the only admin credential — bootstrap per-admin
 identities first.
+
+### The Living Map artifact (`/map`)
+
+`/map` serves `docs/prototypes/grounds-v0.html`, staged into
+`client/public/grounds/index.html` by `scripts/copy-grounds.mjs`, which runs
+first in `pnpm build`. The staged copy is gitignored: the prototype is the
+source and editing the copy is reverted by the next build. A deployment with
+no prototype present builds fine and `/map` says the map is not installed;
+the org view at `/map/circles` needs no artifact. Nothing new to provision,
+and no env var.
+
+### The map address plane (0060)
+
+Additive, nullable columns that record WHERE a thing lives on the Living Map
+and WHO SAID SO: `circles.home_structure_key`; `structure_key` +
+`address_source` on `org_roles` and `quests`; `structure_keys` +
+`address_source` on `forum_threads`. No provisioning, no env var, nothing to
+turn on.
+
+`address_source` is `creator`, `creator-board` or `resolver-guess`, enforced in
+code (`shared/mapAddress.ts`) rather than by an enum, because the list is
+expected to grow and a widening enum is an ALTER on four populated tables every
+time. NULL means nobody has said anything yet, which is deliberately different
+from `creator-board`: one is silence, the other is a person choosing the Board.
+
+**The doctrine: a `creator` or `creator-board` row is never overwritten by
+anything automated.** Only NULL and a stale `resolver-guess` may be replaced.
+Every writer asks `mayOverwriteAddress()`; nothing reimplements the comparison.
+The scene importer obeys it and prints what it left alone.
+
+The founder's own words for roads, water and zones live in the
+`map_vocabulary` document in `app_config`, served at `GET /api/map/vocabulary`
+(behind the `map` module's gate) and written by `PUT
+/api/admin/map/vocabulary`.
+
+### Importing a map scene
+
+```bash
+npx tsx scripts/import-map-scene.ts <amora-scene.json> --dry
+```
+
+`--dry` needs no database and writes nothing. Without it, set `DATABASE_URL`.
+It refuses a scene whose version it does not know, matches rows by name and
+title and **never creates** one, and prints three lists every run: what it
+skipped, what it could not match, and what a person had already placed. Events
+import as drafts.
+
+### Events (0059)
+
+Ships off like everything else. Turning it on mounts `/events` and the
+calendar API. It holds no value, so its `openStateCheck` is guidance rather
+than a money guard: it asks an admin to cancel or wait out gatherings still
+on the calendar before switching the module off, so members are not sent to
+a page that 404s. Putting something on the calendar needs `event.manage`,
+which is role-granted and never reached by stage; answering one needs
+`event.rsvp`, which any account has. No seeds, no env vars.
 
 ### Selling library credits (`library.creditSaleEnabled`) — opt-in, off forever by default
 

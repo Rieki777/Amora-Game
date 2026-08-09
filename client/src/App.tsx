@@ -93,6 +93,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/forum": "Forum",
   "/feed": "Village feed",
   "/map": "Village map",
+  "/map/circles": "Circles and seats",
+  "/events": "What is on",
   "/first-walk": "Meet your village",
   "/stay": "Stays",
   "/library": "Material library",
@@ -227,6 +229,8 @@ const GratitudeWall = lazyPage(() => import("./pages/GratitudeWall"));
 const WorkWithUs = lazyPage(() => import("./pages/WorkWithUs"));
 const ToolsHub = lazyPage(() => import("./pages/ToolsHub"));
 const VillageMap = lazyPage(() => import("./pages/VillageMap"));
+const LivingMap = lazyPage(() => import("./pages/LivingMap"));
+const Events = lazyPage(() => import("./pages/Events"));
 const FirstWalk = lazyPage(() => import("./pages/FirstWalk"));
 const Forum = lazyPage(() => import("./pages/Forum"));
 const Feed = lazyPage(() => import("./pages/Feed"));
@@ -279,7 +283,13 @@ function Router() {
       <Route path="/circles" component={Circles} />
       <Route path="/quests" component={Quests} />
       <Route path="/tools" component={ToolsHub} />
-      <Route path="/map" component={VillageMap} />
+      {/* The geographic map is what /map means now. The nested-circles org
+          view keeps its own address: it holds the concierge, the contact
+          relay and raise-your-hand, which read live data behind the
+          capability gate and have no equivalent in the artifact. */}
+      <Route path="/map" component={LivingMap} />
+      <Route path="/map/circles" component={VillageMap} />
+      <Route path="/events" component={Events} />
       <Route path="/first-walk" component={FirstWalk} />
       <Route path="/feed" component={Feed} />
       <Route path="/stay" component={Stay} />

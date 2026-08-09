@@ -17,6 +17,25 @@ import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } fr
 import { buildThemeCss, sanitizeFontName } from "./lib/themeCss";
 import { applyTimingOf, ringOf, VARIABLES_BY_KEY } from "../shared/gameVariables";
 import { CONSTITUTION } from "../shared/constitution";
+import { DEFAULT_MAP_SKIN, sanitiseMapSkin } from "../shared/mapSkin";
+import {
+  DEFAULT_MAP_VOCABULARY,
+  MAP_VOCABULARY_DOC,
+  sanitiseMapVocabulary,
+} from "../shared/mapAddress";
+import { toSchemaOrg } from "../shared/gatherings";
+import {
+  createGathering,
+  deleteGathering,
+  eventsOpenState,
+  getGathering,
+  listGatherings,
+  listRsvps,
+  rsvp,
+  updateGathering,
+  upcomingByStructure,
+  withdrawRsvp,
+} from "./lib/gatherings";
 import {
   backerCounts,
   displayChangeValue,
@@ -519,7 +538,10 @@ const DEFAULT_BRAND = {
   currency: { name: "", nameLower: "" },
   images: { hero: "", investorHero: "", residentHero: "", stewardHero: "", prosperityHero: "", masterPlanHero: "", logo: "", heartLogo: "", favicon: "" },
   // Setup Wizard progress — projects tick these off as they make the site theirs.
-  setup: { identity: false, images: false, numbers: false, content: false, technical: false },
+  setup: { identity: false, images: false, numbers: false, content: false, technical: false, map: false },
+  // How the Living Map draws this village's land. Shape, units and the reason
+  // the keys stay snake_case all live in shared/mapSkin.ts.
+  skin: DEFAULT_MAP_SKIN,
   // Typography as deployment data (docs/DESIGN_TOKENS_SPEC.md §3.3). All
   // blank = the platform's licence-clean self-hosted defaults. A village that
   // brings its own font hosts a CSS file with the @font-face (their server,
@@ -734,6 +756,15 @@ const journeyRepo = dbDocument(getPool(), "journey-state", { checkboxes: {}, cop
 const emailConfigRepo = dbDocument(getPool(), "email-config", DEFAULT_EMAIL_CONFIG as any);
 const settingsRepo = dbDocument(getPool(), "settings", DEFAULT_SETTINGS as any);
 const brandRepo = dbDocument(getPool(), "brand", DEFAULT_BRAND as any);
+/**
+ * The founder's own words for roads, water and zones on the Living Map.
+ *
+ * Its own document rather than a section of `brand`, because it is a list the
+ * map owns and the scene importer replaces wholesale; folding it into the
+ * brand overlay would put it behind the Setup Wizard's read-modify-write and
+ * make a scene import able to clobber an unrelated brand field.
+ */
+const mapVocabRepo = dbDocument(getPool(), MAP_VOCABULARY_DOC, DEFAULT_MAP_VOCABULARY as any);
 const workWithUsRepo = dbDocument(getPool(), "work-with-us", DEFAULT_WORK_WITH_US as any);
 const visitConfigRepo = dbDocument(getPool(), "visit-config", DEFAULT_VISIT_CONFIG as any);
 const investorSummaryRepo = dbDocument(getPool(), "investor-summary", DEFAULT_INVESTOR_SUMMARY as any);
@@ -845,6 +876,7 @@ async function initStores(): Promise<void> {
     emailConfigRepo.load(),
     settingsRepo.load(),
     brandRepo.load(),
+    mapVocabRepo.load(),
     workWithUsRepo.load(),
     visitConfigRepo.load(),
     investorSummaryRepo.load(),
@@ -1904,6 +1936,14 @@ function getBrand() {
     theme: { ...DEFAULT_BRAND.theme, ...((b as any).theme ?? {}) },
     // Same drop-on-read trap as theme: getBrand REBUILDS from named sections.
     identityPack: { ...DEFAULT_BRAND.identityPack, ...((b as any).identityPack ?? {}) },
+    // And again for the map skin. `painterly` is a nested object, so it needs
+    // its own spread: the shallow one above would replace the whole object
+    // and drop whichever of brush/palette the caller did not send.
+    skin: {
+      ...DEFAULT_BRAND.skin,
+      ...((b as any).skin ?? {}),
+      painterly: { ...DEFAULT_BRAND.skin.painterly, ...(((b as any).skin ?? {}).painterly ?? {}) },
+    },
   };
 }
 
@@ -3511,6 +3551,13 @@ async function startServer() {
     const n = Number(row.n);
     return { count: n, description: `${n} product purchase(s) still awaiting payment` };
   };
+  /*
+   * Events holds no value, so this is courtesy and not an economic guard: it
+   * stops a village silently 404ing the page it told members to check while
+   * a gathering is still on the calendar. Same "settle first" shape, much
+   * lower stakes, and it is still the right answer to give an admin.
+   */
+  MODULES_BY_ID["events"].openStateCheck = () => eventsOpenState(getPool());
 
   // S33/S37/S42: config and economy firewalls are re-proven at every boot —
   // a hand-edited listing, badge row, or drained escrow can never outlive a
@@ -6439,6 +6486,243 @@ async function startServer() {
     }
     await toolsRepo.replaceAll(all);
     res.json({ checked: results.length, results });
+  });
+
+  // ── 0059: Events — the village calendar ──────────────────────────────────
+  // Both prefixes gate on the module, admin included: off means the whole
+  // surface is a 404 and the admin tab with it. There is no settlement
+  // webhook here and no value in flight, so nothing needs to stay mounted.
+
+  app.use("/api/events", requireModule("events"));
+  app.use("/api/admin/events", requireModule("events"));
+
+  /** The window the calendar looks through, from the two wired variables. */
+  const eventWindow = () => ({
+    upcomingDays: numberVar("events.upcoming_days"),
+    pastVisibleDays: numberVar("events.past_visible_days"),
+  });
+
+  /** Putting something on the village calendar: admin OR `event.manage`. */
+  async function mayManageEvents(req: any): Promise<boolean> {
+    if (await isAdmin(req)) return true;
+    const user = await authedUser(req);
+    return user ? hasCapability("event.manage", await capabilityCtx(user)) : false;
+  }
+
+  /**
+   * Validate a gathering before it reaches the table.
+   *
+   * `creating` is the difference between "must be present" and "must be valid
+   * if present": a PUT that only flips status must not be told it forgot a
+   * title. The enum-shaped fields are coerced in the library rather than
+   * rejected here, so this checks the things a human can actually get wrong.
+   */
+  function validateGatheringBody(body: any, creating: boolean): string | null {
+    if (!body || typeof body !== "object") return "A body is required";
+
+    if (creating || body.title !== undefined) {
+      if (!String(body.title ?? "").trim()) return "A title is required";
+      if (String(body.title).length > 200) return "The title is too long (200 characters)";
+    }
+    if (creating || body.startsAt !== undefined) {
+      if (Number.isNaN(new Date(body.startsAt).getTime())) return "A valid start date is required";
+    }
+    if (body.endsAt !== undefined && body.endsAt !== null && body.endsAt !== "") {
+      if (Number.isNaN(new Date(body.endsAt).getTime())) return "The end date is not a valid date";
+      /*
+       * Ordering is checked only when BOTH dates are in this request. KNOWN
+       * GAP: a PUT carrying only `endsAt` is not compared against the stored
+       * `startsAt`, so an end before the start can be saved that way. Closing
+       * it means reading the row first, which belongs in updateGathering
+       * rather than in a body validator that has no pool.
+       */
+      const start = body.startsAt !== undefined ? new Date(body.startsAt) : null;
+      if (start && !Number.isNaN(start.getTime()) && new Date(body.endsAt) < start) {
+        return "The end date is before the start date";
+      }
+    }
+    if (body.structureKeys !== undefined) {
+      if (!Array.isArray(body.structureKeys)) return "structureKeys must be a list of map structure keys";
+      if (body.structureKeys.some((k: any) => typeof k !== "string")) {
+        return "Every structure key must be a string";
+      }
+    }
+    if (body.capacity !== undefined && body.capacity !== null && body.capacity !== "") {
+      const n = Number(body.capacity);
+      if (!Number.isFinite(n) || n < 0) return "Capacity must be zero or more, or blank for no limit";
+    }
+    if (body.onlineUrl) {
+      let url: URL;
+      try { url = new URL(String(body.onlineUrl)); } catch { return "The online link must be a valid URL"; }
+      if (url.protocol !== "https:") return "Online links are https-only";
+    }
+    return null;
+  }
+
+  /**
+   * The calendar.
+   *
+   * Drafts are filtered in the QUERY, not after it, so an unpublished
+   * gathering never travels to a client that would then be trusted to hide
+   * it. `?structure=` is how the map asks what is happening in one building.
+   */
+  app.get("/api/events", async (req, res) => {
+    const user = await authedUser(req);
+    const list = await listGatherings(getPool(), {
+      userId: user?.id ?? null,
+      includeDrafts: false,
+      structureKey: typeof req.query.structure === "string" ? req.query.structure : null,
+      ...eventWindow(),
+    });
+    res.json({ events: list, rsvpEnabled: boolVar("events.rsvp_enabled") });
+  });
+
+  /**
+   * What the map asks: one entry per structure, the soonest gathering there.
+   *
+   * Registered ABOVE `/api/events/:id` because Express matches in order and
+   * would otherwise read "by-structure" as an id and 404. Same module gate,
+   * inherited from the prefix. The map's lantern code reads `daysUntil`.
+   */
+  app.get("/api/events/by-structure", async (_req, res) => {
+    res.json({ structures: await upcomingByStructure(getPool(), numberVar("events.upcoming_days")) });
+  });
+
+  /**
+   * One gathering, with its schema.org markup alongside.
+   *
+   * The JSON-LD is emitted server-side from the same row the page renders,
+   * so a crawler and a member cannot be told different things. A draft 404s
+   * to anyone who cannot manage events: existence-hiding, same posture as a
+   * module that is off.
+   */
+  app.get("/api/events/:id", async (req, res) => {
+    const user = await authedUser(req);
+    const g = await getGathering(getPool(), req.params.id, user?.id ?? null);
+    if (!g) return res.status(404).json({ error: "Not found" });
+    if (g.status === "draft" && !(await mayManageEvents(req))) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.json({
+      event: g,
+      schemaOrg: toSchemaOrg(g, { siteUrl: mergedConfig().project.siteUrl }),
+      rsvpEnabled: boolVar("events.rsvp_enabled"),
+    });
+  });
+
+  /**
+   * Say you are coming.
+   *
+   * Capacity is enforced inside the transaction in rsvp() and never here:
+   * checking in the route, then writing, is the check-then-act race that has
+   * already cost this codebase two bugs.
+   */
+  app.post("/api/events/:id/rsvp", async (req, res) => {
+    if (!boolVar("events.rsvp_enabled")) {
+      return res.status(403).json({ error: "RSVPs are closed for this village" });
+    }
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to RSVP" });
+    if (!hasCapability("event.rsvp", await capabilityCtx(user))) {
+      return res.status(403).json({ error: "You cannot RSVP yet" });
+    }
+
+    const outcome = await rsvp(
+      getPool(),
+      req.params.id,
+      user.id,
+      req.body?.status ?? "going",
+      typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : undefined,
+    );
+    if (!outcome.ok) {
+      const code = outcome.reason === "not_found" ? 404 : 409;
+      const message =
+        outcome.reason === "not_found" ? "Not found"
+        : outcome.reason === "full" ? "This gathering is full"
+        : "This gathering is not taking answers";
+      return res.status(code).json({ error: message, reason: outcome.reason });
+    }
+
+    // History, not a second event mechanism: recordEvent is the one way in,
+    // and it swallows its own failures so an RSVP never fails on the audit.
+    if (!outcome.duplicate) {
+      await recordEvent(getPool(), {
+        kind: "event_rsvp",
+        text: `answered "${outcome.status}" to a gathering`,
+        actorUserId: user.id,
+        entityType: "event",
+        entityRef: req.params.id,
+        /*
+         * `admin`, deliberately. The spine's two audiences ARE the public
+         * Pulse and the private audit trail, and an RSVP names a person and
+         * says where they will be on a given evening. That belongs in the
+         * history the village can audit, never on a page a stranger reads.
+         * The gathering itself is public news; who is attending is not.
+         */
+        audience: "admin",
+      });
+    }
+    res.json({ success: true, status: outcome.status, goingCount: outcome.goingCount });
+  });
+
+  app.delete("/api/events/:id/rsvp", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const removed = await withdrawRsvp(getPool(), req.params.id, user.id);
+    res.json({ success: true, removed });
+  });
+
+  /** Admin list: the only surface that sees drafts. */
+  app.get("/api/admin/events", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "Unauthorized" });
+    const list = await listGatherings(getPool(), {
+      includeDrafts: true,
+      // Admins manage the whole calendar, so the member-facing windows do not
+      // apply: a gathering being planned for next year has to be findable by
+      // the person planning it.
+      upcomingDays: 3650,
+      pastVisibleDays: 3650,
+    });
+    res.json({ events: list });
+  });
+
+  /** Who is coming, for whoever is catering. Names only, never emails. */
+  app.get("/api/admin/events/:id/rsvps", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "Unauthorized" });
+    res.json({ rsvps: await listRsvps(getPool(), req.params.id) });
+  });
+
+  app.post("/api/admin/events", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "Unauthorized" });
+    const problem = validateGatheringBody(req.body, true);
+    if (problem) return res.status(400).json({ error: problem });
+    const actor = await authedUser(req);
+    const created = await createGathering(getPool(), req.body, actor?.id ?? null);
+    await recordEvent(getPool(), {
+      kind: "event_created",
+      text: `put "${created.title}" on the village calendar`,
+      actorUserId: actor?.id ?? null,
+      entityType: "event",
+      entityRef: created.id,
+      audience: created.status === "draft" ? "admin" : "public",
+    });
+    res.json({ success: true, event: created });
+  });
+
+  app.put("/api/admin/events/:id", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "Unauthorized" });
+    const problem = validateGatheringBody(req.body, false);
+    if (problem) return res.status(400).json({ error: problem });
+    const updated = await updateGathering(getPool(), req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true, event: updated });
+  });
+
+  app.delete("/api/admin/events/:id", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "Unauthorized" });
+    const gone = await deleteGathering(getPool(), req.params.id);
+    if (!gone) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
   });
 
   // â”€â”€ S30-S31: Stays — accommodation on stay credits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
@@ -11815,9 +12099,49 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       // mean two sanitisers to keep in agreement forever.
       theme: { ...(current as any).theme, ...(req.body.theme ?? {}) },
       identityPack: { ...(current as any).identityPack, ...(req.body.identityPack ?? {}) },
+      // Sanitised on write (unlike theme) because this object is handed to the
+      // map artifact and two of its fields land in CSS custom properties. The
+      // artifact is a separate document doing its own thing with them, so the
+      // check belongs at the boundary where the value enters storage.
+      skin: sanitiseMapSkin({ ...(current as any).skin, ...(req.body.skin ?? {}) }),
     };
     await brandRepo.put(next);
     res.json({ success: true, brand: next });
+  });
+
+  /**
+   * The Living Map's skin, for the shell to hand its iframe.
+   *
+   * This sits under `/api/map`, so `app.use("/api/map", requireModule("map"))`
+   * already gates it: 404 while the module is off, 401 for a signed-out
+   * visitor while it is members-only. That is the posture we want and it is
+   * inherited, not restated. Whoever can open the map can read how it is
+   * painted, which is the same look the page renders anyway.
+   *
+   * No authentication beyond that, and none needed: the document holds colours
+   * and scales, no member data.
+   */
+  app.get("/api/map/skin", async (_req, res) => {
+    res.json({ skin: getBrand().skin });
+  });
+
+  /**
+   * The founder's own words for roads, water and zones (0060).
+   *
+   * Same gate as the skin, inherited from the `/api/map` prefix. The map has
+   * no inbound verb for vocabulary yet, so today this is what makes a scene
+   * import survivable: the words are stored, readable, and travel back out
+   * through the next export instead of being lost on the way in.
+   */
+  app.get("/api/map/vocabulary", async (_req, res) => {
+    res.json({ vocabulary: mapVocabRepo.get() });
+  });
+
+  app.put("/api/admin/map/vocabulary", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const next = sanitiseMapVocabulary(req.body?.vocabulary ?? req.body);
+    await mapVocabRepo.put(next as any);
+    res.json({ success: true, vocabulary: next });
   });
 
   // Public: the computed season state (current picked by date — never stale).

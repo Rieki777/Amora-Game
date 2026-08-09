@@ -33,7 +33,9 @@ export type Capability =
   | "exchange.swap" // trade one village token for another at posted prices
   | "exchange.manage" // list tokens, post prices, stock the treasury (role-only)
   | "health.record" // log the land's own measurements (trees, water, hectares)
-  | "mechanics.propose"; // propose a change to the game's own rules (Game Mechanics)
+  | "mechanics.propose" // propose a change to the game's own rules (Game Mechanics)
+  | "event.rsvp" // say you are coming to a gathering
+  | "event.manage"; // put a gathering on the village calendar, edit or cancel it
 
 /**
  * The canonical list, as a VALUE: badge validation and unlock diffs iterate
@@ -56,6 +58,8 @@ export const ALL_CAPABILITIES: Capability[] = [
   "exchange.manage",
   "health.record",
   "mechanics.propose",
+  "event.rsvp",
+  "event.manage",
 ];
 
 /**
@@ -83,6 +87,12 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   // (governance.hypha_threshold). A warning badge's deny suspends it — the
   // remedy for misuse that is short of anything harsher.
   "mechanics.propose": "member",
+  // Anyone with an account can say they are coming. A gathering people have
+  // to earn their way into is a different product, and a village that wants
+  // one moves this rung. `event.manage` is deliberately absent: putting
+  // something on the village calendar is an appointment, granted by a role or
+  // a badge, never reached by climbing.
+  "event.rsvp": "guest",
 };
 
 /**
