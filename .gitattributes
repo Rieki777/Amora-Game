@@ -1,0 +1,6 @@
+# The Living Map artifact is GENERATED (docs/prototypes/gen_*.py, embed_*.py)
+# and is ~4 MB of HTML with base64 payloads inlined. `core.autocrlf` is true on
+# Windows checkouts, so without this git would store LF, hand back CRLF, and
+# the file on disk would no longer match the one the generator wrote or the one
+# the map lane checksums. `-text` means bytes in, same bytes out, everywhere.
+docs/prototypes/grounds-v0.html -text
