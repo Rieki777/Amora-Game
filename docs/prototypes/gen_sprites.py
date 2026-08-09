@@ -50,6 +50,13 @@ FAMILIES = {
  "tent": "a large bell tent of pale canvas on a curved wooden platform with a string of tiny lights",
  "sacred": "an ancient spreading tree with a small shrine and soft hanging lanterns at its roots",
  "store": "a village store of curved timber with a porch, woven baskets, barrels and a hanging plain sign",
+ # The registry has always referenced these two families and this dict never
+ # listed them, so the generator was never asked for them and every Pond,
+ # River Pool and Waterfall on the map has fallen back to a flat SVG emblem.
+ # Both are WATER FEATURES with no building, phrased like `spring` above so
+ # the model does not invent a hut beside the water.
+ "pool": "a natural swimming pool - a WATER FEATURE with no building: deep clear turquoise water held by smooth river boulders, a small pebble beach on one side, ferns and overhanging branches",
+ "waterfall": "a woodland waterfall - a WATER FEATURE with no building: a slender fall of white water dropping over a mossy rock shelf into a clear plunge pool, wet stones and ferns around it, fine mist in the air",
 }
 
 def gen(fam, subject):
