@@ -258,5 +258,11 @@ rep(
     "setInterval(()=>{try{refreshBadges()}catch(_){}} ,3000);\n",
 )
 
+# The build says what it is. Stays inside the v0.7 family on purpose: the
+# site importer accepts `v0.7-*`, and `v0.8-roundD` is reserved for D5.4.
+if "BUILD_VERSION='v0.7-voice1'" in src:
+    rep("BUILD_VERSION='v0.7-voice1'", "", where="after")  # count guard only
+    src = src.replace("BUILD_VERSION='v0.7-voice1'", "BUILD_VERSION='v0.7-voice1-badges1'", 1)
+
 open(HTML, "w", encoding="utf8").write(src)
 print(f"badges P1 patched: {before} -> {len(src)} bytes (+{len(src)-before})")

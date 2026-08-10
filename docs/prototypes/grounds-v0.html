@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Amora — The Living Map</title>
+<title>Amora · The Living Map</title>
 <style>
   :root{
     --wood-d:#241a10; --wood:#33261656; --wood-s:#3a2b1a; --gold:#c9a25e; --gold-b:#ecd08a;
@@ -427,8 +427,38 @@
 
   /* ---------- round C: living-land systems ---------- */
   .poi.ph2{opacity:.84}.poi.ph3{opacity:.62} /* loading into reality — later phases stand more transparent */
+  /* ── the badge language: one seal, four charges ── */
+  #icons .bgroup{position:absolute;left:0;top:0;pointer-events:none;z-index:1;
+    opacity:0;transition:opacity .28s ease;will-change:transform,opacity}
+  #icons .bgroup.on{opacity:.6}
+  .bseal{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;pointer-events:auto;
+    cursor:pointer;transition:opacity .2s ease,transform .18s ease}
+  .bmid .bseal{width:16px;height:16px;margin:-8px 0 0 -8px}
+  /* A 44px target under a 22px mark: the seal is small on purpose and a
+     thumb is not. Centred on the seal, invisible, and the only hit surface. */
+  .bseal .bhit{position:absolute;left:50%;top:50%;width:44px;height:44px;
+    margin:-22px 0 0 -22px;border-radius:50%}
+  .bseal svg{width:100%;height:100%;overflow:visible;display:block}
+  .bseal .face{fill:var(--parch);fill-opacity:.94}
+  .bseal .rim{fill:none;stroke:var(--gold);stroke-width:2}
+  .bseal .ink{fill:none;stroke:var(--t-icon);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .bseal .tint{stroke:var(--btint,var(--t-icon))}
+  /* The pips ride below the seal, so they need their own contrast against
+     whatever land is behind them. */
+  .bseal .pip{fill:var(--t-icon);stroke:var(--parch);stroke-width:1.1;paint-order:stroke}
+  /* Rim vocabulary. Amber says a resolver guessed this address, gold says a
+     person chose it; dashed says the seat is still open; braided says the
+     work asks for a skill. */
+  .bseal.r-amber .rim{stroke:var(--t-accent,#e8a13c)}
+  .bseal.r-silver .rim{stroke:#c9d3d6}
+  .bseal.r-open .rim{stroke-dasharray:4 3}
+  .bseal.r-braid .rim{stroke-dasharray:6 2 2 2;stroke-width:2.4}
+  .bseal.r-soft .rim{stroke:#7fb6b0}
+  .bgroup .b-invite{opacity:.55}
+  .bgroup .b-invite .face{fill-opacity:.5}
   .poi.talk{filter:drop-shadow(0 0 10px rgba(232,200,119,.9))}
-  .poi .evbadge{position:absolute;right:-8px;top:-10px;width:17px;height:17px;pointer-events:none;display:none}
+  .poi .evbadge{position:absolute;right:-8px;top:-10px;width:22px;height:22px;pointer-events:none;display:none;
+    transform-origin:50% 50%}
   .poi.hasev .evbadge{display:block}
   .evbadge svg{width:100%;height:100%;filter:drop-shadow(0 0 3px rgba(255,214,120,.8))}
   .ev-u0 .evbadge{animation:evp 3.4s ease-in-out infinite;opacity:.55}
@@ -622,7 +652,7 @@
 <button id="dayBtn" title="Time of day">☀</button>
 <button id="themeBtn">✦ Theme</button>
 <div id="themePanel">
-  <h4>Map themes — your land, your language</h4>
+  <h4>Map themes · your land, your language</h4>
   <div id="themeList"></div>
   <h4 style="margin-top:4px">Icon style</h4>
   <div style="display:flex;gap:6px;flex-wrap:wrap;row-gap:5px"><button class="chip" data-im="auto">✦ Auto</button><button class="chip" data-im="flat">Emblems</button><button class="chip" data-im="iso">Isometric</button><button class="chip on" data-im="painted">Painted</button></div>
@@ -632,7 +662,7 @@
   <div id="paintCtl" style="display:none;flex-direction:column;gap:5px">
     <div class="customrow"><span style="width:44px;font-size:10px;color:#b9af8f;font-variant:small-caps">brush</span><input type="range" id="pBrush" min="0" max="100" value="100" style="flex:1;accent-color:var(--gold)"><b id="pBrushV" style="width:34px;text-align:right;font-size:10.5px;font-weight:normal">100%</b></div>
     <div class="customrow"><span style="width:44px;font-size:10px;color:#b9af8f;font-variant:small-caps">palette</span><input type="range" id="pPal" min="0" max="100" value="30" style="flex:1;accent-color:var(--gold)"><b id="pPalV" style="width:34px;text-align:right;font-size:10.5px;font-weight:normal">30%</b></div>
-    <div style="font-size:9.5px;color:#8a7f63;line-height:1.4">brush 0 = raw satellite · palette 0 = pure filtered satellite, no generated colour. The paint is a deterministic filter — geometry never moves.</div>
+    <div style="font-size:9.5px;color:#8a7f63;line-height:1.4">brush 0 = raw satellite · palette 0 = filtered satellite, no invented colour. The paint is only paint; nothing on the land moves.</div>
   </div>
   <h4 style="margin-top:4px">Your palette</h4>
   <div class="customrow">
@@ -651,13 +681,13 @@
 <button id="wallBtn">☰ Get Involved</button><!-- ids keep the historical wall name; user-facing copy says Get Involved -->
 <button id="loomBtn" title="every connection, one snapshot (L)">⧉ The Loom</button>
 <div id="dock">
- <button data-m="wallet" data-tip="The Exchange — one ledger, every token. Hearts are recognition, never a wage. · /wallet"></button>
- <button data-m="stay" data-tip="Stays — book a room; work-exchange quests extend your stay. · /stay"></button>
- <button data-m="housing" data-tip="Housing — lots in the hamlets, the waitlist, the land-share path. · /housing"></button>
- <button data-m="library" data-tip="Material Library — borrow against escrow, wear quoted up front. · /library"></button>
- <button data-m="journeys" data-tip="Journeys — walk a path on the land, visitor to resident."></button>
- <button data-m="events" data-tip="Events — the lanterns burn brighter as the day comes near."></button>
- <button data-m="admin" data-tip="Make this map yours — theme, accent, labels, mist. · /admin?tab=setup"></button>
+ <button data-m="wallet" data-tip="The Exchange. One ledger, every token; Hearts are thanks, never a wage. · /wallet"></button>
+ <button data-m="stay" data-tip="Stays. Book a room; work-exchange quests extend your stay. · /stay"></button>
+ <button data-m="housing" data-tip="Housing. Lots in the hamlets, the waitlist, the land-share path. · /housing"></button>
+ <button data-m="library" data-tip="Material Library. Borrow with a deposit, wear quoted up front. · /library"></button>
+ <button data-m="journeys" data-tip="Journeys. Walk a path on the land, visitor to resident."></button>
+ <button data-m="events" data-tip="Events. The lanterns burn brighter as the day comes near."></button>
+ <button data-m="admin" data-tip="Make this map yours. Theme, accent, labels, mist. · /admin?tab=setup"></button>
 </div>
 <div id="vdrop"></div>
 <div id="pbar">
@@ -670,18 +700,18 @@
 <div id="walkCard"></div>
 <div id="orgmap">
  <div id="orgHead"><h3>◎ The Circles</h3>
-  <span class="sub">the village as organism — same data as the land, drawn as the org chart. Click any node to walk to its door · scroll zooms, drag pans · open seats pulse as open calls</span></div>
+  <span class="sub">the same village, drawn as its circles. Click any node to walk to its door · scroll zooms, drag pans · open seats pulse as open calls</span></div>
  <svg id="orgSvg" viewBox="0 0 1600 1050" preserveAspectRatio="xMidYMid meet"></svg>
 </div>
 <div id="skin">
  <h3>✂ Make this map yours</h3>
- <div class="sub">The map's step in <b>Admin → Make This Yours</b> — same pattern: blank keeps Amora's value as the suggestion. Everything here exports as <i>art_manifest.skin</i> and follows the village config.</div>
+ <div class="sub">The map's page of <b>Make This Yours</b>. Blank keeps Amora's answer as the suggestion; whatever you set here travels with the map.</div>
  <div class="srow"><span class="slbl">land theme</span><span class="swrow" id="skTheme"></span></div>
  <div class="srow"><span class="slbl">your land, in words</span><input type="text" id="skWords" placeholder="e.g. volcanic coast, mango gold"></div>
  <div class="srow"><span class="slbl">accent</span><input type="color" id="skAccent" value="#e8a13c"><span class="amv">Amora's value: #e8a13c</span></div>
  <div class="srow"><span class="slbl">parchment</span><input type="color" id="skParch" value="#f3e6c8"><span class="amv">Amora's value: #f3e6c8</span></div>
  <div class="srow"><span class="slbl">label size</span><input type="range" id="skLbl" min="80" max="130" value="100"><b id="skLblV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">100%</b></div>
- <div class="srow"><span class="slbl">icon style</span><select id="skIcon"><option value="auto">auto — emblem near, art far</option><option value="painted">painted sprites</option><option value="iso">isometric emblems</option></select></div>
+ <div class="srow"><span class="slbl">icon style</span><select id="skIcon"><option value="auto">auto · emblems far, painted near</option><option value="painted">painted sprites</option><option value="iso">isometric emblems</option></select></div>
  <div class="srow"><span class="slbl">dream mist</span><label style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#d8cba2;cursor:pointer"><input type="checkbox" id="skMist"> soft mist over unbuilt land <span class="amv">off = clean site map</span></label></div>
  <div class="srow"><span class="slbl">village pulse</span><label style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#d8cba2;cursor:pointer"><input type="checkbox" id="skGlow" checked> buildings shimmer when their conversations move</label></div>
  <div class="srow"><span class="slbl">map scale</span><input type="range" id="skGS" min="50" max="300" value="100"><b id="skGSV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">100%</b></div>
@@ -689,31 +719,31 @@
  <div class="srow"><span class="slbl">paint palette</span><input type="range" id="skPal" min="0" max="100" value="30"><b id="skPalV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">30%</b></div>
  <div class="srow"><span class="slbl">terrain</span><select id="skTerr"><option value="sat">satellite</option><option value="paint">painted</option><option value="vector">vector</option></select></div>
  <div class="srow" style="align-items:flex-start"><span class="slbl">zone words</span><span id="skVocab" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></span></div>
- <div class="srow" style="font-size:10px;color:#8f855f">painterly brush &amp; palette dials live under the terrain switch — they save into the same skin</div>
+ <div class="srow" style="font-size:10px;color:#8f855f">painterly brush &amp; palette dials live under the terrain switch; they save into the same skin</div>
  <div style="display:flex;gap:8px;margin-top:3px">
   <button class="btn" id="skSave" style="font-size:11px;padding:5px 13px">Save map skin</button>
   <button class="btn ghostbtn" id="skReset" style="font-size:11px;padding:5px 13px">Reset to Amora</button>
   <button class="btn ghostbtn" id="skClose" style="font-size:11px;padding:5px 13px;margin-left:auto">✕</button>
  </div>
- <div style="font-size:9.5px;color:#8a7347;font-style:italic">production home: step 6 of /admin?tab=setup — the village's own tokens drive the map, one styling story for site and land</div>
+ <div style="font-size:9.5px;color:#8a7347;font-style:italic">this panel lives at step 6 of Make This Yours on the site. Style it once and site and land match.</div>
 </div>
 <button id="buildBtn">⚒ Build</button>
-<div id="buildBar"><h3>Build mode — founder's hand</h3><div id="palette"></div>
+<div id="buildBar"><h3>Build mode · the founder's hand</h3><div id="palette"></div>
   <div id="buildFoot"><button class="chip" id="drawBtn">✎ Draw</button><button class="chip" id="spriteBtn">✦ Sprites</button><button class="chip" id="boundBtn">◇ Boundary</button><button class="chip" id="resolverBtn">⌖ Address a quest</button><button class="chip" id="skinBtn">✂ Make it yours</button><button class="chip" id="pubBtn">⚿ Public land</button><button class="chip" id="undoBtn">↩ Undo</button><button class="chip" id="exportBtn">⤓ Export scene</button></div></div>
 <div id="ghostPoi"></div>
-<div id="wall"><h3>Get Involved — find somewhere to help</h3><div id="wallList" ></div></div>
+<div id="wall"><h3>Get Involved · find somewhere to help</h3><div id="wallList" ></div></div>
 <div id="loom">
  <div id="loomHead">
-  <h3>⧉ The Loom</h3><span class="sub">every thread between work and place — drag a ◉ grip onto a place at left, then Save</span>
+  <h3>⧉ The Loom</h3><span class="sub">every thread between work and place. Drag a ◉ grip onto a place at left, then Save</span>
   <div id="loomFilters">
    <button class="lchip lfk" data-f="quest">⚑ quests</button>
    <button class="lchip lfk" data-f="seat">⛨ roles</button>
    <button class="lchip lfk" data-f="thread">💬 threads</button>
    <button class="lchip lfk" data-f="journey"><svg viewBox="0 0 24 24" style="width:11px;height:11px;vertical-align:-1px"><g stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"><path d="M5 19c6-1 2-6 8-7s3-5 6-7M15.5 5H19v3.5"/></g></svg> journeys</button>
    <span style="width:6px"></span>
-   <button class="lchip lfp pc" data-p="creator" title="the creator’s own pick — law">creator</button>
-   <button class="lchip lfp pr" data-p="resolver" title="my deterministic guess — always overridable">guesses</button>
-   <button class="lchip lfp pp" data-p="pool" title="unaddressed — lives at the Quest Board">pool</button>
+   <button class="lchip lfp pc" data-p="creator" title="your own pick. Law.">creator</button>
+   <button class="lchip lfp pr" data-p="resolver" title="a guess with a label. Always yours to move.">guesses</button>
+   <button class="lchip lfp pp" data-p="pool" title="not yet placed. Waits at the Quest Board.">pool</button>
    <select id="lfCircle" title="filters quests and roles by circle"></select>
    <button class="lchip" id="loomEngineBtn">⚙ the sorting engine</button>
   </div>
@@ -723,17 +753,17 @@
  <div id="loomSaveBar"><b id="loomSaveN"></b>
   <button class="btn" id="loomSaveBtn" style="font-size:11px;padding:4px 12px">Save rewires</button>
   <button class="btn ghostbtn" id="loomDiscardBtn" style="font-size:11px;padding:4px 12px">Discard</button>
-  <span style="font-size:10.5px;color:#b9cf9a">saves as the creator’s word — audited in map_edits, autosaved to this profile</span></div>
+  <span style="font-size:10.5px;color:#b9cf9a">Save makes it your word. The land remembers every change.</span></div>
  <div id="loomEngine">
-  <b>The sorting engine — deterministic, and the creator always wins.</b><br>
+  <b>How work finds its home. You always win.</b><br>
   The address ladder, applied in order, stopping at the first hit:
-  <b>1.</b> the creator’s own pick (<span style="color:#e8c877">gold</span> — law; never re-resolved) →
-  <b>2.</b> the pledged role’s home structure →
-  <b>3.</b> the circle’s home structure →
-  <b>4.</b> lexicon match on the words (<span style="color:#e0a34e">amber</span> — a labeled guess, always overridable) →
-  <b>5.</b> the Quest Board pool (<span style="color:#9a9a8a">gray</span> — unaddressed work lives at the board).<br>
-  The first-pass suggestions on this Loom ran that same ladder with one proposal on top: a <i>strong</i> lexicon match (two or more word-hits) outranks the circle default — say the word and it moves back down.
-  A rewire saved here becomes the creator’s word: logged as <i>address-override</i> in the audit trail, exported as <i>address_source</i>, restored on return. Delete the map and no address dies — every one lives in its module’s own row.
+  <b>1.</b> your own pick (<span style="color:#e8c877">gold</span>: law, never second-guessed) →
+  <b>2.</b> the pledged role’s home →
+  <b>3.</b> the circle’s home →
+  <b>4.</b> a match on the words (<span style="color:#e0a34e">amber</span>: a guess, always yours to move) →
+  <b>5.</b> the Quest Board (<span style="color:#9a9a8a">gray</span>: unplaced work waits there).<br>
+  The first suggestions on this Loom ran that same ladder, with one twist: a <i>strong</i> word match (two or more hits) outranks the circle default. Say the word and it moves back down.
+  Save a rewire and it becomes your word: remembered, carried in every export, restored when you return. Delete the map and no address dies; every one lives in its own room’s records.
  </div>
  <div id="loomScroll"><div id="loomBody">
   <svg id="loomWires"></svg>
@@ -765,13 +795,13 @@
 </div>
 
 <div id="curation">
-  <h3>Sprite curation — founder taste is the gate <button id="curClose" style="appearance:none;border:none;background:none;color:var(--gold);cursor:pointer;font-size:12px">✕</button></h3>
+  <h3>Sprites · founder taste is the gate <button id="curClose" style="appearance:none;border:none;background:none;color:var(--gold);cursor:pointer;font-size:12px">✕</button></h3>
   <div id="curGrid"></div>
-  <div id="curFoot">Approve ✓ uses the painted sprite in the Painted icon style; unapproved families keep their SVG emblem. ↻ marks a family for re-roll — re-rolls run in the paint pipeline (<b>gen_sprites.py</b>), never in the browser: the key stays out of this file.</div>
+  <div id="curFoot">Approve ✓ uses the painted sprite in the Painted icon style; unapproved families keep their SVG emblem. ↻ marks a family for a repaint. Repaints run in the paint studio (<b>gen_sprites.py</b>), never in the browser.</div>
 </div>
 
 <div id="drawPanel">
-  <h3>✎ Draw — the land's own lines <button id="drawClose">✕</button></h3>
+  <h3>✎ Draw · the land's own lines <button id="drawClose">✕</button></h3>
   <div class="rnote">Click to drop vertices · double-click / Enter / click the first vertex to finish · Esc cancels · right-click a vertex deletes it · Shift = no snap · Alt = 15° steps. Areas auto-close.</div>
   <div class="irow" id="dKindRow"></div>
   <div class="irow"><select id="dSub"></select>
@@ -802,8 +832,8 @@
 
 <div id="resolver">
   <h3>Where does this quest live? <button id="resolverClose">✕</button></h3>
-  <div class="rnote">Deterministic address chain — no model, no tokens. Every guess is labeled and overridable; the override is the record.</div>
-  <input type="text" id="rqText" placeholder="quest title or description — try “fix the drip lines”">
+  <div class="rnote">Same words in, same home out. No AI, no dice. Every guess wears a label, and your correction is what sticks.</div>
+  <input type="text" id="rqText" placeholder="quest title or description. Try “fix the drip lines”">
   <div class="irow"><select id="rqRole"></select><select id="rqCircle"></select></div>
   <div id="rqSteps"></div>
 </div>
@@ -820,7 +850,7 @@
     <button class="chip" data-say="where can I help">Where can I help?</button>
     <button class="chip" data-say="what happened today">What's alive?</button>
   </div>
-  <div id="maiaInput"><input id="maiaText" placeholder="Ask Maia — 'walk me to the greenhouse'…"><button id="maiaSend">➤</button></div>
+  <div id="maiaInput"><input id="maiaText" placeholder="Ask Maia. Try 'walk me to the greenhouse'…"><button id="maiaSend">➤</button></div>
 </div>
 
 <div id="toasts"></div>
@@ -831,7 +861,7 @@
   <h1>Amora</h1>
   <p>a living village · osa, costa rica</p>
   <p style="opacity:.7;margin-top:14px;letter-spacing:.1em">generated from AMORA MASTER PLAN V7</p>
-  <p style="opacity:.55;margin-top:4px;letter-spacing:.14em">9°13′55″N · 83°50′04″W — the hills above playa dominicalito</p>
+  <p style="opacity:.55;margin-top:4px;letter-spacing:.14em">9°13′55″N · 83°50′04″W · the hills above playa dominicalito</p>
   <button class="btn" id="enterBtn">Enter the Land</button>
 </div></div>
 
@@ -892,7 +922,7 @@ const SCENE={
       blurb:"First nights, first meals, first questions. The Welcome Aboard arc begins here."},
     {key:"market",name:"Market Pavilion",archetype:"market",district:"arrival",x:790,y:275,phase:2,state:"funding",fund:.35,
       circle:"Finance",modules:[["Exchange","/exchange"],["Payments & Donations","/products"]],
-      blurb:"Farm stand and maker's market at the road — Amora's face to the neighbors."},
+      blurb:"Farm stand and maker's market at the road. Amora's face to the neighbors."},
     {key:"pondhomes",name:"Pond Hamlet",archetype:"homes",district:"ponds",x:1135,y:400,phase:1,state:"active",
       circle:"Community",modules:[["Member profiles","/team"]],
       blurb:"Tiny homes ringed around the ponds. Frogsong is the neighborhood anthem."},
@@ -910,13 +940,13 @@ const SCENE={
       blurb:"Woodsmoke and cardamom. Gratitude is settled here, plate by plate."},
     {key:"library",name:"Library & Workshop",archetype:"library",district:"heart",x:890,y:688,phase:1,state:"building",fund:.6,
       circle:"Learning",modules:[["Material Library","/library"],["Badges & Skills","/badges"]],
-      blurb:"Tools, books, looms, lathes — the village's shared hands and memory, mid-raise."},
+      blurb:"Tools, books, looms, lathes. The village's shared hands and memory, mid-raise."},
     {key:"council",name:"Council Fire",archetype:"fire",district:"heart",x:790,y:762,phase:1,state:"active",
       circle:"Wisdom",modules:[["Stages & Roles","/roles"],["Governance","/tools"]],
       blurb:"Consent by firelight. The circle of circles meets where the sparks rise."},
     {key:"foodforest",name:"Food Forest",archetype:"orchard",district:"heart",x:1035,y:705,phase:2,state:"building",fund:.8,
       circle:"Land",modules:[["Quests here","/quests"]],
-      blurb:"Seven layers going in on the east slope — swales first, canopy last, decades deep."},
+      blurb:"Seven layers going in on the east slope. Swales first, canopy last, decades deep."},
     {key:"tank",name:"Water Tank",archetype:"tank",district:"heart",x:430,y:570,phase:1,state:"active",
       circle:"Building",modules:[["Village Health","/health"]],
       blurb:"Gravity does the night shift. Spring-fed, village-sized, checked each lunation."},
@@ -931,7 +961,7 @@ const SCENE={
       blurb:"Fourth spring, found late, loved fast. The protection ring went in the same week."},
     {key:"possiblespring",name:"A Possible Spring",archetype:"spring",district:"ridge",x:1480,y:740,phase:2,state:"funding",fund:0,
       circle:"Land",modules:[["Water stewardship","/health"]],
-      blurb:"The surveyors marked it 'possible.' The masterplan's own note: springs need a professional to corroborate — or to find new ones. A mystery with coordinates."},
+      blurb:"The surveyors marked it 'possible.' The masterplan's own note: springs need a professional to confirm, or to find new ones. A mystery with coordinates."},
     {key:"ridgeA",name:"Ridge Hamlet North",archetype:"homes",district:"ridge",x:1080,y:878,phase:2,state:"building",fund:.72,
       circle:"Building",modules:[["Crowdpool","/products"],["Build quests","/quests"]],
       blurb:"First walls rising on the ridge road. The crowdpool is 72% of the way to a roof."},
@@ -940,7 +970,7 @@ const SCENE={
       blurb:"Staked and dreamed. Pooled resources gather; the forest holds the site till then."},
     {key:"sanctuary",name:"The Sanctuary",archetype:"dome",district:"sanctuary",x:1270,y:1108,phase:2,state:"funding",fund:.18,
       circle:"Healing",modules:[["Design circle","/forum"],["Crowdpool","/products"]],
-      blurb:"Hot pools, cold plunge, a dome for stillness — the healing heart, still gathering."},
+      blurb:"Hot pools, cold plunge, a dome for stillness. The healing heart, still gathering."},
     {key:"guest",name:"Guest Lodge",archetype:"hall",district:"grove",x:1560,y:1120,phase:3,state:"blueprint",
       circle:"Community",modules:[["Stays","/stays"]],
       blurb:"For the friends of the far future. Sited, sketched, waiting for its season."},
@@ -949,7 +979,7 @@ const SCENE={
       blurb:"Medicinals under managed shade, an apothecary in waiting."},
     {key:"trailhead",name:"Pacific Trailhead",archetype:"gate",district:"grove",x:1725,y:1365,phase:3,state:"blueprint",
       circle:"Outreach",modules:[["Village Network","/network"]],
-      blurb:"The south door — someday a path from Pacific Edge Road to the wider web of villages."},
+      blurb:"The south door. Someday a path from Pacific Edge Road to the wider web of villages."},
   ],
   quests:[
     {q:"Plant the dry-season beds",at:"greenhouse",r:"33 ♥ · Land circle",need:"2 more hands · Thu"},
@@ -997,18 +1027,18 @@ const SCENE={
     {from:'welcome',to:'community',medium:'care',note:'newcomers rooted well',phase:1},
     {from:'council',to:'community',medium:'care',note:'agreements that hold the village',phase:1},
     {from:'sanctuary',to:'community',medium:'care',note:'stillness for the stewards',phase:2},
-    {from:null,to:'kitchen',medium:'food',note:'dry staples from town — imported',phase:1},
-    {from:null,to:'library',medium:'materials',note:'lumber from town — imported',phase:1},
-    {from:null,to:'ridgeA',medium:'materials',note:'cement and steel — imported',phase:2},
-    {from:null,to:'community',medium:'energy',note:'grid power — a solar array is a quest waiting to be written',phase:1},
+    {from:null,to:'kitchen',medium:'food',note:'dry staples from town, imported',phase:1},
+    {from:null,to:'library',medium:'materials',note:'lumber from town, imported',phase:1},
+    {from:null,to:'ridgeA',medium:'materials',note:'cement and steel, imported',phase:2},
+    {from:null,to:'community',medium:'energy',note:'grid power. A solar array is a quest waiting to be written',phase:1},
   ],
   pulse:[ // sample pulse — replays as ripples
     {t:"quest",at:"greenhouse",msg:"Sol completed “Seedling census” at the Greenhouse · +15 ♥"},
-    {t:"heart",at:"kitchen",msg:"Gratitude at the Hearth — “for the storm-drain crew” · ♥×4"},
-    {t:"member",at:"gate",msg:"A new member just walked in through The Gate — say hola to Rivka"},
-    {t:"fund",at:"ridgeA",msg:"Ridge Hamlet crowdpool reached 72% — first wall Saturday"},
-    {t:"harvest",at:"greenhouse",msg:"14 kg harvest logged — the beds are singing"},
-    {t:"quest",at:"foodforest",msg:"Swale stakes are in on the east slope — dig day is on"},
+    {t:"heart",at:"kitchen",msg:"Gratitude at the Hearth, “for the storm-drain crew” · ♥×4"},
+    {t:"member",at:"gate",msg:"A new member just walked in through The Gate. Say hola to Rivka"},
+    {t:"fund",at:"ridgeA",msg:"Ridge Hamlet crowdpool reached 72%. First wall Saturday"},
+    {t:"harvest",at:"greenhouse",msg:"14 kg harvest logged · the beds are singing"},
+    {t:"quest",at:"foodforest",msg:"Swale stakes are in on the east slope · dig day is on"},
   ],
 };
 /* ---- georef: triangulate the authored masterplan scene onto the satellite foundation ----
@@ -1039,7 +1069,7 @@ SCENE.bound=[[350,240],[700,150],[1060,110],[1420,130],[1660,160],[1980,300],[22
 const BY={}; SCENE.structures.forEach(s=>BY[s.key]=s);
 const questsAt=k=>SCENE.quests.filter(q=>q.at===k);
 const seatsAt=k=>SCENE.seats.filter(s=>s.at===k);
-const STATE_LABEL={blueprint:"Blueprint — in the Vision",funding:"Gathering the pool",building:"Under construction",active:"Alive",thriving:"Thriving",dormant:"Resting"};
+const STATE_LABEL={blueprint:"Blueprint · in the Vision",funding:"Gathering the pool",building:"Under construction",active:"Alive",thriving:"Thriving",dormant:"Resting"};
 /* state is DERIVED, never stored: a pure function of phase + pool + declared activity (§4.4 L1) */
 function derivedState(s){
   if(s.fund!=null&&s.fund<1){if(s.fund<=0&&s.phase>=3)return 'blueprint';return s.fund<.5?'funding':'building'}
@@ -1059,8 +1089,8 @@ function migrateFeatures(){ // one system: the seed geography moves IN; legacy a
     points:pts.map(p=>[p[0],p[1]]),subtype:'improved',phase:RP[i]||1,owner:null,name:RN[i]||('Road '+(i+1)),note:'',sort:0}));
   [['Poza Azul public road',SCENE.pozaAzul],['Pacific Edge public road',SCENE.pacificEdge]].forEach(([nm,pts])=>
     SCENE.features.push({id:newFid(),kind:'road',geom:'line',points:pts.map(p=>[p[0],p[1]]),
-      subtype:'paved',phase:1,owner:null,public:true,name:nm,note:'off-property context — locked',sort:0}));
-  const CN=['West creek — Poza Azul to the sea','East creek','Center quebrada'];
+      subtype:'paved',phase:1,owner:null,public:true,name:nm,note:'off-property context, locked',sort:0}));
+  const CN=['West creek, Poza Azul to the sea','East creek','Center quebrada'];
   SCENE.water.creeks.forEach((pts,i)=>SCENE.features.push({id:newFid(),kind:'water',geom:'line',
     points:pts.map(p=>[p[0],p[1]]),subtype:'creek',phase:1,owner:null,name:CN[i]||'Creek',note:'',sort:0}));
   SCENE.water.ponds.forEach((pd,i)=>SCENE.features.push({id:newFid(),kind:'water',geom:'area',
@@ -1086,35 +1116,35 @@ function zoneCarves(x,y){ // forest is only cleared by PHASE-1 land (the honest 
   for(const f of SCENE.features){if(f.kind!=='zone'||f.phase>1)continue;if(pointInPoly(f.points,x,y))return true}
   return false}
 /* origin stories — the memory layer; most are honestly empty until the founder writes them */
-Object.assign(BY.gate,{origin:"The first act on the land was a gate that locks nothing — a frame to walk through, so arrival would always feel like something."});
+Object.assign(BY.gate,{origin:"The first act on the land was a gate that locks nothing, a frame to walk through, so arrival would always feel like something."});
 Object.assign(BY.community,{origin:"Raised in the second dry season by everyone who had ever eaten here. The big roof went up in nine days; the tables have never really been cleared since."});
 Object.assign(BY.greenhouse,{origin:"Started as six salvaged windows leaned against a frame. The first tomato was shared out in eighths."});
 Object.assign(BY.council,{origin:"The fire was lit before any building stood. Every agreement Amora keeps was first spoken in this circle."});
 Object.assign(BY.ponds,{origin:"Dug where the water already wanted to gather. The herons arrived within a month and acted like landlords."});
 /* role in the organism — one honest system-function line per structure (§4.3b) */
 const ROLE_LINE={
-  gate:'The membrane — where the outside world becomes a guest, and a guest becomes a member.',
-  welcome:'The first hearth — arrival, orientation, and the Welcome Aboard arc.',
-  market:'The interface with the neighbors — surplus becomes relationship at the road.',
-  pondhomes:'Shelter ring one — homes holding the ponds close.',
-  ponds:'The water battery — rain caught, protein raised, irrigation banked.',
-  greenhouse:'The food engine — seed to seedling to supper for the whole organism.',
-  community:'The commons — where the village thinks and celebrates as one body.',
-  kitchen:'The metabolic heart — food in, gratitude out.',
-  library:'The shared memory and shared hands — tools, books, and skills under one raise.',
-  council:'The decision organ — consent gathered where the sparks rise.',
-  foodforest:'The long game — seven layers feeding decades, not seasons.',
-  tank:'The water spine — gravity doing the night shift for every tap below.',
-  spring3:'A source — protected forest holding water for the whole land.',
-  spring2:'A source — the quietest protection ring on the land.',
-  spring4:'A source — found late, loved fast, ringed the same week.',
-  possiblespring:'A question the land is still answering — marked, unverified, respected.',
-  ridgeA:'Shelter ring two — the first walls of the ridge neighborhood.',
-  ridgeB:'Shelter ring two — staked and pooled, waiting on walls.',
-  sanctuary:'The healing organ — stillness for the people who hold everything else.',
-  guest:'The open door of the far future — friends hosted well.',
-  healing:'The apothecary in waiting — medicine under managed shade.',
-  trailhead:'The south door — someday a path to the wider web of villages.'};
+  gate:'The membrane, where the outside world becomes a guest and a guest becomes a member.',
+  welcome:'The first hearth: arrival, orientation, and the Welcome Aboard arc.',
+  market:'Where surplus becomes relationship at the road.',
+  pondhomes:'Shelter ring one: homes holding the ponds close.',
+  ponds:'The water battery: rain caught, protein raised, irrigation banked.',
+  greenhouse:'The food engine: seed to seedling to supper for the whole organism.',
+  community:'The commons, where the village thinks and celebrates as one body.',
+  kitchen:'The metabolic heart: food in, gratitude out.',
+  library:'The shared memory and shared hands: tools, books, and skills under one raise.',
+  council:'The decision organ: consent gathered where the sparks rise.',
+  foodforest:'The long game: seven layers feeding decades, not seasons.',
+  tank:'The water spine: gravity doing the night shift for every tap below.',
+  spring3:'A source. Protected forest holding water for the whole land.',
+  spring2:'A source. The quietest protection ring on the land.',
+  spring4:'A source. Found late, loved fast, ringed the same week.',
+  possiblespring:'A question the land is still answering: marked, unverified, respected.',
+  ridgeA:'Shelter ring two: the first walls of the ridge neighborhood.',
+  ridgeB:'Shelter ring two: staked and pooled, waiting on walls.',
+  sanctuary:'The healing organ: stillness for the people who hold everything else.',
+  guest:'The open door of the far future: friends hosted well.',
+  healing:'The apothecary in waiting: medicine under managed shade.',
+  trailhead:'The south door. Someday a path to the wider web of villages.'};
 for(const k in ROLE_LINE)if(BY[k])BY[k].role=ROLE_LINE[k];
 /* ---------- the REAL Amora inventory (source: the live site's pages) — wired by the resolver, corrected on the Loom ----------
    Creator's word is law: an explicit address (addr 'creator' or 'founder-pick') is never re-resolved. */
@@ -1127,7 +1157,7 @@ const SITE_CIRCLE={'Community Development':'Community','Regenerative Agriculture
  ['Trail Builder','Help create and maintain walking trails throughout the property.','60-120 ♥','Full day · Intermediate','Land Stewardship','trailhead'],
  ['Documentation Scribe','Document circle meetings, decisions, and community knowledge.','40-80 ♥','Per meeting · Beginner','Governance','community'],
  ['Retreat Host','Welcome and support guests at the retreat center.','80-150 ♥','Per retreat · Intermediate','Tourism & Retreat','guest'],
-].forEach(([q,d,r,need,c,at])=>SCENE.quests.push({q,at,addr:'resolver-guess',_why:'my suggestion — unapproved; drag on the Loom to make it the creator’s word',r,need,src:'site',desc:d,circle_site:c,aff:SITE_CIRCLE[c]||null}));
+].forEach(([q,d,r,need,c,at])=>SCENE.quests.push({q,at,addr:'resolver-guess',_why:'a suggestion, unapproved. Drag it on the Loom to make it your word',r,need,src:'site',desc:d,circle_site:c,aff:SITE_CIRCLE[c]||null}));
 [ // Roles.tsx — governance bodies + core team. Homes are FIRST-PASS SUGGESTIONS (amber) — not yet the founder's word.
  ['Development Board of Directors','Governance','fiduciary stewardship of the development','council'],
  ['Community Advisory Council','Governance','the community voice beside the board','council'],
@@ -1137,7 +1167,7 @@ const SITE_CIRCLE={'Community Development':'Community','Regenerative Agriculture
  ['Civil & Sustainability Engineer','Land Stewardship','infrastructure that gives more than it takes','tank'],
  ['Permaculture Designer & Land Steward','Regenerative Agriculture','the land\'s own advocate','greenhouse'],
  ['Community Organizer','Community Development','weaves people into place','welcome'],
-].forEach(([s,c,note,at])=>SCENE.seats.push({s,at,addr:'resolver-guess',_why:'my suggestion — unapproved; drag on the Loom to make it the creator’s word',c:SITE_CIRCLE[c]||'Community',note,src:'site',circle_site:c}));
+].forEach(([s,c,note,at])=>SCENE.seats.push({s,at,addr:'resolver-guess',_why:'a suggestion, unapproved. Drag it on the Loom to make it your word',c:SITE_CIRCLE[c]||'Community',note,src:'site',circle_site:c}));
 SCENE.journeys=[
  {id:'j1',name:'The Welcome Walk',src:'map',blurb:'the newcomer tour, as a journey',
   steps:[{t:'Welcome to Amora',at:'gate'},{t:'First meals, first questions',at:'welcome'},{t:'The Ponds',at:'ponds'},
@@ -1147,28 +1177,28 @@ SCENE.journeys=[
   steps:[['Visitor','Attend Community Call'],['Guest','Participate in Events'],['Explorer','Explore Housing Options','ridgeB'],
    ['Member','Become an Amorian','community'],['Applicant','Background Check','council'],['Waitlist','Join the Waitlist','council'],
    ['Family Day','Children\'s Play Day','community'],['Initiate','Resident Right of Passage','council'],['Landowner','Purchase Land Share Agreement','market'],
-   ['Builder','Build Your Home'],['Resident','Move In Celebration!']].map(([st,t,at])=>({t,stage:st,at:at||null,addr:at?'resolver-guess':null,_why:at?'suggested along the story — yours to drag':undefined}))},
+   ['Builder','Build Your Home'],['Resident','Move In Celebration!']].map(([st,t,at])=>({t,stage:st,at:at||null,addr:at?'resolver-guess':null,_why:at?'suggested along the story, yours to drag':undefined}))},
  {id:'j3',name:'Steward (Co-Creator) Journey',src:'site',blurb:'visitor to co-creator, eight steps',
   steps:[['Visitor','Attend Community Call'],['Guest','Participate in Events'],['Participant','Community Training'],
    ['Member','Become an Amorian','community'],['Contributor','Participate in a Circle','council'],['Quest Seeker','Explore Quests','community'],
-   ['Initiate','Co-Creator Right of Passage','council'],['Co-Creator','Explore & Apply for Roles','council']].map(([st,t,at])=>({t,stage:st,at:at||null,addr:at?'resolver-guess':null,_why:at?'suggested along the story — yours to drag':undefined}))},
+   ['Initiate','Co-Creator Right of Passage','council'],['Co-Creator','Explore & Apply for Roles','council']].map(([st,t,at])=>({t,stage:st,at:at||null,addr:at?'resolver-guess':null,_why:at?'suggested along the story, yours to drag':undefined}))},
  {id:'j4',name:'Investor Journey',src:'site',blurb:'discovery to commitment',
   steps:[['Discover','Discover Amora','gate'],['Pack','Request Investor Pack','market'],['Call','Schedule Investment Call','market'],
-   ['Commit','Make Your Commitment','council']].map(([st,t,at])=>({t,stage:st,at:at||null,addr:at?'resolver-guess':null,_why:at?'suggested along the story — yours to drag':undefined}))}];
+   ['Commit','Make Your Commitment','council']].map(([st,t,at])=>({t,stage:st,at:at||null,addr:at?'resolver-guess':null,_why:at?'suggested along the story, yours to drag':undefined}))}];
 SCENE.threads=[ // sample forum threads (labeled sample) — multi-addressed per D10; two left unpicked to show the fallback
- {id:'t1',title:'Build day debrief — the first wall is UP',structures:['ridgeA'],author:'Sol',aud:'member',replies:14,last:'2h',ex:'Photos inside. Sore arms, full hearts.'},
- {id:'t2',title:'Full-moon feast — who\'s bringing what?',structures:['kitchen','community'],author:'Rivka',aud:'member',replies:23,last:'40m',ex:'Sign-up sheet in the first reply.'},
- {id:'t3',title:'Water pressure dips at the ridge taps',structures:['tank','ridgeA'],author:'Water Steward',aud:'member',replies:7,last:'1d',ex:'Mapping when it happens — add your times.'},
+ {id:'t1',title:'Build day debrief: the first wall is UP',structures:['ridgeA'],author:'Sol',aud:'member',replies:14,last:'2h',ex:'Photos inside. Sore arms, full hearts.'},
+ {id:'t2',title:'Full-moon feast: who\'s bringing what?',structures:['kitchen','community'],author:'Rivka',aud:'member',replies:23,last:'40m',ex:'Sign-up sheet in the first reply.'},
+ {id:'t3',title:'Water pressure dips at the ridge taps',structures:['tank','ridgeA'],author:'Water Steward',aud:'member',replies:7,last:'1d',ex:'Mapping when it happens. Add your times.'},
  {id:'t4',title:'Seedling swap Saturday',structures:['greenhouse','market'],author:'Nia',aud:'public',replies:9,last:'3h',ex:'Bring starts, take starts.'},
  {id:'t5',title:'Reading circle: Braiding Sweetgrass',structures:['library'],author:'Marisol',aud:'public',replies:11,last:'5h',ex:'Chapter three this week.'},
  {id:'t6',title:'Proposal: quiet hours around the sanctuary site',structures:['sanctuary','council'],author:'Teo',aud:'member',replies:18,last:'6h',ex:'Draft consent language inside.'},
- {id:'t7',title:'Herons nesting at the upper pond — give them room',structures:['ponds'],author:'Land circle',aud:'public',replies:5,last:'2d',ex:'Detour path flagged with ribbon.'},
+ {id:'t7',title:'Herons nesting at the upper pond: give them room',structures:['ponds'],author:'Land circle',aud:'public',replies:5,last:'2d',ex:'Detour path flagged with ribbon.'},
  {id:'t8',title:'Trail washout after Tuesday\'s rain',structures:['trailhead'],author:'Kai',aud:'member',replies:6,last:'8h',ex:'Need gravel and four hands.'},
- {id:'t9',title:'Welcome thread — introduce yourself',structures:['gate','welcome'],author:'Maia',aud:'public',replies:31,last:'20m',ex:'New faces, say hola.'},
+ {id:'t9',title:'Welcome thread: introduce yourself',structures:['gate','welcome'],author:'Maia',aud:'public',replies:31,last:'20m',ex:'New faces, say hola.'},
  {id:'t10',title:'Compost temperatures are perfect this week',structures:['foodforest','greenhouse'],author:'Compost Alchemist',aud:'public',replies:4,last:'1d',ex:'62°C and steaming.'},
- {id:'t11',title:'Council agenda — next fire',structures:['council'],author:'Storyweaver',aud:'member',replies:8,last:'12h',ex:'Three items so far; add yours.'},
+ {id:'t11',title:'Council agenda: next fire',structures:['council'],author:'Storyweaver',aud:'member',replies:8,last:'12h',ex:'Three items so far; add yours.'},
  {id:'t12',title:'Lost: one blue water bottle, sentimental',structures:[],author:'Ibá',aud:'member',replies:2,last:'4h',ex:'Last seen somewhere between everywhere.'},
- {id:'t13',title:'Solar quote came in — worth a read before we discuss',structures:[],author:'Finance circle',aud:'member',replies:12,last:'1h',ex:'Numbers attached; bring questions.'},
+ {id:'t13',title:'Solar quote came in. Worth a read before we discuss',structures:[],author:'Finance circle',aud:'member',replies:12,last:'1h',ex:'Numbers attached; bring questions.'},
 ].map(t=>({...t,src:'sample',addr:t.structures.length?'creator':null}));
 const threadsAt=k=>SCENE.threads.filter(t=>(t.structures||[]).includes(k));
 /* live vitals per address — SAMPLE data, labeled as such; production reads module events */
@@ -1539,32 +1569,13 @@ const cam={x:900,y:640,z:0.72,vx:0,vy:0};
 let dragging=false,lastP=null,travel=null,hoverKey=null,mode='now',orgOn=false,flowsOn=false;
 function worldToScreen(x,y){return[(x-cam.x)*cam.z*DPR+cv.width/2,(y-cam.y)*cam.z*DPR+cv.height/2]}
 function screenToWorld(px,py){return[(px*DPR-cv.width/2)/(cam.z*DPR)+cam.x,(py*DPR-cv.height/2)/(cam.z*DPR)+cam.y]}
-/* FIT, not COVER, and a little under: pinching all the way out shows the
-   whole land with a breath of margin instead of stopping when the viewport
-   is still full of ground. */
-function minZoom(){return Math.min(innerWidth/W,innerHeight/H)*0.85}
-window.minZoom=minZoom;
-/* A drawer over the map means the map is no longer the whole window. Aim the
-   flight at the middle of the strip the reader can actually see, so a tapped
-   building does not land underneath the panel. Returns CSS pixels. */
-function panelInset(){const pocket=document.body.classList.contains('pocket');let dx=0,dy=0;
-  for(const id of ['panel','inspect']){const el=document.getElementById(id);
-    if(!el||!el.classList.contains('open'))continue;
-    if(pocket)dy=Math.max(dy,el.offsetHeight/2);else dx=Math.max(dx,el.offsetWidth/2)}
-  const m=document.getElementById('module'),c=document.getElementById('moduleCard');
-  /* On desk the module card sits in the middle of the map with strips on both
-     sides, so there is nothing to aim at; on pocket it is a bottom sheet. */
-  if(pocket&&m&&m.classList.contains('show')&&c)dy=Math.max(dy,c.offsetHeight/2);
-  return[dx,dy]}
-window.panelInset=panelInset;
-/* The clamp is the world itself, not the viewport inside it: every point of
-   the land can sit at screen centre. */
-function clampCam(){cam.z=Math.max(minZoom(),Math.min(3.2,cam.z));
-  cam.x=Math.max(0,Math.min(W,cam.x));cam.y=Math.max(0,Math.min(H,cam.y))}
+function clampCam(){const mz=Math.max(innerWidth/W,innerHeight/H);cam.z=Math.max(mz,Math.min(3.2,cam.z));
+  const hw=innerWidth/2/cam.z,hh=innerHeight/2/cam.z;
+  cam.x=Math.max(hw,Math.min(W-hw,cam.x));cam.y=Math.max(hh,Math.min(H-hh,cam.y))}
 function travelTo(x,y,z,done){const tz=z||cam.z;
-  const cz=Math.max(minZoom(),Math.min(3.2,tz));
-  const[ox,oy]=panelInset();
-  travel={sx:cam.x,sy:cam.y,sz:cam.z,tx:Math.max(0,Math.min(W,x+ox/cz)),ty:Math.max(0,Math.min(H,y+oy/cz)),tz:cz,t:0,done}}
+  const mz=Math.max(innerWidth/W,innerHeight/H),cz=Math.max(mz,Math.min(3.2,tz));
+  const hw=innerWidth/2/cz,hh=innerHeight/2/cz;
+  travel={sx:cam.x,sy:cam.y,sz:cam.z,tx:Math.max(hw,Math.min(W-hw,x)),ty:Math.max(hh,Math.min(H-hh,y)),tz:cz,t:0,done}}
 cv.addEventListener('pointerdown',e=>{
   if(window.boundPointerDown&&window.boundPointerDown(e)){cv.setPointerCapture(e.pointerId);return}
   if(window.featPointerDown&&window.featPointerDown(e)){cv.setPointerCapture(e.pointerId);return}
@@ -1577,17 +1588,9 @@ addEventListener('pointermove',e=>{
   else updateHover(e.clientX,e.clientY)});
 addEventListener('pointerup',()=>{dragging=false;cv.classList.remove('dragging');lastP=null});
 cv.addEventListener('wheel',e=>{e.preventDefault();const[wx,wy]=screenToWorld(e.clientX,e.clientY);
-  /* ctrlKey means a trackpad pinch, not a scroll: follow the fingers
-     continuously instead of stepping, and never let the page zoom instead. */
-  cam.z*=e.ctrlKey?Math.exp(-e.deltaY*0.012):(e.deltaY<0?1.13:0.885);clampCam();
+  cam.z*=e.deltaY<0?1.13:0.885;clampCam();
   const[nx,ny]=screenToWorld(e.clientX,e.clientY);cam.x+=wx-nx;cam.y+=wy-ny;clampCam()},{passive:false});
 cv.addEventListener('dblclick',e=>{const[wx,wy]=screenToWorld(e.clientX,e.clientY);travelTo(wx,wy,Math.max(cam.z,1.15))});
-(function safariPinch(){let gz=1,gx=0,gy=0; // Safari speaks gestures where others speak ctrl-wheel
-  cv.addEventListener('gesturestart',e=>{e.preventDefault();gz=cam.z;gx=e.clientX;gy=e.clientY});
-  cv.addEventListener('gesturechange',e=>{e.preventDefault();
-    const[wx,wy]=screenToWorld(gx,gy);cam.z=gz*e.scale;clampCam();
-    const[nx,ny]=screenToWorld(gx,gy);cam.x+=wx-nx;cam.y+=wy-ny;clampCam()});
-  cv.addEventListener('gestureend',e=>e.preventDefault())})();
 function hitStruct(px,py){const[wx,wy]=screenToWorld(px,py);let best=null,bd=1e9;
   for(const f of SCENE.features){if(f.kind!=='structure-area'||!f.owner)continue;
     const s=BY[f.owner];if(!s)continue;
@@ -1619,7 +1622,7 @@ function frame(ts){const t=ts/1000,dt=Math.min(.05,(ts-tPrev)/1000||.016);tPrev=
     clampCam(); // every frame of the flight, not just arrival — no void past the edge
     if(travel.t>=1){const d=travel.done;travel=null;clampCam();d&&d()}}
   if(dayAuto)dayPhase=(dayPhase+dt*0.004)%2;
-  cx.setTransform(1,0,0,1,0,0);cx.fillStyle='#16455e';cx.fillRect(0,0,cv.width,cv.height); /* deep sea, the tone the painted ocean edge starts from: past the land is world, not void */
+  cx.setTransform(1,0,0,1,0,0);cx.fillStyle='#101d13';cx.fillRect(0,0,cv.width,cv.height);
   cx.setTransform(cam.z*DPR,0,0,cam.z*DPR,cv.width/2-cam.x*cam.z*DPR,cv.height/2-cam.y*cam.z*DPR);
   const _pl=activePlate();
   if(terrainMode==='paint'&&satPlate){cx.drawImage(satPlate,0,0,W,H);
@@ -1749,6 +1752,7 @@ function frame(ts){const t=ts/1000,dt=Math.min(.05,(ts-tPrev)/1000||.016);tPrev=
 /* ================= HUD ================= */
 const CIRCLE_COL={Land:'#6fae52',Building:'#c98b4e',Community:'#d0a94f',Learning:'#7f9fd0',Finance:'#b8b06a',
   Coordination:'#d0785a',Gathering:'#c96a8a',Healing:'#8ad0c0',Wisdom:'#a98ad0',Arts:'#d0648f',Outreach:'#6ac9c0'};
+window.CIRCLE_COL=CIRCLE_COL;
 const $=id=>document.getElementById(id);
 /* the full pattern language — permaculture zones 0-5 · GEN ecovillage dimensions · startup-village & network-state amenities.
    [palette key, display name, category, flat icon base] — iso body resolves via isoSVG's alias map */
@@ -1915,6 +1919,121 @@ function makePoi(s){
   iWrap.appendChild(el);pEls[s.key]=el;return el}
 for(const s of SCENE.structures)makePoi(s);
 
+/* ---------- THE BADGE LANGUAGE (P1: the look) ----------
+   One seal, four charges, and an invitation. Every mark is the same round
+   face so the set reads as one vocabulary at a glance:
+
+     shape = KIND      leaf-pennant / raised hand / star-lantern / rising curl
+     color = DOMAIN    the charge tints with its circle's own colour
+     pips  = WEIGHT    1-3 seed dots, derived from the quest's `need` text
+     rim   = PROVENANCE gold for a creator's word, amber for a resolver's
+                        guess, dashed while a seat is open, braided for skill
+
+   D9 holds: nothing here is stored. Every badge is a projection of
+   questsAt / seatsAt / eventsAt / threadsAt, recomputed on the tick. */
+
+const BADGE_FACE = '<circle class="face" cx="12" cy="12" r="10.5"/><circle class="rim" cx="12" cy="12" r="10.5"/>';
+/* Drawn for 22 px, not for a sketchpad. The first pass put a five-fingered
+   hand and a speech bubble with an inner spiral inside a 24-unit box at 2px
+   stroke: at the size they actually render, the fingers filled in and the
+   pennant read as the letter P. These are the same ideas with the detail
+   taken out, which is what a seal is for. */
+const BADGE_CHARGE = {
+  /* a pennant whose cloth is a leaf: a staff, one leaf, one midrib */
+  quest: '<path class="ink tint" d="M9 6.5v11.5"/><path class="ink tint" d="M9 7.6c2.9-1.4 5.4 0 6.6 1.8-1.7 1.7-4.2 2.4-6.6 1.4z"/><path class="ink tint" d="M10.2 9.1c1.4.2 2.4.6 3.2 1.1"/>',
+  /* a raised hand: one palm, one thumb, three humps read as fingers */
+  seat: '<path class="ink tint" d="M9.3 12.1V9.4a1 1 0 012 0v2.2"/><path class="ink tint" d="M11.3 11.6V8.6a1 1 0 012 0v3"/><path class="ink tint" d="M13.3 11.9V9.7a1 1 0 012 0v3.9c0 2.4-1.7 4-4 4s-4-1.6-4-4v-1.5a1 1 0 012 0"/>',
+  /* the star-lantern, re-seated from the old evbadge */
+  event: '<path class="ink tint" d="M12 5.9l1.8 3.6 4 .6-2.9 2.8.7 4-3.6-1.9-3.6 1.9.7-4-2.9-2.8 4-.6z"/>',
+  /* a rising curl of smoke: one S, one curl, nothing else */
+  talk: '<path class="ink tint" d="M12 18.2c-2.6-2 1.6-3.6-1-5.6"/><path class="ink tint" d="M11 12.6c-2.4-2 1.9-3.5-.6-5.5"/><path class="ink tint" d="M10.4 7.1c1.9-1.2 3.9-.2 3.6 1.6"/>',
+  /* an empty seal with a seed at its heart: room for work */
+  invite: '<circle class="ink tint" cx="12" cy="12" r="2.1"/>',
+};
+/* Anchors are in seal-units around the building's own centre, then scaled by
+   the same FAM_SCALE * s.scale * GSCALE the poi uses, so a badge sits on the
+   door of a small cottage and the door of a great hall alike. */
+const BADGE_ANCHOR = { quest:[-0.62,0.34], seat:[-0.72,-0.06], talk:[-0.5,-0.52], invite:[-0.62,0.34] };
+const BADGE_RANK = ['quest','seat','talk','invite'];
+
+/* Weight, from the words a founder already wrote. One scale at map level:
+   the card carries the detail, the pips carry the shape of the ask. */
+function badgeWeight(q){
+  if(q && (q.weight===1||q.weight===2||q.weight===3)) return q.weight; // explicit wins
+  const t=String((q&&(q.need||q.r))||'').toLowerCase();
+  if(/full day|multi|recurring|intermediate|advanced/.test(t)) return 3;
+  if(/session|half|4 hours|per event|per meeting/.test(t)) return 2;
+  if(/hour|beginner/.test(t)) return 1;
+  return 1;
+}
+const badgeSkilled = q => /intermediate|advanced|skilled/i.test(String((q&&(q.need||q.r))||''));
+/* Which circle does this work belong to?
+   A scene quest carries no `aff`: its circle is written into the reward line
+   the founder already types ("33 ♥ · Land circle"). Read it from there, let an
+   explicit field win when the export or the Loom supplies one, and fall back
+   to the circle of the building it sits on. */
+function badgeCircle(q,s){
+  if(q&&(q.aff||q.circle_aff)) return q.aff||q.circle_aff;
+  const m=String((q&&q.r)||'').match(/·\s*([A-Za-z]+)\s+circle/i);
+  return (m&&m[1])||(s&&s.circle)||'';
+}
+function badgePips(n){ // seed dots under the charge, never more than three
+  /* On the rim, not inside it. Tucked at cy 19.4 the dots sat on the busiest
+     part of the face and vanished; r 1.05 was invisible at 22 px besides. */
+  const N=Math.max(1,Math.min(3,n|0)),out=[];
+  for(let i=0;i<N;i++) out.push(`<circle class="pip" cx="${12+(i-(N-1)/2)*4.2}" cy="21.6" r="1.5"/>`);
+  return out.join('');
+}
+function badgeSvg(kind,pips){
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${BADGE_FACE}${BADGE_CHARGE[kind]||''}${pips||''}</svg><span class="bhit"></span>`;
+}
+
+const bgEls={}; // one group per structure, a sibling of the poi inside #icons
+function makeBadgeGroup(s){
+  const g=document.createElement('div');g.className='bgroup';
+  iWrap.appendChild(g);bgEls[s.key]=g;return g;
+}
+for(const s of SCENE.structures) makeBadgeGroup(s);
+
+/* Recompute every badge from the projections. Called on the tick, after an
+   edit, and after a restore: never trusted to be in sync on its own. */
+function refreshBadges(){
+  for(const s of SCENE.structures){
+    const g=bgEls[s.key];if(!g)continue;
+    const qs=(typeof questsAt==='function')?questsAt(s.key):[];
+    const st=(typeof seatsAt==='function')?seatsAt(s.key):[];
+    const th=(typeof threadsAt==='function')?threadsAt(s.key):[];
+    const marks=[];
+
+    if(qs.length){
+      const q=qs[0]; // the heaviest ask leads; the rest live on the card
+      const aff=badgeCircle(q,s);
+      marks.push({kind:'quest',tint:(window.CIRCLE_COL&&window.CIRCLE_COL[aff])||'',
+        pips:badgeWeight(q),
+        rim:(q.addr==='creator'||q.address_source==='creator')?'':'r-amber',
+        braid:badgeSkilled(q),n:qs.length});
+    } else {
+      // No work here yet, so the door says there is room for some.
+      marks.push({kind:'invite',tint:'',pips:0,rim:'r-open',braid:false,n:0});
+    }
+    if(st.length) marks.push({kind:'seat',tint:(window.CIRCLE_COL&&window.CIRCLE_COL[st[0].c||s.circle])||'',
+      pips:0,rim:'r-silver r-open',braid:false,n:st.length});
+    if(th.length) marks.push({kind:'talk',tint:'',pips:0,rim:'r-soft',braid:false,n:th.length});
+
+    const want=marks.map(m=>m.kind).join(',');
+    if(g.dataset.sig!==want+'|'+marks.map(m=>m.pips+m.rim+m.tint).join(',')){
+      g.innerHTML=marks.map(m=>{
+        const cls=['bseal','b-'+m.kind,m.rim,m.braid?'r-braid':''].filter(Boolean).join(' ');
+        const tint=m.tint?` style="--btint:${m.tint}"`:'';
+        return `<span class="${cls}" data-bk="${s.key}" data-bkind="${m.kind}"${tint}>`+
+               badgeSvg(m.kind,m.pips?badgePips(m.pips):'')+`</span>`;
+      }).join('');
+      g.dataset.sig=want+'|'+marks.map(m=>m.pips+m.rim+m.tint).join(',');
+    }
+  }
+}
+window.refreshBadges=refreshBadges;
+
 /* vitals */
 const VICON={people:'M12 12a4 4 0 100-8 4 4 0 000 8zm-7 8a7 7 0 0114 0z',
   food:'M12 2c1 4-3 5-3 9a3 3 0 006 0c0-4-4-5-3-9zM7 20h10',
@@ -1947,11 +2066,10 @@ for(const s of SCENE.structures)makeBanner(s);
 function syncBanners(){
   const zoomed=cam.z>=0.95;
   const k=Math.max(.5,Math.min(1.4,0.28+cam.z*0.5)); // emblem LOD scale
-  const roomy=W*cam.z>900; // pulled back past this and the plates are wider than the land they name
   for(const d of SCENE.districts){const el=bEls['d_'+d.id];const[sx,sy]=worldToScreen(d.x,d.y-46);
-    el.style.display=(zoomed||!roomy)?'none':'block';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'}
+    el.style.display=zoomed?'none':'block';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'}
   GEO.forEach((g,i)=>{const el=bEls['g_'+i];const[sx,sy]=worldToScreen(g.x,g.y);
-    el.style.display=(cam.z<1.25&&roomy)?'block':'none';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'});
+    el.style.display=cam.z<1.25?'block':'none';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'});
   document.body.classList.toggle('night',dayPhase>=1.6||dayPhase<0.1);
   const useIso=iconMode==='iso'||(iconMode==='auto'&&cam.z>=1.05);
   for(const s of SCENE.structures){const p=pEls[s.key];if(!p)continue;
@@ -1965,11 +2083,43 @@ function syncBanners(){
     if(!hideP){const[sx,sy]=worldToScreen(s.x,s.y);
       const iso=!painted&&useIso&&s.state!=='blueprint';
       const sc=((typeof FAM_SCALE!=='undefined'&&FAM_SCALE[fam])||1)*(s.scale||1)*(window.GSCALE||1);
-      s._crownOff=(painted?k*1.35*sc*54:(iso?k*1.35*sc*34:k*30*(window.GSCALE||1)))+6;
+      s._crownOff=(painted?k*1.35*sc*66:(iso?k*1.35*sc*34:k*30*(window.GSCALE||1)))+10;
       p.style.transform=`translate(${sx/DPR}px,${sy/DPR}px) scale(${(iso||painted)?k*1.35*sc:k*(window.GSCALE||1)})`;
       p.style.zIndex=1000+Math.round(s.y);
       p.classList.toggle('m-iso',iso);p.classList.toggle('m-painted',painted);
-      p.classList.toggle('st-blueprint',s.state==='blueprint')}}
+      p.classList.toggle('st-blueprint',s.state==='blueprint');
+      /* Badges ride the same transform maths as the crown. The seal keeps a
+         fixed size; only its OFFSET grows with the building, so a great hall
+         wears its marks further out and not larger. Below the gate the label
+         count chip carries the same facts, so nothing is lost by fading. */
+      const bg=bgEls[s.key];
+      if(bg){
+        const show=(cam.z>=1.0)&&!hideP;
+        bg.classList.toggle('on',show);
+        bg.classList.toggle('bmid',cam.z<1.45);
+        if(show){
+          const off=(s._crownOff||30)*0.72;
+          bg.style.transform=`translate(${sx/DPR}px,${sy/DPR}px)`;
+          let i=0;
+          for(const seal of bg.children){
+            const a=BADGE_ANCHOR[seal.dataset.bkind]||BADGE_ANCHOR.quest;
+            seal.style.left=(a[0]*off)+'px';
+            seal.style.top=(a[1]*off)+'px';
+            i++;
+          }
+        }
+      }
+      /* The lantern stays inside the poi where the design and the door suite
+         both want it, and is counter-scaled so it matches the other four
+         instead of growing with whatever it is pinned to. */
+      const ev=p.querySelector('.evbadge');
+      if(ev){const ps=(iso||painted)?k*1.35*sc:k*(window.GSCALE||1);
+        ev.style.transform=ps?`scale(${(1/ps).toFixed(3)})`:'';}
+      /* three braces close, in order: if(ev) above, then if(!hideP), then the
+         `for (const s of SCENE.structures)` this whole block lives in. The
+         original line ended `)}}` and dropping one of them is a silent dead
+         script, not an error the browser will point at. */
+      }}
   const placed=[]; // collision-resolved label crowns: labels always win, labels never collide
   const iconPts=[]; // …and a label never squats on a neighbour's doorstep (its icon click centre)
   for(const s of SCENE.structures){if(mode==='now'&&s.state==='blueprint')continue;
@@ -2014,14 +2164,13 @@ function updateHover(px,py){
 /* portal panel */
 let panelKey=null;
 function openPanel(key,tab){const s=BY[key];if(!s){toast('That place is no longer on the map.');return}panelKey=key;closeInspect();setHash('#/place/'+key);
-  $('panel').classList.add('open'); // opened before the flight so travelTo can measure the strip that stays visible
-  travelTo(s.x,s.y,Math.max(cam.z,1.25));
+  travelTo(s.x+90,s.y,Math.max(cam.z,1.25));
   $('panelHead').innerHTML=`<h2>${s.name}</h2><div class="sub">${s.circle?s.circle+' circle':'needs a steward'} · ${STATE_LABEL[s.state]}${s.fund?` · pool ${Math.round(s.fund*100)}%`:''}</div>
     <span class="statepill">${s.event?('✦ '+s.event):('phase '+s.phase)}</span>`;
   const tabs=['Overview','Quests here','Seats here','Enter →'];
   $('tabs').innerHTML=tabs.map((t,i)=>`<button data-i="${i}">${t}</button>`).join('');
   [...$('tabs').children].forEach(b=>b.onclick=()=>renderTab(+b.dataset.i));
-  renderTab(tab||0);maiaContext(s)}
+  renderTab(tab||0);$('panel').classList.add('open');maiaContext(s)}
 function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].forEach((b,j)=>b.classList.toggle('on',i===j));
   const q=questsAt(s.key),st=seatsAt(s.key),body=$('panelBody');
   if(i===0){
@@ -2036,13 +2185,13 @@ function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].
     body.innerHTML=`<p>${s.blurb}</p>
     <p style="margin-top:9px;font-style:italic;color:#4a3a26">${s.role||'A new organ, still finding its function in the body of the village.'}</p>
     <div style="font-size:10.5px;color:#8a7347;margin-top:3px">${dn} · phase ${s.phase} · AMORA MASTER PLAN V7</div>
-    ${(window.LOTS&&LOTS[s.key])?`<p style="margin-top:6px;font-size:12px;color:#6b4d1e">⌂ <b>${LOTS[s.key].sold} of ${LOTS[s.key].total}</b> lots spoken for · ${LOTS[s.key].total-LOTS[s.key].sold} open — reserve through the door below</p>`:''}
+    ${(window.LOTS&&LOTS[s.key])?`<p style="margin-top:6px;font-size:12px;color:#6b4d1e">⌂ <b>${LOTS[s.key].sold} of ${LOTS[s.key].total}</b> lots spoken for · ${LOTS[s.key].total-LOTS[s.key].sold} open · reserve through the door below</p>`:''}
     ${window.eventCard?eventCard(s):''}
     ${doorBtns(s)}
     <p style="margin-top:8px;font-size:12px;color:#6b4d1e">⚑ ${q.length} quests · ⛨ ${st.length} open seats · 💬 ${threadsAt(s.key).length} conversation${threadsAt(s.key).length===1?'':'s'}${s.event?' · ✦ '+s.event:''}</p>
     <div style="margin-top:11px;border-top:1px dashed #c8ab6f;padding-top:8px">
       ${head('vitals at this address'+(facts.length?' · <span style="color:#a3703d">sample data</span>':''))}
-      ${facts.length?facts.map(vchip).join(''):`<div style="font-size:11.5px;color:#8a7347">No live readings here yet — vitals arrive with the platform pulse, from real logs only.</div>`}
+      ${facts.length?facts.map(vchip).join(''):`<div style="font-size:11.5px;color:#8a7347">No live readings here yet. Vitals arrive from real logs when the village pulse plugs in.</div>`}
     </div>
     <div style="margin-top:10px;border-top:1px dashed #c8ab6f;padding-top:8px">
       ${head('metabolism'+(loop!=null?` · <b style="color:${loop>=60?'#4d7c2a':'#a3703d'}">${loop}%</b> of inputs on-land`:''))}
@@ -2051,21 +2200,21 @@ function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].
          ${fout.length?`<div style="font-size:10px;color:#8a7347;margin:3px 0 2px">out</div>${fout.map(f2=>fchip(f2,'out')).join('')}`:''}
          ${fin.some(f2=>!f2.from)?`<div style="font-size:10.5px;color:#a3703d;margin-top:3px">⚠ imported inputs are quests waiting to be written.</div>`:''}
          <div style="font-size:10px;color:#8a7347;margin-top:3px">drawn live on the <b>Flows</b> lens, top right</div>`
-        :`<div style="font-size:11.5px;color:#8a7347">No declared flows yet — the founder declares inputs → outputs in build mode.</div>`}
+        :`<div style="font-size:11.5px;color:#8a7347">No flows declared yet. In build mode you can say what comes in and what goes out.</div>`}
     </div>
     <div style="margin-top:12px">${s.modules.map(m=>`<button class="btn" style="margin:0 6px 6px 0" onclick="openModule('${m[0]}','${m[1]}')">${m[0]} ➤</button>`).join('')}</div>
-    ${s.state==='blueprint'?`<p style="margin-top:10px;font-size:12.5px">This one lives in the <b>Vision</b>. Toggle the Vision layer to see the full masterplan build-out — and what it would take to make it real.</p>`:''}
+    ${s.state==='blueprint'?`<p style="margin-top:10px;font-size:12.5px">This one lives in the <b>Vision</b>. Toggle the Vision layer to see the full masterplan build-out, and what it would take to make it real.</p>`:''}
     <div class="lastv">last verified 2 days ago · Amora stewards</div>`}
   if(i===1)body.innerHTML=q.length?q.map(x=>`<div class="qcard"><h4>⚑ ${x.q}</h4><div class="meta">${x.r} · ${x.need}</div>
     <div class="claim"><button class="btn" onclick="claimQuest('${x.q.replace(/'/g,"\\'")}','${s.name.replace(/'/g,"\\'")}')">Claim this quest</button></div></div>`).join('')
     :`<p>No open quests here right now. The greenhouse and the food forest are calling, though.</p>`;
   if(i===2)body.innerHTML=st.length?st.map(x=>`<div class="seatrow"><div class="nm"><b>${x.s}</b><span>${x.c} circle · ${x.note}</span></div>
-    <button class="btn" onclick="toast('Intro drafted — the ${x.c} circle will hear from you. (Prototype: routes to /roles)')">Raise a hand</button></div>`).join('')
+    <button class="btn" onclick="toast('Intro drafted. The ${x.c} circle will hear from you. (Prototype; the real form lives at /roles.)')">Raise a hand</button></div>`).join('')
     :`<p>All seats filled here. Beautiful problem.</p>`;
-  if(i===3)body.innerHTML=((s.modules&&s.modules.length)?s.modules.map(m=>`<button class="doorbtn" onclick="openModule('${m[0]}','${m[1]}')"><span><b>${m[0]}</b><br><span>${m[1]}</span></span><span class="arr">➤</span></button>`).join(''):`<p>No doors bound here yet — the founder binds modules in build mode.</p>`)+
-    `<div class="lastv">Every door carries a route — the same room, reachable from the menu or the land.</div>`}
+  if(i===3)body.innerHTML=((s.modules&&s.modules.length)?s.modules.map(m=>`<button class="doorbtn" onclick="openModule('${m[0]}','${m[1]}')"><span><b>${m[0]}</b><br><span>${m[1]}</span></span><span class="arr">➤</span></button>`).join(''):`<p>No doors here yet. The founder opens them in build mode.</p>`)+
+    `<div class="lastv">Every door is also a page. The same room, reachable from the menu or from the land.</div>`}
 $('panelClose').onclick=()=>{$('panel').classList.remove('open');panelKey=null;setHash('')};
-function claimQuest(q,at){window.hap&&hap([12,50,12,50,12]);toast(`⚑ Claimed: “${q}” at ${at}. See you out there.`);maiaSay(`Claimed. <b>${q}</b> is yours — it lives at the ${at}. That's the whole point of this map: now go make it true, and I'll light the building up when you do.`)}
+function claimQuest(q,at){window.hap&&hap([12,50,12,50,12]);toast(`⚑ Claimed: “${q}” at ${at}. See you out there.`);maiaSay(`Claimed. <b>${q}</b> is yours, and it lives at the ${at}. That's the whole point of this map: now go make it true, and I'll light the building up when you do.`)}
 function openModule(a,b){return openDoor(a,b)} // legacy (label,route) doors and the new (moduleKey,ctx) both land on openDoor
 
 /* toasts */
@@ -2095,11 +2244,11 @@ $('lyOrg').onclick=()=>{orgOn=!orgOn;$('lyOrg').classList.toggle('on',orgOn);
   toast(orgOn?'Org lens: circle colors over the land':'Org lens off')};
 let flowsSeen=false;
 $('lyFlows').onclick=()=>{flowsOn=!flowsOn;$('lyFlows').classList.toggle('on',flowsOn);
-  toast(flowsOn?'Flows lens: the declared metabolism — blue is water, gold is matter, rose is care':'Flows lens off');
+  toast(flowsOn?'Flows lens on. Blue is water, gold is matter, rose is care.':'Flows lens off');
   if(flowsOn&&!flowsSeen){flowsSeen=true;
-    maiaSay(`The <b>Flows lens</b> — the village as metabolism. Spring to tank to beds; garden to kitchen; kitchen back to soil as compost. The dashed falls are <b>imports</b> — every one is a quest waiting to be written. Close the loop and the map will show it.`)}};
+    maiaSay(`The <b>Flows lens</b>: the village as one body. Spring to tank to beds; garden to kitchen; kitchen back to soil as compost. The dashed falls are <b>imports</b>, and every one is a quest waiting to be written. Close the loop and the map will show it.`)}};
 function setMode(m){mode=m;$('lyNow').classList.toggle('on',m==='now');$('lyVision').classList.toggle('on',m==='vision');
-  if(m==='vision'){maiaSay(`This is the <b>Vision</b> — the whole masterplan at full build-out. The blue ghosts are the gap between today and the dream, and every one of them is fundable and questable. The southern dream-lands? Just the future, waiting for ground to break.`)}
+  if(m==='vision'){maiaSay(`This is the <b>Vision</b>, the whole masterplan at full build-out. The blue ghosts are the gap between today and the dream, and every one of them is fundable and questable. The southern dream-lands? Just the future, waiting for ground to break.`)}
   mmDirty=true}
 $('dayBtn').onclick=()=>{dayAuto=false;dayPhase=(dayPhase<0.5)?1.45:(dayPhase<1.7?1.85:0.3);
   $('dayBtn').textContent=dayPhase>1.7?'☾':(dayPhase>1.3?'🌇':'☀')};
@@ -2111,54 +2260,54 @@ function buildWall(){
   const stranded=SCENE.structures.filter(s=>s.stranded);
   const unowned=SCENE.structures.filter(s=>!s.circle);
   $('wallList').innerHTML=
-  (stranded.length?`<div class="wallhead" style="color:#e08a7a">stranded — outside the boundary</div>`+
-    stranded.map(s=>`<div class="wallrow" onclick="wallGo('${s.key}',0)"><b>⚠ ${s.name}</b><span>outside the property line — move it or redraw the line; never auto-removed</span></div>`).join(''):'')+
+  (stranded.length?`<div class="wallhead" style="color:#e08a7a">stranded outside the line</div>`+
+    stranded.map(s=>`<div class="wallrow" onclick="wallGo('${s.key}',0)"><b>⚠ ${s.name}</b><span>outside the property line. Move it or redraw the line; nothing is removed for you</span></div>`).join(''):'')+
   (unowned.length?`<div class="wallhead">needs a steward</div>`+
     unowned.map(s=>`<div class="wallrow" onclick="wallGo('${s.key}',0)"><b>⌂ ${s.name}</b><span>no circle holds this place yet</span></div>`).join(''):'')+
   `<div class="wallhead">open seats</div>`+
   SCENE.seats.map(x=>`<div class="wallrow" onclick="wallGo('${x.at}',2)"><b>⛨ ${x.s}</b><span>${BY[x.at]?BY[x.at].name:'?'} · ${x.c} circle</span></div>`).join('')+
   `<div class="wallhead">open quests</div>`+
-  SCENE.quests.map(x=>`<div class="wallrow" ${x.at&&BY[x.at]?`onclick="wallGo('${x.at}',1)"`:''}><b>⚑ ${x.q}</b><span>${x.at&&BY[x.at]?BY[x.at].name+' · ':'Quest Board — unaddressed · '}${x.r}</span></div>`).join('')}
+  SCENE.quests.map(x=>`<div class="wallrow" ${x.at&&BY[x.at]?`onclick="wallGo('${x.at}',1)"`:''}><b>⚑ ${x.q}</b><span>${x.at&&BY[x.at]?BY[x.at].name+' · ':'Quest Board · not yet placed · '}${x.r}</span></div>`).join('')}
 
 /* theme panel */
 (function(){const list=$('themeList');
   Object.values(THEMES).forEach(t=>{const b=document.createElement('button');
     b.className='swatchbtn'+(t===THEME?' on':'');b.dataset.k=t.label;
     b.innerHTML=`<span class="dots"><i style="background:${t.v['--t-surface']}"></i><i style="background:${t.v['--t-ring']}"></i><i style="background:${t.v['--t-accent']}"></i></span><span><b>${t.label}</b><small>${t.sub}</small></span>`;
-    b.onclick=()=>applyTheme(t,`Theme: <b>${t.label}</b>. Same land, same truth — new language. Every emblem, ring, and crown just re-inked itself.`);
+    b.onclick=()=>applyTheme(t,`Theme: <b>${t.label}</b>. Same land, same truth, new language. Every emblem, ring, and crown just re-inked itself.`);
     list.appendChild(b)})})();
 $('themeBtn').onclick=()=>$('themePanel').classList.toggle('show');
 document.querySelectorAll('[data-tm]').forEach(b=>b.onclick=()=>{terrainMode=b.dataset.tm;mmDirty=true;
   document.querySelectorAll('[data-tm]').forEach(x=>x.classList.toggle('on',x===b));
   $('paintCtl').style.display=(terrainMode==='paint'&&paintReady)?'flex':'none';
-  toast(terrainMode==='sat'?'Satellite foundation — your actual land, graded into the theme':
-       terrainMode==='paint'?'Painted — a deterministic painterly filter over your satellite; geometry never moves':
-       'Vector floor — the token-drawn fallback every village gets on day one')});
+  toast(terrainMode==='sat'?'Satellite. Your actual land, graded into the theme.':
+       terrainMode==='paint'?'Painted. Your satellite in brushstrokes; nothing moves, only the paint.':
+       'Vector floor. The drawn land every village gets on day one.')});
 $('pBrush').oninput=e=>{brushVal=+e.target.value/100;$('pBrushV').textContent=e.target.value+'%';mmDirty=true};
 $('pPal').oninput=e=>{palVal=+e.target.value/100;$('pPalV').textContent=e.target.value+'%';buildPaintMix()};
 document.querySelectorAll('[data-im]').forEach(b=>b.onclick=()=>{iconMode=b.dataset.im;
   document.querySelectorAll('[data-im]').forEach(x=>x.classList.toggle('on',x===b));
-  maiaSay(b.dataset.im==='painted'?'Painted sprites — the village in oils. Families without an approved sprite keep their emblem, honestly.':b.dataset.im==='iso'?'Isometric everywhere — the village in the round.':b.dataset.im==='flat'?'Emblems everywhere — the cartographer\'s view.':'Auto: emblems from afar, buildings up close — the Civ-to-AoE glide.')});
+  maiaSay(b.dataset.im==='painted'?'Painted sprites: the village in oils. Families without an approved sprite keep their emblem, honestly.':b.dataset.im==='iso'?'Isometric everywhere: the village in the round.':b.dataset.im==='flat'?'Emblems everywhere: the cartographer\'s view.':'Auto: emblems from afar, buildings up close.')});
 $('cApply').onclick=()=>{applyTheme({label:'Your Land',sub:'custom palette',wash:THEME.wash,
   v:{...THEME.v,'--t-surface':$('cSurface').value,'--t-ring':$('cRing').value,'--t-accent':$('cAccent').value,'--gold':$('cRing').value}},
-  `Custom palette applied — surface, ring, and accent are yours; I derived the rest. Upload a full brand kit in the platform build and the whole map wears it.`)};
+  `Custom palette applied. Surface, ring, and accent are yours; I tuned the rest to match. Upload a full brand kit on the site and the whole map wears it.`)};
 $('aiGo').onclick=()=>{const w=$('aiWords').value.trim();if(!w)return;
-  applyTheme(themeFromWords(w),`I read “${w}” and wove a palette from it — deterministic on your words, so the same description always yields the same colors. The platform build adds the image model on top for full art direction; this weave is the honest floor.`);
+  applyTheme(themeFromWords(w),`I read “${w}” and wove a palette from it. Same words, same colors, every time. The full art direction arrives with the platform build; this weave is the honest floor.`);
   $('themePanel').classList.remove('show')};
 
 /* attention cycle */
 let attnIdx=0;
 const attnItems=()=>[
-  ...SCENE.seats.filter(x=>x.at&&BY[x.at]).map(x=>({k:'seat',at:x.at,h:`⛨ Seat open: ${x.s}`,p:`${x.c} circle needs a steady hand — ${x.note}.`,tab:2})),
+  ...SCENE.seats.filter(x=>x.at&&BY[x.at]).map(x=>({k:'seat',at:x.at,h:`⛨ Seat open: ${x.s}`,p:`${x.c} circle needs a steady hand. ${x.note}.`,tab:2})),
   ...SCENE.quests.filter(q=>/Saturday|tonight|Thu/.test(q.r+q.need)).filter(q=>!q.at||BY[q.at]).map(x=>({k:'quest',at:(x.at&&BY[x.at])?x.at:null,h:`⚑ ${x.q}`,p:`${x.r} · ${x.need}. Real hands, real soil.`,tab:1})),
 ];
 $('attnBadge').textContent=attnItems().length;
 function refreshWork(){$('attnBadge').textContent=attnItems().length;
   if($('wall').classList.contains('show'))buildWall()}
-$('attnBtn').onclick=()=>{const items=attnItems();if(!items.length)return toast('Nothing needs hands right now — a beautiful problem.');
+$('attnBtn').onclick=()=>{const items=attnItems();if(!items.length)return toast('Nothing needs hands right now. A beautiful problem.');
   const it=items[attnIdx++%items.length];const s=it.at?BY[it.at]:null;
   if(!s){ // board-bound work has no address to fly to — the card opens the Wall instead
-    $('attnCard').innerHTML=`<h4>${it.h}</h4><p>${it.p}</p><p style="margin-top:4px;color:#6b4d1e;font-size:11.5px">at the Quest Board — unaddressed</p>
+    $('attnCard').innerHTML=`<h4>${it.h}</h4><p>${it.p}</p><p style="margin-top:4px;color:#6b4d1e;font-size:11.5px">at the Quest Board, waiting for a home</p>
       <div class="go"><button class="btn" onclick="$('wall').classList.add('show');buildWall();$('attnCard').classList.remove('show')">Open the Wall</button>
       <button class="btn ghostbtn" onclick="$('attnCard').classList.remove('show')">Later</button></div>`;
     $('attnCard').classList.add('show');return}
@@ -2185,17 +2334,17 @@ function maiaSay(html,from){const d=document.createElement('div');d.className='m
 function maiaContext(s){const q=questsAt(s.key),st=seatsAt(s.key);
   const bits=[];if(q.length)bits.push(`<b>${q.length}</b> quest${q.length>1?'s':''}`);if(st.length)bits.push(`<b>${st.length}</b> open seat${st.length>1?'s':''}`);
   if(s.event)bits.push(`<b>${s.event}</b>`);
-  maiaSay(`The ${s.name} — ${s.blurb.split('.')[0].toLowerCase()}. ${bits.length?('Right now: '+bits.join(' · ')+'.'):''} ${s.state==='funding'?`The pool is at <b>${Math.round(s.fund*100)}%</b> — every pledge raises real walls.`:''}`)}
+  maiaSay(`${s.name}: ${s.blurb.split('.')[0].toLowerCase()}. ${bits.length?('Right now: '+bits.join(' · ')+'.'):''} ${s.state==='funding'?`The pool is at <b>${Math.round(s.fund*100)}%</b>, and every pledge raises real walls.`:''}`)}
 
 /* deterministic concierge (zero-token first, per platform doctrine) */
 const LEX=[
   {re:/tour|show me around|walk me around/i,fn:()=>startTour()},
-  {re:/help|contribute|hands|volunteer|do something/i,fn:()=>{$('attnBtn').click();maiaSay(`Here's what needs hands. I'll cycle you through — press <b>Space</b> or the banner button for the next one. Claim something small; the land loves small and steady.`)}},
+  {re:/help|contribute|hands|volunteer|do something/i,fn:()=>{$('attnBtn').click();maiaSay(`Here's what needs hands. I'll cycle you through; press <b>Space</b> or the banner button for the next one. Claim something small; the land loves small and steady.`)}},
   {re:/happen|alive|news|today|pulse/i,fn:()=>{maiaSay(`Today so far: Sol finished the seedling census, the Ridge crowdpool crossed <b>72%</b>, fourteen kilos came out of the beds, and the Hearth is prepping the <b>full-moon feast</b>. It's a good day on the land.`)}},
   {re:/vision|master ?plan|future|dream/i,fn:()=>{setMode('vision');$('lyVision').click&&null}},
-  {re:/night|dark|moon/i,fn:()=>{dayAuto=false;dayPhase=1.85;maiaSay(`Night on the land. Watch the windows — every lit one is a room where the game is real.`)}},
+  {re:/night|dark|moon/i,fn:()=>{dayAuto=false;dayPhase=1.85;maiaSay(`Night on the land. Watch the windows: every lit one is a room where the game is real.`)}},
   {re:/quest/i,fn:()=>{openPanel('greenhouse',1);maiaSay(`The Greenhouse holds the friendliest first quests. The <b>seedling census</b> is a lovely way in.`)}},
-  {re:/seat|role|job/i,fn:()=>{$('wall').classList.add('show');buildWall();maiaSay(`Get Involved lists every open seat and quest in one place — the map's honest sibling. Click any row and I'll take you there.`)}},
+  {re:/seat|role|job/i,fn:()=>{$('wall').classList.add('show');buildWall();maiaSay(`Get Involved lists every open seat and quest in one place, the map's honest sibling. Click any row and I'll take you there.`)}},
 ];
 window.CONCIERGE_LOG=window.CONCIERGE_LOG||[];
 function conciergeMatch(txt){const t=txt.toLowerCase();
@@ -2207,16 +2356,16 @@ function conciergeMatch(txt){const t=txt.toLowerCase();
     [/(event|feast|rsvp|celebrat)/,'events',{}],
     [/(journey|resident path|steward path|invest)/,'journeys',{}]];
   for(const[re,m,c]of MODV)if(window.MODULES&&MODULES[m]&&re.test(t)){openDoor(m,c);done('module',m);
-    return maiaSay(`That lives behind the <b>${MODULES[m].name}</b> door — opening it now.`)}
+    return maiaSay(`That lives behind the <b>${MODULES[m].name}</b> door. Opening it now.`)}
   if(/gratitud|thank/.test(t)){done('module','gratitude');
-    return maiaSay(`Gratitude flows at <a href="${siteHref('/gratitude')}" target="_blank" rel="noopener">/gratitude</a> — 132 ♥ moved this cycle. It isn't money you spend; it's recognition you give.`)}
+    return maiaSay(`Gratitude flows at <a href="${siteHref('/gratitude')}" target="_blank" rel="noopener">/gratitude</a>, where 132 ♥ moved this cycle. It isn't money you spend; it's recognition you give.`)}
   const questBest=()=>{let best=null,bs=0;
     for(const q of SCENE.quests){const words=(q.q+' '+(q.desc||'')).toLowerCase().split(/[^a-zà-ÿ]+/);
       let sc=0;for(const w of new Set(t.split(/[^a-zà-ÿ]+/)))if(w.length>3&&words.includes(w))sc++;
       if(sc>bs){bs=sc;best=q}}
     return{best,bs}};
   const sayQuest=({best,bs})=>{done('quest',best.q);const nm=best.at?nameOf(best.at):'the Board';if(best.at)openPanel(best.at);
-    return maiaSay(`That sounds like <b>${best.q}</b> — ${best.r||'hearts'}, and it lives at <b>${nm}</b>. <a onclick="claimQuest('${escq(best.q)}','${escq(nm)}')">Claim it</a> and the land will remember your name.`)};
+    return maiaSay(`That sounds like <b>${best.q}</b>: ${best.r||'hearts'}, and it lives at <b>${nm}</b>. <a onclick="claimQuest('${escq(best.q)}','${escq(nm)}')">Claim it</a> and the land will remember your name.`)};
   const helping=/help|work\b|volunteer|contribute|hands|assist|do something/.test(t);
   if(helping){const qb=questBest();if(qb.best&&qb.bs>=2)return sayQuest(qb)}
   for(const s of SCENE.structures){const words=[s.key,...s.name.toLowerCase().split(/[^a-z]+/)].filter(w=>w.length>3);
@@ -2224,10 +2373,10 @@ function conciergeMatch(txt){const t=txt.toLowerCase();
   {const qb=questBest();if(qb.best&&qb.bs>=2)return sayQuest(qb)}
   const seat=SCENE.seats.find(x=>{const first=x.s.toLowerCase().split(' ')[0];return first.length>4&&t.includes(first)});
   if(seat&&seat.at){done('role',seat.s);openPanel(seat.at,1);
-    return maiaSay(`The <b>${seat.s}</b> seat is open — it sits at the <b>${nameOf(seat.at)}</b>. Raise a hand from its card.`)}
+    return maiaSay(`The <b>${seat.s}</b> seat is open, and it sits at the <b>${nameOf(seat.at)}</b>. Raise a hand from its card.`)}
   for(const l of LEX)if(l.re.test(txt)){done('lex',null);return l.fn()}
   done('none',null);
-  maiaSay(`Nothing on the land matches that yet — and that's a signal, not a dead end: unmatched asks are how the village learns which role or place is missing. It's logged. Meanwhile: <a onclick="startTour()">the tour</a>, or name any building.`)}
+  maiaSay(`Nothing on the land matches that yet. That's a signal, not a dead end: unmatched asks teach the village which role or place is missing, so yours is saved. Meanwhile: <a onclick="startTour()">the tour</a>, or name any building.`)}
 $('maiaSend').onclick=()=>{const v=$('maiaText').value.trim();if(!v)return;$('maiaText').value='';maiaSay(v,'me');setTimeout(()=>conciergeMatch(v),350)};
 $('maiaText').addEventListener('keydown',e=>{if(e.key==='Enter')$('maiaSend').click();if(e.key==='Escape')e.target.blur();e.stopPropagation()});
 document.querySelectorAll('#maiaActions .chip').forEach(ch=>ch.onclick=()=>{maiaSay(ch.dataset.say,'me');setTimeout(()=>conciergeMatch(ch.dataset.say),300)});
@@ -2235,17 +2384,17 @@ $('maiaHead').onclick=e=>{$('maia').classList.toggle('min')};
 
 /* guided tour — deterministic script, camera-driven (D3) */
 const TOUR=[
-  {at:'gate',z:1.35,txt:`Welcome to <b>Amora</b> — 123 hectares on the Osa Peninsula, drawn live from Master Plan V7. Every story here walked in through this gate, and today that's you.`},
-  {at:'welcome',z:1.3,txt:`The <b>Welcome Lodge</b>. First meals, first questions, and the Welcome Aboard quests — ten small, meaningful acts that root you in this community.`},
-  {at:'ponds',z:1.25,txt:`<b>The Ponds</b> — rain caught and kept. The hamlet around them was Amora's first neighborhood. Herons approve.`},
-  {at:'greenhouse',z:1.35,txt:`The <b>Greenhouse</b>, engine room of food sovereignty. Two seats are open and three quests are waiting — the seedling census is a beautiful first one.`},
-  {at:'community',z:1.3,txt:`The <b>Village Heart</b>. Community Center, Kitchen, Library-in-the-raising, and the Council Fire. Click any building and it opens as a door into the game — forum, library, roles, gratitude.`},
-  {at:'ridgeA',z:1.3,txt:`Up the ridge, the first hamlet is <b>72% pooled</b> — Crowdpooling you can watch become walls. Saturday is a build day; strong backs welcome.`},
-  {at:'sanctuary',z:1.2,txt:`South, where the land still dreams, the <b>Sanctuary</b> is coming. Flip the Vision layer and you'll see the whole masterplan as blueprint ghosts — the fundable gap between today and the dream.`},
-  {at:'council',z:1.35,txt:`That's the shape of it. My whole job is to get you <i>off</i> this map and into the real one — claim a quest, raise a hand for a seat, come to the feast tonight. Where shall we start?`},
+  {at:'gate',z:1.35,txt:`Welcome to <b>Amora</b>: 123 hectares on the Osa Peninsula, drawn live from Master Plan V7. Every story here walked in through this gate, and today that's you.`},
+  {at:'welcome',z:1.3,txt:`The <b>Welcome Lodge</b>. First meals, first questions, and the Welcome Aboard quests, ten small meaningful acts that root you in this community.`},
+  {at:'ponds',z:1.25,txt:`<b>The Ponds</b>. Rain caught and kept. The hamlet around them was Amora's first neighborhood. Herons approve.`},
+  {at:'greenhouse',z:1.35,txt:`The <b>Greenhouse</b>, engine room of food sovereignty. Two seats are open and three quests are waiting; the seedling census is a beautiful first one.`},
+  {at:'community',z:1.3,txt:`The <b>Village Heart</b>. Community Center, Kitchen, Library-in-the-raising, and the Council Fire. Click any building and it opens as a door into the game: forum, library, roles, gratitude.`},
+  {at:'ridgeA',z:1.3,txt:`Up the ridge, the first hamlet is <b>72% pooled</b>. Crowdpooling you can watch become walls. Saturday is a build day; strong backs welcome.`},
+  {at:'sanctuary',z:1.2,txt:`South, where the land still dreams, the <b>Sanctuary</b> is coming. Flip the Vision layer and you'll see the whole masterplan as blueprint ghosts, the fundable gap between today and the dream.`},
+  {at:'council',z:1.35,txt:`That's the shape of it. My whole job is to get you <i>off</i> this map and into the real one. Claim a quest, raise a hand for a seat, come to the feast tonight. Where shall we start?`},
 ];
 let tourI=-1,tourTimer=null;
-function startTour(){tourI=-1;maiaSay(`Come — the short walk. You can wander off any time; the land doesn't mind.`);nextTour()}
+function startTour(){tourI=-1;maiaSay(`Come, the short walk. You can wander off any time; the land doesn't mind.`);nextTour()}
 function nextTour(){clearTimeout(tourTimer);tourI++;if(tourI>=TOUR.length){tourI=-1;return}
   const st=TOUR[tourI],s=BY[st.at];if(!s){nextTour();return}travelTo(s.x,s.y,st.z,()=>{maiaSay(st.txt);tourTimer=setTimeout(nextTour,5600)})}
 
@@ -2253,7 +2402,7 @@ function nextTour(){clearTimeout(tourTimer);tourI++;if(tourI>=TOUR.length){tourI
 let pulseI=0;
 setInterval(()=>{const p=SCENE.pulse[pulseI++%SCENE.pulse.length];const s=BY[p.at];if(!s)return;
   addSparkle(s.x,s.y-10,p.t==='heart'?'#ff9bb0':'#ffe9a3');toast(p.msg);
-  if(pulseI%3===1)maiaSay(p.msg.replace(/—.*$/,'').trim()+'.')},14000);
+  if(pulseI%3===1)maiaSay(p.msg.split(' · ')[0].trim()+'.')},14000);
 
 /* keyboard */
 addEventListener('keydown',e=>{
@@ -2283,32 +2432,32 @@ function inBound(x,y){const p=SCENE.bound;let inside=false;
       const ic=ICONS[icon]||ICONS.hall;
       b.innerHTML=`<svg viewBox="0 0 64 64"><g class="ic">${ic}</g></svg>${name}`;
       b.onclick=()=>{placing={archetype:key};document.body.classList.add('placing');$('ghostPoi').innerHTML=`<svg viewBox="0 0 64 64"><path class="plate" d="M32 3 C49 5 61 17 61 32 C61 49 48 61 32 61 C16 61 3 49 3 32 C3 16 15 6 32 3 Z" fill="var(--t-surface)" opacity=".7"/><circle class="ring" cx="32" cy="32" r="27" fill="none" stroke="var(--t-ring)" stroke-width="2.4" stroke-dasharray="6 5"/><g class="ic" stroke="var(--t-icon)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">${ic}</g></svg>`;
-        $('ghostPoi').style.display='block';maiaSay(`Placing a <b>${name}</b> — click the land to set it down. The dashed line is the property; I won't let it land outside. Esc to change your mind.`)};
+        $('ghostPoi').style.display='block';maiaSay(`Placing a <b>${name}</b>. Click the land to set it down. The dashed line is the property; I won't let it land outside. Esc to change your mind.`)};
       pal.appendChild(b)}}})();
 $('buildBtn').onclick=()=>{buildMode=!buildMode;document.body.classList.toggle('build',buildMode);
   if(buildMode){$('panel').classList.remove('open');panelKey=null;hideHover();
-    maiaSay(`<b>Build mode.</b> Drag any structure to its true position, ✕ removes, the palette adds, ↩ undoes. When the map matches the land, <b>Export scene</b> writes the JSON that seeds the real build — your hand becomes the ground truth.`)}
+    maiaSay(`<b>Build mode.</b> Drag any building to its true position, ✕ removes, the palette adds, ↩ undoes. When the map matches the land, <b>Export scene</b> writes the seed the real build grows from. Your hand becomes the ground truth.`)}
   else{placing=null;document.body.classList.remove('placing');$('ghostPoi').style.display='none';closeInspect();boundaryMode=false;document.body.classList.remove('bounding');$('boundBtn').classList.remove('on');$('resolver').classList.remove('show');$('curation').classList.remove('show');if(typeof drawMode!=='undefined'&&drawMode)$('drawBtn').click()}};
 addEventListener('pointermove',e=>{if(!placing)return;const g=$('ghostPoi');
   g.style.transform=`translate(${e.clientX}px,${e.clientY}px)`;
   const[wx,wy]=screenToWorld(e.clientX,e.clientY);g.classList.toggle('bad',!inBound(wx,wy))});
 cv.addEventListener('click',e=>{if(!placing)return;const[wx,wy]=screenToWorld(e.clientX,e.clientY);
-  if(!inBound(wx,wy)){toast('Outside the property line — the mirror only maps your land.');return}
+  if(!inBound(wx,wy)){toast('Outside the property line. The mirror only maps your land.');return}
   const a=placing.archetype;
   const slug0=('new '+ARCHNAME[a]).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
   let slug=slug0,si=1;while(BY[slug])slug=slug0+'-'+(++si);
   const s={key:slug,name:'New '+ARCHNAME[a],archetype:a,district:nearestDistrict(wx,wy),x:wx,y:wy,
     phase:2,state:'funding',fund:0,circle:null,modules:[],
-    blurb:'Placed by the founder in build mode — staked on the land, waiting for its story.'};
+    blurb:'Placed by the founder in build mode. Staked on the land, waiting for its story.'};
   SCENE.structures.push(s);BY[s.key]=s;makePoi(s);makeBanner(s);UNDO.push({t:'add',key:s.key});
   logEdit('place','structure:'+s.key,{archetype:a,x:Math.round(wx),y:Math.round(wy)});
   placing=null;document.body.classList.remove('placing');$('ghostPoi').style.display='none';mmDirty=true;refreshWork();openInspect(s.key);
-  toast(`⚒ ${s.name} staked. Set it up right here — name, circle, roles, doors, flows.`)},true);
+  toast(`⚒ ${s.name} staked. Set it up right here: name, circle, roles, doors, flows.`)},true);
 function startDrag(e,s){if(placing)return;e.stopPropagation();e.preventDefault();dragS=s;dragMoved=false;
   const from=[s.x,s.y];
   const mv=ev=>{const[wx,wy]=screenToWorld(ev.clientX,ev.clientY);s.x=wx;s.y=wy;dragMoved=true};
   const up=ev=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);
-    if(dragMoved){if(!inBound(s.x,s.y)){[s.x,s.y]=from;toast('That drifted off the property — snapped it back.')}
+    if(dragMoved){if(!inBound(s.x,s.y)){[s.x,s.y]=from;toast('That drifted off the property, so I snapped it back.')}
       else{const owned=SCENE.features.filter(f=>f.owner===s.key&&f.kind==='structure-area');
         let featPrev=null;
         if(owned.length){featPrev=JSON.parse(JSON.stringify(SCENE.features));
@@ -2428,7 +2577,7 @@ function buildExportJSON(){
 $('exportBtn').onclick=()=>{const out=buildExportJSON();
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(out,null,2)],{type:'application/json'}));
   a.download='amora-scene.json';a.click();
-  maiaSay(`Scene exported — <b>${out.map_structures.length} structures</b>, <b>${out.map_flows.length} flows</b>, <b>${out.map_zones.length-1} features</b>, <b>${EDITS.length} audited edits</b>. This file matches §5.2's tables — and it is exactly what autosave keeps: the founder's hand, become the production seed.`)};
+  maiaSay(`Scene exported: <b>${out.map_structures.length} buildings</b>, <b>${out.map_flows.length} flows</b>, <b>${out.map_zones.length-1} features</b>, <b>${EDITS.length} edits remembered</b>. This one file is the land's whole memory, and autosave keeps the same story in this browser.`)};
 addEventListener('keydown',e=>{if(e.target&&/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))return;
   if(e.key==='Escape'&&placing){placing=null;document.body.classList.remove('placing');$('ghostPoi').style.display='none'}
   if(e.key==='Escape'&&typeof drafting!=='undefined'&&drafting){cancelDraft();toast('Draft cancelled.')}
@@ -2449,7 +2598,7 @@ function renderCuration(){const g=$('curGrid');const fams=Object.keys(ICONS);
   g.querySelectorAll('[data-crr]').forEach(b=>b.onclick=()=>{const f=b.dataset.crr;
     window.SPRITE_RR[f]=!window.SPRITE_RR[f];logEdit('sprite-reroll','sprite:'+f,{marked:!!window.SPRITE_RR[f]});
     const marked=Object.keys(window.SPRITE_RR).filter(k=>window.SPRITE_RR[k]);
-    if(marked.length)toast('Re-roll list: '+marked.join(', ')+' — run gen_sprites.py '+marked.join(' '));
+    if(marked.length)toast('Repaint list: '+marked.join(', ')+'. Run gen_sprites.py '+marked.join(' '));
     renderCuration()})}
 $('spriteBtn').onclick=()=>{$('curation').classList.toggle('show');if($('curation').classList.contains('show'))renderCuration()};
 $('curClose').onclick=()=>$('curation').classList.remove('show');
@@ -2502,7 +2651,7 @@ function startDraft(){const sub=$('dSub').value;
   drafting={kind:drawKind,subtype:sub,geom,phase:+document.querySelector('[name=dPhase]:checked').value,
     owner:drawKind==='structure-area'?$('dOwner').value:null,points:[]};
   featSel=null;renderDrawPanel();
-  toast(geom==='area'?'Drawing an area — click vertices; click the first one, double-click or Enter to close it.':'Drawing a line — click vertices; double-click or Enter to finish.')}
+  toast(geom==='area'?'Drawing an area. Click corners; click the first one, double-click or Enter to close it.':'Drawing a line. Click points; double-click or Enter to finish.')}
 function cancelDraft(){drafting=null;renderDrawPanel()}
 function finishDraft(){if(!drafting)return;
   const need=drafting.geom==='area'?3:2;
@@ -2510,11 +2659,11 @@ function finishDraft(){if(!drafting)return;
   const prev=featSnapshot();
   const f={id:newFid(),kind:drafting.kind,geom:drafting.geom,points:drafting.points,
     subtype:drafting.subtype,phase:drafting.phase,owner:drafting.owner||null,
-    name:(drafting.owner&&BY[drafting.owner]?BY[drafting.owner].name+' — grounds':(drafting.subtype+' '+FEAT_SEQ)),note:'',sort:0};
+    name:(drafting.owner&&BY[drafting.owner]?BY[drafting.owner].name+' grounds':(drafting.subtype+' '+FEAT_SEQ)),note:'',sort:0};
   SCENE.features.push(f);drafting=null;featSel=f.id;
   commitFeatures(prev,'feature-draw',{id:f.id,kind:f.kind,subtype:f.subtype,phase:f.phase,points:f.points.length});
   renderDrawPanel();
-  toast(`✎ ${f.name} — ${f.geom==='area'?(areaM2(f)/10000).toFixed(2)+' ha':Math.round(lenM(f))+' m'}. Drag its gold handles to refine.`)}
+  toast(`✎ ${f.name} · ${f.geom==='area'?(areaM2(f)/10000).toFixed(2)+' ha':Math.round(lenM(f))+' m'}. Drag its gold handles to refine.`)}
 window.featPointerDown=function(e){
   if(!buildMode||!drawMode)return false;
   const px=e.clientX,py=e.clientY;
@@ -2536,8 +2685,8 @@ window.featPointerDown=function(e){
   let hit=null,hd=9;
   for(const f of SCENE.features){const d=segDistScreen(f.points,px,py,f.geom==='area');
     if(d<hd){hd=d;hit=f}}
-  if(hit){if(hit.public){toast('Public road — off-property context, locked.');return true}
-    if(hit.public&&!window.PUBLIC_UNLOCK){toast('⚿ Public geometry — the real world beyond the boundary. Unlock it in the build footer to adjust.');return true}
+  if(hit){if(hit.public){toast('Public road. Off-property context, locked.');return true}
+    if(hit.public&&!window.PUBLIC_UNLOCK){toast('⚿ The public world beyond your line is locked. Unlock it in the build footer to adjust it.');return true}
     featSel=hit.id;renderDrawPanel();return true}
   if(featSel){featSel=null;renderDrawPanel()}
   return false};
@@ -2617,7 +2766,7 @@ $('drawBtn').onclick=()=>{drawMode=!drawMode;$('drawBtn').classList.toggle('on',
   document.body.classList.toggle('drawing',drawMode);
   if(drawMode){boundaryMode=false;document.body.classList.remove('bounding');$('boundBtn').classList.remove('on');
     renderDrawPanel();
-    maiaSay(`<b>Draw.</b> Roads, waterways, zones, and footprints — click vertices on the land, and the line tells you its length in metres as you go. This is the founder's hand reaching past the buildings to the land itself.`)}
+    maiaSay(`<b>Draw.</b> Roads, waterways, zones, and footprints. Click points on the land, and the line tells you its length in metres as you go. This is the founder's hand reaching past the buildings to the land itself.`)}
   else{drafting=null;featSel=null}};
 $('drawClose').onclick=()=>$('drawBtn').click();
 $('dStart').onclick=startDraft;
@@ -2631,10 +2780,10 @@ document.addEventListener('change',e=>{if(e.target.name==='dSelPhase'){const f=f
   const prev=featSnapshot();f.phase=+e.target.value;
   commitFeatures(prev,'feature-phase',{id:f.id,to:f.phase});renderDrawPanel()}});
 $('dDel').onclick=()=>{const f=featSel&&featureById(featSel);if(!f)return;
-  if(f.public)return toast('Public road — locked.');
+  if(f.public)return toast('Public road, locked.');
   const prev=featSnapshot();SCENE.features=SCENE.features.filter(x=>x.id!==f.id);featSel=null;
   commitFeatures(prev,'feature-delete',{id:f.id,name:f.name});renderDrawPanel();
-  toast(`Removed ${f.name}. ↩ Undo brings it back — same id, references intact.`)};
+  toast(`Removed ${f.name}. ↩ Undo brings it back, references intact.`)};
 $('drawPanel').addEventListener('keydown',e=>{if(e.key==='Escape'){$('drawBtn').click();return}
   if(e.target&&/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))e.stopPropagation()});
 
@@ -2652,7 +2801,7 @@ function strandedCheck(announce){let newly=0;
     if(out&&!s.stranded)newly++;
     s.stranded=out}
   refreshWork();
-  if(announce&&newly)toast(`⚠ ${newly} structure${newly>1?'s':''} now outside the line — flagged on the Wall, never auto-removed. The founder decides.`)}
+  if(announce&&newly)toast(`⚠ ${newly} building${newly>1?'s':''} now outside the line. Flagged on the Wall, never removed for you; the founder decides.`)}
 window.boundPointerDown=function(e){
   if(!buildMode||!boundaryMode)return false;
   const h=boundHit(e.clientX,e.clientY);if(!h)return false;
@@ -2691,7 +2840,7 @@ window.drawBoundaryEditor=function(t){
     cx.beginPath();cx.arc(pt[0],pt[1],(drag?8.5:6.5)/z,0,7);cx.fill();cx.stroke()}
   cx.restore()};
 $('boundBtn').onclick=()=>{boundaryMode=!boundaryMode;$('boundBtn').classList.toggle('on',boundaryMode);document.body.classList.toggle('bounding',boundaryMode);if(boundaryMode&&typeof drawMode!=='undefined'&&drawMode)$('drawBtn').click();
-  if(boundaryMode)maiaSay(`<b>Boundary editor.</b> Drag the gold corners; click a faint mid-point to add one; right-click a corner to remove it. If a redraw strands a building outside the line, it flags red and lists on the Wall — never auto-removed. The corrected line exports as real GeoJSON, ready for the atlas card.`);
+  if(boundaryMode)maiaSay(`<b>Boundary editor.</b> Drag the gold corners; click a faint mid-point to add one; right-click a corner to remove it. If a redraw strands a building outside the line, it flags red and lists on the Wall, never removed for you. The corrected line rides every export.`);
   else toast('Boundary editor off.')};
 
 /* ---------- quest address resolver (§5.3 Stage 3b): pure, deterministic, explainable ---------- */
@@ -2750,9 +2899,9 @@ function resolveQuestAddress(q){ // pure: {text, role?, circle?, explicit?} -> {
     if(sc>bestScore){bestScore=sc;best=[{s,hits}]}else if(sc===bestScore&&sc>0)best.push({s,hits})}
   if(bestScore>0){let pick=best[0],tie='';
     if(best.length>1){const aff=q.circle?best.find(b=>b.s.circle===q.circle):null;
-      if(aff){pick=aff;tie=` — tie of ${best.length} broken by ${q.circle}-circle affinity`}
-      else tie=` — tie of ${best.length} broken by scene order (stable)`}
-    steps.push({rule:'lexicon scorer',detail:`“${pick.hits.join(', ')}” speaks ${pick.s.name} (score ${bestScore})${tie} — a labeled guess, overridable`,hit:true});
+      if(aff){pick=aff;tie=`. Tie of ${best.length} broken by ${q.circle}-circle affinity`}
+      else tie=`. Tie of ${best.length} broken by map order`}
+    steps.push({rule:'word match',detail:`“${pick.hits.join(', ')}” speaks ${pick.s.name} (score ${bestScore})${tie}. A guess, yours to move`,hit:true});
     return{key:pick.s.key,steps,guessed:true}}
   steps.push({rule:'lexicon scorer',detail:'no word in the quest matches any archetype vocabulary',hit:false});
   steps.push({rule:'Quest Board pool',detail:'unaddressed work lives at the board',hit:true});
@@ -2761,8 +2910,8 @@ function renderResolver(){
   const q={text:$('rqText').value,role:$('rqRole').value||null,circle:$('rqCircle').value||null};
   const r=resolveQuestAddress(q);
   const addr=r.key?BY[r.key].name:'the Quest Board pool';
-  $('rqSteps').innerHTML=r.steps.map((st,i)=>`<div class="rstep ${st.hit?'hit':'miss'}"><span class="no">${st.hit?'✓':i+1}</span><span><b style="font-weight:normal;letter-spacing:.06em">${st.rule}</b> — ${st.detail}</span></div>`).join('')+
-   `<div class="raddr">⚑ This quest lives at <b>${addr}</b>${r.guessed?' <span style="color:#e0a34e;font-size:10px">· lexicon guess</span>':''}
+  $('rqSteps').innerHTML=r.steps.map((st,i)=>`<div class="rstep ${st.hit?'hit':'miss'}"><span class="no">${st.hit?'✓':i+1}</span><span><b style="font-weight:normal;letter-spacing:.06em">${st.rule}</b> · ${st.detail}</span></div>`).join('')+
+   `<div class="raddr">⚑ This quest lives at <b>${addr}</b>${r.guessed?' <span style="color:#e0a34e;font-size:10px">· a guess</span>':''}
     <div style="display:flex;gap:6px;margin-top:7px">
      ${q.text.trim()?`<button class="btn" style="font-size:11px;padding:4px 10px" onclick="resolverCreate()">Create it there</button>`:''}
      ${r.key?`<button class="btn ghostbtn" style="font-size:11px;padding:4px 10px" onclick="goTo('${r.key}')">Show me</button>`:''}
@@ -2771,7 +2920,7 @@ function renderResolver(){
 function resolverCreate(){const{q,r}=window._rq||{};if(!q||!q.text.trim())return;
   SCENE.quests.push({q:q.text.trim(),at:r.key,r:'20 ♥',need:'hands welcome',addr:r.guessed?'lexicon guess':(r.key?'resolved':'board')});
   logEdit('quest-add','quest:'+q.text.trim(),{at:r.key,via:r.steps.filter(s=>s.hit).map(s=>s.rule).join('→')});
-  refreshWork();toast(r.key?`⚑ Created at ${BY[r.key].name} — ${r.guessed?'a labeled guess; reassign any time in the inspect card':'addressed'}.`:'⚑ Created at the Quest Board — unaddressed work lives at the board.');
+  refreshWork();toast(r.key?`⚑ Created at ${BY[r.key].name}. ${r.guessed?'A guess for now; move it any time in the inspect card':'Placed'}.`:'⚑ Created at the Quest Board. Unplaced work waits there.');
   $('rqText').value='';renderResolver()}
 (function initResolver(){
   $('rqRole').innerHTML='<option value="">no pledged role</option>'+SCENE.seats.map(x=>`<option value="${escq(x.s)}">${escq(x.s)}</option>`).join('');
@@ -2789,7 +2938,7 @@ let autosaveT=null,saveNudged=false;
 function scheduleAutosave(){clearTimeout(autosaveT);
   autosaveT=setTimeout(()=>{try{localStorage.setItem('amora-grounds-scene',JSON.stringify(buildExportJSON()))}catch(e){}},2500);
   if(!saveNudged&&EDITS.length>=5){saveNudged=true;
-    toast('Your work autosaves to this browser profile — ⤓ Export scene downloads it any time.')}}
+    toast('Your work saves itself in this browser. ⤓ Export scene hands you the file any time.')}}
 addEventListener('beforeunload',e=>{if(EDITS.length>0){e.preventDefault();e.returnValue=''}});
 const CIRCLE_HOMES={Outreach:'gate',Community:'welcome',Finance:'market',Land:'greenhouse',Coordination:'community',
   Gathering:'kitchen',Learning:'library',Wisdom:'council',Building:'ridgeA',Healing:'sanctuary',Arts:'community'};
@@ -2807,8 +2956,7 @@ function anchorOf(k){const s=k&&BY[k];return s?[s.x,s.y]:null}
 function closeInspect(){$('inspect').classList.remove('open');inspKey=null;
   if(document.activeElement&&document.activeElement.blur)document.activeElement.blur()}
 function openInspect(key){const s=BY[key];if(!s)return;inspKey=key;$('panel').classList.remove('open');panelKey=null;hideHover();
-  $('inspect').classList.add('open'); // same reason: the flight aims at what stays visible beside the card
-  travelTo(s.x,s.y,Math.max(cam.z,1.15));renderInspect()}
+  travelTo(s.x+90,s.y,Math.max(cam.z,1.15));renderInspect();$('inspect').classList.add('open')}
 function escq(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
 function structOpts(sel,excl){return SCENE.structures.filter(s=>s.key!==excl).map(s=>`<option value="${s.key}"${s.key===sel?' selected':''}>${escq(s.name)}</option>`).join('')}
 function seatRowH(x,here){const si=SCENE.seats.indexOf(x);
@@ -2817,26 +2965,26 @@ function questRowH(q){const qi=SCENE.quests.indexOf(q);
   return `<div style="margin-bottom:8px"><b style="font-weight:normal;color:#fff">⚑ ${escq(q.q)}</b>
    <span style="display:block;font-size:10px;color:#b9cf9a">${escq(q.r)} · ${escq(q.need)}</span>
    <div class="irow" style="margin-top:3px"><span class="ilbl" style="width:52px">address</span>
-   <select data-qaddr="${qi}"><option value="">Quest Board — unaddressed</option>${structOpts(q.at,null)}</select></div></div>`}
+   <select data-qaddr="${qi}"><option value="">Quest Board · not yet placed</option>${structOpts(q.at,null)}</select></div></div>`}
 function doorRowH(m,i){return `<div class="irow"><input type="text" data-dlab="${i}" value="${escq(m[0])}"><input type="text" data-drt="${i}" value="${escq(m[1])}" style="max-width:96px"><button class="xbtn" data-ddel="${i}">✕</button></div>`}
 function flowRowH(f,dir){const fi=SCENE.flows.indexOf(f);
   const medSel=`<select data-fmed="${fi}" style="flex:none;width:88px">${Object.keys(MEDIA).map(m=>`<option value="${m}"${f.medium===m?' selected':''}>${m}</option>`).join('')}</select>`;
   const other=dir==='in'?f.from:f.to;
-  const nullOpt=dir==='in'?`<option value=""${!f.from?' selected':''}>— imported / off-land —</option>`
-                          :`<option value=""${!f.to?' selected':''}>— exported / off-land —</option>`;
+  const nullOpt=dir==='in'?`<option value=""${!f.from?' selected':''}>imported · off-land</option>`
+                          :`<option value=""${!f.to?' selected':''}>exported · off-land</option>`;
   const oSel=`<select data-foth="${fi}" data-dir="${dir}">${nullOpt}${structOpts(other,inspKey)}</select>`;
   const routes=SCENE.features.filter(x=>x.geom==='line');
   const viaSel=(f.from&&f.to)?`<select data-fvia="${fi}" title="route along a drawn line" style="flex:none;width:74px"><option value="">bow</option>${routes.map(x=>`<option value="${x.id}"${f.via===x.id?' selected':''}>${escq((x.name||x.subtype).slice(0,16))}</option>`).join('')}</select>`:'';
   return `<div class="irow"><span style="flex:none;width:9px;height:9px;border-radius:50%;background:${MEDIA[f.medium]}"></span>${medSel}${dir==='in'?oSel+'<span style="flex:none;color:#b9af8f;font-size:10px">→ here</span>':'<span style="flex:none;color:#b9af8f;font-size:10px">here →</span>'+oSel}${viaSel}<button class="xbtn" data-fdel="${fi}">✕</button></div>`}
 function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
-  $('inspHead').innerHTML=`<div class="ttl">⚒ inspect — the founder's hand</div>
+  $('inspHead').innerHTML=`<div class="ttl">⚒ inspect · the founder's hand</div>
     <input type="text" id="iName" value="${escq(s.name)}" style="font-size:16px;font-variant:small-caps;letter-spacing:.08em">
     <div style="margin-top:7px;display:flex;gap:8px;align-items:center">
       <span class="statepill2" id="iState">${STATE_LABEL[s.state]||s.state}${(s.fund!=null&&s.fund<1)?` · pool ${Math.round(s.fund*100)}%`:''}</span>
       <span style="font-size:10px;color:#b9af8f">state is derived, never stored</span></div>`;
   const cats={};REG.forEach(r=>{(cats[r[2]]=cats[r[2]]||[]).push(r)});
   const archSel=`<select id="iArch">`+Object.entries(cats).map(([cat,arr])=>`<optgroup label="${cat}">`+arr.map(r=>`<option value="${r[0]}"${r[0]===s.archetype?' selected':''}>${r[1]}</option>`).join('')+`</optgroup>`).join('')+`</select>`;
-  const circleSel=`<select id="iCircle"><option value="">— unowned · needs a steward —</option>`+Object.keys(CIRCLE_COL).map(c=>`<option value="${c}"${s.circle===c?' selected':''}>${c} circle</option>`).join('')+`</select>`;
+  const circleSel=`<select id="iCircle"><option value="">unowned · needs a steward</option>`+Object.keys(CIRCLE_COL).map(c=>`<option value="${c}"${s.circle===c?' selected':''}>${c} circle</option>`).join('')+`</select>`;
   const seatsHere=SCENE.seats.filter(x=>x.at===s.key),otherSeats=SCENE.seats.filter(x=>x.at!==s.key);
   const qHere=SCENE.quests.filter(q=>q.at===s.key);
   const flowsIn=SCENE.flows.filter(f=>f.to===s.key),flowsOut=SCENE.flows.filter(f=>f.from===s.key);
@@ -2845,10 +2993,10 @@ function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
    <h5>identity</h5>
    <div class="irow"><span class="ilbl">archetype</span>${archSel}</div>
    <div class="irow"><span class="ilbl">blurb</span><textarea id="iBlurb" rows="2">${escq(s.blurb)}</textarea></div>
-   <div class="irow"><span class="ilbl">origin</span><textarea id="iOrigin" rows="2" placeholder="How this place came to be — its memory.">${escq(s.origin)}</textarea></div>
-   <h5>circle — the owner</h5>
+   <div class="irow"><span class="ilbl">origin</span><textarea id="iOrigin" rows="2" placeholder="How this place came to be. Its memory.">${escq(s.origin)}</textarea></div>
+   <h5>circle · the steward</h5>
    <div class="irow">${circleSel}</div>
-   <div style="font-size:10.5px;color:#b9af8f;margin-bottom:2px">${s.circle?`Emblem ring and banner wear the ${s.circle} circle's color.`:`Unowned — neutral ring; listed on the Wall as “needs a steward.”`}</div>
+   <div style="font-size:10.5px;color:#b9af8f;margin-bottom:2px">${s.circle?`Emblem ring and banner wear the ${s.circle} circle's color.`:`Unowned: neutral ring, listed on the Wall as “needs a steward.”`}</div>
    <h5>phase &amp; pool</h5>
    <div class="irow"><span class="ilbl">phase</span>
      ${[1,2,3].map(ph=>`<label style="display:flex;gap:4px;align-items:center;font-size:12px;cursor:pointer"><input type="radio" name="iPhase" value="${ph}"${s.phase===ph?' checked':''} style="accent-color:var(--gold)">${ph}</label>`).join('')}
@@ -2857,20 +3005,20 @@ function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
    <div class="irow"><span class="ilbl">pool</span><input type="range" id="iFund" min="0" max="100" value="${Math.round((s.fund!=null?s.fund:1)*100)}"><b id="iFundV" style="width:38px;text-align:right;font-size:12px;font-weight:normal">${Math.round((s.fund!=null?s.fund:1)*100)}%</b></div>
    <div class="irow"><span class="ilbl">size</span><input type="range" id="iScale" min="50" max="200" value="${Math.round((s.scale||1)*100)}"><b id="iScaleV" style="width:38px;text-align:right;font-size:12px;font-weight:normal">${Math.round((s.scale||1)*100)}%</b></div>
    <div style="font-size:10px;color:#b9af8f">the pool % is the gold ring on the emblem; a full pool comes alive</div>
-   <div class="irow"><span class="ilbl">doors</span><span style="display:flex;gap:5px;flex-wrap:wrap">${['stay','housing','library','wallet'].map(k=>{const dst=(s.doors||{})[k];return `<button class="chip dchip${dst?' on':''}${dst==='future'?' fut':''}" data-dk="${k}" data-tip="A module door on this card — click cycles: off → open → when-built.">${DOOR_DEFS[k].icon} ${k}${dst==='future'?' · when built':''}</button>`}).join('')}</span></div>
-   <div style="font-size:10px;color:#b9af8f">doors put a module CTA on this place's card — off → open → when-built</div>
-   <h5>roles here — the residents</h5>
+   <div class="irow"><span class="ilbl">doors</span><span style="display:flex;gap:5px;flex-wrap:wrap">${['stay','housing','library','wallet'].map(k=>{const dst=(s.doors||{})[k];return `<button class="chip dchip${dst?' on':''}${dst==='future'?' fut':''}" data-dk="${k}" data-tip="A door on this card. Click cycles: off → open → when built.">${DOOR_DEFS[k].icon} ${k}${dst==='future'?' · when built':''}</button>`}).join('')}</span></div>
+   <div style="font-size:10px;color:#b9af8f">doors put a button on this place's card. Click cycles: off, open, when built</div>
+   <h5>roles here · the residents</h5>
    <div>${seatsHere.map(x=>seatRowH(x,true)).join('')||'<div style="color:#b9af8f;font-size:11.5px;padding:2px 0">No roles live here yet.</div>'}
    ${otherSeats.length?`<details style="margin:5px 0"><summary style="font-size:10.5px;color:#b9af8f;cursor:pointer">bring a role from elsewhere (${otherSeats.length})</summary><div style="padding-top:5px">${otherSeats.map(x=>seatRowH(x,false)).join('')}</div></details>`:''}</div>
    <div class="irow" style="margin-top:4px"><input type="text" id="iSeatName" placeholder="add a role here — name"><input type="text" id="iSeatNote" placeholder="note" style="max-width:104px"><button class="xbtn" id="iSeatAdd" style="color:#8fd06a">＋</button></div>
-   <h5>quests here — the visitors</h5>
+   <h5>quests here · the visitors</h5>
    <div>${qHere.map(q=>questRowH(q)).join('')||'<div style="color:#b9af8f;font-size:11.5px;padding:2px 0">No quests addressed here.</div>'}</div>
-   <div class="irow" style="margin-top:4px"><input type="text" id="iQTitle" placeholder="add a quest here — title"></div>
+   <div class="irow" style="margin-top:4px"><input type="text" id="iQTitle" placeholder="add a quest here"></div>
    <div class="irow"><input type="text" id="iQReward" placeholder="reward · 25 ♥" style="max-width:110px"><input type="text" id="iQNeed" placeholder="need · 3 hands, Saturday"><button class="xbtn" id="iQAdd" style="color:#8fd06a">＋</button></div>
-   <h5>doors — module bindings</h5>
-   <div>${(s.modules||[]).map((m,i)=>doorRowH(m,i)).join('')||'<div style="color:#b9af8f;font-size:11.5px;padding:2px 0">No doors bound — this building opens nothing yet.</div>'}</div>
+   <h5>doors · what this place opens</h5>
+   <div>${(s.modules||[]).map((m,i)=>doorRowH(m,i)).join('')||'<div style="color:#b9af8f;font-size:11.5px;padding:2px 0">No doors yet. This building opens nothing so far.</div>'}</div>
    <div class="irow" style="margin-top:4px"><input type="text" id="iDLabel" placeholder="door label"><input type="text" id="iDRoute" placeholder="/route" style="max-width:96px"><button class="xbtn" id="iDAdd" style="color:#8fd06a">＋</button></div>
-   <h5>flows — metabolism${loop!=null?` <span style="float:right;color:${loop>=60?'#8fd06a':'#e0a34e'};letter-spacing:.05em">${loop}% of inputs on-land</span>`:''}</h5>
+   <h5>flows · the metabolism${loop!=null?` <span style="float:right;color:${loop>=60?'#8fd06a':'#e0a34e'};letter-spacing:.05em">${loop}% of inputs on-land</span>`:''}</h5>
    <div style="font-size:10px;color:#b9af8f;margin-bottom:5px">declared inputs → this place → outputs · drawn live on the Flows lens · imported edges are quests waiting to be written</div>
    <div>${flowsIn.map(f=>flowRowH(f,'in')).join('')||'<div style="color:#b9af8f;font-size:11.5px">No declared inputs yet.</div>'}</div>
    <div class="irow" style="margin:4px 0"><button class="chip" id="iFInAdd">＋ input</button><span style="flex:1"></span><button class="chip" id="iFOutAdd">＋ output</button></div>
@@ -2890,7 +3038,7 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
   B.querySelector('#iOrigin').onchange=()=>logEdit('origin','structure:'+s.key,{len:(s.origin||'').length});
   B.querySelector('#iCircle').onchange=e=>{s.circle=e.target.value||null;paintPoiArt(s,pEls[s.key]);refreshBanner(s);
     logEdit('circle','structure:'+s.key,{to:s.circle});refreshWork();renderInspect();
-    toast(s.circle?`${s.name} now stewarded by the ${s.circle} circle.`:`${s.name} released — it needs a steward.`)};
+    toast(s.circle?`${s.name} now stewarded by the ${s.circle} circle.`:`${s.name} released. It needs a steward.`)};
   B.querySelectorAll('[name=iPhase]').forEach(r=>r.onchange=e=>{s.phase=+e.target.value;setDerived(s);
     logEdit('phase','structure:'+s.key,{to:s.phase});renderInspect()});
   B.querySelector('#iAct').onchange=e=>{s.act=e.target.value;setDerived(s);logEdit('activity','structure:'+s.key,{to:s.act});renderInspect()};
@@ -2903,7 +3051,7 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
     if(nxt===undefined)delete s.doors[k];else s.doors[k]=nxt;
     if(!Object.keys(s.doors).length)delete s.doors;
     logEdit('doors','structure:'+s.key,{door:k,to:nxt||'off'});
-    openInspect(s.key);toast(nxt===1?`${DOOR_DEFS[k].icon} Door open — the ${k} CTA now lives on this card.`:(nxt==='future'?'Door marked “when built” — visible, not yet passable.':'Door removed.'))}});
+    openInspect(s.key);toast(nxt===1?`${DOOR_DEFS[k].icon} Door open. The ${k} button now lives on this card.`:(nxt==='future'?'Door marked “when built”. Visible, not yet passable.':'Door removed.'))}});
   const sr=B.querySelector('#iScale');
   sr.oninput=e=>{if(sr._from==null)sr._from=s.scale||1;s.scale=+e.target.value/100;B.querySelector('#iScaleV').textContent=e.target.value+'%'};
   sr.onchange=e=>{const from=sr._from==null?1:sr._from;sr._from=null;if(from===s.scale)return;
@@ -2912,14 +3060,14 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
   B.querySelectorAll('[data-seat]').forEach(cb=>cb.onchange=()=>{const x=SCENE.seats[+cb.dataset.seat];if(!x)return;
     if(cb.checked){logEdit('seat-address','seat:'+x.s,{from:x.at,to:s.key});x.at=s.key;toast(`⛨ ${x.s} now lives at ${s.name}.`)}
     else{const home=circleHome(x.c);logEdit('seat-address','seat:'+x.s,{from:x.at,to:home});x.at=home;
-      toast(`⛨ ${x.s} returned to the ${x.c} circle's home — ${BY[home]?BY[home].name:home}.`)}
+      toast(`⛨ ${x.s} returned to the ${x.c} circle's home: ${BY[home]?BY[home].name:home}.`)}
     refreshWork();renderInspect()});
   B.querySelector('#iSeatAdd').onclick=()=>{const n=B.querySelector('#iSeatName').value.trim();if(!n)return;
     SCENE.seats.push({s:n,at:s.key,c:s.circle||'Community',note:B.querySelector('#iSeatNote').value.trim()||'a new seat, waiting for its steward'});
     logEdit('seat-add','seat:'+n,{at:s.key});refreshWork();renderInspect()};
   B.querySelectorAll('[data-qaddr]').forEach(sel=>sel.onchange=()=>{const q=SCENE.quests[+sel.dataset.qaddr];if(!q)return;
     logEdit('quest-address','quest:'+q.q,{from:q.at,to:sel.value||null});q.at=sel.value||null;
-    toast(q.at?`⚑ “${q.q}” now lives at ${BY[q.at].name}.`:`⚑ “${q.q}” sent to the Quest Board pool — unaddressed work lives at the board.`);
+    toast(q.at?`⚑ “${q.q}” now lives at ${BY[q.at].name}.`:`⚑ “${q.q}” sent to the Quest Board. Unplaced work waits there.`);
     refreshWork();renderInspect()});
   B.querySelector('#iQAdd').onclick=()=>{const t=B.querySelector('#iQTitle').value.trim();if(!t)return;
     SCENE.quests.push({q:t,at:s.key,r:B.querySelector('#iQReward').value.trim()||'20 ♥',need:B.querySelector('#iQNeed').value.trim()||'hands welcome'});
@@ -3008,12 +3156,12 @@ function restoreScene(J){try{
   if(typeof refreshEventBadges==='function')refreshEventBadges();
   if(typeof renderVocab==='function')renderVocab();
   if(document.body.classList.contains('loom'))renderLoom();
-  toast('Restored — '+SCENE.structures.length+' structures, '+SCENE.features.length+' features, '+EDITS.length+' edits.');
+  toast('Restored: '+SCENE.structures.length+' buildings, '+SCENE.features.length+' features, '+EDITS.length+' edits.');
   return true}catch(err){console.warn('restore failed',err);toast('Could not restore the saved session.');return false}}
 (function persistenceBoot(){try{
   const raw=localStorage.getItem('amora-grounds-scene');if(!raw)return;
   const J=JSON.parse(raw);if(!J||!Array.isArray(J.map_structures))return;
-  $('restoreMsg').textContent=`Saved work found on this profile — ${J.map_structures.length} structures, ${(J.map_edits||[]).length} edits.`;
+  $('restoreMsg').textContent=`Saved work found in this browser: ${J.map_structures.length} buildings, ${(J.map_edits||[]).length} edits.`;
   $('restoreBar').style.display='flex';
   $('restoreYes').onclick=()=>{$('restoreBar').style.display='none';restoreScene(J)};
   $('restoreNo').onclick=()=>{$('restoreBar').style.display='none'}
@@ -3029,7 +3177,7 @@ function suggestFor(text,circle){ // deterministic first-pass suggester: strong 
     if(m&&+m[1]>=2)return{key:lex.key,why:lastWhy(lex)}}
   const full=resolveQuestAddress({text,circle:circle||null});
   if(full.key)return{key:full.key,why:lastWhy(full)};
-  return{key:null,why:'no rule matched — the Board holds it'}}
+  return{key:null,why:'no rule matched. The Board holds it'}}
 function resolveAllAddresses(){ // idempotent; a creator's word (any addr but resolver-guess) is never touched
   for(const q of SCENE.quests)if(q.at==null&&q.addr!=='creator-board'){const g=suggestFor(q.q+' '+(q.desc||''),q.aff||null);
     if(g.key){q.at=g.key;q.addr='resolver-guess';q._why=g.why}else q._why=g.why}
@@ -3039,7 +3187,7 @@ function resolveAllAddresses(){ // idempotent; a creator's word (any addr but re
     const g=suggestFor(t.title+' '+(t.ex||''),null);t._res=g.key?{key:g.key,why:g.why}:null}
   for(const j of SCENE.journeys)for(const st of j.steps)if(st.at==null&&st.addr!=='creator-board'){
     const g=suggestFor(st.t+' '+(st.stage||''),null);
-    if(g.key){st.at=g.key;st.addr='resolver-guess';st._why=g.why}else st._why='unplaced — no rule matched'}}
+    if(g.key){st.at=g.key;st.addr='resolver-guess';st._why=g.why}else st._why='unplaced. No rule matched'}}
 function classify(it){if(it.at==null)return'pool';return(it.addr==='resolver-guess'||it.addr==='lexicon guess')?'resolver':'creator'}
 function threadProv(t){return(t.structures&&t.structures.length)?((t.addr==='resolver-guess')?'resolver':'creator'):(t._res?'resolver':'pool')}
 const LOOM_STAGED=new Map();
@@ -3085,7 +3233,7 @@ function renderLoom(){
   SCENE.quests.forEach(q=>bump(q.at));SCENE.seats.forEach(x=>bump(x.at));
   SCENE.threads.forEach(t=>(t.structures||[]).forEach(bump));
   SCENE.journeys.forEach(j=>j.steps.forEach(st=>bump(st.at)));
-  $('loomLeft').innerHTML=`<div class="lrow pool" data-k="__pool"><span class="lart">⚑</span><span class="lname">The Quest Board<small>the unplaced pool — drop here to un-address</small></span></div>`+
+  $('loomLeft').innerHTML=`<div class="lrow pool" data-k="__pool"><span class="lart">⚑</span><span class="lname">The Quest Board<small>the unplaced pool. Drop here to unplace</small></span></div>`+
    SCENE.structures.map(s=>{const fam=famOf(s);
     const art=(window.SPRITES&&SPRITES[fam])?`<img src="${SPRITES[fam]}" alt="">`:`<svg viewBox="0 0 64 64"><g stroke="#e8d9a8" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">${ICONS[fam]||ICONS.hall}</g></svg>`;
     return `<div class="lrow" data-k="${s.key}"><span class="lart">${art}</span>
@@ -3124,14 +3272,14 @@ function renderLoom(){
        return`<span class="lgrip achip${st?' staged':''}" data-conn="${cs}">◉ ${atName(st?LOOM_STAGED.get(cs):k)}</span>`}).join('');
      const gcs=`thread:${t.id}:g`;const gst=LOOM_STAGED.has(gcs);
      const guess=(!(t.structures&&t.structures.length))?(t._res?
-       `<span class="lgrip achip guess${gst?' staged':''}" data-conn="${gcs}">◉ ${gst?atName(LOOM_STAGED.get(gcs)):atName(t._res.key)+' — my guess'}</span>`:
+       `<span class="lgrip achip guess${gst?' staged':''}" data-conn="${gcs}">◉ ${gst?atName(LOOM_STAGED.get(gcs)):atName(t._res.key)+' · a guess'}</span>`:
        `<span class="lgrip achip poolc${gst?' staged':''}" data-conn="${gcs}">◉ ${gst?atName(LOOM_STAGED.get(gcs)):'the Board'}</span>`):'';
      const acs=`thread:${t.id}:+`;const ast=LOOM_STAGED.has(acs);
      return`<div class="lcard pv-${p}"><div class="lmain"><b>${t.title}</b>
       <small>${t.author} · ${t.replies} replies · ${t.last} ago · ${t.aud==='public'?'public':'members'}${t.src==='sample'?' · sample':''}</small>
       <div class="laddrs">${chips}${guess}<span class="lgrip achip add${ast?' staged':''}" data-conn="${acs}">${ast?'◉ '+atName(LOOM_STAGED.get(acs)):'+ place'}</span></div>
       ${(t._res&&!(t.structures&&t.structures.length))?`<span class="lwhy">${t._res.why}</span>`:''}</div>${provChip(p)}</div>`}).join('')+`</section>`}
-  if(F.kind.journey){html+=`<section class="lsec" data-sec="journey"><h4><svg viewBox='0 0 24 24' style='width:12px;height:12px;vertical-align:-1px'><g stroke='currentColor' stroke-width='2.4' fill='none' stroke-linecap='round'><path d='M5 19c6-1 2-6 8-7s3-5 6-7M15.5 5H19v3.5'/></g></svg> Journeys<small>each a numbered route — drag any step</small></h4>`+
+  if(F.kind.journey){html+=`<section class="lsec" data-sec="journey"><h4><svg viewBox='0 0 24 24' style='width:12px;height:12px;vertical-align:-1px'><g stroke='currentColor' stroke-width='2.4' fill='none' stroke-linecap='round'><path d='M5 19c6-1 2-6 8-7s3-5 6-7M15.5 5H19v3.5'/></g></svg> Journeys<small>each a numbered route. Drag any step</small></h4>`+
    SCENE.journeys.map(j=>`<div class="ljcard"><div class="ljhead"><b>${j.name}</b><small>${j.blurb||''}${j.src==='site'?' · from the live site':''}</small><button class="lchip" onclick="playJourney('${j.id}')">➹ walk it</button></div>
     <div class="lsteps">${j.steps.map((st,si)=>{const cs=`step:${j.id}:${si}`;const p=classify(st);
       const dim=!(F.prov[p]||LOOM_STAGED.has(cs));
@@ -3192,7 +3340,7 @@ $('loomBody').addEventListener('pointerup',e=>{if(!LDRAG)return;
 function stageRewire(cs,to){const live=connTarget(cs);
   if(to===live)LOOM_STAGED.delete(cs);else LOOM_STAGED.set(cs,to);
   renderLoom();
-  if(to!==live)toast(to?`Staged → ${atName(to)} — press Save to make it the creator’s word.`:'Staged toward the Board — Save to un-address.')}
+  if(to!==live)toast(to?`Staged → ${atName(to)}. Save makes it your word.`:'Staged toward the Board. Save unplaces it.')}
 window.stageRewire=stageRewire;
 $('loomBody').addEventListener('click',e=>{
   if(Date.now()-lastDragT<300)return;
@@ -3207,27 +3355,27 @@ $('loomBody').addEventListener('pointerout',e=>{if(e.target.closest&&e.target.cl
 function applyRewire(cs,to){const c=parseConn(cs);
   if(c.kind==='quest'){const q=SCENE.quests[c.i];if(!q)return;const from=q.at;
     q.at=to;q.addr=to?'creator':'creator-board';delete q._why;
-    logEdit('address-override','quest:'+q.q,{from:from||'board',to:to||'board',via:'the Loom — founder’s pick'})}
+    logEdit('address-override','quest:'+q.q,{from:from||'board',to:to||'board',via:'the Loom, the founder’s pick'})}
   else if(c.kind==='seat'){const x=SCENE.seats[c.i];if(!x)return;const from=x.at;
     x.at=to;x.addr=to?'creator':'creator-board';delete x._why;
-    logEdit('address-override','role:'+x.s,{from:from||'board',to:to||'board',via:'the Loom — founder’s pick'})}
+    logEdit('address-override','role:'+x.s,{from:from||'board',to:to||'board',via:'the Loom, the founder’s pick'})}
   else if(c.kind==='thread'){const t=thById(c.id);if(!t)return;
     const from=(typeof c.ai==='number')?t.structures[c.ai]:null;
     if(typeof c.ai==='number'){if(to)t.structures[c.ai]=to;else t.structures.splice(c.ai,1)}
     else if(to)t.structures.push(to);
     t.addr=(t.structures&&t.structures.length)?'creator':'creator-board';
     if(t.structures&&t.structures.length)t._res=null;
-    logEdit('address-override','thread:'+t.id,{from:from||'board',to:to||'board',title:t.title,via:'the Loom — founder’s pick'})}
+    logEdit('address-override','thread:'+t.id,{from:from||'board',to:to||'board',title:t.title,via:'the Loom, the founder’s pick'})}
   else{const j=jById(c.j);if(!j)return;const st=j.steps[c.si];if(!st)return;const from=st.at;
     st.at=to;st.addr=to?'creator':'creator-board';delete st._why;
-    logEdit('address-override','journey:'+c.j+':'+(c.si+1),{from:from||'unplaced',to:to||'unplaced',step:st.t,via:'the Loom — founder’s pick'})}}
+    logEdit('address-override','journey:'+c.j+':'+(c.si+1),{from:from||'unplaced',to:to||'unplaced',step:st.t,via:'the Loom, the founder’s pick'})}}
 window.applyRewire=applyRewire;
 $('loomSaveBtn').onclick=()=>{const n=LOOM_STAGED.size;if(!n)return;
   for(const[cs,to]of LOOM_STAGED)applyRewire(cs,to);
   LOOM_STAGED.clear();
   resolveAllAddresses();refreshWork();renderLoom();
-  toast(`⧉ ${n} rewire${n===1?'':'s'} saved — the creator’s word now, audited and autosaved.`)};
-$('loomDiscardBtn').onclick=()=>{LOOM_STAGED.clear();renderLoom();toast('Staged rewires discarded — the Loom returns to what is.')};
+  toast(`⧉ ${n} rewire${n===1?'':'s'} saved. Your word now; the land remembers.`)};
+$('loomDiscardBtn').onclick=()=>{LOOM_STAGED.clear();renderLoom();toast('Staged rewires discarded. The Loom returns to what is.')};
 document.querySelectorAll('.lfk').forEach(b=>b.onclick=()=>{LOOMF.kind[b.dataset.f]=!LOOMF.kind[b.dataset.f];
   b.classList.toggle('off',!LOOMF.kind[b.dataset.f]);renderLoom()});
 document.querySelectorAll('.lfp').forEach(b=>b.onclick=()=>{LOOMF.prov[b.dataset.p]=!LOOMF.prov[b.dataset.p];
@@ -3237,9 +3385,9 @@ $('lfCircle').onchange=()=>{LOOMF.circle=$('lfCircle').value;renderLoom()};
 $('loomEngineBtn').onclick=()=>$('loomEngine').classList.toggle('show');
 function openLoom(){document.body.classList.add('loom');setHash('#/loom');renderLoom();
   if(!window._loomSaid){window._loomSaid=1;
-    toast('The Loom — gold is the creator’s word, amber my labeled guess, gray the Board. Drag any ◉ grip.')}}
+    toast('The Loom. Gold is your word, amber is a guess, gray waits at the Board. Drag any ◉ grip.')}}
 function closeLoom(){document.body.classList.remove('loom');if(location.hash==='#/loom')setHash('');
-  if(LOOM_STAGED.size)toast(LOOM_STAGED.size+' staged rewire'+(LOOM_STAGED.size===1?'':'s')+' kept — reopen the Loom to Save or Discard.')}
+  if(LOOM_STAGED.size)toast(LOOM_STAGED.size+' staged rewire'+(LOOM_STAGED.size===1?'':'s')+' kept. Reopen the Loom to Save or Discard.')}
 window.openLoom=openLoom;window.closeLoom=closeLoom;window.renderLoom=renderLoom;
 $('loomBtn').onclick=()=>document.body.classList.contains('loom')?closeLoom():openLoom();
 $('loomClose').onclick=closeLoom;
@@ -3256,7 +3404,7 @@ refreshWork();
 /* ---------- MODULE DOORS — the map as the primary point of interaction.
    Every module has two doors: the menu (site nav) and the land (this map). Same routes, same data — D9 holds. ---------- */
 window.SITE_BASE='https://amora.regencivics.earth'; // forks set their own in Make This Yours
-window.BUILD_VERSION='v0.7-roundC1';
+window.BUILD_VERSION='v0.7-voice1-badges1';
 const SITE_ROUTES={j1:'/first-walk',j2:'/resident',j3:'/steward',j4:'/investor'};
 const DOOR_DEFS={
   stay:{module:'stay',icon:'🛏',cta:'Book a room'},
@@ -3268,9 +3416,9 @@ window.LOTS={ridgeA:{sold:2,total:5},ridgeB:{sold:1,total:6},pondhomes:{sold:3,t
 window.ROOMS={guest:{taken:2,total:3}};
 window.EVENTS=[
  {id:'e1',title:'Full-moon feast',at:['kitchen','community'],days:0,when:'tonight'},
- {id:'e2',title:'Build day — ridge walls',at:['ridgeA'],days:1,when:'Saturday'},
+ {id:'e2',title:'Build day · ridge walls',at:['ridgeA'],days:1,when:'Saturday'},
  {id:'e3',title:'Seedling swap',at:['greenhouse','market'],days:3,when:'Tuesday'},
- {id:'e4',title:'Council fire — open agenda',at:['council'],days:6,when:'next fire'},
+ {id:'e4',title:'Council fire · open agenda',at:['council'],days:6,when:'next fire'},
  {id:'e5',title:'Sanctuary site blessing',at:['sanctuary'],days:12,when:'the full moon after next'},
 ].map(e=>({...e,rsvp:3+((e.id.charCodeAt(1)*7)%9),src:'sample'}));
 window.eventsAt=k=>EVENTS.filter(e=>e.at.includes(k));
@@ -3280,6 +3428,8 @@ function refreshEventBadges(){for(const s of SCENE.structures){const el=pEls[s.k
   el.classList.remove('ev-u0','ev-u1','ev-u2','ev-u3');
   if(evs.length)el.classList.add(evU(Math.min(...evs.map(e=>e.days))))}}
 window.refreshEventBadges=refreshEventBadges;
+try{refreshBadges()}catch(_){}
+setInterval(()=>{try{refreshBadges()}catch(_){}} ,3000);
 function eventCard(s){const evs=eventsAt(s.key);if(!evs.length)return'';
   return `<div style="margin-top:9px">`+evs.map(e=>`<div class="mrow" style="margin:4px 0"><span><b>✦ ${e.title}</b><small>${e.when} · ${e.rsvp} going · sample</small></span>
    <button class="btn" data-ev="${e.id}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${e.id}')"${e._me?' disabled':''}>${e._me?'✔ '+e.rsvp+' going':'RSVP'}</button></div>`).join('')+`</div>`}
@@ -3301,61 +3451,61 @@ const MICON={
 window.MICON=MICON;
 const MODULES={
   wallet:{name:'The Exchange',icon:MICON.wallet,route:'/wallet',
-    blurb:'One ledger, every token. Hearts of gratitude are recognition and never a wage; stay credits and library credits are useful and never votes. Recompute, never increment.',
+    blurb:'One ledger, every token. Hearts are gratitude, never a wage. Stay credits and library credits are useful, never votes.',
     sample:ctx=>`<table class="mtab">
-      <tr><td>♥ Gratitude</td><td><b>132 ♥</b></td><td>recognition — the thank-you economy</td></tr>
+      <tr><td>♥ Gratitude</td><td><b>132 ♥</b></td><td>recognition, the thank-you economy</td></tr>
       <tr><td>🛏 Stay credits</td><td><b>4 nights</b></td><td>work-exchange quests extend your stay</td></tr>
       <tr><td>🧰 Library credits</td><td><b>850</b></td><td>escrowed while you borrow</td></tr></table>
-      <div class="lastv">sample balances — the live ledger keeps the truth at /wallet</div>`},
+      <div class="lastv">sample balances. The live ledger at /wallet keeps the truth</div>`},
   stay:{name:'Stays',icon:MICON.stay,route:'/stay',
-    blurb:'Book a room, pay in stay credits or fiat — two posted prices, never an exchange rate. Low on nights? Work-exchange quests are the way to earn your stay.',
+    blurb:'Book a room and pay in stay credits or money. Two posted prices, no exchange rate. Low on nights? Work-exchange quests are the way to earn your stay.',
     sample:ctx=>{const s=ctx&&ctx.at&&BY[ctx.at];
-      if(s&&s.doors&&s.doors.stay==='future')return `<div class="mrow"><span><b>${s.name}</b><small>bookable when it's built — phase ${s.phase}. The door is already on the map; the building will catch up.</small></span></div>
-        <div class="lastv">every named housing structure can open a booking door — founders toggle it in build mode</div>`;
+      if(s&&s.doors&&s.doors.stay==='future')return `<div class="mrow"><span><b>${s.name}</b><small>bookable when it's built. The door is already on the map; the building will catch up.</small></span></div>
+        <div class="lastv">any named housing building can open a booking door. Founders flip it in build mode</div>`;
       return `${s?`<div class="lastv" style="margin:0 0 6px">booking at <b>${s.name}</b></div>`:''}
       <div class="mrow"><span><b>Rooms tonight</b><small>${ROOMS.guest.total-ROOMS.guest.taken} of ${ROOMS.guest.total} open</small></span></div>
       <div class="mrow"><span><b>Jungle Casita</b><small>sleeps 2 · creek side</small></span><span><b>155 credits</b><small>or $80 / night</small></span></div>
       <div class="mrow"><span><b>Ridge Room</b><small>sleeps 1 · sunrise wall</small></span><span><b>120 credits</b><small>or $65 / night</small></span></div>
-      <div class="lastv">sample rooms — admin-posted prices per token, zero FX math (stays.md)</div>`}},
+      <div class="lastv">sample rooms. Each price is posted in its own token; nothing converts</div>`}},
   housing:{name:'Housing',icon:MICON.housing,route:'/housing',
-    blurb:'Reserve a home in a neighbourhood — land share agreements, the waitlist, and the Resident Journey all meet here.',
+    blurb:'Reserve a home in a neighbourhood. Land share agreements, the waitlist, and the Resident Journey all meet here.',
     sample:ctx=>{const s=ctx&&ctx.at&&BY[ctx.at];
       return `${s?`<div class="lastv" style="margin:0 0 6px">reserving in <b>${s.name}</b></div>`:''}
       ${[['ridgeA','walls rising'],['ridgeB','staked &amp; pooled'],['pondhomes','by the water']].map(([k,note])=>{const L=LOTS[k];const nm=BY[k]?BY[k].name:k;
         return `<div class="mrow"><span><b>${nm}</b><small>${note}</small></span><span><b>${L.sold} of ${L.total}</b><small>lots spoken for · ${L.total-L.sold} open</small></span></div>`}).join('')}
-      <div class="lastv">one source of truth — the same numbers the banners wear · sample until Stays feeds it</div>`}},
+      <div class="lastv">the same numbers the banners wear · sample until the Stays door feeds it live</div>`}},
   library:{name:'Material Library',icon:MICON.library,route:'/library',
-    blurb:'The lending commons — contribute gear for credits, borrow against escrow, wear quoted up front. Every item carries its own story.',
+    blurb:'The lending commons. Add your tools to earn credits, borrow with a deposit, wear quoted up front. Every item carries its own story.',
     sample:ctx=>`<div class="mrow"><span><b>Borrow quote</b><small>Makita driver · 10 days</small></span><span><b>≈ 84 credits</b><small>≈ 1.4% wear, quoted before you borrow</small></span></div>
       <div class="mrow"><span><b>Categories</b><small>garden · build · kitchen · media · camp</small></span><span><b>112 items</b><small>sample count</small></span></div>
-      <div class="lastv">sample — the Library Steward runs the pool; disputes become a query, not an argument (material-library.md)</div>`},
+      <div class="lastv">sample shelf. The Library Steward tends the pool, and disputes become a question, not an argument</div>`},
   forum:{name:'Forum',icon:'💬',route:'/forum',
-    blurb:'The village conversation — every thread pins itself to as many places as its creator picks, and the map shows them where they live.',
+    blurb:'The village conversation. Every thread pins to the places it talks about, and the map shows it where it lives.',
     sample:ctx=>{const at=ctx&&ctx.at;const th=at?threadsAt(at):SCENE.threads.slice(0,4);
       return th.map(t=>`<div class="mrow"><span><b>${t.title}</b><small>${t.author} · ${t.replies} replies · ${t.last} ago</small></span></div>`).join('')||'<div class="lastv">no conversations pinned here yet</div>'}},
   quests:{name:'Quests',icon:'⚑',route:'/quests',
-    blurb:'Find somewhere to help — rewards in hearts, claimed with consent.',
+    blurb:'Find somewhere to help. Hearts for the work, claimed with consent.',
     sample:ctx=>{const open=SCENE.quests.slice(0,3);
       return open.map(q=>`<div class="mrow"><span><b>${q.q}</b><small>${q.need||''}</small></span><span><b>${q.r||''}</b><small>${q.at&&BY[q.at]?BY[q.at].name:'the Board'}</small></span></div>`).join('')+
-      `<div class="lastv">${SCENE.quests.length} quests on the land — propose your own at /propose-quest</div>`}},
+      `<div class="lastv">${SCENE.quests.length} quests on the land · propose your own at /propose-quest</div>`}},
   journeys:{name:'Journeys',icon:MICON.journeys,route:'/first-walk',
-    blurb:'Walk a path — every journey is a route on the land. Steps without a place yet wait on the Loom.',
+    blurb:'Walk a path. Every journey is a route on the land; steps without a place yet wait on the Loom.',
     sample:ctx=>SCENE.journeys.map(j=>{const placed=j.steps.filter(st=>st.at&&BY[st.at]).length;
       return `<div class="mrow"><span><b>${j.name}</b><small>${placed} of ${j.steps.length} steps placed</small></span>
        <span style="display:flex;gap:6px"><button class="btn" style="font-size:10.5px;padding:3px 10px" onclick="playJourney('${j.id}')">➹ walk it</button></span></div>`}).join('')},
   health:{name:'Village Health',icon:'☀',route:'/village-health',
-    blurb:'The vitals behind the map — the same numbers the crown banner reads.',
+    blurb:'The numbers behind the map. The same truth the crown banner reads.',
     sample:ctx=>SCENE.vitals.map(v=>`<div class="mrow"><span><b>${v.label}</b><small>${v.sub}</small></span><span><b>${v.v}</b></span></div>`).join('')},
   events:{name:'Events',icon:MICON.events,route:'/seasonal-festivals',
-    blurb:'Feasts, build days, ceremonies — every event is a place and a time on the land, and its lantern burns brighter as the day comes near.',
+    blurb:'Feasts, build days, ceremonies. Every event is a place and a time on the land, and its lantern burns brighter as the day comes near.',
     sample:ctx=>EVENTS.map(e=>`<div class="mrow"><span><b>✦ ${e.title}</b><small>${e.when} · at ${e.at.map(k=>BY[k]?BY[k].name:k).join(' + ')} · sample</small></span>
       <button class="btn" data-ev="${e.id}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${e.id}')"${e._me?' disabled':''}>${e._me?'✔ '+e.rsvp+' going':'RSVP'}</button></div>`).join('')
-      +`<div class="lastv">route rides Seasonal Festivals until the Events module lands — its own module is the foundation (Rye's call)</div>`},
-  admin:{name:'Village Settings — Make This Yours',icon:MICON.admin,route:'/admin?tab=setup',
-    blurb:'Founders turn this into their project\'s coordination game — identity, content, and the map\'s own skin, one flow. Blank fields keep Amora\'s value as the suggestion.',
+      +`<div class="lastv">for now this door opens on Seasonal Festivals. Events will get a room of its own</div>`},
+  admin:{name:'Village Settings · Make This Yours',icon:MICON.admin,route:'/admin?tab=setup',
+    blurb:'Turn this into your village\'s own game. Identity, content, and the map\'s skin in one flow; blank fields keep Amora\'s answer as the suggestion.',
     sample:ctx=>`<div class="mrow"><span><b>Map skin</b><small>theme · accent · parchment · labels · icon style · painterly dials</small></span>
       <span><button class="btn" style="font-size:10.5px;padding:3px 10px" onclick="$('module').classList.remove('show');openSkin()">✂ open the step</button></span></div>
-      <div class="lastv">the same tokens style site and map — customize once, the land follows</div>`}};
+      <div class="lastv">style it once and both the site and the land follow</div>`}};
 window.MODULES=MODULES;
 function siteHref(route){return (window.SITE_BASE||'')+route}
 function doorBtns(s){if(!s.doors)return'';
@@ -3372,7 +3522,7 @@ function openDoor(a,ctx){
   if(!key){ // a founder-bound door with no registered module yet
     const name=a,route=ctx;
     $('moduleCard').innerHTML=`<h2>${name}</h2><div class="route">${route} · bound by the founder</div>
-      <p><b>${name}</b> — this door is bound but its module isn't registered on the map yet. The route carries it on the site; bind it to a registered module in build mode to give it a room here.</p>
+      <p><b>${name}</b>: this door is bound, but its room isn't on the map yet. The site still carries the page; bind it to a room in build mode and it opens here too.</p>
       <div class="acts"><button class="btn" onclick="closeDoor()">Back to the land</button></div>`;
     $('module').classList.add('show');return}
   const M=MODULES[key];const at=ctx&&ctx.at&&BY[ctx.at]?BY[ctx.at]:null;
@@ -3384,7 +3534,7 @@ function openDoor(a,ctx){
       <a class="btn" href="${siteHref(M.route)}" target="_blank" rel="noopener" onclick="return siteNav(event,'${M.route}')">Open ${M.route} on the site ↗</a>
       <button class="btn ghostbtn" onclick="closeDoor()">Back to the land</button>
     </div>
-    <div class="lastv">two doors, one room: the site's menu and this map both mount the same module — pick your way in.</div>`;
+    <div class="lastv">two doors, one room. The site menu and this map open the same place; come in either way.</div>`;
   $('module').classList.add('show')}
 window.openDoor=openDoor;
 function closeDoor(){$('module').classList.remove('show');if(/^#\/module\//.test(location.hash))setHash('')}
@@ -3401,20 +3551,20 @@ function playJourney(id){const j=jById(id);if(!j)return;
   closeLoom();$('panel').classList.remove('open');panelKey=null;$('module').classList.remove('show');closeInspect&&closeInspect();
   if(document.body.classList.contains('circles'))setMapType('living',true);
   const stops=j.steps.map((st,si)=>({st,si})).filter(x=>x.st.at&&BY[x.st.at]);
-  if(!stops.length){toast('No steps of this journey have a place yet — the Loom awaits.');return}
+  if(!stops.length){toast('No steps of this journey have a place yet. The Loom awaits.');return}
   const skipped=j.steps.length-stops.length;
   JWALK={id,i:0};setHash('#/journey/'+id);
-  maiaSay(`<b>${j.name}</b> — walking ${stops.length} of ${j.steps.length} steps${skipped?` (${skipped} not yet placed — drag them on the Loom)`:''}. <b>Esc</b> ends the walk.`);
+  maiaSay(`<b>${j.name}</b>. Walking ${stops.length} of ${j.steps.length} steps${skipped?` (${skipped} not yet placed; drag them on the Loom)`:''}. <b>Esc</b> ends the walk.`);
   const step=()=>{if(!JWALK||JWALK.id!==id)return;
     if(JWALK.i>=stops.length){JWALK=null;
-      maiaSay(`The walk ends here — the full <b>${j.name}</b> lives at <a href="${siteHref(SITE_ROUTES[id]||'/')}" target="_blank" rel="noopener">${SITE_ROUTES[id]||'/'}</a>. Two doors, one journey.`);
+      maiaSay(`The walk ends here. The full <b>${j.name}</b> lives at <a href="${siteHref(SITE_ROUTES[id]||'/')}" target="_blank" rel="noopener">${SITE_ROUTES[id]||'/'}</a>. Two doors, one journey.`);
       setHash('');return}
     const x=stops[JWALK.i];const s=BY[x.st.at];
     toast(`➹ ${x.si+1}/${j.steps.length} — ${x.st.stage?x.st.stage+': ':''}${x.st.t} → ${s.name}`);
     travelTo(s.x,s.y,1.25,()=>{setTimeout(()=>{if(JWALK&&JWALK.id===id){JWALK.i++;step()}},1500)})};
   step()}
 window.playJourney=playJourney;
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&JWALK){JWALK=null;toast('Walk ended — wander freely.');setHash('')}},true);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&JWALK){JWALK=null;toast('Walk ended. Wander freely.');setHash('')}},true);
 /* ---------- the skin step: Make This Yours, for the land ---------- */
 const SKIN={theme:'Emerald Atlas',words:'',accent:null,parch:null,lbl:100,mist:false,glow:true};window.SKIN=SKIN;
 function openSkin(){$('skin').classList.add('show');renderSkinThemes()}
@@ -3431,7 +3581,7 @@ function applySkinOverrides(){
 function skinExport(){return{theme:SKIN.theme||THEME.label,words:SKIN.words||null,mist:!!SKIN.mist,glow:SKIN.glow!==false,global_scale:window.GSCALE||1,accent:SKIN.accent||null,
   parchment:SKIN.parch||null,label_scale:(SKIN.lbl||100)/100,icon_mode:iconMode,
   painterly:{brush:(typeof brushVal!=='undefined')?brushVal:null,palette:(typeof palVal!=='undefined')?palVal:null},
-  note:'production home: Admin → Make This Yours (/admin?tab=setup) — village config tokens drive site and map alike'}}
+  note:'production home: Admin → Make This Yours (/admin?tab=setup), one styling story for site and land'}}
 window.skinExport=skinExport;
 function applySkinExport(sk){if(!sk)return;
   SKIN.theme=sk.theme||SKIN.theme;SKIN.words=sk.words||'';SKIN.accent=sk.accent||null;
@@ -3459,14 +3609,14 @@ $('skinBtn').onclick=()=>$('skin').classList.toggle('show')&&renderSkinThemes()|
 $('skClose').onclick=()=>$('skin').classList.remove('show');
 $('skWords').addEventListener('change',()=>{const v=$('skWords').value.trim();if(!v)return;
   SKIN.words=v;SKIN.theme=null;applyTheme(themeFromWords(v));applySkinOverrides();renderSkinThemes();
-  toast('A theme grown from your words — Save makes it yours.')});
+  toast('A theme grown from your words. Save makes it yours.')});
 $('skAccent').oninput=()=>{SKIN.accent=$('skAccent').value;applySkinOverrides()};
 $('skParch').oninput=()=>{SKIN.parch=$('skParch').value;applySkinOverrides()};
 $('skLbl').oninput=()=>{SKIN.lbl=+$('skLbl').value;$('skLblV').textContent=SKIN.lbl+'%';applySkinOverrides()};
 $('skIcon').onchange=()=>{iconMode=$('skIcon').value;toast('Icon style: '+$('skIcon').value)};
-$('skMist').onchange=()=>{SKIN.mist=$('skMist').checked;toast(SKIN.mist?'Dream mist on — the unbuilt south breathes.':'Dream mist off — a clean site map.')};
+$('skMist').onchange=()=>{SKIN.mist=$('skMist').checked;toast(SKIN.mist?'Dream mist on. The unbuilt south breathes.':'Dream mist off. A clean site map.')};
 $('skSave').onclick=()=>{logEdit('skin','map',skinExport());
-  toast('✂ Map skin saved — audited, autosaved, exported as art_manifest.skin.')};
+  toast('✂ Skin saved. The land remembers it, and every export carries it.')};
 $('skReset').onclick=()=>{SKIN.theme='Emerald Atlas';SKIN.words='';SKIN.accent=null;SKIN.parch=null;SKIN.lbl=100;
   document.documentElement.style.removeProperty('--t-accent');document.documentElement.style.removeProperty('--lblScale');
   applyTheme(THEMES.emerald);applySkinOverrides();
@@ -3502,7 +3652,7 @@ function setMapType(t,quiet){const circ=t==='circles';
   document.body.classList.toggle('circles',circ);
   $('msLiving').classList.toggle('on',!circ);$('msCircles').classList.toggle('on',circ);
   if(circ){if(document.body.classList.contains('loom'))closeLoom();buildOrgMap();setHash('#/circles')}else if(location.hash==='#/circles')setHash('');
-  if(!quiet)toast(circ?'◎ The Circles — the same village as an organism. Click any node to walk to its door.':'🏞 The Living Map — the land itself.')}
+  if(!quiet)toast(circ?'◎ The Circles. The same village as an organism; click any node to walk to its door.':'🏞 The Living Map. The land itself.')}
 window.setMapType=setMapType;
 $('msLiving').onclick=()=>setMapType('living');
 $('msCircles').onclick=()=>setMapType('circles');
@@ -3555,7 +3705,7 @@ $('orgSvg').addEventListener('click',e=>{
   if(oMoved>6)return;
   const g=e.target.closest('.onode');if(!g)return;
   const go=g.dataset.go;
-  if(!go||!BY[go]){toast(g.dataset.kind==='quest'?'⚑ Unplaced — this quest lives at the Quest Board.':'No home on the land yet — the Loom awaits.');return}
+  if(!go||!BY[go]){toast(g.dataset.kind==='quest'?'⚑ Not placed yet. This quest lives at the Quest Board.':'No home on the land yet. The Loom awaits.');return}
   setMapType('living',true);
   openPanel(go)});
 $('orgSvg').addEventListener('wheel',e=>{e.preventDefault();
@@ -3594,10 +3744,10 @@ function vitalsData(){
       how:springs+' spring structures stand on the map; the quality index is sample until Village Health feeds it'},
     canopy:forestF.length?{v:Math.min(99,Math.round(forestHa/Math.max(1,boundHa)*100))+'%',sub:forestHa.toFixed(1)+' ha drawn forest',src:'drawn land',
       how:forestHa.toFixed(1)+' ha of drawn forest ÷ '+boundHa.toFixed(0)+' ha inside the boundary'}
-      :{v:'76%',sub:'93.1 ha forest held',src:'module sample',how:'no forest drawn yet — draw the zones and this computes itself'},
+      :{v:'76%',sub:'93.1 ha forest held',src:'module sample',how:'no forest drawn yet. Draw the zones and this counts itself'},
     hearts:{v:132,sub:'gratitude this cycle',src:'module sample',how:'reads the Gratitude ledger'}};
   const OVR=window.VITAL_OVR||{};
-  for(const k in D)if(OVR[k])D[k]={...D[k],v:OVR[k].v,src:'founder-set',how:'set by the founder — overrides the computed value; clear it to return to the land'};
+  for(const k in D)if(OVR[k])D[k]={...D[k],v:OVR[k].v,src:'founder-set',how:'set by the founder. It overrides the counted number; clear it to listen to the land again'};
   D._pathKm=pathKm;D._boundHa=boundHa;
   return D}
 window.vitalsData=vitalsData;
@@ -3620,23 +3770,23 @@ function openVitalDrop(k,anchor){
       ${claimBtn(['tree','plant','mulch','forest'],'Plant toward the canopy','foodforest')}`,
     hearts:()=>`<div class="vfact"><b>${D.hearts.v} ♥</b> · ${D.hearts.sub}</div><div class="vhow">${D.hearts.how}</div>
       <a class="btn" style="text-align:center" href="${siteHref('/gratitude')}" target="_blank" rel="noopener" onclick="return siteNav(event,'/gratitude')">♥ Send gratitude ↗</a>`,
-    moon:()=>`<div class="vfact">${SCENE.moonName}</div><div class="vhow">the lunar cycle closes the books — gratitude settles, stewards are thanked, the pulse resets</div>
+    moon:()=>`<div class="vfact">${SCENE.moonName}</div><div class="vhow">the lunar cycle closes the books: gratitude settles, stewards are thanked, the pulse resets</div>
       <button class="btn" onclick="openDoor('health',{});$('vdrop').classList.remove('show')">☀ Village Health</button>`};
   const name={people:'People',food:'Food',water:'Water',canopy:'Canopy',hearts:'Hearts',moon:'The Moon'}[k]||k;
   const ovr=(typeof buildMode!=='undefined'&&buildMode&&k!=='moon')?
     `<div style="display:flex;gap:6px;align-items:center"><input id="vOvr" type="text" placeholder="set value — founder's word" style="flex:1;background:rgba(44,33,20,.8);border:1px solid #6b5430;border-radius:6px;color:var(--parch);font-family:inherit;font-size:11px;padding:4px 8px">
      <button class="btn" style="font-size:10.5px;padding:3px 9px" onclick="vitalSet('${k}')">✎ set</button>${(window.VITAL_OVR||{})[k]?`<button class="btn ghostbtn" style="font-size:10.5px;padding:3px 9px" onclick="vitalClear('${k}')">↩</button>`:''}</div>`:'';
   dp.innerHTML=`<h5>${name}</h5>${(body[k]||(()=>''))()}${ovr}
-    <div class="vhow" style="opacity:.8">source: ${k==='moon'?'the lunar calendar':(D[k]?D[k].src:'—')} · partners plug bioregional feeds into VITAL_PROVIDERS</div>`;
+    <div class="vhow" style="opacity:.8">source: ${k==='moon'?'the lunar calendar':(D[k]?D[k].src:'—')} · live feeds from the bioregion can plug in here</div>`;
   dp.classList.add('show')}
 window.openVitalDrop=openVitalDrop;
 function vitalQuest(label,home){SCENE.quests.push({q:label,at:home,addr:'resolver-guess',r:'20 ♥',need:'hands welcome',src:'vital'});
   logEdit('quest-add','quest:'+label,{at:home,via:'vital dropdown'});refreshWork();$('vdrop').classList.remove('show');
-  toast('⚑ '+label+' — created at '+nameOf(home)+'. It waits in Get Involved.')}
+  toast('⚑ '+label+', created at '+nameOf(home)+'. It waits in Get Involved.')}
 window.vitalQuest=vitalQuest;
 function vitalSet(k){const v=($('vOvr')&&$('vOvr').value.trim());if(!v)return;
   VITAL_OVR[k]={v};logEdit('vital-override','vital:'+k,{to:v});rebuildVitals();$('vdrop').classList.remove('show');
-  toast('✎ '+k+' — the founder’s word now. The land keeps computing underneath; clear it to listen again.')}
+  toast('✎ '+k+' is your word now. The land keeps counting underneath; clear it to listen again.')}
 window.vitalSet=vitalSet;
 function vitalClear(k){delete VITAL_OVR[k];logEdit('vital-override','vital:'+k,{to:'computed'});rebuildVitals();$('vdrop').classList.remove('show')}
 window.vitalClear=vitalClear;
@@ -3667,10 +3817,10 @@ $('skBrush').oninput=()=>{$('pBrush').value=$('skBrush').value;$('pBrush').dispa
 $('skPal').oninput=()=>{$('pPal').value=$('skPal').value;$('pPal').dispatchEvent(new Event('input'));$('skPalV').textContent=$('skPal').value+'%'};
 $('skTerr').onchange=()=>{const b=document.querySelector(`[data-tm="${$('skTerr').value}"]`);if(b)b.click()};
 $('skGlow').onchange=()=>{SKIN.glow=$('skGlow').checked;
-  toast(SKIN.glow?'The pulse is on — the village shimmers where it talks.':'Pulse off — a still land.')};
+  toast(SKIN.glow?'The pulse is on. The village shimmers where it talks.':'Pulse off. A still land.')};
 /* vocabulary — the founder's words for the land (Q1d) */
 function renderVocab(){const host=$('skVocab');if(!host)return;
-  host.innerHTML=SUBTYPES.zone.map((z,i)=>`<button class="chip" data-vz="${i}" data-tip="Click to rename — your land, your words. Every drawn zone follows.">${z}</button>`).join('')
+  host.innerHTML=SUBTYPES.zone.map((z,i)=>`<button class="chip" data-vz="${i}" data-tip="Click to rename. Your land, your words; every drawn zone follows.">${z}</button>`).join('')
    +`<button class="chip" data-vz="+" style="border-style:dashed">+ word</button>`;
   host.querySelectorAll('[data-vz]').forEach(b=>b.onclick=()=>{
     const i=b.dataset.vz;
@@ -3690,7 +3840,7 @@ window.PUBLIC_UNLOCK=false;
 $('pubBtn').onclick=()=>{window.PUBLIC_UNLOCK=!window.PUBLIC_UNLOCK;
   $('pubBtn').classList.toggle('on',window.PUBLIC_UNLOCK);
   logEdit('public-unlock','features:public',{unlocked:window.PUBLIC_UNLOCK});
-  toast(window.PUBLIC_UNLOCK?'⚿ Public geometry unlocked — roads and rivers will follow your hand. Handle the real world gently.':'⚿ Public geometry locked again — the world beyond the boundary keeps itself.')};
+  toast(window.PUBLIC_UNLOCK?'⚿ The public world is unlocked. Roads and rivers will follow your hand; handle the real world gently.':'⚿ The public world is locked again. Beyond the boundary, the land keeps itself.')};
 /* tooltips — one primitive, the house voice (A7) */
 (function tips(){const tp=document.createElement('div');tp.id='tip';document.body.appendChild(tp);let cur=null;
   const show=el=>{const s2=el.getAttribute('data-tip');if(!s2)return;tp.innerHTML=s2;tp.classList.add('show');
@@ -3704,26 +3854,26 @@ $('pubBtn').onclick=()=>{window.PUBLIC_UNLOCK=!window.PUBLIC_UNLOCK;
   document.addEventListener('focusin',e=>{const el=e.target.closest&&e.target.closest('[data-tip]');if(el)show(el)});
   document.addEventListener('focusout',hide);
   addEventListener('scroll',hide,true);
-  const TIPS={lyNow:'Now — only what is. Every icon traces to something true.',
-    lyVision:'Vision — the whole masterplan. Blueprint ghosts are the fundable gap.',
-    lyOrg:'Circle colours wash over the land — who tends what.',
-    lyFlows:'The village metabolism — blue is water, gold is matter, rose is care.',
-    msLiving:'The land itself — every building a door.',
-    msCircles:'The same village as an organism — circles, roles and quests in orbit.',
-    wallBtn:'Every open seat and quest in one list — find somewhere to help.',
-    loomBtn:'Every connection in one snapshot — drag a thread to rewire the land.',
-    buildBtn:'The founder’s hand — place, move, draw and bind.',
+  const TIPS={lyNow:'Now: only what is. Every icon traces to something true.',
+    lyVision:'Vision: the whole masterplan. Blueprint ghosts are the fundable gap.',
+    lyOrg:'Circle colours wash over the land: who tends what.',
+    lyFlows:'The village metabolism. Blue is water, gold is matter, rose is care.',
+    msLiving:'The land itself, every building a door.',
+    msCircles:'The same village as an organism: circles, roles and quests in orbit.',
+    wallBtn:'Every open seat and quest in one list. Find somewhere to help.',
+    loomBtn:'Every connection in one snapshot. Drag a thread to rewire the land.',
+    buildBtn:'The founder’s hand: place, move, draw and bind.',
     drawBtn:'Draw zones, paths and water onto the land. Everything measures itself.',
-    spriteBtn:'The painted buildings — approve or re-roll each family.',
-    boundBtn:'The property line — edit it and every export follows.',
-    resolverBtn:'Watch a quest find its home — the sorting engine, step by step.',
-    skinBtn:'Make this map yours — the same fields Village Settings will carry.',
+    spriteBtn:'The painted buildings. Approve or repaint each family.',
+    boundBtn:'The property line. Edit it and every export follows.',
+    resolverBtn:'Watch a quest find its home, step by step.',
+    skinBtn:'Make this map yours. The same fields Village Settings will carry.',
     pubBtn:'Roads and rivers beyond the boundary stay locked as the real world. Unlock to adjust.',
-    undoBtn:'Take back the last change — the audit trail keeps the story anyway.',
-    exportBtn:'The whole scene as one JSON — the founder’s hand, become the production seed.',
-    iScale:'How large this place stands on the land — emphasis, not survey.',
-    gScale:'Everything larger or smaller together — icons and their names move as one.',
-    skGS:'Everything larger or smaller together — icons and their names move as one.',
+    undoBtn:'Take back the last change. The story is kept either way.',
+    exportBtn:'The whole scene in one file. Your hand becomes the seed the real build grows from.',
+    iScale:'How large this place stands on the land. Emphasis, not survey.',
+    gScale:'Everything larger or smaller together. Icons and their names move as one.',
+    skGS:'Everything larger or smaller together. Icons and their names move as one.',
     pBrush:'How much paint sits over the satellite. Zero is the bare land.',
     pPal:'How far the colours lean toward the painted palette.',
     skBrush:'How much paint sits over the satellite. Zero is the bare land.',
@@ -3731,7 +3881,7 @@ $('pubBtn').onclick=()=>{window.PUBLIC_UNLOCK=!window.PUBLIC_UNLOCK;
     skWords:'Describe your land and a theme grows from the words.',
     skMist:'Soft mist over the unbuilt south. Off keeps the site map clean.',
     skGlow:'Buildings shimmer when their conversations move. Sample feed for now.',
-    dayBtn:'Turn the hour — the land keeps its own light.',
+    dayBtn:'Turn the hour. The land keeps its own light.',
     themeBtn:'Themes, icon styles, terrain and the one big scale dial.'};
   for(const id in TIPS){const el=document.getElementById(id);if(el){el.setAttribute('data-tip',TIPS[id]);el.removeAttribute('title')}}
   document.querySelectorAll('#themePanel [title],#skin [title],#dock [title]').forEach(el=>{
@@ -3764,7 +3914,7 @@ if(HUD_PROFILE==='pocket')document.body.classList.add('pocket');
 function hap(p){try{if(navigator.vibrate&&document.body.classList.contains('pocket'))navigator.vibrate(p)}catch(_){}}
 window.hap=hap;
 /* gestures: one-finger pan, two-finger pinch, on the canvas */
-(function touchNav(){const el=$('scene');if(!el)return;let T=null; // id is 'scene'; $('cv') was null and this block never ran
+(function touchNav(){const el=$('cv');if(!el)return;let T=null;
   el.addEventListener('touchstart',e=>{if(!document.body.classList.contains('pocket'))return;
     if(e.touches.length===1){const t=e.touches[0];T={m:'pan',x:t.clientX,y:t.clientY}}
     else if(e.touches.length===2){const[a,b]=e.touches;
@@ -3775,7 +3925,7 @@ window.hap=hap;
       travel=null;clampCam();window.WGATE&&(WGATE.pan=true)}
     if(T.m==='pinch'&&e.touches.length===2){const[a,b]=e.touches;
       const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
-      cam.z=Math.max(minZoom(),Math.min(2.6,T.z*d/T.d));clampCam();window.WGATE&&(WGATE.pinch=true)}},{passive:false});
+      cam.z=Math.max(.4,Math.min(2.6,T.z*d/T.d));clampCam();window.WGATE&&(WGATE.pinch=true)}},{passive:false});
   el.addEventListener('touchend',()=>{T=null},{passive:true})})();
 /* bottom bar */
 if($('pbMap'))$('pbMap').onclick=()=>{const c=document.body.classList.contains('circles');setMapType(c?'living':'circles');
@@ -3786,13 +3936,13 @@ if($('pbAttn'))$('pbAttn').onclick=()=>{$('attnBtn')&&$('attnBtn').click();hap(8
 setInterval(()=>{const b=$('pbBadge');if(b&&$('attnBadge'))b.textContent=$('attnBadge').textContent},3000);
 function renderDrawer(){const d=$('pdrawer');if(!d)return;
   d.innerHTML=`<h4>the village</h4><div class="pgrid">`+
-   Object.keys(MODULES).map(k=>`<button class="pcell" data-pm="${k}">${MODULES[k].icon}<span>${MODULES[k].name.split(' — ')[0]}</span></button>`).join('')+
+   Object.keys(MODULES).map(k=>`<button class="pcell" data-pm="${k}">${MODULES[k].icon}<span>${MODULES[k].name.split(' · ')[0]}</span></button>`).join('')+
    `</div><h4>ways in</h4><div class="pgrid">
     <button class="pcell" data-pa="wall">⚑ <span>Get Involved</span></button>
     <button class="pcell" data-pa="loom">⧉ <span>The Loom (view)</span></button>
     <button class="pcell" data-pa="walk">➹ <span>Take the walk again</span></button>
     <button class="pcell" data-pa="exit">⏏ <span>Leave the map</span></button></div>
-   <div style="font-size:10px;color:#8f855f;margin-top:10px">building and rewiring live on the desktop map — the land is yours to wander here.</div>`;
+   <div style="font-size:10px;color:#8f855f;margin-top:10px">building and rewiring live on the desktop map. Here the land is yours to wander.</div>`;
   d.querySelectorAll('[data-pm]').forEach(b=>b.onclick=()=>{d.classList.remove('open');openDoor(b.dataset.pm,{});hap(8)});
   d.querySelectorAll('[data-pa]').forEach(b=>b.onclick=()=>{d.classList.remove('open');const a=b.dataset.pa;hap(8);
     if(a==='wall'){$('wall').classList.add('show');buildWall()}
@@ -3879,7 +4029,7 @@ if(document.body.classList.contains('pocket')){
 /* intro */
 $('enterBtn').onclick=()=>{document.body.classList.remove('intro');const ic=$('introCard');ic.style.opacity=0;setTimeout(()=>ic.remove(),1000);
   cam.x=430;cam.y=560;cam.z=1.15;travelTo(1440,670,0.84,()=>{
-    maiaSay(`Welcome to the living map of <b>Amora</b>. Everything you see traces to something true — a funded build, a claimed quest, a filled seat. Hover anything; click any building to open its door. Want the short walk?`);
+    maiaSay(`Welcome to the living map of <b>Amora</b>. Everything you see traces to something true: a funded build, a claimed quest, a filled seat. Hover anything; click any building to open its door. Want the short walk?`);
     setTimeout(()=>{if(tourI<0)maiaSay(`Whenever you're ready: <a onclick="startTour()">take the tour</a>, or press <b>Space</b> to see what needs hands.`)},9000)})};
 
 applyTheme(THEMES.emerald); // boot theme (sets every --t-* var before first paint)
