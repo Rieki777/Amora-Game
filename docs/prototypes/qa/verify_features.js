@@ -119,10 +119,14 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   ok(f2, 'F2: a conversation makes its home shimmer');
 
   /* F3: occupancy one-source */
+  /* D2 A3 moved the occupancy off the label, where a testing session never
+     found it, and onto a home chip that is its own door. Same source. */
   const f3 = await page.evaluate(() => ({
-    banner: bEls.ridgeA.textContent, sheet: (MODULES.housing.sample({}) || '').includes('2 of 5')
+    chip: !!(bgEls.ridgeA && bgEls.ridgeA.querySelector('.hchip')),
+    label: bEls.ridgeA.textContent,
+    sheet: (MODULES.housing.sample({}) || '').includes('2 of 5')
   }));
-  ok(/⌂2\/5/.test(f3.banner) && f3.sheet, 'F3: lots sold — banner and Housing sheet read the same source');
+  ok(f3.chip && !/⌂/.test(f3.label) && f3.sheet, 'F3: lots sold — the home chip and the Housing sheet read the same source');
 
   /* F4: event pins + urgency + RSVP */
   const f4 = await page.evaluate(() => ({
@@ -316,6 +320,96 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   ok(d2t.open && d2t.panel === d2t.key && d2t.tab === 1,
     `D2 A1: tapping a leaf-pennant opens ${d2t.key} at its quests (tab ${d2t.tab})`);
   await page.waitForTimeout(400);
+
+  /* ---------- D2 A2/A3: one glyph language at every distance ---------- */
+  const vfar = await page.evaluate(() => {
+    cam.z = 0.85; cam.x = 1240; cam.y = 700; clampCam(); refreshBadges(); syncBanners(); syncBanners();
+    const vis = sel => [...document.querySelectorAll(sel)].filter(e =>
+      getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0
+      && /\b(on|far)\b/.test(e.closest('.bgroup').className));
+    const far = { a: vis('.aseal').length, s: vis('.bseal').length, h: vis('.hchip').length,
+      who: vis('.bseal').slice(0,6).map(e => e.dataset.bk + ':' + e.dataset.bkind + ' [' + e.closest('.bgroup').className + ']') };
+    /* D9 holds: the number on the seal is a projection, never a stored count. */
+    const wrong = SCENE.structures.map(s => {
+      const a = bgEls[s.key] && bgEls[s.key].querySelector('.aseal'); if (!a) return null;
+      const want = questsAt(s.key).length + seatsAt(s.key).length + threadsAt(s.key).length + eventsAt(s.key).length;
+      return a.textContent === (want > 9 ? '9+' : String(want)) ? null : s.key;
+    }).filter(Boolean);
+    const face = getComputedStyle(document.querySelector('.aface')).fill;
+    const ink = getComputedStyle(document.querySelector('.anum')).fill;
+    cam.z = 1.7; clampCam(); syncBanners();
+    const near = { a: vis('.aseal').length, s: vis('.bseal').length, h: vis('.hchip').length };
+    return { far, near, wrong, face, ink, soon: document.querySelectorAll('.aseal.soon').length,
+      label: bEls.ridgeA.querySelector('.cnt').textContent };
+  });
+  ok(vfar.label === '', 'D2 A2: the label stops carrying counts as text');
+  ok(vfar.far.a > 8 && vfar.far.s === 0, `D2 A2: below the gate a building wears one activity seal and no marks (${vfar.far.a} seals, ${vfar.far.s} marks${vfar.far.s ? ': ' + vfar.far.who.join(' | ') : ''})`);
+  ok(vfar.near.a === 0 && vfar.near.s > 8, `D2 A2: above the gate the marks take over and the seal stands down (${vfar.near.a} seals, ${vfar.near.s} marks)`);
+  ok(vfar.wrong.length === 0, `D2 A2: every count is the projection, not a stored number (${vfar.wrong.length} wrong)`);
+  ok(/32, 22, 12/.test(vfar.face) && /243, 230, 200/.test(vfar.ink),
+    `D2 A2: parchment ink on dark ground, which is the whole point (${vfar.face} / ${vfar.ink})`);
+  ok(vfar.soon > 0, `D2 A2: a gold rim breathes when an event is two days out (${vfar.soon})`);
+  ok(vfar.far.h === vfar.near.h && vfar.far.h > 0, `D2 A3: the home chip is there at every distance (${vfar.far.h})`);
+
+  const vhome = await page.evaluate(async () => {
+    cam.z = 1.4; clampCam(); syncBanners();
+    const h = [...document.querySelectorAll('.hchip')].find(x => x.dataset.bk === 'ridgeA');
+    h.click(); await new Promise(r => setTimeout(r, 400));
+    const card = document.getElementById('moduleCard');
+    const a = card.querySelector('a.btn');
+    const r = { open: document.getElementById('module').classList.contains('show'), txt: card.textContent,
+      href: a ? a.getAttribute('href') : '', maia: /Ask Maia about living here/.test(card.textContent) };
+    closeDoor(); return r;
+  });
+  ok(vhome.open && /Request a home at Ridge Hamlet North/.test(vhome.txt) && /2 of 5 spoken for/.test(vhome.txt),
+    'D2 A3: the home chip opens its own sheet with the occupancy');
+  ok(/\/request-a-house\?structure=ridgeA/.test(vhome.href) && vhome.maia,
+    `D2 A3: and carries the structure to the request (${vhome.href})`);
+
+  const vlodge = await page.evaluate(async () => {
+    homeSheet('guest'); await new Promise(r => setTimeout(r, 250));
+    const card = document.getElementById('moduleCard');
+    const r = { txt: card.textContent, href: card.querySelector('a.btn').getAttribute('href') };
+    closeDoor(); return r;
+  });
+  ok(/2 of 3 full tonight/.test(vlodge.txt) && /\/stay$/.test(vlodge.href),
+    `D2 A3: the lodge counts beds and routes to booking instead (${vlodge.href})`);
+
+  const vfly = await page.evaluate(async () => {
+    document.getElementById('panel').classList.remove('open');
+    cam.z = 0.85; cam.x = 1240; cam.y = 700; clampCam(); syncBanners();
+    const a = [...document.querySelectorAll('.aseal')].find(x => getComputedStyle(x).display !== 'none');
+    const key = a.dataset.bk; a.click();
+    await new Promise(r => setTimeout(r, 1700));
+    return { key, z: cam.z, dx: Math.abs(cam.x - BY[key].x), dy: Math.abs(cam.y - BY[key].y) };
+  });
+  ok(vfly.z >= 1.14 && vfly.dx < 2 && vfly.dy < 2,
+    `D2 A2: tapping the seal flies you in to ${vfly.key} at z ${vfly.z.toFixed(2)}, where the marks take over`);
+  await page.waitForTimeout(300);
+
+  /* D2 A2: a plate is a name and a mark is a door, so plates step over marks
+     and then over each other. Swept across the far zooms where both live. */
+  const vplate = await page.evaluate(() => {
+    const rows = [];
+    for (const z of [0.62, 0.72, 0.82, 0.9]) {
+      cam.z = z; cam.x = 1240; cam.y = 700; clampCam(); refreshBadges(); syncBanners(); syncBanners(); syncBanners();
+      const plates = SCENE.districts.map(d => bEls['d_' + d.id]).filter(e => e.style.display !== 'none').map(e => e.getBoundingClientRect());
+      const marks = [...document.querySelectorAll('.aseal,.hchip')]
+        .filter(e => getComputedStyle(e).display !== 'none' && /\b(on|far)\b/.test(e.closest('.bgroup').className))
+        .map(e => e.getBoundingClientRect());
+      const hits = (a, c) => a.left < c.right && c.left < a.right && a.top < c.bottom && c.top < a.bottom;
+      let pp = 0, pm = 0;
+      for (let i = 0; i < plates.length; i++) {
+        for (let j = i + 1; j < plates.length; j++) if (hits(plates[i], plates[j])) pp++;
+        for (const m of marks) if (hits(plates[i], m)) pm++;
+      }
+      rows.push({ z, plates: plates.length, marks: marks.length, pp, pm });
+    }
+    return rows;
+  });
+  const bad = vplate.filter(r => r.pp || r.pm);
+  ok(bad.length === 0 && vplate[0].plates > 3 && vplate[0].marks > 8,
+    `D2 A2: district plates clear the marks and each other at every far zoom (${vplate.map(r => r.z).join(', ')})${bad.length ? ' — ' + JSON.stringify(bad) : ''}`);
 
   /* D1.2 on a phone: the two-finger pinch, in its own pocket context */
   const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, deviceScaleFactor: 3 } /* no isMobile: this Chromium reports innerWidth 4x the CSS viewport with it on */);
