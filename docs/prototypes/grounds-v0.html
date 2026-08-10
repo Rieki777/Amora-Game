@@ -821,6 +821,8 @@
  <div class="srow"><span class="slbl">paint palette</span><input type="range" id="skPal" min="0" max="100" value="30"><b id="skPalV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">30%</b></div>
  <div class="srow"><span class="slbl">terrain</span><select id="skTerr"><option value="sat">satellite</option><option value="paint">painted</option><option value="vector">vector</option></select></div>
  <div class="srow" style="align-items:flex-start"><span class="slbl">zone words</span><span id="skVocab" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></span></div>
+ <div class="srow" style="align-items:flex-start"><span class="slbl">flow types</span><span id="skMedia" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></span></div>
+ <div class="srow" style="align-items:flex-start"><span class="slbl">phase names</span><span id="skPhases" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></span></div>
  <div class="srow" style="font-size:10px;color:#8f855f">painterly brush &amp; palette dials live under the terrain switch; they save into the same skin</div>
  <div style="display:flex;gap:8px;margin-top:3px">
   <button class="btn" id="skSave" style="font-size:11px;padding:5px 13px">Save map skin</button>
@@ -1087,14 +1089,14 @@ const SCENE={
     {q:"Plant the dry-season beds",at:"greenhouse",r:"33 ♥ · Land circle",need:"2 more hands · Thu"},
     {q:"Drip-line repair, house 4",at:"greenhouse",r:"20 ♥",need:"solo-friendly"},
     {q:"Seedling census",at:"greenhouse",r:"15 ♥",need:"good first quest"},
-    {q:"Swale dig — east slope",at:"foodforest",r:"50 ♥ · Saturday",need:"6 hands, gloves"},
+    {q:"Swale dig on the east slope",at:"foodforest",r:"50 ♥ · Saturday",need:"6 hands, gloves"},
     {q:"Mulch run to the ridge",at:"foodforest",r:"25 ♥",need:"truck helps"},
     {q:"Full-moon feast prep",at:"kitchen",r:"30 ♥ · tonight",need:"3 more in the kitchen"},
     {q:"Start the ferment shelf",at:"kitchen",r:"20 ♥",need:"teach-and-learn"},
     {q:"Catalog the tool wall",at:"library",r:"25 ♥",need:"rainy-day quest"},
-    {q:"Raise the first wall — build day",at:"ridgeA",r:"60 ♥ · Saturday",need:"8 hands, steel toes"},
+    {q:"Build day: raise the first wall",at:"ridgeA",r:"60 ♥ · Saturday",need:"8 hands, steel toes"},
     {q:"Pond-edge planting",at:"ponds",r:"25 ♥",need:"muddy, joyful"},
-    {q:"Welcome walk — greet Saturday's visitors",at:"gate",r:"20 ♥",need:"friendly faces"},
+    {q:"Welcome walk, greeting Saturday's visitors",at:"gate",r:"20 ♥",need:"friendly faces"},
     {q:"Walk the possible spring with the hydrologist",at:"possiblespring",r:"25 ♥",need:"one professional, one curious"},
     {q:"Bathhouse consent round",at:"sanctuary",r:"15 ♥",need:"design voices"},
     {q:"Season goals review",at:"council",r:"20 ♥",need:"stewards"},
@@ -2361,6 +2363,37 @@ window.QUEST_CLAIM=promiseLoad('amora-claims');
    only says what happened, and only when there is a parent listening. */
 function bridgePost(msg){try{if(window.parent&&window.parent!==window)window.parent.postMessage(msg,'*')}catch(_){}}
 window.bridgePost=bridgePost;
+/* A promise is optimistic: the map flips, saves and tells the shell. If the
+   shell answers `ok:false` this puts it back and says why. If NOTHING answers,
+   the promise stands, because the artifact runs from file:// with no parent at
+   all and that is how every suite drives it. Silence means local only. */
+const PROMISE_PENDING={};
+function promiseWatch(kind,id,undo){
+  const k=kind+':'+id,p=PROMISE_PENDING[k];
+  if(p)clearTimeout(p.t);
+  PROMISE_PENDING[k]={undo,t:setTimeout(()=>{delete PROMISE_PENDING[k]},4000)}}
+window.promiseWatch=promiseWatch;
+const PROMISE_WHY={
+  anonymous:'Sign in and this is yours to keep.',
+  full:'That one is full. The door stays open for the next.',
+  closed:'That has closed. The door stays open for the next.',
+  gone:'That is no longer on the board.',
+  error:'That did not save. Try again in a moment.'};
+function promiseResult(d){
+  const k=d.kind+':'+d.id,p=PROMISE_PENDING[k];
+  if(p){clearTimeout(p.t);delete PROMISE_PENDING[k]}
+  if(d.ok){
+    /* The shell owns the real count; the map's own number is sample data. */
+    if(d.kind==='rsvp'&&typeof d.count==='number'){
+      const e=(window.EVENTS||[]).find(x=>x.id===d.id);
+      if(e){e.rsvp=d.count;if(typeof refreshBadges==='function')refreshBadges()}}
+    return}
+  if(p&&p.undo)p.undo();
+  toast(PROMISE_WHY[d.reason]||PROMISE_WHY.error);
+  if(d.reason==='anonymous'&&d.href)
+    maiaSay(`That one is kept against your name, so it needs a name. <a href="${escq(d.href)}" target="_blank" rel="noopener">Sign in</a> and tap it again; nothing is lost.`);
+}
+window.promiseResult=promiseResult;
 const PROMISE_RSVP='Going adds this to your calendar in your profile and signs you up for updates by email. Tap again any time to change your answer.';
 const PROMISE_CLAIM='Claiming adds this quest to your profile with how to begin, and signs you up for updates. Release it any time.';
 window.PROMISE_RSVP=PROMISE_RSVP;window.PROMISE_CLAIM=PROMISE_CLAIM;
@@ -2832,6 +2865,11 @@ function claimQuest(q,at){
   if(on)QUEST_CLAIM[id]=1;else delete QUEST_CLAIM[id];
   promiseSave('amora-claims',QUEST_CLAIM);
   bridgePost({type:'claim',id,on});
+  promiseWatch('claim',id,()=>{
+    if(on)delete QUEST_CLAIM[id];else QUEST_CLAIM[id]=1;
+    promiseSave('amora-claims',QUEST_CLAIM);
+    if(typeof refreshBadges==='function')refreshBadges();
+    if(typeof panelKey!=='undefined'&&panelKey)renderTab(1)});
   window.hap&&hap(on?[12,50,12,50,12]:8);
   if(on){toast(`⚑ Claimed: “${q}” at ${at}. See you out there.`);
     maiaSay(`Claimed. <b>${q}</b> is yours, and it lives at the ${at}. That's the whole point of this map: now go make it true, and I'll light the building up when you do.`)}
@@ -3935,6 +3973,7 @@ function restoreScene(J){try{
   if(typeof rebuildVitals==='function')rebuildVitals();
   if(typeof refreshEventBadges==='function')refreshEventBadges();
   if(typeof renderVocab==='function')renderVocab();
+  if(typeof renderMediaVocab==='function'){renderMediaVocab();renderPhaseVocab()}
   if(document.body.classList.contains('loom'))renderLoom();
   toast('Restored: '+SCENE.structures.length+' buildings, '+SCENE.features.length+' features, '+EDITS.length+' edits.');
   return true}catch(err){console.warn('restore failed',err);toast('Could not restore the saved session.');return false}}
@@ -4221,6 +4260,11 @@ function evRSVP(id){const e=EVENTS.find(x=>x.id===id);if(!e)return;
   e._me=on?1:0;promiseSave('amora-rsvp',EV_RSVP);
   document.querySelectorAll(`[data-ev="${id}"]`).forEach(b=>{b.textContent=on?'✔ Going · tap to change':'RSVP';b.disabled=false});
   bridgePost({type:'rsvp',id,title:e.title,on});
+  promiseWatch('rsvp',id,()=>{ // put it back exactly, without posting again
+    if(on){e.rsvp=Math.max(0,e.rsvp-1);delete EV_RSVP[id];e._me=0}else{e.rsvp++;EV_RSVP[id]=1;e._me=1}
+    promiseSave('amora-rsvp',EV_RSVP);
+    document.querySelectorAll(`[data-ev="${id}"]`).forEach(b=>{b.textContent=on?'RSVP':'✔ Going · tap to change'});
+    if(typeof refreshBadges==='function')refreshBadges()});
   window.hap&&hap(on?[12,50,12]:8);
   toast(on?('✔ You are going. '+e.rsvp+' going.'):'RSVP withdrawn. The door stays open.');
   if(typeof refreshBadges==='function')refreshBadges()}
@@ -4285,12 +4329,12 @@ const MODULES={
   health:{name:'Village Health',icon:'☀',route:'/village-health',
     blurb:'The numbers behind the map. The same truth the crown banner reads.',
     sample:ctx=>SCENE.vitals.map(v=>`<div class="mrow"><span><b>${v.label}</b><small>${v.sub}</small></span><span><b>${v.v}</b></span></div>`).join('')},
-  events:{name:'Events',icon:MICON.events,route:'/seasonal-festivals',
+  events:{name:'Events',icon:MICON.events,route:'/events',
     blurb:'Feasts, build days, ceremonies. Every event is a place and a time on the land, and its lantern burns brighter as the day comes near.',
     sample:ctx=>EVENTS.map(e=>`<div class="mrow"><span><b>✦ ${e.title}</b><small>${e.when} · at ${e.at.map(k=>BY[k]?BY[k].name:k).join(' + ')} · sample</small></span>
       <button class="btn" data-ev="${e.id}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${e.id}')">${EV_RSVP[e.id]?'✔ Going · tap to change':'RSVP'}</button></div>
       <div class="promise">${PROMISE_RSVP}</div>`).join('')
-      +`<div class="lastv">for now this door opens on Seasonal Festivals. Events will get a room of its own</div>`},
+      +`<div class="lastv">the Events module keeps these, with the RSVPs and the capacity. Two doors, one room</div>`},
   admin:{name:'Village Settings · Make This Yours',icon:MICON.admin,route:'/admin?tab=setup',
     blurb:'Turn this into your village\'s own game. Identity, content, and the map\'s skin in one flow; blank fields keep Amora\'s answer as the suggestion.',
     sample:ctx=>`<div class="mrow"><span><b>Map skin</b><small>theme · accent · parchment · labels · icon style · painterly dials</small></span>
@@ -4729,7 +4773,72 @@ $('pubBtn').onclick=()=>{window.PUBLIC_UNLOCK=!window.PUBLIC_UNLOCK;
 document.querySelectorAll('#dock button').forEach(b=>{if(MICON[b.dataset.m])b.innerHTML=MICON[b.dataset.m]});
 refreshEventBadges();
 rebuildVitals();
+/* ---------- the flow types, as the village's own words (D3.1, q1d) ----------
+   A rename touches the NAME. The key stays put, because every flow row points
+   at the key and a word a person changed is not a reason to rewrite the
+   metabolism. */
+function renderMediaVocab(){const host=$('skMedia');if(!host)return;
+  const L=SCENE.vocabulary.media;
+  host.innerHTML=L.map((m,i)=>`<button class="chip" data-vm="${i}" data-tip="Click to change its name, its colour or its mark. Every flow of this kind follows.">`+
+      `<i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${m.color};margin-right:5px;vertical-align:middle"></i>${escq(m.name)}</button>`).join('')
+    +`<button class="chip" data-vm="+" style="border-style:dashed">+ type</button>`;
+  host.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>mediaEditor(b,b.dataset.vm))}
+window.renderMediaVocab=renderMediaVocab;
+function mediaEditor(btn,idx){
+  const L=SCENE.vocabulary.media,add=idx==='+';
+  const m=add?{key:'',name:'',color:'#e8c877',glyph:'seed'}:L[+idx];
+  const used=add?0:SCENE.flows.filter(f=>mediaKey(f.medium)===m.key).length;
+  const box=document.createElement('span');
+  box.style.cssText='display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap';
+  const fld='background:rgba(44,33,20,.9);border:1px solid #c9a25e;border-radius:6px;color:#fff;font-family:inherit;font-size:10.5px;padding:3px 7px';
+  box.innerHTML=`<input class="vmn" type="text" value="${escq(m.name)}" placeholder="what moves" style="${fld};width:104px">`+
+    `<input class="vmc" type="color" value="${m.color}" style="width:26px;height:22px;padding:0;border:1px solid #c9a25e;border-radius:6px;background:none">`+
+    `<select class="vmg" style="${fld}">${Object.keys(GLYPH_PATH).map(g=>`<option value="${g}"${g===m.glyph?' selected':''}>${g}</option>`).join('')}</select>`+
+    `<button class="chip vmok">keep</button>`+
+    (add?'':`<button class="chip vmx" style="border-color:#a33d2a;color:#e8a090" data-tip="${used?used+' flows still move this way':'nothing moves this way'}">✕</button>`);
+  btn.replaceWith(box);
+  const n=box.querySelector('.vmn');n.focus();n.select&&n.select();
+  const keep=()=>{
+    const name=n.value.trim();if(!name)return renderMediaVocab();
+    const color=box.querySelector('.vmc').value,glyph=box.querySelector('.vmg').value;
+    if(add){const key=slugify(name);
+      if(L.some(x=>x.key===key))return toast('That type already exists.');
+      L.push({key,name,color,glyph});logEdit('vocab','media:+',{added:key})}
+    else{const was=m.name;m.name=name;m.color=color;m.glyph=glyph;
+      logEdit('vocab','media:'+m.key,{name:was===name?undefined:name,color,glyph})}
+    rebuildMedia();flowSpriteReset();mmDirty=true;renderMediaVocab();
+    if(typeof renderInspect==='function'&&typeof inspKey!=='undefined'&&inspKey)renderInspect();
+    toast('The village calls it '+name+' now.')};
+  box.querySelector('.vmok').onclick=keep;
+  n.onkeydown=e=>{if(e.key==='Enter')keep();if(e.key==='Escape')renderMediaVocab();e.stopPropagation()};
+  const x=box.querySelector('.vmx');
+  if(x)x.onclick=()=>{
+    /* A type still carrying flows is not removed out from under them. */
+    if(used)return toast(used+' flow'+(used===1?'':'s')+' still move'+(used===1?'s':'')+' this way. Point them elsewhere first.');
+    L.splice(+idx,1);logEdit('vocab','media:-',{removed:m.key});
+    rebuildMedia();flowSpriteReset();mmDirty=true;renderMediaVocab();toast(m.name+' is no longer a kind of moving thing here.')}}
+
+/* ---------- the phase names (D3.3) ---------- */
+function renderPhaseVocab(){const host=$('skPhases');if(!host)return;
+  host.innerHTML=[1,2,3].map(nn=>`<button class="chip" data-vp="${nn}" data-tip="Click to rename. Every surface that names a phase follows; the export keeps the number.">${escq(phaseName(nn))}</button>`).join('');
+  host.querySelectorAll('[data-vp]').forEach(b=>b.onclick=()=>{
+    const nn=+b.dataset.vp;
+    const inp=document.createElement('input');inp.type='text';inp.value=phaseName(nn);
+    inp.style.cssText='width:96px;background:rgba(44,33,20,.9);border:1px solid #c9a25e;border-radius:6px;color:#fff;font-family:inherit;font-size:10.5px;padding:3px 7px';
+    b.replaceWith(inp);inp.focus();inp.select&&inp.select();
+    inp.onkeydown=e=>{
+      if(e.key==='Enter'){const v=inp.value.trim();
+        if(v&&v!==phaseName(nn)){SCENE.vocabulary.phases[nn]=v;logEdit('vocab','phase:'+nn,{to:v});
+          if(typeof renderInspect==='function'&&typeof inspKey!=='undefined'&&inspKey)renderInspect();
+          if(typeof panelKey!=='undefined'&&panelKey)openPanel(panelKey);
+          toast('Phase '+nn+' is “'+v+'” now.')}
+        renderPhaseVocab()}
+      if(e.key==='Escape')renderPhaseVocab();
+      e.stopPropagation()}})}
+window.renderPhaseVocab=renderPhaseVocab;
+
 renderVocab();
+renderMediaVocab();renderPhaseVocab();
 
 
 /* ---------- embed bridge — the site shell speaks, the map listens ----------
@@ -4742,6 +4851,7 @@ addEventListener('message',e=>{try{
   const d=e.data;if(!d||typeof d!=='object')return;
   if(d.type==='skin'&&d.skin){applySkinExport(d.skin);toast('✂ Skin applied from Village Settings.')}
   if(d.type==='goto'&&typeof d.hash==='string'){leaveIntro();location.hash=d.hash;routeHash()}
+  if(d.type==='promise-result'&&d.id&&(d.kind==='rsvp'||d.kind==='claim'))promiseResult(d);
 }catch(_){}});
 try{if(window.parent!==window)window.parent.postMessage({type:'grounds-ready',version:window.BUILD_VERSION||'v0.7'},'*')}catch(_){}
 

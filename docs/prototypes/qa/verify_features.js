@@ -580,6 +580,85 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   ok(d5j.after !== d5j.jn && /of \d+$/.test(d5j.after), `D5.3: next skips ahead rather than waiting (${d5j.after})`);
   ok(d5j.ended, 'D5.3: and ending the walk says so in her voice');
 
+  /* ---------- the vocabulary editor, the bridge reply, and the small fixes ---------- */
+  const d6 = await page.evaluate(async () => {
+    const r = {};
+    document.getElementById('skinBtn').click(); await new Promise(z => setTimeout(z, 300));
+    const host = document.getElementById('skMedia'), ph = document.getElementById('skPhases');
+    r.rows = { media: !!host, phases: !!ph, chips: host ? host.querySelectorAll('[data-vm]').length : 0 };
+    /* a rename is the village's word changing, never the key the flows point at */
+    const wasKey = SCENE.vocabulary.media[0].key;
+    host.querySelector('[data-vm="0"]').click(); await new Promise(z => setTimeout(z, 150));
+    host.querySelector('.vmn').value = 'rainwater';
+    host.querySelector('.vmc').value = '#4499cc';
+    host.querySelector('.vmg').value = 'bolt';
+    host.querySelector('.vmok').click(); await new Promise(z => setTimeout(z, 250));
+    const m0 = SCENE.vocabulary.media[0];
+    r.renamed = { name: m0.name, keyKept: m0.key === wasKey, colourFollows: mediaColor(wasKey) === '#4499cc',
+      flowsIntact: SCENE.flows.every(f => SCENE.vocabulary.media.some(m => m.key === mediaKey(f.medium))),
+      audit: EDITS.some(e => e.action === 'vocab' && /media/.test(e.target || '')) };
+    const n0 = SCENE.vocabulary.media.length;
+    host.querySelector('[data-vm="+"]').click(); await new Promise(z => setTimeout(z, 150));
+    host.querySelector('.vmn').value = 'firewood';
+    host.querySelector('.vmok').click(); await new Promise(z => setTimeout(z, 250));
+    r.added = { grew: SCENE.vocabulary.media.length - n0, key: SCENE.vocabulary.media[SCENE.vocabulary.media.length - 1].key,
+      sprite: !!flowSprite('firewood') };
+    const inUse = SCENE.vocabulary.media.findIndex(m => SCENE.flows.some(f => mediaKey(f.medium) === m.key));
+    host.querySelector(`[data-vm="${inUse}"]`).click(); await new Promise(z => setTimeout(z, 150));
+    const held = SCENE.vocabulary.media.length;
+    host.querySelector('.vmx').click(); await new Promise(z => setTimeout(z, 200));
+    r.keptInUse = SCENE.vocabulary.media.length === held;
+    ph.querySelector('[data-vp="2"]').click(); await new Promise(z => setTimeout(z, 150));
+    const inp = ph.querySelector('input'); inp.value = 'Rising';
+    inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await new Promise(z => setTimeout(z, 250));
+    r.phase = { name: phaseName(2), exported: buildExportJSON().map_scene.vocabulary.phases['2'],
+      audit: EDITS.some(e => e.action === 'vocab' && /phase/.test(e.target || '')) };
+    SCENE.vocabulary.phases[2] = 'Building';
+    document.getElementById('skinBtn').click();
+    r.emdash = SCENE.quests.filter(q => /\u2014/.test(q.q)).length;
+    r.eventsRoute = MODULES.events.route;
+    return r;
+  });
+  ok(d6.rows.media && d6.rows.phases && d6.rows.chips > 9,
+    `D3.1/D3.3: the vocabulary editor carries flow types and phase names (${d6.rows.chips} chips)`);
+  ok(d6.renamed.name === 'rainwater' && d6.renamed.keyKept && d6.renamed.colourFollows && d6.renamed.flowsIntact && d6.renamed.audit,
+    'D3.1: renaming a flow type changes the word and never the key the flows point at');
+  ok(d6.added.grew === 1 && d6.added.key === 'firewood' && d6.added.sprite,
+    'D3.1: a village can add a kind of moving thing, and it gets a mark');
+  ok(d6.keptInUse, 'D3.1: a type still carrying flows is not removed out from under them');
+  ok(d6.phase.name === 'Rising' && d6.phase.exported === 'Rising' && d6.phase.audit,
+    `D3.3: the phases can be renamed, and the export carries the word (${d6.phase.name})`);
+  ok(d6.emdash === 0, `voice: no em-dash survives in a quest title (${d6.emdash})`);
+  ok(d6.eventsRoute === '/events', `the events door opens on the module's own room (${d6.eventsRoute})`);
+
+  /* the shell can answer a promise, and silence still means local only */
+  const d6b = await page.evaluate(async () => {
+    const send = d => window.dispatchEvent(new MessageEvent('message', { data: d, origin: location.origin }));
+    const e = EVENTS[2], before = e.rsvp;
+    evRSVP(e.id); await new Promise(z => setTimeout(z, 120));
+    send({ type: 'promise-result', kind: 'rsvp', id: e.id, ok: false, reason: 'anonymous', href: '/login' });
+    await new Promise(z => setTimeout(z, 250));
+    const refused = { delta: e.rsvp - before, stored: !!EV_RSVP[e.id],
+      wayIn: /Sign in/.test(document.getElementById('maiaLog').textContent) };
+    evRSVP(e.id); await new Promise(z => setTimeout(z, 120));
+    send({ type: 'promise-result', kind: 'rsvp', id: e.id, ok: true, count: 99 });
+    await new Promise(z => setTimeout(z, 250));
+    const accepted = { count: e.rsvp, stored: !!EV_RSVP[e.id] };
+    /* nobody answers: the promise stands, which is how every suite runs */
+    const e2 = EVENTS[3], b2 = e2.rsvp;
+    evRSVP(e2.id); await new Promise(z => setTimeout(z, 4400));
+    const silent = { delta: e2.rsvp - b2, stored: !!EV_RSVP[e2.id] };
+    evRSVP(e2.id);
+    return { refused, accepted, silent };
+  });
+  ok(d6b.refused.delta === 0 && !d6b.refused.stored && d6b.refused.wayIn,
+    'bridge: a refused promise goes back, and offers a way in rather than an error');
+  ok(d6b.accepted.count === 99 && d6b.accepted.stored,
+    `bridge: an accepted promise takes the shell's count as the truth (${d6b.accepted.count})`);
+  ok(d6b.silent.delta === 1 && d6b.silent.stored,
+    'bridge: with nobody listening the promise still stands, which is how the map runs alone');
+
   /* D1.2 on a phone: the two-finger pinch, in its own pocket context */
   const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, deviceScaleFactor: 3 } /* no isMobile: this Chromium reports innerWidth 4x the CSS viewport with it on */);
   const ppage = await pctx.newPage();

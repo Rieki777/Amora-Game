@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf-8"><title>shell</title>
+<style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style>
+<iframe id="f" src="../grounds-v0.html"></iframe>
+<script>
+window.__seen=[]; window.__reply={ok:true};
+addEventListener('message',e=>{const d=e.data;if(!d||typeof d!=='object')return;
+  window.__seen.push(d);
+  if(d.type==='rsvp'||d.type==='claim'){
+    const r=Object.assign({type:'promise-result',kind:d.type,id:d.id,state:d.on?'on':'off'},window.__reply);
+    document.getElementById('f').contentWindow.postMessage(r,'*');
+  }});
+</script>
