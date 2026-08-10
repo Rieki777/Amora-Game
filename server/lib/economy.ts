@@ -178,11 +178,21 @@ export async function economyEpoch(pool: Pool): Promise<Date> {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT `value` FROM `app_config` WHERE `config_key` = 'economy-state' LIMIT 1",
   );
+  // `app_config.value` is a JSON column, so mysql2 has already parsed it and
+  // hands back an object. `JSON.parse(String(obj))` parses "[object Object]",
+  // throws, and lands in the catch, which re-stamps the epoch on EVERY read:
+  // the one value that must never move would move every time it was asked for,
+  // and pre-epoch work would drift back into scope moment by moment.
   let doc: any = {};
-  try {
-    doc = rows[0]?.value ? JSON.parse(String(rows[0].value)) : {};
-  } catch {
-    doc = {};
+  const raw = rows[0]?.value;
+  if (raw && typeof raw === "object") {
+    doc = raw;
+  } else if (typeof raw === "string" && raw) {
+    try {
+      doc = JSON.parse(raw);
+    } catch {
+      doc = {};
+    }
   }
   if (doc.economyEpoch) {
     epochCache = new Date(doc.economyEpoch);
@@ -445,7 +455,10 @@ export async function allowanceFor(
   at: Date = new Date(),
 ): Promise<Allowance> {
   const { startsAt, endsAt, key } = cycleWindow(at);
-  const total = numberVar("gratitude.base_budget");
+  // The engine's own dial, not `gratitude.base_budget`. That one is a
+  // stage-scaled budget for the acknowledgement flow; this one is the flat
+  // per-moon Hearts allowance the doctrine describes.
+  const total = numberVar("economy.giving_allowance_per_moon");
 
   const [rows] = await conn.query<RowDataPacket[]>(
     "SELECT COALESCE(SUM(`amount`), 0) AS given FROM `gratitude_log` " +
@@ -472,9 +485,13 @@ export interface GiveInput {
   fromUserId: string;
   toUserId: string;
   amount: number;
-  /** The gratitude_log row id. The occurrence key is built from it. */
-  noteId: string;
   note?: string;
+  tag?: string;
+  structureKey?: string;
+  /** A quiet gift shows publicly as "someone, quietly". */
+  quiet?: boolean;
+  /** The client's key for one tap of the give button. */
+  clientNonce?: string;
 }
 
 /**
@@ -501,32 +518,62 @@ export function checkGive(
   if (amount > allowance.remaining) {
     return { ok: false, error: `You can still give ${allowance.remaining} this moon` };
   }
-  const perRecipient = numberVar("gratitude.max_per_recipient_per_cycle");
+  // Hearts, not sends. `gratitude.max_per_recipient_per_cycle` counts
+  // acknowledgements and defaults to 1, so reading it here would refuse every
+  // gift of two Hearts or more and blame a dial that was working correctly.
+  const perRecipient = numberVar("economy.hearts_per_recipient_per_moon");
   if (alreadyToThisPerson + amount > perRecipient) {
-    return { ok: false, error: `Gratitude to one person is capped at ${perRecipient} this moon` };
+    return { ok: false, error: `You can give one person ${perRecipient} Hearts a moon` };
   }
   return { ok: true };
 }
 
 /**
- * Give, with the allowance read and the mint written under one lock.
+ * Give, with the allowance read AND the note written under one lock.
  *
- * The row lock on the giver is what closes the five-simultaneous-gives race.
- * Read-then-write without it is a check somebody can stand between.
+ * The note row is what the allowance is computed from, so writing it inside
+ * the locked transaction is the whole mechanism. Five simultaneous gives
+ * serialise on the giver's row: each one reads an allowance that already
+ * counts the gifts committed before it, so the fifth is refused by arithmetic
+ * rather than by luck. Reading the allowance and writing the note in separate
+ * transactions would let all five read the same remaining balance and all five
+ * commit, which is the bug this shape exists to make impossible.
+ *
+ * The ledger post happens AFTER the commit, on purpose, and the order is the
+ * conservative one. The note row consumes the allowance, so a crash between
+ * the two leaves an allowance spent and no hearts minted: visible, keyed, and
+ * healed by a retry, because the mint is idempotent on the note id. The other
+ * order would mint hearts that no allowance had paid for, which is the failure
+ * that costs something.
  */
-export async function give(pool: Pool, input: GiveInput): Promise<MintOutcome> {
+export async function give(
+  pool: Pool,
+  input: GiveInput,
+): Promise<MintOutcome & { noteId?: string }> {
+  const amount = Number(input.amount);
   const conn = await pool.getConnection();
+  let noteId = "";
   try {
     await conn.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
     await conn.beginTransaction();
 
     // The lock. Everything after this reads a world nobody else can move.
-    await conn.query<RowDataPacket[]>("SELECT `id` FROM `users` WHERE `id` = ? FOR UPDATE", [
-      input.fromUserId,
-    ]);
+    //
+    // A row that does not exist cannot be locked, and `FOR UPDATE` over an
+    // empty result takes nothing while looking exactly like success. That
+    // would make every guard below advisory for an unknown giver, so the
+    // absence is a refusal rather than a quiet pass.
+    const [giver] = await conn.query<RowDataPacket[]>(
+      "SELECT `id` FROM `users` WHERE `id` = ? FOR UPDATE",
+      [input.fromUserId],
+    );
+    if (!giver.length) {
+      await conn.rollback();
+      return { ok: false, error: "no such member" };
+    }
 
     const allowance = await allowanceFor(conn, input.fromUserId);
-    const { startsAt, endsAt } = cycleWindow();
+    const { startsAt, endsAt, key } = cycleWindow();
     const [pair] = await conn.query<RowDataPacket[]>(
       "SELECT COALESCE(SUM(`amount`), 0) AS n FROM `gratitude_log` " +
         "WHERE `village_id` = ? AND `from_id` = ? AND `to_id` = ? AND `at` >= ? AND `at` < ?",
@@ -539,20 +586,37 @@ export async function give(pool: Pool, input: GiveInput): Promise<MintOutcome> {
       return { ok: false, error: verdict.error };
     }
 
-    const res = await postTransfer(pool, {
-      from: RECOGNITION_FAUCET,
-      to: memberAccount(input.toUserId),
-      tokenType: HEARTS,
-      amount: Number(input.amount),
-      source: "gratitude_received",
-      sourceRef: input.noteId,
-      description: input.note,
-      idempotencyKey: keys.gratitudeGiven(villageId(), input.noteId),
-    });
+    noteId = `grat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      await conn.query(
+        "INSERT INTO `gratitude_log` " +
+          "(`id`, `village_id`, `from_id`, `to_id`, `amount`, `message`, `cycle_id`, " +
+          " `tag`, `structure_key`, `quiet`, `client_nonce`) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [
+          noteId,
+          villageId(),
+          input.fromUserId,
+          input.toUserId,
+          amount,
+          input.note ?? "",
+          key,
+          input.tag ?? null,
+          input.structureKey ?? null,
+          input.quiet ? 1 : 0,
+          input.clientNonce ?? null,
+        ],
+      );
+    } catch (err: any) {
+      await conn.rollback();
+      // The nonce index spoke: this is the same tap arriving twice.
+      if (String(err?.code) === "ER_DUP_ENTRY") {
+        return { ok: false, error: "That thanks is already sent" };
+      }
+      throw err;
+    }
 
     await conn.commit();
-    if (!res.ok && !res.duplicate) return { ok: false, error: res.error ?? "the ledger refused the credit" };
-    return { ok: true, duplicate: res.duplicate, balance: res.toBalance };
   } catch (err: any) {
     try {
       await conn.rollback();
@@ -563,6 +627,22 @@ export async function give(pool: Pool, input: GiveInput): Promise<MintOutcome> {
   } finally {
     conn.release();
   }
+
+  // Outside the lock: keyed on the note, so a retry credits once.
+  const res = await postTransfer(pool, {
+    from: RECOGNITION_FAUCET,
+    to: memberAccount(input.toUserId),
+    tokenType: HEARTS,
+    amount,
+    source: "gratitude_received",
+    sourceRef: noteId,
+    description: input.note,
+    idempotencyKey: keys.gratitudeGiven(villageId(), noteId),
+  });
+  if (!res.ok && !res.duplicate) {
+    return { ok: false, error: res.error ?? "the ledger refused the credit" };
+  }
+  return { ok: true, duplicate: res.duplicate, balance: res.toBalance, noteId };
 }
 
 // ── Two-party consent ───────────────────────────────────────────────────────
