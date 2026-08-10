@@ -11,6 +11,16 @@ ok(J.stays_occupancy && J.stays_occupancy.lots && Object.values(J.stays_occupanc
 ok(Array.isArray(J.concierge_queries) && J.concierge_queries.every(c => 'query' in c && 'matched_kind' in c && c.method === 'deterministic'), 'concierge_queries: the demand sensor rows are well-formed');
 ok(typeof J.vital_overrides === 'object' && Object.values(J.vital_overrides).every(o => 'v' in o), 'vital_overrides: founder words carry values');
 ok(J.map_scene.vocabulary && Array.isArray(J.map_scene.vocabulary.zone), 'vocabulary: the founder’s words export');
+/* D3: the flow types and the phase names are vocabulary too */
+const media = J.map_scene.vocabulary.media;
+ok(Array.isArray(media) && media.length >= 9 && media.every(m => m.key && m.name && m.color && m.glyph),
+  'vocabulary.media: every flow type carries key, name, colour and glyph');
+ok(J.map_flows.every(f => media.some(m => m.key === f.medium)), 'every flow names a type the vocabulary knows');
+ok(J.map_scene.vocabulary.phases && ['1','2','3'].every(n => J.map_scene.vocabulary.phases[n]),
+  'vocabulary.phases: the three phases have names, and the rows keep their numbers');
+const skin = J.map_scene.art_manifest.skin;
+ok(['glyph','gold','medium'].includes(skin.flow_style) && ['ribbon','tablet'].includes(skin.label_style),
+  `skin carries the two dress dials (${skin.flow_style} / ${skin.label_style})`);
 ok(J.quests.every(q => 'address_source' in q) && J.org_roles.every(r => 'address_source' in r), 'quests + roles carry address_source (creator’s word vs guess vs pool)');
 ok(J.journeys.every(j => Array.isArray(j.steps) && j.steps.every(s => 'structure_key' in s && 'address_source' in s)), 'journey steps carry structure_key + address_source');
 ok(J.forum_threads.every(t => Array.isArray(t.structure_keys) && 'address_source' in t), 'threads carry structure_keys[] (multi-address, D10) + address_source');

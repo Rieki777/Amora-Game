@@ -28,6 +28,13 @@
   .banner .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:1px}
   .banner .cnt{margin-left:8px;color:var(--gold-b);font-size:11px;letter-spacing:.05em}
   .banner:hover{border-color:var(--gold-b);color:#fff}
+  /* An etched plaque instead of a ribbon: gold ground, a cut highlight along
+     the top, and really dark ink, which is the whole reason to want it. */
+  body.lbl-tablet .banner{color:#241a05;text-shadow:0 1px 0 rgba(255,247,214,.5);
+    background:linear-gradient(180deg,#e2b84e,#c49a2e);border:1px solid #8a6a1d;
+    box-shadow:inset 0 1px 0 rgba(255,248,220,.65),0 2px 6px rgba(0,0,0,.5)}
+  body.lbl-tablet .banner .cdot{box-shadow:0 0 0 1px rgba(36,26,5,.35)}
+  body.lbl-tablet .banner.ghosted{opacity:.62}
   .banner.district{font-size:15px;padding:4px 20px 5px;border-width:1px 2px;letter-spacing:.22em}
   .banner.ghosted{opacity:.85;border-style:dashed;border-color:rgba(159,212,255,.7);color:#cfe8ff}
   .banner.geo{background:none;border:none;box-shadow:none;pointer-events:none;color:rgba(240,250,255,.8);
@@ -429,7 +436,15 @@
 
 
   /* ---------- round C: living-land systems ---------- */
-  .poi.ph2{opacity:.84}.poi.ph3{opacity:.62} /* loading into reality — later phases stand more transparent */
+  /* .ph2 used to sit at .84, which is exactly what a half-loaded image looks
+     like. A building being built wears scaffold; only the dreamed one fades. */
+  .poi.ph2{opacity:.92}.poi.ph3{opacity:.62}
+  .poi .scaffold{position:absolute;inset:-6% -10% -2% -10%;pointer-events:none;display:none;z-index:2}
+  .poi.ph2 .scaffold{display:block}
+  .poi .scaffold svg{width:100%;height:100%;overflow:visible;display:block;
+    filter:drop-shadow(0 1px 1px rgba(0,0,0,.5))}
+  .poi .scaffold .lash{fill:none;stroke:var(--t-icon);stroke-width:2;stroke-linecap:round;opacity:.92}
+  .poi .scaffold .pen{fill:var(--t-accent,#e8a13c);stroke:none;opacity:.95}
   /* ── the badge language: one seal, four charges ── */
   #badges .bgroup{position:absolute;left:0;top:0;pointer-events:none;
     opacity:0;transition:opacity .28s ease;will-change:transform,opacity}
@@ -774,6 +789,8 @@
  <div class="srow"><span class="slbl">accent</span><input type="color" id="skAccent" value="#e8a13c"><span class="amv">Amora's value: #e8a13c</span></div>
  <div class="srow"><span class="slbl">parchment</span><input type="color" id="skParch" value="#f3e6c8"><span class="amv">Amora's value: #f3e6c8</span></div>
  <div class="srow"><span class="slbl">label size</span><input type="range" id="skLbl" min="80" max="130" value="100"><b id="skLblV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">100%</b></div>
+ <div class="srow"><span class="slbl">label style</span><select id="skLabelStyle"><option value="ribbon">ribbon · dark plate, parchment letters</option><option value="tablet">tablet · gold plaque, etched</option></select></div>
+ <div class="srow"><span class="slbl">flow marks</span><select id="skFlow"><option value="glyph">a mark for every kind</option><option value="gold">one golden orb</option><option value="medium">a coloured dot</option></select></div>
  <div class="srow"><span class="slbl">icon style</span><select id="skIcon"><option value="auto">auto · emblems far, painted near</option><option value="painted">painted sprites</option><option value="iso">isometric emblems</option></select></div>
  <div class="srow"><span class="slbl">dream mist</span><label style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#d8cba2;cursor:pointer"><input type="checkbox" id="skMist"> soft mist over unbuilt land <span class="amv">off = clean site map</span></label></div>
  <div class="srow"><span class="slbl">village pulse</span><label style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#d8cba2;cursor:pointer"><input type="checkbox" id="skGlow" checked> buildings shimmer when their conversations move</label></div>
@@ -1079,20 +1096,20 @@ const SCENE={
     {from:'tank',to:'community',medium:'water',note:'taps at the commons',phase:1},
     {from:'ponds',to:'greenhouse',medium:'water',note:'irrigation for the beds beyond',phase:1},
     {from:'ponds',to:'foodforest',medium:'water',note:'swale-fed irrigation',phase:2},
-    {from:'greenhouse',to:'kitchen',medium:'food',note:'harvest to the hearth',phase:1},
-    {from:'foodforest',to:'kitchen',medium:'food',note:'seven layers, one table',phase:2},
-    {from:'greenhouse',to:'market',medium:'food',note:'surplus to the farm stand',phase:2},
-    {from:'kitchen',to:'community',medium:'food',note:'meals for gatherings',phase:1},
+    {from:'greenhouse',to:'kitchen',medium:'food-raw',note:'harvest to the hearth',phase:1},
+    {from:'foodforest',to:'kitchen',medium:'food-raw',note:'seven layers, one table',phase:2},
+    {from:'greenhouse',to:'market',medium:'food-raw',note:'surplus to the farm stand',phase:2},
+    {from:'kitchen',to:'community',medium:'food-prepared',note:'meals for gatherings',phase:1},
     {from:'kitchen',to:'greenhouse',medium:'compost',note:'scraps return to the soil',phase:1},
     {from:'kitchen',to:'foodforest',medium:'compost',note:'compost to the swales',phase:2},
-    {from:'library',to:'ridgeA',medium:'materials',note:'tools and lumber for the build',phase:2},
-    {from:'library',to:'community',medium:'materials',note:'tool checkouts',phase:1},
+    {from:'library',to:'ridgeA',medium:'materials-finished',note:'tools and lumber for the build',phase:2},
+    {from:'library',to:'community',medium:'materials-finished',note:'tool checkouts',phase:1},
     {from:'welcome',to:'community',medium:'care',note:'newcomers rooted well',phase:1},
     {from:'council',to:'community',medium:'care',note:'agreements that hold the village',phase:1},
     {from:'sanctuary',to:'community',medium:'care',note:'stillness for the stewards',phase:2},
-    {from:null,to:'kitchen',medium:'food',note:'dry staples from town, imported',phase:1},
-    {from:null,to:'library',medium:'materials',note:'lumber from town, imported',phase:1},
-    {from:null,to:'ridgeA',medium:'materials',note:'cement and steel, imported',phase:2},
+    {from:null,to:'kitchen',medium:'food-raw',note:'dry staples from town, imported',phase:1},
+    {from:null,to:'library',medium:'materials-raw',note:'lumber from town, imported',phase:1},
+    {from:null,to:'ridgeA',medium:'materials-raw',note:'cement and steel, imported',phase:2},
     {from:null,to:'community',medium:'energy',note:'grid power. A solar array is a quest waiting to be written',phase:1},
   ],
   pulse:[ // sample pulse — replays as ripples
@@ -1282,6 +1299,82 @@ window.FACTS=[
 <script>
 /* ================= ENGINE ================= */
 const cv=document.getElementById('scene'),cx=cv.getContext('2d');
+
+/* ---------- THE MEDIA VOCABULARY (D3.1) ----------
+   What moves through a village is the village's own word for it. This list
+   is editable like every other vocabulary: add a type, name it, colour it,
+   pick its mark. Amora's nine are a starting set, not a schema. */
+window.MEDIA_SEED=[
+ {key:'water',              name:'water',               color:'#7cc4d8', glyph:'droplet'},
+ {key:'energy',             name:'energy',              color:'#ffdf8a', glyph:'bolt'},
+ {key:'money',              name:'money',               color:'#e3c15c', glyph:'coin'},
+ {key:'materials-raw',      name:'raw materials',       color:'#c9a25e', glyph:'log'},
+ {key:'materials-finished', name:'finished materials',  color:'#b5895a', glyph:'crate'},
+ {key:'food-raw',           name:'unprepared food',     color:'#a8d46a', glyph:'fruit'},
+ {key:'food-prepared',      name:'prepared food',       color:'#f0a860', glyph:'bowl'},
+ {key:'compost',            name:'compost',             color:'#6f9e46', glyph:'leafcurl'},
+ {key:'care',               name:'care',                color:'#ff9bb0', glyph:'heart'}
+];
+SCENE.vocabulary=SCENE.vocabulary||{};
+/* Phases are a founder's words too. The map keeps the numbers for the export
+   and the importer; a person never has to read one. */
+if(!SCENE.vocabulary.phases)SCENE.vocabulary.phases={1:'Built',2:'Building',3:'Planned'};
+function phaseName(n){const P=SCENE.vocabulary.phases||{};return P[n]||P[String(n)]||('phase '+n)}
+window.phaseName=phaseName;
+if(!Array.isArray(SCENE.vocabulary.media)||!SCENE.vocabulary.media.length)
+  SCENE.vocabulary.media=MEDIA_SEED.map(m=>({...m}));
+/* One line of self-healing: the word this map used before the taxonomy got
+   finer. Anything else unknown is adopted below rather than dropped. */
+const MEDIA_ALIAS={food:'food-raw',materials:'materials-raw'};
+function mediaKey(k){k=String(k||'');return MEDIA_ALIAS[k]||k}
+window.mediaKey=mediaKey;
+function mediaOf(k){k=mediaKey(k);
+  const L=SCENE.vocabulary.media;
+  let m=L.find(x=>x.key===k);
+  if(!m){ // an export from a village that knows a type this map does not
+    m={key:k,name:k,color:'#e8c877',glyph:'seed'};L.push(m);
+    if(window.rebuildMedia)rebuildMedia()}
+  return m}
+window.mediaOf=mediaOf;
+const mediaColor=k=>mediaOf(k).color;
+window.mediaColor=mediaColor;
+
+/* The marks, in the ICONS hand: one path each, stroked at 2, drawn once into
+   an offscreen sprite and tinted by the type colour. A dark halo underneath,
+   because the land they cross is mostly bright green. */
+const GLYPH_PATH={
+  droplet:'M12 4.2c-4.6 5.6-5.6 8.4-5.6 10.6a5.6 5.6 0 0011.2 0c0-2.2-1-5-5.6-10.6z',
+  bolt:'M13.8 3.4L7.2 13.6h4.2l-1.4 7.2 6.8-10.2h-4.2z',
+  coin:'M12 4.6a7.4 7.4 0 110 14.8 7.4 7.4 0 010-14.8zM12 8.6a3.4 3.4 0 110 6.8 3.4 3.4 0 010-6.8z',
+  log:'M8.6 9.2h7.6a3 3.4 0 010 6.8H8.6a3 3.4 0 010-6.8zM8.6 9.2a3 3.4 0 000 6.8',
+  crate:'M5.8 8.6h12.4v8H5.8zM5.8 11.6h12.4M12 8.6v8',
+  fruit:'M12 9c2.4-1.9 6 0 6 3.4 0 3.4-2.7 6.4-6 6.4s-6-3-6-6.4c0-3.4 3.6-5.3 6-3.4zM12 9V5.8M12.2 7.2c1.2-1.6 3.2-1.6 3.2-1.6s0 2-1.6 2.6z',
+  bowl:'M4.9 12.9h14.2a7.1 7.1 0 01-14.2 0zM10 10.4c-1.4-1.3.9-2.2-.5-3.5M14.2 10.4c-1.4-1.3.9-2.2-.5-3.5',
+  leafcurl:'M6.6 17.8c0-6 4.4-9.7 11.2-10.5.8 6.9-3.6 11.3-9.3 11.3M7.4 17.4c3-3.2 6.1-5.1 9.7-6.5',
+  heart:'M12 19.4s-6.5-4.3-6.5-9.1a3.75 3.75 0 016.5-2.4 3.75 3.75 0 016.5 2.4c0 4.8-6.5 9.1-6.5 9.1z',
+  seed:'M12 9.2a2.9 2.9 0 110 5.8 2.9 2.9 0 010-5.8z'
+};
+window.GLYPH_PATH=GLYPH_PATH;
+const FLOW_SPR={};
+function flowSprite(k){
+  const m=mediaOf(k),id=m.glyph+'|'+m.color;
+  if(FLOW_SPR[id])return FLOW_SPR[id];
+  const c=document.createElement('canvas');c.width=c.height=48;
+  const g=c.getContext('2d');g.scale(2,2);
+  g.lineJoin='round';g.lineCap='round';
+  const p=new Path2D(GLYPH_PATH[m.glyph]||GLYPH_PATH.seed);
+  g.strokeStyle='rgba(10,18,10,.7)';g.lineWidth=4.4;g.stroke(p); // the halo
+  g.strokeStyle=m.color;g.lineWidth=2;g.stroke(p);
+  FLOW_SPR[id]=c;return c}
+window.flowSprite=flowSprite;
+window.flowSpriteReset=()=>{for(const k in FLOW_SPR)delete FLOW_SPR[k]};
+/* Three dresses, one meaning. The mark changes; the line under it never
+   stops carrying the type's colour, so distance still reads. */
+function flowMark(x,y,k,col){
+  const st=(window.SKIN&&SKIN.flow_style)||'glyph';
+  if(st==='glyph'){const s=flowSprite(k);cx.drawImage(s,x-6,y-6,12,12);return}
+  cx.fillStyle=(st==='gold')?'#ecd08a':col;
+  cx.beginPath();cx.arc(x,y,3.1,0,7);cx.fill()}
 let DPR=Math.min(window.devicePixelRatio||1,2);
 function fit(){DPR=Math.min(window.devicePixelRatio||1,2);cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px'}
 fit();addEventListener('resize',()=>{fit();mmDirty=true});
@@ -1740,7 +1833,7 @@ function frame(ts){const t=ts/1000,dt=Math.min(.05,(ts-tPrev)/1000||.016);tPrev=
   if(flowsOn){cx.lineCap='round';
     const visF=k2=>{const s2=BY[k2];return s2&&!(mode==='now'&&s2.state==='blueprint'&&!(window.buildModeOn&&window.buildModeOn()))};
     SCENE.flows.forEach((f,fi)=>{
-      const col=f.medium==='water'?'#7cc4d8':(f.medium==='care'?'#ff9bb0':'#e8c877');
+      const col=mediaColor(f.medium); // the type's own colour, from the village's own list
       if(f.from&&f.to&&visF(f.from)&&visF(f.to)){
         const a=BY[f.from],b=BY[f.to];
         const vf=f.via&&featureById(f.via);
@@ -1752,8 +1845,8 @@ function frame(ts){const t=ts/1000,dt=Math.min(.05,(ts-tPrev)/1000||.016);tPrev=
             for(let si=0;si<pts.length-1;si++){const sl=Math.hypot(pts[si+1][0]-pts[si][0],pts[si+1][1]-pts[si][1]);
               if(d<=sl){const tt=sl?d/sl:0;px2=pts[si][0]+(pts[si+1][0]-pts[si][0])*tt;py2=pts[si][1]+(pts[si+1][1]-pts[si][1])*tt;break}
               d-=sl;px2=pts[si+1][0];py2=pts[si+1][1]}
-            cx.globalAlpha=.3+.62*Math.sin(u*Math.PI);cx.fillStyle=col;
-            cx.beginPath();cx.arc(px2,py2,3.1,0,7);cx.fill()}
+            cx.globalAlpha=.3+.62*Math.sin(u*Math.PI);
+            flowMark(px2,py2,f.medium,col)}
           cx.globalAlpha=1}
         else{const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
         const dx=b.x-a.x,dy=b.y-a.y,dl=Math.hypot(dx,dy)||1;
@@ -1762,8 +1855,8 @@ function frame(ts){const t=ts/1000,dt=Math.min(.05,(ts-tPrev)/1000||.016);tPrev=
         cx.beginPath();cx.moveTo(a.x,a.y);cx.quadraticCurveTo(cxp,cyp,b.x,b.y);cx.stroke();
         for(let i2=0;i2<3;i2++){const u=((t*.085)+(fi*.137)+(i2/3))%1;
           const ax2=(1-u)*(1-u)*a.x+2*(1-u)*u*cxp+u*u*b.x,ay2=(1-u)*(1-u)*a.y+2*(1-u)*u*cyp+u*u*b.y;
-          cx.globalAlpha=.3+.62*Math.sin(u*Math.PI);cx.fillStyle=col;
-          cx.beginPath();cx.arc(ax2,ay2,3.1,0,7);cx.fill()}
+          cx.globalAlpha=.3+.62*Math.sin(u*Math.PI);
+          flowMark(ax2,ay2,f.medium,col)}
         cx.globalAlpha=1}}
       else if(!f.from&&f.to&&visF(f.to)){ // imported input: dashed fall-in — a quest waiting to be written
         const b=BY[f.to];cx.setLineDash([5,5]);cx.strokeStyle=col+'88';cx.lineWidth=2;
@@ -1997,6 +2090,12 @@ function paintPoiArt(s,el){
     <svg class="iso" viewBox="0 0 64 70">${isoSVG(base)}</svg>
     ${(window.SPRITES&&SPRITES[base])?`<img class="sprite" src="${SPRITES[base]}" draggable="false" alt="">`:''}
     <span class="rm" title="remove">✕</span>`;
+  el.insertAdjacentHTML('beforeend','<span class="scaffold"><svg viewBox="0 0 64 64" aria-hidden="true">'+
+    '<path class="lash" d="M14 60V12M50 60V16"/>'+
+    '<path class="lash" d="M14 22h36M14 36h36M14 50h36"/>'+
+    '<path class="lash" d="M14 50 50 22"/>'+
+    '<path class="lash" d="M14 12v-5"/><path class="pen" d="M14 5l11 3.2-11 3.4z"/>'+
+    '</svg></span>');
   el.querySelector('.rm').onclick=e=>{e.stopPropagation();removeStructure(s)};
   el.style.setProperty('--pring',s.circle?(CIRCLE_COL[s.circle]||'#9aa08f'):'#9aa08f')}
 function makePoi(s){
@@ -2588,7 +2687,7 @@ function openPanel(key,tab,item){const s=BY[key];if(!s){toast('That place is no 
   travelTo(s.x,s.y,Math.max(cam.z,1.25));
   if(item)setHash('#/place/'+key+'?item='+item); // the badge you tapped, in the address bar
   $('panelHead').innerHTML=`<h2>${s.name}</h2><div class="sub">${s.circle?s.circle+' circle':'needs a steward'} · ${STATE_LABEL[s.state]}${s.fund?` · pool ${Math.round(s.fund*100)}%`:''}</div>
-    <span class="statepill">${s.event?('✦ '+s.event):('phase '+s.phase)}</span>`;
+    <span class="statepill">${s.event?('✦ '+s.event):phaseName(s.phase)}</span>`;
   const tabs=['Overview','Quests here','Seats here','Enter →'];
   $('tabs').innerHTML=tabs.map((t,i)=>`<button data-i="${i}">${t}</button>`).join('');
   [...$('tabs').children].forEach(b=>b.onclick=()=>renderTab(+b.dataset.i));
@@ -2601,12 +2700,12 @@ function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].
     const facts=(window.FACTS||[]).filter(f=>f.at===s.key);
     const dn=s.district==='heart'?'Village Heart':(SCENE.districts.find(d=>d.id===s.district)||{name:'the land'}).name;
     const fchip=(f,dir)=>{const o=dir==='in'?(f.from?BY[f.from]:null):(f.to?BY[f.to]:null);
-      return `<span style="display:inline-flex;align-items:center;gap:5px;margin:0 5px 5px 0;padding:2px 9px;border:1px solid #c8ab6f;border-radius:11px;font-size:11px;background:#fdf6e0"><i style="width:8px;height:8px;border-radius:50%;background:${MEDIA[f.medium]};display:inline-block"></i>${o?o.name:(dir==='in'?'imported ⚠':'off-land')}</span>`};
+      return `<span style="display:inline-flex;align-items:center;gap:5px;margin:0 5px 5px 0;padding:2px 9px;border:1px solid #c8ab6f;border-radius:11px;font-size:11px;background:#fdf6e0"><i style="width:8px;height:8px;border-radius:50%;background:${mediaColor(f.medium)};display:inline-block"></i>${o?o.name:(dir==='in'?'imported ⚠':'off-land')}</span>`};
     const vchip=f2=>`<span style="display:inline-block;margin:0 5px 5px 0;padding:2px 9px;border:1px solid #c8ab6f;border-radius:11px;font-size:11px;background:#fdf6e0">${f2.payload.label}: <b>${f2.payload.value}</b></span>`;
     const head=t2=>`<div style="font-variant:small-caps;letter-spacing:.14em;font-size:10px;color:#8a7347;margin-bottom:4px">${t2}</div>`;
     body.innerHTML=`<p>${s.blurb}</p>
     <p style="margin-top:9px;font-style:italic;color:#4a3a26">${s.role||'A new organ, still finding its function in the body of the village.'}</p>
-    <div style="font-size:10.5px;color:#8a7347;margin-top:3px">${dn} · phase ${s.phase} · AMORA MASTER PLAN V7</div>
+    <div style="font-size:10.5px;color:#8a7347;margin-top:3px">${dn} · ${phaseName(s.phase)} · AMORA MASTER PLAN V7</div>
     ${(window.LOTS&&LOTS[s.key])?`<p style="margin-top:6px;font-size:12px;color:#6b4d1e">⌂ <b>${LOTS[s.key].sold} of ${LOTS[s.key].total}</b> lots spoken for · ${LOTS[s.key].total-LOTS[s.key].sold} open · reserve through the door below</p>`:''}
     ${window.eventCard?eventCard(s):''}
     ${doorBtns(s)}
@@ -2669,7 +2768,7 @@ $('lyOrg').onclick=()=>{orgOn=!orgOn;$('lyOrg').classList.toggle('on',orgOn);
   toast(orgOn?'Org lens: circle colors over the land':'Org lens off')};
 let flowsSeen=false;
 $('lyFlows').onclick=()=>{flowsOn=!flowsOn;$('lyFlows').classList.toggle('on',flowsOn);
-  toast(flowsOn?'Flows lens on. Blue is water, gold is matter, rose is care.':'Flows lens off');
+  toast(flowsOn?'Flows lens on. Every kind of moving thing wears its own mark: a droplet for water, a bowl for a cooked meal, a leaf for compost.':'Flows lens off');
   if(flowsOn&&!flowsSeen){flowsSeen=true;
     maiaSay(`The <b>Flows lens</b>: the village as one body. Spring to tank to beds; garden to kitchen; kitchen back to soil as compost. The dashed falls are <b>imports</b>, and every one is a quest waiting to be written. Close the loop and the map will show it.`)}};
 function setMode(m){mode=m;$('lyNow').classList.toggle('on',m==='now');$('lyVision').classList.toggle('on',m==='vision');
@@ -2970,6 +3069,8 @@ function buildExportJSON(){
       address_source_vocabulary:{values:['creator','resolver-guess','creator-board','pool'],
         law:'creator and creator-board are the creator’s word — never overwritten by a guess; pool is derived silence (importers map it to NULL), not a decision'},
       vocabulary:{road:SUBTYPES.road.slice(),water:SUBTYPES.water.slice(),zone:SUBTYPES.zone.slice(),
+        media:SCENE.vocabulary.media.map(m=>({...m})),
+        phases:{...SCENE.vocabulary.phases}, // names only; every row still carries its number
         note:'the founder’s words — rename freely, every drawn feature follows (Q1d)'},
       modules:(window.MODULES)?Object.keys(MODULES).map(k=>({key:k,name:MODULES[k].name,icon:MODULES[k].icon,route:MODULES[k].route,blurb:MODULES[k].blurb})):[],
       vision_of:null,exported_at:iso},
@@ -3379,7 +3480,10 @@ function scheduleAutosave(){clearTimeout(autosaveT);
 addEventListener('beforeunload',e=>{if(EDITS.length>0){e.preventDefault();e.returnValue=''}});
 const CIRCLE_HOMES={Outreach:'gate',Community:'welcome',Finance:'market',Land:'greenhouse',Coordination:'community',
   Gathering:'kitchen',Learning:'library',Wisdom:'council',Building:'ridgeA',Healing:'sanctuary',Arts:'community'};
-const MEDIA={water:'#7cc4d8',food:'#e8c877',materials:'#c9a25e',energy:'#ffe9a3',compost:'#8fd06a',care:'#ff9bb0'};
+/* MEDIA is now a view of the vocabulary, not a second copy of it: every
+   surface that asked for a colour keeps asking the same way. */
+function rebuildMedia(){const m={};SCENE.vocabulary.media.forEach(x=>{m[x.key]=x.color});window.MEDIA=m;return m}
+window.rebuildMedia=rebuildMedia;const MEDIA=rebuildMedia();
 let inspKey=null;
 function setDerived(s){s.state=derivedState(s);const el=pEls[s.key];if(el){
     el.className='poi st-'+s.state;
@@ -3408,14 +3512,14 @@ function questRowH(q){const qi=SCENE.quests.indexOf(q);
    <select data-qw="${qi}"><option value=""${q.weight?'':' selected'}>read from the words (${badgeWeight(q)})</option>${[1,2,3].map(w=>`<option value="${w}"${q.weight===w?' selected':''}>${({1:'1 · an hour',2:'2 · a session',3:'3 · a full day'})[w]}</option>`).join('')}</select></div></div>`}
 function doorRowH(m,i){return `<div class="irow"><input type="text" data-dlab="${i}" value="${escq(m[0])}"><input type="text" data-drt="${i}" value="${escq(m[1])}" style="max-width:96px"><button class="xbtn" data-ddel="${i}">✕</button></div>`}
 function flowRowH(f,dir){const fi=SCENE.flows.indexOf(f);
-  const medSel=`<select data-fmed="${fi}" style="flex:none;width:88px">${Object.keys(MEDIA).map(m=>`<option value="${m}"${f.medium===m?' selected':''}>${m}</option>`).join('')}</select>`;
+  const medSel=`<select data-fmed="${fi}" style="flex:none;width:132px">${SCENE.vocabulary.media.map(m=>`<option value="${m.key}"${mediaKey(f.medium)===m.key?' selected':''}>${escq(m.name)}</option>`).join('')}</select>`;
   const other=dir==='in'?f.from:f.to;
   const nullOpt=dir==='in'?`<option value=""${!f.from?' selected':''}>imported · off-land</option>`
                           :`<option value=""${!f.to?' selected':''}>exported · off-land</option>`;
   const oSel=`<select data-foth="${fi}" data-dir="${dir}">${nullOpt}${structOpts(other,inspKey)}</select>`;
   const routes=SCENE.features.filter(x=>x.geom==='line');
   const viaSel=(f.from&&f.to)?`<select data-fvia="${fi}" title="route along a drawn line" style="flex:none;width:74px"><option value="">bow</option>${routes.map(x=>`<option value="${x.id}"${f.via===x.id?' selected':''}>${escq((x.name||x.subtype).slice(0,16))}</option>`).join('')}</select>`:'';
-  return `<div class="irow"><span style="flex:none;width:9px;height:9px;border-radius:50%;background:${MEDIA[f.medium]}"></span>${medSel}${dir==='in'?oSel+'<span style="flex:none;color:#b9af8f;font-size:10px">→ here</span>':'<span style="flex:none;color:#b9af8f;font-size:10px">here →</span>'+oSel}${viaSel}<button class="xbtn" data-fdel="${fi}">✕</button></div>`}
+  return `<div class="irow"><span style="flex:none;width:9px;height:9px;border-radius:50%;background:${mediaColor(f.medium)}"></span>${medSel}${dir==='in'?oSel+'<span style="flex:none;color:#b9af8f;font-size:10px">→ here</span>':'<span style="flex:none;color:#b9af8f;font-size:10px">here →</span>'+oSel}${viaSel}<button class="xbtn" data-fdel="${fi}">✕</button></div>`}
 function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
   $('inspHead').innerHTML=`<div class="ttl">⚒ inspect · the founder's hand</div>
     <input type="text" id="iName" value="${escq(s.name)}" style="font-size:16px;font-variant:small-caps;letter-spacing:.08em">
@@ -3439,7 +3543,7 @@ function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
    <div style="font-size:10.5px;color:#b9af8f;margin-bottom:2px">${s.circle?`Emblem ring and banner wear the ${s.circle} circle's color.`:`Unowned: neutral ring, listed on the Wall as “needs a steward.”`}</div>
    <h5>phase &amp; pool</h5>
    <div class="irow"><span class="ilbl">phase</span>
-     ${[1,2,3].map(ph=>`<label style="display:flex;gap:4px;align-items:center;font-size:12px;cursor:pointer"><input type="radio" name="iPhase" value="${ph}"${s.phase===ph?' checked':''} style="accent-color:var(--gold)">${ph}</label>`).join('')}
+     ${[1,2,3].map(ph=>`<label style="display:flex;gap:4px;align-items:center;font-size:12px;cursor:pointer"><input type="radio" name="iPhase" value="${ph}"${s.phase===ph?' checked':''} style="accent-color:var(--gold)">${phaseName(ph)}</label>`).join('')}
      <span style="flex:1"></span><span class="ilbl" style="width:auto">activity</span>
      <select id="iAct" style="flex:none;width:92px">${[['steady','steady'],['high','thriving'],['low','quiet']].map(([v,l])=>`<option value="${v}"${(s.act||'steady')===v?' selected':''}>${l}</option>`).join('')}</select></div>
    <div class="irow"><span class="ilbl">pool</span><input type="range" id="iFund" min="0" max="100" value="${Math.round((s.fund!=null?s.fund:1)*100)}"><b id="iFundV" style="width:38px;text-align:right;font-size:12px;font-weight:normal">${Math.round((s.fund!=null?s.fund:1)*100)}%</b></div>
@@ -3539,7 +3643,7 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
   B.querySelector('#iFInAdd').onclick=()=>{SCENE.flows.push({from:null,to:s.key,medium:'water',note:'',phase:s.phase});
     logEdit('flow-add','flow→'+s.key,{});renderInspect()};
   B.querySelector('#iFOutAdd').onclick=()=>{const other=SCENE.structures.find(x=>x.key!==s.key);
-    SCENE.flows.push({from:s.key,to:other?other.key:null,medium:'food',note:'',phase:s.phase});
+    SCENE.flows.push({from:s.key,to:other?other.key:null,medium:'food-raw',note:'',phase:s.phase});
     logEdit('flow-add','flow←'+s.key,{});renderInspect()};
   B.querySelectorAll('[data-fmed]').forEach(sel=>sel.onchange=()=>{const f=SCENE.flows[+sel.dataset.fmed];if(!f)return;
     f.medium=sel.value;logEdit('flow-medium','flow',{to:f.medium});renderInspect()});
@@ -3593,8 +3697,12 @@ function restoreScene(J){try{
   resolveAllAddresses();
   const voc=J.map_scene&&J.map_scene.vocabulary;
   if(voc)['road','water','zone'].forEach(k2=>{if(Array.isArray(voc[k2])&&voc[k2].length)SUBTYPES[k2]=voc[k2].slice()});
+  if(voc&&voc.phases&&typeof voc.phases==='object')SCENE.vocabulary.phases={...SCENE.vocabulary.phases,...voc.phases};
+  if(voc&&Array.isArray(voc.media)&&voc.media.length){
+    SCENE.vocabulary.media=voc.media.map(m=>({key:m.key,name:m.name||m.key,color:m.color||'#e8c877',glyph:m.glyph||'seed'}));
+    rebuildMedia();flowSpriteReset()}
   if(J.vital_overrides)window.VITAL_OVR=J.vital_overrides;
-  SCENE.flows=(J.map_flows||[]).map(r=>({from:r.from_key,to:r.to_key,medium:r.medium,note:r.note,
+  SCENE.flows=(J.map_flows||[]).map(r=>({from:r.from_key,to:r.to_key,medium:mediaKey(r.medium),note:r.note,
     phase:r.phase,via:r.via_feature||undefined}));
   SCENE.features=(J.map_zones||[]).filter(r=>r.id).map(r=>({id:r.id,kind:r.kind,geom:r.geom,
     points:(r.polygon||r.path).map(pt=>[pt[0],pt[1]]),subtype:r.subtype,phase:r.phase,
@@ -4024,7 +4132,8 @@ function playJourney(id){const j=jById(id);if(!j)return;
 window.playJourney=playJourney;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&JWALK){JWALK=null;toast('Walk ended. Wander freely.');setHash('')}},true);
 /* ---------- the skin step: Make This Yours, for the land ---------- */
-const SKIN={theme:'Emerald Atlas',words:'',accent:null,parch:null,lbl:100,mist:false,glow:true};window.SKIN=SKIN;
+const SKIN={theme:'Emerald Atlas',words:'',accent:null,parch:null,lbl:100,mist:false,glow:true,
+  flow_style:'glyph',label_style:'ribbon'};window.SKIN=SKIN; // 'glyph'|'gold'|'medium' · 'ribbon'|'tablet'
 function openSkin(){$('skin').classList.add('show');renderSkinThemes()}
 window.openSkin=openSkin;
 function renderSkinThemes(){$('skTheme').innerHTML=Object.values(THEMES).map(t=>
@@ -4038,9 +4147,18 @@ function applySkinOverrides(){
   mmDirty=true}
 function skinExport(){return{theme:SKIN.theme||THEME.label,words:SKIN.words||null,mist:!!SKIN.mist,glow:SKIN.glow!==false,global_scale:window.GSCALE||1,accent:SKIN.accent||null,
   parchment:SKIN.parch||null,label_scale:(SKIN.lbl||100)/100,icon_mode:iconMode,
+  flow_style:SKIN.flow_style||'glyph',label_style:SKIN.label_style||'ribbon',
   painterly:{brush:(typeof brushVal!=='undefined')?brushVal:null,palette:(typeof palVal!=='undefined')?palVal:null},
   note:'production home: Admin → Make This Yours (/admin?tab=setup), one styling story for site and land'}}
 window.skinExport=skinExport;
+/* One place that puts the dress on, so the panel, a restore and a config
+   push over the bridge all take the same route. */
+function applyDress(){
+  document.body.classList.toggle('lbl-tablet',SKIN.label_style==='tablet');
+  if($('skFlow'))$('skFlow').value=SKIN.flow_style||'glyph';
+  if($('skLabelStyle'))$('skLabelStyle').value=SKIN.label_style||'ribbon';
+}
+window.applyDress=applyDress;
 function applySkinExport(sk){if(!sk)return;
   SKIN.theme=sk.theme||SKIN.theme;SKIN.words=sk.words||'';SKIN.accent=sk.accent||null;
   SKIN.parch=sk.parchment||null;SKIN.lbl=Math.round((sk.label_scale||1)*100);SKIN.mist=!!sk.mist;
@@ -4056,6 +4174,9 @@ function applySkinExport(sk){if(!sk)return;
   const t=Object.values(THEMES).find(x=>x.label===SKIN.theme);
   if(t)applyTheme(t);else if(SKIN.words)applyTheme(themeFromWords(SKIN.words));
   if(sk.icon_mode&&['auto','painted','iso'].includes(sk.icon_mode))iconMode=sk.icon_mode;
+  if(sk.flow_style&&['glyph','gold','medium'].includes(sk.flow_style))SKIN.flow_style=sk.flow_style;
+  if(sk.label_style&&['ribbon','tablet'].includes(sk.label_style))SKIN.label_style=sk.label_style;
+  applyDress();
   applySkinOverrides();
   if($('skAccent')&&sk.accent)$('skAccent').value=sk.accent;
   if($('skParch')&&sk.parchment)$('skParch').value=sk.parchment;
@@ -4063,6 +4184,11 @@ function applySkinExport(sk){if(!sk)return;
   if($('skWords'))$('skWords').value=SKIN.words||'';
   if($('skIcon')&&sk.icon_mode)$('skIcon').value=sk.icon_mode}
 window.applySkinExport=applySkinExport;
+if($('skFlow'))$('skFlow').onchange=()=>{SKIN.flow_style=$('skFlow').value;
+  logEdit('flow-style','skin',{to:SKIN.flow_style});toast('Flow marks: '+$('skFlow').selectedOptions[0].textContent+'.')};
+if($('skLabelStyle'))$('skLabelStyle').onchange=()=>{SKIN.label_style=$('skLabelStyle').value;applyDress();
+  logEdit('label-style','skin',{to:SKIN.label_style});toast('Labels: '+$('skLabelStyle').selectedOptions[0].textContent+'.')};
+applyDress();
 $('skinBtn').onclick=()=>$('skin').classList.toggle('show')&&renderSkinThemes()||renderSkinThemes();
 $('skClose').onclick=()=>$('skin').classList.remove('show');
 $('skWords').addEventListener('change',()=>{const v=$('skWords').value.trim();if(!v)return;
@@ -4319,7 +4445,7 @@ $('pubBtn').onclick=()=>{window.PUBLIC_UNLOCK=!window.PUBLIC_UNLOCK;
   const TIPS={lyNow:'Now: only what is. Every icon traces to something true.',
     lyVision:'Vision: the whole masterplan. Blueprint ghosts are the fundable gap.',
     lyOrg:'Circle colours wash over the land: who tends what.',
-    lyFlows:'The village metabolism. Blue is water, gold is matter, rose is care.',
+    lyFlows:'The village metabolism. Each kind of moving thing wears its own mark, and the line beneath it keeps that colour.',
     msLiving:'The land itself, every building a door.',
     msCircles:'The same village as an organism: circles, roles and quests in orbit.',
     wallBtn:'Every open seat and quest in one list. Find somewhere to help.',
