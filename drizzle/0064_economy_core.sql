@@ -25,10 +25,16 @@ ALTER TABLE `tokens`
   -- voice token accrues here and settles on Hypha, and this is the mirror.
   ADD COLUMN `external_ref` varchar(255) NULL;
 
--- Recognition and the village voice are held, never traded. Setting this here
--- rather than in a seed means a fork inherits the posture instead of relying
--- on somebody remembering to seed it.
-UPDATE `tokens` SET `transferable` = 0, `spendable` = 0 WHERE `kind` IN ('recognition', 'voice');
+-- Recognition and the village voice are held, never spent. Set here rather
+-- than in a seed so a fork inherits the posture instead of relying on somebody
+-- remembering to seed it.
+--
+-- `spendable` ONLY. `transferable` is left exactly as each token already has
+-- it: it has been live policy on `gratitude` since 0006, the stays and library
+-- modules re-assert their own every boot, and this build has no business
+-- changing what an existing token is allowed to do. The new column starts at
+-- the honest answer for these two kinds and nothing else moves.
+UPDATE `tokens` SET `spendable` = 0 WHERE `kind` IN ('recognition', 'voice');
 
 CREATE TABLE IF NOT EXISTS `mint_rules` (
   `id` varchar(64) NOT NULL,
