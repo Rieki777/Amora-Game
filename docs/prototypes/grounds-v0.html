@@ -457,6 +457,18 @@
      the seals it was supposed to replace came up with it. */
   .bgroup.far .bseal{display:none}
   .bgroup .hchip{display:block} /* a home is a door at every distance */
+  /* One mark breathes at a time. Motion is reserved for time, so this is a
+     slow invitation and never a queue of things demanding attention. */
+  .bseal.featured{opacity:1;animation:bfeat 2.9s ease-in-out infinite}
+  @keyframes bfeat{0%,100%{transform:scale(1)}50%{transform:scale(1.16)}}
+  /* An intent said out loud: everything that is not the answer steps back. */
+  body.bfilter #badges .bgroup.on{opacity:1}
+  body.bfilter #badges .bseal{opacity:.18}
+  body.f-quest #badges .b-quest,body.f-quest #badges .b-invite,
+  body.f-event #badges .b-event{opacity:1}
+  /* A collapsed ring, opened. Transform only, so nothing reflows. */
+  .bgroup.fanned .bseal{display:block;transform:scale(1.18)}
+  .bgroup.fanned .b-more{display:none}
   .aseal svg,.hchip svg{width:100%;height:100%;display:block;overflow:visible;
     filter:drop-shadow(0 1px 2px rgba(0,0,0,.55))}
   .aface{fill:#20160c;fill-opacity:.94}
@@ -1988,7 +2000,7 @@ function paintPoiArt(s,el){
   el.querySelector('.rm').onclick=e=>{e.stopPropagation();removeStructure(s)};
   el.style.setProperty('--pring',s.circle?(CIRCLE_COL[s.circle]||'#9aa08f'):'#9aa08f')}
 function makePoi(s){
-  const el=document.createElement('div');el.className='poi st-'+s.state;
+  const el=document.createElement('div');el.className='poi st-'+s.state;el.dataset.k=s.key;
   paintPoiArt(s,el);
   el.onclick=e=>{e.stopPropagation();if(dragMoved)return;buildMode?openInspect(s.key):openPanel(s.key)};
   el.onmouseenter=()=>{if(!buildMode)showHover(s,el)};el.onmouseleave=hideHover;
@@ -2212,8 +2224,11 @@ $('badges').addEventListener('click',e=>{
   const seal=e.target.closest('.bseal');if(!seal)return;
   e.stopPropagation();
   const key=seal.dataset.bk,kind=seal.dataset.bkind;const s=BY[key];if(!s)return;
-  window.hap&&hap(6);
-  if(kind==='more'){travelTo(s.x,s.y,Math.max(cam.z,1.6));return} // closer, where the ring opens
+  window.hap&&hap(6);window.WGATE&&(WGATE.badge=true); // the Greenhouse beat waits on this
+  if(kind==='more'){ // the ring it stands for, opened here rather than only flown to
+    fanGroup(key);
+    if(cam.z<1.35)travelTo(s.x,s.y,1.45); // and a little closer, if the marks would be tiny
+    return}
   if(typeof buildMode!=='undefined'&&buildMode){openInspect(key);return} // the founder is rewiring, not reading
   if(kind==='invite'){inviteHere(key);return}
   if(kind==='talk'){openDoor('forum',{at:key});return} // the forum door already scopes itself to a place
@@ -2256,9 +2271,12 @@ function layoutBadges(){
     const kinds=(bg.dataset.kinds||'').split(',').filter(Boolean);
     const off=bg._off||30;
     const need=badgeRing(kinds,BADGE_GAP);
-    groups.push({bg,kinds,off,R:Math.max(off,need,20),
-      cluster:need>Math.max(off*1.8,30), // too small a building to carry its own ring
-      cx:bg._cx,cy:bg._cy});
+    /* A ring the reader opened on purpose stays open, and stands a little
+       further out so the marks it was hiding have somewhere to be. */
+    const fan=(bg._fan||0)>performance.now(),R0=Math.max(off,need,20);
+    groups.push({bg,kinds,off,R:fan?Math.max(R0*1.35,52):R0,
+      cluster:!fan&&need>Math.max(off*1.8,30), // too small a building to carry its own ring
+      pin:fan,cx:bg._cx,cy:bg._cy});
   }
   const CR=g=>Math.max(g.off,20); // where a collapsed ring puts its one seal
   /* Each pass collapses the rings that are fighting and looks again. A
@@ -2281,7 +2299,9 @@ function layoutBadges(){
          building further up the hill yields, because the one nearer the
          reader is the one they are looking at. */
       let give;
-      if(a.cluster)give=b; else if(b.cluster)give=a;
+      if(a.pin&&b.pin)continue; // both opened by hand; the reader gets to see both
+      if(a.pin)give=b; else if(b.pin)give=a;
+      else if(a.cluster)give=b; else if(b.cluster)give=a;
       else if(a.kinds.length!==b.kinds.length)give=a.kinds.length>b.kinds.length?a:b;
       else give=a.cy<b.cy?a:b;
       give.cluster=true;
@@ -2291,6 +2311,7 @@ function layoutBadges(){
   const pts=window.BADGE_PTS=[]; // where every visible mark ends up, for the plates to avoid
   for(const g of groups){
     g.bg.classList.toggle('clustered',g.cluster);
+    g.bg.classList.toggle('fanned',!!g.pin);
     if(g.cluster){
       const more=g.bg.querySelector('.b-more');
       if(more){more.style.left=(-0.82*CR(g))+'px';more.style.top=(0.57*CR(g))+'px'}
@@ -2328,6 +2349,60 @@ function dodgeMarks(x,y,w,h){
 }
 window.dodgeMarks=dodgeMarks;
 window.layoutBadges=layoutBadges;
+/* ---------- the calm system ----------
+   Sixty per cent is the resting state, set in CSS. This picks the one mark
+   that breathes, on a seeded rotation so it is a rhythm rather than a
+   surprise, and it stands down whenever an intent is already speaking. */
+let FEAT_I=0,FEAT_EL=null;
+function featureOne(){
+  if(FEAT_EL){FEAT_EL.classList.remove('featured');FEAT_EL=null}
+  if(document.body.classList.contains('bfilter'))return;
+  const pool=[...document.querySelectorAll('#badges .bgroup.on .bseal')]
+    .filter(s=>getComputedStyle(s).display!=='none'&&!/\bev-u/.test(s.className)); // a lantern already keeps its own time
+  if(!pool.length)return;
+  FEAT_EL=pool[Math.floor(mulberry(9173+FEAT_I++)()*pool.length)];
+  FEAT_EL.classList.add('featured');
+}
+window.featureOne=featureOne;
+setTimeout(featureOne,2600);setInterval(featureOne,9000);
+
+/* An intent, said out loud for eight seconds. Everything that is not the
+   answer steps back rather than the answer shouting. */
+let FTMR=null;
+function badgeIntent(kind,ms){
+  clearTimeout(FTMR);
+  if(FEAT_EL){FEAT_EL.classList.remove('featured');FEAT_EL=null}
+  document.body.classList.remove('f-quest','f-event');
+  document.body.classList.add('bfilter','f-'+kind);
+  FTMR=setTimeout(()=>{document.body.classList.remove('bfilter','f-quest','f-event');featureOne()},ms||8000);
+}
+window.badgeIntent=badgeIntent;
+if($('attnBtn'))$('attnBtn').addEventListener('click',()=>badgeIntent('quest',8000));
+(function eventsDoorFilter(){const b=document.querySelector('#dock button[data-m="events"]');
+  if(b)b.addEventListener('click',()=>badgeIntent('event',8000))})();
+
+/* ---------- the fan ----------
+   A collapsed ring is one seal standing for several. Opening it is a beat of
+   its own, so the tap that opens it is not also the tap that acts. */
+function fanGroup(key,ms){
+  const g=bgEls[key];if(!g)return false;
+  g._fan=performance.now()+(ms||2600);
+  window.hap&&hap(6);
+  return true;
+}
+window.fanGroup=fanGroup;
+/* In the pocket a building with two or more marks fans before it opens its
+   door, because a 22 px mark under a thumb needs to be somewhere findable
+   first. Capture phase, so the poi's own click never runs. */
+$('icons').addEventListener('click',e=>{
+  if(!document.body.classList.contains('pocket'))return;
+  const poi=e.target.closest('.poi');if(!poi||!poi.dataset.k)return;
+  const g=bgEls[poi.dataset.k];if(!g||!g.classList.contains('on'))return;
+  if((g._fan||0)>performance.now())return; // already open: this tap is the one that acts
+  if(g.querySelectorAll('.bseal:not(.b-more)').length<2)return; // one mark acts at once
+  e.stopPropagation();e.preventDefault();
+  fanGroup(poi.dataset.k);
+},true);
 /* A home is a door, and this is the front of it. The request and booking
    rows that used to hide in the generic panel are answered here instead. */
 function homeSheet(key){
@@ -4314,8 +4389,9 @@ window.WALK_SEED=[
  {id:'w3',structure_key:'ponds',title:'The Ponds',gesture:'pinch',
   body:'Rain, caught and kept. The herons arrived within a month and act like landlords. The land breathes. So does the map.',
   gate_hint:'pinch to zoom the world'},
- {id:'w4',structure_key:'greenhouse',title:'The Growing Engine',gesture:'none',
-  body:'Quests live where the work lives. Small acts, real impact. The ⚑ flags mark where hands are wanted. Find the work you love that the village needs, and it will thank you in Hearts.'},
+ {id:'w4',structure_key:'greenhouse',title:'The Growing Engine',gesture:'badge',
+  body:'Quests live where the work lives. Small acts, real impact. The ⚑ flags mark where hands are wanted. Find the work you love that the village needs, and it will thank you in Hearts.',
+  gate_hint:'tap the leaf-pennant at the door'},
  {id:'w5',structure_key:'community',title:'The Village Heart',gesture:'none',
   body:'No bosses here. We are circles, and every circle keeps a home on this land. Tap ◎ any time to see the village as one living organism.'},
  {id:'w6',structure_key:'ridgeA',title:'Walls Rising',gesture:'none',
