@@ -680,11 +680,20 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
       calm: [...document.querySelectorAll('.toast')].some(t => /joins the village when a steward/.test(t.textContent)) };
     r.reasons = ['anonymous', 'not-yet', 'closed', 'full', 'not-here', 'gone', 'error'].every(k => !!PROMISE_WHY[k]);
     /* a quest's identity is a field the site stores, not a slug two sides compute */
+    /* measured BEFORE the deliberate rename below, or a stable key would read
+       as a truncated one */
+    const untruncated = SCENE.quests.every(x => x.key === slugify(x.q, 190) || /-\d+$/.test(x.key));
+    const longSurvives = slugify('Walk the possible spring with the hydrologist', 190)
+      !== slugify('Walk the possible spring with the surveyor', 190);
     const q = SCENE.quests[0], was = q.key;
     q.q = 'A different title entirely';
+    /* 32 was the site's MEDIA key limit and never belonged on a join key.
+       Two of twenty seed keys sat exactly on it, and a truncated key COLLIDES:
+       two titles that agree for 32 characters would address one row. */
     r.key = { onSeed: !!was, stable: questKey(q) === was, exported: buildExportJSON().quests[0].key === was,
       unique: new Set(SCENE.quests.map(x => x.key)).size === SCENE.quests.length,
-      shape: SCENE.quests.every(x => /^[a-z0-9_-]{1,32}$/i.test(x.key)) };
+      shape: SCENE.quests.every(x => /^[a-z0-9_-]{1,190}$/i.test(x.key)),
+      untruncated, longSurvives };
     const q2 = SCENE.quests.find(x => x.at === 'greenhouse');
     sent.length = 0; claimQuest(q2.q, BY[q2.at].name); await new Promise(z => setTimeout(z, 200));
     const cp = sent.filter(m => m.type === 'claim')[0] || {};
@@ -718,6 +727,8 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   ok(amd.reasons, 'bridge: every reason the route can give has words of its own');
   ok(amd.key.onSeed && amd.key.stable && amd.key.exported && amd.key.unique && amd.key.shape,
     'quests: the key is a field the site stores, and a title edit does not move it');
+  ok(amd.key.untruncated && amd.key.longSurvives,
+    'quests: keys are never cut to fit, because a truncated join key collides in silence');
   ok(amd.claim.usesKey && amd.claim.hasNonce, 'quests: a claim posts that key, never a recomputed slug');
   ok(amd.blankRefused && amd.sanitiser.ok && amd.sanitiser.phases,
     `vocabulary: nothing the editor writes can be dropped whole by the site (${amd.sanitiser.key})`);

@@ -2419,9 +2419,14 @@ window.PROMISE_RSVP=PROMISE_RSVP;window.PROMISE_CLAIM=PROMISE_CLAIM;
 function questKey(q){
   if(typeof q==='string')q=SCENE.quests.find(x=>x.q===q)||{q};
   if(q&&q.key)return q.key;
-  const base=slugify(q&&q.q).slice(0,32)||'quest';
+  /* Full slug, never cut to fit. 190 is the site's limit for an indexed
+     varchar in utf8mb4 and is far past any real title; the suffix eats into
+     the base rather than off the end, so disambiguation cannot be truncated
+     away either. */
+  const KMAX=190;
+  const base=slugify(q&&q.q,KMAX)||'quest';
   let k=base,n=1;
-  while(SCENE.quests.some(x=>x!==q&&x.key===k))k=(base+'-'+(++n)).slice(0,32);
+  while(SCENE.quests.some(x=>x!==q&&x.key===k)){const sfx='-'+(++n);k=base.slice(0,KMAX-sfx.length)+sfx}
   if(q&&typeof q==='object')q.key=k;
   return k}
 window.questKey=questKey;
@@ -2445,7 +2450,7 @@ window.badgeOn=badgeOn;
 /* An id a person could read in a URL, made from the words the founder
    already typed. Quests and seats carry no id of their own; threads and
    events do, and theirs wins. */
-function slugify(t){return String(t||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,48)}
+function slugify(t,max){return String(t||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,max||48)}
 window.slugify=slugify;
 function itemAddr(kind,x){
   if(kind==='quest')return 'quest:'+((typeof questKey==='function')?questKey(x):slugify(x&&x.q));
@@ -3677,7 +3682,7 @@ function renderResolver(){
     </div></div>`;
   window._rq={q,r}}
 function resolverCreate(){const{q,r}=window._rq||{};if(!q||!q.text.trim())return;
-  SCENE.quests.push({q:q.text.trim(),key:slugify(q.text.trim()).slice(0,32),at:r.key,r:'20 ♥',need:'hands welcome',
+  SCENE.quests.push({q:q.text.trim(),key:slugify(q.text.trim(),190),at:r.key,r:'20 ♥',need:'hands welcome',
     addr:r.guessed?'lexicon guess':(window._rqHome?'creator':(r.key?'resolved':'board'))});
   window._rqHome=null;
   logEdit('quest-add','quest:'+q.text.trim(),{at:r.key,via:r.steps.filter(s=>s.hit).map(s=>s.rule).join('→')});
