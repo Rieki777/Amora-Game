@@ -394,6 +394,46 @@ async function main() {
       }
     }
 
+    // ── walk log: where the Welcome Walk loses people ────────────────────
+    const walkBlock = scene.walk;
+    if (wanted("walk_log") && Array.isArray(walkBlock?.log) && walkBlock.log.length) {
+      /*
+       * The scene carries one browser's walk, so every row belongs to a single
+       * run. The exporter numbers them with `ts_seq` and writes no session of
+       * its own, so the session key is derived from the scene: re-importing
+       * the same file lands on the same key and dedupes instead of inventing
+       * a second newcomer.
+       */
+      const session = `scene:${sceneKey}`;
+      const rows = walkBlock.log
+        .filter((r: any) => r && typeof r.step === "string")
+        .map((r: any, i: number) => ({
+          step: String(r.step),
+          at_index: Number(r.at_index ?? 0),
+          ts_seq: Number(r.ts_seq ?? i),
+        }));
+      const ends = rows.filter((r: any) => r.step === "complete" || r.step === "abandoned").length;
+      console.log(`  walk   ${rows.length} logged step(s), ${ends} ending(s), as one run`);
+      if (!DRY && conn) {
+        for (const r of rows) {
+          await conn.query(
+            `INSERT INTO walk_log (id, session_key, step, at_index, ts_seq, source, idempotency_key)
+               VALUES (?,?,?,?,?, 'import', ?)
+             ON DUPLICATE KEY UPDATE at_index = VALUES(at_index)`,
+            [
+              rowId("wl", `${r.ts_seq}-${r.step}`),
+              session, r.step, r.at_index, r.ts_seq,
+              `import:${session}:${r.ts_seq}:${r.step}`.slice(0, 160),
+            ],
+          );
+          wrote++;
+        }
+      }
+    }
+    // The walk's STEPS are village config, not analytics; they belong to the
+    // map_walk document the editor writes, and the importer leaves them to it
+    // rather than writing the same thing from two places.
+
     // ── concierge queries: the demand signal ─────────────────────────────
     if (wanted("concierge_queries") && Array.isArray(scene.concierge_queries) && scene.concierge_queries.length) {
       const KINDS = ["role", "quest", "circle", "none"];

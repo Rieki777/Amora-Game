@@ -28,6 +28,7 @@ import {
   WALK_GESTURES,
 } from "../shared/mapAddress";
 import { toSchemaOrg } from "../shared/gatherings";
+import { recordWalkRows, walkReport } from "./lib/walkLog";
 import {
   createGathering,
   deleteGathering,
@@ -12175,6 +12176,40 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       vocabulary: mapVocabRepo.get(),
       lang,
     });
+  });
+
+  /**
+   * The running map posting its own walk log.
+   *
+   * Under `/api/map`, so it inherits the module gate. Unauthenticated on
+   * purpose: a walk runs before anyone signs in, which is exactly the person
+   * whose experience this measures. Nothing here identifies anybody, the
+   * batch is capped, and a replayed post dedupes on its idempotency key.
+   */
+  app.post("/api/map/walk-log", async (req, res) => {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) return res.json({ recorded: 0 });
+    const session = typeof req.body?.sessionKey === "string" ? req.body.sessionKey : "";
+    if (!session) return res.status(400).json({ error: "sessionKey required" });
+    const lang = typeof req.body?.lang === "string" ? req.body.lang : null;
+    const recorded = await recordWalkRows(
+      getPool(),
+      rows.map((r: any) => ({
+        sessionKey: session, step: r?.step, atIndex: r?.at_index ?? r?.atIndex,
+        tsSeq: r?.ts_seq ?? r?.tsSeq, lang,
+      })),
+      "live",
+    );
+    res.json({ recorded });
+  });
+
+  /** Where the walk loses people. The reason the table exists. */
+  app.get("/api/admin/map/walk-log", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const source = ["live", "import", "all"].includes(String(req.query.source))
+      ? (req.query.source as "live" | "import" | "all")
+      : "all";
+    res.json(await walkReport(getPool(), { source, days: Number(req.query.days) || 90 }));
   });
 
   /** The whole walk document, every language, for the editor. */

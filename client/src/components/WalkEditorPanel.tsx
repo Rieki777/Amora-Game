@@ -41,6 +41,7 @@ export default function WalkEditorPanel({ password }: { password: string }) {
   const [structures, setStructures] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [report, setReport] = useState<any>(null);
   const previewFrame = useRef<HTMLIFrameElement | null>(null);
 
   const auth = { Authorization: `Bearer ${password}` };
@@ -54,6 +55,11 @@ export default function WalkEditorPanel({ password }: { password: string }) {
       ]);
       setWalk(w?.walk ?? {});
       setStructures(s?.structures ?? []);
+      // The report is a nice-to-have beside the editor, so it never blocks it.
+      fetch("/api/admin/map/walk-log", { headers: auth })
+        .then((r) => (r.ok ? r.json() : null))
+        .then(setReport)
+        .catch(() => { /* no numbers this time */ });
     } catch { toast.error("Could not load the walk"); }
   }, [password]);
   useEffect(() => { load(); }, [load]);
@@ -120,6 +126,15 @@ export default function WalkEditorPanel({ password }: { password: string }) {
   const input = "w-full text-sm border border-gray-200 rounded-lg px-2.5 py-2";
   const langs = Array.from(new Set([DEFAULT_WALK_LANG, ...Object.keys(walk)]));
 
+  /**
+   * Where the walk loses people.
+   *
+   * The reason walk_log exists. A completion rate on its own is a number to
+   * feel bad about; the step that lost the most people is a sentence to
+   * rewrite, so that is what leads.
+   */
+  const funnel = report && report.runs > 0 ? report : null;
+
   return (
     <div className="bg-white border border-gray-100 rounded-2xl p-6 mt-6">
       <h3 className="font-semibold text-gray-900 mb-1">Welcome Walk</h3>
@@ -143,6 +158,35 @@ export default function WalkEditorPanel({ password }: { password: string }) {
           }}
           className="text-xs text-gray-500 underline underline-offset-2">add a language</button>
       </div>
+
+      {funnel && (
+        <div className="mb-5 border border-gray-200 rounded-xl p-4 bg-gray-50">
+          <div className="text-sm font-medium text-gray-900 mb-1">
+            {funnel.worstStep
+              ? `Most people stop at "${funnel.worstStep.step}"`
+              : "Nobody has left the walk partway"}
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            {funnel.runs} walk{funnel.runs === 1 ? "" : "s"} in the last {funnel.days} days.{" "}
+            {funnel.completed} finished, {funnel.abandoned} left partway, {funnel.unfinished} still going.
+          </p>
+          <ul className="space-y-1">
+            {funnel.steps.map((s: any) => (
+              <li key={s.step} className="flex items-center gap-2 text-xs">
+                <span className="w-40 truncate text-gray-700">{s.step}</span>
+                {/* A bar per step, widest where the most people arrived. */}
+                <span className="flex-1 h-2 bg-gray-200 rounded overflow-hidden">
+                  <span className="block h-2 bg-[#2D5A5A]"
+                    style={{ width: `${funnel.runs ? (s.reached / funnel.runs) * 100 : 0}%` }} />
+                </span>
+                <span className="w-28 text-right text-gray-500">
+                  {s.reached} reached{s.lost ? `, ${s.lost} left` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {steps.length === 0 && (
         <p className="text-sm text-gray-400 border border-dashed border-gray-200 rounded-lg py-6 text-center mb-4">
