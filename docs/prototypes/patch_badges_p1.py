@@ -41,13 +41,30 @@ rep(
   .bseal .bhit{position:absolute;left:50%;top:50%;width:44px;height:44px;
     margin:-22px 0 0 -22px;border-radius:50%}
   .bseal svg{width:100%;height:100%;overflow:visible;display:block}
+  /* The seal's own ink.
+     `--t-icon` is #f0e3bf: an ink for DARK chips, and all but invisible on a
+     #f3e6c8 parchment face. The event star and the conversation bubble were
+     drawn in it and vanished. `--ink` is the theme's real dark, so the seal
+     borrows that and falls back to a brown of its own if a fork drops it. */
+  .bseal{--bink:var(--ink,#241a10)}
   .bseal .face{fill:var(--parch);fill-opacity:.94}
   .bseal .rim{fill:none;stroke:var(--gold);stroke-width:2}
-  .bseal .ink{fill:none;stroke:var(--t-icon);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-  .bseal .tint{stroke:var(--btint,var(--t-icon))}
+  .bseal .ink{fill:none;stroke:var(--bink);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .bseal .tint{stroke:var(--btint,var(--bink))}
+  /* FILLED, not stroked. A 2px outline in a 24-unit box is invisible at the
+     22px these actually render at: the first two passes drew a hand that
+     filled into a lump and a star you could not see against the parchment.
+     A solid silhouette reads at a glance, which is the whole job of a seal.
+     `cut` carves detail back out in the face colour, which is how the leaf
+     vein and the finger gaps survive being small. */
+  .bseal .sol{fill:var(--btint,var(--bink));stroke:var(--btint,var(--bink));stroke-width:1.1;stroke-linejoin:round}
+  .bseal .solink{fill:var(--bink);stroke:var(--bink);stroke-width:1.1;stroke-linejoin:round}
+  .bseal .staff{fill:none;stroke:var(--btint,var(--bink));stroke-width:2;stroke-linecap:round}
+  .bseal .cut{fill:none;stroke:var(--parch);stroke-width:1.3;stroke-linecap:round}
+  .bseal .cutf{fill:var(--parch);stroke:none}
   /* The pips ride below the seal, so they need their own contrast against
      whatever land is behind them. */
-  .bseal .pip{fill:var(--t-icon);stroke:var(--parch);stroke-width:1.1;paint-order:stroke}
+  .bseal .pip{fill:var(--bink);stroke:var(--parch);stroke-width:1.1;paint-order:stroke}
   /* Rim vocabulary. Amber says a resolver guessed this address, gold says a
      person chose it; dashed says the seat is still open; braided says the
      work asks for a skill. */
@@ -109,15 +126,25 @@ const BADGE_FACE = '<circle class="face" cx="12" cy="12" r="10.5"/><circle class
    stroke: at the size they actually render, the fingers filled in and the
    pennant read as the letter P. These are the same ideas with the detail
    taken out, which is what a seal is for. */
+/* Chosen by rendering candidates side by side at 76, 22 and 16 px and
+   keeping only what survived 22. Two earlier passes were drawn by eye at
+   sketch size and both failed the same way: the leaf-pennant closed into a
+   letter P, and an inner curl on the conversation mark read as a question
+   mark. These are the ones that read. */
 const BADGE_CHARGE = {
-  /* a pennant whose cloth is a leaf: a staff, one leaf, one midrib */
-  quest: '<path class="ink tint" d="M9 6.5v11.5"/><path class="ink tint" d="M9 7.6c2.9-1.4 5.4 0 6.6 1.8-1.7 1.7-4.2 2.4-6.6 1.4z"/><path class="ink tint" d="M10.2 9.1c1.4.2 2.4.6 3.2 1.1"/>',
-  /* a raised hand: one palm, one thumb, three humps read as fingers */
-  seat: '<path class="ink tint" d="M9.3 12.1V9.4a1 1 0 012 0v2.2"/><path class="ink tint" d="M11.3 11.6V8.6a1 1 0 012 0v3"/><path class="ink tint" d="M13.3 11.9V9.7a1 1 0 012 0v3.9c0 2.4-1.7 4-4 4s-4-1.6-4-4v-1.5a1 1 0 012 0"/>',
-  /* the star-lantern, re-seated from the old evbadge */
-  event: '<path class="ink tint" d="M12 5.9l1.8 3.6 4 .6-2.9 2.8.7 4-3.6-1.9-3.6 1.9.7-4-2.9-2.8 4-.6z"/>',
-  /* a rising curl of smoke: one S, one curl, nothing else */
-  talk: '<path class="ink tint" d="M12 18.2c-2.6-2 1.6-3.6-1-5.6"/><path class="ink tint" d="M11 12.6c-2.4-2 1.9-3.5-.6-5.5"/><path class="ink tint" d="M10.4 7.1c1.9-1.2 3.9-.2 3.6 1.6"/>',
+  /* a swallowtail banner whose cloth carries a leaf's midrib. The notch is
+     what stops it reading as a P, and it survives down to 16px. */
+  quest: '<path class="staff" d="M8.2 6.1v11.8"/><path class="sol" d="M8.2 6.9h8.6l-2.3 2.7 2.3 2.7H8.2z"/><path class="cut" d="M9.4 9.6h4.6"/>',
+  /* a raised hand: one filled silhouette, gaps carved back out so the
+     fingers still separate at 22px instead of merging into a lump */
+  seat: '<path class="sol" d="M8.6 14.3V11a1.2 1.2 0 012.4 0v2.1V7.7a1.2 1.2 0 012.4 0v5.4V9.6a1.2 1.2 0 012.4 0v5c0 2.2-1.8 3.8-4.1 3.8h-.2c-2.3 0-2.9-1.6-2.9-3.8z"/><path class="cut" d="M11 9.6v3.4M13.4 10.2v2.9"/>',
+  /* the star-lantern, re-seated from the old evbadge and filled so it is
+     visible against a parchment face */
+  event: '<path class="solink" d="M12 5.5l1.9 3.9 4.3.6-3.1 3 .7 4.3-3.8-2-3.8 2 .7-4.3-3.1-3 4.3-.6z"/>',
+  /* someone is talking here. The spec called for a rising curl; a curl at
+     this size read as a question mark, and a bubble with an ellipsis says
+     the same thing and is legible. */
+  talk: '<path class="solink" d="M12 6.4c-3.3 0-5.9 2.2-5.9 5 0 1.6.9 3.1 2.3 4-.2 1-.8 1.9-1.7 2.7 1.7-.3 3.1-1 4-1.9.4.1.9.1 1.3.1 3.3 0 5.9-2.2 5.9-5s-2.6-4.9-5.9-4.9z"/><circle class="cutf" cx="9.5" cy="11.4" r="1"/><circle class="cutf" cx="12" cy="11.4" r="1"/><circle class="cutf" cx="14.5" cy="11.4" r="1"/>',
   /* an empty seal with a seed at its heart: room for work */
   invite: '<circle class="ink tint" cx="12" cy="12" r="2.1"/>',
 };
