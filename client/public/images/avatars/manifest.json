@@ -1,0 +1,47 @@
+{
+  "assets": {
+    "building-f-deep": {
+      "at": "2026-08-10T15:32:29+00:00",
+      "base": "building-f",
+      "derivedFromBase": false,
+      "file": "building-f-deep.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "building-f-light": {
+      "at": "2026-08-10T15:44:18+00:00",
+      "base": "building-f",
+      "derivedFromBase": false,
+      "file": "building-f-light.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "building-f-olive": {
+      "at": "2026-08-10T15:33:26+00:00",
+      "base": "building-f",
+      "derivedFromBase": true,
+      "file": "building-f-olive.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "building-m-deep": {
+      "at": "2026-08-10T15:44:46+00:00",
+      "base": "building-m",
+      "derivedFromBase": false,
+      "file": "building-m-deep.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "building-m-light": {
+      "at": "2026-08-10T15:39:00+00:00",
+      "base": "building-m",
+      "derivedFromBase": false,
+      "file": "building-m-light.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "building-m-olive": {
+      "at": "2026-08-10T15:39:59+00:00",
+      "base": "building-m",
+      "derivedFromBase": true,
+      "file": "building-m-olive.webp",
+      "model": "gemini-3-pro-image"
+    }
+  },
+  "updatedAt": "2026-08-10T15:44:46+00:00"
+}

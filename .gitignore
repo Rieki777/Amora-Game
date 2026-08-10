@@ -111,6 +111,12 @@ temp/
 # outside it to survive.
 data/*
 
+# Avatar generation bases. These are the full-size PNGs each class portrait is
+# generated from; the tone variants are edits of them, so a resumed run needs
+# the same file the first run made. Big, local, and reproducible from the
+# manifest plus the prompts in scripts/gen_avatars.py.
+scripts/avatar-bases/
+
 # local scratch/handoff artifacts
 atsc.txt
 do_commit.bat
