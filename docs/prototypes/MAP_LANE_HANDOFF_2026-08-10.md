@@ -5,6 +5,10 @@ Pair it with `docs/SITE_LANE_HANDOFF_2026-08-10.md`, which is the other half
 of the same day and is the site's side of every contract named here.
 
 **Live:** `d4634c8` on `main`, deployed, artifact `v0.8-roundD`.
+**Ahead of live:** `238784e` on `wt/map-events` only, artifact `v0.8-roundD1`
+(the vocabulary inbound fix). Pushed to the mirror and deliberately NOT to
+`main`, so it is built and gated but not deployed. Whoever ships next carries
+it along; `origin/main` is the truth about what is running.
 **Read `## Lane rules` before touching anything.** Two sessions share this
 worktree and the expensive mistakes are all in there.
 
