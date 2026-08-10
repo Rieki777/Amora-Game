@@ -76,7 +76,7 @@ import {
 } from "./lib/ledger";
 import type { TransferGuard } from "./lib/ledger";
 import { allowanceFor, checkIn, economyReady, give, mintForConfirmedClaim, runSettlement, villageId } from "./lib/economy";
-import { addCharacter, listArchetypes, partyFor, removeCharacter, setPrimary } from "./lib/characters";
+import { addCharacter, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { seedEconomy } from "./lib/economySeed";
 import { installCrashHandlers, reportError, wireErrorReporting } from "./lib/errors";
 import {
@@ -13256,6 +13256,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   /** The five classes, as this village names them. Public: it is the front door. */
   app.get("/api/archetypes", async (_req, res) => {
     res.json(await listArchetypes(getPool(), villageId()));
+  });
+
+  /** What a class opens. A suggestion, never a restriction. */
+  app.get("/api/archetypes/:key/paths", async (req, res) => {
+    res.json(await openPathsFor(getPool(), villageId(), req.params.key));
   });
 
   app.get("/api/me/characters", async (req, res) => {

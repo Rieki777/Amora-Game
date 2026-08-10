@@ -517,6 +517,20 @@ html {
   }
 }
 
+/* The character select idle. Transform only, so it composites on the GPU and
+   never lays the page out again seven seconds at a time, and small enough to
+   read as breathing rather than as something loading. The page applies it
+   under `motion-safe:`, so anyone who asked their system for less motion gets
+   a still portrait. */
+@keyframes breathe {
+  0%, 100% {
+    transform: scale(1) translateY(0);
+  }
+  50% {
+    transform: scale(1.015) translateY(-4px);
+  }
+}
+
 @keyframes shimmer {
   0% {
     background-position: -200% 0;

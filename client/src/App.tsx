@@ -209,6 +209,7 @@ const MasterPlan = lazyPage(() => import("./pages/MasterPlan"));
 const Team = lazyPage(() => import("./pages/Team"));
 const Admin = lazyPage(() => import("./pages/Admin"));
 const Profile = lazyPage(() => import("./pages/Profile"));
+const Characters = lazyPage(() => import("./pages/Characters"));
 const Register = lazyPage(() => import("./pages/Register"));
 const SetPassword = lazyPage(() => import("./pages/SetPassword"));
 const ForgotPassword = lazyPage(() => import("./pages/ForgotPassword"));
@@ -312,6 +313,9 @@ function Router() {
       <Route path="/team" component={Team} />
       <Route path="/admin" component={Admin} />
       <Route path="/profile" component={Profile} />
+      {/* The class select. Under /profile because a party is part of who you
+          are here, not a separate account setting. */}
+      <Route path="/profile/characters" component={Characters} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/set-password" component={SetPassword} />
