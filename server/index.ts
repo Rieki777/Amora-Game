@@ -75,7 +75,9 @@ import {
   TREASURY,
 } from "./lib/ledger";
 import type { TransferGuard } from "./lib/ledger";
-import { allowanceFor, checkIn, economyReady, give, mintForConfirmedClaim, runSettlement } from "./lib/economy";
+import { allowanceFor, checkIn, economyReady, give, mintForConfirmedClaim, runSettlement, villageId } from "./lib/economy";
+import { addCharacter, listArchetypes, partyFor, removeCharacter, setPrimary } from "./lib/characters";
+import { seedEconomy } from "./lib/economySeed";
 import { installCrashHandlers, reportError, wireErrorReporting } from "./lib/errors";
 import {
   STAY_CREDIT,
@@ -3193,6 +3195,13 @@ async function startServer() {
   // rewards and invariant checks never race an admin's enable click.
   await ensureStayToken(getPool());
   await ensureLibraryToken(getPool());
+  // The five classes and the starting rules. Same reasoning as the two above:
+  // registered unconditionally, so the vocabulary and the token exist before
+  // anybody flips a flag and nothing has to race an enable click. Archetypes
+  // upsert so platform copy travels; rules insert only when absent so a
+  // village's own amounts are never restored to a default by a redeploy.
+  await seedEconomy(getPool(), villageId());
+  await loadTokenRegistry(getPool());
   {
     const inv = await checkLedgerInvariants(getPool());
     if (!inv.ok) {
@@ -13236,6 +13245,57 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     });
     const allowance = await allowanceFor(getPool(), user.id);
     res.json({ success: true, allowance });
+  });
+
+  // ── Characters ────────────────────────────────────────────────────────────
+  //
+  // Classes GUIDE and never gate. These routes read and write which classes a
+  // player is playing; nothing here is ever consulted to decide whether an
+  // action is allowed, and the capability gate does not know these words.
+
+  /** The five classes, as this village names them. Public: it is the front door. */
+  app.get("/api/archetypes", async (_req, res) => {
+    res.json(await listArchetypes(getPool(), villageId()));
+  });
+
+  app.get("/api/me/characters", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    res.json({ party: await partyFor(getPool(), villageId(), user.id) });
+  });
+
+  /**
+   * Walk a path, or change how a character you already play looks.
+   *
+   * Multi-class is the point, so this adds rather than replaces. Validation
+   * lives in the service: presentation and tone are closed sets and the
+   * archetype is checked against this village's own rows, because all three
+   * end up in an avatar filename.
+   */
+  app.post("/api/me/characters", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const outcome = await addCharacter(getPool(), villageId(), user.id, req.body ?? {});
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json({ success: true, character: outcome.character });
+  });
+
+  /** Which character fronts the sheet. */
+  app.post("/api/me/characters/:id/primary", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const ok = await setPrimary(getPool(), villageId(), user.id, req.params.id);
+    if (!ok) return res.status(404).json({ error: "Not one of your characters" });
+    res.json({ success: true, party: await partyFor(getPool(), villageId(), user.id) });
+  });
+
+  /** Leave a path. Removing the primary hands the crown on in the same breath. */
+  app.delete("/api/me/characters/:id", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const removed = await removeCharacter(getPool(), villageId(), user.id, req.params.id);
+    if (!removed) return res.status(404).json({ error: "Not one of your characters" });
+    res.json({ success: true, party: await partyFor(getPool(), villageId(), user.id) });
   });
 
   /**
