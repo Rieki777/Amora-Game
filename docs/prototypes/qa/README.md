@@ -41,6 +41,20 @@ Each section module is `async (page, H) => { … }`. Log with `H.log`, screensho
 with `H.shot('name')`, read app state with `H.ev(() => …)`. Anything thrown is
 caught by `run.js`, screenshotted as `CRASH-<block>.png`, and the run continues.
 
+## Standalone verifiers
+
+The `verify_*.js` files run on their own against one concern each, outside the
+27-section matrix. They read `GROUNDS_FILE` and `PW_EXE` from `env.sh`, print
+`PASS`/`FAIL` lines, and exit non-zero on any failure.
+
+    source ./env.sh && node verify_doors.js
+
+`verify_skin_bridge.js` is the site lane's, and it checks the contract rather
+than the map: the site stores a skin through a sanitiser that rebuilds the
+object field by field, so any key `skinExport()` gains and the site has not is
+dropped on save with no error anywhere. Its last check compares the two key
+sets and names the difference. **When the map's skin gains a key, run it.**
+
 ## Known harness caveats
 
 - Native `title` tooltips (the vitals bar) can't be screenshotted headlessly —

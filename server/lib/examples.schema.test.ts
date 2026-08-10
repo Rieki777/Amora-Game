@@ -122,7 +122,18 @@ describe.skipIf(!configured)("the seed matches the schema it is written against"
       columns.get(t)!.set(String(r.c), String(r.ct));
     }
     expect(columns.size, "the scratch schema must have tables").toBeGreaterThan(10);
-  }, 180_000);
+    /*
+     * No local timeout: inherit the 300s from vitest.config.ts.
+     *
+     * This hook drops a schema, creates it, and runs every migration, one
+     * statement at a time, against a HOSTED MySQL. The config sets 300s and
+     * says to keep the headroom; a local 180s quietly undercut it. Measured
+     * today: 238ms per round trip and 61 migration files, so provisioning
+     * took 185s and the hook failed by five seconds while the work itself was
+     * fine. Every migration added moves that number up, so the ceiling has to
+     * be the one place that thought about it.
+     */
+  });
 
   afterAll(async () => {
     await pool?.end();

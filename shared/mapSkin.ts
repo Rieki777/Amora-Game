@@ -38,6 +38,17 @@ export const MAP_THEMES = ["Emerald Atlas", "Terra Sol", "Mar Azul"] as const;
 /** How buildings are drawn. The artifact validates against this same list. */
 export const ICON_MODES = ["auto", "painted", "iso"] as const;
 
+/**
+ * How flow lines and place labels are drawn (artifact v0.8).
+ *
+ * Same allowlist-and-fall-back shape as `icon_mode`, and the same lists the
+ * artifact checks in `applySkinExport`. Both default to the artifact's own
+ * spelling rather than to blank, because the map reads a falsy value as "use
+ * the default" and there is no third state to represent.
+ */
+export const FLOW_STYLES = ["glyph", "gold", "medium"] as const;
+export const LABEL_STYLES = ["ribbon", "tablet"] as const;
+
 export interface MapSkin {
   theme: string;
   words: string;
@@ -46,6 +57,8 @@ export interface MapSkin {
   label_scale: number;
   global_scale: number;
   icon_mode: string;
+  flow_style: string;
+  label_style: string;
   mist: boolean;
   glow: boolean;
   painterly: { brush: number | null; palette: number | null };
@@ -59,6 +72,8 @@ export const DEFAULT_MAP_SKIN: MapSkin = {
   label_scale: 1,
   global_scale: 1,
   icon_mode: "painted",
+  flow_style: "glyph",
+  label_style: "ribbon",
   mist: false,
   glow: true,
   painterly: { brush: null, palette: null },
@@ -134,11 +149,20 @@ function dial(value: unknown): number | null {
  * Unknown theme and icon_mode values fall back the same way instead of
  * throwing, because this runs on a stored document: a fork that downgrades
  * the platform should get its map drawn, not a 500 on every save.
+ *
+ * This function REBUILDS the object field by field rather than spreading the
+ * input, which is what makes it safe and also what makes it lossy: a key the
+ * map gained and this list has not is dropped on the way through, and the
+ * wizard saves the loss without complaining. That is how `flow_style` and
+ * `label_style` were silently discarded for one artifact version. When the
+ * map's `skinExport()` grows a key, it gets a line here in the same round.
  */
 export function sanitiseMapSkin(input: unknown): MapSkin {
   const s = (input ?? {}) as Record<string, any>;
   const themeOk = MAP_THEMES.includes(s.theme);
   const iconOk = ICON_MODES.includes(s.icon_mode);
+  const flowOk = FLOW_STYLES.includes(s.flow_style);
+  const labelOk = LABEL_STYLES.includes(s.label_style);
   return {
     theme: themeOk ? String(s.theme) : "",
     words: typeof s.words === "string" ? s.words.slice(0, 160) : "",
@@ -147,6 +171,8 @@ export function sanitiseMapSkin(input: unknown): MapSkin {
     label_scale: num(s.label_scale, 1, SKIN_BOUNDS.label_scale.min, SKIN_BOUNDS.label_scale.max),
     global_scale: num(s.global_scale, 1, SKIN_BOUNDS.global_scale.min, SKIN_BOUNDS.global_scale.max),
     icon_mode: iconOk ? String(s.icon_mode) : DEFAULT_MAP_SKIN.icon_mode,
+    flow_style: flowOk ? String(s.flow_style) : DEFAULT_MAP_SKIN.flow_style,
+    label_style: labelOk ? String(s.label_style) : DEFAULT_MAP_SKIN.label_style,
     mist: s.mist === true,
     // Absent means on. The artifact reads glow the same way (`!== false`), so
     // a document written before this field existed keeps the pulse lit.

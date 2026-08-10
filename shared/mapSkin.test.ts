@@ -22,13 +22,36 @@ describe("sanitiseMapSkin", () => {
       theme: "Terra Sol", words: "high desert", mist: true, glow: false,
       global_scale: 1.5, accent: "#157F7D", parchment: "#f3e7cf",
       label_scale: 1.1, icon_mode: "iso", painterly: { brush: 0.4, palette: 0.7 },
+      flow_style: "gold", label_style: "tablet",
       note: "ignored",
     };
     expect(sanitiseMapSkin(exported)).toEqual({
       theme: "Terra Sol", words: "high desert", accent: "#157F7D", parchment: "#f3e7cf",
       label_scale: 1.1, global_scale: 1.5, icon_mode: "iso",
+      flow_style: "gold", label_style: "tablet",
       mist: true, glow: false, painterly: { brush: 0.4, palette: 0.7 },
     });
+  });
+
+  /*
+   * The dress the map wears. Added in artifact v0.8, and dropped in silence
+   * until this list grew to match: a founder set gold flows and tablet
+   * labels, exported, pasted into the wizard, and the wizard saved a skin
+   * with neither. Nothing errored, which is the whole problem.
+   */
+  it("carries the dress the map wears", () => {
+    const dressed = sanitiseMapSkin({ flow_style: "medium", label_style: "tablet" });
+    expect(dressed.flow_style).toBe("medium");
+    expect(dressed.label_style).toBe("tablet");
+  });
+
+  it("falls back to the map's own default for a style it does not know", () => {
+    // Not blank. The artifact reads a falsy style as "use the default", so
+    // there is no third state and storing "" would only look like a choice.
+    for (const bad of ["", "sparkle", 7, null, undefined, { flow: "gold" }]) {
+      expect(sanitiseMapSkin({ flow_style: bad }).flow_style).toBe("glyph");
+      expect(sanitiseMapSkin({ label_style: bad }).label_style).toBe("ribbon");
+    }
   });
 
   it("blanks any colour that is not a six-digit hex", () => {

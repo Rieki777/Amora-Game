@@ -217,14 +217,63 @@ describe("sanitiseMapVocabulary", () => {
       .toEqual(["lane", "track"]);
   });
 
-  it("keeps the three named lists and ignores anything else", () => {
+  it("keeps the named sections and ignores anything else", () => {
     const v = sanitiseMapVocabulary({ road: ["lane"], water: ["swale"], zone: ["grove"], sky: ["x"] });
-    expect(v).toEqual({ road: ["lane"], water: ["swale"], zone: ["grove"] });
+    expect(v).toEqual({ road: ["lane"], water: ["swale"], zone: ["grove"], media: [], phases: {} });
   });
 
   it("caps a word and a list rather than storing an essay", () => {
     expect(sanitiseMapVocabulary({ road: ["x".repeat(200)] }).road[0]).toHaveLength(48);
     const many = Array.from({ length: 200 }, (_, i) => `road-${i}`);
     expect(sanitiseMapVocabulary({ road: many }).road).toHaveLength(60);
+  });
+
+  /*
+   * The v0.8 export carries media and phases. They were dropped on the way
+   * through for one artifact version, because the sanitiser rebuilds the
+   * object field by field and nobody added the lines. These pin the shape
+   * against the real export so the same silence cannot happen twice.
+   */
+  it("carries a medium whole, colour and glyph included", () => {
+    const v = sanitiseMapVocabulary({
+      media: [{ key: "water", name: "acequia", color: "#7cc4d8", glyph: "droplet" }],
+    });
+    expect(v.media).toEqual([{ key: "water", name: "acequia", color: "#7cc4d8", glyph: "droplet" }]);
+  });
+
+  it("drops a medium rather than drawing it in a colour nobody chose", () => {
+    const bad = [
+      { key: "water", name: "water", color: "red", glyph: "droplet" },
+      { key: "water", name: "water", color: "javascript:x", glyph: "droplet" },
+      { key: "a b", name: "spaced key", color: "#ffffff", glyph: "droplet" },
+      { key: "energy", name: "energy", color: "#ffdf8a", glyph: "url(#x)" },
+      { key: "money", name: "", color: "#e3c15c", glyph: "coin" },
+    ];
+    expect(sanitiseMapVocabulary({ media: bad }).media).toEqual([]);
+  });
+
+  it("keeps one medium per key and caps the list", () => {
+    const dupes = [
+      { key: "water", name: "first", color: "#111111", glyph: "droplet" },
+      { key: "water", name: "second", color: "#222222", glyph: "droplet" },
+    ];
+    expect(sanitiseMapVocabulary({ media: dupes }).media).toEqual([
+      { key: "water", name: "first", color: "#111111", glyph: "droplet" },
+    ]);
+    const many = Array.from({ length: 50 }, (_, i) => ({
+      key: `m${i}`, name: `m${i}`, color: "#123456", glyph: "droplet",
+    }));
+    expect(sanitiseMapVocabulary({ media: many }).media).toHaveLength(24);
+  });
+
+  it("keeps phases keyed by the number the scene stores", () => {
+    const v = sanitiseMapVocabulary({ phases: { 1: "Built", 2: " Building ", 3: "Planned" } });
+    expect(v.phases).toEqual({ "1": "Built", "2": "Building", "3": "Planned" });
+  });
+
+  it("drops a phase key that names nothing the map can draw", () => {
+    const v = sanitiseMapVocabulary({ phases: { 1: "Built", soon: "Someday", 2: "" } });
+    expect(v.phases).toEqual({ "1": "Built" });
+    expect(sanitiseMapVocabulary({ phases: ["Built"] }).phases).toEqual({});
   });
 });

@@ -205,11 +205,47 @@ export interface MapVocabulary {
   road: string[];
   water: string[];
   zone: string[];
+  /**
+   * What flows along the lines. Not a word list: each medium carries the
+   * colour and glyph the map draws it with, so a village that renames "water"
+   * to "acequia" keeps the blue droplet with it. Artifact v0.8.
+   */
+  media: MapMedium[];
+  /**
+   * What a build phase is called, keyed by the phase NUMBER the scene stores
+   * (`{"1":"Built","2":"Building","3":"Planned"}`). Keys stay strings because
+   * that is what JSON gives back and what the artifact reads.
+   */
+  phases: Record<string, string>;
 }
 
-export const DEFAULT_MAP_VOCABULARY: MapVocabulary = { road: [], water: [], zone: [] };
+export interface MapMedium {
+  key: string;
+  name: string;
+  color: string;
+  glyph: string;
+}
 
-/** Trim, drop blanks, dedupe, cap. A vocabulary is a short list of words. */
+export const DEFAULT_MAP_VOCABULARY: MapVocabulary = {
+  road: [], water: [], zone: [], media: [], phases: {},
+};
+
+/** Six hex digits or nothing: a medium's colour becomes a CSS value. */
+const MEDIUM_HEX = /^#[0-9a-f]{6}$/i;
+
+/** Keys and glyph names index into the map's own tables, so hold them plain. */
+const PLAIN_KEY = /^[a-z0-9_-]{1,32}$/i;
+
+/**
+ * Trim, drop blanks, dedupe, cap.
+ *
+ * The three word lists are exactly that. `media` and `phases` are structured
+ * and get structured treatment: a medium keeps its colour only if the colour
+ * is a literal hex (it reaches CSS), and both its key and glyph must be plain
+ * identifiers, because they index into the artifact's own tables rather than
+ * being displayed. Anything malformed is dropped rather than repaired, since
+ * a half-built medium would draw a flow in a colour nobody chose.
+ */
 export function sanitiseMapVocabulary(input: unknown): MapVocabulary {
   const v = (input ?? {}) as Record<string, unknown>;
   const list = (raw: unknown): string[] => {
@@ -224,5 +260,36 @@ export function sanitiseMapVocabulary(input: unknown): MapVocabulary {
     // so spreading a Set is the same class of break as a BigInt literal.
     return Array.from(seen).slice(0, 60);
   };
-  return { road: list(v.road), water: list(v.water), zone: list(v.zone) };
+
+  const media: MapMedium[] = [];
+  const mediaSeen = new Set<string>();
+  if (Array.isArray(v.media)) {
+    for (const raw of v.media) {
+      const m = (raw ?? {}) as Record<string, unknown>;
+      const key = String(m.key ?? "").trim();
+      const glyph = String(m.glyph ?? "").trim();
+      const color = String(m.color ?? "").trim();
+      if (!PLAIN_KEY.test(key) || mediaSeen.has(key)) continue;
+      if (!PLAIN_KEY.test(glyph) || !MEDIUM_HEX.test(color)) continue;
+      const name = String(m.name ?? "").trim().slice(0, 48);
+      if (!name) continue;
+      mediaSeen.add(key);
+      media.push({ key, name, color, glyph });
+      if (media.length >= 24) break;
+    }
+  }
+
+  const phases: Record<string, string> = {};
+  const phaseSrc = v.phases;
+  if (phaseSrc && typeof phaseSrc === "object" && !Array.isArray(phaseSrc)) {
+    for (const [k, raw] of Object.entries(phaseSrc as Record<string, unknown>)) {
+      // The scene keys phases by number. A key that is not one names nothing
+      // the map can draw, so it is dropped instead of stored as decoration.
+      if (!/^\d{1,2}$/.test(k) || Object.keys(phases).length >= 12) continue;
+      const name = typeof raw === "string" ? raw.trim().slice(0, 48) : "";
+      if (name) phases[k] = name;
+    }
+  }
+
+  return { road: list(v.road), water: list(v.water), zone: list(v.zone), media, phases };
 }

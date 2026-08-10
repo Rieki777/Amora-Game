@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   DEFAULT_MAP_SKIN,
+  FLOW_STYLES,
   ICON_MODES,
+  LABEL_STYLES,
   MAP_SKIN_SAVED_EVENT,
   MAP_SKIN_SAVED_KEY,
   MAP_THEMES,
@@ -184,6 +186,31 @@ export default function MapSkinPanel({ password }: { password: string }) {
     </div>
   );
 
+  /*
+   * The three "pick one of the map's words" rows. Options come from the
+   * shared allowlists rather than being typed here, so the panel cannot offer
+   * a value the sanitiser will throw away on save.
+   */
+  const choiceRow = (
+    key: "icon_mode" | "flow_style" | "label_style",
+    label: string,
+    options: readonly string[],
+    hint: string,
+  ) => (
+    <div>
+      <label className="block text-sm font-medium text-gray-900 mb-1.5" htmlFor={`skin-${key}`}>{label}</label>
+      <select
+        id={`skin-${key}`}
+        value={skin[key]}
+        onChange={(e) => set({ [key]: e.target.value } as Partial<MapSkin>)}
+        className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-2 bg-white"
+      >
+        {options.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <p className="text-[11px] text-gray-400 mt-1">{hint}</p>
+    </div>
+  );
+
   const toggleRow = (key: "mist" | "glow", label: string, hint: string) => (
     <label className="flex items-start gap-2.5 cursor-pointer">
       <input
@@ -235,20 +262,12 @@ export default function MapSkinPanel({ password }: { password: string }) {
         {scaleRow("label_scale", "Label size", "How large place names are drawn.")}
         {scaleRow("global_scale", "Map scale", "How large the whole plate is drawn.")}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-900 mb-1.5" htmlFor="skin-icon">Icon style</label>
-          <select
-            id="skin-icon"
-            value={skin.icon_mode}
-            onChange={(e) => set({ icon_mode: e.target.value })}
-            className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-2 bg-white"
-          >
-            {ICON_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-          <p className="text-[11px] text-gray-400 mt-1">
-            Painted buildings, flat isometric ones, or let the map choose per building.
-          </p>
-        </div>
+        {choiceRow("icon_mode", "Icon style", ICON_MODES,
+          "Painted buildings, flat isometric ones, or let the map choose per building.")}
+        {choiceRow("flow_style", "Flow lines", FLOW_STYLES,
+          "How water, energy and the rest are drawn moving between places.")}
+        {choiceRow("label_style", "Place names", LABEL_STYLES,
+          "Ribbons under each place, or carved tablets.")}
 
         <div className="space-y-3 self-center">
           {toggleRow("mist", "Dream mist", "A soft haze over the land.")}

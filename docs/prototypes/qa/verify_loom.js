@@ -1,6 +1,7 @@
 /* Session 5 verification — the Loom lens + drag-to-rewire + sprite scale + export/restore roundtrip. */
 const { chromium } = require('playwright');
 const fs = require('fs');
+const path = require('path');
 const FILE = process.env.GROUNDS_FILE || 'file:///root/amora/work/grounds-v0.html';
 const EXE = process.env.PW_EXE || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 let fails = 0;
@@ -191,7 +192,17 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
 
   /* wiring table for the report */
   const table = await page.evaluate(() => loomTable());
-  fs.writeFileSync('/root/amora/loom_table.json', JSON.stringify(table, null, 1));
+  /*
+   * Beside the export, for the same reason the export moved: a hardcoded
+   * POSIX path is not portable. This one looked fixed because Node on Windows
+   * resolves a leading slash against the current DRIVE, and a stray
+   * C:\root\amora\ from an earlier session made the write land. On any other
+   * drive, or a clean machine, it throws after every check has passed and
+   * takes the summary line down with it.
+   */
+  const tableOut = process.env.LOOM_TABLE_OUT ||
+    path.join(path.dirname(process.env.EXPORT_OUT || '/root/amora/x'), 'loom_table.json');
+  fs.writeFileSync(tableOut, JSON.stringify(table, null, 1));
   console.log(fails === 0 ? 'LOOM: ALL GREEN' : `LOOM: ${fails} FAILURES`);
   await browser.close();
   process.exit(fails ? 1 : 0);

@@ -68,12 +68,19 @@ import {
  * would refuse every fresh export, and re-pinning per build is a chore that
  * gets skipped once and then silently drops a founder's scene.
  *
- * So: exact matches for the legacy string, plus the current MAJOR-MINOR
- * family. `v0.7-roundC1` and `v0.7-roundD` import; `v0.8-anything` refuses and
- * says so, because a minor bump is where fields actually move.
+ * So: exact matches for the legacy string, plus the MAJOR-MINOR families that
+ * have been checked. `v0.7-roundC1` and `v0.8-roundD` import; `v0.9-anything`
+ * refuses and says so, because a minor bump is where fields actually move.
+ *
+ * A family is added by EXPORTING from that build and diffing the blocks this
+ * script reads, not by trusting a changelog. v0.8 was admitted that way: its
+ * export is v0.7 plus additions (`my_rsvps`, `my_claims`, `quest.how_to`,
+ * `map_scene.vision_bound`, `vocabulary.media`, `vocabulary.phases`, and two
+ * skin keys). Nothing this script reads moved or changed meaning, and the
+ * additions are covered below or in SKIPPED_BLOCKS.
  */
 const SUPPORTED_VERSIONS = ["v0.6-buildmode"];
-const SUPPORTED_FAMILIES = ["v0.7"];
+const SUPPORTED_FAMILIES = ["v0.7", "v0.8"];
 
 function isSupportedVersion(v: unknown): boolean {
   if (typeof v !== "string" || !v) return false;
@@ -91,6 +98,28 @@ const SKIPPED_BLOCKS: Array<{ block: string; reason: string }> = [
   { block: "journeys", reason: "journey steps address to structures, and journeys are not rows here at all" },
   { block: "stays_occupancy", reason: "sample by design until the stays module feeds it; importing lots would fight it" },
   { block: "vital_overrides", reason: "village vitals are computed on read, never stored" },
+  { block: "my_rsvps", reason: "one visitor's browser, not the village: RSVPs belong to a signed-in member through /api/events/:id/rsvp" },
+  { block: "my_claims", reason: "one visitor's browser, not the village: claims belong to a signed-in member through /api/game/quests/:id/claim" },
+];
+
+/** Fields inside blocks this script DOES read, which still have no column. */
+const SKIPPED_FIELDS: Array<{
+  field: string;
+  reason: string;
+  found: (scene: any, meta: any) => boolean;
+}> = [
+  {
+    field: "quest.how_to",
+    reason: "the map's first-step writing; quests here have no how_to column, and this script never edits quest content",
+    found: (scene) =>
+      Array.isArray(scene?.quests) &&
+      scene.quests.some((q: any) => typeof q?.how_to === "string" && q.how_to.trim()),
+  },
+  {
+    field: "map_scene.vision_bound",
+    reason: "the drawn edge of the vision; the scene document keeps it, no separate column reads it yet",
+    found: (_scene, meta) => meta?.vision_bound != null,
+  },
 ];
 
 const argv = process.argv.slice(2);
@@ -382,7 +411,17 @@ async function main() {
     if (wanted("vocabulary") && vocab) {
       const clean = sanitiseMapVocabulary(vocab);
       const total = clean.road.length + clean.water.length + clean.zone.length;
-      console.log(`  vocab  ${total} word(s): road ${clean.road.length}, water ${clean.water.length}, zone ${clean.zone.length}`);
+      // Media and phases are counted separately because they are not words:
+      // reporting "17 words" while quietly carrying nine media and three
+      // phase names is the same silence this script exists to avoid.
+      const extra = [
+        clean.media.length ? `${clean.media.length} medium(s)` : "",
+        Object.keys(clean.phases).length ? `${Object.keys(clean.phases).length} phase name(s)` : "",
+      ].filter(Boolean);
+      console.log(
+        `  vocab  ${total} word(s): road ${clean.road.length}, water ${clean.water.length}, zone ${clean.zone.length}` +
+        (extra.length ? `, plus ${extra.join(" and ")}` : ""),
+      );
       if (!DRY && conn) {
         // Its own document, so a scene import replaces the words wholesale
         // without touching anything else the village has configured.
@@ -491,11 +530,39 @@ async function main() {
    * Some blocks sit at the top level and some inside `map_scene` (vocabulary
    * is nested, which is exactly how it went unreported the first time).
    */
-  const present = (block: string) => scene[block] !== undefined || meta[block] !== undefined;
+  /*
+   * "Present" means the scene actually CARRIES something here, not merely
+   * that the key exists. Every export ships `my_rsvps: []` and `my_claims: []`
+   * whether or not the exporting browser ever toggled one, and reporting an
+   * empty block turns the skip list into two lines of permanent noise that
+   * say nothing was lost. The list has to mean "you had data here and it did
+   * not travel" or nobody reads it.
+   */
+  const present = (block: string) => {
+    const v = scene[block] !== undefined ? scene[block] : meta[block];
+    if (v === undefined || v === null) return false;
+    if (Array.isArray(v)) return v.length > 0;
+    if (typeof v === "object") return Object.keys(v).length > 0;
+    return true;
+  };
   const skippedPresent = SKIPPED_BLOCKS.filter((s) => present(s.block));
   if (skippedPresent.length) {
     console.log("\n  SKIPPED (present in the scene, no home in the schema):");
     for (const s of skippedPresent) console.log(`    ${s.block.padEnd(20)} ${s.reason}`);
+    console.log("");
+  }
+
+  /*
+   * A field can go missing as quietly as a block, and a block-level list will
+   * never catch one: `quest.how_to` is real founder writing that lives inside
+   * a block this script DOES read, and reading the block is what makes the
+   * loss invisible. Reported only when a scene actually carries some, so the
+   * line means "you wrote this and it did not travel" rather than noise.
+   */
+  const skippedFields = SKIPPED_FIELDS.filter((f) => f.found(scene, meta));
+  if (skippedFields.length) {
+    console.log("  NOT CARRIED (written in the map, no column here yet):");
+    for (const f of skippedFields) console.log(`    ${f.field.padEnd(22)} ${f.reason}`);
     console.log("");
   }
 }
