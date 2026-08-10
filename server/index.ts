@@ -75,6 +75,7 @@ import {
   TREASURY,
 } from "./lib/ledger";
 import type { TransferGuard } from "./lib/ledger";
+import { mintForConfirmedClaim } from "./lib/economy";
 import { installCrashHandlers, reportError, wireErrorReporting } from "./lib/errors";
 import {
   STAY_CREDIT,
@@ -12890,6 +12891,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       c.status = "consented";
       c.amount = granted;
       c.resolvedAt = new Date().toISOString();
+      // WHO witnessed it (0063). The guard above already refuses self-consent
+      // in the moment; recording the witness is what lets the audit see a
+      // reciprocal pair afterwards, and what makes the rule checkable at all
+      // once the request is over.
+      c.consentedBy = actor.userId ?? null;
     });
     // Credit the player's balance
     if (claimant && consented) {
@@ -12941,6 +12947,29 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
           });
         }
         after = await members.update(claimant.id, (u: any) => { u.recognitionBalance = credit.toBalance; });
+      }
+      // Whatever else the village's rules say a confirmed contribution mints,
+      // which today is its voice token. Hearts are NOT re-minted here: the
+      // block above has posted them since S7 with the range, the cap and the
+      // standing multiplier, and a rule minting them again would pay twice for
+      // one piece of work.
+      //
+      // Deliberately not awaited into the response contract and never allowed
+      // to throw: a quest that was witnessed and credited must not fail because
+      // a secondary mint had a bad afternoon. The occurrence key makes a later
+      // repair-post safe.
+      try {
+        const extra = await mintForConfirmedClaim(getPool(), {
+          id: consented.id,
+          questId: consented.questId,
+          userId: consented.userId,
+          confirmedAt: consented.resolvedAt,
+        });
+        if (extra.skipped) {
+          console.log(`[economy] claim ${consented.id}: no rule mint (${extra.skipped})`);
+        }
+      } catch (err) {
+        console.error(`[economy] rule mint failed for claim ${consented.id}:`, err);
       }
       // S31 work-exchange (F2 firewall): a quest may ALSO carry stay credits,
       // released by the same human consent — a separate column, a separate

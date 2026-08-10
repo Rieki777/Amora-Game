@@ -43,9 +43,14 @@ import {
   postTransfer,
   registerToken,
   tokenDef,
+  MINT_FAUCET,
   RECOGNITION_FAUCET,
   type TransferResult,
 } from "./ledger";
+
+/** Seeded by 0024. Named here rather than imported so this module does not
+ *  depend on the library module being present. */
+const LIBRARY_MINT = "sys:library-mint";
 
 // ── The tokens this build knows ─────────────────────────────────────────────
 
@@ -79,7 +84,36 @@ export async function ensureVoiceToken(pool: Pool, displayName?: string): Promis
     kind: "voice",
     governance: "platform",
     transferable: false,
+    decimals: VOICE_DECIMALS,
   });
+}
+
+/**
+ * Voice rides in thousandths, and every other token in whole units.
+ *
+ * `token_ledger.amount` is an INT with a CHECK that it is positive, and
+ * `postTransfer` runs `Math.trunc` over what it is handed. A rule that mints
+ * 0.1 voice therefore posts ZERO: not an error, not a refusal, just a member
+ * who was never paid and a ledger that looks fine. The registry has carried a
+ * `decimals` column since 0006 for exactly this, so voice stores 100 and
+ * displays 0.1, the way the payments module has always handled money.
+ *
+ * Doing it the other way, widening the ledger's amount to a decimal, would
+ * change the keystone every other module posts through and every invariant
+ * proved over it. Minor units are the cheaper truth.
+ */
+export const VOICE_DECIMALS = 3;
+
+/** Human amount to ledger units. Rounds, because 0.1 * 1000 is not 100 in binary. */
+export function toLedgerUnits(tokenSlug: string, human: number): number {
+  const decimals = tokenDef(tokenSlug)?.decimals ?? (tokenSlug === VILLAGE_VOICE ? VOICE_DECIMALS : 0);
+  return Math.round(Number(human) * 10 ** decimals);
+}
+
+/** Ledger units back to the number a member reads on their chip. */
+export function fromLedgerUnits(tokenSlug: string, units: number): number {
+  const decimals = tokenDef(tokenSlug)?.decimals ?? (tokenSlug === VILLAGE_VOICE ? VOICE_DECIMALS : 0);
+  return Number(units) / 10 ** decimals;
 }
 
 // ── Village scope ───────────────────────────────────────────────────────────
@@ -643,6 +677,103 @@ export async function give(
     return { ok: false, error: res.error ?? "the ledger refused the credit" };
   }
   return { ok: true, duplicate: res.duplicate, balance: res.toBalance, noteId };
+}
+
+// ── Sources: what a confirmed claim mints ───────────────────────────────────
+
+/**
+ * Which faucet issues a token.
+ *
+ * Explicit, and it returns null for anything it does not know rather than
+ * guessing a default. A wrong faucet is not a cosmetic error: each faucet's
+ * negative balance IS that token's issued supply, so issuing stay credits out
+ * of the recognition faucet would misreport two supplies at once and the boot
+ * invariant would still pass, because conservation holds either way.
+ */
+export function faucetFor(tokenSlug: string): string | null {
+  switch (tokenSlug) {
+    case HEARTS:
+      return RECOGNITION_FAUCET;
+    case VILLAGE_VOICE:
+      return VOICE_MINT;
+    case "stay-credit":
+      return MINT_FAUCET;
+    case "library-credit":
+      return LIBRARY_MINT;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Everything a confirmed quest claim mints BEYOND the recognition the consent
+ * route has always posted.
+ *
+ * Hearts are not minted here. The consent route has minted them since S7, with
+ * a reward range, a consent cap, a standing multiplier and a claim-keyed
+ * ledger post, and re-minting them from a rule would pay twice for one piece of
+ * work. This adds what the rules table describes and the route never knew
+ * about, which today is the village's voice token.
+ *
+ * Three guards, and each one is the reason the function exists rather than a
+ * loop over rules at the call site:
+ *
+ *  - the epoch, so flipping the flag does not turn every quest ever consented
+ *    into a payable backlog;
+ *  - the readiness check, so a village with the flag on and no seeded rules
+ *    mints nothing rather than believing it is running;
+ *  - the occurrence key, so a re-consent after a wrong reversal pays once for
+ *    each real occurrence and never twice for one.
+ *
+ * It never throws into the consent route. A quest that was witnessed and
+ * credited must not fail because a secondary mint had a bad day, so the
+ * failure is returned and logged and the claim stands.
+ */
+export async function mintForConfirmedClaim(
+  pool: Pool,
+  claim: { id: string; questId: string; userId: string; confirmedAt?: Date | string | null },
+): Promise<{ minted: Array<{ token: string; amount: number }>; skipped?: string }> {
+  const ready = await economyReady(pool);
+  if (!ready.ready) return { minted: [], skipped: ready.reason };
+
+  const epoch = await economyEpoch(pool);
+  const at = claim.confirmedAt ? new Date(claim.confirmedAt) : new Date();
+  if (at < epoch) {
+    // History, not backlog. Honouring pre-epoch work is an explicit, audited,
+    // keyed admin backfill and never a side effect of reading a table.
+    return { minted: [], skipped: "confirmed before the economy epoch" };
+  }
+
+  const rules = await rulesFor(pool, "quest.completed");
+  const minted: Array<{ token: string; amount: number }> = [];
+  for (const r of rules) {
+    // Recognition is the consent route's job. See above.
+    if (r.tokenSlug === HEARTS) continue;
+    const human = r.amount ?? 0;
+    if (human <= 0) continue;
+    // The ledger takes integers. A rule of 0.1 voice posts 100 thousandths,
+    // because posting 0.1 posts nothing at all.
+    const amount = toLedgerUnits(r.tokenSlug, human);
+    if (amount <= 0) continue;
+    const faucet = faucetFor(r.tokenSlug);
+    if (!faucet) continue;
+    const res = await mint(pool, {
+      toUserId: claim.userId,
+      tokenSlug: r.tokenSlug,
+      amount,
+      from: faucet,
+      source: "quest_consent",
+      sourceRef: claim.id,
+      description: `Confirmed contribution: ${claim.questId}`,
+      // The token belongs in the key. One occurrence can mint more than one
+      // token, and each is its own ledger row: without this segment the second
+      // rule collides with the first, reads as a duplicate, and the member is
+      // quietly paid in one token instead of two.
+      idempotencyKey: `${keys.questCompleted(villageId(), claim.questId, claim.id, claim.userId)}:${r.tokenSlug}`,
+    });
+    if (res.ok && !res.duplicate) minted.push({ token: r.tokenSlug, amount: human });
+  }
+  return { minted };
 }
 
 // ── Two-party consent ───────────────────────────────────────────────────────

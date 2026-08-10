@@ -193,6 +193,13 @@ export interface ClaimRecord {
   /** Historical JSON name for when the claim was consented or declined. */
   resolvedAt?: string | null;
   /**
+   * WHO witnessed the work (0063). `consented_at` has recorded the time since
+   * 0001 and never the person, which leaves the one rule that matters
+   * unenforceable after the fact: a steward may not confirm their own claim.
+   * The route has always known the actor and has never written it down.
+   */
+  consentedBy?: string | null;
+  /**
    * How the person doing the work says it is going (0055). Self-reported,
    * never computed, and nothing is paid or scored from it: a confidence
    * rating that feeds a reward is a rating people learn to inflate.
@@ -228,7 +235,7 @@ const CLAIM_SELECT =
   // confidence (0055) rides along so every read carries it. It is written by
   // its own targeted UPDATE and is deliberately absent from the generic
   // `update()` SET list below, which means no other write path can clobber it.
-  "SELECT id, quest_id, quest_title, user_id, user_name, status, artifact_url, note, amount, claimed_at, submitted_at, consented_at, confidence, confidence_note, confidence_at FROM quest_claims";
+  "SELECT id, quest_id, quest_title, user_id, user_name, status, artifact_url, note, amount, claimed_at, submitted_at, consented_at, consented_by, confidence, confidence_note, confidence_at FROM quest_claims";
 
 function rowToClaim(r: RowDataPacket): ClaimRecord {
   return {
@@ -244,6 +251,7 @@ function rowToClaim(r: RowDataPacket): ClaimRecord {
     claimedAt: toIso(r.claimed_at),
     submittedAt: toIso(r.submitted_at),
     resolvedAt: toIso(r.consented_at),
+    consentedBy: r.consented_by ?? null,
     // NULL is the common case and means nobody has said, which is not the
     // same as saying it is fine.
     confidence: (r.confidence ?? null) as ClaimRecord["confidence"],
@@ -306,7 +314,7 @@ export function claimsRepo(pool: Pool): ClaimsRepo {
         const claim = rowToClaim(rows[0]);
         mutate(claim);
         await conn.query(
-          "UPDATE quest_claims SET status=?, artifact_url=?, note=?, amount=?, submitted_at=?, consented_at=? WHERE id=?",
+          "UPDATE quest_claims SET status=?, artifact_url=?, note=?, amount=?, submitted_at=?, consented_at=?, consented_by=? WHERE id=?",
           [
             claim.status,
             claim.artifactUrl ?? null,
@@ -314,6 +322,7 @@ export function claimsRepo(pool: Pool): ClaimsRepo {
             claim.amount ?? null,
             toDb(claim.submittedAt),
             toDb(claim.resolvedAt),
+            claim.consentedBy ?? null,
             id,
           ],
         );

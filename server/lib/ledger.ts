@@ -42,6 +42,14 @@ export interface TokenDef {
   governance: "platform" | "hypha";
   /** May members send it peer-to-peer? */
   transferable: boolean;
+  /**
+   * How many decimal places the token DISPLAYS. The ledger stores integers
+   * only (`amount` is an INT with a positive CHECK, and `validateLeg` truncates
+   * what it is handed), so a token that needs fractions rides in minor units
+   * and this is the scale. The column has existed since 0006; the registry
+   * simply never read it, which meant a 0.1 posting silently became 0.
+   */
+  decimals: number;
   active: boolean;
   /** Standing-example token: display-only, retires on the first real one. */
   isExample?: boolean;
@@ -73,7 +81,7 @@ const registry = new Map<string, TokenDef>();
  */
 export async function loadTokenRegistry(pool: Pool): Promise<void> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT slug, name, kind, governance, transferable, active, is_example FROM tokens",
+    "SELECT slug, name, kind, governance, transferable, decimals, active, is_example FROM tokens",
   );
   registry.clear();
   for (const r of rows) {
@@ -83,6 +91,7 @@ export async function loadTokenRegistry(pool: Pool): Promise<void> {
       kind: String(r.kind),
       governance: r.governance === "hypha" ? "hypha" : "platform",
       transferable: !!r.transferable,
+      decimals: Number(r.decimals ?? 0),
       active: !!r.active,
       isExample: Number(r.is_example ?? 0) === 1,
     });
@@ -104,13 +113,30 @@ export function allTokens(): TokenDef[] {
  */
 export async function registerToken(
   pool: Pool,
-  def: Omit<TokenDef, "active"> & { active?: boolean },
+  // `decimals` is optional here and required on the read side: every caller
+  // wants an answer to "what scale is this token" and almost none of them has
+  // an opinion when creating one. Whole units is the right default and the
+  // wrong thing to make ten call sites restate.
+  def: Omit<TokenDef, "active" | "decimals"> & { active?: boolean; decimals?: number },
 ): Promise<void> {
   await pool.query(
-    "INSERT INTO tokens (slug, name, kind, governance, transferable, active) VALUES (?,?,?,?,?,?) " +
+    "INSERT INTO tokens (slug, name, kind, governance, transferable, decimals, active) VALUES (?,?,?,?,?,?,?) " +
+      // decimals is deliberately ABSENT from this list. Re-registering a token
+      // at boot must not silently rescale one that already holds a balance:
+      // changing the scale under existing rows multiplies or divides everyone's
+      // holdings by a thousand and no invariant would notice, because
+      // conservation holds at any scale.
       "ON DUPLICATE KEY UPDATE name=VALUES(name), kind=VALUES(kind), governance=VALUES(governance), " +
       "transferable=VALUES(transferable), active=VALUES(active)",
-    [def.slug, def.name, def.kind, def.governance, def.transferable ? 1 : 0, def.active === false ? 0 : 1],
+    [
+      def.slug,
+      def.name,
+      def.kind,
+      def.governance,
+      def.transferable ? 1 : 0,
+      Math.max(0, Math.trunc(Number(def.decimals ?? 0))),
+      def.active === false ? 0 : 1,
+    ],
   );
   await loadTokenRegistry(pool);
 }

@@ -23,12 +23,14 @@ import {
   economyReady,
   ensureVoiceToken,
   forgetEpoch,
+  fromLedgerUnits,
   give,
   HEARTS,
   isReversed,
   keys,
   MAX_KEY,
   mint,
+  mintForConfirmedClaim,
   reverse,
   VILLAGE_VOICE,
   VOICE_MINT,
@@ -369,6 +371,67 @@ describe.skipIf(!configured)("the village economy engine", () => {
     // mint the moment the engine reads the table, and the first settlement
     // pays out years of backlog nobody chose.
     expect(second.getTime()).toBe(first.getTime());
+  });
+
+  // ── What a confirmed claim mints ─────────────────────────────────────────
+
+  describe("a confirmed claim", () => {
+    beforeAll(async () => {
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
+          "VALUES ('rule-voice', ?, 'quest.completed', ?, 0.1000, 1, 'claimant', 1) " +
+          "ON DUPLICATE KEY UPDATE `enabled` = 1",
+        [villageId(), VILLAGE_VOICE],
+      );
+    });
+
+    it("mints the village voice the rule describes", async () => {
+      const u = await makeMember("econ-src-1");
+      const out = await mintForConfirmedClaim(pool, {
+        id: "claim-src-1", questId: "q-src", userId: u, confirmedAt: new Date(),
+      });
+      expect(out.skipped).toBeUndefined();
+      expect(out.minted.map((m) => m.token)).toContain(VILLAGE_VOICE);
+    });
+
+    it("does not mint Hearts again, because consent already did", async () => {
+      const u = await makeMember("econ-src-2");
+      const out = await mintForConfirmedClaim(pool, {
+        id: "claim-src-2", questId: "q-src", userId: u, confirmedAt: new Date(),
+      });
+      // The consent route has minted recognition since S7 with the range, the
+      // cap and the standing multiplier. A rule minting it again pays twice
+      // for one piece of work.
+      expect(out.minted.map((m) => m.token)).not.toContain(HEARTS);
+      expect(await balanceOf(pool, memberAccount(u), HEARTS)).toBe(0);
+    });
+
+    it("pays one occurrence once, however many times it is confirmed", async () => {
+      const u = await makeMember("econ-src-3");
+      const claim = { id: "claim-src-3", questId: "q-src", userId: u, confirmedAt: new Date() };
+      await mintForConfirmedClaim(pool, claim);
+      const again = await mintForConfirmedClaim(pool, claim);
+      expect(again.minted).toHaveLength(0);
+      // Thousandths in the ledger, 0.1 on the chip. The ledger's amount is an
+      // INT and postTransfer truncates, so a rule of 0.1 posted directly would
+      // post nothing and leave a member unpaid with no error anywhere.
+      expect(await balanceOf(pool, memberAccount(u), VILLAGE_VOICE)).toBe(100);
+      expect(fromLedgerUnits(VILLAGE_VOICE, 100)).toBeCloseTo(0.1);
+    });
+
+    it("treats a confirmation older than the epoch as history", async () => {
+      const u = await makeMember("econ-src-4");
+      const out = await mintForConfirmedClaim(pool, {
+        id: "claim-src-4", questId: "q-src", userId: u,
+        confirmedAt: new Date("2020-01-01T00:00:00Z"),
+      });
+      // The day the flag flips, every quest ever consented would otherwise
+      // become a payable backlog and the first settlement would pay out years
+      // of it at once. Nobody decided that; it is just what the query returns.
+      expect(out.skipped).toMatch(/epoch/);
+      expect(out.minted).toHaveLength(0);
+      expect(await balanceOf(pool, memberAccount(u), VILLAGE_VOICE)).toBe(0);
+    });
   });
 
   it("keeps the write paths shut when the rules were never seeded", async () => {
