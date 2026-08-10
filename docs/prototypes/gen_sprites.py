@@ -80,15 +80,60 @@ def gen(fam, subject):
             print("  FAIL", model, ":", msg)
     return None
 
+def _bg_mask(a, np, Image, ImageDraw):
+    """Which pixels are the BACKGROUND, found by flooding in from the edges.
+
+    The old key measured every pixel's distance from pure #FF00FF. That works
+    only while the model actually paints #FF00FF, and it does not always: the
+    `pool` and `waterfall` sprites came back on a muted magenta, read as
+    subject, and kept a pink box around them.
+
+    So the background colour is SAMPLED from the border instead of assumed,
+    and the mask is flood-filled from the four corners. Flooding matters as
+    much as sampling: it only removes background CONNECTED to the edge, so a
+    magenta flower in the middle of the subject keeps its pixels instead of
+    being punched into a hole.
+
+    Returns a boolean array, or None when the result looks implausible and the
+    caller should fall back to the magenta rule.
+    """
+    h, w = a.shape[:2]
+    border = np.concatenate([a[0:2].reshape(-1, 3), a[h - 2:h].reshape(-1, 3),
+                             a[:, 0:2].reshape(-1, 3), a[:, w - 2:w].reshape(-1, 3)])
+    bg = np.median(border, axis=0)
+    # Distance from the sampled background, as an 8-bit image PIL can flood.
+    d = np.sqrt(((a - bg) ** 2).sum(axis=2))
+    # Clamp to 254 so the sentinel 255 can only ever come from the fill.
+    lo = Image.fromarray(np.clip(d, 0, 254).astype(np.uint8), "L")
+    for seed in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)):
+        ImageDraw.floodfill(lo, seed, 255, thresh=60)
+    mask = np.asarray(lo) == 255
+    share = mask.mean()
+    # A sprite is a subject on a field: if the flood took nearly nothing or
+    # nearly everything, it found something other than the background.
+    return mask if 0.05 < share < 0.95 else None
+
+
 def key_out(raw, fam):
-    """Magenta -> transparency, despill, crop, resize. Returns PNG bytes."""
+    """Background -> transparency, despill, crop, resize. Returns PNG bytes."""
     import numpy as np
-    from PIL import Image
+    from PIL import Image, ImageDraw, ImageFilter
     im = Image.open(io.BytesIO(raw)).convert("RGB")
     a = np.asarray(im).astype(np.int32)
     r, g, b = a[..., 0], a[..., 1], a[..., 2]
     dist = np.sqrt((r - 255) ** 2 + g ** 2 + (b - 255) ** 2)
     alpha = np.clip((dist - 70) / 90.0, 0, 1)
+
+    flood = _bg_mask(a, np, Image, ImageDraw)
+    if flood is not None:
+        # Hard mask from the flood, then one soft pixel of feather so the edge
+        # does not look cut out with scissors against the painted land.
+        edge = np.asarray(
+            Image.fromarray(np.where(flood, 0, 255).astype(np.uint8), "L")
+                 .filter(ImageFilter.GaussianBlur(0.8))
+        ) / 255.0
+        alpha = np.minimum(alpha if alpha.max() > 0 else 1.0, 1.0)
+        alpha = edge
     # despill: magenta-tinted fringe pixels pull toward their green channel
     fringe = (alpha > 0) & (alpha < 1) | ((r > g + 60) & (b > g + 60) & (alpha < 0.98))
     m = np.minimum(r, b)
