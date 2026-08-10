@@ -1569,13 +1569,32 @@ const cam={x:900,y:640,z:0.72,vx:0,vy:0};
 let dragging=false,lastP=null,travel=null,hoverKey=null,mode='now',orgOn=false,flowsOn=false;
 function worldToScreen(x,y){return[(x-cam.x)*cam.z*DPR+cv.width/2,(y-cam.y)*cam.z*DPR+cv.height/2]}
 function screenToWorld(px,py){return[(px*DPR-cv.width/2)/(cam.z*DPR)+cam.x,(py*DPR-cv.height/2)/(cam.z*DPR)+cam.y]}
-function clampCam(){const mz=Math.max(innerWidth/W,innerHeight/H);cam.z=Math.max(mz,Math.min(3.2,cam.z));
-  const hw=innerWidth/2/cam.z,hh=innerHeight/2/cam.z;
-  cam.x=Math.max(hw,Math.min(W-hw,cam.x));cam.y=Math.max(hh,Math.min(H-hh,cam.y))}
+/* FIT, not COVER, and a little under: pinching all the way out shows the
+   whole land with a breath of margin instead of stopping when the viewport
+   is still full of ground. */
+function minZoom(){return Math.min(innerWidth/W,innerHeight/H)*0.85}
+window.minZoom=minZoom;
+/* A drawer over the map means the map is no longer the whole window. Aim the
+   flight at the middle of the strip the reader can actually see, so a tapped
+   building does not land underneath the panel. Returns CSS pixels. */
+function panelInset(){const pocket=document.body.classList.contains('pocket');let dx=0,dy=0;
+  for(const id of ['panel','inspect']){const el=document.getElementById(id);
+    if(!el||!el.classList.contains('open'))continue;
+    if(pocket)dy=Math.max(dy,el.offsetHeight/2);else dx=Math.max(dx,el.offsetWidth/2)}
+  const m=document.getElementById('module'),c=document.getElementById('moduleCard');
+  /* On desk the module card sits in the middle of the map with strips on both
+     sides, so there is nothing to aim at; on pocket it is a bottom sheet. */
+  if(pocket&&m&&m.classList.contains('show')&&c)dy=Math.max(dy,c.offsetHeight/2);
+  return[dx,dy]}
+window.panelInset=panelInset;
+/* The clamp is the world itself, not the viewport inside it: every point of
+   the land can sit at screen centre. */
+function clampCam(){cam.z=Math.max(minZoom(),Math.min(3.2,cam.z));
+  cam.x=Math.max(0,Math.min(W,cam.x));cam.y=Math.max(0,Math.min(H,cam.y))}
 function travelTo(x,y,z,done){const tz=z||cam.z;
-  const mz=Math.max(innerWidth/W,innerHeight/H),cz=Math.max(mz,Math.min(3.2,tz));
-  const hw=innerWidth/2/cz,hh=innerHeight/2/cz;
-  travel={sx:cam.x,sy:cam.y,sz:cam.z,tx:Math.max(hw,Math.min(W-hw,x)),ty:Math.max(hh,Math.min(H-hh,y)),tz:cz,t:0,done}}
+  const cz=Math.max(minZoom(),Math.min(3.2,tz));
+  const[ox,oy]=panelInset();
+  travel={sx:cam.x,sy:cam.y,sz:cam.z,tx:Math.max(0,Math.min(W,x+ox/cz)),ty:Math.max(0,Math.min(H,y+oy/cz)),tz:cz,t:0,done}}
 cv.addEventListener('pointerdown',e=>{
   if(window.boundPointerDown&&window.boundPointerDown(e)){cv.setPointerCapture(e.pointerId);return}
   if(window.featPointerDown&&window.featPointerDown(e)){cv.setPointerCapture(e.pointerId);return}
@@ -1588,9 +1607,17 @@ addEventListener('pointermove',e=>{
   else updateHover(e.clientX,e.clientY)});
 addEventListener('pointerup',()=>{dragging=false;cv.classList.remove('dragging');lastP=null});
 cv.addEventListener('wheel',e=>{e.preventDefault();const[wx,wy]=screenToWorld(e.clientX,e.clientY);
-  cam.z*=e.deltaY<0?1.13:0.885;clampCam();
+  /* ctrlKey means a trackpad pinch, not a scroll: follow the fingers
+     continuously instead of stepping, and never let the page zoom instead. */
+  cam.z*=e.ctrlKey?Math.exp(-e.deltaY*0.012):(e.deltaY<0?1.13:0.885);clampCam();
   const[nx,ny]=screenToWorld(e.clientX,e.clientY);cam.x+=wx-nx;cam.y+=wy-ny;clampCam()},{passive:false});
 cv.addEventListener('dblclick',e=>{const[wx,wy]=screenToWorld(e.clientX,e.clientY);travelTo(wx,wy,Math.max(cam.z,1.15))});
+(function safariPinch(){let gz=1,gx=0,gy=0; // Safari speaks gestures where others speak ctrl-wheel
+  cv.addEventListener('gesturestart',e=>{e.preventDefault();gz=cam.z;gx=e.clientX;gy=e.clientY});
+  cv.addEventListener('gesturechange',e=>{e.preventDefault();
+    const[wx,wy]=screenToWorld(gx,gy);cam.z=gz*e.scale;clampCam();
+    const[nx,ny]=screenToWorld(gx,gy);cam.x+=wx-nx;cam.y+=wy-ny;clampCam()});
+  cv.addEventListener('gestureend',e=>e.preventDefault())})();
 function hitStruct(px,py){const[wx,wy]=screenToWorld(px,py);let best=null,bd=1e9;
   for(const f of SCENE.features){if(f.kind!=='structure-area'||!f.owner)continue;
     const s=BY[f.owner];if(!s)continue;
@@ -1622,7 +1649,7 @@ function frame(ts){const t=ts/1000,dt=Math.min(.05,(ts-tPrev)/1000||.016);tPrev=
     clampCam(); // every frame of the flight, not just arrival — no void past the edge
     if(travel.t>=1){const d=travel.done;travel=null;clampCam();d&&d()}}
   if(dayAuto)dayPhase=(dayPhase+dt*0.004)%2;
-  cx.setTransform(1,0,0,1,0,0);cx.fillStyle='#101d13';cx.fillRect(0,0,cv.width,cv.height);
+  cx.setTransform(1,0,0,1,0,0);cx.fillStyle='#16455e';cx.fillRect(0,0,cv.width,cv.height); /* deep sea, the tone the painted ocean edge starts from: past the land is world, not void */
   cx.setTransform(cam.z*DPR,0,0,cam.z*DPR,cv.width/2-cam.x*cam.z*DPR,cv.height/2-cam.y*cam.z*DPR);
   const _pl=activePlate();
   if(terrainMode==='paint'&&satPlate){cx.drawImage(satPlate,0,0,W,H);
@@ -2066,10 +2093,11 @@ for(const s of SCENE.structures)makeBanner(s);
 function syncBanners(){
   const zoomed=cam.z>=0.95;
   const k=Math.max(.5,Math.min(1.4,0.28+cam.z*0.5)); // emblem LOD scale
+  const roomy=W*cam.z>900; // pulled back past this and the plates are wider than the land they name
   for(const d of SCENE.districts){const el=bEls['d_'+d.id];const[sx,sy]=worldToScreen(d.x,d.y-46);
-    el.style.display=zoomed?'none':'block';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'}
+    el.style.display=(zoomed||!roomy)?'none':'block';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'}
   GEO.forEach((g,i)=>{const el=bEls['g_'+i];const[sx,sy]=worldToScreen(g.x,g.y);
-    el.style.display=cam.z<1.25?'block':'none';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'});
+    el.style.display=(cam.z<1.25&&roomy)?'block':'none';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'});
   document.body.classList.toggle('night',dayPhase>=1.6||dayPhase<0.1);
   const useIso=iconMode==='iso'||(iconMode==='auto'&&cam.z>=1.05);
   for(const s of SCENE.structures){const p=pEls[s.key];if(!p)continue;
@@ -2083,7 +2111,7 @@ function syncBanners(){
     if(!hideP){const[sx,sy]=worldToScreen(s.x,s.y);
       const iso=!painted&&useIso&&s.state!=='blueprint';
       const sc=((typeof FAM_SCALE!=='undefined'&&FAM_SCALE[fam])||1)*(s.scale||1)*(window.GSCALE||1);
-      s._crownOff=(painted?k*1.35*sc*66:(iso?k*1.35*sc*34:k*30*(window.GSCALE||1)))+10;
+      s._crownOff=(painted?k*1.35*sc*54:(iso?k*1.35*sc*34:k*30*(window.GSCALE||1)))+6;
       p.style.transform=`translate(${sx/DPR}px,${sy/DPR}px) scale(${(iso||painted)?k*1.35*sc:k*(window.GSCALE||1)})`;
       p.style.zIndex=1000+Math.round(s.y);
       p.classList.toggle('m-iso',iso);p.classList.toggle('m-painted',painted);
@@ -2164,13 +2192,14 @@ function updateHover(px,py){
 /* portal panel */
 let panelKey=null;
 function openPanel(key,tab){const s=BY[key];if(!s){toast('That place is no longer on the map.');return}panelKey=key;closeInspect();setHash('#/place/'+key);
-  travelTo(s.x+90,s.y,Math.max(cam.z,1.25));
+  $('panel').classList.add('open'); // opened before the flight so travelTo can measure the strip that stays visible
+  travelTo(s.x,s.y,Math.max(cam.z,1.25));
   $('panelHead').innerHTML=`<h2>${s.name}</h2><div class="sub">${s.circle?s.circle+' circle':'needs a steward'} · ${STATE_LABEL[s.state]}${s.fund?` · pool ${Math.round(s.fund*100)}%`:''}</div>
     <span class="statepill">${s.event?('✦ '+s.event):('phase '+s.phase)}</span>`;
   const tabs=['Overview','Quests here','Seats here','Enter →'];
   $('tabs').innerHTML=tabs.map((t,i)=>`<button data-i="${i}">${t}</button>`).join('');
   [...$('tabs').children].forEach(b=>b.onclick=()=>renderTab(+b.dataset.i));
-  renderTab(tab||0);$('panel').classList.add('open');maiaContext(s)}
+  renderTab(tab||0);maiaContext(s)}
 function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].forEach((b,j)=>b.classList.toggle('on',i===j));
   const q=questsAt(s.key),st=seatsAt(s.key),body=$('panelBody');
   if(i===0){
@@ -2956,7 +2985,8 @@ function anchorOf(k){const s=k&&BY[k];return s?[s.x,s.y]:null}
 function closeInspect(){$('inspect').classList.remove('open');inspKey=null;
   if(document.activeElement&&document.activeElement.blur)document.activeElement.blur()}
 function openInspect(key){const s=BY[key];if(!s)return;inspKey=key;$('panel').classList.remove('open');panelKey=null;hideHover();
-  travelTo(s.x+90,s.y,Math.max(cam.z,1.15));renderInspect();$('inspect').classList.add('open')}
+  $('inspect').classList.add('open'); // same reason: the flight aims at what stays visible beside the card
+  travelTo(s.x,s.y,Math.max(cam.z,1.15));renderInspect()}
 function escq(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
 function structOpts(sel,excl){return SCENE.structures.filter(s=>s.key!==excl).map(s=>`<option value="${s.key}"${s.key===sel?' selected':''}>${escq(s.name)}</option>`).join('')}
 function seatRowH(x,here){const si=SCENE.seats.indexOf(x);
@@ -3914,7 +3944,7 @@ if(HUD_PROFILE==='pocket')document.body.classList.add('pocket');
 function hap(p){try{if(navigator.vibrate&&document.body.classList.contains('pocket'))navigator.vibrate(p)}catch(_){}}
 window.hap=hap;
 /* gestures: one-finger pan, two-finger pinch, on the canvas */
-(function touchNav(){const el=$('cv');if(!el)return;let T=null;
+(function touchNav(){const el=$('scene');if(!el)return;let T=null; // id is 'scene'; $('cv') was null and this block never ran
   el.addEventListener('touchstart',e=>{if(!document.body.classList.contains('pocket'))return;
     if(e.touches.length===1){const t=e.touches[0];T={m:'pan',x:t.clientX,y:t.clientY}}
     else if(e.touches.length===2){const[a,b]=e.touches;
@@ -3925,7 +3955,7 @@ window.hap=hap;
       travel=null;clampCam();window.WGATE&&(WGATE.pan=true)}
     if(T.m==='pinch'&&e.touches.length===2){const[a,b]=e.touches;
       const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
-      cam.z=Math.max(.4,Math.min(2.6,T.z*d/T.d));clampCam();window.WGATE&&(WGATE.pinch=true)}},{passive:false});
+      cam.z=Math.max(minZoom(),Math.min(2.6,T.z*d/T.d));clampCam();window.WGATE&&(WGATE.pinch=true)}},{passive:false});
   el.addEventListener('touchend',()=>{T=null},{passive:true})})();
 /* bottom bar */
 if($('pbMap'))$('pbMap').onclick=()=>{const c=document.body.classList.contains('circles');setMapType(c?'living':'circles');

@@ -1,0 +1,103 @@
+<!doctype html><meta charset="utf-8">
+<title>charge lab</title>
+<style>
+:root{ --gold:#c9a25e; --gold-b:#ecd08a; --parch:#f3e6c8; --parch-d:#e4d3ae; --ink:#241a10; --ink-soft:#4a3a26; --t-accent:#e8a13c; }
+body{margin:0;background:#1d3320;font:13px/1.4 Georgia,serif;color:#f3e6c8;padding:18px}
+h2{font-variant:small-caps;letter-spacing:.14em;font-size:14px;color:#c9a25e;margin:22px 0 8px;font-weight:normal}
+.row{display:flex;gap:26px;align-items:flex-end;flex-wrap:wrap;margin-bottom:6px}
+.cell{text-align:center;width:96px}
+.cap{font-size:10px;color:#b9a97f;margin-top:5px;letter-spacing:.06em}
+/* the land behind a badge is never one colour: three grounds, one verdict */
+.ground{display:inline-block;padding:9px;border-radius:6px}
+.g1{background:#2c4a2b}.g2{background:#7d8c5a}.g3{background:#101d13}
+.bseal{display:inline-block;width:22px;height:22px}
+.bseal.mid{width:16px;height:16px}
+.bseal.big{width:88px;height:88px}
+.bseal svg{width:100%;height:100%;overflow:visible;display:block}
+.face{fill:var(--parch);fill-opacity:.96}
+.rim{fill:none;stroke:var(--gold);stroke-width:2}
+.ink{fill:none;stroke:var(--ink);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tint{stroke:var(--btint,var(--ink))}
+.solid{fill:var(--btint,var(--ink));stroke:none}
+.pip{fill:var(--ink);stroke:var(--parch);stroke-width:.9;paint-order:stroke}
+.r-amber .rim{stroke:var(--t-accent)}
+.r-silver .rim{stroke:#c9d3d6}
+.r-open .rim{stroke-dasharray:4 3}
+.r-braid .rim{stroke-dasharray:6 2 2 2;stroke-width:2.4}
+.r-soft .rim{stroke:#7fb6b0}
+/* the far seal: parchment ink on dark ground, per D2 A2 */
+.aseal{display:inline-block;width:24px;height:24px}
+.aseal svg{width:100%;height:100%;display:block;overflow:visible}
+.aface{fill:#20160c;fill-opacity:.94}
+.arim{fill:none;stroke:var(--gold);stroke-width:2}
+.anum{fill:var(--parch);font:600 12px/1 Georgia,serif;text-anchor:middle}
+</style>
+<body>
+<h2>the five charges &middot; 22 px, the size they ship at</h2>
+<div class="row" id="r22"></div>
+<h2>16 px &middot; the mid-zoom size</h2>
+<div class="row" id="r16"></div>
+<h2>88 px &middot; the same paths, magnified, so the hand is visible</h2>
+<div class="row" id="rbig"></div>
+<h2>rims &middot; the provenance vocabulary</h2>
+<div class="row" id="rrim"></div>
+<h2>pips &middot; weight one to three</h2>
+<div class="row" id="rpip"></div>
+<h2>tints &middot; every circle colour, darkened for the parchment face</h2>
+<div class="row" id="rtint"></div>
+<h2>the activity seal and the home chip &middot; the far view</h2>
+<div class="row" id="rfar"></div>
+<h2>variants &middot; the two charges that did not read</h2>
+<div class="row" id="rvar"></div>
+<div class="row" id="rvarbig"></div>
+<script>
+const FACE = '<circle class="face" cx="12" cy="12" r="10.5"/><circle class="rim" cx="12" cy="12" r="10.5"/>';
+const CHARGE = {
+  quest: '<path class="ink tint" d="M7.6 4.9v14.2"/><path class="ink tint" d="M7.6 7.2c4.3-1.8 8-.4 9.8 3.2-3.4 2.5-7 2.6-9.8 1.1z"/><path class="ink tint" d="M8.6 9.9c2.5.2 4.6.8 6.3 1.8"/>',
+  seat:  '<path class="ink tint" d="M6.4 12.9v2.4a5.6 5.6 0 0011.2 0v-2.4"/><path class="ink tint" d="M6.4 12.9V9.6a1.8 1.8 0 013.6 0"/><path class="ink tint" d="M10 11.4V7.7a1.8 1.8 0 013.6 0v3.7"/><path class="ink tint" d="M13.6 10.6V8.6a1.8 1.8 0 014 1.3v3"/>',
+  event: '<path class="solid" d="M12 3.6l2.5 5 5.6.8-4 3.9.9 5.5-5-2.6-5 2.6.9-5.5-4-3.9 5.6-.8z"/><path class="ink" d="M12 3.6l2.5 5 5.6.8-4 3.9.9 5.5-5-2.6-5 2.6.9-5.5-4-3.9 5.6-.8z"/>',
+  talk:  '<path class="ink tint" d="M12.4 19.4c-3.4-2.3 2-4.2-1.4-6.5"/><path class="ink tint" d="M11 12.9c-3.2-2.3 2.2-4.1-1.2-6.4"/><path class="ink tint" d="M9.8 6.5c2.6-1.6 5.4-.3 5 2.2"/>',
+  invite:'<circle class="ink tint" cx="12" cy="12" r="2.4"/><path class="ink tint" d="M12 6.6v1.6M12 15.8v1.6M6.6 12h1.6M15.8 12h1.6"/>',
+};
+const NAMES = { quest:'quest · leaf-pennant', seat:'seat · raised hand', event:'event · star-lantern', talk:'talk · rising curl', invite:'invitation · seed' };
+const seal = (k, cls, extra) => `<span class="bseal ${cls||''}"><svg viewBox="0 0 24 24">${FACE}${CHARGE[k]||''}${extra||''}</svg></span>`;
+const cell = (h, c) => `<div class="cell">${h}<div class="cap">${c}</div></div>`;
+const grounds = h => `<span class="ground g1">${h}</span>`;
+
+r22.innerHTML  = Object.keys(CHARGE).map(k => cell(grounds(seal(k)), NAMES[k])).join('');
+r16.innerHTML  = Object.keys(CHARGE).map(k => cell(grounds(seal(k, 'mid')), k)).join('');
+rbig.innerHTML = Object.keys(CHARGE).map(k => cell(seal(k, 'big'), k)).join('');
+rrim.innerHTML = [['','creator’s word'],['r-amber','resolver guess'],['r-silver r-open','seat still open'],['r-braid','asks for skill'],['r-soft','a conversation']]
+  .map(([c,n]) => cell(grounds(seal('quest', c)), n)).join('');
+const pips = n => { let o=''; for(let i=0;i<n;i++) o += `<circle class="pip" cx="${12+(i-(n-1)/2)*4.2}" cy="18.4" r="1.35"/>`; return o; };
+rpip.innerHTML = [1,2,3].map(n => cell(grounds(seal('quest','',pips(n))), n + (n===1?' · an hour':n===2?' · a session':' · a full day'))).join('');
+const COL = { Land:'#8fbf6a', Coordination:'#d0785a', Gathering:'#c96a8a', Healing:'#8ad0c0', Wisdom:'#a98ad0', Arts:'#d0648f', Outreach:'#6ac9c0' };
+const dark = h => { const n = parseInt(h.slice(1),16); const f = 0.62;
+  return '#' + [16,8,0].map(s => Math.round(((n>>s)&255)*f).toString(16).padStart(2,'0')).join(''); };
+rtint.innerHTML = Object.keys(COL).map(c =>
+  cell(grounds(`<span class="bseal" style="--btint:${dark(COL[c])}"><svg viewBox="0 0 24 24">${FACE}${CHARGE.quest}</svg></span>`), c)).join('');
+const aseal = (n, breathe) => `<span class="aseal"><svg viewBox="0 0 24 24"><circle class="aface" cx="12" cy="12" r="11"/><circle class="arim" cx="12" cy="12" r="11"${breathe?' stroke="#ecd08a"':''}/><text class="anum" x="12" y="16.4">${n}</text></svg></span>`;
+const home = t => `<span class="aseal"><svg viewBox="0 0 24 24"><circle class="aface" cx="12" cy="12" r="11"/><circle class="arim" cx="12" cy="12" r="11"/><path d="M6.8 12.2L12 7.6l5.2 4.6" fill="none" stroke="#f3e6c8" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.4 11.6v4.8h7.2v-4.8" fill="none" stroke="#f3e6c8" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>${t?`<span style="font-size:11px;color:#f3e6c8;margin-left:3px">${t}</span>`:''}`;
+const VAR = {
+  'q-wedge':   '<path class="ink tint" d="M7.4 4.4v15.2"/><path class="ink tint" d="M7.4 6.2L18.4 9.9 7.4 13.2z"/>',
+  'q-leaftip': '<path class="ink tint" d="M7.4 4.4v15.2"/><path class="ink tint" d="M7.4 6.2c5.4.3 9 1.6 11 3.7-3.4 2.1-7.1 3.1-11 3.3z"/><path class="ink tint" d="M8.6 9.9c3 .1 5.6.6 7.8 1.5"/>',
+  'q-droop':   '<path class="ink tint" d="M7.4 4.4v15.2"/><path class="ink tint" d="M7.4 6c5.6-.4 9.4 1.2 11.2 4.6-4 1.6-7.7 1.9-11.2 1z"/><path class="ink tint" d="M8.4 8.6c3.2.6 6 1.9 8.2 3.6"/>',
+  'q-hoist':   '<path class="ink tint" d="M7.4 4.4v15.2"/><path class="ink tint" d="M7.4 5.6l10.8 2.8-10.8 4.6z"/><path class="ink tint" d="M7.6 8.6l8.4 1.2"/>',
+  't-stack':   '<path class="ink tint" d="M9.4 18.6c3.4-1.6-.6-3.4 2.8-5"/><path class="ink tint" d="M10.6 12.4c3-1.4-.6-3 2.4-4.4"/><path class="ink tint" d="M13.4 7.4c1.6-.7 3.2 0 3.2 1.3"/>',
+  't-spiral':  '<path class="ink tint" d="M12 19V13"/><path class="ink tint" d="M12 13c-3.4 0-3.4-4.6 0-4.6s3.2 3.2.6 3.2"/>',
+  't-bubble':  '<path class="ink tint" d="M6.6 10.6a5.4 4.4 0 1110.8 0 5.4 4.4 0 01-5.4 4.4H9.4l-3 2.6.4-3.2a4.4 4.4 0 01-.2-3.8z"/><path class="ink tint" d="M9.6 10.6h4.8"/>',
+  't-plume':   '<path class="ink tint" d="M12 19.2v-3.4"/><path class="ink tint" d="M12 15.8c-3.2-1-3.2-4.4 0-5"/><path class="ink tint" d="M12 10.8c3.2-1 3.2-4.2 0-4.6"/>',
+  'i-seed':    '<path class="ink tint" d="M12 8.6c2.6 1.2 3.4 3.4 2 5.4-1.6 2-3.4 2-5 0-1.4-2-.6-4.2 2-5.4"/>',
+  'i-dot':     '<circle class="ink tint" cx="12" cy="12" r="2.6"/>',
+};
+const vseal = (k, cls) => `<span class="bseal ${cls||''}"><svg viewBox="0 0 24 24">${FACE}${VAR[k]}</svg></span>`;
+rvar.innerHTML = Object.keys(VAR).map(k => cell(grounds(vseal(k)), k)).join('');
+rvarbig.innerHTML = Object.keys(VAR).map(k => cell(vseal(k, 'big'), k)).join('');
+
+rfar.innerHTML = cell(grounds(aseal(4)), 'four things open')
+  + cell(grounds(aseal(12)), 'twelve')
+  + cell(grounds(aseal(2, true)), 'an event within two days')
+  + cell(grounds(home('2/5')), 'homes here')
+  + cell(`<span class="ground g2">${aseal(4)}</span>`, 'on pale grass')
+  + cell(`<span class="ground g3">${aseal(4)}</span>`, 'on deep shade');
+</script>
