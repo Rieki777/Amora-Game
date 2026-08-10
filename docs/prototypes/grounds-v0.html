@@ -456,6 +456,15 @@
   .bgroup.clustered .bseal{display:none}
   .bgroup.clustered .b-more{display:block}
   .bseal .cnum{fill:var(--ink);font:600 10px/1 Georgia,serif;text-anchor:middle}
+  /* The roles this village already has, offered while you type. */
+  #seatDrop{display:none;position:absolute;left:0;right:0;top:100%;z-index:60;max-height:210px;overflow-y:auto;
+    background:linear-gradient(180deg,rgba(30,22,13,.99),rgba(20,14,8,.99));border:1px solid #6b5430;
+    border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.5);margin-top:3px}
+  #seatDrop.show{display:block}
+  #seatDrop .sgrp{font-size:9.5px;letter-spacing:.12em;font-variant:small-caps;color:#8f855f;padding:6px 9px 2px}
+  #seatDrop .sopt{padding:5px 9px;font-size:11.5px;color:var(--parch);cursor:pointer}
+  #seatDrop .sopt:hover{background:rgba(236,208,138,.14)}
+  #seatDrop .sopt small{display:block;font-size:9.5px;color:#b9af8f}
   /* The card a badge names: lit for a beat, then it is just a card again. */
   .itemfocus{outline:2px solid var(--t-accent,#e8a13c);outline-offset:3px;border-radius:6px;
     animation:ifoc 2.6s ease-out 1}
@@ -1316,6 +1325,7 @@ window.MEDIA_SEED=[
  {key:'care',               name:'care',                color:'#ff9bb0', glyph:'heart'}
 ];
 SCENE.vocabulary=SCENE.vocabulary||{};
+SCENE.vision_bound=SCENE.vision_bound||null; // the dreamed acquisition, drawn only in the Vision
 /* Phases are a founder's words too. The map keeps the numbers for the export
    and the importer; a person never has to read one. */
 if(!SCENE.vocabulary.phases)SCENE.vocabulary.phases={1:'Built',2:'Building',3:'Planned'};
@@ -1761,6 +1771,11 @@ function camBounds(){
   for(const s of SCENE.structures){
     if(s.x<x0)x0=s.x;if(s.x>x1)x1=s.x;
     if(s.y<y0)y0=s.y;if(s.y>y1)y1=s.y}
+  /* In the Vision the dreamed line is part of what there is to look at. */
+  if(typeof mode!=='undefined'&&mode==='vision'&&Array.isArray(SCENE.vision_bound))
+    for(const p of SCENE.vision_bound){
+      if(p[0]<x0)x0=p[0];if(p[0]>x1)x1=p[0];
+      if(p[1]<y0)y0=p[1];if(p[1]>y1)y1=p[1]}
   if(x0>x1)x0=x1=(x0+x1)/2; // a window wider than the land: there is one place to stand
   if(y0>y1)y0=y1=(y0+y1)/2;
   return[x0,x1,y0,y1]}
@@ -1938,6 +1953,13 @@ function frame(ts){const t=ts/1000,dt=Math.min(.05,(ts-tPrev)/1000||.016);tPrev=
     cx.fillStyle=fg;cx.beginPath();cx.arc(mx,my,m.r,0,7);cx.fill()}}
   else{ // vision: blueprint sheen
     cx.fillStyle='rgba(120,180,255,.05)';cx.fillRect(0,0,W,H)}
+  /* The acquisition, drawn where it belongs: in the Vision, outside the
+     line that is real, and never mistaken for it. */
+  if(mode==='vision'&&Array.isArray(SCENE.vision_bound)&&SCENE.vision_bound.length>2){
+    cx.save();cx.setLineDash([16/cam.z,11/cam.z]);
+    cx.strokeStyle='rgba(236,208,138,.55)';cx.lineWidth=2.2/cam.z;
+    cx.beginPath();SCENE.vision_bound.forEach((p,i)=>i?cx.lineTo(p[0],p[1]):cx.moveTo(p[0],p[1]));
+    cx.closePath();cx.stroke();cx.setLineDash([]);cx.restore()}
   if(window.drawBoundaryEditor)window.drawBoundaryEditor(t);
   if(window.drawFeatureEditor)window.drawFeatureEditor(t);
   // day tint
@@ -2999,6 +3021,11 @@ addEventListener('pointermove',e=>{if(!placing)return;const g=$('ghostPoi');
   const[wx,wy]=screenToWorld(e.clientX,e.clientY);g.classList.toggle('bad',!inBound(wx,wy))});
 cv.addEventListener('click',e=>{if(!placing)return;const[wx,wy]=screenToWorld(e.clientX,e.clientY);
   if(!inBound(wx,wy)){toast('Outside the property line. The mirror only maps your land.');return}
+  if(placing.dup){const c=BY[placing.dup];
+    if(c){c.x=wx;c.y=wy;c.district=nearestDistrict(wx,wy);
+      logEdit('place','structure:'+c.key,{via:'duplicate',x:Math.round(wx),y:Math.round(wy)})}
+    placing=null;document.body.classList.remove('placing');$('ghostPoi').style.display='none';
+    mmDirty=true;refreshWork();if(c)openInspect(c.key);return}
   const a=placing.archetype;
   const slug0=('new '+ARCHNAME[a]).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
   let slug=slug0,si=1;while(BY[slug])slug=slug0+'-'+(++si);
@@ -3042,7 +3069,21 @@ $('undoBtn').onclick=()=>{const u=UNDO.pop();if(!u)return toast('Nothing to undo
   if(u.t==='move'){const s=BY[u.key];if(s){[s.x,s.y]=u.from};if(u.featPrev){SCENE.features=u.featPrev;paintTerrain()}}
   if(u.t==='add'){const s=BY[u.key];if(s){const i=SCENE.structures.indexOf(s);if(i>=0)SCENE.structures.splice(i,1);
     pEls[s.key]&&pEls[s.key].remove();bEls[s.key]&&bEls[s.key].remove();delete pEls[s.key];delete bEls[s.key];delete BY[s.key];refreshWork()}}
-  if(u.t==='bound'){SCENE.bound.length=0;u.prev.forEach(pt=>SCENE.bound.push(pt));strandedCheck(false);paintTerrain();mmDirty=true}
+  if(u.t==='dup'){const s=BY[u.key];
+    if(s){const i=SCENE.structures.indexOf(s);if(i>=0)SCENE.structures.splice(i,1);
+      pEls[s.key]&&pEls[s.key].remove();bEls[s.key]&&bEls[s.key].remove();
+      delete pEls[s.key];delete bEls[s.key];delete BY[s.key]}
+    /* the clones go with the clone: a copy that leaves its quests behind is
+       worse than no undo at all */
+    SCENE.quests=SCENE.quests.filter(q=>q.at!==u.key);
+    SCENE.seats=SCENE.seats.filter(x=>x.at!==u.key);
+    if(typeof inspKey!=='undefined'&&inspKey===u.key)closeInspect();
+    if(placing&&placing.dup===u.key){placing=null;document.body.classList.remove('placing');$('ghostPoi').style.display='none'}
+    refreshWork()}
+  if(u.t==='bound'){
+    if(u.vis){SCENE.vision_bound=u.prev.map(pt=>[pt[0],pt[1]])}
+    else{SCENE.bound.length=0;u.prev.forEach(pt=>SCENE.bound.push(pt));strandedCheck(false)}
+    paintTerrain();mmDirty=true}
   if(u.t==='feature'){SCENE.features=u.prev;if(typeof featSel!=='undefined')featSel=null;paintTerrain();mmDirty=true;window.renderDrawPanel&&renderDrawPanel()}
   if(u.t==='remove'){SCENE.structures.splice(Math.min(u.at??SCENE.structures.length,SCENE.structures.length),0,u.s);BY[u.s.key]=u.s;makePoi(u.s);makeBanner(u.s);
     (u.seats||[]).forEach(([j,x])=>SCENE.seats.splice(Math.min(j,SCENE.seats.length),0,x));
@@ -3105,7 +3146,10 @@ function buildExportJSON(){
         phases:{...SCENE.vocabulary.phases}, // names only; every row still carries its number
         note:'the founder’s words — rename freely, every drawn feature follows (Q1d)'},
       modules:(window.MODULES)?Object.keys(MODULES).map(k=>({key:k,name:MODULES[k].name,icon:MODULES[k].icon,route:MODULES[k].route,blurb:MODULES[k].blurb})):[],
-      vision_of:null,exported_at:iso},
+      vision_of:null,exported_at:iso,
+      /* null means the Vision uses the real line, which is the default and
+         the only thing most villages will ever need */
+      vision_bound:Array.isArray(SCENE.vision_bound)?SCENE.vision_bound.map(p=>[p[0],p[1]]):null},
     map_zones:zonesExport(),
     map_structures:structures,
     map_flows:flows,
@@ -3352,10 +3396,24 @@ $('drawPanel').addEventListener('keydown',e=>{if(e.key==='Escape'){$('drawBtn').
 
 /* ---------- boundary editor (§5.3 Stage 3b): draggable vertices, mid-segment insertion, deletion ---------- */
 let boundaryMode=false,boundDrag=null,boundPrev=null;
-function boundHit(px,py){const n=SCENE.bound.length;
-  for(let i=0;i<n;i++){const[sx,sy]=worldToScreen(SCENE.bound[i][0],SCENE.bound[i][1]);
+/* Which line the editor has hold of. In Vision it is the dreamed one, and
+   everywhere else it is the deed. */
+function editingVision(){return typeof mode!=='undefined'&&mode==='vision'&&buildMode}
+function boundTarget(){
+  if(!editingVision())return SCENE.bound;
+  if(!Array.isArray(SCENE.vision_bound)||SCENE.vision_bound.length<3){
+    /* Seeded from the real line pushed outward, so there is something to take
+       hold of on the first drag rather than an empty field to click at. */
+    const c=SCENE.bound.reduce((a,p)=>[a[0]+p[0]/SCENE.bound.length,a[1]+p[1]/SCENE.bound.length],[0,0]);
+    SCENE.vision_bound=SCENE.bound.map(p=>[c[0]+(p[0]-c[0])*1.18,c[1]+(p[1]-c[1])*1.18]);
+    logEdit('vision-boundary-seed','vision_bound',{vertices:SCENE.vision_bound.length});
+  }
+  return SCENE.vision_bound}
+window.boundTarget=boundTarget;window.editingVision=editingVision;
+function boundHit(px,py){const B=boundTarget(),n=B.length;
+  for(let i=0;i<n;i++){const[sx,sy]=worldToScreen(B[i][0],B[i][1]);
     if(((sx/DPR-px)**2+(sy/DPR-py)**2)<12*12)return{t:'v',i}}
-  for(let i=0;i<n;i++){const a=SCENE.bound[i],b=SCENE.bound[(i+1)%n];
+  for(let i=0;i<n;i++){const a=B[i],b=B[(i+1)%n];
     const[sx,sy]=worldToScreen((a[0]+b[0])/2,(a[1]+b[1])/2);
     if(((sx/DPR-px)**2+(sy/DPR-py)**2)<10*10)return{t:'m',i}}
   return null}
@@ -3368,40 +3426,52 @@ function strandedCheck(announce){let newly=0;
 window.boundPointerDown=function(e){
   if(!buildMode||!boundaryMode)return false;
   const h=boundHit(e.clientX,e.clientY);if(!h)return false;
-  boundPrev=SCENE.bound.map(pt=>[pt[0],pt[1]]);
+  const B=boundTarget(),vis=editingVision();
+  boundPrev=B.map(pt=>[pt[0],pt[1]]);
   if(h.t==='m'){const[wx,wy]=screenToWorld(e.clientX,e.clientY);
-    SCENE.bound.splice(h.i+1,0,[wx,wy]);boundDrag={i:h.i+1,moved:true}}
-  else boundDrag={i:h.i,moved:false};
+    B.splice(h.i+1,0,[wx,wy]);boundDrag={i:h.i+1,moved:true,vis}}
+  else boundDrag={i:h.i,moved:false,vis};
   return true};
 addEventListener('pointermove',e=>{if(!boundDrag)return;
   const[wx,wy]=screenToWorld(e.clientX,e.clientY);
-  SCENE.bound[boundDrag.i][0]=wx;SCENE.bound[boundDrag.i][1]=wy;boundDrag.moved=true});
+  const B=boundDrag.vis?SCENE.vision_bound:SCENE.bound;
+  if(B&&B[boundDrag.i]){B[boundDrag.i][0]=wx;B[boundDrag.i][1]=wy}boundDrag.moved=true});
 addEventListener('pointerup',()=>{if(!boundDrag)return;
-  if(boundDrag.moved){UNDO.push({t:'bound',prev:boundPrev});
-    logEdit('boundary-edit','boundary',{vertices:SCENE.bound.length});
-    strandedCheck(true);paintTerrain();mmDirty=true}
+  if(boundDrag.moved){const vis=boundDrag.vis;
+    UNDO.push({t:'bound',prev:boundPrev,vis});
+    logEdit(vis?'vision-boundary-edit':'boundary-edit',vis?'vision_bound':'boundary',
+      {vertices:(vis?SCENE.vision_bound:SCENE.bound).length});
+    /* the dream never strands anybody: the deed decides who is outside */
+    if(!vis)strandedCheck(true);
+    paintTerrain();mmDirty=true}
   boundDrag=null;boundPrev=null});
 cv.addEventListener('contextmenu',e=>{if(!buildMode||!boundaryMode)return;e.preventDefault();
   const h=boundHit(e.clientX,e.clientY);
-  if(h&&h.t==='v'){if(SCENE.bound.length<=3)return toast('A boundary needs at least three corners.');
-    UNDO.push({t:'bound',prev:SCENE.bound.map(pt=>[pt[0],pt[1]])});
-    SCENE.bound.splice(h.i,1);logEdit('boundary-delete-vertex','boundary',{vertices:SCENE.bound.length});
-    strandedCheck(true);paintTerrain();mmDirty=true}});
+  const B=boundTarget(),vis=editingVision();
+  if(h&&h.t==='v'){if(B.length<=3)return toast('A boundary needs at least three corners.');
+    UNDO.push({t:'bound',prev:B.map(pt=>[pt[0],pt[1]]),vis});
+    B.splice(h.i,1);logEdit(vis?'vision-boundary-delete-vertex':'boundary-delete-vertex',vis?'vision_bound':'boundary',{vertices:B.length});
+    if(!vis)strandedCheck(true);
+    paintTerrain();mmDirty=true}});
 window.drawBoundaryEditor=function(t){
   if(!buildMode||!boundaryMode)return;
-  const z=cam.z,n=SCENE.bound.length;
+  const B=boundTarget(),z=cam.z,n=B.length;
   cx.save();
   cx.setLineDash([12/z,8/z]);cx.strokeStyle='rgba(236,208,138,.95)';cx.lineWidth=2.6/z;
-  cx.beginPath();SCENE.bound.forEach((pt,i)=>i?cx.lineTo(pt[0],pt[1]):cx.moveTo(pt[0],pt[1]));cx.closePath();cx.stroke();
+  cx.beginPath();B.forEach((pt,i)=>i?cx.lineTo(pt[0],pt[1]):cx.moveTo(pt[0],pt[1]));cx.closePath();cx.stroke();
   cx.setLineDash([]);
-  for(let i=0;i<n;i++){const a=SCENE.bound[i],b=SCENE.bound[(i+1)%n];
+  for(let i=0;i<n;i++){const a=B[i],b=B[(i+1)%n];
     cx.fillStyle='rgba(236,208,138,.30)';cx.strokeStyle='rgba(236,208,138,.65)';cx.lineWidth=1/z;
     cx.beginPath();cx.arc((a[0]+b[0])/2,(a[1]+b[1])/2,4.5/z,0,7);cx.fill();cx.stroke()}
-  for(let i=0;i<n;i++){const pt=SCENE.bound[i];
+  for(let i=0;i<n;i++){const pt=B[i];
     const drag=boundDrag&&boundDrag.i===i;
     cx.fillStyle=drag?'#fff':'#ecd08a';cx.strokeStyle='#6b5430';cx.lineWidth=1.6/z;
     cx.beginPath();cx.arc(pt[0],pt[1],(drag?8.5:6.5)/z,0,7);cx.fill();cx.stroke()}
   cx.restore()};
+/* The button says which line it is about to hand you. */
+function syncBoundBtn(){const b=$('boundBtn');if(!b)return;
+  b.textContent=(typeof mode!=='undefined'&&mode==='vision')?'◇ Vision boundary':'◇ Boundary'}
+window.syncBoundBtn=syncBoundBtn;syncBoundBtn();
 $('boundBtn').onclick=()=>{boundaryMode=!boundaryMode;$('boundBtn').classList.toggle('on',boundaryMode);document.body.classList.toggle('bounding',boundaryMode);if(boundaryMode&&typeof drawMode!=='undefined'&&drawMode)$('drawBtn').click();
   if(boundaryMode)maiaSay(`<b>Boundary editor.</b> Drag the gold corners; click a faint mid-point to add one; right-click a corner to remove it. If a redraw strands a building outside the line, it flags red and lists on the Wall, never removed for you. The corrected line rides every export.`);
   else toast('Boundary editor off.')};
@@ -3586,7 +3656,7 @@ function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
    <h5>roles here · the residents</h5>
    <div>${seatsHere.map(x=>seatRowH(x,true)).join('')||'<div style="color:#b9af8f;font-size:11.5px;padding:2px 0">No roles live here yet.</div>'}
    ${otherSeats.length?`<details style="margin:5px 0"><summary style="font-size:10.5px;color:#b9af8f;cursor:pointer">bring a role from elsewhere (${otherSeats.length})</summary><div style="padding-top:5px">${otherSeats.map(x=>seatRowH(x,false)).join('')}</div></details>`:''}</div>
-   <div class="irow" style="margin-top:4px"><input type="text" id="iSeatName" placeholder="add a role here — name"><input type="text" id="iSeatNote" placeholder="note" style="max-width:104px"><button class="xbtn" id="iSeatAdd" style="color:#8fd06a">＋</button></div>
+   <div class="irow" style="margin-top:4px;position:relative"><input type="text" id="iSeatName" autocomplete="off" placeholder="add a role here"><div id="seatDrop"></div><input type="text" id="iSeatNote" placeholder="note" style="max-width:104px"><button class="xbtn" id="iSeatAdd" style="color:#8fd06a">＋</button></div>
    <h5>quests here · the visitors</h5>
    <div>${qHere.map(q=>questRowH(q)).join('')||'<div style="color:#b9af8f;font-size:11.5px;padding:2px 0">No quests addressed here.</div>'}</div>
    <div class="irow" style="margin-top:4px"><input type="text" id="iQTitle" placeholder="add a quest here"></div>
@@ -3604,6 +3674,7 @@ function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
    <div class="irow" style="margin:4px 0"><button class="chip" id="iFInAdd">＋ input</button><span style="flex:1"></span><button class="chip" id="iFOutAdd">＋ output</button></div>
    <div>${flowsOut.map(f=>flowRowH(f,'out')).join('')||'<div style="color:#b9af8f;font-size:11.5px">No declared outputs yet.</div>'}</div>
    <h5>danger</h5>
+   <button class="chip" id="iDup" style="margin-right:6px">⎘ Duplicate</button>
    <button class="chip" id="iRemove" style="border-color:#a33d2a;color:#e8a090">✕ remove from the map</button>
    <div style="height:14px"></div>`;
   bindInspect(s)}
@@ -3642,6 +3713,34 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
     else{const home=circleHome(x.c);logEdit('seat-address','seat:'+x.s,{from:x.at,to:home});x.at=home;
       toast(`⛨ ${x.s} returned to the ${x.c} circle's home: ${BY[home]?BY[home].name:home}.`)}
     refreshWork();renderInspect()});
+  /* A combobox over the roles the village already has. Picking one is the
+     creator saying where it lives, which outranks whatever guessed before. */
+  (function seatCombo(){
+    const inp=B.querySelector('#iSeatName'),dd=B.querySelector('#seatDrop');
+    if(!inp||!dd)return;
+    const render=()=>{
+      const q=inp.value.trim().toLowerCase();
+      const hit=x=>!q||String(x.s).toLowerCase().includes(q);
+      const unplaced=SCENE.seats.filter(x=>!x.at&&hit(x));
+      const elsewhere=SCENE.seats.filter(x=>x.at&&x.at!==s.key&&hit(x));
+      if(!unplaced.length&&!elsewhere.length){dd.classList.remove('show');return}
+      const row=(x,i)=>`<div class="sopt" data-seat-i="${SCENE.seats.indexOf(x)}">${escq(x.s)}<small>${escq(x.c||'no circle')}${x.at?' · at '+escq((BY[x.at]||{}).name||x.at):''}</small></div>`;
+      dd.innerHTML=(unplaced.length?`<div class="sgrp">unplaced · picking one homes it here</div>`+unplaced.map(row).join(''):'')
+        +(elsewhere.length?`<div class="sgrp">open elsewhere · picking one moves it here</div>`+elsewhere.map(row).join(''):'');
+      dd.classList.add('show');
+      dd.querySelectorAll('[data-seat-i]').forEach(o=>o.onmousedown=ev=>{ev.preventDefault();
+        const x=SCENE.seats[+o.dataset.seatI];if(!x)return;
+        x.at=s.key;x.addr='creator';x.address_source='creator';x._why='';
+        logEdit('address-override','seat:'+x.s,{to:s.key,via:'inspect combobox'});
+        dd.classList.remove('show');inp.value='';
+        refreshWork();renderInspect();
+        toast('⛨ '+x.s+' now lives at '+s.name+'.')});
+    };
+    inp.onfocus=render;inp.oninput=render;
+    inp.onblur=()=>setTimeout(()=>dd.classList.remove('show'),120);
+    inp.onkeydown=ev=>{if(ev.key==='Escape'){dd.classList.remove('show');ev.stopPropagation()}
+      if(ev.key==='Enter'){dd.classList.remove('show');B.querySelector('#iSeatAdd').click()}};
+  })();
   B.querySelector('#iSeatAdd').onclick=()=>{const n=B.querySelector('#iSeatName').value.trim();if(!n)return;
     SCENE.seats.push({s:n,at:s.key,c:s.circle||'Community',note:B.querySelector('#iSeatNote').value.trim()||'a new seat, waiting for its steward'});
     logEdit('seat-add','seat:'+n,{at:s.key});refreshWork();renderInspect()};
@@ -3686,7 +3785,37 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
     logEdit('flow-remove','flow',{});renderInspect()});
   B.querySelectorAll('[data-fvia]').forEach(sel=>sel.onchange=()=>{const f=SCENE.flows[+sel.dataset.fvia];if(!f)return;
     f.via=sel.value||undefined;logEdit('flow-via','flow',{via:f.via||null});renderInspect()});
+  B.querySelector('#iDup').onclick=()=>duplicateStructure(s.key);
   B.querySelector('#iRemove').onclick=()=>removeStructure(s)}
+/* A copy of everything that is ABOUT this place: the building, the work
+   addressed to it, the seats that sit in it. Not the flows, because an edge
+   between two places is a statement about both of them, and not the drawn
+   footprint, because the copy has not landed anywhere yet. */
+function duplicateStructure(key){
+  const s=BY[key];if(!s)return;
+  const base=key.replace(/-c\d+$/,'');let slug=base+'-c2',n=2;
+  while(BY[slug])slug=base+'-c'+(++n);
+  const c={...s,key:slug,name:s.name+' (copy)',
+    modules:(s.modules||[]).map(m=>[m[0],m[1]]),
+    doors:s.doors?{...s.doors}:undefined,
+    badges:s.badges?{...s.badges}:undefined,
+    state:s.state,phase:s.phase,scale:s.scale,circle:s.circle};
+  delete c._crownOff;
+  const sfx=slug.slice(base.length); // '-c2', so a clone of a clone stays readable
+  const q2=[],x2=[];
+  for(const q of SCENE.quests)if(q.at===key)q2.push({...q,at:slug,addr:'creator',address_source:'creator',_why:''});
+  for(const x of SCENE.seats)if(x.at===key)x2.push({...x,s:x.s+' '+sfx.replace('-',''),at:slug,addr:'creator',address_source:'creator',_why:''});
+  SCENE.structures.push(c);BY[slug]=c;makePoi(c);makeBanner(c);
+  q2.forEach(q=>SCENE.quests.push(q));x2.forEach(x=>SCENE.seats.push(x));
+  UNDO.push({t:'dup',key:slug,quests:q2.length,seats:x2.length});
+  logEdit('duplicate','structure:'+slug,{from:key,quests:q2.length,seats:x2.length});
+  refreshWork();closeInspect();
+  /* Straight into placing, so the next click is where it goes. */
+  placing={dup:slug};document.body.classList.add('placing');
+  const g=$('ghostPoi');if(g){g.innerHTML=`<svg viewBox="0 0 64 64"><g class="ic">${(window.ICONS&&ICONS[(window.ARCHMAP&&ARCHMAP[c.archetype])?ARCHMAP[c.archetype].icon:c.archetype])||''}</g></svg>`;g.style.display='block'}
+  toast('⎘ '+c.name+' is in your hand, with '+q2.length+' quest'+(q2.length===1?'':'s')+' and '+x2.length+' seat'+(x2.length===1?'':'s')+'. Click where it stands.');
+}
+window.duplicateStructure=duplicateStructure;
 $('inspClose').onclick=closeInspect;
 $('inspect').addEventListener('keydown',e=>{if(e.key==='Escape'){closeInspect();return}
   if(e.target&&/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))e.stopPropagation()});
@@ -3729,6 +3858,8 @@ function restoreScene(J){try{
   resolveAllAddresses();
   const voc=J.map_scene&&J.map_scene.vocabulary;
   if(voc)['road','water','zone'].forEach(k2=>{if(Array.isArray(voc[k2])&&voc[k2].length)SUBTYPES[k2]=voc[k2].slice()});
+  const vb=J.map_scene&&J.map_scene.vision_bound;
+  SCENE.vision_bound=(Array.isArray(vb)&&vb.length>2)?vb.map(p=>[p[0],p[1]]):null;
   if(voc&&voc.phases&&typeof voc.phases==='object')SCENE.vocabulary.phases={...SCENE.vocabulary.phases,...voc.phases};
   if(voc&&Array.isArray(voc.media)&&voc.media.length){
     SCENE.vocabulary.media=voc.media.map(m=>({key:m.key,name:m.name||m.key,color:m.color||'#e8c877',glyph:m.glyph||'seed'}));
@@ -4393,9 +4524,24 @@ function openVitalDrop(k,anchor){
     moon:()=>`<div class="vfact">${SCENE.moonName}</div><div class="vhow">the lunar cycle closes the books: gratitude settles, stewards are thanked, the pulse resets</div>
       <button class="btn" onclick="openDoor('health',{});$('vdrop').classList.remove('show')">☀ Village Health</button>`};
   const name={people:'People',food:'Food',water:'Water',canopy:'Canopy',hearts:'Hearts',moon:'The Moon'}[k]||k;
+  /* Where this number comes from, said before anything is asked of you.
+     "set value - founder's word" confused the founder who wrote it. */
+  const held=!!(window.VITAL_OVR||{})[k];
+  const rawSrc=String((D[k]&&D[k].src)||'');
+  const prov=held?'held by your word':(/drawn/.test(rawSrc)?'measured from your drawn land':'sample reading');
+  const unit=(String((D[k]&&D[k].v)||'').match(/[^0-9.,\s]+$/)||[''])[0];
   const ovr=(typeof buildMode!=='undefined'&&buildMode&&k!=='moon')?
-    `<div style="display:flex;gap:6px;align-items:center"><input id="vOvr" type="text" placeholder="set value — founder's word" style="flex:1;background:rgba(44,33,20,.8);border:1px solid #6b5430;border-radius:6px;color:var(--parch);font-family:inherit;font-size:11px;padding:4px 8px">
-     <button class="btn" style="font-size:10.5px;padding:3px 9px" onclick="vitalSet('${k}')">✎ set</button>${(window.VITAL_OVR||{})[k]?`<button class="btn ghostbtn" style="font-size:10.5px;padding:3px 9px" onclick="vitalClear('${k}')">↩</button>`:''}</div>`:'';
+    `<div style="margin-top:8px;border-top:1px dashed #6b5430;padding-top:7px">
+       <div style="font-size:10px;letter-spacing:.06em;color:${held?'var(--gold-b)':'#b9af8f'}">${prov}</div>
+       ${held
+         ? `<div style="font-size:11.5px;margin-top:4px">Held by your word · <a href="#" onclick="vitalClear('${k}');return false" style="color:var(--gold-b)">release</a></div>`
+         : `<div style="font-size:11px;color:#cfc7a8;margin-top:4px">Know the real number? Set it here and the map holds your word until you release it.</div>
+            <div style="display:flex;gap:6px;align-items:center;margin-top:5px">
+              <input id="vOvr" type="text" placeholder="the true number" style="flex:1;background:rgba(44,33,20,.8);border:1px solid #6b5430;border-radius:6px;color:var(--parch);font-family:inherit;font-size:11px;padding:4px 8px">
+              ${unit?`<span style="font-size:11px;color:#b9af8f">${unit}</span>`:''}
+              <button class="btn" style="font-size:10.5px;padding:3px 9px" onclick="vitalSet('${k}')">Hold this number</button>
+            </div>`}
+     </div>`:'';
   dp.innerHTML=`<h5>${name}</h5>${(body[k]||(()=>''))()}${ovr}
     <div class="vhow" style="opacity:.8">source: ${k==='moon'?'the lunar calendar':(D[k]?D[k].src:'—')} · live feeds from the bioregion can plug in here</div>`;
   dp.classList.add('show')}

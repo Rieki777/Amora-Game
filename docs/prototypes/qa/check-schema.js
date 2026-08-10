@@ -18,6 +18,10 @@ ok(Array.isArray(media) && media.length >= 9 && media.every(m => m.key && m.name
 ok(J.map_flows.every(f => media.some(m => m.key === f.medium)), 'every flow names a type the vocabulary knows');
 ok(J.map_scene.vocabulary.phases && ['1','2','3'].every(n => J.map_scene.vocabulary.phases[n]),
   'vocabulary.phases: the three phases have names, and the rows keep their numbers');
+/* D4.4: null is the answer for almost every village, and it has to survive */
+const vb = J.map_scene.vision_bound;
+ok(vb === null || (Array.isArray(vb) && vb.length > 2 && vb.every(p => Array.isArray(p) && p.length === 2)),
+  'map_scene.vision_bound: null, or a ring of at least three points');
 const skin = J.map_scene.art_manifest.skin;
 ok(['glyph','gold','medium'].includes(skin.flow_style) && ['ribbon','tablet'].includes(skin.label_style),
   `skin carries the two dress dials (${skin.flow_style} / ${skin.label_style})`);

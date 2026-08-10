@@ -440,6 +440,82 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   ok(bad.length === 0 && vplate[0].plates > 3 && vplate[0].marks > 8,
     `D2 A2: district plates clear the marks and each other at every far zoom (${vplate.map(r => r.z).join(', ')})${bad.length ? ' — ' + JSON.stringify(bad) : ''}`);
 
+  /* ---------- D4: the founder's hands ---------- */
+  const d4 = await page.evaluate(async () => {
+    const r = {};
+    document.getElementById('panelClose').click(); closeDoor();
+    document.getElementById('buildBtn').click(); await new Promise(z => setTimeout(z, 300));
+    /* D4.1 a copy carries what is addressed to it, and nothing that is about two places */
+    const key = 'greenhouse', q0 = questsAt(key).length, s0 = seatsAt(key).length, n0 = SCENE.structures.length;
+    openInspect(key); await new Promise(z => setTimeout(z, 300));
+    document.getElementById('iDup').click(); await new Promise(z => setTimeout(z, 300));
+    const c = SCENE.structures[SCENE.structures.length - 1];
+    r.dup = { key: c.key, copy: / \(copy\)$/.test(c.name), placing: !!(placing && placing.dup),
+      q: questsAt(c.key).length, s: seatsAt(c.key).length, wantQ: q0, wantS: s0,
+      addr: (questsAt(c.key)[0] || {}).addr, flows: SCENE.flows.filter(f => f.from === c.key || f.to === c.key).length,
+      audit: EDITS.some(e => e.action === 'duplicate') };
+    document.getElementById('scene').dispatchEvent(new MouseEvent('click', { clientX: 740, clientY: 560, bubbles: true, cancelable: true }));
+    await new Promise(z => setTimeout(z, 300));
+    r.landed = !placing && inspKey === c.key;
+    document.getElementById('undoBtn').click(); await new Promise(z => setTimeout(z, 300));
+    r.undone = !BY[c.key] && SCENE.quests.filter(q => q.at === c.key).length === 0
+      && SCENE.seats.filter(x => x.at === c.key).length === 0 && SCENE.structures.length === n0;
+    /* D4.2 the row says where the number came from before it asks for one */
+    openVitalDrop('canopy', document.querySelector('.vital[data-k="canopy"]')); await new Promise(z => setTimeout(z, 200));
+    const d = document.getElementById('vdrop');
+    r.plain = { prov: /sample reading|measured from your drawn land/.test(d.textContent),
+      ask: /Know the real number\? Set it here and the map holds your word until you release it\./.test(d.textContent),
+      hold: /Hold this number/.test(d.textContent), old: /founder's word/.test(d.textContent) };
+    document.getElementById('vOvr').value = '81%'; vitalSet('canopy'); await new Promise(z => setTimeout(z, 250));
+    openVitalDrop('canopy', document.querySelector('.vital[data-k="canopy"]')); await new Promise(z => setTimeout(z, 200));
+    r.held = { txt: /Held by your word/.test(d.textContent), rel: /release/.test(d.textContent), v: (VITAL_OVR.canopy || {}).v };
+    d.querySelector('a') && d.querySelector('a').click(); await new Promise(z => setTimeout(z, 200));
+    r.released = !VITAL_OVR.canopy; d.classList.remove('show');
+    /* D4.3 the role field offers what the village already has */
+    openInspect('kitchen'); await new Promise(z => setTimeout(z, 300));
+    const inp = document.getElementById('iSeatName'); inp.focus(); inp.value = ''; inp.oninput();
+    await new Promise(z => setTimeout(z, 200));
+    const dd = document.getElementById('seatDrop');
+    const opt = [...dd.querySelectorAll('.sopt')].pop();
+    const si = +opt.dataset.seatI, was = SCENE.seats[si].at, nm = SCENE.seats[si].s;
+    r.combo = { open: dd.classList.contains('show'), opts: dd.querySelectorAll('.sopt').length,
+      grouped: /picking one/.test(dd.textContent) };
+    opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    await new Promise(z => setTimeout(z, 350));
+    r.moved = { nm, was, now: SCENE.seats[si].at, addr: SCENE.seats[si].addr,
+      audit: EDITS.some(e => e.action === 'address-override') };
+    closeInspect();
+    /* D4.4 the dream has its own line */
+    r.vbNull = SCENE.vision_bound === null;
+    document.getElementById('lyVision').click(); await new Promise(z => setTimeout(z, 400));
+    syncBoundBtn(); r.btnVision = document.getElementById('boundBtn').textContent.trim();
+    const B = boundTarget();
+    r.vb = { seeded: B === SCENE.vision_bound && B.length === SCENE.bound.length,
+      exported: Array.isArray(buildExportJSON().map_scene.vision_bound) };
+    cam.z = 1.0; const bb = camBounds();
+    r.vb.reaches = bb[1] >= Math.max(...SCENE.vision_bound.map(p => p[0])) - 0.5;
+    document.getElementById('lyNow').click(); syncBoundBtn();
+    r.btnNow = document.getElementById('boundBtn').textContent.trim();
+    document.getElementById('buildBtn').click();
+    return r;
+  });
+  ok(d4.dup.copy && d4.dup.q === d4.dup.wantQ && d4.dup.s === d4.dup.wantS && d4.dup.addr === 'creator' && d4.dup.flows === 0 && d4.dup.audit,
+    `D4.1: a copy carries its ${d4.dup.q} quests and ${d4.dup.s} seats as the creator's word, and no flows`);
+  ok(d4.dup.placing && d4.landed, 'D4.1: and it arrives in your hand, to be placed by the next click');
+  ok(d4.undone, 'D4.1: undo takes the copy and everything cloned with it');
+  ok(d4.plain.prov && d4.plain.ask && d4.plain.hold && !d4.plain.old,
+    'D4.2: the vital says where its number came from, then offers to hold a truer one');
+  ok(d4.held.txt && d4.held.rel && d4.held.v === '81%' && d4.released,
+    'D4.2: held by your word, and released back to the counting');
+  ok(d4.combo.open && d4.combo.opts > 3 && d4.combo.grouped,
+    `D4.3: typing a role surfaces the ones the village already has (${d4.combo.opts})`);
+  ok(d4.moved.now === 'kitchen' && d4.moved.was !== 'kitchen' && d4.moved.addr === 'creator' && d4.moved.audit,
+    `D4.3: picking one moves it here as the creator's word (${d4.moved.nm}: ${d4.moved.was} to ${d4.moved.now})`);
+  ok(d4.vbNull && d4.btnVision === '\u25c7 Vision boundary' && d4.btnNow === '\u25c7 Boundary',
+    'D4.4: the Vision has no line of its own until asked, and the button says which one it holds');
+  ok(d4.vb.seeded && d4.vb.exported && d4.vb.reaches,
+    'D4.4: the dreamed line seeds from the real one, exports, and the camera can reach it');
+
   /* D1.2 on a phone: the two-finger pinch, in its own pocket context */
   const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, deviceScaleFactor: 3 } /* no isMobile: this Chromium reports innerWidth 4x the CSS viewport with it on */);
   const ppage = await pctx.newPage();
