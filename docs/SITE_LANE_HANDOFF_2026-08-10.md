@@ -195,6 +195,22 @@ scripts are for, and both recoveries were one command because they exist.
 other lane's in-flight Round D work onto `main` under a commit message about
 something else.
 
+**Reusing a helper is a decision about its limits, not just its behaviour.**
+The map's `slugify` capped output at 48 characters, which was right for the URL
+fragment it was written for and wrong the moment it was reused to mint a join
+key. A cap that suits one caller is not a property of the function. The same
+round produced a second instance: the media-key pattern
+(`/^[a-z0-9_-]{1,32}$/`) was described without saying where it stopped
+applying, and it was reasonably applied to quest keys, where 32 truncates and
+truncation collides. When you hand another lane a rule, say what it is FOR.
+
+**The bug of this round, four times over, was a value quietly discarded.**
+Skin keys dropped by a field-by-field rebuild; vocabulary keys the same; a
+join key cut to 32; a slug cut to 48. None raised an error, none was caught by
+a test that already existed, and two were found by the other lane reading
+rather than by either lane testing. When a value crosses a boundary, ask what
+happens to the parts of it that the far side has no slot for.
+
 **Migration numbers are claimed on `origin/main`, not locally.** Run
 `git ls-tree --name-only origin/main drizzle/ | tail` after a fetch. The local
 tree once stopped at `0048` while main was at `0058`, and the runner dedupes by
