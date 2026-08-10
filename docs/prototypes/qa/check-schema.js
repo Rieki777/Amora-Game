@@ -22,6 +22,11 @@ ok(J.map_scene.vocabulary.phases && ['1','2','3'].every(n => J.map_scene.vocabul
 const vb = J.map_scene.vision_bound;
 ok(vb === null || (Array.isArray(vb) && vb.length > 2 && vb.every(p => Array.isArray(p) && p.length === 2)),
   'map_scene.vision_bound: null, or a ring of at least three points');
+/* D5: the promises this browser made, and the first step a founder wrote */
+ok(Array.isArray(J.my_rsvps) && Array.isArray(J.my_claims), 'my_rsvps + my_claims export as lists, empty when nothing was promised');
+ok(J.my_rsvps.every(id => J.events.some(e => e.id === id)), 'every RSVP names an event that exists');
+ok(J.quests.every(q => 'how_to' in q && (q.how_to === null || typeof q.how_to === 'string')),
+  'quests carry how_to: null until a founder writes the first step');
 const skin = J.map_scene.art_manifest.skin;
 ok(['glyph','gold','medium'].includes(skin.flow_style) && ['ribbon','tablet'].includes(skin.label_style),
   `skin carries the two dress dials (${skin.flow_style} / ${skin.label_style})`);

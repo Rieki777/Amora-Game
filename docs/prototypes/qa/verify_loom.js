@@ -124,7 +124,7 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
 
   /* ---------- F. export contract ---------- */
   const exp = await page.evaluate(() => JSON.stringify(buildExportJSON()));
-  fs.writeFileSync('/tmp/amora-export.json', exp);
+  fs.writeFileSync((process.env.EXPORT_OUT || '/tmp/amora-export.json'), exp);
   const J = JSON.parse(exp);
   ok(Array.isArray(J.journeys) && J.journeys.length === 4, 'export carries 4 journeys');
   ok(Array.isArray(J.forum_threads) && J.forum_threads.length === 13, 'export carries 13 forum threads');

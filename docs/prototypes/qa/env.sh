@@ -3,3 +3,4 @@
 export GROUNDS_FILE="file:///C:/Users/taren/Desktop/Amora/ga-map/docs/prototypes/grounds-v0.html"
 export PW_EXE="C:/Users/taren/AppData/Local/ms-playwright/chromium-1223/chrome-win64/chrome.exe"
 export NODE_PATH="C:/Users/taren/Downloads/regen-civics-clean/node_modules"
+export EXPORT_OUT="C:/Users/taren/AppData/Local/Temp/claude/C--Users-taren-Desktop-Amora/70d8bab0-1e5e-4369-83b6-cb3952dfc90f/scratchpad/amora-export.json"

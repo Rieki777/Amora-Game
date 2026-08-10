@@ -516,6 +516,70 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   ok(d4.vb.seeded && d4.vb.exported && d4.vb.reaches,
     'D4.4: the dreamed line seeds from the real one, exports, and the camera can reach it');
 
+  /* ---------- D5: promises you can take back ---------- */
+  const d5 = await page.evaluate(async () => {
+    const r = { version: BUILD_VERSION }; window.__posts = [];
+    const o = window.bridgePost; window.bridgePost = m => { window.__posts.push(m); o(m); };
+    /* F4 already tapped RSVP earlier in this same page, so start from nothing
+       promised rather than from whatever the last test left behind. */
+    for (const id of Object.keys(EV_RSVP)) { const ev = EVENTS.find(x => x.id === id); if (ev) { ev.rsvp = Math.max(0, ev.rsvp - 1); ev._me = 0; } delete EV_RSVP[id]; }
+    const e = EVENTS[0], c0 = e.rsvp;
+    openDoor('events', {}); await new Promise(z => setTimeout(z, 300));
+    r.saidPlainly = /Going adds this to your calendar in your profile and signs you up for updates by email\. Tap again any time to change your answer\./.test(document.getElementById('moduleCard').textContent);
+    evRSVP(e.id); await new Promise(z => setTimeout(z, 200));
+    const btn = document.querySelector(`[data-ev="${e.id}"]`);
+    r.going = { up: e.rsvp - c0, label: btn.textContent, stored: !!EV_RSVP[e.id], live: !btn.disabled };
+    evRSVP(e.id); await new Promise(z => setTimeout(z, 200));
+    r.withdrawn = { back: e.rsvp - c0, label: document.querySelector(`[data-ev="${e.id}"]`).textContent, stored: !!EV_RSVP[e.id] };
+    closeDoor();
+    const q = SCENE.quests.find(x => x.at === 'greenhouse');
+    q.how_to = 'Meet Sol at the greenhouse door at seven, before the heat.';
+    openPanel(q.at, 1); await new Promise(z => setTimeout(z, 900));
+    r.claimSaidPlainly = /Claiming adds this quest to your profile with how to begin, and signs you up for updates\. Release it any time\./.test(document.getElementById('panelBody').textContent);
+    claimQuest(q.q, BY[q.at].name); await new Promise(z => setTimeout(z, 400));
+    const body = document.getElementById('panelBody');
+    r.yours = { stored: claimed(q), label: body.querySelector('.claim button').textContent,
+      first: /Your first step/.test(body.textContent), how: /Meet Sol at the greenhouse door/.test(body.textContent) };
+    cam.z = 1.7; cam.x = BY[q.at].x; cam.y = BY[q.at].y; clampCam(); refreshBadges(); syncBanners();
+    r.tick = !!(bgEls[q.at] && bgEls[q.at].querySelector('.b-quest.claimed .tick'));
+    claimQuest(q.q, BY[q.at].name); await new Promise(z => setTimeout(z, 400));
+    r.releasedLabel = document.getElementById('panelBody').querySelector('.claim button').textContent;
+    r.released = !claimed(q);
+    document.getElementById('panelClose').click();
+    r.posts = window.__posts.map(m => m.type + ':' + (m.on ? 'on' : 'off'));
+    const J = buildExportJSON();
+    r.exp = { rsvps: Array.isArray(J.my_rsvps), claims: Array.isArray(J.my_claims), how: J.quests.some(x => x.how_to) };
+    return r;
+  });
+  ok(d5.version === 'v0.8-roundD', `D5.4: the artifact says which round it is (${d5.version})`);
+  ok(d5.saidPlainly && d5.claimSaidPlainly, 'D5.1/D5.2: both promises say plainly what a tap actually does');
+  ok(d5.going.up === 1 && d5.going.stored && d5.going.live && /tap to change/.test(d5.going.label),
+    `D5.1: going is a promise, not a closed door (${d5.going.label})`);
+  ok(d5.withdrawn.back === 0 && !d5.withdrawn.stored && d5.withdrawn.label === 'RSVP',
+    'D5.1: withdrawing takes the count back down');
+  ok(d5.yours.stored && /tap to release/.test(d5.yours.label) && d5.yours.first && d5.yours.how,
+    'D5.2: a claimed quest is yours, and it shows you where to start');
+  ok(d5.tick, 'D5.2: and the mark on the land carries the promise');
+  ok(d5.released && d5.releasedLabel === 'Claim this quest', 'D5.2: releasing puts it back for other hands');
+  ok(d5.posts.join(' ') === 'rsvp:on rsvp:off claim:on claim:off',
+    `D5.1/D5.2: every promise crosses the bridge, both ways (${d5.posts.join(' ')})`);
+  ok(d5.exp.rsvps && d5.exp.claims && d5.exp.how, 'D5.4: the promises and the first step ride the export');
+
+  const d5j = await page.evaluate(async () => {
+    playJourney('j2'); await new Promise(z => setTimeout(z, 2600));
+    const log = document.getElementById('maiaLog');
+    const r = { jn: (log.querySelector('.jn') || {}).textContent || '', next: !!log.querySelector('.jrow .btn') };
+    jNext(); await new Promise(z => setTimeout(z, 1800));
+    const all = log.querySelectorAll('.jn');
+    r.after = (all[all.length - 1] || {}).textContent || '';
+    jEnd(); await new Promise(z => setTimeout(z, 200));
+    r.ended = !window.JWALK && /The walk ends here/.test(log.textContent);
+    return r;
+  });
+  ok(/^1 of \d+$/.test(d5j.jn) && d5j.next, `D5.3: Maia presents the journey, with its progress (${d5j.jn})`);
+  ok(d5j.after !== d5j.jn && /of \d+$/.test(d5j.after), `D5.3: next skips ahead rather than waiting (${d5j.after})`);
+  ok(d5j.ended, 'D5.3: and ending the walk says so in her voice');
+
   /* D1.2 on a phone: the two-finger pinch, in its own pocket context */
   const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, deviceScaleFactor: 3 } /* no isMobile: this Chromium reports innerWidth 4x the CSS viewport with it on */);
   const ppage = await pctx.newPage();

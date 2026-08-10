@@ -473,6 +473,19 @@
     border-radius:7px;background:#fdf6e0;font-size:11.5px;color:#4a3a26;cursor:pointer}
   .cvrow b{font-weight:normal;color:#3a2b12;display:block}
   .cvrow small{color:#8a7347;font-size:10px}
+  /* The small print under a promise. Small, because it is a footnote, and
+     always there, because it is the truth about what a tap does. */
+  .promise{font-size:10px;line-height:1.45;color:#8a7347;margin-top:5px}
+  #maia .jrow{display:flex;gap:7px;align-items:center;margin-top:6px}
+  #maia .jrow .btn{font-size:10.5px;padding:3px 10px}
+  #maia .jn{margin-left:auto;font-size:10px;color:#8f855f}
+  .firststep{margin-top:6px;padding:7px 9px;border-left:2px solid var(--gold);
+    background:rgba(201,162,94,.12);border-radius:0 6px 6px 0;font-size:11.5px;color:#4a3a26}
+  .firststep b{display:block;font-weight:normal;font-variant:small-caps;letter-spacing:.1em;
+    font-size:10px;color:#8a6a33;margin-bottom:2px}
+  /* a promise kept, marked on the land itself */
+  .bseal.claimed .rim{stroke:#8fd06a}
+  .bseal .tick{fill:none;stroke:#4d7c2a;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
   /* ── the far view: one seal for the whole building, and its front door ── */
   .bgroup .aseal,.bgroup .hchip{position:absolute;width:24px;height:24px;margin:-12px 0 0 -12px;
     pointer-events:auto;cursor:pointer;display:none}
@@ -2273,7 +2286,8 @@ function refreshBadges(){
     if(qs.length&&badgeOn(s,'quest')){
       const q=qs[0]; // the heaviest ask leads; the rest live on the card
       const aff=badgeCircle(q,s);
-      marks.push({kind:'quest',tint:(window.CIRCLE_COL&&window.CIRCLE_COL[aff])||'',
+      marks.push({kind:'quest',claimed:(typeof claimed==='function')&&claimed(q),
+        tint:(window.CIRCLE_COL&&window.CIRCLE_COL[aff])||'',
         pips:badgeWeight(q),
         rim:(q.addr==='creator'||q.address_source==='creator')?'':'r-amber',
         braid:badgeSkilled(q),n:qs.length});
@@ -2296,13 +2310,14 @@ function refreshBadges(){
        placement pass asks for it, because the decision depends on the
        camera and this function does not run per frame. */
     const total=marks.reduce((n,m)=>n+(m.n||0),0)||marks.length;
-    const sig=marks.map(m=>m.kind+m.pips+m.rim+m.tint+(m.extra||'')).join(',')+'|'+total;
+    const sig=marks.map(m=>m.kind+m.pips+m.rim+m.tint+(m.claimed?'✓':'')+(m.extra||'')).join(',')+'|'+total;
     if(g.dataset.sig!==sig){
       g.innerHTML=marks.map(m=>{
-        const cls=['bseal','b-'+m.kind,m.rim,m.braid?'r-braid':'',m.extra||''].filter(Boolean).join(' ');
+        const cls=['bseal','b-'+m.kind,m.rim,m.braid?'r-braid':'',m.claimed?'claimed':'',m.extra||''].filter(Boolean).join(' ');
         const tint=m.tint?` style="--btint:${m.tint}"`:'';
+        const tick=m.claimed?'<path class="tick" d="M7.6 12.4l2.9 2.9 6-6.2"/>':'';
         return `<span class="${cls}" data-bk="${s.key}" data-bkind="${m.kind}"${tint}>`+
-               badgeSvg(m.kind,m.pips?badgePips(m.pips):'')+`</span>`;
+               badgeSvg(m.kind,(m.pips?badgePips(m.pips):'')+tick)+`</span>`;
       }).join('')+
       `<span class="bseal b-more" data-bk="${s.key}" data-bkind="more"><svg viewBox="0 0 24 24">`+
       BADGE_FACE+`<text class="cnum" x="12" y="15.6">${total>9?'9+':total}</text></svg><span class="bhit"></span></span>`;
@@ -2335,6 +2350,24 @@ function refreshBadges(){
   }
 }
 window.refreshBadges=refreshBadges;
+/* What this browser has promised. Per-browser and per-person, so it lives in
+   localStorage and never in the scene: the map is a lens, and a promise is
+   about the reader rather than the land. */
+function promiseLoad(k){try{return JSON.parse(localStorage.getItem(k)||'{}')||{}}catch(_){return{}}}
+function promiseSave(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(_){}}
+window.EV_RSVP=promiseLoad('amora-rsvp');
+window.QUEST_CLAIM=promiseLoad('amora-claims');
+/* The site does the real work: the calendar row, the email, the profile. This
+   only says what happened, and only when there is a parent listening. */
+function bridgePost(msg){try{if(window.parent&&window.parent!==window)window.parent.postMessage(msg,'*')}catch(_){}}
+window.bridgePost=bridgePost;
+const PROMISE_RSVP='Going adds this to your calendar in your profile and signs you up for updates by email. Tap again any time to change your answer.';
+const PROMISE_CLAIM='Claiming adds this quest to your profile with how to begin, and signs you up for updates. Release it any time.';
+window.PROMISE_RSVP=PROMISE_RSVP;window.PROMISE_CLAIM=PROMISE_CLAIM;
+const questId=q=>slugify(typeof q==='string'?q:(q&&q.q));
+window.questId=questId;
+const claimed=q=>!!QUEST_CLAIM[questId(q)];
+window.claimed=claimed;
 /* Silence is the only thing worth writing down: a building shows every kind
    unless its founder has said otherwise, so an untouched map exports nothing
    here at all. The home chip is not in this list because a home is data, not
@@ -2784,7 +2817,9 @@ function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].
     ${s.state==='blueprint'?`<p style="margin-top:10px;font-size:12.5px">This one lives in the <b>Vision</b>. Toggle the Vision layer to see the full masterplan build-out, and what it would take to make it real.</p>`:''}
     <div class="lastv">last verified 2 days ago · Amora stewards</div>`}
   if(i===1)body.innerHTML=q.length?q.map(x=>`<div class="qcard" data-item="${itemAddr('quest',x)}"><h4>⚑ ${x.q}</h4><div class="meta">${x.r} · ${x.need}</div>
-    <div class="claim"><button class="btn" onclick="claimQuest('${x.q.replace(/'/g,"\\'")}','${s.name.replace(/'/g,"\\'")}')">Claim this quest</button></div></div>`).join('')
+    <div class="claim"><button class="btn" onclick="claimQuest('${x.q.replace(/'/g,"\\'")}','${s.name.replace(/'/g,"\\'")}')">${claimed(x)?'✔ Yours · tap to release':'Claim this quest'}</button></div>
+    ${claimed(x)&&x.how_to?`<div class="firststep"><b>Your first step</b>${escq(x.how_to)}</div>`:''}
+    <div class="promise">${PROMISE_CLAIM}</div></div>`).join('')
     :`<p>No open quests here right now. The greenhouse and the food forest are calling, though.</p>`;
   if(i===2)body.innerHTML=st.length?st.map(x=>`<div class="seatrow" data-item="${itemAddr('seat',x)}"><div class="nm"><b>${x.s}</b><span>${x.c} circle · ${x.note}</span></div>
     <button class="btn" onclick="toast('Intro drafted. The ${x.c} circle will hear from you. (Prototype; the real form lives at /roles.)')">Raise a hand</button></div>`).join('')
@@ -2792,7 +2827,17 @@ function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].
   if(i===3)body.innerHTML=((s.modules&&s.modules.length)?s.modules.map(m=>`<button class="doorbtn" onclick="openModule('${m[0]}','${m[1]}')"><span><b>${m[0]}</b><br><span>${m[1]}</span></span><span class="arr">➤</span></button>`).join(''):`<p>No doors here yet. The founder opens them in build mode.</p>`)+
     `<div class="lastv">Every door is also a page. The same room, reachable from the menu or from the land.</div>`}
 $('panelClose').onclick=()=>{$('panel').classList.remove('open');panelKey=null;setHash('')};
-function claimQuest(q,at){window.hap&&hap([12,50,12,50,12]);toast(`⚑ Claimed: “${q}” at ${at}. See you out there.`);maiaSay(`Claimed. <b>${q}</b> is yours, and it lives at the ${at}. That's the whole point of this map: now go make it true, and I'll light the building up when you do.`)}
+function claimQuest(q,at){
+  const id=questId(q),on=!QUEST_CLAIM[id];
+  if(on)QUEST_CLAIM[id]=1;else delete QUEST_CLAIM[id];
+  promiseSave('amora-claims',QUEST_CLAIM);
+  bridgePost({type:'claim',id,on});
+  window.hap&&hap(on?[12,50,12,50,12]:8);
+  if(on){toast(`⚑ Claimed: “${q}” at ${at}. See you out there.`);
+    maiaSay(`Claimed. <b>${q}</b> is yours, and it lives at the ${at}. That's the whole point of this map: now go make it true, and I'll light the building up when you do.`)}
+  else toast('Quest released. It stays open for other hands.');
+  if(typeof refreshBadges==='function')refreshBadges();
+  if(typeof panelKey!=='undefined'&&panelKey)renderTab(1)}
 function openModule(a,b){return openDoor(a,b)} // legacy (label,route) doors and the new (moduleKey,ctx) both land on openDoor
 
 /* toasts */
@@ -3165,6 +3210,7 @@ function buildExportJSON(){
     quests:SCENE.quests.map(x=>({title:x.q,structure_key:x.at||null,reward:x.r,need:x.need,desc:x.desc||'',
       src:x.src||'scene',circle_site:x.circle_site||null,circle_aff:x.aff||null,
       weight:x.weight||null, // null means read it from the need text, which is what the map does
+      how_to:x.how_to||null, // the first step, when a founder has written one
       address_source:addrSrc(x),
       address:x.at?(x.addr||'explicit'):'board — unaddressed'})),
     journeys:SCENE.journeys.map(j=>({id:j.id,name:j.name,src:j.src||'site',blurb:j.blurb||'',
@@ -3175,6 +3221,10 @@ function buildExportJSON(){
       author:t.author,audience:t.aud||'member',replies:t.replies||0,last_activity:t.last||'',
       excerpt:t.ex||'',src:t.src||'sample'})),
     events:(window.EVENTS||[]).map(e=>({id:e.id,title:e.title,structure_keys:e.at,days_until:e.days,when:e.when,rsvp_count:e.rsvp,src:'sample'})),
+    /* Per-browser promises. They ride the export so a session can be carried,
+       and the site owns what they actually DO. */
+    my_rsvps:Object.keys(window.EV_RSVP||{}),
+    my_claims:Object.keys(window.QUEST_CLAIM||{}),
     stays_occupancy:{lots:window.LOTS||null,rooms:window.ROOMS||null,note:'sample until the Stays module feeds it — one source, every surface reads it'},
     concierge_queries:(window.CONCIERGE_LOG||[]).map(c=>({...c})),
     vital_overrides:window.VITAL_OVR||{},
@@ -3846,6 +3896,7 @@ function restoreScene(J){try{
   SCENE.quests=(J.quests||[]).map(r=>({q:r.title,at:(r.structure_key&&BY[r.structure_key])?r.structure_key:null,r:r.reward,need:r.need,
     desc:r.desc||undefined,src:r.src||undefined,circle_site:r.circle_site||undefined,aff:r.circle_aff||undefined,
     weight:(r.weight===1||r.weight===2||r.weight===3)?r.weight:undefined,
+    how_to:r.how_to||undefined,
     addr:(r.address_source&&r.address_source!=='pool')?r.address_source:(r.address==='lexicon guess'?'lexicon guess':undefined)}));
   if(Array.isArray(J.forum_threads))SCENE.threads=J.forum_threads.map(t=>({id:t.id,title:t.title,
     structures:(t.structure_keys||[]).filter(k=>BY[k]),author:t.author,aud:t.audience||'member',
@@ -4133,7 +4184,7 @@ refreshWork();
 /* ---------- MODULE DOORS — the map as the primary point of interaction.
    Every module has two doors: the menu (site nav) and the land (this map). Same routes, same data — D9 holds. ---------- */
 window.SITE_BASE='https://amora.regencivics.earth'; // forks set their own in Make This Yours
-window.BUILD_VERSION='v0.7-voice1-badges1';
+window.BUILD_VERSION='v0.8-roundD';
 const SITE_ROUTES={j1:'/first-walk',j2:'/resident',j3:'/steward',j4:'/investor'};
 const DOOR_DEFS={
   stay:{module:'stay',icon:'🛏',cta:'Book a room'},
@@ -4161,12 +4212,21 @@ try{refreshBadges()}catch(_){}
 setInterval(()=>{try{refreshBadges()}catch(_){}} ,3000);
 function eventCard(s){const evs=eventsAt(s.key);if(!evs.length)return'';
   return `<div style="margin-top:9px">`+evs.map(e=>`<div class="mrow" data-item="${itemAddr('event',e)}" style="margin:4px 0"><span><b>✦ ${e.title}</b><small>${e.when} · ${e.rsvp} going · sample</small></span>
-   <button class="btn" data-ev="${e.id}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${e.id}')"${e._me?' disabled':''}>${e._me?'✔ '+e.rsvp+' going':'RSVP'}</button></div>`).join('')+`</div>`}
+   <button class="btn" data-ev="${e.id}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${e.id}')">${EV_RSVP[e.id]?'✔ Going · tap to change':'RSVP'}</button></div>
+   <div class="promise">${PROMISE_RSVP}</div>`).join('')+`</div>`}
 window.eventCard=eventCard;
-function evRSVP(id){const e=EVENTS.find(x=>x.id===id);if(!e||e._me)return;e.rsvp++;e._me=1;
-  document.querySelectorAll(`[data-ev="${id}"]`).forEach(b=>{b.textContent='✔ '+e.rsvp+' going';b.disabled=true});
-  toast('✔ You’re in — '+e.rsvp+' going. RSVP posts to the Events module; counted here as sample.')}
+function evRSVP(id){const e=EVENTS.find(x=>x.id===id);if(!e)return;
+  const on=!EV_RSVP[id];
+  if(on){e.rsvp++;EV_RSVP[id]=1}else{e.rsvp=Math.max(0,e.rsvp-1);delete EV_RSVP[id]}
+  e._me=on?1:0;promiseSave('amora-rsvp',EV_RSVP);
+  document.querySelectorAll(`[data-ev="${id}"]`).forEach(b=>{b.textContent=on?'✔ Going · tap to change':'RSVP';b.disabled=false});
+  bridgePost({type:'rsvp',id,title:e.title,on});
+  window.hap&&hap(on?[12,50,12]:8);
+  toast(on?('✔ You are going. '+e.rsvp+' going.'):'RSVP withdrawn. The door stays open.');
+  if(typeof refreshBadges==='function')refreshBadges()}
 window.evRSVP=evRSVP;
+(function seedPromises(){for(const e of (window.EVENTS||[])){
+  if(EV_RSVP[e.id]&&!e._me){e._me=1;e.rsvp++}}})();
 function siteNav(ev,route){if(window.top!==window.self){try{window.top.location.href=siteHref(route);ev.preventDefault();return false}catch(_){return true}}return true}
 window.siteNav=siteNav;
 const MICON={
@@ -4228,7 +4288,8 @@ const MODULES={
   events:{name:'Events',icon:MICON.events,route:'/seasonal-festivals',
     blurb:'Feasts, build days, ceremonies. Every event is a place and a time on the land, and its lantern burns brighter as the day comes near.',
     sample:ctx=>EVENTS.map(e=>`<div class="mrow"><span><b>✦ ${e.title}</b><small>${e.when} · at ${e.at.map(k=>BY[k]?BY[k].name:k).join(' + ')} · sample</small></span>
-      <button class="btn" data-ev="${e.id}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${e.id}')"${e._me?' disabled':''}>${e._me?'✔ '+e.rsvp+' going':'RSVP'}</button></div>`).join('')
+      <button class="btn" data-ev="${e.id}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${e.id}')">${EV_RSVP[e.id]?'✔ Going · tap to change':'RSVP'}</button></div>
+      <div class="promise">${PROMISE_RSVP}</div>`).join('')
       +`<div class="lastv">for now this door opens on Seasonal Festivals. Events will get a room of its own</div>`},
   admin:{name:'Village Settings · Make This Yours',icon:MICON.admin,route:'/admin?tab=setup',
     blurb:'Turn this into your village\'s own game. Identity, content, and the map\'s skin in one flow; blank fields keep Amora\'s answer as the suggestion.',
@@ -4289,11 +4350,23 @@ function playJourney(id){const j=jById(id);if(!j)return;
       maiaSay(`The walk ends here. The full <b>${j.name}</b> lives at <a href="${siteHref(SITE_ROUTES[id]||'/')}" target="_blank" rel="noopener">${SITE_ROUTES[id]||'/'}</a>. Two doors, one journey.`);
       setHash('');return}
     const x=stops[JWALK.i];const s=BY[x.st.at];
-    toast(`➹ ${x.si+1}/${j.steps.length} — ${x.st.stage?x.st.stage+': ':''}${x.st.t} → ${s.name}`);
-    travelTo(s.x,s.y,1.25,()=>{setTimeout(()=>{if(JWALK&&JWALK.id===id){JWALK.i++;step()}},1500)})};
+    travelTo(s.x,s.y,1.25,()=>{
+      /* Maia is the PRESENTER; the words stay village content, so `t` and the
+         optional `body` are printed as they were written. */
+      maiaSay(`<b>${x.st.stage?x.st.stage+': ':''}${x.st.t}</b> at ${s.name}`+
+        (x.st.body?`<div style="margin-top:3px">${x.st.body}</div>`:'')+
+        `<div class="jrow"><button class="btn" onclick="jNext()">▸ next</button>`+
+        `<button class="btn ghostbtn" onclick="jEnd()">✕ end the walk</button>`+
+        `<span class="jn">${JWALK.i+1} of ${stops.length}</span></div>`);
+      JTMR=setTimeout(()=>{if(JWALK&&JWALK.id===id){JWALK.i++;step()}},1500)})};
+  window.jNext=()=>{clearTimeout(JTMR);if(!JWALK||JWALK.id!==id)return;JWALK.i++;step()};
+  window.jEnd=()=>{clearTimeout(JTMR);JWALK=null;setHash('');
+    maiaSay('The walk ends here. Wander wherever you like.')};
   step()}
+let JTMR=null;
 window.playJourney=playJourney;
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&JWALK){JWALK=null;toast('Walk ended. Wander freely.');setHash('')}},true);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&JWALK){clearTimeout(JTMR);JWALK=null;
+  maiaSay('The walk ends here. Wander wherever you like.');setHash('')}},true);
 /* ---------- the skin step: Make This Yours, for the land ---------- */
 const SKIN={theme:'Emerald Atlas',words:'',accent:null,parch:null,lbl:100,mist:false,glow:true,
   flow_style:'glyph',label_style:'ribbon'};window.SKIN=SKIN; // 'glyph'|'gold'|'medium' · 'ribbon'|'tablet'
@@ -4773,9 +4846,9 @@ function sendWalkLog(){
   }catch(_){}
 }
 window.sendWalkLog=sendWalkLog;
-function endWalk(done){clearTimeout(WTMR);WIDX=-1;$('walkCard').classList.remove('show');
+function endWalk(done){clearTimeout(WTMR);const atEnd=WIDX;WIDX=-1;$('walkCard').classList.remove('show');
   if(done){try{localStorage.setItem('amora-walk-done','1')}catch(_){}}
-  WALK_LOG.push({step:done?'complete':'abandoned',at_index:WIDX,ts_seq:WALK_LOG.length});
+  WALK_LOG.push({step:done?'complete':'abandoned',at_index:atEnd,ts_seq:WALK_LOG.length});
   sendWalkLog()}
 function nextWalk(){clearTimeout(WTMR);const steps=walkSteps();WIDX++;
   if(WIDX>=steps.length){endWalk(true);return}
