@@ -37,6 +37,11 @@ byte through 269 voice rewrites and two badge rounds.
   is one silently dead script and no error anywhere.
 - Scripts must be **re-runnable**. `patch_d3_surround.py` strips its own
   previous embed first and skips its code edits when they are already there.
+  Skip **per edit, not per script**: `patch_d7_vocab_inbound.py` guards each of
+  its four steps on its own marker, because one guard at the top makes a file
+  that took three of four edits look finished, which is the same shape as the
+  bug that patch exists to remove. It prints `apply` or `skip` per step, and a
+  clean re-run is all skips and zero bytes changed.
 - One script per concern, committed alongside the artifact it changed.
 
 ## Running the gates
@@ -49,6 +54,7 @@ node qa/verify_features.js               # FEATURES: ALL GREEN   (~90 checks)
 node qa/verify_badges.js                 # BADGES: ALL GREEN     (36 checks)
 node qa/verify_loom.js                   # LOOM: ALL GREEN
 node qa/verify_skin_bridge.js            # SKIN BRIDGE: ALL GREEN (site lane's)
+node qa/verify_vocab_bridge.js           # VOCAB BRIDGE: ALL GREEN (19 checks)
 node qa/_dump_scene.js out.json && node qa/check-schema.js out.json
 ```
 
@@ -72,12 +78,17 @@ document how each thing was actually proven.
 | **At a distance** | Below the badge gate, one activity seal per building (dark ground, parchment ink) plus a `⌂` home chip that is always there. The label carries no counts as text. |
 | **Doors** | Every mark is addressable: `#/place/<key>?item=<kind>:<id>`. |
 | **The land's dress** | Nine flow glyphs from `SCENE.vocabulary.media`; `Built/Building/Planned` from `SCENE.vocabulary.phases`; bamboo scaffold on phase 2; `SKIN.flow_style` and `SKIN.label_style`. All editable from the skin panel. |
+| **The village's words, arriving** | One `applyVocabulary()` absorbs all five vocabulary keys whichever door they come through: a scene file, or the shell's `{type:'config'}` push. `VOCAB_KEYS` is the list, and a key the export gains without a door fails `verify_vocab_bridge.js` rather than dressing the land in defaults. |
 | **Founder's hands** | Duplicate a building with its quests and seats; the vitals override in plain words; the role field as a combobox; `SCENE.vision_bound`. |
 | **Promises** | RSVP and claim toggle both ways, persist per browser, and cross the bridge. |
 
 Version lives in `window.BUILD_VERSION`. The site importer pins on the FAMILY
 (`v0.8`), so a point release inside it is accepted; a new family is refused
-loudly and deliberately.
+loudly and deliberately. That is now demonstrated rather than asserted: the
+`v0.8-roundD1` bump was dry-run through `scripts/import-map-scene.ts` and
+admitted. `qa/verify_features.js` moved with it, from pinning the whole string
+to pinning the family, because a gate that has to be edited green on every
+point release teaches the next session to edit it instead of read it.
 
 ---
 
@@ -202,19 +213,62 @@ by the other lane READING rather than by either of us testing.**
 | the same | `vocabulary.media`, `vocabulary.phases` |
 | quest keys | cut to 32, and a cut join key COLLIDES silently |
 | `slugify` | a 48 cap, correct for a URL fragment, wrong for a join key |
+| the `{type:'config'}` handler | `vocabulary.media`, `vocabulary.phases` AGAIN, inbound this time |
 
-Two rules came out of it, and they are the most useful thing to carry forward:
+**The fifth arrived the next day, and it hid better than the other four.**
+`SCENE.vocabulary` has five keys, and the map absorbed them in two places that
+had to agree forever: `restoreScene` for a scene file, and the `{type:'config'}`
+handler for the shell's live push. When `media` and `phases` joined the
+vocabulary, only the file one grew. A founder who renamed their phases or
+coloured their own flows got those words back on a file import and lost them on
+every push from Village Settings, and the land drew in the platform's defaults.
+
+This handoff recorded it as "nothing reads `map_vocabulary` inbound", and that
+phrasing is exactly why it sat. Something WAS reading it: three keys of five.
+**A partial absorber is indistinguishable from a working one from the outside,
+and the keys that do land are the evidence that hides the ones that do not.**
+There is no wrong value to notice anywhere, only a default one.
+
+The fix is deliberately not a third enumeration, because two lists that must
+agree forever is what produced this and a third would guarantee the sixth. One
+`applyVocabulary()` absorbs a vocabulary whichever door it came through,
+`VOCAB_KEYS` names what a vocabulary IS, and `qa/verify_vocab_bridge.js`
+asserts that every key the export emits is a key the absorber takes. Add a
+sixth key to one side now and a gate fails, rather than the land quietly
+wearing the platform's words.
+
+Three rules came out of it, and they are the most useful thing to carry forward:
 
 1. **Reusing a helper is a decision about its LIMITS, not just its behaviour.**
    A cap that suits one caller is not a property of the function.
 2. **A rule handed across a boundary needs its scope attached**, or the other
    side has to guess. `/^[a-z0-9_-]{1,32}$/` was the media-key pattern; it
    arrived without "for media" and got applied where truncation collides.
+3. **A gate that has never failed is not yet a gate.**
+   `qa/verify_vocab_bridge.js` was run against the UNPATCHED artifact before
+   the fix existed and had to go red: 10 of 18, and the three that stayed
+   green were road, water and zone. Those greens are what named the shape.
+   Write the check first, watch it fail, and the failure tells you what you
+   are actually looking at.
 
 **So: when a value crosses a boundary, ask what happens to the parts the far
 side has no slot for.** Any future map round should end by exporting from the
 new build and dry-running `scripts/import-map-scene.ts`, which turns a silent
 drop into a loud refusal and names the rest.
+
+**Then notice which edge that ritual walks.** Export-and-dry-run checks the
+OUTBOUND direction only. The fifth bug was inbound, and the export is byte for
+byte identical with the fix and without it, so the dry run passed before and
+after and could never have found it. Both were run this round and both were
+green while the map was dropping two fifths of every vocabulary the shell sent.
+
+**Every boundary has two directions, and this one has a gate on one of them.**
+Worth knowing before trusting the pattern: `verify_skin_bridge.js` proves the
+skin ABSORBER by calling `applySkinExport()` directly, which means the
+`{type:'skin'}` and `{type:'config'}` doors that reach it are not covered by
+it. `verify_vocab_bridge.js` posts a real `message` for exactly that reason,
+and now also asserts the config door delivers skin. Nothing yet posts a real
+`{type:'skin'}`.
 
 ---
 
@@ -247,13 +301,30 @@ drop into a loud refusal and names the rest.
   vocabulary handles the types, not the individual edge.
 - **The healed water in the surround plate** still shows a faint straight edge
   in the far south-west. Esri's own capture boundary, healed rather than
-  removed, well outside the property line. `fetch_surround.py` regenerates it.
+  removed, well outside the property line. **Correction to the earlier note
+  here: `fetch_surround.py` does NOT fix this, it only rebuilds the plate.**
+  The fetch is the same tiles at the same zoom and `heal_open_water` is
+  deterministic per cell, so a plain re-run reproduces the seam exactly.
+  Removing it means changing the heal (feather the cell edges, or take the
+  surround a zoom lower where the boundary falls outside the pad) or sourcing
+  that corner elsewhere. Cosmetic, outside the property line, and it costs a
+  multi-MB re-embed, so it is the right thing to leave until someone is in the
+  plate anyway.
 - **`my_rsvps` / `my_claims` export at the top level**, not under `events`. The
   round doc asked for `events.my_rsvps` and `events` is a JSON array, which
-  cannot carry a key. Two lists say the same thing.
-- **Nothing reads `map_vocabulary` inbound.** The site serves
-  `GET /api/map/vocabulary` and the importer writes it, but the artifact has no
-  inbound verb, so vocabulary only round-trips through export today.
+  cannot carry a key. Two lists say the same thing. Confirmed still true and
+  still correct: they sit beside `events` in the export, and the importer reads
+  them there.
+- **Nothing yet posts a real `{type:'skin'}`.** `verify_skin_bridge.js` proves
+  the skin absorber by calling `applySkinExport()` directly, so the
+  `{type:'skin'}` door itself has no gate. `verify_vocab_bridge.js` now covers
+  the `{type:'config'}` door for both skin and vocabulary; the standalone skin
+  verb is the one left. This is the same shape as the fifth bug and is written
+  down here before it is one.
+
+**Closed this round:** the vocabulary inbound gap. `applyVocabulary()` is the
+one door, `patch_d7_vocab_inbound.py` is the change, `qa/verify_vocab_bridge.js`
+is the gate, and the artifact ships as `v0.8-roundD1`.
 
 ### Site lane (theirs, do not take)
 
@@ -270,7 +341,7 @@ reasons mapped from real status codes, and `count` on every ok reply. Also
 | file | what |
 |---|---|
 | `grounds-v0.html` | the artifact. Served directly, never copied into `dist`. |
-| `patch_*.py` | one per concern, in order: `d1_camera`, `d1b_overscroll`, `badges_p1..p4`, `d2_badges`, `d2_chips`, `d3_flows`, `d3_dress`, `d3_surround`, `d3_geolabels`, `d4_hands`, `d4_vision`, `d5_promises`, `d6_loose_ends`, `d6b_contract`, `d6c_questkeys` |
+| `patch_*.py` | one per concern, in order: `d1_camera`, `d1b_overscroll`, `badges_p1..p4`, `d2_badges`, `d2_chips`, `d3_flows`, `d3_dress`, `d3_surround`, `d3_geolabels`, `d4_hands`, `d4_vision`, `d5_promises`, `d6_loose_ends`, `d6b_contract`, `d6c_questkeys`, `d7_vocab_inbound` |
 | `fetch_sat.py`, `fetch_surround.py` | the Esri mosaics. The surround heals a bad capture over open water at cell granularity, because per-pixel thresholds leave a checkerboard. |
 | `check_blocks.mjs` | parses each inline script alone |
 | `qa/` | the suites, `env.sh`, `shell.html`, and the `_probe_*` instruments |

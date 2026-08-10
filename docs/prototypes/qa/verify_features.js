@@ -551,7 +551,17 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
     r.exp = { rsvps: Array.isArray(J.my_rsvps), claims: Array.isArray(J.my_claims), how: J.quests.some(x => x.how_to) };
     return r;
   });
-  ok(d5.version === 'v0.8-roundD', `D5.4: the artifact says which round it is (${d5.version})`);
+  /*
+   * The FAMILY is the contract. `scripts/import-map-scene.ts` pins v0.8 and
+   * refuses a new family outright, while admitting any point release inside
+   * it, so that is exactly what this asserts. It used to pin the whole string,
+   * which made every point release edit a gate — and a gate that is routinely
+   * edited to go green teaches the next session to edit it rather than read
+   * it. A bumped suffix passes here; a bumped family fails, which is the one
+   * that would break a founder's import.
+   */
+  ok(/^v0\.8(-|$)/.test(d5.version || ''),
+    `D5.4: the artifact ships the v0.8 family the importer admits (${d5.version})`);
   ok(d5.saidPlainly && d5.claimSaidPlainly, 'D5.1/D5.2: both promises say plainly what a tap actually does');
   ok(d5.going.up === 1 && d5.going.stored && d5.going.live && /tap to change/.test(d5.going.label),
     `D5.1: going is a promise, not a closed door (${d5.going.label})`);

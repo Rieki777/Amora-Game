@@ -3712,6 +3712,33 @@ const CIRCLE_HOMES={Outreach:'gate',Community:'welcome',Finance:'market',Land:'g
    surface that asked for a colour keeps asking the same way. */
 function rebuildMedia(){const m={};SCENE.vocabulary.media.forEach(x=>{m[x.key]=x.color});window.MEDIA=m;return m}
 window.rebuildMedia=rebuildMedia;const MEDIA=rebuildMedia();
+/* ---------- ONE DOOR FOR THE VILLAGE'S WORDS (D7) ----------
+   A vocabulary arrives two ways: inside a scene file a founder imports, and
+   over the bridge as `{type:'config'}` from the shell. It used to be absorbed
+   by two separate enumerations of the keys, and when `media` and `phases`
+   joined the vocabulary only the file one grew. The bridge kept absorbing
+   three of five and looked, from outside, exactly like it was working.
+   VOCAB_KEYS is the list; qa/verify_vocab_bridge.js asserts the export emits
+   nothing that is not on it. Returns the keys it actually took, so a caller
+   can say so and a test can read it. State only: refreshing the HUD belongs
+   to the caller, because a scene import rebuilds it wholesale anyway and
+   re-entering renderInspect() halfway through one reads a half-built SCENE. */
+const VOCAB_KEYS=['road','water','zone','media','phases'];
+function applyVocabulary(voc){
+  if(!voc||typeof voc!=='object')return[];
+  const took=[];
+  ['road','water','zone'].forEach(k=>{
+    if(Array.isArray(voc[k])&&voc[k].length){SUBTYPES[k]=voc[k].slice();took.push(k)}});
+  /* Merged, not replaced: a village that names only phase 2 keeps Built and
+     Planned. Keys arrive as numbers or strings depending on the JSON trip;
+     phaseName() already reads both. */
+  if(voc.phases&&typeof voc.phases==='object'&&!Array.isArray(voc.phases)&&Object.keys(voc.phases).length){
+    SCENE.vocabulary.phases={...SCENE.vocabulary.phases,...voc.phases};took.push('phases')}
+  if(Array.isArray(voc.media)&&voc.media.length){
+    SCENE.vocabulary.media=voc.media.map(m=>({key:m.key,name:m.name||m.key,color:m.color||'#e8c877',glyph:m.glyph||'seed'}));
+    rebuildMedia();flowSpriteReset();took.push('media')}
+  return took}
+window.applyVocabulary=applyVocabulary;window.VOCAB_KEYS=VOCAB_KEYS;
 let inspKey=null;
 function setDerived(s){s.state=derivedState(s);const el=pEls[s.key];if(el){
     el.className='poi st-'+s.state;
@@ -3984,14 +4011,9 @@ function restoreScene(J){try{
       at:(st.structure_key&&BY[st.structure_key])?st.structure_key:null,
       addr:(st.address_source&&st.address_source!=='pool')?st.address_source:(st.structure_key?'creator':null)}))}));
   resolveAllAddresses();
-  const voc=J.map_scene&&J.map_scene.vocabulary;
-  if(voc)['road','water','zone'].forEach(k2=>{if(Array.isArray(voc[k2])&&voc[k2].length)SUBTYPES[k2]=voc[k2].slice()});
+  applyVocabulary(J.map_scene&&J.map_scene.vocabulary);
   const vb=J.map_scene&&J.map_scene.vision_bound;
   SCENE.vision_bound=(Array.isArray(vb)&&vb.length>2)?vb.map(p=>[p[0],p[1]]):null;
-  if(voc&&voc.phases&&typeof voc.phases==='object')SCENE.vocabulary.phases={...SCENE.vocabulary.phases,...voc.phases};
-  if(voc&&Array.isArray(voc.media)&&voc.media.length){
-    SCENE.vocabulary.media=voc.media.map(m=>({key:m.key,name:m.name||m.key,color:m.color||'#e8c877',glyph:m.glyph||'seed'}));
-    rebuildMedia();flowSpriteReset()}
   if(J.vital_overrides)window.VITAL_OVR=J.vital_overrides;
   SCENE.flows=(J.map_flows||[]).map(r=>({from:r.from_key,to:r.to_key,medium:mediaKey(r.medium),note:r.note,
     phase:r.phase,via:r.via_feature||undefined}));
@@ -4262,7 +4284,7 @@ refreshWork();
 /* ---------- MODULE DOORS — the map as the primary point of interaction.
    Every module has two doors: the menu (site nav) and the land (this map). Same routes, same data — D9 holds. ---------- */
 window.SITE_BASE='https://amora.regencivics.earth'; // forks set their own in Make This Yours
-window.BUILD_VERSION='v0.8-roundD';
+window.BUILD_VERSION='v0.8-roundD1';
 const SITE_ROUTES={j1:'/first-walk',j2:'/resident',j3:'/steward',j4:'/investor'};
 const DOOR_DEFS={
   stay:{module:'stay',icon:'🛏',cta:'Book a room'},
@@ -5037,7 +5059,12 @@ addEventListener('message',e=>{try{
   const d=e.data;if(!d||d.type!=='config')return;
   if(d.skin)applySkinExport(d.skin);
   if(Array.isArray(d.walk)&&d.walk.length)window.WALK=d.walk;
-  if(d.vocabulary)['road','water','zone'].forEach(k=>{if(Array.isArray(d.vocabulary[k])&&d.vocabulary[k].length)SUBTYPES[k]=d.vocabulary[k].slice()});
+  if(d.vocabulary&&applyVocabulary(d.vocabulary).length){
+    /* The land redraws itself every frame, but these are DOM and do not. */
+    if(typeof renderMediaVocab==='function')renderMediaVocab();
+    if(typeof renderPhaseVocab==='function')renderPhaseVocab();
+    if(typeof renderInspect==='function'&&typeof inspKey!=='undefined'&&inspKey)renderInspect();
+    if(typeof panelKey!=='undefined'&&panelKey)openPanel(panelKey)}
 }catch(_){}});
 /* pocket boot: skip the intro ceremony, walk the newcomer */
 if(document.body.classList.contains('pocket')){
