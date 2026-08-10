@@ -207,16 +207,42 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   ok(Math.abs(d1z.floor - d1z.want) < 1e-9, `D1.1: the zoom floor is FIT x 0.85, not COVER (${d1z.floor.toFixed(4)})`);
   ok(d1z.inside, 'D1.1: pinched all the way out, the whole land sits on screen with margin to spare');
 
+  /* Rye trimmed the rim by half after the first build. The contract is no
+     longer "the centre reaches the world corner"; it is "the centre reaches
+     every BUILDING, and the void at the rim is at most a quarter screen". */
   const d1c = await page.evaluate(() => {
-    cam.z = 1.2; cam.x = 0; cam.y = 0; clampCam(); const tl = [cam.x, cam.y];
-    cam.x = W; cam.y = H; clampCam(); const br = [cam.x, cam.y];
+    cam.z = 1.2; clampCam();
+    const far = [];
+    for (const s of SCENE.structures) {
+      cam.x = s.x; cam.y = s.y; clampCam();
+      const [sx, sy] = worldToScreen(s.x, s.y);
+      const off = Math.hypot(sx / DPR - innerWidth / 2, sy / DPR - innerHeight / 2);
+      if (off > 0.6) far.push(s.key + ' ' + Math.round(off));
+    }
+    /* Rim per side, against what the first D1 clamp allowed, at four zooms.
+       Half or less, unless a building out there is what holds the side open. */
+    const xs = SCENE.structures.map(s => s.x), ys = SCENE.structures.map(s => s.y);
+    const ex = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const sides = [];
+    for (const z of [0.6, 0.9, 1.2, 1.8]) {
+      cam.z = z; clampCam();
+      const b = camBounds(), hw = innerWidth / 2 / z, hh = innerHeight / 2 / z;
+      const one = (now, old, land, held) => ({ ratio: old > 0 ? now / old : 0, land: Math.abs(land - held) < 0.5 });
+      sides.push(
+        one(Math.max(0, hw - b[0]), hw, ex[0], b[0]),
+        one(Math.max(0, b[1] - (W - hw)), hw, ex[1], b[1]),
+        one(Math.max(0, hh - b[2]), hh, ex[2], b[2]),
+        one(Math.max(0, b[3] - (H - hh)), hh, ex[3], b[3]));
+    }
     const e = [...SCENE.structures].sort((a, b) => b.x - a.x)[0];
-    cam.x = e.x; cam.y = e.y; clampCam();
+    cam.z = 1.2; cam.x = e.x; cam.y = e.y; clampCam();
     const [sx, sy] = worldToScreen(e.x, e.y);
-    return { tl, br, W, H, name: e.name, off: Math.hypot(sx / DPR - innerWidth / 2, sy / DPR - innerHeight / 2) };
+    return { far, name: e.name, off: Math.hypot(sx / DPR - innerWidth / 2, sy / DPR - innerHeight / 2),
+      over: sides.filter(s => s.ratio > 0.505 && !s.land).length, n: sides.length,
+      worst: Math.max(...sides.filter(s => !s.land).map(s => s.ratio)) };
   });
-  ok(d1c.tl[0] === 0 && d1c.tl[1] === 0 && d1c.br[0] === d1c.W && d1c.br[1] === d1c.H,
-    'D1.1: the camera centre reaches every corner of the bound');
+  ok(d1c.far.length === 0, `D1.1: every building can sit dead centre (${d1c.far.length} out of reach${d1c.far.length ? ': ' + d1c.far.slice(0, 3).join(', ') : ''})`);
+  ok(d1c.over === 0, `D1.1: and the rim past the land is half what the first build showed (worst ${(d1c.worst * 100).toFixed(0)}% of it, over ${d1c.n} side-and-zoom pairs)`);
   ok(d1c.off < 0.6, `D1.1: the eastmost building (${d1c.name}) can sit dead centre (${d1c.off.toFixed(2)} px off)`);
 
   const d1w = await page.evaluate(() => {
@@ -391,9 +417,12 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
      and then over each other. Swept across the far zooms where both live. */
   const vplate = await page.evaluate(() => {
     const rows = [];
-    for (const z of [0.62, 0.72, 0.82, 0.9]) {
+    for (const z of [0.52, 0.62, 0.72, 0.82, 0.9]) {
       cam.z = z; cam.x = 1240; cam.y = 700; clampCam(); refreshBadges(); syncBanners(); syncBanners(); syncBanners();
-      const plates = SCENE.districts.map(d => bEls['d_' + d.id]).filter(e => e.style.display !== 'none').map(e => e.getBoundingClientRect());
+      /* districts AND geography names: with the land extended to the rim, the
+         whole-land view is where people sit, and both kinds print in it */
+      const plates = [...SCENE.districts.map(d => bEls['d_' + d.id]), ...GEO.map((g, i) => bEls['g_' + i])]
+        .filter(e => e && e.style.display !== 'none').map(e => e.getBoundingClientRect());
       const marks = [...document.querySelectorAll('.aseal,.hchip')]
         .filter(e => getComputedStyle(e).display !== 'none' && /\b(on|far)\b/.test(e.closest('.bgroup').className))
         .map(e => e.getBoundingClientRect());
