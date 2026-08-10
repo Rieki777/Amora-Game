@@ -659,6 +659,69 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   ok(d6b.silent.delta === 1 && d6b.silent.stored,
     'bridge: with nobody listening the promise still stands, which is how the map runs alone');
 
+  /* ---------- the contract amendments the site lane asked for ---------- */
+  const amd = await page.evaluate(async () => {
+    const r = {}; const sent = []; const o = window.bridgePost;
+    window.bridgePost = m => { sent.push(m); o(m); };
+    const send = d => window.dispatchEvent(new MessageEvent('message', { data: d, origin: location.origin }));
+    /* on, off, on inside the window: a late reply for the FIRST post must not
+       speak for the third, which is what the nonce is for */
+    const e = EVENTS[4], base = e.rsvp;
+    evRSVP(e.id); evRSVP(e.id); evRSVP(e.id);
+    await new Promise(z => setTimeout(z, 150));
+    const posts = sent.filter(m => m.type === 'rsvp');
+    r.nonces = { n: posts.length, unique: new Set(posts.map(m => m.nonce)).size, all: posts.every(m => !!m.nonce) };
+    send({ type: 'promise-result', kind: 'rsvp', id: e.id, ok: false, reason: 'error', nonce: posts[0].nonce });
+    await new Promise(z => setTimeout(z, 200));
+    r.stale = { stored: !!EV_RSVP[e.id], delta: e.rsvp - base };
+    send({ type: 'promise-result', kind: 'rsvp', id: e.id, ok: false, reason: 'not-here', nonce: posts[posts.length - 1].nonce });
+    await new Promise(z => setTimeout(z, 200));
+    r.current = { stored: !!EV_RSVP[e.id], delta: e.rsvp - base,
+      calm: [...document.querySelectorAll('.toast')].some(t => /joins the village when a steward/.test(t.textContent)) };
+    r.reasons = ['anonymous', 'not-yet', 'closed', 'full', 'not-here', 'gone', 'error'].every(k => !!PROMISE_WHY[k]);
+    /* a quest's identity is a field the site stores, not a slug two sides compute */
+    const q = SCENE.quests[0], was = q.key;
+    q.q = 'A different title entirely';
+    r.key = { onSeed: !!was, stable: questKey(q) === was, exported: buildExportJSON().quests[0].key === was,
+      unique: new Set(SCENE.quests.map(x => x.key)).size === SCENE.quests.length,
+      shape: SCENE.quests.every(x => /^[a-z0-9_-]{1,32}$/i.test(x.key)) };
+    const q2 = SCENE.quests.find(x => x.at === 'greenhouse');
+    sent.length = 0; claimQuest(q2.q, BY[q2.at].name); await new Promise(z => setTimeout(z, 200));
+    const cp = sent.filter(m => m.type === 'claim')[0] || {};
+    r.claim = { usesKey: cp.id === q2.key, hasNonce: !!cp.nonce };
+    claimQuest(q2.q, BY[q2.at].name);
+    /* and the editor cannot hand their sanitiser something it drops whole */
+    document.getElementById('skinBtn').click(); await new Promise(z => setTimeout(z, 250));
+    const host = document.getElementById('skMedia');
+    const n0 = SCENE.vocabulary.media.length;
+    host.querySelector('[data-vm="+"]').click(); await new Promise(z => setTimeout(z, 120));
+    host.querySelector('.vmn').value = '   '; host.querySelector('.vmok').click();
+    await new Promise(z => setTimeout(z, 150));
+    r.blankRefused = SCENE.vocabulary.media.length === n0;
+    host.querySelector('[data-vm="+"]').click(); await new Promise(z => setTimeout(z, 120));
+    host.querySelector('.vmn').value = 'grey water'; host.querySelector('.vmok').click();
+    await new Promise(z => setTimeout(z, 200));
+    const m = SCENE.vocabulary.media[SCENE.vocabulary.media.length - 1];
+    r.sanitiser = { key: m.key,
+      ok: SCENE.vocabulary.media.every(x => /^[a-z0-9_-]{1,32}$/i.test(x.key) && /^[a-z0-9_-]{1,32}$/i.test(x.glyph)
+        && /^#[0-9a-f]{6}$/i.test(x.color) && x.name.length <= 48) && SCENE.vocabulary.media.length <= 24,
+      phases: Object.keys(SCENE.vocabulary.phases).every(k => /^\d{1,2}$/.test(String(k))) };
+    document.getElementById('skinBtn').click();
+    return r;
+  });
+  ok(amd.nonces.n === 3 && amd.nonces.unique === 3 && amd.nonces.all,
+    `bridge: every post carries its own nonce (${amd.nonces.unique} of ${amd.nonces.n})`);
+  ok(amd.stale.stored && amd.stale.delta === 1,
+    'bridge: a late reply for a replaced intent is dropped, not applied');
+  ok(!amd.current.stored && amd.current.delta === 0 && amd.current.calm,
+    'bridge: the reply that answers the current post is honoured, calmly when the village has not imported');
+  ok(amd.reasons, 'bridge: every reason the route can give has words of its own');
+  ok(amd.key.onSeed && amd.key.stable && amd.key.exported && amd.key.unique && amd.key.shape,
+    'quests: the key is a field the site stores, and a title edit does not move it');
+  ok(amd.claim.usesKey && amd.claim.hasNonce, 'quests: a claim posts that key, never a recomputed slug');
+  ok(amd.blankRefused && amd.sanitiser.ok && amd.sanitiser.phases,
+    `vocabulary: nothing the editor writes can be dropped whole by the site (${amd.sanitiser.key})`);
+
   /* D1.2 on a phone: the two-finger pinch, in its own pocket context */
   const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, deviceScaleFactor: 3 } /* no isMobile: this Chromium reports innerWidth 4x the CSS viewport with it on */);
   const ppage = await pctx.newPage();

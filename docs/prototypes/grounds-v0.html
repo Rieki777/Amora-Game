@@ -2368,27 +2368,41 @@ window.bridgePost=bridgePost;
    the promise stands, because the artifact runs from file:// with no parent at
    all and that is how every suite drives it. Silence means local only. */
 const PROMISE_PENDING={};
-function promiseWatch(kind,id,undo){
+let PROMISE_N=0;
+/* One string per post, echoed back untouched. Toggle on-off-on inside the
+   window and three replies arrive; without this the first one home wins and
+   the map shows a state the reader already changed their mind about. */
+function promiseNonce(){return 'p'+(++PROMISE_N)+'-'+(performance.now()|0)}
+window.promiseNonce=promiseNonce;
+function promiseWatch(kind,id,nonce,undo){
   const k=kind+':'+id,p=PROMISE_PENDING[k];
   if(p)clearTimeout(p.t);
-  PROMISE_PENDING[k]={undo,t:setTimeout(()=>{delete PROMISE_PENDING[k]},4000)}}
+  PROMISE_PENDING[k]={nonce,undo,t:setTimeout(()=>{delete PROMISE_PENDING[k]},4000)}}
 window.promiseWatch=promiseWatch;
 const PROMISE_WHY={
   anonymous:'Sign in and this is yours to keep.',
+  'not-yet':'Your account cannot take this one yet. A steward can open it for you.',
   full:'That one is full. The door stays open for the next.',
-  closed:'That has closed. The door stays open for the next.',
+  closed:'That is not open to anyone right now.',
+  /* The map ships a sample village. Until someone imports the scene the site
+     has no row for any of it, and that is the ordinary state of a fresh fork
+     rather than something going wrong. */
+  'not-here':'This one lives on the map for now. It joins the village when a steward brings the scene across.',
   gone:'That is no longer on the board.',
   error:'That did not save. Try again in a moment.'};
 function promiseResult(d){
   const k=d.kind+':'+d.id,p=PROMISE_PENDING[k];
-  if(p){clearTimeout(p.t);delete PROMISE_PENDING[k]}
+  /* Not the post we are waiting on: a straggler from an intent the reader has
+     already replaced. Dropping it is the whole point of the nonce. */
+  if(!p||(d.nonce&&p.nonce&&d.nonce!==p.nonce))return;
+  clearTimeout(p.t);delete PROMISE_PENDING[k];
   if(d.ok){
     /* The shell owns the real count; the map's own number is sample data. */
     if(d.kind==='rsvp'&&typeof d.count==='number'){
       const e=(window.EVENTS||[]).find(x=>x.id===d.id);
       if(e){e.rsvp=d.count;if(typeof refreshBadges==='function')refreshBadges()}}
     return}
-  if(p&&p.undo)p.undo();
+  if(p.undo)p.undo();
   toast(PROMISE_WHY[d.reason]||PROMISE_WHY.error);
   if(d.reason==='anonymous'&&d.href)
     maiaSay(`That one is kept against your name, so it needs a name. <a href="${escq(d.href)}" target="_blank" rel="noopener">Sign in</a> and tap it again; nothing is lost.`);
@@ -2397,8 +2411,25 @@ window.promiseResult=promiseResult;
 const PROMISE_RSVP='Going adds this to your calendar in your profile and signs you up for updates by email. Tap again any time to change your answer.';
 const PROMISE_CLAIM='Claiming adds this quest to your profile with how to begin, and signs you up for updates. Release it any time.';
 window.PROMISE_RSVP=PROMISE_RSVP;window.PROMISE_CLAIM=PROMISE_CLAIM;
-const questId=q=>slugify(typeof q==='string'?q:(q&&q.q));
+/* A quest's identity is a field, not a computation. The site stores exactly
+   what the map sends and never derives it, so there is one slugify in the
+   world and a title edit cannot unmatch anything. Derived from the title the
+   first time it is needed, then kept even when the title changes.
+   The site's sanitiser wants a plain identifier of at most 32. */
+function questKey(q){
+  if(typeof q==='string')q=SCENE.quests.find(x=>x.q===q)||{q};
+  if(q&&q.key)return q.key;
+  const base=slugify(q&&q.q).slice(0,32)||'quest';
+  let k=base,n=1;
+  while(SCENE.quests.some(x=>x!==q&&x.key===k))k=(base+'-'+(++n)).slice(0,32);
+  if(q&&typeof q==='object')q.key=k;
+  return k}
+window.questKey=questKey;
+const questId=questKey;
 window.questId=questId;
+/* Every seeded quest gets its key at boot, so an export written before anyone
+   claims anything already carries them. */
+(function seedQuestKeys(){for(const q of SCENE.quests)questKey(q)})();
 const claimed=q=>!!QUEST_CLAIM[questId(q)];
 window.claimed=claimed;
 /* Silence is the only thing worth writing down: a building shows every kind
@@ -2417,7 +2448,7 @@ window.badgeOn=badgeOn;
 function slugify(t){return String(t||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,48)}
 window.slugify=slugify;
 function itemAddr(kind,x){
-  if(kind==='quest')return 'quest:'+slugify(x&&x.q);
+  if(kind==='quest')return 'quest:'+((typeof questKey==='function')?questKey(x):slugify(x&&x.q));
   if(kind==='seat')return 'seat:'+slugify(x&&x.s);
   if(kind==='event')return 'event:'+((x&&x.id)||slugify(x&&x.title));
   if(kind==='talk')return 'talk:'+((x&&x.id)||slugify(x&&x.title));
@@ -2864,8 +2895,9 @@ function claimQuest(q,at){
   const id=questId(q),on=!QUEST_CLAIM[id];
   if(on)QUEST_CLAIM[id]=1;else delete QUEST_CLAIM[id];
   promiseSave('amora-claims',QUEST_CLAIM);
-  bridgePost({type:'claim',id,on});
-  promiseWatch('claim',id,()=>{
+  const nonce=promiseNonce();
+  bridgePost({type:'claim',id,on,nonce});
+  promiseWatch('claim',id,nonce,()=>{
     if(on)delete QUEST_CLAIM[id];else QUEST_CLAIM[id]=1;
     promiseSave('amora-claims',QUEST_CLAIM);
     if(typeof refreshBadges==='function')refreshBadges();
@@ -3247,6 +3279,7 @@ function buildExportJSON(){
       address_source:addrSrc(x),src:x.src||'scene',circle_site:x.circle_site||null})),
     quests:SCENE.quests.map(x=>({title:x.q,structure_key:x.at||null,reward:x.r,need:x.need,desc:x.desc||'',
       src:x.src||'scene',circle_site:x.circle_site||null,circle_aff:x.aff||null,
+      key:questKey(x), // the site stores this and never computes it
       weight:x.weight||null, // null means read it from the need text, which is what the map does
       how_to:x.how_to||null, // the first step, when a founder has written one
       address_source:addrSrc(x),
@@ -3644,7 +3677,7 @@ function renderResolver(){
     </div></div>`;
   window._rq={q,r}}
 function resolverCreate(){const{q,r}=window._rq||{};if(!q||!q.text.trim())return;
-  SCENE.quests.push({q:q.text.trim(),at:r.key,r:'20 ♥',need:'hands welcome',
+  SCENE.quests.push({q:q.text.trim(),key:slugify(q.text.trim()).slice(0,32),at:r.key,r:'20 ♥',need:'hands welcome',
     addr:r.guessed?'lexicon guess':(window._rqHome?'creator':(r.key?'resolved':'board'))});
   window._rqHome=null;
   logEdit('quest-add','quest:'+q.text.trim(),{at:r.key,via:r.steps.filter(s=>s.hit).map(s=>s.rule).join('→')});
@@ -3931,11 +3964,12 @@ function restoreScene(J){try{
   SCENE.seats=(J.org_roles||[]).map(r=>({s:r.role,at:(r.structure_key&&BY[r.structure_key])?r.structure_key:null,c:r.circle,note:r.note,
     addr:(r.address_source&&r.address_source!=='pool')?r.address_source:undefined,
     src:r.src||undefined,circle_site:r.circle_site||undefined}));
-  SCENE.quests=(J.quests||[]).map(r=>({q:r.title,at:(r.structure_key&&BY[r.structure_key])?r.structure_key:null,r:r.reward,need:r.need,
+  SCENE.quests=(J.quests||[]).map(r=>({q:r.title,key:r.key||undefined,at:(r.structure_key&&BY[r.structure_key])?r.structure_key:null,r:r.reward,need:r.need,
     desc:r.desc||undefined,src:r.src||undefined,circle_site:r.circle_site||undefined,aff:r.circle_aff||undefined,
     weight:(r.weight===1||r.weight===2||r.weight===3)?r.weight:undefined,
     how_to:r.how_to||undefined,
     addr:(r.address_source&&r.address_source!=='pool')?r.address_source:(r.address==='lexicon guess'?'lexicon guess':undefined)}));
+  SCENE.quests.forEach(q=>questKey(q)); // an import from before keys existed gets them now
   if(Array.isArray(J.forum_threads))SCENE.threads=J.forum_threads.map(t=>({id:t.id,title:t.title,
     structures:(t.structure_keys||[]).filter(k=>BY[k]),author:t.author,aud:t.audience||'member',
     replies:t.replies||0,last:t.last_activity||'',ex:t.excerpt||'',src:t.src||'sample',
@@ -4259,8 +4293,9 @@ function evRSVP(id){const e=EVENTS.find(x=>x.id===id);if(!e)return;
   if(on){e.rsvp++;EV_RSVP[id]=1}else{e.rsvp=Math.max(0,e.rsvp-1);delete EV_RSVP[id]}
   e._me=on?1:0;promiseSave('amora-rsvp',EV_RSVP);
   document.querySelectorAll(`[data-ev="${id}"]`).forEach(b=>{b.textContent=on?'✔ Going · tap to change':'RSVP';b.disabled=false});
-  bridgePost({type:'rsvp',id,title:e.title,on});
-  promiseWatch('rsvp',id,()=>{ // put it back exactly, without posting again
+  const nonce=promiseNonce();
+  bridgePost({type:'rsvp',id,title:e.title,on,nonce});
+  promiseWatch('rsvp',id,nonce,()=>{ // put it back exactly, without posting again
     if(on){e.rsvp=Math.max(0,e.rsvp-1);delete EV_RSVP[id];e._me=0}else{e.rsvp++;EV_RSVP[id]=1;e._me=1}
     promiseSave('amora-rsvp',EV_RSVP);
     document.querySelectorAll(`[data-ev="${id}"]`).forEach(b=>{b.textContent=on?'RSVP':'✔ Going · tap to change'});
@@ -4799,9 +4834,16 @@ function mediaEditor(btn,idx){
   btn.replaceWith(box);
   const n=box.querySelector('.vmn');n.focus();n.select&&n.select();
   const keep=()=>{
-    const name=n.value.trim();if(!name)return renderMediaVocab();
+    /* The site's sanitiser drops a medium WHOLE if the key is not a plain
+       identifier, the colour is not six-digit hex or the name runs long, and
+       it drops it in silence. So the key is machine-made and never typed, the
+       name is capped, and a name that cannot make a key is refused here where
+       a person can see it. */
+    const name=n.value.trim().slice(0,48);if(!name)return renderMediaVocab();
     const color=box.querySelector('.vmc').value,glyph=box.querySelector('.vmg').value;
-    if(add){const key=slugify(name);
+    if(add){const key=slugify(name).slice(0,32);
+      if(!key)return toast('Give it a name with letters or numbers in it, so the map has something to file it under.');
+      if(L.length>=24)return toast('Twenty four kinds of moving thing is the most a village can carry.');
       if(L.some(x=>x.key===key))return toast('That type already exists.');
       L.push({key,name,color,glyph});logEdit('vocab','media:+',{added:key})}
     else{const was=m.name;m.name=name;m.color=color;m.glyph=glyph;
@@ -4827,7 +4869,7 @@ function renderPhaseVocab(){const host=$('skPhases');if(!host)return;
     inp.style.cssText='width:96px;background:rgba(44,33,20,.9);border:1px solid #c9a25e;border-radius:6px;color:#fff;font-family:inherit;font-size:10.5px;padding:3px 7px';
     b.replaceWith(inp);inp.focus();inp.select&&inp.select();
     inp.onkeydown=e=>{
-      if(e.key==='Enter'){const v=inp.value.trim();
+      if(e.key==='Enter'){const v=inp.value.trim().slice(0,48); // the site caps phase names at 48
         if(v&&v!==phaseName(nn)){SCENE.vocabulary.phases[nn]=v;logEdit('vocab','phase:'+nn,{to:v});
           if(typeof renderInspect==='function'&&typeof inspKey!=='undefined'&&inspKey)renderInspect();
           if(typeof panelKey!=='undefined'&&panelKey)openPanel(panelKey);
