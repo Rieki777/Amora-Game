@@ -313,25 +313,32 @@ def call_api(key: str, parts: list, retries: int = 4) -> bytes:
     raise RuntimeError("retries exhausted")
 
 
+# What ships to a browser. The model returns 2K masters, and 30 of those is
+# roughly 9 MB against a CI budget of 6 MB for the WHOLE of dist. A card
+# portrait renders a few hundred pixels tall, so 2K is about four times more
+# image than any screen asks for and the budget is the thing that notices.
+#
+# The master is not thrown away: it stays in scripts/avatar-bases, out of git,
+# so a future re-encode at a different size costs nothing.
+DELIVER_HEIGHT = 1024
+DELIVER_QUALITY = 80
+
+
 def to_webp(png_bytes: bytes, dest: str) -> int:
-    """PNG bytes to a quality-85 webp at `dest`. Returns the byte size.
+    """PNG bytes to a web-sized webp at `dest`. Returns the byte size.
 
     Written to a sibling temp file and renamed into place. Resume treats "the
     file exists" as "this asset is done", so a run killed mid-write must not
     leave a half webp sitting there looking finished.
     """
+    from PIL import Image
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     staging = dest + ".part"
-    if shutil.which("cwebp"):
-        tmp = dest + ".tmp.png"
-        with open(tmp, "wb") as f:
-            f.write(png_bytes)
-        subprocess.run(["cwebp", "-q", "85", tmp, "-o", staging], check=True,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        os.remove(tmp)
-    else:
-        from PIL import Image
-        Image.open(io.BytesIO(png_bytes)).save(staging, "WEBP", quality=85, method=6)
+    img = Image.open(io.BytesIO(png_bytes))
+    if img.height > DELIVER_HEIGHT:
+        width = max(1, round(img.width * DELIVER_HEIGHT / img.height))
+        img = img.resize((width, DELIVER_HEIGHT), Image.LANCZOS)
+    img.save(staging, "WEBP", quality=DELIVER_QUALITY, method=6)
     os.replace(staging, dest)
     return os.path.getsize(dest)
 

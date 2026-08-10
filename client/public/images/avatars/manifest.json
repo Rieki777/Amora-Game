@@ -41,7 +41,175 @@
       "derivedFromBase": true,
       "file": "building-m-olive.webp",
       "model": "gemini-3-pro-image"
+    },
+    "catalyzing-f-deep": {
+      "at": "2026-08-10T16:18:01+00:00",
+      "base": "catalyzing-f",
+      "derivedFromBase": false,
+      "file": "catalyzing-f-deep.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "catalyzing-f-light": {
+      "at": "2026-08-10T16:19:01+00:00",
+      "base": "catalyzing-f",
+      "derivedFromBase": false,
+      "file": "catalyzing-f-light.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "catalyzing-f-olive": {
+      "at": "2026-08-10T16:18:34+00:00",
+      "base": "catalyzing-f",
+      "derivedFromBase": false,
+      "file": "catalyzing-f-olive.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "catalyzing-m-deep": {
+      "at": "2026-08-10T16:19:57+00:00",
+      "base": "catalyzing-m",
+      "derivedFromBase": false,
+      "file": "catalyzing-m-deep.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "catalyzing-m-light": {
+      "at": "2026-08-10T16:19:26+00:00",
+      "base": "catalyzing-m",
+      "derivedFromBase": false,
+      "file": "catalyzing-m-light.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "catalyzing-m-olive": {
+      "at": "2026-08-10T16:20:28+00:00",
+      "base": "catalyzing-m",
+      "derivedFromBase": false,
+      "file": "catalyzing-m-olive.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "facilitating-f-deep": {
+      "at": "2026-08-10T16:15:38+00:00",
+      "base": "facilitating-f",
+      "derivedFromBase": false,
+      "file": "facilitating-f-deep.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "facilitating-f-light": {
+      "at": "2026-08-10T16:15:13+00:00",
+      "base": "facilitating-f",
+      "derivedFromBase": false,
+      "file": "facilitating-f-light.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "facilitating-f-olive": {
+      "at": "2026-08-10T16:16:03+00:00",
+      "base": "facilitating-f",
+      "derivedFromBase": false,
+      "file": "facilitating-f-olive.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "facilitating-m-deep": {
+      "at": "2026-08-10T16:17:05+00:00",
+      "base": "facilitating-m",
+      "derivedFromBase": false,
+      "file": "facilitating-m-deep.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "facilitating-m-light": {
+      "at": "2026-08-10T16:17:32+00:00",
+      "base": "facilitating-m",
+      "derivedFromBase": false,
+      "file": "facilitating-m-light.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "facilitating-m-olive": {
+      "at": "2026-08-10T16:16:36+00:00",
+      "base": "facilitating-m",
+      "derivedFromBase": false,
+      "file": "facilitating-m-olive.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "researching-f-deep": {
+      "at": "2026-08-10T16:12:47+00:00",
+      "base": "researching-f",
+      "derivedFromBase": false,
+      "file": "researching-f-deep.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "researching-f-light": {
+      "at": "2026-08-10T16:13:13+00:00",
+      "base": "researching-f",
+      "derivedFromBase": false,
+      "file": "researching-f-light.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "researching-f-olive": {
+      "at": "2026-08-10T16:12:22+00:00",
+      "base": "researching-f",
+      "derivedFromBase": false,
+      "file": "researching-f-olive.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "researching-m-deep": {
+      "at": "2026-08-10T16:13:41+00:00",
+      "base": "researching-m",
+      "derivedFromBase": false,
+      "file": "researching-m-deep.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "researching-m-light": {
+      "at": "2026-08-10T16:14:46+00:00",
+      "base": "researching-m",
+      "derivedFromBase": false,
+      "file": "researching-m-light.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "researching-m-olive": {
+      "at": "2026-08-10T16:14:08+00:00",
+      "base": "researching-m",
+      "derivedFromBase": false,
+      "file": "researching-m-olive.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "storytelling-f-deep": {
+      "at": "2026-08-10T16:21:26+00:00",
+      "base": "storytelling-f",
+      "derivedFromBase": false,
+      "file": "storytelling-f-deep.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "storytelling-f-light": {
+      "at": "2026-08-10T16:21:57+00:00",
+      "base": "storytelling-f",
+      "derivedFromBase": false,
+      "file": "storytelling-f-light.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "storytelling-f-olive": {
+      "at": "2026-08-10T16:20:55+00:00",
+      "base": "storytelling-f",
+      "derivedFromBase": false,
+      "file": "storytelling-f-olive.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "storytelling-m-deep": {
+      "at": "2026-08-10T16:22:22+00:00",
+      "base": "storytelling-m",
+      "derivedFromBase": false,
+      "file": "storytelling-m-deep.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "storytelling-m-light": {
+      "at": "2026-08-10T16:23:13+00:00",
+      "base": "storytelling-m",
+      "derivedFromBase": false,
+      "file": "storytelling-m-light.webp",
+      "model": "gemini-3-pro-image"
+    },
+    "storytelling-m-olive": {
+      "at": "2026-08-10T16:22:47+00:00",
+      "base": "storytelling-m",
+      "derivedFromBase": false,
+      "file": "storytelling-m-olive.webp",
+      "model": "gemini-3-pro-image"
     }
   },
-  "updatedAt": "2026-08-10T15:44:46+00:00"
+  "updatedAt": "2026-08-10T16:23:13+00:00"
 }

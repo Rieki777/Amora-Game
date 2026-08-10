@@ -21,6 +21,19 @@
 -- Every refund is a REVERSAL of the debit, not a fresh mint, so it inherits
 -- every guard the debit passed and cannot become a way to make voice.
 
+-- The accounts the village voice moves between. System accounts must EXIST
+-- before anything posts to them: `postTransfer` materialises `mem:` accounts on
+-- first touch and refuses an unknown `sys:` id outright, because a typo'd
+-- system account is a bug to hear about rather than an account to invent.
+--
+-- The mint is a faucet, so its negative balance IS the voice issued to date,
+-- which is the number the Mint's supply feed reads. The bridge is NOT a
+-- faucet: voice held against an open claim has to have come from somebody, and
+-- a faucet there would let a claim create the voice it claims.
+INSERT IGNORE INTO `ledger_accounts` (`id`, `kind`, `user_id`, `label`, `faucet`) VALUES
+  ('sys:voice-mint', 'system', NULL, 'Village voice mint', 1),
+  ('sys:voice-bridge', 'system', NULL, 'Voice held for an open claim', 0);
+
 CREATE TABLE IF NOT EXISTS `voice_claims` (
   `id` varchar(64) NOT NULL,
   `village_id` varchar(64) NOT NULL DEFAULT 'local',
