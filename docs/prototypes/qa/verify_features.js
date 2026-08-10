@@ -127,10 +127,15 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   /* F4: event pins + urgency + RSVP */
   const f4 = await page.evaluate(() => ({
     kitchen: pEls.kitchen.className, sanctuary: pEls.sanctuary.className,
-    badge: !!pEls.kitchen.querySelector('.evbadge svg')
+    /* D2 A1: the star left the building. It used to be a pointer-events:none
+       span inside the poi, which is why nobody could tap it; it is a seal in
+       the badge plane now, wearing its own urgency class. */
+    badge: !!(bgEls.sanctuary && bgEls.sanctuary.querySelector('.bseal.b-event.evbadge svg')),
+    sealUrg: bgEls.sanctuary ? (bgEls.sanctuary.querySelector('.b-event') || {}).className : ''
   }));
   ok(/hasev/.test(f4.kitchen) && /ev-u3/.test(f4.kitchen), 'F4: tonight\'s feast burns brightest (u3)');
-  ok(/ev-u0/.test(f4.sanctuary) && f4.badge, 'F4: far events glow dim — urgency rises as the day comes');
+  ok(/ev-u0/.test(f4.sanctuary) && f4.badge && /ev-u0/.test(f4.sealUrg),
+    'F4: far events glow dim — urgency rises as the day comes, on the seal now');
   const f4b = await page.evaluate(() => { const r0 = EVENTS[0].rsvp; evRSVP('e1'); return EVENTS[0].rsvp === r0 + 1; });
   ok(f4b, 'F4: RSVP counts (sample, in-memory)');
 
@@ -256,6 +261,61 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   const hug = d1l.filter(r => r.now < r.was - 6).length;
   ok(d1l.length > 8 && hug === d1l.length,
     `D1.3: every painted label sits closer to its crown (${hug}/${d1l.length}, e.g. ${Math.round(d1l[0].was)} -> ${Math.round(d1l[0].now)} px)`);
+
+  /* ---------- D2 A1: every mark reachable, no two marks touching ---------- */
+  const d2a = await page.evaluate(() => {
+    cam.z = 1.7; cam.x = 1240; cam.y = 700; clampCam(); refreshBadges(); syncBanners(); syncBanners();
+    const shown = [...document.querySelectorAll('.bseal')].filter(s =>
+      s.closest('.bgroup').classList.contains('on') && getComputedStyle(s).display !== 'none'
+      && s.getBoundingClientRect().width > 0);
+    const box = s => { const r = s.getBoundingClientRect(); return { s, cx: r.x + r.width / 2, cy: r.y + r.height / 2 }; };
+    const b = shown.map(box);
+    let touching = 0, worst = '';
+    for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) {
+      const d = Math.hypot(b[i].cx - b[j].cx, b[i].cy - b[j].cy);
+      // 44 exactly is two hit circles touching, which is the target, not a fault
+      if (d < 43.5) { touching++; if (!worst) worst = `${b[i].s.dataset.bk}:${b[i].s.dataset.bkind} vs ${b[j].s.dataset.bk}:${b[j].s.dataset.bkind} at ${Math.round(d)} px`; }
+    }
+    /* Reachability is only meaningful for marks inside the map, away from the
+       HUD panels that legitimately sit above it. */
+    const inMap = b.filter(x => x.cx > 60 && x.cy > 96 && x.cx < innerWidth - 60 && x.cy < innerHeight - 96
+      && !document.getElementById('maia').getBoundingClientRect().width
+      || (x.cx > 60 && x.cy > 96 && x.cx < innerWidth - 60 && x.cy < innerHeight - 96
+        && !(x.cx > document.getElementById('maia').getBoundingClientRect().x && x.cy > document.getElementById('maia').getBoundingClientRect().y)));
+    let mine = 0;
+    for (const x of inMap) { const el = document.elementFromPoint(x.cx, x.cy); if (el && (el === x.s || x.s.contains(el))) mine++; }
+    const hit = document.querySelector('.bseal .bhit');
+    return {
+      shown: shown.length, touching, worst, mine, of: inMap.length,
+      clusters: document.querySelectorAll('.bgroup.clustered').length,
+      star: !!document.querySelector('.bseal.b-event'),
+      starHit: !!(document.querySelector('.bseal.b-event') && getComputedStyle(document.querySelector('.bseal.b-event')).pointerEvents === 'auto'),
+      hitPx: hit ? Math.round(hit.getBoundingClientRect().width) : 0,
+      inPoi: !!pEls.kitchen.querySelector('.evbadge'),
+      layers: { badges: +getComputedStyle(document.getElementById('badges')).zIndex, banners: +getComputedStyle(document.getElementById('banners')).zIndex, icons: +getComputedStyle(document.getElementById('icons')).zIndex }
+    };
+  });
+  ok(d2a.touching === 0, `D2 A1: no two marks overlap anywhere on the land (${d2a.shown} shown${d2a.worst ? ', worst ' + d2a.worst : ''})`);
+  ok(d2a.mine === d2a.of && d2a.of > 12, `D2 A1: every mark over the map answers its own tap (${d2a.mine}/${d2a.of})`);
+  ok(d2a.layers.badges > d2a.layers.banners && d2a.layers.banners > d2a.layers.icons,
+    `D2 A1: badge over label over building (${d2a.layers.badges} > ${d2a.layers.banners} > ${d2a.layers.icons})`);
+  ok(d2a.star && d2a.starHit && !d2a.inPoi, 'D2 A1: the star is a seal with its own hit area, not furniture inside the building');
+  ok(d2a.hitPx === 44, `D2 A1: 44 px of thumb under a 22 px mark (${d2a.hitPx})`);
+  ok(d2a.clusters > 0, `D2 A1: crowded rings collapse to a counted seal (${d2a.clusters} clustered)`);
+
+  /* and a tap on a mark opens what the mark is about */
+  const d2t = await page.evaluate(async () => {
+    document.getElementById('panel').classList.remove('open');
+    const seal = [...document.querySelectorAll('.bseal.b-quest')].find(s => getComputedStyle(s).display !== 'none');
+    const key = seal.dataset.bk;
+    seal.click(); await new Promise(r => setTimeout(r, 500));
+    const r = { key, panel: panelKey, open: document.getElementById('panel').classList.contains('open'), tab: [...document.getElementById('tabs').children].findIndex(b => b.classList.contains('on')) };
+    document.getElementById('panelClose').click();
+    return r;
+  });
+  ok(d2t.open && d2t.panel === d2t.key && d2t.tab === 1,
+    `D2 A1: tapping a leaf-pennant opens ${d2t.key} at its quests (tab ${d2t.tab})`);
+  await page.waitForTimeout(400);
 
   /* D1.2 on a phone: the two-finger pinch, in its own pocket context */
   const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, deviceScaleFactor: 3 } /* no isMobile: this Chromium reports innerWidth 4x the CSS viewport with it on */);
