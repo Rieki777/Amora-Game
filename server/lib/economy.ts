@@ -776,6 +776,129 @@ export async function mintForConfirmedClaim(
   return { minted };
 }
 
+/**
+ * A steward saw this person here. Badge progress only, never currency.
+ *
+ * Attendance is the one thing in this economy that pays nothing, and that is
+ * the design: counting an RSVP as attendance hands a badge to anyone willing
+ * to tap a button, and paying for attendance rewards turning up over doing
+ * something. So the check-in is a separate table from `event_rsvps`, it needs
+ * a steward, and it mints nothing at all.
+ *
+ * The confirmer may not be the attendee, for the same reason a steward cannot
+ * witness their own quest: a badge somebody can award themselves is not earned,
+ * and Wall-Raiser is three build days.
+ */
+export async function checkIn(
+  pool: Pool,
+  input: { eventId: string; userId: string; confirmedBy: string; note?: string },
+): Promise<{ ok: true; duplicate: boolean } | { ok: false; error: string }> {
+  const witness = canConfirm(input.userId, input.confirmedBy);
+  if (!witness.ok) {
+    return { ok: false, error: "Someone else checks you in. Ask a steward." };
+  }
+  const key = `event.checkin:${villageId()}:${input.eventId}:${input.userId}`;
+  const id = `chk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    const [res]: any = await pool.query(
+      "INSERT IGNORE INTO `event_checkins` " +
+        "(`id`, `village_id`, `event_id`, `user_id`, `confirmed_by`, `note`, `idempotency_key`) " +
+        "VALUES (?,?,?,?,?,?,?)",
+      [id, villageId(), input.eventId, input.userId, input.confirmedBy, input.note ?? null, key],
+    );
+    // INSERT IGNORE over the one-per-person unique key: a steward tapping twice
+    // is not an error, it is the same fact arriving twice.
+    return { ok: true, duplicate: Number(res?.affectedRows ?? 0) === 0 };
+  } catch (err: any) {
+    return { ok: false, error: String(err?.message ?? err) };
+  }
+}
+
+/** How many confirmed check-ins this member has, which is what badges count. */
+export async function checkinCount(pool: Pool, userId: string): Promise<number> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS n FROM `event_checkins` WHERE `village_id` = ? AND `user_id` = ?",
+    [villageId(), userId],
+  );
+  return Number(rows[0]?.n ?? 0);
+}
+
+// ── Settlement: the moon closes the books ───────────────────────────────────
+
+export interface SettlementResult {
+  cycleKey: string;
+  stewardsThanked: number;
+  minted: Array<{ token: string; units: number }>;
+  alreadyRun: boolean;
+}
+
+/**
+ * Close one lunation.
+ *
+ * What it does: thanks everyone holding a seat, per the `role.cycle` rules.
+ * What it deliberately does NOT do: reset an allowance, which needs no reset
+ * because it was never stored, and close a gratitude cycle, which the
+ * scheduler has been forbidden from doing since it was written. Settlement
+ * releasing value is a human act; this job only pays what the rules already
+ * promised for work already held.
+ *
+ * A re-run is a no-op and a resumed partial run finishes, both for the same
+ * reason: every mint is keyed on (cycle, seat, holder), so the ledger itself
+ * remembers what was paid. There is no "has this cycle run" flag to get out of
+ * step with what actually happened.
+ */
+export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<SettlementResult> {
+  const { key: cycleKey } = cycleWindow(at);
+  const out: SettlementResult = { cycleKey, stewardsThanked: 0, minted: [], alreadyRun: false };
+
+  const ready = await economyReady(pool);
+  if (!ready.ready) return out;
+
+  const rules = await rulesFor(pool, "role.cycle", cycleBoundsFor(at).cycleNumber);
+  if (!rules.length) return out;
+
+  // Live seatings held by real accounts. `active_holder_key` is NULL once a
+  // seating ends, and examples are not people.
+  const [seats] = await pool.query<RowDataPacket[]>(
+    "SELECT `id`, `org_role_id`, `user_id` FROM `org_role_assignments` " +
+      "WHERE `active_holder_key` IS NOT NULL AND `holder_kind` = 'member' " +
+      "AND `user_id` IS NOT NULL AND `is_example` = 0",
+  );
+
+  const paid = new Set<string>();
+  for (const seat of seats) {
+    const userId = String(seat.user_id);
+    const seatId = String(seat.id);
+    for (const r of rules) {
+      const human = r.amount ?? 0;
+      if (human <= 0) continue;
+      const units = toLedgerUnits(r.tokenSlug, human);
+      const faucet = faucetFor(r.tokenSlug);
+      if (units <= 0 || !faucet) continue;
+      const res = await mint(pool, {
+        toUserId: userId,
+        tokenSlug: r.tokenSlug,
+        amount: units,
+        from: faucet,
+        source: "role_cycle",
+        sourceRef: seatId,
+        description: `Thanks for holding a seat through ${cycleKey}`,
+        // Two seats are two thanks, and the same seat next moon is another.
+        idempotencyKey: `${keys.roleCycle(villageId(), cycleKey, seatId, userId)}:${r.tokenSlug}`,
+      });
+      if (res.ok && !res.duplicate) {
+        paid.add(userId);
+        out.minted.push({ token: r.tokenSlug, units });
+      }
+    }
+  }
+  out.stewardsThanked = paid.size;
+  // Nothing new to pay means this cycle was already settled, which is the only
+  // honest way to know: the ledger is the record, not a flag beside it.
+  out.alreadyRun = out.minted.length === 0;
+  return out;
+}
+
 // ── Two-party consent ───────────────────────────────────────────────────────
 
 /**

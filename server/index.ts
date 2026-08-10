@@ -75,7 +75,7 @@ import {
   TREASURY,
 } from "./lib/ledger";
 import type { TransferGuard } from "./lib/ledger";
-import { mintForConfirmedClaim } from "./lib/economy";
+import { allowanceFor, checkIn, economyReady, give, mintForConfirmedClaim, runSettlement } from "./lib/economy";
 import { installCrashHandlers, reportError, wireErrorReporting } from "./lib/errors";
 import {
   STAY_CREDIT,
@@ -3492,6 +3492,35 @@ async function startServer() {
 
   // S67: peer sync — refresh what other villages share, every 6 hours,
   // only while the network module is on. One dark peer never blocks the rest.
+  /**
+   * The moon closes the books.
+   *
+   * Hourly, and that is not a cadence for paying people: it is how often the
+   * job ASKS. Every mint inside is keyed on (cycle, seat, holder), so running
+   * it twenty-four times a day pays exactly as much as running it once, and a
+   * run interrupted halfway finishes on the next tick instead of needing a
+   * human to work out where it stopped.
+   *
+   * This is allowed to be a job precisely because it releases nothing anybody
+   * has to decide. It thanks people for seats they already hold, at amounts the
+   * rules already promised. Closing a gratitude cycle stays a human act, and
+   * the scheduler has been forbidden from doing it since it was written.
+   */
+  registerJob("moon-settlement", 60 * 60 * 1000, async () => {
+    try {
+      const result = await runSettlement(getPool());
+      if (!result.alreadyRun && result.stewardsThanked > 0) {
+        console.log(
+          `[economy] ${result.cycleKey}: ${result.stewardsThanked} steward(s) thanked`,
+        );
+      }
+    } catch (err) {
+      // A settlement that throws must not take the scheduler with it. The keys
+      // mean the next tick picks up exactly where this one stopped.
+      console.error("[economy] settlement failed:", err);
+    }
+  });
+
   registerJob("network-sync", 6 * 60 * 60 * 1000, async () => {
     if (effectiveLifecycle("network") === "off") return;
     const r = await syncPeers(getPool());
@@ -6689,6 +6718,49 @@ async function startServer() {
     if (!user) return res.status(401).json({ error: "Sign in first" });
     const removed = await withdrawRsvp(getPool(), req.params.id, user.id);
     res.json({ success: true, removed });
+  });
+
+  /**
+   * A steward says who was actually here.
+   *
+   * Separate from the RSVP on purpose. An RSVP is an intention and a check-in
+   * is a witness, and collapsing them hands every attendance badge to anyone
+   * willing to tap a button a week beforehand. This mints nothing: attendance
+   * is badge progress and never currency, which is what stops turning up from
+   * competing with doing something.
+   *
+   * Gated on `quest.consent`, the capability that already means "may witness
+   * that work happened", rather than a new key. A second permission meaning
+   * almost the same thing is how two gates end up disagreeing.
+   */
+  app.post("/api/events/:id/checkin", async (req, res) => {
+    const actor = await consentActor(req);
+    if (!actor.ok) return res.status(actor.status).json({ error: actor.error });
+    const userId = String(req.body?.userId ?? "").trim();
+    if (!userId) return res.status(400).json({ error: "Name who was here" });
+    if (!actor.userId) return res.status(403).json({ error: "A check-in needs a named steward" });
+
+    const outcome = await checkIn(getPool(), {
+      eventId: req.params.id,
+      userId,
+      confirmedBy: actor.userId,
+      note: typeof req.body?.note === "string" ? req.body.note : undefined,
+    });
+    if (!outcome.ok) return res.status(403).json({ error: outcome.error });
+
+    if (!outcome.duplicate) {
+      // Admin audience, same reasoning as the RSVP above: the gathering is
+      // public news and who stood in it is not.
+      await recordEvent(getPool(), {
+        kind: "event_checkin",
+        text: "was checked in to a gathering",
+        actorUserId: actor.userId,
+        entityType: "event",
+        entityRef: req.params.id,
+        audience: "admin",
+      });
+    }
+    res.json({ success: true, duplicate: outcome.duplicate });
   });
 
   /** Admin list: the only surface that sees drafts. */
@@ -13101,6 +13173,69 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     // but the first real send retires the module's explanatory empty state.
     onRealItemPublished(getPool(), "gratitude", user.id);
     res.json({ success: true, entry: { ...outcome.entry, amount: undefined }, budget: outcome.budget });
+  });
+
+  /**
+   * Hearts, given.
+   *
+   * The economy engine's give path, with the allowance and the note written
+   * under one lock so five simultaneous gifts cannot all read the same
+   * remaining balance. Carries a tag, a place, a quiet flag and a client nonce,
+   * none of which the older send path knows about.
+   *
+   * TWO PATHS WRITE `gratitude_log` UNTIL RYE RETIRES ONE, and the difference
+   * is worth stating rather than discovering. `/api/game/gratitude/send` is the
+   * acknowledgement flow: a stage-scaled budget of 100 and a cap counting SENDS,
+   * set to 1. This is the Hearts economy: a flat allowance of 30 and a cap
+   * counting HEARTS, set to 10. Both sum into the same table, so this route's
+   * allowance already counts what the older one spent, which makes this the
+   * stricter of the two and never the looser. That is the safe direction for an
+   * overlap to run in, and it is still an overlap.
+   *
+   * Inert until the village's rules are seeded, so a deployment that has not
+   * opened its economy cannot reach it at all.
+   */
+  app.post("/api/gratitude", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to give Hearts" });
+    const ready = await economyReady(getPool());
+    if (!ready.ready) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    const { toId, amount, note, tag, structureKey, quiet, clientNonce } = req.body ?? {};
+    const recipient = toId ? await members.byId(String(toId)) : null;
+    if (!recipient) return res.status(404).json({ error: "No member found" });
+    if (isExampleUser(recipient)) {
+      return res.status(409).json({
+        error: "That is a standing example, not a member. Appreciation flows to real people.",
+      });
+    }
+
+    const outcome = await give(getPool(), {
+      fromUserId: user.id,
+      toUserId: recipient.id,
+      amount: Number(amount),
+      note: typeof note === "string" ? note : undefined,
+      tag: typeof tag === "string" ? tag : undefined,
+      structureKey: typeof structureKey === "string" ? structureKey : undefined,
+      quiet: quiet === true,
+      clientNonce: typeof clientNonce === "string" ? clientNonce : undefined,
+    });
+    if (!outcome.ok) return res.status(400).json({ error: outcome.error });
+
+    await notify({
+      userId: recipient.id,
+      type: "gratitude",
+      // A quiet gift reaches the person and names nobody, here and everywhere
+      // else it is ever rendered.
+      title: quiet === true ? "Someone thanked you" : `${firstName(user.name)} thanked you`,
+      body: typeof note === "string" && note ? note.slice(0, 140) : null,
+      link: "/profile",
+      actorUserId: quiet === true ? null : user.id,
+      dedupeKey: `gratitude:${outcome.noteId}`,
+    });
+    const allowance = await allowanceFor(getPool(), user.id);
+    res.json({ success: true, allowance });
   });
 
   /**

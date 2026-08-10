@@ -37,7 +37,7 @@ import {
   villageId,
   type MintRule,
 } from "./lib/economy";
-import { balanceOf, loadTokenRegistry, memberAccount, RECOGNITION_FAUCET } from "./lib/ledger";
+import { balanceOf, loadTokenRegistry, memberAccount, registerToken, RECOGNITION_FAUCET } from "./lib/ledger";
 import { loadVariables } from "./lib/variables";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
 
@@ -162,13 +162,22 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
   it("refuses to mint a token governed on Hypha", async () => {
     const u = await makeMember("econ-mint-3");
+    // A registered hypha token rather than the deployment's real equity slug:
+    // the brand guard counts a village's name anywhere in platform code, and
+    // it is right to. The rule under test is about GOVERNANCE, not about which
+    // village happens to have named a token after itself.
+    await registerToken(pool, {
+      slug: "test-equity", name: "Test Equity", kind: "equity",
+      governance: "hypha", transferable: false,
+    });
+    await loadTokenRegistry(pool);
     const res = await mint(pool, {
-      toUserId: u, tokenSlug: "amora", amount: 1,
+      toUserId: u, tokenSlug: "test-equity", amount: 1,
       from: RECOGNITION_FAUCET, source: "test", idempotencyKey: `hypha:${u}`,
     });
-    // Hearts are gratitude and amora is equity. If this platform ever posted
-    // the equity token it would quietly become the source of truth for the
-    // cap table.
+    // Hearts are recognition and equity is equity. If this platform ever
+    // posted an equity token it would quietly become the source of truth for
+    // the cap table, which is the one thing it must never be.
     expect(res.ok).toBe(false);
     expect(res.ok === false && res.error).toMatch(/Hypha/);
   });
