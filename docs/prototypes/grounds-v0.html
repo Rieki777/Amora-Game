@@ -16,6 +16,9 @@
   #scene{position:absolute;inset:0;cursor:grab}
   #scene.dragging{cursor:grabbing}
   #banners{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:11}
+  /* Badges sit above the labels, which sit above the buildings: the order
+     a tap resolves in. The plane itself is deaf; only the seals hear. */
+  #badges{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:12}
 
   .banner{position:absolute;transform:translate(-50%,-100%);pointer-events:auto;cursor:pointer;
     white-space:nowrap;padding:3px 14px 4px;color:var(--parch);letter-spacing:.14em;font-variant:small-caps;
@@ -428,9 +431,15 @@
   /* ---------- round C: living-land systems ---------- */
   .poi.ph2{opacity:.84}.poi.ph3{opacity:.62} /* loading into reality — later phases stand more transparent */
   /* ── the badge language: one seal, four charges ── */
-  #icons .bgroup{position:absolute;left:0;top:0;pointer-events:none;z-index:1;
+  #badges .bgroup{position:absolute;left:0;top:0;pointer-events:none;
     opacity:0;transition:opacity .28s ease;will-change:transform,opacity}
-  #icons .bgroup.on{opacity:.6}
+  #badges .bgroup.on{opacity:.6}
+  /* Too small a building to carry its ring: one seal, one number, and the
+     marks it stands for wait behind it. */
+  .bgroup .b-more{display:none}
+  .bgroup.clustered .bseal{display:none}
+  .bgroup.clustered .b-more{display:block}
+  .bseal .cnum{fill:var(--ink);font:600 10px/1 Georgia,serif;text-anchor:middle}
   .bseal{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;pointer-events:auto;
     cursor:pointer;transition:opacity .2s ease,transform .18s ease}
   .bmid .bseal{width:16px;height:16px;margin:-8px 0 0 -8px}
@@ -474,16 +483,13 @@
   .bgroup .b-invite{opacity:.55}
   .bgroup .b-invite .face{fill-opacity:.5}
   .poi.talk{filter:drop-shadow(0 0 10px rgba(232,200,119,.9))}
-  .poi .evbadge{position:absolute;right:-8px;top:-10px;width:22px;height:22px;pointer-events:none;display:none;
-    transform-origin:50% 50%}
-  .poi.hasev .evbadge{display:block}
-  .evbadge svg{width:100%;height:100%;filter:drop-shadow(0 0 3px rgba(255,214,120,.8))}
-  .ev-u0 .evbadge{animation:evp 3.4s ease-in-out infinite;opacity:.55}
-  .ev-u1 .evbadge{animation:evp 2.4s ease-in-out infinite;opacity:.75}
-  .ev-u2 .evbadge{animation:evp 1.5s ease-in-out infinite;opacity:.92}
-  .ev-u3 .evbadge{animation:evp .8s ease-in-out infinite;opacity:1}
-  .ev-u3 .evbadge svg{filter:drop-shadow(0 0 7px rgba(255,222,132,1))}
-  @keyframes evp{0%,100%{transform:scale(1)}50%{transform:scale(1.35)}}
+  .bseal.evbadge svg{filter:drop-shadow(0 0 3px rgba(255,214,120,.55))}
+  .bseal.ev-u0{animation:evp 3.4s ease-in-out infinite;opacity:.62}
+  .bseal.ev-u1{animation:evp 2.4s ease-in-out infinite;opacity:.8}
+  .bseal.ev-u2{animation:evp 1.5s ease-in-out infinite;opacity:.94}
+  .bseal.ev-u3{animation:evp .8s ease-in-out infinite;opacity:1}
+  .bseal.ev-u3 svg{filter:drop-shadow(0 0 7px rgba(255,222,132,.95))}
+  @keyframes evp{0%,100%{transform:scale(1)}50%{transform:scale(1.22)}}
   #dock button svg{width:20px;height:20px}
   #tip{position:fixed;z-index:70;max-width:250px;background:linear-gradient(180deg,rgba(28,20,12,.97),rgba(20,14,8,.97));
     border:1px solid #8a6a33;border-radius:7px;color:#f2e7c6;font-size:11px;line-height:1.45;padding:7px 10px;
@@ -551,7 +557,7 @@
   #walkCard .wrow .btn{font-size:11px;padding:5px 12px}
   #walkCard .wn{margin-left:auto;font-size:10px;color:#8a7347}
   @media (prefers-reduced-motion:reduce){
-    .evbadge,#loomWires .lw.staged,#orgSvg .ovac,.poi.talk{animation:none!important}
+    .bseal,#loomWires .lw.staged,#orgSvg .ovac,.poi.talk{animation:none!important}
     #pdrawer,#panel,#walkCard{transition:none!important}}
 
   /* module stub */
@@ -660,6 +666,7 @@
 <canvas id="scene"></canvas>
 <div id="icons"></div>
 <div id="banners"></div>
+<div id="badges"></div>
 <div id="vignette"></div>
 
 <div id="vitals"></div>
@@ -1586,13 +1593,32 @@ const cam={x:900,y:640,z:0.72,vx:0,vy:0};
 let dragging=false,lastP=null,travel=null,hoverKey=null,mode='now',orgOn=false,flowsOn=false;
 function worldToScreen(x,y){return[(x-cam.x)*cam.z*DPR+cv.width/2,(y-cam.y)*cam.z*DPR+cv.height/2]}
 function screenToWorld(px,py){return[(px*DPR-cv.width/2)/(cam.z*DPR)+cam.x,(py*DPR-cv.height/2)/(cam.z*DPR)+cam.y]}
-function clampCam(){const mz=Math.max(innerWidth/W,innerHeight/H);cam.z=Math.max(mz,Math.min(3.2,cam.z));
-  const hw=innerWidth/2/cam.z,hh=innerHeight/2/cam.z;
-  cam.x=Math.max(hw,Math.min(W-hw,cam.x));cam.y=Math.max(hh,Math.min(H-hh,cam.y))}
+/* FIT, not COVER, and a little under: pinching all the way out shows the
+   whole land with a breath of margin instead of stopping when the viewport
+   is still full of ground. */
+function minZoom(){return Math.min(innerWidth/W,innerHeight/H)*0.85}
+window.minZoom=minZoom;
+/* A drawer over the map means the map is no longer the whole window. Aim the
+   flight at the middle of the strip the reader can actually see, so a tapped
+   building does not land underneath the panel. Returns CSS pixels. */
+function panelInset(){const pocket=document.body.classList.contains('pocket');let dx=0,dy=0;
+  for(const id of ['panel','inspect']){const el=document.getElementById(id);
+    if(!el||!el.classList.contains('open'))continue;
+    if(pocket)dy=Math.max(dy,el.offsetHeight/2);else dx=Math.max(dx,el.offsetWidth/2)}
+  const m=document.getElementById('module'),c=document.getElementById('moduleCard');
+  /* On desk the module card sits in the middle of the map with strips on both
+     sides, so there is nothing to aim at; on pocket it is a bottom sheet. */
+  if(pocket&&m&&m.classList.contains('show')&&c)dy=Math.max(dy,c.offsetHeight/2);
+  return[dx,dy]}
+window.panelInset=panelInset;
+/* The clamp is the world itself, not the viewport inside it: every point of
+   the land can sit at screen centre. */
+function clampCam(){cam.z=Math.max(minZoom(),Math.min(3.2,cam.z));
+  cam.x=Math.max(0,Math.min(W,cam.x));cam.y=Math.max(0,Math.min(H,cam.y))}
 function travelTo(x,y,z,done){const tz=z||cam.z;
-  const mz=Math.max(innerWidth/W,innerHeight/H),cz=Math.max(mz,Math.min(3.2,tz));
-  const hw=innerWidth/2/cz,hh=innerHeight/2/cz;
-  travel={sx:cam.x,sy:cam.y,sz:cam.z,tx:Math.max(hw,Math.min(W-hw,x)),ty:Math.max(hh,Math.min(H-hh,y)),tz:cz,t:0,done}}
+  const cz=Math.max(minZoom(),Math.min(3.2,tz));
+  const[ox,oy]=panelInset();
+  travel={sx:cam.x,sy:cam.y,sz:cam.z,tx:Math.max(0,Math.min(W,x+ox/cz)),ty:Math.max(0,Math.min(H,y+oy/cz)),tz:cz,t:0,done}}
 cv.addEventListener('pointerdown',e=>{
   if(window.boundPointerDown&&window.boundPointerDown(e)){cv.setPointerCapture(e.pointerId);return}
   if(window.featPointerDown&&window.featPointerDown(e)){cv.setPointerCapture(e.pointerId);return}
@@ -1605,9 +1631,17 @@ addEventListener('pointermove',e=>{
   else updateHover(e.clientX,e.clientY)});
 addEventListener('pointerup',()=>{dragging=false;cv.classList.remove('dragging');lastP=null});
 cv.addEventListener('wheel',e=>{e.preventDefault();const[wx,wy]=screenToWorld(e.clientX,e.clientY);
-  cam.z*=e.deltaY<0?1.13:0.885;clampCam();
+  /* ctrlKey means a trackpad pinch, not a scroll: follow the fingers
+     continuously instead of stepping, and never let the page zoom instead. */
+  cam.z*=e.ctrlKey?Math.exp(-e.deltaY*0.012):(e.deltaY<0?1.13:0.885);clampCam();
   const[nx,ny]=screenToWorld(e.clientX,e.clientY);cam.x+=wx-nx;cam.y+=wy-ny;clampCam()},{passive:false});
 cv.addEventListener('dblclick',e=>{const[wx,wy]=screenToWorld(e.clientX,e.clientY);travelTo(wx,wy,Math.max(cam.z,1.15))});
+(function safariPinch(){let gz=1,gx=0,gy=0; // Safari speaks gestures where others speak ctrl-wheel
+  cv.addEventListener('gesturestart',e=>{e.preventDefault();gz=cam.z;gx=e.clientX;gy=e.clientY});
+  cv.addEventListener('gesturechange',e=>{e.preventDefault();
+    const[wx,wy]=screenToWorld(gx,gy);cam.z=gz*e.scale;clampCam();
+    const[nx,ny]=screenToWorld(gx,gy);cam.x+=wx-nx;cam.y+=wy-ny;clampCam()});
+  cv.addEventListener('gestureend',e=>e.preventDefault())})();
 function hitStruct(px,py){const[wx,wy]=screenToWorld(px,py);let best=null,bd=1e9;
   for(const f of SCENE.features){if(f.kind!=='structure-area'||!f.owner)continue;
     const s=BY[f.owner];if(!s)continue;
@@ -1639,7 +1673,7 @@ function frame(ts){const t=ts/1000,dt=Math.min(.05,(ts-tPrev)/1000||.016);tPrev=
     clampCam(); // every frame of the flight, not just arrival — no void past the edge
     if(travel.t>=1){const d=travel.done;travel=null;clampCam();d&&d()}}
   if(dayAuto)dayPhase=(dayPhase+dt*0.004)%2;
-  cx.setTransform(1,0,0,1,0,0);cx.fillStyle='#101d13';cx.fillRect(0,0,cv.width,cv.height);
+  cx.setTransform(1,0,0,1,0,0);cx.fillStyle='#16455e';cx.fillRect(0,0,cv.width,cv.height); /* deep sea, the tone the painted ocean edge starts from: past the land is world, not void */
   cx.setTransform(cam.z*DPR,0,0,cam.z*DPR,cv.width/2-cam.x*cam.z*DPR,cv.height/2-cam.y*cam.z*DPR);
   const _pl=activePlate();
   if(terrainMode==='paint'&&satPlate){cx.drawImage(satPlate,0,0,W,H);
@@ -1925,7 +1959,6 @@ function paintPoiArt(s,el){
     ${(window.SPRITES&&SPRITES[base])?`<img class="sprite" src="${SPRITES[base]}" draggable="false" alt="">`:''}
     <span class="rm" title="remove">✕</span>`;
   el.querySelector('.rm').onclick=e=>{e.stopPropagation();removeStructure(s)};
-  el.insertAdjacentHTML('beforeend','<span class="evbadge"><svg viewBox="0 0 24 24"><path fill="#ffd98a" stroke="#8a6a33" stroke-width="1" d="M12 3l2.1 4.4 4.9.7-3.5 3.4.8 4.9-4.3-2.3-4.3 2.3.8-4.9L5 8.1l4.9-.7z"/></svg></span>');
   el.style.setProperty('--pring',s.circle?(CIRCLE_COL[s.circle]||'#9aa08f'):'#9aa08f')}
 function makePoi(s){
   const el=document.createElement('div');el.className='poi st-'+s.state;
@@ -1980,7 +2013,29 @@ const BADGE_CHARGE = {
 /* Anchors are in seal-units around the building's own centre, then scaled by
    the same FAM_SCALE * s.scale * GSCALE the poi uses, so a badge sits on the
    door of a small cottage and the door of a great hall alike. */
-const BADGE_ANCHOR = { quest:[-0.62,0.34], seat:[-0.72,-0.06], talk:[-0.5,-0.52], invite:[-0.62,0.34] };
+/* Slots are angles, not points: door, window, chimney, roofline, read
+   anticlockwise from the lower left. Degrees, measured the way a compass
+   rose is, then flipped for screen y. Kind always takes the same seat, so a
+   reader learns where to look once. */
+const BADGE_SLOT = { quest:215, invite:215, seat:165, talk:115, event:55 };
+/* The ring is solved for the HIT footprint, not the ink. Two 22 px seals
+   stop touching at 26 px apart, but their 44 px targets keep overlapping
+   until 44, and an overlapping target means the neighbour answers your tap.
+   Measured: at 26 the wrong seal won two of every thirty-six. */
+const BADGE_GAP = 44;
+/* The radius that keeps the two closest slots in use apart. Chord geometry:
+   two points on a ring of radius R, d degrees apart, sit gap = 2R sin(d/2)
+   apart, so R = gap / (2 sin(d/2)). Same slot twice means no radius works,
+   which the caller reads as "cluster". */
+function badgeRing(kinds,gap){
+  let need=0;
+  for(let a=0;a<kinds.length;a++)for(let b=a+1;b<kinds.length;b++){
+    let d=Math.abs((BADGE_SLOT[kinds[a]]||215)-(BADGE_SLOT[kinds[b]]||215));
+    if(d>180)d=360-d;
+    need=Math.max(need, d?gap/(2*Math.sin(d*Math.PI/360)):Infinity);
+  }
+  return need;
+}
 const BADGE_RANK = ['quest','seat','talk','invite'];
 
 /* Weight, from the words a founder already wrote. One scale at map level:
@@ -2015,10 +2070,10 @@ function badgeSvg(kind,pips){
   return `<svg viewBox="0 0 24 24" aria-hidden="true">${BADGE_FACE}${BADGE_CHARGE[kind]||''}${pips||''}</svg><span class="bhit"></span>`;
 }
 
-const bgEls={}; // one group per structure, a sibling of the poi inside #icons
+const bgEls={}; // one group per structure, in the badge plane above the labels
 function makeBadgeGroup(s){
   const g=document.createElement('div');g.className='bgroup';
-  iWrap.appendChild(g);bgEls[s.key]=g;return g;
+  ($('badges')||iWrap).appendChild(g);bgEls[s.key]=g;return g;
 }
 for(const s of SCENE.structures) makeBadgeGroup(s);
 
@@ -2046,20 +2101,102 @@ function refreshBadges(){
     if(st.length) marks.push({kind:'seat',tint:(window.CIRCLE_COL&&window.CIRCLE_COL[st[0].c||s.circle])||'',
       pips:0,rim:'r-silver r-open',braid:false,n:st.length});
     if(th.length) marks.push({kind:'talk',tint:'',pips:0,rim:'r-soft',braid:false,n:th.length});
+    /* The star was the one mark nobody could tap: it lived inside the
+       building with pointer-events off. Here it is one of the five, with the
+       same face and the same 44 px target, wearing its own urgency. */
+    const ev=(typeof eventsAt==='function')?eventsAt(s.key):[];
+    if(ev.length) marks.push({kind:'event',tint:'',pips:0,rim:'',braid:false,n:ev.length,
+      extra:'evbadge '+((typeof evU==='function')?evU(Math.min(...ev.map(e=>e.days))):'')});
 
-    const want=marks.map(m=>m.kind).join(',');
-    if(g.dataset.sig!==want+'|'+marks.map(m=>m.pips+m.rim+m.tint).join(',')){
+    /* One seal stands for the whole ring when the building is too small to
+       hold it apart. It is built every time and hidden by CSS until the
+       placement pass asks for it, because the decision depends on the
+       camera and this function does not run per frame. */
+    const total=marks.reduce((n,m)=>n+(m.n||0),0)||marks.length;
+    const sig=marks.map(m=>m.kind+m.pips+m.rim+m.tint+(m.extra||'')).join(',')+'|'+total;
+    if(g.dataset.sig!==sig){
       g.innerHTML=marks.map(m=>{
-        const cls=['bseal','b-'+m.kind,m.rim,m.braid?'r-braid':''].filter(Boolean).join(' ');
+        const cls=['bseal','b-'+m.kind,m.rim,m.braid?'r-braid':'',m.extra||''].filter(Boolean).join(' ');
         const tint=m.tint?` style="--btint:${m.tint}"`:'';
         return `<span class="${cls}" data-bk="${s.key}" data-bkind="${m.kind}"${tint}>`+
                badgeSvg(m.kind,m.pips?badgePips(m.pips):'')+`</span>`;
-      }).join('');
-      g.dataset.sig=want+'|'+marks.map(m=>m.pips+m.rim+m.tint).join(',');
+      }).join('')+
+      `<span class="bseal b-more" data-bk="${s.key}" data-bkind="more"><svg viewBox="0 0 24 24">`+
+      BADGE_FACE+`<text class="cnum" x="12" y="15.6">${total>9?'9+':total}</text></svg><span class="bhit"></span></span>`;
+      g.dataset.sig=sig;
     }
+    g.dataset.kinds=marks.map(m=>m.kind).join(',');
   }
 }
 window.refreshBadges=refreshBadges;
+/* Delegated, because the seals are rebuilt whenever the projections move.
+   stopPropagation keeps the building's own click from firing underneath: the
+   badge is the more specific answer to the same tap. */
+const BADGE_TAB={quest:1,invite:1,seat:2,talk:0,event:0,more:0};
+$('badges').addEventListener('click',e=>{
+  const seal=e.target.closest('.bseal');if(!seal)return;
+  e.stopPropagation();
+  const key=seal.dataset.bk,kind=seal.dataset.bkind;const s=BY[key];if(!s)return;
+  window.hap&&hap(6);
+  if(kind==='more'){travelTo(s.x,s.y,Math.max(cam.z,1.6));return} // closer, where the ring opens
+  (typeof buildMode!=='undefined'&&buildMode?openInspect:openPanel)(key,BADGE_TAB[kind]||0);
+});
+/* Where every mark ends up. Runs once per frame for the whole land, after
+   the buildings have moved, because two neighbours can each hold their own
+   marks apart and still collide with each other. That pair is what the
+   testing screenshots showed, and no per-building rule can see it. */
+function layoutBadges(){
+  const groups=[];
+  for(const s of SCENE.structures){
+    const bg=bgEls[s.key];if(!bg||!bg._on)continue;
+    const kinds=(bg.dataset.kinds||'').split(',').filter(Boolean);
+    const off=bg._off||30;
+    const need=badgeRing(kinds,BADGE_GAP);
+    groups.push({bg,kinds,off,R:Math.max(off,need,20),
+      cluster:need>Math.max(off*1.8,30), // too small a building to carry its own ring
+      cx:bg._cx,cy:bg._cy});
+  }
+  const CR=g=>Math.max(g.off,20); // where a collapsed ring puts its one seal
+  /* Each pass collapses the rings that are fighting and looks again. A
+     collapsed ring is one mark instead of four, so the land only ever gets
+     quieter and three passes are enough to settle it. */
+  for(let pass=0;pass<3;pass++){
+    const pts=[];
+    for(const g of groups){
+      if(g.cluster){pts.push({g,x:g.cx-0.82*CR(g),y:g.cy+0.57*CR(g)});continue}
+      for(const k of g.kinds){const a=(BADGE_SLOT[k]!==undefined?BADGE_SLOT[k]:215)*Math.PI/180;
+        pts.push({g,x:g.cx+Math.cos(a)*g.R,y:g.cy-Math.sin(a)*g.R})}
+    }
+    let hit=false;
+    for(let i=0;i<pts.length;i++)for(let j=i+1;j<pts.length;j++){
+      if(pts[i].g===pts[j].g)continue;
+      if(Math.hypot(pts[i].x-pts[j].x,pts[i].y-pts[j].y)>=BADGE_GAP)continue;
+      const a=pts[i].g,b=pts[j].g;if(a.cluster&&b.cluster)continue;
+      hit=true;
+      /* The busier ring reaches further, so it gives way first. On a tie the
+         building further up the hill yields, because the one nearer the
+         reader is the one they are looking at. */
+      let give;
+      if(a.cluster)give=b; else if(b.cluster)give=a;
+      else if(a.kinds.length!==b.kinds.length)give=a.kinds.length>b.kinds.length?a:b;
+      else give=a.cy<b.cy?a:b;
+      give.cluster=true;
+    }
+    if(!hit)break;
+  }
+  for(const g of groups){
+    g.bg.classList.toggle('clustered',g.cluster);
+    if(g.cluster){
+      const more=g.bg.querySelector('.b-more');
+      if(more){more.style.left=(-0.82*CR(g))+'px';more.style.top=(0.57*CR(g))+'px'}
+    } else for(const seal of g.bg.children){
+      const a=(BADGE_SLOT[seal.dataset.bkind]!==undefined?BADGE_SLOT[seal.dataset.bkind]:215)*Math.PI/180;
+      seal.style.left=(Math.cos(a)*g.R)+'px';
+      seal.style.top=(-Math.sin(a)*g.R)+'px'; // screen y grows downward
+    }
+  }
+}
+window.layoutBadges=layoutBadges;
 
 /* vitals */
 const VICON={people:'M12 12a4 4 0 100-8 4 4 0 000 8zm-7 8a7 7 0 0114 0z',
@@ -2093,10 +2230,11 @@ for(const s of SCENE.structures)makeBanner(s);
 function syncBanners(){
   const zoomed=cam.z>=0.95;
   const k=Math.max(.5,Math.min(1.4,0.28+cam.z*0.5)); // emblem LOD scale
+  const roomy=W*cam.z>900; // pulled back past this and the plates are wider than the land they name
   for(const d of SCENE.districts){const el=bEls['d_'+d.id];const[sx,sy]=worldToScreen(d.x,d.y-46);
-    el.style.display=zoomed?'none':'block';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'}
+    el.style.display=(zoomed||!roomy)?'none':'block';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'}
   GEO.forEach((g,i)=>{const el=bEls['g_'+i];const[sx,sy]=worldToScreen(g.x,g.y);
-    el.style.display=cam.z<1.25?'block':'none';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'});
+    el.style.display=(cam.z<1.25&&roomy)?'block':'none';el.style.left=sx/DPR+'px';el.style.top=sy/DPR+'px'});
   document.body.classList.toggle('night',dayPhase>=1.6||dayPhase<0.1);
   const useIso=iconMode==='iso'||(iconMode==='auto'&&cam.z>=1.05);
   for(const s of SCENE.structures){const p=pEls[s.key];if(!p)continue;
@@ -2110,7 +2248,7 @@ function syncBanners(){
     if(!hideP){const[sx,sy]=worldToScreen(s.x,s.y);
       const iso=!painted&&useIso&&s.state!=='blueprint';
       const sc=((typeof FAM_SCALE!=='undefined'&&FAM_SCALE[fam])||1)*(s.scale||1)*(window.GSCALE||1);
-      s._crownOff=(painted?k*1.35*sc*66:(iso?k*1.35*sc*34:k*30*(window.GSCALE||1)))+10;
+      s._crownOff=(painted?k*1.35*sc*54:(iso?k*1.35*sc*34:k*30*(window.GSCALE||1)))+6;
       p.style.transform=`translate(${sx/DPR}px,${sy/DPR}px) scale(${(iso||painted)?k*1.35*sc:k*(window.GSCALE||1)})`;
       p.style.zIndex=1000+Math.round(s.y);
       p.classList.toggle('m-iso',iso);p.classList.toggle('m-painted',painted);
@@ -2127,26 +2265,14 @@ function syncBanners(){
         if(show){
           const off=(s._crownOff||30)*0.72;
           bg.style.transform=`translate(${sx/DPR}px,${sy/DPR}px)`;
-          let i=0;
-          for(const seal of bg.children){
-            const a=BADGE_ANCHOR[seal.dataset.bkind]||BADGE_ANCHOR.quest;
-            seal.style.left=(a[0]*off)+'px';
-            seal.style.top=(a[1]*off)+'px';
-            i++;
-          }
-        }
+          bg._off=off;bg._cx=sx/DPR;bg._cy=sy/DPR;bg._on=true;
+        } else bg._on=false;
       }
-      /* The lantern stays inside the poi where the design and the door suite
-         both want it, and is counter-scaled so it matches the other four
-         instead of growing with whatever it is pinned to. */
-      const ev=p.querySelector('.evbadge');
-      if(ev){const ps=(iso||painted)?k*1.35*sc:k*(window.GSCALE||1);
-        ev.style.transform=ps?`scale(${(1/ps).toFixed(3)})`:'';}
-      /* three braces close, in order: if(ev) above, then if(!hideP), then the
-         `for (const s of SCENE.structures)` this whole block lives in. The
-         original line ended `)}}` and dropping one of them is a silent dead
-         script, not an error the browser will point at. */
+      /* The lantern used to live in here and be counter-scaled out of the
+         building's own transform. It is a seal now, in the badge plane with
+         the rest, so there is nothing left to undo. */
       }}
+  layoutBadges();
   const placed=[]; // collision-resolved label crowns: labels always win, labels never collide
   const iconPts=[]; // …and a label never squats on a neighbour's doorstep (its icon click centre)
   for(const s of SCENE.structures){if(mode==='now'&&s.state==='blueprint')continue;
@@ -2191,13 +2317,14 @@ function updateHover(px,py){
 /* portal panel */
 let panelKey=null;
 function openPanel(key,tab){const s=BY[key];if(!s){toast('That place is no longer on the map.');return}panelKey=key;closeInspect();setHash('#/place/'+key);
-  travelTo(s.x+90,s.y,Math.max(cam.z,1.25));
+  $('panel').classList.add('open'); // opened before the flight so travelTo can measure the strip that stays visible
+  travelTo(s.x,s.y,Math.max(cam.z,1.25));
   $('panelHead').innerHTML=`<h2>${s.name}</h2><div class="sub">${s.circle?s.circle+' circle':'needs a steward'} · ${STATE_LABEL[s.state]}${s.fund?` · pool ${Math.round(s.fund*100)}%`:''}</div>
     <span class="statepill">${s.event?('✦ '+s.event):('phase '+s.phase)}</span>`;
   const tabs=['Overview','Quests here','Seats here','Enter →'];
   $('tabs').innerHTML=tabs.map((t,i)=>`<button data-i="${i}">${t}</button>`).join('');
   [...$('tabs').children].forEach(b=>b.onclick=()=>renderTab(+b.dataset.i));
-  renderTab(tab||0);$('panel').classList.add('open');maiaContext(s)}
+  renderTab(tab||0);maiaContext(s)}
 function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].forEach((b,j)=>b.classList.toggle('on',i===j));
   const q=questsAt(s.key),st=seatsAt(s.key),body=$('panelBody');
   if(i===0){
@@ -2983,7 +3110,8 @@ function anchorOf(k){const s=k&&BY[k];return s?[s.x,s.y]:null}
 function closeInspect(){$('inspect').classList.remove('open');inspKey=null;
   if(document.activeElement&&document.activeElement.blur)document.activeElement.blur()}
 function openInspect(key){const s=BY[key];if(!s)return;inspKey=key;$('panel').classList.remove('open');panelKey=null;hideHover();
-  travelTo(s.x+90,s.y,Math.max(cam.z,1.15));renderInspect();$('inspect').classList.add('open')}
+  $('inspect').classList.add('open'); // same reason: the flight aims at what stays visible beside the card
+  travelTo(s.x,s.y,Math.max(cam.z,1.15));renderInspect()}
 function escq(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
 function structOpts(sel,excl){return SCENE.structures.filter(s=>s.key!==excl).map(s=>`<option value="${s.key}"${s.key===sel?' selected':''}>${escq(s.name)}</option>`).join('')}
 function seatRowH(x,here){const si=SCENE.seats.indexOf(x);
@@ -3941,7 +4069,7 @@ if(HUD_PROFILE==='pocket')document.body.classList.add('pocket');
 function hap(p){try{if(navigator.vibrate&&document.body.classList.contains('pocket'))navigator.vibrate(p)}catch(_){}}
 window.hap=hap;
 /* gestures: one-finger pan, two-finger pinch, on the canvas */
-(function touchNav(){const el=$('cv');if(!el)return;let T=null;
+(function touchNav(){const el=$('scene');if(!el)return;let T=null; // id is 'scene'; $('cv') was null and this block never ran
   el.addEventListener('touchstart',e=>{if(!document.body.classList.contains('pocket'))return;
     if(e.touches.length===1){const t=e.touches[0];T={m:'pan',x:t.clientX,y:t.clientY}}
     else if(e.touches.length===2){const[a,b]=e.touches;
@@ -3952,7 +4080,7 @@ window.hap=hap;
       travel=null;clampCam();window.WGATE&&(WGATE.pan=true)}
     if(T.m==='pinch'&&e.touches.length===2){const[a,b]=e.touches;
       const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
-      cam.z=Math.max(.4,Math.min(2.6,T.z*d/T.d));clampCam();window.WGATE&&(WGATE.pinch=true)}},{passive:false});
+      cam.z=Math.max(minZoom(),Math.min(2.6,T.z*d/T.d));clampCam();window.WGATE&&(WGATE.pinch=true)}},{passive:false});
   el.addEventListener('touchend',()=>{T=null},{passive:true})})();
 /* bottom bar */
 if($('pbMap'))$('pbMap').onclick=()=>{const c=document.body.classList.contains('circles');setMapType(c?'living':'circles');
