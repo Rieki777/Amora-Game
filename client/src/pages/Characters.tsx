@@ -79,6 +79,17 @@ export default function Characters() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  /**
+   * First run after signup. It adds a way OUT and changes nothing else: the
+   * page is the same page, and skipping leaves a player with no characters,
+   * which is a real state the whole product already handles by showing them
+   * everything.
+   */
+  const firstRun = useMemo(
+    () => new URLSearchParams(window.location.search).get("first") === "1",
+    [],
+  );
+
   useEffect(() => {
     fetch("/api/archetypes")
       .then((r) => (r.ok ? r.json() : []))
@@ -174,6 +185,14 @@ export default function Characters() {
           <p className="mt-3 text-amber-200/80">
             Play as many as you like. Change any time. Every door stays open to every hand.
           </p>
+          {firstRun ? (
+            <p className="mt-4 text-sm text-amber-200/70">
+              You can do this later. Skipping shows you the whole land.{" "}
+              <a href="/profile" className="inline-block min-h-11 py-3 underline">
+                Skip for now
+              </a>
+            </p>
+          ) : null}
         </header>
 
         <div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)_20rem]">

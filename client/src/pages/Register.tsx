@@ -65,7 +65,11 @@ export default function Register() {
     setLoading(true);
     try {
       await register(name, email, password, selectedPaths);
-      navigate("/profile");
+      // Straight into the class select, skippable. Somebody who has just
+      // signed up is the one moment they are most willing to say who they
+      // want to be, and the one moment a form they cannot leave would be
+      // worst. `first` only changes the copy and adds the way out.
+      navigate("/profile/characters?first=1");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
