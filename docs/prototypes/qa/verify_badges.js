@@ -242,6 +242,65 @@ const NEAR = () => { cam.z = 1.7; cam.x = 1240; cam.y = 700; clampCam(); refresh
   ok(pfan.first.panel === null && pfan.first.fanned && pfan.panel === pfan.key && pfan.perr === 0,
     `P3: in the pocket a crowded building fans first and opens on the next tap (${pfan.key})`);
 
+  /* ---------- P4: the founder's word, and what leaves the map ---------- */
+  const toggle = await page.evaluate(async () => {
+    document.getElementById('panelClose').click(); closeDoor();
+    document.getElementById('buildBtn').click();
+    await new Promise(r => setTimeout(r, 250));
+    const key = SCENE.structures.find(s => threadsAt(s.key).length && questsAt(s.key).length).key;
+    openInspect(key); await new Promise(r => setTimeout(r, 350));
+    const chips = [...document.querySelectorAll('[data-bkt]')].map(b => b.dataset.bkt + (b.classList.contains('on') ? '+' : '-'));
+    document.querySelector('[data-bkt="talk"]').click();
+    await new Promise(r => setTimeout(r, 250));
+    __near();
+    const after = { silenced: !!(BY[key].badges && BY[key].badges.talk === 0),
+      mark: !!bgEls[key].querySelector('.b-talk'),
+      list: threadsAt(key).length, // the lists never lose anything, only the land does
+      audit: EDITS.some(e => e.action === 'badges'),
+      exported: (buildExportJSON().map_structures.find(r => r.key === key).bindings.badges || []).map(b => b.kind + ':' + b.show).join(','),
+      seal: (bgEls[key].querySelector('.aseal') || {}).textContent };
+    return { key, chips, after };
+  });
+  ok(toggle.chips.length === 4 && toggle.chips.every(c => /\+$/.test(c)),
+    `P4: every kind shows until a founder says otherwise (${toggle.chips.join(' ')})`);
+  ok(toggle.after.silenced && !toggle.after.mark && toggle.after.list > 0,
+    `P4: silencing a kind takes it off the land and leaves the list alone (${toggle.key}: ${toggle.after.list} conversations still there)`);
+  ok(toggle.after.audit && toggle.after.exported === 'talk:false',
+    `P4: audited and exported as a deliberate silence (${toggle.after.exported})`);
+
+  const weight = await page.evaluate(async () => {
+    const key = 'greenhouse';
+    openInspect(key); await new Promise(r => setTimeout(r, 300));
+    const sel = document.querySelector('[data-qw]'); const qi = +sel.dataset.qw;
+    const derived = badgeWeight(SCENE.quests[qi]);
+    sel.value = derived === 3 ? '1' : '3'; sel.dispatchEvent(new Event('change'));
+    await new Promise(r => setTimeout(r, 300)); __near();
+    const q = SCENE.quests[qi];
+    const pips = (bgEls[q.at] && bgEls[q.at].querySelector('.b-quest')) ? bgEls[q.at].querySelectorAll('.b-quest .pip').length : -1;
+    const exp = buildExportJSON().quests.find(x => x.title === q.q).weight;
+    return { derived, set: q.weight, pips, exp, at: q.at, audit: EDITS.some(e => e.action === 'quest-weight'),
+      hasOption: /read from the words/.test(sel.textContent) };
+  });
+  ok(weight.hasOption && weight.set !== weight.derived, `P4: a founder can overrule the words (${weight.derived} to ${weight.set})`);
+  ok(weight.pips === weight.set && weight.exp === weight.set && weight.audit,
+    `P4: and the pips, the audit and the export all follow (${weight.pips} pips, exported ${weight.exp})`);
+
+  const round = await page.evaluate(async () => {
+    const J = buildExportJSON();
+    const key = SCENE.structures.find(s => s.badges).key;
+    const qw = SCENE.quests.find(q => q.weight);
+    const before = { badges: JSON.stringify(BY[key].badges), weight: qw.weight, title: qw.q };
+    restoreScene(JSON.parse(JSON.stringify(J)));
+    await new Promise(r => setTimeout(r, 400)); __near();
+    const q2 = SCENE.quests.find(q => q.q === before.title);
+    return { before, after: { badges: JSON.stringify(BY[key] && BY[key].badges), weight: q2 && q2.weight },
+      mark: !!(bgEls[key] && bgEls[key].querySelector('.b-talk')) };
+  });
+  ok(round.after.badges === round.before.badges && !round.mark,
+    `P4: the silence survives a restore (${round.after.badges})`);
+  ok(round.after.weight === round.before.weight, `P4: so does the founder's weight (${round.after.weight})`);
+  await page.evaluate(() => { closeInspect(); document.getElementById('buildBtn').click(); });
+
   ok(perr.length === 0, `zero page errors (${perr.length})${perr.length ? ' — ' + perr[0] : ''}`);
   ok(cerr.length === 0, `zero console errors (${cerr.length})${cerr.length ? ' — ' + cerr[0] : ''}`);
   console.log(fails === 0 ? 'BADGES: ALL GREEN' : `BADGES: ${fails} FAILURES`);

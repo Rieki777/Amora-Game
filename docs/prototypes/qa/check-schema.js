@@ -18,6 +18,13 @@ const sKeys = new Set(J.map_structures.map(s => s.key));
 ok(J.forum_threads.every(t => t.structure_keys.every(k => sKeys.has(k))), 'every thread address resolves to a live structure');
 ok(J.map_structures.every(s => ['key','name','archetype','anchor','footprint','rot','phase','circle_id','blurb','origin_story','state_inputs','bindings','icon','sort'].every(k => k in s)), 'structure rows carry the full thin shape');
 ok(J.map_structures.every(s => !('quest_count' in s) && !('seat_count' in s)), 'zero per-structure counts (compute-on-read)');
+/* Badges P4: the marks are projections, so the only thing worth exporting is
+   a founder's deliberate silence and a founder's overruled weight. */
+ok(J.map_structures.every(s => Array.isArray(s.bindings.badges)), 'every structure carries a bindings.badges list, empty when nothing was silenced');
+ok(J.map_structures.every(s => s.bindings.badges.every(b => ['quest','seat','event','talk'].includes(b.kind) && b.show === false)),
+  'badge rows name a known kind and only ever record a silence');
+ok(J.quests.every(q => 'weight' in q && (q.weight === null || [1,2,3].includes(q.weight))),
+  'quests carry weight: null means read it from the need text');
 ok(J.map_structures.every(s => !/^new\d+$/.test(s.key)), 'no newN keys leak into the seed (slugified)');
 const fIds = new Set(J.map_zones.filter(z => z.id).map(z => z.id));
 ok(J.map_structures.every(s => s.footprint === null || fIds.has(s.footprint)), 'every footprint references a live feature id');

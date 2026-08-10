@@ -2126,25 +2126,25 @@ function refreshBadges(){
     const th=(typeof threadsAt==='function')?threadsAt(s.key):[];
     const marks=[];
 
-    if(qs.length){
+    if(qs.length&&badgeOn(s,'quest')){
       const q=qs[0]; // the heaviest ask leads; the rest live on the card
       const aff=badgeCircle(q,s);
       marks.push({kind:'quest',tint:(window.CIRCLE_COL&&window.CIRCLE_COL[aff])||'',
         pips:badgeWeight(q),
         rim:(q.addr==='creator'||q.address_source==='creator')?'':'r-amber',
         braid:badgeSkilled(q),n:qs.length});
-    } else {
+    } else if(!qs.length&&badgeOn(s,'quest')){
       // No work here yet, so the door says there is room for some.
       marks.push({kind:'invite',tint:'',pips:0,rim:'r-open',braid:false,n:0});
     }
-    if(st.length) marks.push({kind:'seat',tint:(window.CIRCLE_COL&&window.CIRCLE_COL[st[0].c||s.circle])||'',
+    if(st.length&&badgeOn(s,'seat')) marks.push({kind:'seat',tint:(window.CIRCLE_COL&&window.CIRCLE_COL[st[0].c||s.circle])||'',
       pips:0,rim:'r-silver r-open',braid:false,n:st.length});
-    if(th.length) marks.push({kind:'talk',tint:'',pips:0,rim:'r-soft',braid:false,n:th.length});
+    if(th.length&&badgeOn(s,'talk')) marks.push({kind:'talk',tint:'',pips:0,rim:'r-soft',braid:false,n:th.length});
     /* The star was the one mark nobody could tap: it lived inside the
        building with pointer-events off. Here it is one of the five, with the
        same face and the same 44 px target, wearing its own urgency. */
     const ev=(typeof eventsAt==='function')?eventsAt(s.key):[];
-    if(ev.length) marks.push({kind:'event',tint:'',pips:0,rim:'',braid:false,n:ev.length,
+    if(ev.length&&badgeOn(s,'event')) marks.push({kind:'event',tint:'',pips:0,rim:'',braid:false,n:ev.length,
       extra:'evbadge '+((typeof evU==='function')?evU(Math.min(...ev.map(e=>e.days))):'')});
 
     /* One seal stands for the whole ring when the building is too small to
@@ -2168,9 +2168,11 @@ function refreshBadges(){
     /* The far seal counts everything a person could act on here, in one
        number, because at that distance one number is all there is room for. */
     const lot=(window.LOTS||{})[s.key],room=(window.ROOMS||{})[s.key];
-    const open=qs.length+st.length+th.length+ev.length;
+    const open=(badgeOn(s,'quest')?qs.length:0)+(badgeOn(s,'seat')?st.length:0)
+      +(badgeOn(s,'talk')?th.length:0)+(badgeOn(s,'event')?ev.length:0);
     const soon=ev.length?Math.min(...ev.map(e=>e.days)):99;
-    const asig=open+'|'+(soon<=2?'soon':'')+'|'+(lot?lot.sold+'/'+lot.total:room?room.taken+'/'+room.total:'');
+    const asig=open+'|'+(soon<=2?'soon':'')+'|'+(lot?lot.sold+'/'+lot.total:room?room.taken+'/'+room.total:'')
+      +'|'+(s.badges?BADGE_KINDS.map(k=>s.badges[k]===0?'0':'1').join(''):'1111');
     if(g.dataset.asig!==asig){
       const a=g.querySelector('.aseal'),h=g.querySelector('.hchip');
       if(a)a.remove();if(h)h.remove();
@@ -2189,6 +2191,16 @@ function refreshBadges(){
   }
 }
 window.refreshBadges=refreshBadges;
+/* Silence is the only thing worth writing down: a building shows every kind
+   unless its founder has said otherwise, so an untouched map exports nothing
+   here at all. The home chip is not in this list because a home is data, not
+   a decision, and the counted seal is a layout artefact. */
+const BADGE_KINDS=['quest','seat','event','talk'];
+function badgeOn(s,kind){
+  if(kind==='invite')kind='quest'; // the seed is the quest slot saying it is empty
+  return !(s&&s.badges)||s.badges[kind]!==0;
+}
+window.badgeOn=badgeOn;
 /* An id a person could read in a URL, made from the words the founder
    already typed. Quests and seats carry no id of their own; threads and
    events do, and theirs wins. */
@@ -2927,7 +2939,11 @@ function buildExportJSON(){
       derived_state:s.state,note:'state is computed on read from these inputs — never stored'},
     bindings:{doors:(s.modules||[]).map(m=>({label:m[0],route:m[1]})),
       action_doors:s.doors?Object.keys(s.doors).map(k=>({kind:k,module:(window.DOOR_DEFS&&DOOR_DEFS[k])?DOOR_DEFS[k].module:k,route:(window.MODULES&&MODULES[(DOOR_DEFS[k]||{}).module])?MODULES[DOOR_DEFS[k].module].route:null,state:s.doors[k]===1?'open':'when-built'})):[],
-      quest_tags:[],href:null},
+      quest_tags:[],href:null,
+      /* Only a deliberate silence is written; an untouched building has no
+         `badges` key at all, which is what "default all on" has to mean in a
+         file another village will read. */
+      badges:s.badges?BADGE_KINDS.filter(k=>s.badges[k]===0).map(k=>({kind:k,show:false})):[]},
     icon:(window.ARCHMAP&&ARCHMAP[s.archetype])?ARCHMAP[s.archetype].icon:s.archetype,sprite_ref:null,scale:s.scale||1,sort:i}));
   const flows=SCENE.flows.map((f,i)=>({id:i+1,from_key:f.from||null,to_key:f.to||null,medium:f.medium,
     note:f.note||'',phase:f.phase||1,imported:!f.from,via_feature:f.via||null}));
@@ -2971,6 +2987,7 @@ function buildExportJSON(){
       address_source:addrSrc(x),src:x.src||'scene',circle_site:x.circle_site||null})),
     quests:SCENE.quests.map(x=>({title:x.q,structure_key:x.at||null,reward:x.r,need:x.need,desc:x.desc||'',
       src:x.src||'scene',circle_site:x.circle_site||null,circle_aff:x.aff||null,
+      weight:x.weight||null, // null means read it from the need text, which is what the map does
       address_source:addrSrc(x),
       address:x.at?(x.addr||'explicit'):'board — unaddressed'})),
     journeys:SCENE.journeys.map(j=>({id:j.id,name:j.name,src:j.src||'site',blurb:j.blurb||'',
@@ -3386,7 +3403,9 @@ function questRowH(q){const qi=SCENE.quests.indexOf(q);
   return `<div style="margin-bottom:8px"><b style="font-weight:normal;color:#fff">⚑ ${escq(q.q)}</b>
    <span style="display:block;font-size:10px;color:#b9cf9a">${escq(q.r)} · ${escq(q.need)}</span>
    <div class="irow" style="margin-top:3px"><span class="ilbl" style="width:52px">address</span>
-   <select data-qaddr="${qi}"><option value="">Quest Board · not yet placed</option>${structOpts(q.at,null)}</select></div></div>`}
+   <select data-qaddr="${qi}"><option value="">Quest Board · not yet placed</option>${structOpts(q.at,null)}</select></div>
+   <div class="irow" style="margin-top:3px"><span class="ilbl" style="width:52px">ask</span>
+   <select data-qw="${qi}"><option value=""${q.weight?'':' selected'}>read from the words (${badgeWeight(q)})</option>${[1,2,3].map(w=>`<option value="${w}"${q.weight===w?' selected':''}>${({1:'1 · an hour',2:'2 · a session',3:'3 · a full day'})[w]}</option>`).join('')}</select></div></div>`}
 function doorRowH(m,i){return `<div class="irow"><input type="text" data-dlab="${i}" value="${escq(m[0])}"><input type="text" data-drt="${i}" value="${escq(m[1])}" style="max-width:96px"><button class="xbtn" data-ddel="${i}">✕</button></div>`}
 function flowRowH(f,dir){const fi=SCENE.flows.indexOf(f);
   const medSel=`<select data-fmed="${fi}" style="flex:none;width:88px">${Object.keys(MEDIA).map(m=>`<option value="${m}"${f.medium===m?' selected':''}>${m}</option>`).join('')}</select>`;
@@ -3436,6 +3455,10 @@ function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
    <div>${qHere.map(q=>questRowH(q)).join('')||'<div style="color:#b9af8f;font-size:11.5px;padding:2px 0">No quests addressed here.</div>'}</div>
    <div class="irow" style="margin-top:4px"><input type="text" id="iQTitle" placeholder="add a quest here"></div>
    <div class="irow"><input type="text" id="iQReward" placeholder="reward · 25 ♥" style="max-width:110px"><input type="text" id="iQNeed" placeholder="need · 3 hands, Saturday"><button class="xbtn" id="iQAdd" style="color:#8fd06a">＋</button></div>
+   <h5>badges · what this place shows</h5>
+   <div style="font-size:10px;color:#b9af8f;margin-bottom:5px">every kind shows unless you turn it off here. Nothing is hidden from the lists, only from the land.</div>
+   <div class="irow" style="flex-wrap:wrap;gap:4px">${['quest','seat','event','talk'].map(k=>
+     `<button class="chip${badgeOn(s,k)?' on':''}" data-bkt="${k}">${({quest:'quests',seat:'seats',event:'events',talk:'conversations'})[k]}</button>`).join('')}</div>
    <h5>doors · what this place opens</h5>
    <div>${(s.modules||[]).map((m,i)=>doorRowH(m,i)).join('')||'<div style="color:#b9af8f;font-size:11.5px;padding:2px 0">No doors yet. This building opens nothing so far.</div>'}</div>
    <div class="irow" style="margin-top:4px"><input type="text" id="iDLabel" placeholder="door label"><input type="text" id="iDRoute" placeholder="/route" style="max-width:96px"><button class="xbtn" id="iDAdd" style="color:#8fd06a">＋</button></div>
@@ -3499,6 +3522,17 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
     inp.onchange=()=>logEdit('door','structure:'+s.key,{doors:s.modules.map(m=>m[0])})});
   B.querySelectorAll('[data-ddel]').forEach(b=>b.onclick=()=>{const d=s.modules.splice(+b.dataset.ddel,1)[0];
     logEdit('door-remove','structure:'+s.key,{label:d&&d[0]});renderInspect()});
+  B.querySelectorAll('[data-qw]').forEach(sel=>sel.onchange=()=>{const q=SCENE.quests[+sel.dataset.qw];if(!q)return;
+    if(sel.value)q.weight=+sel.value;else delete q.weight; // empty means the words decide again
+    logEdit('quest-weight','quest:'+q.q,{weight:q.weight||'from the words'});
+    refreshBadges();renderInspect()});
+  B.querySelectorAll('[data-bkt]').forEach(b=>b.onclick=()=>{const k=b.dataset.bkt;
+    s.badges=s.badges||{};s.badges[k]=badgeOn(s,k)?0:1;
+    /* All four back on is the default again, so the map stops carrying a
+       record of a decision that no longer says anything. */
+    if(BADGE_KINDS.every(x=>s.badges[x]!==0))delete s.badges;
+    logEdit('badges','structure:'+s.key,{show:BADGE_KINDS.filter(x=>badgeOn(s,x)).join(',')||'none'});
+    refreshBadges();renderInspect()});
   B.querySelector('#iDAdd').onclick=()=>{const l=B.querySelector('#iDLabel').value.trim();if(!l)return;
     (s.modules=s.modules||[]).push([l,B.querySelector('#iDRoute').value.trim()||'/forum']);
     logEdit('door-add','structure:'+s.key,{label:l});renderInspect()};
@@ -3533,6 +3567,8 @@ function restoreScene(J){try{
     if(r.state_inputs&&r.state_inputs.fund!=null)s.fund=r.state_inputs.fund;
     if(r.state_inputs&&r.state_inputs.event)s.event=r.state_inputs.event;
     if(r.scale&&r.scale!==1)s.scale=r.scale;
+    if(r.bindings&&Array.isArray(r.bindings.badges)&&r.bindings.badges.length){s.badges={};
+      r.bindings.badges.forEach(b=>{if(b&&b.show===false)s.badges[b.kind]=0})}
     if(r.bindings&&Array.isArray(r.bindings.action_doors)&&r.bindings.action_doors.length){s.doors={};
       r.bindings.action_doors.forEach(d=>{s.doors[d.kind]=d.state==='when-built'?'future':1})}
     if(typeof ROLE_LINE!=='undefined'&&ROLE_LINE[s.key])s.role=ROLE_LINE[s.key];
@@ -3544,6 +3580,7 @@ function restoreScene(J){try{
     src:r.src||undefined,circle_site:r.circle_site||undefined}));
   SCENE.quests=(J.quests||[]).map(r=>({q:r.title,at:(r.structure_key&&BY[r.structure_key])?r.structure_key:null,r:r.reward,need:r.need,
     desc:r.desc||undefined,src:r.src||undefined,circle_site:r.circle_site||undefined,aff:r.circle_aff||undefined,
+    weight:(r.weight===1||r.weight===2||r.weight===3)?r.weight:undefined,
     addr:(r.address_source&&r.address_source!=='pool')?r.address_source:(r.address==='lexicon guess'?'lexicon guess':undefined)}));
   if(Array.isArray(J.forum_threads))SCENE.threads=J.forum_threads.map(t=>({id:t.id,title:t.title,
     structures:(t.structure_keys||[]).filter(k=>BY[k]),author:t.author,aud:t.audience||'member',
