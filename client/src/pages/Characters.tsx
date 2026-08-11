@@ -9,8 +9,15 @@
  *
  * index.css says it directly: the `-light` tokens are BACKGROUNDS for dark
  * text, and anything rendering on a light surface picks from the dark set
- * instead. So every string here is teal-deep, gold (#a06b1c, 6.2:1 on white)
- * or a grey, and there is no cream text anywhere on this page.
+ * instead. So every string here is teal-deep, sage or a grey, and there is no
+ * cream text anywhere on this page.
+ *
+ * NOT gold, and that is the second lesson. This comment used to say gold at
+ * "6.2:1 on white", copied from the token's own comment, and both were wrong:
+ * gold measures 4.55 on white and 4.07 on the #f2f2f2 body, so moving headings
+ * to it shipped a REGRESSION from the 4.30 teal they replaced. sage is 5.95 and
+ * 5.32. Anything on the page background is measured against #f2f2f2, never
+ * against white, because the body is not white.
  *
  * The arrangement follows the same correction. A character select shows you
  * the CAST:

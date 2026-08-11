@@ -109,7 +109,7 @@ export default function PublicProfile() {
 
         {sheet.party && sheet.party.length > 0 ? (
           <section className="mt-10">
-            <h2 className="text-lg font-semibold text-teal-deep">Paths they walk</h2>
+            <h2 className="text-lg font-semibold text-sage">Paths they walk</h2>
             <ul className="mt-3 flex flex-wrap gap-3">
               {sheet.party.map((c) => (
                 <li
@@ -131,7 +131,7 @@ export default function PublicProfile() {
             the page says nothing rather than saying they have nothing. */}
         {sheet.standing ? (
           <section className="mt-10">
-            <h2 className="text-lg font-semibold text-teal-deep">Standing</h2>
+            <h2 className="text-lg font-semibold text-sage">Standing</h2>
             {sheet.standing.length === 0 ? (
               <p className="mt-2 text-sm text-gray-700">New on the land.</p>
             ) : (
@@ -151,7 +151,7 @@ export default function PublicProfile() {
 
         {sheet.gratitude ? (
           <section className="mt-10">
-            <h2 className="text-lg font-semibold text-teal-deep">Gratitude</h2>
+            <h2 className="text-lg font-semibold text-sage">Gratitude</h2>
             <p className="mt-2 text-gray-800">
               {sheet.gratitude.receivedThisSeason === 0
                 ? "No thanks yet this season."
