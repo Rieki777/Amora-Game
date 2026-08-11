@@ -48,7 +48,12 @@ export default function GameDashboard() {
       <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
         <div className="flex items-center justify-between mb-1">
           <h3 className="font-display text-xl font-bold text-teal-deep">Path of Growth</h3>
-          <span className="text-sm font-semibold text-teal-deep bg-teal-deep/10 px-3 py-1 rounded-full">
+          {/* sage, not teal-deep. The chip's own bg-teal-deep/10 composites over
+              the white card to rgb(231,242,242), which drops teal from 4.81 on
+              white to 4.21 and under the 4.5 floor. A tint you set on an element
+              is a backdrop for the text ON that element, and the two are chosen
+              together or not at all. sage measures 5.21 on the same backdrop. */}
+          <span className="text-sm font-semibold text-sage bg-teal-deep/10 px-3 py-1 rounded-full">
             {me.stage.name}
           </span>
         </div>
