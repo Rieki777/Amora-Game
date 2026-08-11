@@ -590,12 +590,27 @@ button, a, [role="button"], input, textarea, select, summary {
    why individual small tap targets kept being raised one at a time: the
    general rule had a hole in it. */
 @media (pointer: coarse) {
-  button:not([disabled]):not(.no-touch-extend),
-  a[href]:not(.no-touch-extend),
-  [role="button"]:not([aria-disabled="true"]):not(.no-touch-extend),
-  [role="checkbox"]:not([aria-disabled="true"]):not(.no-touch-extend),
-  [role="radio"]:not([aria-disabled="true"]):not(.no-touch-extend),
-  [role="switch"]:not([aria-disabled="true"]):not(.no-touch-extend) {
+  /* THIS DECLARATION ONLY EXISTS TO GIVE ::after A CONTAINING BLOCK, so it must
+     never overwrite a position the element chose for itself.
+
+     An element selector carrying :not() chains outranks a single Tailwind
+     utility class, so `position: relative` here silently beat `.fixed` — and it
+     is inside `pointer: coarse`, so it beat it ONLY on touch devices and never
+     once on a desktop where anyone was looking. The admin coach-mark
+     ("Hold an icon to see its name") is a <button class="fixed">; declassified
+     to relative it re-entered normal flow as a flex item, took 240px of a 393px
+     phone, and squeezed the admin content column to 97px. The admin page was
+     unusable on a phone and every gate passed.
+
+     .fixed/.absolute/.sticky are excluded here and NOT from the ::after rule
+     below, because each of those already establishes a containing block, so the
+     44px tap overlay still works on them. */
+  button:not([disabled]):not(.no-touch-extend):not(.fixed):not(.absolute):not(.sticky),
+  a[href]:not(.no-touch-extend):not(.fixed):not(.absolute):not(.sticky),
+  [role="button"]:not([aria-disabled="true"]):not(.no-touch-extend):not(.fixed):not(.absolute):not(.sticky),
+  [role="checkbox"]:not([aria-disabled="true"]):not(.no-touch-extend):not(.fixed):not(.absolute):not(.sticky),
+  [role="radio"]:not([aria-disabled="true"]):not(.no-touch-extend):not(.fixed):not(.absolute):not(.sticky),
+  [role="switch"]:not([aria-disabled="true"]):not(.no-touch-extend):not(.fixed):not(.absolute):not(.sticky) {
     position: relative;
   }
   button:not([disabled]):not(.no-touch-extend)::after,
