@@ -63,7 +63,7 @@ export default function PublicProfile() {
     return (
       <Layout>
         <div className="mx-auto max-w-2xl px-4 py-16 text-center">
-          <h1 className="text-2xl font-semibold text-amber-100">Nobody here by that name</h1>
+          <h1 className="text-2xl font-semibold text-teal-deep">Nobody here by that name</h1>
         </div>
       </Layout>
     );
@@ -71,7 +71,7 @@ export default function PublicProfile() {
   if (!sheet) {
     return (
       <Layout>
-        <div className="mx-auto max-w-2xl px-4 py-16 text-center text-amber-200/70">Looking.</div>
+        <div className="mx-auto max-w-2xl px-4 py-16 text-center text-gray-700">Looking.</div>
       </Layout>
     );
   }
@@ -82,39 +82,39 @@ export default function PublicProfile() {
     <Layout>
       <div className="mx-auto max-w-3xl px-4 py-10">
         <header className="flex flex-col items-center gap-5 sm:flex-row sm:items-end">
-          <div className="h-40 w-32 overflow-hidden rounded-2xl border border-amber-900/40 bg-emerald-950/40">
+          <div className="h-40 w-32 overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
             {hero?.avatar ? (
               <img src={hero.avatar} alt="" loading="lazy" className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full w-full items-center justify-center">
-                <div className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-amber-600/60 text-2xl text-amber-200">
+                <div className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-sage/60 text-2xl text-teal-deep">
                   {sheet.name.slice(0, 1)}
                 </div>
               </div>
             )}
           </div>
           <div className="flex-1 text-center sm:text-left">
-            <h1 className="text-3xl font-semibold text-amber-100">{sheet.name}</h1>
-            {sheet.title ? <p className="mt-1 text-amber-300/85">{sheet.title}</p> : null}
-            <p className="mt-2 text-sm text-amber-200/70">
+            <h1 className="text-3xl font-semibold text-teal-deep">{sheet.name}</h1>
+            {sheet.title ? <p className="mt-1 text-sage">{sheet.title}</p> : null}
+            <p className="mt-2 text-sm text-gray-700">
               {sheet.moonsOnTheLand === 0
                 ? "New on the land"
                 : `${sheet.moonsOnTheLand} moons on the land`}
             </p>
             {sheet.homeStructureKey ? (
-              <p className="mt-1 text-sm text-amber-200/70">Hearths at {sheet.homeStructureKey}</p>
+              <p className="mt-1 text-sm text-gray-700">Hearths at {sheet.homeStructureKey}</p>
             ) : null}
           </div>
         </header>
 
         {sheet.party && sheet.party.length > 0 ? (
           <section className="mt-10">
-            <h2 className="text-lg font-semibold text-amber-100">Paths they walk</h2>
+            <h2 className="text-lg font-semibold text-teal-deep">Paths they walk</h2>
             <ul className="mt-3 flex flex-wrap gap-3">
               {sheet.party.map((c) => (
                 <li
                   key={c.id}
-                  className="w-24 overflow-hidden rounded-xl border border-amber-900/40 bg-emerald-950/30"
+                  className="w-24 overflow-hidden rounded-xl border border-gray-200 bg-gray-50"
                 >
                   <div className="aspect-[3/4] w-full">
                     {c.avatar ? (
@@ -131,15 +131,15 @@ export default function PublicProfile() {
             the page says nothing rather than saying they have nothing. */}
         {sheet.standing ? (
           <section className="mt-10">
-            <h2 className="text-lg font-semibold text-amber-100">Standing</h2>
+            <h2 className="text-lg font-semibold text-teal-deep">Standing</h2>
             {sheet.standing.length === 0 ? (
-              <p className="mt-2 text-sm text-amber-200/70">New on the land.</p>
+              <p className="mt-2 text-sm text-gray-700">New on the land.</p>
             ) : (
               <ul className="mt-3 flex flex-wrap gap-2">
                 {sheet.standing.map((s) => (
                   <li
                     key={s.token}
-                    className="rounded-full border border-amber-900/40 bg-emerald-950/30 px-4 py-2 text-sm text-amber-100"
+                    className="rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-teal-deep"
                   >
                     {show(s.balance, s.decimals)} {s.name}
                   </li>
@@ -151,15 +151,15 @@ export default function PublicProfile() {
 
         {sheet.gratitude ? (
           <section className="mt-10">
-            <h2 className="text-lg font-semibold text-amber-100">Gratitude</h2>
-            <p className="mt-2 text-amber-200/85">
+            <h2 className="text-lg font-semibold text-teal-deep">Gratitude</h2>
+            <p className="mt-2 text-gray-800">
               {sheet.gratitude.receivedThisSeason === 0
                 ? "No thanks yet this season."
                 : `Thanked by ${sheet.gratitude.receivedThisSeason} members this season.`}
             </p>
             {/* Given sits beside received, never beneath it. Generosity is a
                 status axis here and not only accumulation. */}
-            <p className="mt-1 text-amber-200/85">
+            <p className="mt-1 text-gray-800">
               {sheet.gratitude.givenThisSeason === 0
                 ? "Has not thanked anyone yet this season."
                 : `Thanked ${sheet.gratitude.givenThisSeason} members in return.`}

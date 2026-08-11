@@ -177,7 +177,7 @@ export default function Characters() {
         <div className="container">
           {/* Small, because the picture is the headline. */}
           <div className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h1 className="text-sm font-semibold uppercase tracking-widest text-gold">
+            <h1 className="text-sm font-semibold uppercase tracking-widest text-sage">
               Choose who you will be
             </h1>
             <p className="text-sm text-gray-700">
@@ -206,7 +206,7 @@ export default function Characters() {
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-teal-deep/10 to-amber/10">
-                      <div className="flex h-28 w-28 items-center justify-center rounded-full border-4 border-gold/50 text-4xl font-semibold text-teal-deep">
+                      <div className="flex h-28 w-28 items-center justify-center rounded-full border-4 border-sage/50 text-4xl font-semibold text-teal-deep">
                         {active ? active.name.replace(/^The\s+/i, "").slice(0, 1) : "?"}
                       </div>
                     </div>
@@ -300,7 +300,7 @@ export default function Characters() {
                           />
                         )}
                         {chosen ? (
-                          <Star className="absolute right-1 top-1 h-4 w-4 fill-gold text-gold drop-shadow" />
+                          <Star className="absolute right-1 top-1 h-4 w-4 fill-gold text-sage drop-shadow" />
                         ) : null}
                       </button>
                     </li>
@@ -313,7 +313,7 @@ export default function Characters() {
             <aside className="order-3 rounded-2xl bg-white p-6 shadow-lg">
               {active ? (
                 <>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gold">{active.subtitle}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-sage">{active.subtitle}</p>
                   <p className="mt-2 text-gray-800">{active.blurb}</p>
                   {active.examples.length ? (
                     <ul className="mt-4 space-y-1.5">
@@ -367,7 +367,7 @@ export default function Characters() {
           {/* Your party. */}
           {party.length > 0 ? (
             <section className="mt-10">
-              <h2 className="text-lg font-display font-bold text-gold">Your party</h2>
+              <h2 className="text-lg font-display font-bold text-sage">Your party</h2>
               <ul className="mt-3 flex flex-wrap gap-3">
                 {party.map((c) => {
                   const a = archetypes.find((x) => x.key === c.archetypeKey);
@@ -400,7 +400,7 @@ export default function Characters() {
                         onClick={() => act(`/api/me/characters/${c.id}/primary`, "POST")}
                         className="absolute left-1 top-1 rounded-full bg-white/90 p-1.5 shadow"
                       >
-                        <Star className={`h-4 w-4 ${c.isPrimary ? "fill-gold text-gold" : "text-gray-500"}`} />
+                        <Star className={`h-4 w-4 ${c.isPrimary ? "fill-gold text-sage" : "text-gray-500"}`} />
                       </button>
                       <button
                         type="button"

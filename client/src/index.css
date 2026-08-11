@@ -99,10 +99,17 @@
   --color-amber: var(--tone-sun, #ecb163);
   --color-gray-light: #f2f2f2;     /* Official light gray */
   /* UI accent colors - warm tones, dark enough for white text (WCAG AA) */
-  --color-gold: #a06b1c;           /* Warm amber-gold - 6.2:1 contrast vs white */
-  --color-coral: #9b4030;          /* Warm terracotta - 8.7:1 contrast vs white */
+  /* MEASURED, not estimated. The old comment here claimed 6.2:1 vs white and
+     was wrong by 36%, which is worse than no comment: a lane read it, used gold
+     as FOREGROUND text on the light body, and shipped 4.07:1 while believing it
+     had fixed a contrast bug. These numbers are computed from the hex.
+       gold  #a06b1c  4.55 on white  4.07 on the #f2f2f2 body  <- FAILS AA as text
+     This block is a set of BACKGROUNDS for white text. As a foreground on a
+     light surface use sage or coral, which clear AA on both. */
+  --color-gold: #a06b1c;
+  --color-coral: #9b4030;          /* Measured: 6.63 on white, 5.92 on the body. The old comment said 8.7 */
   --color-cyan: oklch(0.80 0.15 185);           /* Bright cyan accent */
-  --color-sage: #3d6e4a;           /* Dark sage green - AA contrast with white */
+  --color-sage: #3d6e4a;           /* Measured: 5.95 on white, 5.32 on the body. Safe as FOREGROUND on both */
   --color-forest: oklch(0.35 0.08 160);         /* Deep forest */
   /* Light tints - the mirror of the block above. Those are dark enough to
      carry WHITE text; these are light enough to carry DARK text, the way

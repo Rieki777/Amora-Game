@@ -101,7 +101,7 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
         <div className="min-w-0 flex-1">
           <h1 className="text-5xl font-display font-bold text-teal-deep mb-2">{name}</h1>
           {primary ? (
-            <p className="text-lg font-medium text-gold">
+            <p className="text-lg font-medium text-sage">
               {nameOf(primary.archetypeKey)}
               {subtitleOf(primary.archetypeKey) ? ` · ${subtitleOf(primary.archetypeKey)}` : ""}
             </p>
@@ -157,7 +157,7 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
             ))}
             <a
               href="/profile/characters"
-              className="flex min-h-11 items-center rounded-xl border border-dashed border-gold/50 px-4 py-3 text-sm font-semibold text-gold hover:bg-gold/5"
+              className="flex min-h-11 items-center rounded-xl border border-dashed border-sage/50 px-4 py-3 text-sm font-semibold text-sage hover:bg-sage/5"
             >
               Add a path
             </a>
