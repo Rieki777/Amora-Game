@@ -1,4 +1,4 @@
--- 0063: characters. The five classes, the party a player builds from them,
+-- 0069: characters. The five classes, the party a player builds from them,
 -- and the class tags that let work say which hands it is calling for.
 --
 -- A class is a LENS, never a gate. Nothing in this migration is allowed to

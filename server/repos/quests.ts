@@ -193,7 +193,7 @@ export interface ClaimRecord {
   /** Historical JSON name for when the claim was consented or declined. */
   resolvedAt?: string | null;
   /**
-   * WHO witnessed the work (0064). `consented_at` has recorded the time since
+   * WHO witnessed the work (0070). `consented_at` has recorded the time since
    * 0001 and never the person, which leaves the one rule that matters
    * unenforceable after the fact: a steward may not confirm their own claim.
    * The route has always known the actor and has never written it down.
