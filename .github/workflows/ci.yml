@@ -46,6 +46,21 @@ jobs:
       - name: Typecheck
         run: pnpm check
 
+      - name: Typecheck tests
+        # `pnpm check` above uses tsconfig.json, which EXCLUDES **/*.test.ts, so
+        # it cannot see a test calling a helper with an old signature. That
+        # surfaces thirty minutes into the suite as an assertion error instead.
+        # This runs the same compiler over the test files. It sits here, before
+        # the guards and the build, so an arity error fails in seconds.
+        #
+        # The runner starts cold, which is what makes this trustworthy: locally,
+        # tsconfig.json's `incremental` cache does NOT re-check files whose
+        # dependencies did not change, even after a compilerOptions change, so a
+        # warm local run can report an error that is already fixed and can miss
+        # one that is not. Delete node_modules/typescript/tsbuildinfo before
+        # trusting a local result.
+        run: npx tsc -p tsconfig.tests.json --noEmit
+
       - name: Brand guard
         # S56: platform code carries no village's brand (invariant 2.1 #2).
         # Hard-clean zones must be spotless; ratchet zones may only burn down.
