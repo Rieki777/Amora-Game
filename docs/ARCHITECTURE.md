@@ -1319,20 +1319,41 @@ fork, but drop the row deliberately when you do it.
 
 ## 7. Testing doctrine and the gate
 
-**Harness (S5).** `server/db/testDb.ts` provisions a scratch schema
-(`village_test` — fixed, brand-free), DROP/CREATEs it every run, and applies
-*every* migration through the production engine. Sources: CI uses a
+**Harness (S5).** `server/db/testDb.ts` provisions a scratch schema and applies
+*every* migration through the production engine. The schema name is UNIQUE per
+provision, `village_test_<epoch>_<pid>_<n>` (`nextSchemaName`), and it is not
+reused. A fixed name was the old design and it broke: two parallel runs
+DROP/CREATEd the schema out from under each other, twice in an hour, presenting
+as `Unknown database 'village_test'` halfway through a migration and as
+cascades of 500s in loop sections that pass on any quiet run. `TEST_SCHEMA`
+overrides the name and survives only as a pin for CI's named service container.
+
+Unique names give up the cleanup the old fixed name provided, where
+DROP-and-recreate erased the last run's leftovers, so provisioning SWEEPS
+instead. Any `village_test_*` schema whose embedded epoch is more than **two
+hours** old is dropped as a crashed run's orphan (`STALE_SCHEMA_MS`), while a
+live parallel run's schema, minutes old, is never touched. A leaked schema
+younger than that window therefore survives on the server by design, and a
+schema you find there is not evidence of a live run.
+
+Sources: CI uses a
 `mysql:8` service container; locally, `TEST_DATABASE_URL` in `.env` points
 at a scratch-capable server — never the app schema. No `TEST_DATABASE_URL`
 → DB-backed suites **skip loudly** rather than pass hollowly.
 
 **The loop test** (`server/loop.e2e.test.ts`) is the acceptance criterion
 for the whole product, not a unit test: it boots the BUILT `dist/index.js`
-as a subprocess on port 3781 against a scratch schema and a throwaway data
-dir, then walks register → path → claim → submit → admin consent →
+as a subprocess against a scratch schema and a throwaway data dir, then walks
+register → path → claim → submit → admin consent →
 gratitude lands → peer send → wall → Pulse → progression. It is
 order-dependent; never `-t`-filter it. If a change makes it fail, the
 change is wrong.
+
+Its port is derived from the pid, `3781 + process.pid % 2000`, for the same
+reason the schema name is: a shared fixed port is a shared mutable global with
+extra steps, and on 2026-08-01 two parallel sessions on 3781 took each other
+down. Do not expect the server on 3781, and do not hardcode a port when
+adding to this suite.
 
 **Unit suites** live beside their subjects: `server/ledger.test.ts`,
 `server/swap.test.ts` (quote/conservation properties),
