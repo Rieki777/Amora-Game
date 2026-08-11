@@ -60,6 +60,18 @@ jobs:
         # A genuine false positive takes an inline `voice-ok: <reason>`.
         run: node scripts/check-voice.mjs
 
+      - name: Auth guard
+        # A client call to a route that refuses strangers carries a token.
+        # This deployment authenticates by `Authorization: Bearer` alone, with
+        # no cookie fallback, so a call without it is a stranger's call. The
+        # promise relay shipped that way past ten green route tests, because
+        # every one of them set the header itself.
+        #
+        # The set of protected routes is read from the handlers, so it follows
+        # the code and needs no list. It stays silent on calls it cannot read
+        # whole, which is why it can be a hard gate.
+        run: node scripts/check-auth-fetch.mjs
+
       - name: Build
         run: pnpm build
 
