@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import GameDashboard from "@/components/GameDashboard";
 import ProfileJourney from "@/components/ProfileJourney";
 import NotifyPrefsPanel from "@/components/NotifyPrefsPanel";
+import ProfileSheet from "@/components/ProfileSheet";
 import OnchainCard from "@/components/OnchainCard";
 import WalletCard from "@/components/WalletCard";
 import { useAuth } from "@/contexts/AuthContext";
@@ -397,6 +398,8 @@ export default function Profile() {
                 )}
 
                 {/* Contributions Log */}
+                <ProfileSheet />
+
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
