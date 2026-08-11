@@ -89,9 +89,16 @@ and this one pointed at a version carrying both, so a future tailwindcss release
 that took a `nanoid` dependency would have activated it straight into a
 vulnerability.
 
-Both advisories still apply to the `nanoid@3.3.11` that postcss resolves today.
-Nothing in this removal changed that, and nothing needs to: the path is a
-devDependency, so it never reaches a village's browser.
+Both advisories do still apply to the `nanoid@3.3.11` that postcss resolves
+today, and both stay off the ignore list, because neither one is accepted and
+neither one needs to be. That path is a devDependency, so `--prod` never
+reaches it. What postcss wants `nanoid` for is the debug label in
+`'<input css ' + nanoid(6) + '>'`, a build-time source-map id, which gives a
+non-secure-generator advisory nothing to reach. And postcss asks for
+`nanoid: ^3.3.11`, a range that already admits the patched 3.3.18, so the next
+refresh of that pin closes both on its own. A scoped `postcss>nanoid` override
+would close them today, and it would go dead the day postcss raises its own
+floor, which is how the pin described above came to exist in the first place.
 
 Worth remembering as a class: **the cheapest security fix is a dependency you
 were not using.** Before accepting an advisory, check whether the package is
