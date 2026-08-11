@@ -22,21 +22,37 @@ export default defineConfig({
     // The end-to-end loop test builds and boots the server, so it needs room.
     testTimeout: 120_000,
     /*
-     * 300s, and it must stay comfortably ABOVE the e2e boot deadline.
+     * This ceiling must stay comfortably ABOVE (provisioning + boot deadline),
+     * and provisioning GROWS WITH EVERY MIGRATION ANYONE ADDS.
      *
-     * The e2e hooks do two slow things in series: provision a scratch schema
-     * (drop, create, ~50 migrations) and then wait for the server to answer
-     * /health. Against a hosted MySQL the round trip is ~130ms, so provisioning
-     * alone can run a minute or more.
+     * An e2e hook does two slow things in series: provision a scratch schema
+     * (drop, create, then run every migration) and then wait for the server to
+     * answer /health. The second has its own 180s deadline inside the file. So:
      *
-     * When the boot deadline was raised from 60s to 120s, the two together
-     * started clearing the old 180s ceiling, and this timeout fired FIRST. That
-     * is the worse failure: the boot deadline reports the server's own log and
-     * says what it was doing, while this one says only "Hook timed out" and
-     * throws that log away. Keep the headroom so the informative error is
-     * always the one that wins.
+     *     hookTimeout  >  provisioning  +  180s
+     *
+     * Measured 2026-08-11, at rest, against the hosted MySQL:
+     *     round trip     140ms
+     *     migrations     62 files
+     *     provisioning   77.6s          (about 1.25s per migration file)
+     *     worst case     257.6s         (77.6 + 180)
+     *
+     * Against the old 300s that left 42s of margin, roughly 14%, and it had
+     * already stopped being enough: with three suites sharing this database
+     * `examples.routes.e2e` failed on THIS timeout, then passed alone in 227s.
+     * At the rate migrations land (0049 to 0062 in one week) 300s would have
+     * been short at rest within a fortnight.
+     *
+     * Why raise this rather than shorten the boot deadline: when a server
+     * genuinely will not start, the boot deadline prints the server's own log
+     * and says what it was doing, while this timeout says only "Hook timed out"
+     * and throws that log away. The informative error has to be the one that
+     * fires, so this number stays the outer bound.
+     *
+     * TO RECOMPUTE: time one `provisionTestDb()` and add 180. If that is within
+     * ~40% of this number, raise it. Do not lower the boot deadline instead.
      */
-    hookTimeout: 300_000,
+    hookTimeout: 600_000,
     // One server process per file, no parallel port fights.
     fileParallelism: false,
   },

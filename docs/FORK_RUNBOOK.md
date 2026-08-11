@@ -647,3 +647,28 @@ environment, never committed, and is only ever run by hand. It keeps its 2K
 masters in `scripts/avatar-bases/` (gitignored) and delivers 1024px webp, which
 is what keeps 30 portraits inside the CI budget of 6000 KB for the whole of
 `dist`. Re-running skips what exists.
+## Who may shape the living map (0063)
+
+Build mode edits a PRIVATE draft. Nothing a member drags is visible to anyone
+else until they press Publish, and one member publishing never touches another
+member's draft.
+
+Two capability keys govern it, and neither is reachable by climbing the stage
+ladder because both are appointments:
+
+- `map.edit` opens build mode and keeps a draft.
+- `map.publish` makes a draft the map every visitor sees.
+
+Migration 0063 seeds a **Cartographer** badge carrying both. It is an ordinary
+granted badge, so award it from the admin badge screen like any other. Admins
+and founders pass every gate already and need no badge. To let someone draft
+proposals without handing them the live land, make a role carrying only
+`map.edit`.
+
+The badge row is seeded with `INSERT IGNORE`, so a deployment that already made
+its own `cartographer` badge keeps theirs untouched. While the badges module is
+off the row simply exists and grants nothing.
+
+Nothing to provision: no env var, no seed file, no extra step. A village that
+has never published serves `scene: null` from `GET /api/map/config` and the map
+draws its own seed, which is the correct state for a fresh fork.

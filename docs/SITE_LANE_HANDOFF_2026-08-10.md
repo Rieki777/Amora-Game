@@ -85,20 +85,17 @@ the quests block is exactly what makes the loss invisible.
 
 ## Open — site lane (next session)
 
-**1. Nothing tests a signed-in member through a real shell.** This is the
-seam the promise bug lived in, and it is still open on both sides. The site's
-route tests set `Authorization` themselves; the map's artifact suites drive it
-from `file://` with no parent frame, so every promise takes the
-"silence means local only" path by construction. Between them the route is
-proven and the map is proven and the round trip is not. Nothing today would
-catch a promise that reaches the server as anonymous.
+**1. No test drives a signed-in member through a real shell.** Half of this
+is now closed: `scripts/check-auth-fetch.mjs` reads which routes refuse
+strangers and fails if a client call to one of them carries no token. It
+catches the exact bug that shipped, proven by putting the bug back and
+watching it fail.
 
-The cheap half is a static guard, in the house style of the brand and voice
-checks: an authenticated route reached from client code must go through
-`gameFetch`, never bare `fetch`. It needs an allowlist, because the genuinely
-public calls (`/api/map/config`, the manifest probe) are correct as they are.
-The expensive half is a browser test that signs in and drives `/map`, which
-needs Playwright as a real dependency and is a bigger call than one round.
+What is still open is the live half. The map's suites drive the artifact from
+`file://` with no parent frame, so every promise takes the "silence means
+local only" path by construction, and nothing exercises a real round trip. A
+browser test that signs in and drives `/map` needs Playwright as a real
+dependency, which is a bigger call than one round.
 
 **2. The exchange test has no headroom.** `S33-S35` in `loop.e2e` runs 38s to
 61s against a 120s ceiling and times out whenever the shared MySQL is slow. It

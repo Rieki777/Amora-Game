@@ -28,6 +28,7 @@ pnpm build                          # vite client + esbuild server -> dist/
 pnpm test                           # vitest run — see loop-test rules first
 node scripts/check-brand-refs.mjs   # brand ratchet (read $?, its last line is blank on failure)
 node scripts/check-voice.mjs        # house writing rules on shipped copy
+node scripts/check-auth-fetch.mjs   # a client call to a route that refuses strangers carries a token
 ```
 
 The build marker is stamped from the git SHA by `scripts/build-server.mjs` — never hand-edit

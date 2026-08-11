@@ -1,0 +1,31 @@
+<!doctype html><meta charset="utf-8"><title>publish shell</title>
+<style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style>
+<iframe id="f" src="../grounds-v0.html"></iframe>
+<script>
+/* A parent that answers the map's scene verbs, so verify_publish.js can drive
+   the REAL bridge instead of calling the handlers directly. Its own file and
+   not shell.html, because that one belongs to the promise round and two suites
+   sharing a mutable harness is how a green run stops meaning anything.
+
+   __seen  every message the map posted, in order
+   __reply what to answer a scene verb with; the suite rewrites it per case */
+window.__seen = [];
+window.__reply = { ok: true, version: 1 };
+
+addEventListener('message', e => {
+  const d = e.data; if (!d || typeof d !== 'object') return;
+  window.__seen.push(d);
+  const f = document.getElementById('f').contentWindow;
+  if (d.type === 'draft-save' || d.type === 'draft-discard' || d.type === 'publish' || d.type === 'restore') {
+    /* The nonce is echoed EXACTLY, which is the contract the map relies on to
+       drop an answer to a question it has already replaced. */
+    f.postMessage(Object.assign({ type: 'scene-result', of: d.type, nonce: d.nonce }, window.__reply), '*');
+  }
+});
+
+/* Hand the map a village. Called from the suite so each case sets its own. */
+window.__hand = h => document.getElementById('f').contentWindow.postMessage(
+  Object.assign({ type: 'hand', canEdit: false, canPublish: false, liveVersion: 0, live: null, draft: null }, h), '*');
+window.__config = c => document.getElementById('f').contentWindow.postMessage(
+  Object.assign({ type: 'config' }, c), '*');
+</script>

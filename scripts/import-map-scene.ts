@@ -53,6 +53,11 @@ import {
   sanitiseMapVocabulary,
   unknownWireSources,
 } from "../shared/mapAddress";
+import {
+  SUPPORTED_SCENE_FAMILIES as SUPPORTED_FAMILIES,
+  SUPPORTED_SCENE_VERSIONS as SUPPORTED_VERSIONS,
+  isSupportedSceneVersion as isSupportedVersion,
+} from "../shared/mapScene";
 
 /**
  * Scene versions this importer understands.
@@ -81,6 +86,7 @@ import {
  * additions are covered below or in SKIPPED_BLOCKS.
  */
 /*
+ * The list itself moved to `shared/mapScene.ts` when the map gained a publish
  * button (0063). A file import and a publish are two doors into ONE absorber,
  * and this repo has already paid for two enumerations of the same keys that
  * had to agree forever: `media` and `phases` joined the vocabulary, only the
@@ -91,17 +97,6 @@ import {
  * Imported under this file's own names above, so everything below reads as it
  * always did.
  */
-
-const SUPPORTED_VERSIONS = ["v0.6-buildmode"];
-const SUPPORTED_FAMILIES = ["v0.7", "v0.8"];
-
-function isSupportedVersion(v: unknown): boolean {
-  if (typeof v !== "string" || !v) return false;
-  if (SUPPORTED_VERSIONS.includes(v)) return true;
-  // "v0.7-roundC1" -> family "v0.7". Anything with no dash is its own family.
-  const family = v.split("-")[0];
-  return SUPPORTED_FAMILIES.includes(family);
-}
 
 const SKIPPED_BLOCKS: Array<{ block: string; reason: string }> = [
   { block: "structures", reason: "no map_structures table; the scene's geometry has no home yet" },

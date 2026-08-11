@@ -15,11 +15,14 @@ print("plate:", im.size, len(buf.getvalue())//1024, "KB jpeg,", len(b64)//1024, 
 hook = ("/*PLATE_HOOK*/(function(){const im=new Image();"
         "im.onload=()=>{paintedPlate=im;mmDirty=true};"
         f"im.src='data:image/jpeg;base64,{b64}'}})();")
-src = open(HTML, encoding="utf8").read()
+# Text mode would translate every newline on the way in and back out, so a
+# one-anchor edit would rewrite all of this LF file as CRLF. The artifact is
+# `-text` in .gitattributes: bytes in, same bytes out. Keep newline="".
+src = open(HTML, encoding="utf8", newline="").read()
 assert "/*PLATE_HOOK*/" in src, "hook missing"
 head = src.split("/*PLATE_HOOK*/")[0]
 tail = src.split("/*PLATE_HOOK*/", 1)[1]
 if tail.lstrip().startswith("(function(){const im=new Image()"):  # replace old embed
     tail = tail.split("})();", 1)[1]
-open(HTML, "w", encoding="utf8").write(head + hook + tail)
+open(HTML, "w", encoding="utf8", newline="").write(head + hook + tail)
 print("embedded into", HTML)

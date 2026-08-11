@@ -86,3 +86,43 @@ describe("hasCapability truth table", () => {
     expect(before).toBe(after);
   });
 });
+
+/**
+ * The map's two keys (0063). The village's front door is an appointment, so
+ * the interesting assertions here are about what does NOT grant them.
+ */
+describe("map.edit and map.publish are appointments", () => {
+  const KEYS: Capability[] = ["map.edit", "map.publish"];
+
+  it("no stage unlocks either, at any height on the ladder", () => {
+    for (const key of KEYS) {
+      expect(STAGE_UNLOCKS[key]).toBeUndefined();
+      // Top of the ladder, nothing appointed: still closed.
+      expect(hasCapability(key, ctx({ stageIndex: LADDER.length - 1 }))).toBe(false);
+    }
+  });
+
+  it("both are grantable by role and by badge", () => {
+    for (const key of KEYS) {
+      expect(hasCapability(key, ctx({ roleCapabilities: [key] }))).toBe(true);
+      expect(hasCapability(key, ctx({ badgeCapabilities: [key] }))).toBe(true);
+    }
+  });
+
+  /*
+   * The reason they are two keys and not one. A member who may draft must be
+   * able to hold map.edit while map.publish stays shut, or the split buys
+   * nothing.
+   */
+  it("drafting does not imply publishing", () => {
+    const drafter = ctx({ badgeCapabilities: ["map.edit"] });
+    expect(hasCapability("map.edit", drafter)).toBe(true);
+    expect(hasCapability("map.publish", drafter)).toBe(false);
+  });
+
+  it("a warning badge suspends publishing while editing survives", () => {
+    const c = ctx({ roleCapabilities: ["map.edit", "map.publish"], badgeDenies: ["map.publish"] });
+    expect(hasCapability("map.publish", c)).toBe(false);
+    expect(hasCapability("map.edit", c)).toBe(true);
+  });
+});
