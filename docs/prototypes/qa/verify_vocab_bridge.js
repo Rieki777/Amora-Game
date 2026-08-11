@@ -146,15 +146,28 @@ const PUSHED = {
     flow_style: 'gold', label_style: 'tablet',
     mist: true, glow: false, painterly: { brush: 0.4, palette: 0.7 },
   };
-  await page.evaluate((sk) => window.postMessage({ type: 'config', skin: sk }, '*'), SKIN_PUSH);
+  const WALK_PUSH = [
+    { key: 'w1', say: 'This is the land.', need: 'tap' },
+    { key: 'w2', say: 'And this is what needs hands.', need: 'tap' },
+  ];
+  await page.evaluate((a) => window.postMessage({ type: 'config', skin: a.sk, walk: a.walk }, '*'),
+    { sk: SKIN_PUSH, walk: WALK_PUSH });
   await page.waitForTimeout(400);
   const f = await page.evaluate(() => ({
     flow: SKIN.flow_style, label: SKIN.label_style,
     tablet: document.body.classList.contains('lbl-tablet'),
+    walk: (window.WALK || []).map(s => s.key).join(),
     phase2: window.phaseName(2), road: SUBTYPES.road.join(),
   }));
   ok(f.flow === 'gold' && f.label === 'tablet' && f.tablet === true,
     `the config door delivers skin as well as words (${f.flow}/${f.label})`);
+  /*
+   * walk is the third thing this one message carries, and it was the last
+   * uncovered third. The first version of this gate checked skin and
+   * vocabulary and left walk out, which is the same partial-coverage shape
+   * the gate was written to catch.
+   */
+  ok(f.walk === 'w1,w2', `and the village's own Welcome Walk (${f.walk || 'none'})`);
   /* and a message that carries no vocabulary must not reset the words */
   ok(f.phase2 === 'Rising' && f.road === PUSHED.road.join(),
     `a config without a vocabulary leaves the words alone (${f.phase2})`);

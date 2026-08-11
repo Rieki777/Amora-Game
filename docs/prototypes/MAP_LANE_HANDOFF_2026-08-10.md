@@ -58,7 +58,8 @@ node qa/verify_features.js               # FEATURES: ALL GREEN   (~90 checks)
 node qa/verify_badges.js                 # BADGES: ALL GREEN     (36 checks)
 node qa/verify_loom.js                   # LOOM: ALL GREEN
 node qa/verify_skin_bridge.js            # SKIN BRIDGE: ALL GREEN (site lane's)
-node qa/verify_vocab_bridge.js           # VOCAB BRIDGE: ALL GREEN (19 checks)
+node qa/verify_vocab_bridge.js           # VOCAB BRIDGE: ALL GREEN (20 checks)
+node qa/verify_bridge_doors.js           # BRIDGE DOORS: ALL GREEN (15 checks)
 node qa/_dump_scene.js out.json && node qa/check-schema.js out.json
 ```
 
@@ -266,13 +267,29 @@ byte identical with the fix and without it, so the dry run passed before and
 after and could never have found it. Both were run this round and both were
 green while the map was dropping two fifths of every vocabulary the shell sent.
 
-**Every boundary has two directions, and this one has a gate on one of them.**
-Worth knowing before trusting the pattern: `verify_skin_bridge.js` proves the
-skin ABSORBER by calling `applySkinExport()` directly, which means the
-`{type:'skin'}` and `{type:'config'}` doors that reach it are not covered by
-it. `verify_vocab_bridge.js` posts a real `message` for exactly that reason,
-and now also asserts the config door delivers skin. Nothing yet posts a real
-`{type:'skin'}`.
+**Every boundary has two directions, and this one had a gate on one of them.**
+That is now fixed, and the count is worth writing down because it was the real
+surprise of the day. The artifact listens on **six** message types. Across
+every gate in `qa/`, the number that posted a real message was **one**, and it
+was the one written that afternoon. Everything else was proven by calling the
+handler's BODY: `verify_skin_bridge.js` calls `applySkinExport()` and proves
+the absorber beautifully, while the `{type:'skin'}` door that reaches it had
+never been knocked on.
+
+That distinction is not academic, because **the vocabulary bug lived in a door,
+not an absorber.** `restoreScene` took all five keys the whole time and the
+`{type:'config'}` handler beside it took three. A test of the absorber passes
+on a broken door, which is exactly how it survived a round.
+
+`qa/verify_bridge_doors.js` now posts the real thing for `skin`, `goto` and
+`promise-result`, including the nonce discrimination that the whole promise
+contract rests on: a straggler for a replaced intent is dropped, and the
+matching reply still lands afterwards, which proves the straggler did not
+consume the wait. Its section D reads the artifact's own source for every
+`d.type` it compares against and fails when one is neither driven there nor
+named as driven by another gate. Round E added `hand` and `scene-result` and
+nothing forced them to be gated; the next new door will not get in that
+quietly.
 
 ---
 
@@ -319,16 +336,22 @@ and now also asserts the config door delivers skin. Nothing yet posts a real
   cannot carry a key. Two lists say the same thing. Confirmed still true and
   still correct: they sit beside `events` in the export, and the importer reads
   them there.
-- **Nothing yet posts a real `{type:'skin'}`.** `verify_skin_bridge.js` proves
-  the skin absorber by calling `applySkinExport()` directly, so the
-  `{type:'skin'}` door itself has no gate. `verify_vocab_bridge.js` now covers
-  the `{type:'config'}` door for both skin and vocabulary; the standalone skin
-  verb is the one left. This is the same shape as the fifth bug and is written
-  down here before it is one.
+- **`verify_doors.js` is flaky at least once in ten.** It failed one assertion
+  on a snapshot that then passed the same suite twice in a row, unchanged, and
+  passed again in isolation. Not chased down, because it went green on the
+  bytes that shipped and the failure was not reproduced. Written here so the
+  next session that sees one red door re-runs before rebuilding anything: a
+  gate that fails intermittently costs more than the bug it was guarding.
 
 **Closed this round:** the vocabulary inbound gap. `applyVocabulary()` is the
 one door, `patch_d7_vocab_inbound.py` is the change, `qa/verify_vocab_bridge.js`
 is the gate, and the artifact ships as `v0.8-roundD1`.
+
+**Also closed:** the bridge doors. `qa/verify_bridge_doors.js` drives `skin`,
+`goto` and `promise-result` with real messages, `verify_vocab_bridge.js` covers
+all three payloads of `{type:'config'}` including `walk`, and the tripwire
+fails on any door with no gate anywhere. Proven by removing `goto` from the
+covered list and watching it name `goto`.
 
 ### Site lane (theirs, do not take)
 
