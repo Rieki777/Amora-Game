@@ -300,11 +300,32 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
       && s.getBoundingClientRect().width > 0);
     const box = s => { const r = s.getBoundingClientRect(); return { s, cx: r.x + r.width / 2, cy: r.y + r.height / 2 }; };
     const b = shown.map(box);
-    let touching = 0, worst = '';
+    /* Marks may cross a NEIGHBOUR's marks since rings stopped moving each
+       other apart (patch_e2_ring), so the old global spacing rule is gone and
+       two narrower ones stand in its place.
+
+       ONE: a mark never strays from the building it belongs to. That is the
+       whole point of the change, and it is the thing that was only ever an
+       opinion before: `reach` is the widest ring the layout can hand out,
+       max(off*1.8, 30), plus half a seal.
+
+       TWO: two marks on the SAME ring still never touch, because 44 px is a
+       tap target and that is a correctness rule, not a tidiness one. */
+    let touching = 0, worst = '', strayed = '', sameTouch = 0;
+    for (const x of b) {
+      const g = bgEls[x.s.dataset.bk]; if (!g) continue;
+      const reach = Math.max((g._off || 30) * 1.8, 30) + 18;
+      const d = Math.hypot(x.cx - g._cx, x.cy - g._cy);
+      if (d > reach && !strayed) strayed = `${x.s.dataset.bk}:${x.s.dataset.bkind} is ${Math.round(d)} px out, reach is ${Math.round(reach)}`;
+    }
     for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) {
       const d = Math.hypot(b[i].cx - b[j].cx, b[i].cy - b[j].cy);
       // 44 exactly is two hit circles touching, which is the target, not a fault
-      if (d < 43.5) { touching++; if (!worst) worst = `${b[i].s.dataset.bk}:${b[i].s.dataset.bkind} vs ${b[j].s.dataset.bk}:${b[j].s.dataset.bkind} at ${Math.round(d)} px`; }
+      if (d < 43.5) {
+        touching++;
+        if (b[i].s.dataset.bk === b[j].s.dataset.bk) sameTouch++;
+        if (!worst) worst = `${b[i].s.dataset.bk}:${b[i].s.dataset.bkind} vs ${b[j].s.dataset.bk}:${b[j].s.dataset.bkind} at ${Math.round(d)} px`;
+      }
     }
     /* Reachability is only meaningful for marks inside the map, away from the
        HUD panels that legitimately sit above it. */
@@ -312,11 +333,40 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
       && !document.getElementById('maia').getBoundingClientRect().width
       || (x.cx > 60 && x.cy > 96 && x.cx < innerWidth - 60 && x.cy < innerHeight - 96
         && !(x.cx > document.getElementById('maia').getBoundingClientRect().x && x.cy > document.getElementById('maia').getBoundingClientRect().y)));
+    /* ROOM FOR A THUMB, which is not the same question as "does a click at the
+       exact centre resolve". Nearest-centre resolution gives two centres d
+       apart a catchment of d/2, and a fingertip is 30 to 45 CSS px, so two
+       marks 13 px apart resolve perfectly under a mouse and open the wrong
+       door under a thumb. The floor is the seal's own width, so the catchment
+       covers its ink. Doors of DIFFERENT buildings only: a ring is spaced
+       against itself by BADGE_GAP and that is asserted separately. */
+    const catchment = () => {
+      const doors = [...document.querySelectorAll('.bseal,.hchip')].filter(s => {
+        const r = s.getBoundingClientRect();
+        return r.width > 0 && getComputedStyle(s).display !== 'none'
+          && s.closest('.bgroup').classList.contains('on');
+      }).map(s => { const r = s.getBoundingClientRect();
+        return { k: s.dataset.bk, kind: s.dataset.bkind || 'home', cx: r.x + r.width / 2, cy: r.y + r.height / 2 }; });
+      let min = Infinity, pair = '';
+      for (let i = 0; i < doors.length; i++) for (let j = i + 1; j < doors.length; j++) {
+        if (doors[i].k === doors[j].k) continue;
+        const d = Math.hypot(doors[i].cx - doors[j].cx, doors[i].cy - doors[j].cy);
+        if (d < min) { min = d; pair = `${doors[i].k}:${doors[i].kind} vs ${doors[j].k}:${doors[j].kind}`; }
+      }
+      return { doors: doors.length, minCross: +min.toFixed(1), minPair: pair,
+        ink: parseFloat(getComputedStyle(document.querySelector('.bseal')).width) || 28 };
+    };
+
+    /* The plane resolves a tap by DISTANCE now, not by paint order
+       (patch_e5_taps), so the question worth asking is "does a tap here open
+       THIS mark". elementFromPoint answers a different one, "is this mark on
+       top", which stopped being the mechanism the moment overlap was allowed. */
     let mine = 0;
-    for (const x of inMap) { const el = document.elementFromPoint(x.cx, x.cy); if (el && (el === x.s || x.s.contains(el))) mine++; }
+    for (const x of inMap) { if (window.nearestSeal(x.cx, x.cy) === x.s) mine++; }
     const hit = document.querySelector('.bseal .bhit');
     return {
-      shown: shown.length, touching, worst, mine, of: inMap.length,
+      shown: shown.length, touching, worst, strayed, sameTouch, mine, of: inMap.length,
+      ...catchment(),
       clusters: document.querySelectorAll('.bgroup.clustered').length,
       star: !!document.querySelector('.bseal.b-event'),
       starHit: !!(document.querySelector('.bseal.b-event') && getComputedStyle(document.querySelector('.bseal.b-event')).pointerEvents === 'auto'),
@@ -325,13 +375,104 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
       layers: { badges: +getComputedStyle(document.getElementById('badges')).zIndex, banners: +getComputedStyle(document.getElementById('banners')).zIndex, icons: +getComputedStyle(document.getElementById('icons')).zIndex }
     };
   });
-  ok(d2a.touching === 0, `D2 A1: no two marks overlap anywhere on the land (${d2a.shown} shown${d2a.worst ? ', worst ' + d2a.worst : ''})`);
+  ok(!d2a.strayed, `D2 A1: every mark stays on its own building's ring (${d2a.shown} shown, ${d2a.strayed || 'all attached'})`);
+  ok(d2a.sameTouch === 0, `D2 A1: two marks on one ring never touch (${d2a.sameTouch} touching${d2a.touching ? '; ' + d2a.touching + ' cross a neighbour, which is allowed' : ''})`);
   ok(d2a.mine === d2a.of && d2a.of > 12, `D2 A1: every mark over the map answers its own tap (${d2a.mine}/${d2a.of})`);
+  /* The one a passing tap test can still hide. If this fails, do NOT raise
+     MARK_FLOOR: the solver is greedy and a higher floor has measured worse.
+     Re-run qa/_probe_floor.js and widen RING_ROT instead. */
+  ok(d2a.minCross >= d2a.ink && d2a.doors > 12,
+    `D2 A1: every mark has room for a thumb (${d2a.doors} doors, closest ${d2a.minCross} px across buildings, ink ${d2a.ink} px, catchment ${(d2a.minCross / 2).toFixed(1)} px${d2a.minCross < d2a.ink ? ' — ' + d2a.minPair : ''})`);
+
+  /* ONE CAMERA PROVES ONE CAMERA. The check above runs at z 1.7 and the map
+     lane caught that this is the easy end: `off` comes from `_crownOff`, which
+     shrinks with the LOD scale, so pulling back tightens every ring AND
+     converges the buildings at the same time.
+
+     Swept, it turns out no rotation budget clears the whole range, and that is
+     not a tuning failure. At z 1.0 there are 50 doors in a converging area and
+     the screen does not hold 50 exclusion zones; measured, even 42 degrees at
+     3-degree steps only clears from z 1.7 up. What it IS is small: 3 to 4 doors
+     of 50, in two bands, and zero everywhere else.
+
+     So this is a RATCHET, like the brand refs. The known shortfall is recorded
+     rather than hidden, the top of the range must stay perfect, and anything
+     that makes it meaningfully worse fails. The second band exists because
+     `.bmid` takes a seal from 22 px to 28 at z 1.45 while the geometry does not
+     change: the ink grows before the ring does. Moving that boundary up is the
+     cheap lever if this budget ever needs to come down. */
+  const UNRELIABLE_BUDGET = 4;
+  const sweep = await page.evaluate(zs => zs.map(z => {
+    cam.z = z; cam.x = 1240; cam.y = 700; clampCam();
+    refreshBadges(); syncBanners(); syncBanners();
+    const seal = document.querySelector('.bseal');
+    const ink = seal ? parseFloat(getComputedStyle(seal).width) : 28;
+    const doors = [...document.querySelectorAll('.bseal,.hchip')].filter(s => {
+      const r = s.getBoundingClientRect();
+      return r.width > 0 && getComputedStyle(s).display !== 'none'
+        && s.closest('.bgroup').classList.contains('on');
+    }).map(s => { const r = s.getBoundingClientRect();
+      return { k: s.dataset.bk, cx: r.x + r.width / 2, cy: r.y + r.height / 2 }; });
+    let bad = 0;
+    for (const d of doors) {
+      let near = Infinity;
+      for (const o of doors) {
+        if (o === d || o.k === d.k) continue;
+        const dist = Math.hypot(d.cx - o.cx, d.cy - o.cy);
+        if (dist < near) near = dist;
+      }
+      if (near < ink) bad++;
+    }
+    return { z, ink, doors: doors.length, bad };
+  }), [1.0, 1.1, 1.2, 1.35, 1.45, 1.6, 1.7, 2.0]);
+  /* WHY THE BUDGET IS NOT POSITION-DEPENDENT, AND THE TRIPWIRE THAT KEEPS IT
+     THAT WAY. The map lane panned 25 centres across the land at four zooms and
+     the worst case per zoom was identical to the single-centre numbers
+     (4/4/3/0). Position is not an axis, and the reason is the door filter: it
+     takes every rendered mark whose group is live, NOT the marks intersecting
+     the viewport, so the metric spans the whole land by construction.
+
+     That is one edit from being lost. "Tighten" the filter to count only what
+     is on screen and the number silently becomes position-dependent while the
+     budget goes on claiming it measures the map. So: same zoom, two very
+     different centres, same count. A viewport-relative filter cannot pass it. */
+  const scope = await page.evaluate(() => {
+    // This suite is order-dependent and shares one page, so the camera goes
+    // back exactly where it was found. Panning and leaving it moved the land
+    // under the next check.
+    const was = { z: cam.z, x: cam.x, y: cam.y };
+    const count = (x, y) => {
+      cam.z = 1.45; cam.x = x; cam.y = y; clampCam();
+      refreshBadges(); syncBanners(); syncBanners();
+      return [...document.querySelectorAll('.bseal,.hchip')].filter(s => {
+        const r = s.getBoundingClientRect();
+        return r.width > 0 && getComputedStyle(s).display !== 'none'
+          && s.closest('.bgroup').classList.contains('on');
+      }).length;
+    };
+    const out = { a: count(700, 400), b: count(1750, 1000) };
+    cam.z = was.z; cam.x = was.x; cam.y = was.y; clampCam();
+    refreshBadges(); syncBanners(); syncBanners();
+    return out;
+  });
+  ok(scope.a === scope.b && scope.a > 12,
+    `D2 A1: the thumb budget counts the whole land, not the viewport (${scope.a} doors at one centre, ${scope.b} at another)`);
+
+  const worstBand = sweep.reduce((a, r) => (r.bad > a.bad ? r : a), sweep[0]);
+  const topClean = sweep.filter(r => r.z >= 1.7).every(r => r.bad === 0);
+  ok(topClean, `D2 A1: from z 1.7 up every door has room for a thumb (${sweep.filter(r => r.z >= 1.7).map(r => r.z + ':' + r.bad).join(' ')})`);
+  ok(worstBand.bad <= UNRELIABLE_BUDGET,
+    `D2 A1: the crowded low-zoom bands stay within budget (worst z ${worstBand.z}: ${worstBand.bad} of ${worstBand.doors} doors, budget ${UNRELIABLE_BUDGET})`);
   ok(d2a.layers.badges > d2a.layers.banners && d2a.layers.banners > d2a.layers.icons,
     `D2 A1: badge over label over building (${d2a.layers.badges} > ${d2a.layers.banners} > ${d2a.layers.icons})`);
   ok(d2a.star && d2a.starHit && !d2a.inPoi, 'D2 A1: the star is a seal with its own hit area, not furniture inside the building');
   ok(d2a.hitPx === 44, `D2 A1: 44 px of thumb under a 22 px mark (${d2a.hitPx})`);
-  ok(d2a.clusters > 0, `D2 A1: crowded rings collapse to a counted seal (${d2a.clusters} clustered)`);
+  /* The inverse of what stood here. Rings used to be collapsed by their
+     neighbours and this asserted that they were; they are solved against one
+     building now, so it asserts that they are not. The counted seal still
+     exists for a ring that cannot fit its OWN marks, and verify_badges.js
+     makes one on purpose and fans it. */
+  ok(d2a.clusters === 0, `D2 A1: no ring is collapsed by its neighbours (${d2a.clusters} clustered)`);
 
   /* and a tap on a mark opens what the mark is about */
   const d2t = await page.evaluate(async () => {

@@ -248,9 +248,16 @@
 
   body:has(#panel.open) #maia,body:has(#inspect.open) #maia{right:414px}
   /* ---------- toasts / ripples ---------- */
-  #toasts{position:absolute;top:64px;left:50%;transform:translateX(-50%);z-index:65;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+  #toasts{position:absolute;top:64px;left:50%;transform:translateX(-50%);z-index:65;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none;
+    width:min(92vw,420px)}
+  /* On a phone the top band already holds the vitals bar, the plates, and
+     whatever card a tap opened, and a toast is the least important thing in
+     that list. So it takes the one strip with nothing else in it: just above
+     the pocket bar. Nothing up top has to yield because nothing is up there. */
+  body.pocket #toasts{top:auto;bottom:calc(70px + env(safe-area-inset-bottom,0px));width:min(94vw,420px)}
   .toast{background:rgba(20,14,8,.88);border:1px solid rgba(201,162,94,.6);color:var(--parch);border-radius:16px;
     padding:5px 16px;font-size:12px;letter-spacing:.04em;box-shadow:0 4px 12px rgba(0,0,0,.5);
+    max-width:100%;text-align:center;
     animation:toastin .3s ease, toastout .5s ease 5.4s forwards}
   @keyframes toastin{from{opacity:0;transform:translateY(-8px)}to{opacity:1}}
   @keyframes toastout{to{opacity:0;transform:translateY(-6px)}}
@@ -516,9 +523,11 @@
      so nothing moves and nothing else on the land has to be redrawn. */
   @keyframes brim{0%,100%{stroke:var(--gold);stroke-width:2}50%{stroke:var(--gold-b);stroke-width:2.9}}
   .aseal.soon .arim{animation:brim 2.4s ease-in-out infinite}
-  .bseal{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;pointer-events:auto;
+  /* Sized for a thumb, not a cursor. The 44 px HIT footprint the ring is
+     solved for has not moved; this is the ink catching up to it. */
+  .bseal{position:absolute;width:28px;height:28px;margin:-14px 0 0 -14px;pointer-events:auto;
     cursor:pointer;transition:opacity .2s ease,transform .18s ease}
-  .bmid .bseal{width:16px;height:16px;margin:-8px 0 0 -8px}
+  .bmid .bseal{width:22px;height:22px;margin:-11px 0 0 -11px}
   /* A 44px target under a 22px mark: the seal is small on purpose and a
      thumb is not. Centred on the seal, invisible, and the only hit surface. */
   .bseal .bhit{position:absolute;left:50%;top:50%;width:44px;height:44px;
@@ -2478,8 +2487,24 @@ window.focusItem=focusItem;
    stopPropagation keeps the building's own click from firing underneath: the
    badge is the more specific answer to the same tap. */
 const BADGE_TAB={quest:1,invite:1,seat:2,talk:0,event:0,more:0};
+/* The visible mark whose centre is closest to a point, within a thumb of it.
+   Marks may overlap since rings stopped moving each other apart, so the plane
+   resolves a tap by DISTANCE rather than by paint order: the browser knows
+   which mark is in front, and only distance knows which one was meant. */
+function nearestSeal(x,y){
+  let best=null,bd=1e9;
+  for(const s of document.querySelectorAll('#badges .bgroup.on .bseal,#badges .bgroup.far .bseal')){
+    if(getComputedStyle(s).display==='none')continue;
+    const r=s.getBoundingClientRect();if(!r.width)continue;
+    const d=Math.hypot(x-(r.x+r.width/2),y-(r.y+r.height/2));
+    if(d<bd){bd=d;best=s}}
+  return bd<=30?best:null}
+window.nearestSeal=nearestSeal;
 $('badges').addEventListener('click',e=>{
-  const seal=e.target.closest('.bseal');if(!seal)return;
+  let seal=e.target.closest('.bseal');if(!seal)return;
+  /* The element the browser picked is right unless another mark's centre is
+     nearer to the point, which is what an overlap means. */
+  seal=nearestSeal(e.clientX,e.clientY)||seal;
   e.stopPropagation();
   const key=seal.dataset.bk,kind=seal.dataset.bkind;const s=BY[key];if(!s)return;
   window.hap&&hap(6);window.WGATE&&(WGATE.badge=true); // the Greenhouse beat waits on this
@@ -2522,6 +2547,58 @@ window.inviteHere=inviteHere;
    the buildings have moved, because two neighbours can each hold their own
    marks apart and still collide with each other. That pair is what the
    testing screenshots showed, and no per-building rule can see it. */
+/* ---------- ROOM FOR A THUMB (E10) ----------
+   Nearest-centre resolution gives two centres d apart a catchment of d/2, and
+   a fingertip is 30 to 45 px wide. Two marks 13 px apart resolve perfectly at
+   their exact centres and open the wrong door under an actual thumb. So marks
+   belonging to DIFFERENT buildings keep a floor between them.
+
+   22 px is half the 44 px hit footprint, which leaves each mark a catchment of
+   11: its own radius, so a tap anywhere on the ink lands on the mark it looks
+   like. Same-ring spacing is untouched and still BADGE_GAP. */
+/* The seal's WIDTH, so the catchment is 14 and covers the ink exactly. It is
+   28 because `.bseal` is 28; if the seal is ever resized, this moves with it.
+   Do NOT raise it without re-running qa/_probe_floor.js: the solver is greedy
+   and a higher floor measured WORSE (floor 28 reached 20.8 on the old narrow
+   steps, against 23.1 for floor 22). Asking for more returned less. */
+const MARK_FLOOR=28;
+/* The only thing a crowded ring gives up. The radius never changes, so a mark
+   never leaves its building; the whole ring turns at once, so every kind keeps
+   its seat relative to the others. Finer and wider than the first attempt,
+   which is what actually bought the floor: same solver, same land, min 20.8
+   on nine-degree steps and 28.3 on these. */
+const RING_ROT=[0,6,-6,12,-12,18,-18,24,-24,30,-30,36,-36,42,-42];
+function markPts(g,rot){
+  const out=[];
+  for(const kd of g.kinds){if(kd==='home')continue;
+    const a=((BADGE_SLOT[kd]!==undefined?BADGE_SLOT[kd]:215)+rot)*Math.PI/180;
+    out.push({x:g.cx+Math.cos(a)*g.R,y:g.cy-Math.sin(a)*g.R})}
+  const ha=(BADGE_SLOT.home+rot)*Math.PI/180; // the home chip is a door too
+  out.push({x:g.cx+Math.cos(ha)*g.R,y:g.cy-Math.sin(ha)*g.R});
+  return out}
+/* Stable order, earlier rings hold their ground, and a ring that already
+   clears everything keeps rot 0 without searching. That last part is why this
+   is cheap enough to run every frame: on a normal land only two or three rings
+   are crowded and the rest cost one pass each. */
+function solveRotations(groups){
+  const live=[];
+  for(const g of groups){g.rot=0;g._pts=null;
+    if(!g.cluster&&!g.bg.classList.contains('far'))live.push(g)}
+  for(let i=0;i<live.length;i++){
+    const g=live[i];
+    const near=pts=>{let worst=Infinity;
+      for(let j=0;j<i;j++){const o=live[j];
+        for(let m=0;m<o._pts.length;m++)for(let n=0;n<pts.length;n++){
+          const d=Math.hypot(o._pts[m].x-pts[n].x,o._pts[m].y-pts[n].y);
+          if(d<worst)worst=d}}
+      return worst};
+    let best=0,bestPts=markPts(g,0),bestMin=near(bestPts);
+    if(bestMin<MARK_FLOOR)for(let r=1;r<RING_ROT.length;r++){
+      const rot=RING_ROT[r],pts=markPts(g,rot),m=near(pts);
+      if(m>bestMin){bestMin=m;best=rot;bestPts=pts}
+      if(m>=MARK_FLOOR)break}
+    g.rot=best;g._pts=bestPts}
+}
 function layoutBadges(){
   const groups=[];
   for(const s of SCENE.structures){
@@ -2529,43 +2606,31 @@ function layoutBadges(){
     const kinds=(bg.dataset.kinds||'').split(',').filter(Boolean);
     const off=bg._off||30;
     const need=badgeRing(kinds,BADGE_GAP);
-    /* A ring the reader opened on purpose stays open, and stands a little
-       further out so the marks it was hiding have somewhere to be. */
-    const fan=(bg._fan||0)>performance.now(),R0=Math.max(off,need,20);
-    groups.push({bg,kinds,off,R:fan?Math.max(R0*1.35,52):R0,
+    /* A ring the reader opened on purpose stays open. It does NOT stand
+       further out to do it: the marks belong to this building, and throwing
+       them into the neighbours' air on tap was the complaint. A fanned seal
+       already grows 18% in CSS, which is how a tap says "this one". */
+    const fan=(bg._fan||0)>performance.now();
+    groups.push({bg,kinds,off,R:Math.max(off,need,20),
       cluster:!fan&&need>Math.max(off*1.8,30), // too small a building to carry its own ring
       pin:fan,cx:bg._cx,cy:bg._cy});
   }
+  solveRotations(groups); // a few degrees, where two buildings crowd each other
   const CR=g=>Math.max(g.off,20); // where a collapsed ring puts its one seal
-  /* Each pass collapses the rings that are fighting and looks again. A
-     collapsed ring is one mark instead of four, so the land only ever gets
-     quieter and three passes are enough to settle it. */
-  for(let pass=0;pass<3;pass++){
-    const pts=[];
-    for(const g of groups){
-      if(g.cluster){pts.push({g,x:g.cx-0.82*CR(g),y:g.cy+0.57*CR(g)});continue}
-      for(const k of g.kinds){const a=(BADGE_SLOT[k]!==undefined?BADGE_SLOT[k]:215)*Math.PI/180;
-        pts.push({g,x:g.cx+Math.cos(a)*g.R,y:g.cy-Math.sin(a)*g.R})}
-    }
-    let hit=false;
-    for(let i=0;i<pts.length;i++)for(let j=i+1;j<pts.length;j++){
-      if(pts[i].g===pts[j].g)continue;
-      if(Math.hypot(pts[i].x-pts[j].x,pts[i].y-pts[j].y)>=BADGE_GAP)continue;
-      const a=pts[i].g,b=pts[j].g;if(a.cluster&&b.cluster)continue;
-      hit=true;
-      /* The busier ring reaches further, so it gives way first. On a tie the
-         building further up the hill yields, because the one nearer the
-         reader is the one they are looking at. */
-      let give;
-      if(a.pin&&b.pin)continue; // both opened by hand; the reader gets to see both
-      if(a.pin)give=b; else if(b.pin)give=a;
-      else if(a.cluster)give=b; else if(b.cluster)give=a;
-      else if(a.kinds.length!==b.kinds.length)give=a.kinds.length>b.kinds.length?a:b;
-      else give=a.cy<b.cy?a:b;
-      give.cluster=true;
-    }
-    if(!hit)break;
-  }
+  /* A RING IS SOLVED AGAINST ONE BUILDING: ITS OWN.
+     Three passes used to sit here measuring every mark against every other
+     building's marks and collapsing whichever ring lost, which meant a
+     building's marks were placed by its neighbours. Tap a sprite in a dense
+     hamlet and the ring answered to the land around it rather than to the
+     sprite under the thumb. Marks may now overlap a neighbour's sprite and a
+     neighbour's marks, which is the instruction taken literally.
+
+     Two rules survive it, and neither is about tidiness. The ring is still
+     spaced against ITSELF, because BADGE_GAP is a 44 px tap target and two
+     overlapping targets mean the wrong seal answers the tap: at 26 px the
+     wrong one won two of every thirty-six. And a building too small to carry
+     its own ring still collapses to one counted seal that fans on tap, which
+     is `cluster` above, decided by this building's own geometry alone. */
   const pts=window.BADGE_PTS=[]; // where every visible mark ends up, for the plates to avoid
   for(const g of groups){
     g.bg.classList.toggle('clustered',g.cluster);
@@ -2574,7 +2639,7 @@ function layoutBadges(){
       const more=g.bg.querySelector('.b-more');
       if(more){more.style.left=(-0.82*CR(g))+'px';more.style.top=(0.57*CR(g))+'px'}
     } else for(const seal of g.bg.querySelectorAll('.bseal')){
-      const a=(BADGE_SLOT[seal.dataset.bkind]!==undefined?BADGE_SLOT[seal.dataset.bkind]:215)*Math.PI/180;
+      const a=((BADGE_SLOT[seal.dataset.bkind]!==undefined?BADGE_SLOT[seal.dataset.bkind]:215)+g.rot)*Math.PI/180;
       seal.style.left=(Math.cos(a)*g.R)+'px';
       seal.style.top=(-Math.sin(a)*g.R)+'px'; // screen y grows downward
     }
@@ -2582,30 +2647,84 @@ function layoutBadges(){
        whatever ring is in force, so it never lands on another mark. */
     const fr=Math.max(g.off,16),a2=g.bg.querySelector('.aseal'),hc2=g.bg.querySelector('.hchip');
     if(a2){a2.style.left=(0.62*fr)+'px';a2.style.top=(-0.72*fr)+'px'}
-    if(hc2){const ha=BADGE_SLOT.home*Math.PI/180,hr=g.cluster?Math.max(g.off,24):g.R;
+    if(hc2){const ha=(BADGE_SLOT.home+g.rot)*Math.PI/180,hr=g.cluster?Math.max(g.off,24):g.R;
       hc2.style.left=(Math.cos(ha)*hr)+'px';hc2.style.top=(-Math.sin(ha)*hr)+'px'}
     const far=g.bg.classList.contains('far');
     if(far){if(a2)pts.push({x:g.cx+0.62*fr,y:g.cy-0.72*fr})}
     else if(g.cluster)pts.push({x:g.cx-0.82*CR(g),y:g.cy+0.57*CR(g)});
     else for(const kd of g.kinds){if(kd==='home')continue;
-      const a=(BADGE_SLOT[kd]!==undefined?BADGE_SLOT[kd]:215)*Math.PI/180;
+      const a=((BADGE_SLOT[kd]!==undefined?BADGE_SLOT[kd]:215)+g.rot)*Math.PI/180;
       pts.push({x:g.cx+Math.cos(a)*g.R,y:g.cy-Math.sin(a)*g.R})}
-    if(hc2){const ha=BADGE_SLOT.home*Math.PI/180,hr=g.cluster?Math.max(g.off,24):g.R;
+    if(hc2){const ha=(BADGE_SLOT.home+g.rot)*Math.PI/180,hr=g.cluster?Math.max(g.off,24):g.R;
       pts.push({x:g.cx+Math.cos(ha)*hr,y:g.cy-Math.sin(ha)*hr})}
   }
 }
 window.BADGE_PTS=[];
-/* A plate steps up until it is clear of every mark. Marks win, because a
-   mark is a door and a plate is a name. */
-function dodgeMarks(x,y,w,h){
-  const P=window.BADGE_PTS||[];
-  for(let g=0;g<4;g++){let moved=false;
-    for(let i=0;i<P.length;i++){const p=P[i];
-      if(Math.abs(x-p.x)*2<w+34&&Math.abs(y-p.y)<h+18){y=p.y-(h+18);moved=true}}
-    if(!moved)break}
-  return y;
-}
-window.dodgeMarks=dodgeMarks;
+/* ---------- A NAME STAYS WITH ITS BUILDING (E1) ----------
+   A plate used to escape upward, without a bound, past the plates already
+   placed and the neighbours' icons and every badge mark, five passes deep with
+   a four-step dodge inside each one. In a cluster that walks a plate clean off
+   the building it names and into a column at the top of the screen.
+
+   A plate is a name, and a name that has walked away from its building is not
+   a name any more. So it gets a LEASH: a short list of offsets near its own
+   crown, tried in order, and if none is clear it DOES NOT DRAW. Nothing is
+   lost in that silence. The counts moved to the seal and the home chip, the
+   name is one tap away on the card, and a plate that cannot be placed honestly
+   is worth less than the space it takes.
+
+   Ordered by how much each offset still reads as "this building": straight
+   above first, then a little higher, then the shoulders. */
+const PLATE_LEASH=[[0,0],[0,-14],[0,13],[-40,-4],[40,-4],[0,-28],[-54,11],[54,11]];
+/* A district names an AREA, not a roof, so drift costs it far less meaning
+   than it costs a building name, and it only draws when the camera is pulled
+   back, which is exactly when it is the only wayfinding on the screen. Wider,
+   with more places to try, and it never gives up its spot entirely. */
+const DISTRICT_LEASH=[[0,0],[0,-18],[0,17],[-62,-6],[62,-6],[0,-34],[0,32],
+  [-88,14],[88,14],[-62,-32],[62,-32],[0,48],[0,-50],
+  [-120,0],[120,0],[-120,-34],[120,-34],[0,-66],[0,64],[-150,20],[150,20]];
+/* HOW MANY marks a plate laid here would cover. A mark is a door and a
+   plate is a name, so the mark still wins; counting rather than announcing is
+   what lets a plate that MUST draw pick the cheapest spot instead of the
+   first one. Zero is falsy, so a plain truth test reads exactly as before. */
+function marksHit(x,y,w,h){const P=window.BADGE_PTS||[];let n=0;
+  /* .banner is translate(-50%,-100%): x is the CENTRE, y is the BOTTOM edge.
+     A mark's point is its centre and the widest one drawn is a 28 px seal.
+     Rectangles, because that is what an overlap is, plus 2 px so a name does
+     not sit flush against a door. */
+  const L=x-w/2-2,R=x+w/2+2,T=y-h-2,B=y+2;
+  for(let i=0;i<P.length;i++){const p=P[i];
+    if(L<p.x+16&&p.x-16<R&&T<p.y+16&&p.y-16<B)n++}
+  return n}
+/* A spot within the leash, or null for "do not draw this one". `others` is
+   every plate already laid this frame whatever kind it is, so a place-name and
+   a building name cannot land on each other. */
+/* Every offset is priced and the first free one still wins outright. A
+   caller that passes `mustDraw` takes the cheapest instead of nothing, which
+   is right for a name that is the only word on the screen and wrong for one
+   that has a building to sit on. The weights ARE the priority order the map
+   has always used, written where it can be read: a covered door costs most, a
+   covered name next, a scuffed icon least. */
+const PLATE_COST={mark:8,plate:4,icon:2};
+function platePlace(ax,ay,w,h,others,avoidMarks,icons,selfKey,table,mustDraw){
+  const T=table||PLATE_LEASH;
+  let best=null,bestCost=Infinity;
+  for(let i=0;i<T.length;i++){
+    const x=ax+T[i][0],y=ay+T[i][1];
+    if(y<26)continue; // the vitals bar owns the top of the screen
+    let cost=0;
+    for(let n=0;n<others.length;n++){const o=others[n];
+      if(Math.abs(x-o.x)*2<(w+o.w)+12&&Math.abs(y-o.y)<h+6)cost+=PLATE_COST.plate}
+    if(icons)for(let n=0;n<icons.length;n++){const ic=icons[n];
+      if(ic.k!==selfKey&&Math.abs(x-ic.x)*2<w+44&&Math.abs(y-ic.y)<27)cost+=PLATE_COST.icon}
+    if(avoidMarks)cost+=PLATE_COST.mark*marksHit(x,y,w,h);
+    if(cost===0)return{x,y};
+    if(cost<bestCost){bestCost=cost;best={x,y}}}
+  return mustDraw?best:null}
+/* How many building names the land carries at once. A phone is not a desk: the
+   count that reads as a map on a laptop reads as a wall of words in a hand. */
+function plateBudget(){return document.body.classList.contains('pocket')?7:16}
+window.platePlace=platePlace;window.marksHit=marksHit;window.plateBudget=plateBudget;
 window.layoutBadges=layoutBadges;
 /* ---------- the calm system ----------
    Sixty per cent is the resting state, set in CSS. This picks the one mark
@@ -2737,23 +2856,20 @@ function syncBanners(){
   for(const d of SCENE.districts){const el=bEls['d_'+d.id];const[sx,sy]=worldToScreen(d.x,d.y-46);
     const hideD=(zoomed||!roomy);el.style.display=hideD?'none':'block';if(hideD)continue;
     const dw=el.offsetWidth||140,dh=el.offsetHeight||22;
-    const dx=sx/DPR;let dy=dodgeMarks(dx,sy/DPR,dw,dh),g2=0,hit2=true;
-    while(hit2&&g2++<4){hit2=false;
-      for(let i=0;i<placedD.length;i++){const o=placedD[i];
-        if(Math.abs(dx-o.x)*2<(dw+o.w)+14&&Math.abs(dy-o.y)<dh+8){dy=o.y-(dh+8);hit2=true}}
-      const ny=dodgeMarks(dx,dy,dw,dh);if(ny!==dy){dy=ny;hit2=true}}
-    el.style.left=dx+'px';el.style.top=dy+'px';placedD.push({x:dx,y:dy,w:dw})}
+    /* Never silent at this zoom, because the district names are the only
+       words on the land, so it takes the cheapest spot in its table rather
+       than the raw anchor, which used to park it on top of a door. */
+    const spot=platePlace(sx/DPR,sy/DPR,dw,dh,placedD,true,null,null,DISTRICT_LEASH,true)
+      ||{x:sx/DPR,y:Math.max(sy/DPR,26)};
+    el.style.left=spot.x+'px';el.style.top=spot.y+'px';placedD.push({x:spot.x,y:spot.y,w:dw})}
   GEO.forEach((g,i)=>{const el=bEls['g_'+i];const[sx,sy]=worldToScreen(g.x,g.y);
     const hideG=!(cam.z<1.25&&roomy);el.style.display=hideG?'none':'block';if(hideG)return;
     /* Last into the same pass the district plates just ran, so a place-name
        steps around a district rather than through it. */
     const gw=el.offsetWidth||120,gh=el.offsetHeight||20;
-    const gx2=sx/DPR;let gy2=dodgeMarks(gx2,sy/DPR,gw,gh),g3=0,hit3=true;
-    while(hit3&&g3++<4){hit3=false;
-      for(let i2=0;i2<placedD.length;i2++){const o=placedD[i2];
-        if(Math.abs(gx2-o.x)*2<(gw+o.w)+14&&Math.abs(gy2-o.y)<gh+8){gy2=o.y-(gh+8);hit3=true}}
-      const ny=dodgeMarks(gx2,gy2,gw,gh);if(ny!==gy2){gy2=ny;hit3=true}}
-    el.style.left=gx2+'px';el.style.top=gy2+'px';placedD.push({x:gx2,y:gy2,w:gw})});
+    const spot=platePlace(sx/DPR,sy/DPR,gw,gh,placedD,true);
+    if(!spot){el.style.display='none';return}
+    el.style.left=spot.x+'px';el.style.top=spot.y+'px';placedD.push({x:spot.x,y:spot.y,w:gw})});
   document.body.classList.toggle('night',dayPhase>=1.6||dayPhase<0.1);
   const useIso=iconMode==='iso'||(iconMode==='auto'&&cam.z>=1.05);
   for(const s of SCENE.structures){const p=pEls[s.key];if(!p)continue;
@@ -2791,31 +2907,34 @@ function syncBanners(){
          the rest, so there is nothing left to undo. */
       }}
   layoutBadges();
-  const placed=[]; // collision-resolved label crowns: labels always win, labels never collide
-  const iconPts=[]; // …and a label never squats on a neighbour's doorstep (its icon click centre)
+  const placed=placedD.slice(); // one field: a place-name and a building name never overlap
+  const iconPts=[]; // ...and a label never squats on a neighbour's doorstep (its icon click centre)
   for(const s of SCENE.structures){if(mode==='now'&&s.state==='blueprint')continue;
     const[ax,ay]=worldToScreen(s.x,s.y);iconPts.push({k:s.key,x:ax/DPR,y:ay/DPR})}
-  for(const s of SCENE.structures){const el=bEls[s.key];
+  /* Nearest the middle of the screen first, because the middle is what the
+     reader is asking about, so the budget runs out from the edges inward.
+     Whatever panel is open keeps its name whatever else happens. */
+  const cxm=innerWidth/2,cym=innerHeight/2;
+  const order=SCENE.structures.map(s=>{const[sx,sy]=worldToScreen(s.x,s.y);
+      const px=sx/DPR,py=sy/DPR;
+      return{s,px,py,d:(typeof panelKey!=='undefined'&&panelKey===s.key)?-1:Math.hypot(px-cxm,py-cym)}})
+    .sort((a,b)=>a.d-b.d);
+  let budget=plateBudget();
+  for(const o of order){const s=o.s,el=bEls[s.key];
     const hide=(!zoomed)||(mode==='now'&&s.state==='blueprint');
     el.style.display=hide?'none':'block';if(hide)continue;
-    const[sx,sy]=worldToScreen(s.x,s.y);let px=sx/DPR,py=sy/DPR-(s._crownOff||k*30+10);
+    if(budget<=0){el.style.display='none';continue}
     el.classList.toggle('ghosted',s.state==='blueprint'||((s.state==='funding')&&mode==='vision'));
-    const q=questsAt(s.key).length,st=seatsAt(s.key).length;
     /* The counts used to live here as text and nobody found them. They are
        the activity seal and the home chip now, in the badge plane, at a size
        and a contrast a person can actually see. */
     el.querySelector('.cnt').textContent='';
-    const w=el.offsetWidth||120,h=el.offsetHeight||22; // A2: measured row height — collision survives any scale
-    let guard=0,hit=true; // iterate until clear — one pass leaves slivers
-    while(hit&&guard++<5){hit=false;
-      for(let kk=0;kk<placed.length;kk++){const o=placed[kk];
-        if(Math.abs(px-o.px)*2<(w+o.w)+12&&Math.abs(py-o.py)<h+6){py=o.py-(h+6);hit=true}}
-      for(let kk=0;kk<iconPts.length;kk++){const ic=iconPts[kk];if(ic.k===s.key)continue;
-        if(Math.abs(px-ic.x)*2<w+44&&Math.abs(py-ic.y)<27){py=ic.y-40;hit=true}}
-      const ny=dodgeMarks(px,py,w,h);if(ny!==py){py=ny;hit=true}}
-    if(px>innerWidth/2-360&&px<innerWidth/2+360&&py<88){el.style.display='none';continue} // never under the vitals bar — hidden at the extreme edge, not squeezed into neighbours
-    py=Math.max(py,26);
-    el.style.left=px+'px';el.style.top=py+'px';placed.push({px,py,w})}}
+    const w=el.offsetWidth||120,h=el.offsetHeight||22; // measured row height: collision survives any scale
+    const spot=platePlace(o.px,o.py-(s._crownOff||k*30+10),w,h,placed,true,iconPts,s.key);
+    if(!spot){el.style.display='none';continue}
+    // never under the vitals bar: hidden at the extreme edge, not squeezed into neighbours
+    if(spot.x>innerWidth/2-360&&spot.x<innerWidth/2+360&&spot.y<88){el.style.display='none';continue}
+    el.style.left=spot.x+'px';el.style.top=spot.y+'px';placed.push({x:spot.x,y:spot.y,w});budget--}}
 
 /* hover card */
 const hc=$('hovercard');let hoverPin=null;
@@ -2916,8 +3035,15 @@ function claimQuest(q,at){
 function openModule(a,b){return openDoor(a,b)} // legacy (label,route) doors and the new (moduleKey,ctx) both land on openDoor
 
 /* toasts */
-function toast(msg){const t=document.createElement('div');t.className='toast';t.textContent=msg;
-  $('toasts').appendChild(t);setTimeout(()=>t.remove(),6200)}
+/* Three alive at once, oldest out first. Each one lives 6.2 seconds, so a
+   village in full voice used to grow a column from the vitals bar down over
+   the land. The ones worth reading are the ones that just arrived. */
+const TOAST_MAX=3;
+function toast(msg){const box=$('toasts');
+  const t=document.createElement('div');t.className='toast';t.textContent=msg;
+  box.appendChild(t);
+  while(box.children.length>TOAST_MAX&&box.firstElementChild)box.removeChild(box.firstElementChild);
+  setTimeout(()=>t.remove(),6200)}
 
 /* minimap */
 const mm=$('minimap'),mmx=mm.getContext('2d');let mmBase=null;
@@ -3860,7 +3986,6 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
   sr.oninput=e=>{if(sr._from==null)sr._from=s.scale||1;s.scale=+e.target.value/100;B.querySelector('#iScaleV').textContent=e.target.value+'%'};
   sr.onchange=e=>{const from=sr._from==null?1:sr._from;sr._from=null;if(from===s.scale)return;
     logEdit('scale','structure:'+s.key,{from,to:s.scale||1});};
-  sr.onchange=()=>logEdit('scale','structure:'+s.key,{to:s.scale});
   B.querySelectorAll('[data-seat]').forEach(cb=>cb.onchange=()=>{const x=SCENE.seats[+cb.dataset.seat];if(!x)return;
     if(cb.checked){logEdit('seat-address','seat:'+x.s,{from:x.at,to:s.key});x.at=s.key;toast(`⛨ ${x.s} now lives at ${s.name}.`)}
     else{const home=circleHome(x.c);logEdit('seat-address','seat:'+x.s,{from:x.at,to:home});x.at=home;
@@ -4284,7 +4409,7 @@ refreshWork();
 /* ---------- MODULE DOORS — the map as the primary point of interaction.
    Every module has two doors: the menu (site nav) and the land (this map). Same routes, same data — D9 holds. ---------- */
 window.SITE_BASE='https://amora.regencivics.earth'; // forks set their own in Make This Yours
-window.BUILD_VERSION='v0.8-roundD1';
+window.BUILD_VERSION='v0.8-roundE';
 const SITE_ROUTES={j1:'/first-walk',j2:'/resident',j3:'/steward',j4:'/investor'};
 const DOOR_DEFS={
   stay:{module:'stay',icon:'🛏',cta:'Book a room'},

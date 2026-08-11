@@ -183,24 +183,51 @@ const NEAR = () => { cam.z = 1.7; cam.x = 1240; cam.y = 700; clampCam(); refresh
   ok(+filt.ev === 1 && +filt.q2 < 0.3, `P3: the Events door does the same for the lanterns (${filt.ev} vs ${filt.q2})`);
   ok(!/bfilter|f-quest|f-event/.test(filt.after), 'P3: and the land goes quiet again on its own');
 
+  /* A ring is solved against ONE building, its own (patch_e2_ring). Nothing
+     collapses because a neighbour crowded it, so this asserts the absence of
+     the solver that used to do that: at the near camera every visible ring
+     carries its own marks. Before the change, 7 of 19 did not. */
+  const own = await page.evaluate(() => {
+    __near();
+    const vis = [...document.querySelectorAll('#badges .bgroup')]
+      .filter(g => g._on && g.classList.contains('on'));
+    return { visible: vis.length, clustered: vis.filter(g => g.classList.contains('clustered')).length };
+  });
+  ok(own.visible > 0 && own.clustered === 0,
+    `P3: no ring is collapsed by its neighbours (${own.clustered} of ${own.visible} clustered)`);
+
   const fan = await page.evaluate(async () => {
     __near();
-    /* a ring that collapsed because of a neighbour can hold a single mark;
-       the fan is only meaningful where the ring had several */
-    const more = [...document.querySelectorAll('.b-more')].find(s => getComputedStyle(s).display !== 'none'
-      && s.closest('.bgroup').querySelectorAll('.bseal:not(.b-more)').length >= 2);
-    const key = more.dataset.bk;
-    const before = [...bgEls[key].querySelectorAll('.bseal:not(.b-more)')].filter(s => getComputedStyle(s).display !== 'none').length;
+    /* THE PREMISE CHANGED WITH patch_e2_ring. This used to hunt for whichever
+       ring had collapsed because its NEIGHBOURS crowded it, which made the
+       check depend on an accident of layout and which stops happening once
+       rings are told not to place each other. The fan belongs to a ring that
+       cannot fit its OWN marks, so the check now makes one: shrink a building
+       carrying several kinds until its own ring no longer fits. Deterministic,
+       and it is the only reason a counted seal exists now. */
+    const s = SCENE.structures.find(x => {
+      const g = bgEls[x.key];
+      return g && g._on && (g.dataset.kinds || '').split(',').filter(Boolean).length >= 2;
+    });
+    const was = s.scale || 1;
+    s.scale = 0.3; __near();
+    const key = s.key, g = bgEls[key], more = g.querySelector('.b-more');
+    const clustered = g.classList.contains('clustered') && getComputedStyle(more).display !== 'none';
+    const seen = () => [...g.querySelectorAll('.bseal:not(.b-more)')]
+      .filter(x => getComputedStyle(x).display !== 'none').length;
+    const before = seen();
     more.click(); await new Promise(r => setTimeout(r, 500)); syncBanners();
-    const g = bgEls[key];
-    const after = [...g.querySelectorAll('.bseal:not(.b-more)')].filter(s => getComputedStyle(s).display !== 'none').length;
-    const marks = [...g.querySelectorAll('.bseal:not(.b-more)')].map(s => s.getBoundingClientRect());
+    const after = seen();
+    const marks = [...g.querySelectorAll('.bseal:not(.b-more)')].map(x => x.getBoundingClientRect());
     let touch = 0;
     for (let i = 0; i < marks.length; i++) for (let j = i + 1; j < marks.length; j++)
       if (Math.hypot(marks[i].x - marks[j].x, marks[i].y - marks[j].y) < 43.5) touch++;
-    return { key, before, after, fanned: g.classList.contains('fanned'), touch,
+    const out = { key, clustered, before, after, fanned: g.classList.contains('fanned'), touch,
       moreHidden: getComputedStyle(g.querySelector('.b-more')).display === 'none' };
+    s.scale = was; __near(); // leave the land as it was found
+    return out;
   });
+  ok(fan.clustered, `P3: a ring that cannot fit its own marks collapses to one counted seal (${fan.key})`);
   ok(fan.before === 0 && fan.after >= 2 && fan.fanned && fan.moreHidden,
     `P3: a counted seal opens into the ring it stood for (${fan.key}: ${fan.before} to ${fan.after})`);
   ok(fan.touch === 0, `P3: and the fanned marks still do not touch (${fan.touch})`);
