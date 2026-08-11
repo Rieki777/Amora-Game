@@ -24,6 +24,7 @@ Two lanes share `wt/map-events` in the `ga-map` worktree: the **map lane**
 | Scene importer | `scripts/import-map-scene.ts`. Version FAMILY pin, BOM tolerant, `--dry` needs no database, names every block it skipped and every row it refused to move. |
 | PWA | `/manifest.webmanifest` generated from the brand overlay; service worker caches ONLY the hashed artifact. |
 | Discovery | "Living Map" is a top-level nav entry; the landing page carries a lazy map peek. |
+| Promises (0062) | `map_key` on `quests` and `events`, stored verbatim from the map and never computed here. `POST /api/map/promise` turns a map key into a row and answers in words the map can show: `anonymous`, `not-yet`, `closed`, `full`, `not-here`, `gone`, `error`. Always 200 with a body. The shell relays and echoes the nonce. |
 
 **Gates:** 44 files / 662 tests / 0 failures, plus the two CI-only gates
 (bundle budget, dependency audit). Artifact suites: doors, features, loom and
@@ -84,76 +85,14 @@ the quests block is exactly what makes the loss invisible.
 
 ## Open — site lane (next session)
 
-**1. RSVP and claim from the map.** The v0.8 map posts
-`{type:'rsvp', id, title, on}` and `{type:'claim', id, on}` to the parent on
-every toggle, withdrawals included, and nothing listens. This is the next real
-piece of work. The design question that looks hard is already answered:
+**1. `quest.how_to` and `map_scene.vision_bound` have no column.** The
+importer names them on every run that carries them. `how_to` is founder
+writing (the map's "Your first step" block) and is the one worth a home.
 
-- **Events resolve deterministically.** The importer writes event rows under
-  `rowId("ev", e.id)` = `ev-<sceneKey>-<sceneEventId>`
-  (`scripts/import-map-scene.ts:170`). The map's `e1` is therefore
-  `ev-<sceneKey>-e1`, and `sceneKey` is on the stored `map_scene` document. The
-  shell can resolve without a new column or a title match.
-- **Quests do not.** Scene quests carry no id; the importer matches them by
-  `title`, which is the only handle the map offers. Either match on title the
-  way `addressRows` already does, or give quests a `map_key` and have the
-  importer fill it. The second is sturdier and costs a migration.
-- **Both routes already exist**: `POST /api/events/:id/rsvp` and
-  `POST /api/game/quests/:id/claim` (`server/index.ts:6635`, `:12387`).
-- **The map is public and these routes are not.** An anonymous visitor
-  toggling RSVP needs an answer the map can show, so the bridge needs a reply
-  message, which is a contract change to agree with the map lane first.
-- Round D also asks for `PROMISE_RSVP` and `PROMISE_CLAIM` to be
-  village-editable from the admin Promises panel, plus My calendar and My
-  quests on the profile and an email opt-in.
-
-**The reply contract, agreed with the map lane.** The map posts, the shell
-answers:
-
-```
-map  -> {type:'rsvp',  id, title, on, nonce}
-map  -> {type:'claim', id, on, nonce}
-shell-> {type:'promise-result', kind, id, nonce, ok, state:'on'|'off',
-         reason?, count?, href?}
-```
-
-- **Reply on EVERY post**, withdrawals and failures included. A missing reply
-  is indistinguishable from no shell at all.
-- **No reply means the optimistic state stands.** The artifact runs standalone
-  from `file://` with no parent, which is how every QA suite drives it, so
-  silence has to mean "local only" and never a hang or a revert. The map waits
-  4s and stops.
-- **`nonce` is echoed exactly**, and it exists because nothing else correlates
-  a reply to a post. Toggle on-off-on inside the window and three replies come
-  back with the same `id` and `kind`; without a discriminator a late reply
-  overwrites the state the person actually chose.
-- **`reason`** is `anonymous` (401, `href` is the way in) | `not-yet` (403 from
-  the capability gate; signed in, not permitted, and no sign-in fixes it) |
-  `closed` (module off) | `full` | `not-here` | `gone` | `error`.
-- **`not-here` and `gone` are different and `not-here` is the common one.**
-  Every event id the map sends is scene sample data, so a village that has not
-  run the importer has no matching row for ANY of them. That is a fresh fork's
-  default state, not a deletion, and it should read calmly.
-- **`count` is the site's to own.** `POST /api/events/:id/rsvp` already returns
-  `goingCount`; the withdraw path returns `{success, removed}` and needs the
-  count adding so every reply carries it.
-- **Quest keys come from the map, never computed here.** The map emits a
-  stable `key` per quest, the importer stores it in a `map_key` column, and
-  the site never slugifies. Two slugify implementations that must agree
-  forever is the same silent-drop shape this round removed, and the first
-  title edit would unmatch the quest.
-
-  This stopped being hypothetical the moment the map renamed its three
-  em-dash quests: the importer matches on exact title, so those three no
-  longer resolve to the site's rows. Title matching survives exactly as long
-  as nobody edits a title. `map_key` is the fix, and it is worth a migration.
-
-**2. `recorded` is misleading.** `POST /api/map/walk-log` returns
-`affectedRows`, which MySQL counts for `ON DUPLICATE KEY` updates as well as
-inserts, so replaying a batch reports `2` instead of `0`. Dedupe itself is
-correct and proven. Fix: count rows whose id is new, or return
-`{accepted: rows.length}` and stop implying novelty.
-`server/lib/walkLog.ts`, `recordWalkRows`.
+**2. The exchange test has no headroom.** `S33-S35` in `loop.e2e` runs 38s to
+61s against a 120s ceiling and times out whenever the shared MySQL is slow. It
+is not a broken test; it is the same fragility as the 180s hook ceiling fixed
+this round, one layer up. Raise it, or move the tests off the remote database.
 
 **3. Nothing reads `map_vocabulary` yet.** `GET /api/map/vocabulary` serves it
 and the importer writes it, but the artifact has no inbound verb for
@@ -163,10 +102,6 @@ knowing before someone calls it dead.
 **4. Events has no seed and no public surface beyond `/events`.** No
 recurrence, no waitlist, no ticketing. `is_example` rides on the table but
 `EXAMPLE_TABLES` is untouched, so standing-examples does not retire these rows.
-
-**5. `quest.how_to` and `map_scene.vision_bound` have no column.** The
-importer now says so on every run that carries them. `how_to` is founder
-writing (the map's "Your first step" block) and is the one worth a home.
 
 ---
 
@@ -203,6 +138,13 @@ round produced a second instance: the media-key pattern
 (`/^[a-z0-9_-]{1,32}$/`) was described without saying where it stopped
 applying, and it was reasonably applied to quest keys, where 32 truncates and
 truncation collides. When you hand another lane a rule, say what it is FOR.
+
+**Test the path the caller actually takes, not the one the test finds easy.**
+The promise route had ten passing tests and was still broken in the browser:
+they set `Authorization` themselves, while the shell used a plain `fetch` that
+attaches no token, so every signed-in member would have been told they were
+anonymous. A server test proves the route. It does not prove the client reaches
+it. When a feature spans a boundary, one check has to cross the boundary.
 
 **The bug of this round, four times over, was a value quietly discarded.**
 Skin keys dropped by a field-by-field rebuild; vocabulary keys the same; a

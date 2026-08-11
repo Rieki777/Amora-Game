@@ -134,8 +134,47 @@ Shell to map, on **every** post including failures:
 **Identity:** quests carry a `key`, derived from the title ONCE and kept when
 the title changes. The claim post sends that key. The site stores it verbatim
 in `map_key` and never computes it, so there is one slugify in the world.
-Pattern `/^[a-z0-9_-]{1,190}$/`. Events use their scene id (`e1`), which the
-importer resolves as `ev-<sceneKey>-<id>`.
+Pattern `/^[a-z0-9_-]{1,190}$/`. Events send their scene id (`e1`).
+
+### The site half, built and live (site lane, 34a51f0)
+
+Migration `0062` puts `map_key` on `quests` AND on `events`. The second was not
+the plan, and the correction is the useful part: **events do NOT resolve as
+`ev-<sceneKey>-<id>` at request time, because the site never stores
+`sceneKey`.** The importer reads it out of the scene FILE and nothing writes it
+down, so the server cannot rebuild an id it has no key for. Storing the map's
+own name removes the guess on both tables and makes the two branches of the
+handler identical.
+
+One route, `POST /api/map/promise`, behind the map module's existing gate,
+**always answering 200 with a body**. A bare 403 tells the shell no and leaves
+it choosing between offering a way in, naming a steward, and saying a gathering
+is full; `reason` says which. The shell is a relay: it echoes the nonce, adds
+nothing, interprets nothing, so the reason vocabulary lives in one file.
+
+`not-here` is decided by asking whether the table holds ANY map key at all. No
+keys means the scene never came across; some keys and not this one means
+`gone`. Two tables, two independent answers.
+
+**Four things this round taught that the contract does not say:**
+
+- **Withdrawing a claim had nowhere to go.** No unclaim path existed anywhere,
+  so every `on:false` would have failed and claims would have been one-way on
+  the map. It exists now and removes a claim ONLY while it is still `claimed`;
+  once submitted or consented, work is attached and it refuses with `closed`.
+- **The key match has to be SECOND.** A village importing for the first time
+  has no key anywhere, so the title is the only handle on that pass and the key
+  is stamped while the title still matches. Key-only would match nothing, ever.
+- **A better join does not loosen the address plane.** Matching by key gets the
+  importer to the row and stops there; `mayOverwriteAddress` still refuses to
+  move an address a person placed. Pinned by a test, because that is the kind
+  of rule that erodes when the machinery around it improves.
+- **The shell must use `gameFetch`, never `fetch`.** This deployment
+  authenticates by `Authorization: Bearer` alone, with no cookie fallback, and
+  `gameFetch` is the one place that attaches the token. A plain fetch reaches
+  the route unauthenticated, so every promise a signed-in member makes comes
+  back `anonymous`. Ten passing route tests never saw it, because they set the
+  header themselves.
 
 ---
 
