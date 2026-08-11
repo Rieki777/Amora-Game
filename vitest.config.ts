@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -10,6 +11,19 @@ import { defineConfig } from "vitest/config";
  * API of the real built server, not React components.
  */
 export default defineConfig({
+  /*
+   * The same aliases vite.config.ts builds with. Without them a client module
+   * that imports `@shared/...` typechecks (tsconfig paths) and builds (vite)
+   * and then fails to COLLECT under vitest, which reports as "no tests" rather
+   * than as a resolution error. Keep this list in step with vite.config.ts.
+   */
+  resolve: {
+    alias: {
+      "@": path.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path.resolve(import.meta.dirname, "shared"),
+      "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+    },
+  },
   test: {
     environment: "node",
     // S5: load .env so TEST_DATABASE_URL reaches the DB-backed suites locally

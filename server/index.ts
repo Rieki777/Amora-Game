@@ -12,6 +12,8 @@ import multer from "multer";
 import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
+import { sceneStopsFor } from "../shared/questScenes";
+import { cleanCrewName, crewsRepo as crewsRepoFactory } from "./lib/crews";
 import { ALL_CAPABILITIES, hasCapability, STAGE_UNLOCKS, type Capability } from "../shared/capabilities";
 import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } from "./lib/variables";
 import { buildThemeCss, sanitizeFontName } from "./lib/themeCss";
@@ -463,6 +465,67 @@ const CONTENT_SEED_FILE = path.join(SEEDS_DIR, "content-seed.json");
 // users.json retired in S6 — members live in MySQL (server/repos/users.ts).
 // quests.json / quest-claims.json retired in S10 (MySQL: server/repos/quests.ts).
 const QUESTS_SEED_FILE = path.join(SEEDS_DIR, "quests-seed.json");
+// The share-card raster. 1200x630 is what every major unfurler crops to.
+const OG_WIDTH = 1200;
+const OG_HEIGHT = 630;
+
+/**
+ * 0068 gave quests a story layer (subtitle, story, first step, steps,
+ * deliverable, tips) and the seed file now carries it for the founding board.
+ * Seeds land only on a genuinely empty table, so a village already running
+ * would never see the new copy without this one-shot. It walks the CURRENT
+ * seed file and fills each matching row's story fields ONLY where the live
+ * value is empty: an admin who already wrote their own subtitle or story
+ * keeps every word. Same precedent as the voice-sweep passes above.
+ */
+async function backfillQuestStories(jobId: string) {
+  // Fail loud on a missing or unreadable seed. Returning quietly let runOnce
+  // record the job as applied while nothing had been filled: the story layer
+  // would never reach live rows, the job would never run again, and the boot
+  // log would still read as success. A throw leaves the id unrecorded, so the
+  // next boot tries again.
+  if (!fs.existsSync(QUESTS_SEED_FILE)) {
+    throw new Error(`quest seed file missing at ${QUESTS_SEED_FILE}`);
+  }
+  const seed = JSON.parse(fs.readFileSync(QUESTS_SEED_FILE, "utf-8"));
+  if (!Array.isArray(seed)) throw new Error("quest seed file is not an array");
+
+  const PROSE_FIELDS = ["subtitle", "story", "firstStep", "deliverable", "imageUrl"] as const;
+  const LIST_FIELDS = ["steps", "tips"] as const;
+  const seedHasProse = (v: unknown) => typeof v === "string" && v.trim() !== "";
+  const seedHasList = (v: unknown) => Array.isArray(v) && v.length > 0;
+  const liveProseEmpty = (v: unknown) => String(v ?? "").trim() === "";
+  const liveListEmpty = (v: unknown) => !(Array.isArray(v) && v.length > 0);
+
+  let filled = 0;
+  for (const s of seed) {
+    if (!s?.id) continue;
+    const live: any = await questsRepo.byId(String(s.id));
+    if (!live) continue;
+    // Nothing to fill is not a write. The first version opened a transaction
+    // and ran a full column UPDATE for every seeded quest either way.
+    const wanted =
+      PROSE_FIELDS.some((f) => seedHasProse(s[f]) && liveProseEmpty(live[f])) ||
+      LIST_FIELDS.some((f) => seedHasList(s[f]) && liveListEmpty(live[f]));
+    if (!wanted) continue;
+    await questsRepo.update(live.id, (q: any) => {
+      for (const f of PROSE_FIELDS) {
+        if (seedHasProse(s[f]) && liveProseEmpty(q[f])) q[f] = s[f];
+      }
+      for (const f of LIST_FIELDS) {
+        if (seedHasList(s[f]) && liveListEmpty(q[f])) q[f] = s[f].map((x: any) => String(x));
+      }
+    });
+    filled += 1;
+  }
+  // Both outcomes get a line, so "filled nothing" and "never ran" stop looking
+  // identical in the log.
+  console.log(
+    filled
+      ? `[MIGRATION] ${jobId} filled ${filled} quest(s) from the seed`
+      : `[MIGRATION] ${jobId} found nothing to fill`,
+  );
+}
 // gratitude-log.json retired in S8 — the domain lives in MySQL (server/repos/gratitude.ts).
 // activity.json + admin-audit.json retired in S11 (health_events, server/lib/events.ts).
 const ROLES_SEED_FILE = path.join(SEEDS_DIR, "roles-seed.json");
@@ -693,6 +756,7 @@ const FORM_TYPE_TO_PATHWAY: Record<string, "investor" | "steward" | "resident" |
 const members = usersRepo();
 const claimsRepo = claimsRepoFactory(getPool());
 const questsRepo = questsRepoFactory(getPool());
+const crewsRepo = crewsRepoFactory(getPool());
 const gratitudeRepo = gratitudeLogRepo(getPool());
 const distributionsRepo = gratitudeDistributionsRepo(getPool());
 const cyclesRepo = gratitudeCyclesRepo(getPool());
@@ -4141,6 +4205,13 @@ async function startServer() {
   // Projects category, the shelf item shown mid-loan, and the steward badge
   // lent for a season. A separate key because runOnce is permanent per id:
   // editing the body above would never re-run anywhere it already ran.
+  await runOnce("quest-story-2026-08-10", () => backfillQuestStories("quest-story-2026-08-10"));
+  // Poster paths joined the seed after the first job had already recorded
+  // itself as applied, and runOnce never repeats an id. The fill is idempotent
+  // (empty fields only), so a second id replays it and picks up image_url on
+  // villages that already ran the first one.
+  await runOnce("quest-posters-2026-08-10", () => backfillQuestStories("quest-posters-2026-08-10"));
+
   await runOnce("examples-refresh-2026-08-03", async () => {
     const seed = loadExampleSeed(SEEDS_DIR);
     if (!seed) return;
@@ -13352,11 +13423,281 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json(await questsRepo.all());
   });
 
+  /**
+   * Life signs for the quest board (public): how many members hold each quest
+   * right now, how many times each has been consented, and the latest
+   * completions. Every count here is a consent-gated fact, never a promise.
+   * Standing examples are filtered on both sides: an example quest's claims
+   * are refused at claim time, and an example member never reaches the feed,
+   * so a fresh fork's board shows life only once real people do real work.
+   * First names only, the same rule the roles page follows on public surfaces.
+   */
+  app.get("/api/quests/field", async (_req, res) => {
+    // Two aggregate queries, not three full table loads. The first version
+    // read every quest, every claim and every member on each request and
+    // filtered in JavaScript to produce a count map and eight rows. That is a
+    // full scan of quest_claims per page view, and quest pages are public, so
+    // a crawler walking the board paid it once per quest.
+    const [counts, recent] = await Promise.all([
+      claimsRepo.fieldCounts(),
+      claimsRepo.recentConsented(8),
+    ]);
+    const perQuest: Record<string, { active: number; done: number }> = {};
+    counts.forEach((slot, questId) => {
+      perQuest[questId] = slot;
+    });
+    res.json({
+      perQuest,
+      recent: recent.map((r) => ({
+        questId: r.questId,
+        questTitle: r.questTitle,
+        name: firstName(r.userName),
+        when: r.when,
+      })),
+    });
+  });
+
+  /**
+   * One quest, by id. The detail page used to pull the whole board and find
+   * its quest on the client, which meant every deep link carried every other
+   * quest's story, steps and tips. Registered AFTER /api/quests/field so the
+   * literal path keeps winning over this parameter.
+   */
+  app.get("/api/quests/:id", async (req, res) => {
+    const id = String(req.params.id);
+    const all = await questsRepo.all();
+    const quest = all.find((q) => q.id === id) ?? null;
+    if (!quest) return res.status(404).json({ error: "No such quest" });
+    // Three more from the same circle, resolved here so the page never ships
+    // the whole board to show a strip of three. A quest only sits beside its
+    // own kind: an example never poses as real work, and a closed quest is not
+    // an invitation.
+    const related = all
+      .filter(
+        (q) =>
+          q.id !== quest.id &&
+          Boolean(q.isExample) === Boolean(quest.isExample) &&
+          String(q.status ?? "").trim().toLowerCase() === "open" &&
+          Boolean(q.circle) &&
+          q.circle === quest.circle,
+      )
+      .slice(0, 3);
+    res.json({ quest, related });
+  });
+
+  /**
+   * The share card for a quest (public, 1200x630).
+   *
+   * No text is drawn into the image on purpose. Rendering type through sharp
+   * means resvg finding a font, and this platform ships its typefaces as woff2
+   * bundled for the browser, not installed for the renderer. On a slim deploy
+   * image the text would silently come out blank, which is worse than a card
+   * without it. The title and the description ride in the meta tags instead,
+   * and every platform that shows a card shows those beside the image.
+   */
+  /*
+   * Rendering is CPU work on a public endpoint, and the output only changes
+   * when the poster does. A crawler walking the board would otherwise pay for
+   * a fresh raster per quest per visit. Keyed on the poster path so setting a
+   * new one in Admin invalidates by itself, and bounded so it can never grow
+   * into a leak on a village with hundreds of quests.
+   */
+  const ogCache = new Map<string, Buffer>();
+  const OG_CACHE_MAX = 64;
+
+  app.get("/api/og/quest/:id", async (req, res) => {
+    const quest = await questsRepo.byId(String(req.params.id));
+    if (!quest) return res.status(404).json({ error: "No such quest" });
+    const cacheKey = `${quest.id}|${quest.imageUrl ?? ""}|${quest.circle ?? ""}`;
+    const hit = ogCache.get(cacheKey);
+    if (hit) {
+      return res.type("jpeg").set("Cache-Control", "public, max-age=3600").send(hit);
+    }
+    const sharp = (await import("sharp")).default;
+    // basename and nothing else: image_url is admin-typed and this reads disk.
+    const url = String(quest.imageUrl ?? "");
+    const file = url.startsWith("/api/uploads/")
+      ? path.join(UPLOADS_DIR, path.basename(url))
+      : "";
+    const svg = (inner: string) =>
+      Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${OG_WIDTH}" height="${OG_HEIGHT}">${inner}</svg>`,
+      );
+    let base: Buffer;
+    if (file && fs.existsSync(file)) {
+      base = await sharp(file).resize(OG_WIDTH, OG_HEIGHT, { fit: "cover" }).toBuffer();
+    } else {
+      const [from, to] = sceneStopsFor(quest.circle);
+      base = await sharp(
+        svg(
+          `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+            `<stop offset="0" stop-color="${from.hex}"/><stop offset="1" stop-color="${to.hex}"/>` +
+            `</linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/>`,
+        ),
+      )
+        .png()
+        .toBuffer();
+    }
+    // The same scrim the card wears, so a platform that overlays its own text
+    // at the bottom has something to sit on.
+    const scrim = svg(
+      `<defs><linearGradient id="s" x1="0" y1="1" x2="0" y2="0">` +
+        `<stop offset="0" stop-color="#000000" stop-opacity="0.5"/>` +
+        `<stop offset="0.55" stop-color="#000000" stop-opacity="0"/>` +
+        `</linearGradient></defs><rect width="100%" height="100%" fill="url(#s)"/>`,
+    );
+    // JPEG, not PNG. The same card came out at 1278 KB as a PNG and 96 KB as a
+    // quality-82 JPEG, indistinguishable to the eye on painterly art, because
+    // PNG is lossless and these are photographs in all but origin. CI caps any
+    // single shipped image at 400 KB for a village on a phone in rural Costa
+    // Rica; a share card generated at three times that would have been the one
+    // image nobody measured.
+    const card = await sharp(base)
+      .composite([{ input: scrim }])
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer();
+    // Oldest out first. A Map iterates in insertion order, so the first key is
+    // the coldest one.
+    if (ogCache.size >= OG_CACHE_MAX) {
+      const oldest = ogCache.keys().next();
+      if (!oldest.done) ogCache.delete(oldest.value);
+    }
+    ogCache.set(cacheKey, card);
+    res.type("jpeg").set("Cache-Control", "public, max-age=3600").send(card);
+  });
+
+  /*
+   * QUEST CREWS (0067).
+   *
+   * Every crew route requires a signed-in member, including the read. A quest
+   * page is public and indexable, and who is walking a quest with whom is not
+   * something a crawler gets to index. The public page shows the quest; the
+   * crew panel appears once somebody is inside.
+   *
+   * Nothing here touches value. Members of a crew still claim, submit and are
+   * consented to individually, so a crew cannot become a way to move
+   * recognition without the human gate.
+   */
+  const CREW_MAX_SIZE = 12;
+
+  /*
+   * A crew has no thread yet. The messaging module is not on main, so the
+   * conversation half of a crew lands with it: crewsRepo.attachConversation
+   * is ready and the contract is agreed (kind 'crew', context_type 'quest',
+   * context_id the quest id). A crew is whole without a room in the meantime,
+   * which is the state a village with messaging switched off lives in anyway.
+   */
+  /** First names only, the rule every public-facing member surface follows. */
+  async function crewShape(crew: any) {
+    const names = await Promise.all(
+      crew.members.map(async (m: any) => {
+        const u: any = await members.byId(m.userId);
+        return { role: m.role, name: firstName(String(u?.name ?? "")) };
+      }),
+    );
+    return {
+      id: crew.id,
+      questId: crew.questId,
+      name: crew.name,
+      status: crew.status,
+      maxSize: crew.maxSize,
+      size: crew.members.length,
+      conversationId: crew.conversationId,
+      members: names,
+    };
+  }
+
+  app.get("/api/quests/:id/crews", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to see crews" });
+    const crews = await crewsRepo.forQuest(String(req.params.id));
+    const shaped = await Promise.all(crews.map(crewShape));
+    // The invite code goes ONLY to members of that crew. It is a capability to
+    // join, so it travels to people a member chose, never to everyone who can
+    // read the page.
+    const mine = new Set(
+      crews.filter((c) => c.members.some((m) => m.userId === user.id)).map((c) => c.id),
+    );
+    res.json(
+      shaped.map((c, i) => ({
+        ...c,
+        joined: mine.has(c.id),
+        inviteCode: mine.has(c.id) ? crews[i].inviteCode : undefined,
+      })),
+    );
+  });
+
+  app.post("/api/quests/:id/crews", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to form a crew" });
+    const quest: any = await questsRepo.byId(String(req.params.id));
+    if (!quest) return res.status(404).json({ error: "Quest not found" });
+    if (quest.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    const name = cleanCrewName(req.body?.name);
+    if (!name) return res.status(400).json({ error: "Give the crew a name" });
+    const maxSize = Math.max(2, Math.min(CREW_MAX_SIZE, Number(req.body?.maxSize) || 5));
+    const crew = await crewsRepo.create({
+      id: `crew-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      questId: quest.id,
+      name,
+      creatorId: user.id,
+      maxSize,
+    });
+    const fresh = (await crewsRepo.byId(crew.id)) ?? crew;
+    res.json({ ...(await crewShape(fresh)), joined: true, inviteCode: crew.inviteCode });
+  });
+
+  app.post("/api/crews/join/:code", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to join a crew" });
+    const crew = await crewsRepo.byInvite(String(req.params.code));
+    if (!crew || crew.status === "disbanded") {
+      return res.status(404).json({ error: "That invite is no longer open" });
+    }
+    const outcome = await crewsRepo.join(crew.id, user.id);
+    if (outcome === "full") return res.status(409).json({ error: "That crew is full" });
+    if (outcome === "gone") return res.status(404).json({ error: "That invite is no longer open" });
+    const fresh = await crewsRepo.byId(crew.id);
+    res.json({
+      ...(await crewShape(fresh)),
+      joined: true,
+      inviteCode: fresh!.inviteCode,
+      questId: crew.questId,
+      already: outcome === "already",
+    });
+  });
+
+  app.post("/api/crews/:id/leave", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const outcome = await crewsRepo.leave(String(req.params.id), user.id);
+    if (outcome === "not-a-member") {
+      return res.status(404).json({ error: "You are not in that crew" });
+    }
+    res.json({ left: true, disbanded: outcome === "disbanded" });
+  });
+
   // Quests: admin CRUD
+  // A quest poster follows the same rule the forum already enforces on its
+  // image field: it comes through the village's own upload. An off-site URL on
+  // a page this public hands every visitor's address to a third party, and a
+  // village that self-hosts would be serving bytes it does not own.
+  const rejectOffsiteImage = (
+    value: unknown,
+    res: express.Response,
+  ): boolean => {
+    if (value == null) return false;
+    const url = String(value).trim();
+    if (url === "" || url.startsWith("/api/uploads/")) return false;
+    res.status(400).json({ error: "Images must come through the village's own upload" });
+    return true;
+  };
+
   app.post("/api/admin/quests", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const { title } = req.body ?? {};
     if (!title) return res.status(400).json({ error: "Missing title" });
+    if (rejectOffsiteImage(req.body?.imageUrl, res)) return;
     const count = (await questsRepo.all()).length;
     const entry = {
       id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -13383,6 +13724,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (await isExampleRow(getPool(), "quests", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
+    if (rejectOffsiteImage(req.body?.imageUrl, res)) return;
     const updated = await questsRepo.update(req.params.id, (q: any) => {
       Object.assign(q, req.body, { id: q.id });
     });
@@ -16613,6 +16955,89 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
   app.get("/assets/*", (req, res) => {
     res.status(404).type("text/plain").send(`Not found: ${req.path}`);
+  });
+
+  /*
+   * QUEST PAGES UNFURL.
+   *
+   * client/index.html is neutral by construction: it is served byte for byte
+   * to every deployment, so it cannot name a village or claim a canonical URL.
+   * Every shared link therefore unfurled as the same generic card, whichever
+   * village and whichever quest it pointed at.
+   *
+   * The server is the right place to fix that, because the server is the first
+   * thing in the stack that KNOWS. It knows its brand document, and it knows
+   * the host the request arrived on. So the static file stays neutral and the
+   * identity is spliced in per request, which is also the only version a
+   * crawler ever sees: these pages are public, and a scraper runs no
+   * JavaScript, so anything the client would have painted in later is
+   * invisible to exactly the readers this is for.
+   */
+  const indexShell = (() => {
+    let cached: string | null = null;
+    return (): string | null => {
+      if (cached !== null) return cached;
+      const p = path.join(staticPath, "index.html");
+      if (!fs.existsSync(p)) return null;
+      cached = fs.readFileSync(p, "utf-8");
+      return cached;
+    };
+  })();
+
+  app.get(["/quests", "/quests/:id"], async (req, res, next) => {
+    const shell = indexShell();
+    if (!shell) return next();
+    const village = mergedConfig().project.name;
+    const proto = String(
+      req.headers["x-forwarded-proto"] ?? req.protocol ?? "https",
+    ).split(",")[0].trim();
+    const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "").trim();
+    const origin = host ? `${proto}://${host}` : "";
+    const trim = (s: string, n = 200) =>
+      s.length > n ? `${s.slice(0, n - 1).trimEnd()}...` : s;
+
+    let title = `Quests at ${village}`;
+    let description = `The work the village is asking for, and what it gives back.`;
+    let image = "";
+    if (req.params.id) {
+      const quest = await questsRepo.byId(String(req.params.id));
+      // A link to a retired quest falls through to the SPA, which says so far
+      // better than a meta tag can.
+      if (!quest) return next();
+      title = `${quest.title} at ${village}`;
+      description = trim(
+        String(quest.subtitle || quest.firstStep || quest.description || description),
+      );
+      image = origin ? `${origin}/api/og/quest/${encodeURIComponent(quest.id)}` : "";
+    }
+    const url = origin ? origin + req.path : "";
+    const tags = [
+      `<title>${escapeHtml(title)}</title>`,
+      `<meta name="description" content="${escapeHtml(description)}" />`,
+      `<meta property="og:type" content="article" />`,
+      `<meta property="og:site_name" content="${escapeHtml(village)}" />`,
+      `<meta property="og:title" content="${escapeHtml(title)}" />`,
+      `<meta property="og:description" content="${escapeHtml(description)}" />`,
+      url ? `<meta property="og:url" content="${escapeHtml(url)}" />` : "",
+      image ? `<meta property="og:image" content="${escapeHtml(image)}" />` : "",
+      image ? `<meta property="og:image:width" content="${OG_WIDTH}" />` : "",
+      image ? `<meta property="og:image:height" content="${OG_HEIGHT}" />` : "",
+      `<meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}" />`,
+      url ? `<link rel="canonical" href="${escapeHtml(url)}" />` : "",
+    ]
+      .filter(Boolean)
+      .join("\n    ");
+
+    // The neutral tags come OUT before ours go in. Two og:title tags is not a
+    // richer card, it is a coin toss over which one a crawler believes.
+    const html = shell
+      .replace(/<title>[\s\S]*?<\/title>\s*/i, "")
+      .replace(/<meta\s+name="description"[^>]*>\s*/i, "")
+      .replace(/<meta\s+property="og:[^"]*"[^>]*>\s*/gi, "")
+      .replace("</head>", `  ${tags}\n  </head>`);
+    // index.html is never cached hard here: a member holding a stale shell
+    // asks for a bundle hash that no longer exists, which is a white screen.
+    res.type("html").set("Cache-Control", "no-cache").send(html);
   });
 
   app.get("*", (_req, res) => {

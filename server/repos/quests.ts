@@ -3,7 +3,7 @@
  * shapes the routes and client always saw.
  *
  * The reward-range columns (gratitude_min/gratitude_max) are DERIVED from the
- * advertised label ("50-100") at write time, here and only here — the same
+ * advertised label ("50-100") at write time, here and only here â€” the same
  * parsing the importer uses. That is the trap-3.5 lesson institutionalized:
  * the label is what the board advertised (verbatim, a contract), the bounds
  * are what consent enforcement reads, and one writer keeps them in agreement.
@@ -24,14 +24,28 @@ const toDb = (v: unknown): Date | null => {
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
-// ── Quests ──────────────────────────────────────────────────────────────────
+// â”€â”€ Quests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export interface QuestRecord {
   id: string;
   title: string;
+  /** One line under the title, the quest's own voice (0068). */
+  subtitle?: string | null;
   description?: string | null;
   impact?: string | null;
-  /** The advertised label, verbatim — "50-100", "75". A contract, never coerced. */
+  /** Why this quest matters, written to the member. Prose (0068). */
+  story?: string | null;
+  /** One small act that starts the quest, fifteen minutes or less (0068). */
+  firstStep?: string | null;
+  /** The path through the work, one string per step (0068). */
+  steps?: string[];
+  /** What the member shares when they submit (0068). */
+  deliverable?: string | null;
+  /** Hard-won advice, one string per tip (0068). */
+  tips?: string[];
+  /** Optional poster an admin sets; absent, the client paints a scene (0068). */
+  imageUrl?: string | null;
+  /** The advertised label, verbatim â€” "50-100", "75". A contract, never coerced. */
   gratitude: string;
   duration?: string | null;
   difficulty?: string | null;
@@ -40,12 +54,12 @@ export interface QuestRecord {
   icon?: string | null;
   /** Display-only prose ("Requires: green thumb"). Never enforced. */
   roleRequired?: string | null;
-  /** STRUCTURED stage floor — the claim gate enforces this. */
+  /** STRUCTURED stage floor â€” the claim gate enforces this. */
   minStage?: string | null;
-  /** STRUCTURED role gate — the claim gate enforces this. */
+  /** STRUCTURED role gate â€” the claim gate enforces this. */
   requiresRole?: string | null;
   /** Work-exchange (S31): stay credits released at consent, in a SEPARATE
-   *  column from recognition — two currencies, one human gate, never blended. */
+   *  column from recognition â€” two currencies, one human gate, never blended. */
   stayCreditReward?: number | null;
   tags: string[];
   order: number;
@@ -63,20 +77,34 @@ export interface QuestsRepo {
 
 const QUEST_SELECT =
   // is_example is selected so consumers can filter. Without it no downstream
-  // code could tell an example quest from a real one — the work-exchange
+  // code could tell an example quest from a real one â€” the work-exchange
   // suggester was offering seeded quests to real guests as paid work.
-  "SELECT id, title, description, impact, gratitude, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order, is_example FROM quests";
+  "SELECT id, title, subtitle, description, impact, story, first_step, steps, deliverable, tips, image_url, gratitude, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order, is_example FROM quests";
+
+/** JSON column â†’ string array, tolerant of junk: an empty list renders fine. */
+function toList(v: unknown): string[] {
+  try {
+    const parsed = Array.isArray(v) ? v : JSON.parse(String(v ?? "[]"));
+    return Array.isArray(parsed) ? parsed.map((s) => String(s)).filter((s) => s.trim() !== "") : [];
+  } catch {
+    return [];
+  }
+}
 
 function rowToQuest(r: RowDataPacket): QuestRecord {
-  let tags: string[] = [];
-  try {
-    tags = Array.isArray(r.tags) ? r.tags : JSON.parse(r.tags ?? "[]");
-  } catch { /* tolerate junk, an empty list renders fine */ }
+  const tags = toList(r.tags);
   return {
     id: String(r.id),
     title: String(r.title ?? ""),
+    subtitle: r.subtitle ?? null,
     description: r.description ?? null,
     impact: r.impact ?? null,
+    story: r.story ?? null,
+    firstStep: r.first_step ?? null,
+    steps: toList(r.steps),
+    deliverable: r.deliverable ?? null,
+    tips: toList(r.tips),
+    imageUrl: r.image_url ?? null,
     gratitude: String(r.gratitude ?? ""),
     duration: r.duration ?? null,
     difficulty: r.difficulty ?? null,
@@ -91,6 +119,12 @@ function rowToQuest(r: RowDataPacket): QuestRecord {
     order: Number(r.sort_order ?? 0),
     isExample: Number(r.is_example ?? 0) === 1,
   };
+}
+
+/** A JSON list column: the list when it has content, NULL when it does not. */
+function jsonListOrNull(list: string[] | null | undefined): string | null {
+  const clean = (list ?? []).map((s) => String(s)).filter((s) => s.trim() !== "");
+  return clean.length ? JSON.stringify(clean) : null;
 }
 
 function questParams(q: QuestRecord): any[] {
@@ -114,11 +148,23 @@ function questParams(q: QuestRecord): any[] {
     q.stayCreditReward == null ? null : Math.max(0, Math.floor(Number(q.stayCreditReward))),
     JSON.stringify(q.tags ?? []),
     Number(q.order ?? 0),
+    // The story layer (0068), appended so the historical column order above
+    // stays byte-identical for anyone diffing against an older write path.
+    q.subtitle ?? null,
+    q.story ?? null,
+    q.firstStep ?? null,
+    // An empty list writes NULL, not '[]'. rowToQuest maps both to [], so the
+    // round trip is unchanged, and anything that later reasons about these
+    // columns with IS NULL reads what the migration actually meant.
+    jsonListOrNull(q.steps),
+    q.deliverable ?? null,
+    jsonListOrNull(q.tips),
+    q.imageUrl ?? null,
   ];
 }
 
 const QUEST_COLS =
-  "(id, title, description, impact, gratitude, gratitude_min, gratitude_max, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order)";
+  "(id, title, description, impact, gratitude, gratitude_min, gratitude_max, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order, subtitle, story, first_step, steps, deliverable, tips, image_url)";
 
 export function questsRepo(pool: Pool): QuestsRepo {
   return {
@@ -134,7 +180,7 @@ export function questsRepo(pool: Pool): QuestsRepo {
 
     async add(q) {
       await pool.query(
-        `INSERT INTO quests ${QUEST_COLS} VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO quests ${QUEST_COLS} VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         questParams(q),
       );
       return q;
@@ -154,7 +200,8 @@ export function questsRepo(pool: Pool): QuestsRepo {
         const p = questParams({ ...quest, id });
         await conn.query(
           "UPDATE quests SET title=?, description=?, impact=?, gratitude=?, gratitude_min=?, gratitude_max=?, " +
-            "duration=?, difficulty=?, circle=?, status=?, icon=?, role_required=?, min_stage=?, requires_role=?, stay_credit_reward=?, tags=?, sort_order=? WHERE id=?",
+            "duration=?, difficulty=?, circle=?, status=?, icon=?, role_required=?, min_stage=?, requires_role=?, stay_credit_reward=?, tags=?, sort_order=?, " +
+            "subtitle=?, story=?, first_step=?, steps=?, deliverable=?, tips=?, image_url=? WHERE id=?",
           [...p.slice(1), id],
         );
         await conn.commit();
@@ -176,7 +223,7 @@ export function questsRepo(pool: Pool): QuestsRepo {
   };
 }
 
-// ── Claims ──────────────────────────────────────────────────────────────────
+// â”€â”€ Claims â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export interface ClaimRecord {
   id: string;
@@ -218,11 +265,34 @@ export interface ClaimsRepo {
    * a submitted or consented claim has work or recognition attached to it.
    */
   remove(id: string): Promise<ClaimRecord | null>;
-  /** Stage rules read this on hot paths — a COUNT, never a full scan. */
+  /** Stage rules read this on hot paths â€” a COUNT, never a full scan. */
   consentedCount(userId: string): Promise<number>;
   /** One grouped query for listing N members (admin players view). */
   consentedCounts(): Promise<Map<string, number>>;
+  /** Per-quest life signs, aggregated in SQL. Examples excluded, both kinds. */
+  fieldCounts(): Promise<Map<string, { active: number; done: number }>>;
+  /** The newest consented claims, capped. Examples excluded, both kinds. */
+  recentConsented(limit: number): Promise<FieldCompletion[]>;
 }
+
+export interface FieldCompletion {
+  questId: string;
+  questTitle: string;
+  userName: string;
+  when: string | null;
+}
+
+/**
+ * Life-signs queries exclude BOTH an example quest and an example member, the
+ * same rule the board applies everywhere: a seeded demo must never render as
+ * somebody's real work. LEFT JOIN plus COALESCE so a claim whose member row is
+ * gone still counts rather than vanishing.
+ */
+const REAL_CLAIM_JOIN =
+  "FROM quest_claims c " +
+  "JOIN quests q ON q.id = c.quest_id " +
+  "LEFT JOIN users u ON u.id = c.user_id " +
+  "WHERE COALESCE(q.is_example, 0) = 0 AND COALESCE(u.is_example, 0) = 0";
 
 const CLAIM_SELECT =
   // confidence (0055) rides along so every read carries it. It is written by
@@ -355,6 +425,37 @@ export function claimsRepo(pool: Pool): ClaimsRepo {
         "SELECT user_id, COUNT(*) AS n FROM quest_claims WHERE status = 'consented' GROUP BY user_id",
       );
       return new Map(rows.map((r) => [String(r.user_id), Number(r.n)]));
+    },
+
+    async fieldCounts() {
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT c.quest_id, c.status, COUNT(*) AS n ${REAL_CLAIM_JOIN} ` +
+          "AND c.status IN ('claimed','submitted','consented') GROUP BY c.quest_id, c.status",
+      );
+      const out = new Map<string, { active: number; done: number }>();
+      for (const r of rows) {
+        const id = String(r.quest_id);
+        const slot = out.get(id) ?? { active: 0, done: 0 };
+        if (r.status === "consented") slot.done += Number(r.n ?? 0);
+        else slot.active += Number(r.n ?? 0);
+        out.set(id, slot);
+      }
+      return out;
+    },
+
+    async recentConsented(limit) {
+      const capped = Math.max(1, Math.min(50, Math.floor(Number(limit) || 8)));
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT c.quest_id, c.quest_title, c.user_name, c.consented_at ${REAL_CLAIM_JOIN} ` +
+          "AND c.status = 'consented' ORDER BY c.consented_at DESC, c.id DESC LIMIT ?",
+        [capped],
+      );
+      return rows.map((r) => ({
+        questId: String(r.quest_id ?? ""),
+        questTitle: String(r.quest_title ?? ""),
+        userName: String(r.user_name ?? ""),
+        when: toIso(r.consented_at),
+      }));
     },
   };
 }
