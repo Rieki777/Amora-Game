@@ -35,6 +35,7 @@ export type Capability =
   | "exchange.swap" // trade one village token for another at posted prices
   | "exchange.manage" // list tokens, post prices, stock the treasury (role-only)
   | "health.record" // log the land's own measurements (trees, water, hectares)
+  | "message.send" // start a conversation and post to one (reading is membership)
   | "mechanics.propose" // propose a change to the game's own rules (Game Mechanics)
   | "event.rsvp" // say you are coming to a gathering
   | "event.manage"; // put a gathering on the village calendar, edit or cancel it
@@ -61,6 +62,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "exchange.swap",
   "exchange.manage",
   "health.record",
+  "message.send",
   "mechanics.propose",
   "event.rsvp",
   "event.manage",
@@ -79,6 +81,10 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   "map.viewPeople": "guest", // any account sees who holds the village's seats
   "map.contact": "member", // reaching people through the relay starts at member
   "stay.member_rate": "member", // the member price comes with membership
+  // Messaging opens where forum posting opens: once you have joined, you can
+  // talk to the people you joined. A warning badge's deny suspends it, which
+  // is the whole reason the deny path outranks role and stage.
+  "message.send": "member",
   "exchange.buy": "member", // buying opens at member; exchange.manage is role-only
   // Parity with buying on purpose: the safety work is done by the
   // deployment-level trading switch and fail-closed caps, and a higher stage

@@ -107,6 +107,8 @@ and investor-packet requests per IP per hour. Every bucket is per-IP unless it
 says per-account, so **one shared village connection is one bucket** — set them
 above the size of a gathering, not to the size of one person's usage.
 
+- Messaging adds two more (visible once the `messaging` module is on): `messaging.sends_per_minute` (default 20) is per MEMBER across every conversation, with a looser per-IP bucket beside it so one stolen token cannot spray the village; `messaging.max_members` (default 50) caps a group conversation and is therefore also the size of the loudest single send anyone can make. The module needs no env var, no seed, and no provisioning step: it ships OFF like every non-core module, and enabling it is the whole setup.
+
 ## Seeds & per-deployment data
 
 - `server/seeds/content-seed.json`, `quests-seed.json` — page copy + quest

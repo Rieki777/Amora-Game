@@ -727,6 +727,32 @@ export const VARIABLES: VariableDef[] = [
     unit: "reports",
   },
 
+  // ── Messaging (visible in Admin only while the module is non-off) ─────────
+  {
+    key: "messaging.sends_per_minute",
+    category: "Messages",
+    label: "Messages one member may send per minute",
+    description:
+      "The send limit, counted per member across every conversation they are in. High enough that a fast typer in a live conversation never feels it, low enough that a stolen token cannot spray the village. Members who hit it are told to slow down and can send again the next minute.",
+    type: "integer",
+    default: "20",
+    min: 1,
+    max: 120,
+    unit: "messages",
+  },
+  {
+    key: "messaging.max_members",
+    category: "Messages",
+    label: "Largest group conversation",
+    description:
+      "How many people one group thread may hold, the creator included. Every message notifies everyone in the thread who has not muted it, so this number is also the size of the loudest single send anyone can make.",
+    type: "integer",
+    default: "50",
+    min: 2,
+    max: 500,
+    unit: "people",
+  },
+
   // ── Gratitude feed (S27-S29; visible while the feed module is non-off) ────
   {
     key: "feed.category_slug",
