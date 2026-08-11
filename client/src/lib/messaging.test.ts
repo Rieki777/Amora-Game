@@ -148,27 +148,46 @@ describe("unread counting", () => {
 
 describe("sortInbox", () => {
   it("puts newest activity first and silent threads last", () => {
+    // Seqs set, not just timestamps: without them every row would carry seq 0
+    // and this would quietly be testing the silent-thread fallback instead of
+    // the key the inbox actually orders by.
     const list = [
-      conversation({ id: "quiet", lastMessageAt: null }),
-      conversation({ id: "old", lastMessageAt: "2026-08-01T00:00:00.000Z" }),
-      conversation({ id: "new", lastMessageAt: "2026-08-10T00:00:00.000Z" }),
+      conversation({ id: "quiet", lastMessageAt: null, latestSeq: 0 }),
+      conversation({ id: "old", lastMessageAt: "2026-08-01T00:00:00.000Z", latestSeq: 4 }),
+      conversation({ id: "new", lastMessageAt: "2026-08-10T00:00:00.000Z", latestSeq: 7 }),
     ];
     expect(sortInbox(list).map((c) => c.id)).toEqual(["new", "old", "quiet"]);
   });
 
-  it("breaks a tie by newest id, the same way the server does", () => {
-    // The server's ORDER BY ends `c.id DESC`. If this disagreed, a tied pair
-    // would render one way from the API and flip the moment the client
-    // re-sorted after an optimistic send. It DID disagree once.
+  it("orders by seq, so identical timestamps do not decide anything", () => {
+    // Since 0074 the server orders by last_message_seq and this must use the
+    // same key, or an optimistic send re-sorts the list into an order the API
+    // never returned. Timestamps here are IDENTICAL and the ids run counter to
+    // the seqs on purpose: only the seq gives the right answer, so a fallback
+    // to either of the others fails this outright.
     const same = "2026-08-10T00:00:00.000Z";
     const list = [
-      conversation({ id: "cnv-100", lastMessageAt: same }),
-      conversation({ id: "cnv-300", lastMessageAt: same }),
-      conversation({ id: "cnv-200", lastMessageAt: same }),
+      conversation({ id: "cnv-900", lastMessageAt: same, latestSeq: 2 }),
+      conversation({ id: "cnv-100", lastMessageAt: same, latestSeq: 9 }),
+      conversation({ id: "cnv-500", lastMessageAt: same, latestSeq: 5 }),
     ];
-    expect(sortInbox(list).map((c) => c.id)).toEqual(["cnv-300", "cnv-200", "cnv-100"]);
-    // And it is stable: sorting an already-sorted list changes nothing.
-    expect(sortInbox(sortInbox(list)).map((c) => c.id)).toEqual(["cnv-300", "cnv-200", "cnv-100"]);
+    expect(sortInbox(list).map((c) => c.id)).toEqual(["cnv-100", "cnv-500", "cnv-900"]);
+    // Stable: re-sorting an already-sorted list changes nothing, which is what
+    // makes it safe to run after every optimistic update.
+    expect(sortInbox(sortInbox(list)).map((c) => c.id)).toEqual(["cnv-100", "cnv-500", "cnv-900"]);
+  });
+
+  it("falls to time then id only for threads nobody has spoken in", () => {
+    // Silent conversations all carry seq 0, which is the one case the seq
+    // cannot separate. They sort after anything with a message, and among
+    // themselves by newest id, matching the server's trailing
+    // `c.created_at DESC, c.id DESC`.
+    const list = [
+      conversation({ id: "cnv-100", lastMessageAt: null, latestSeq: 0 }),
+      conversation({ id: "cnv-300", lastMessageAt: null, latestSeq: 0 }),
+      conversation({ id: "cnv-spoken", lastMessageAt: "2026-08-01T00:00:00.000Z", latestSeq: 1 }),
+    ];
+    expect(sortInbox(list).map((c) => c.id)).toEqual(["cnv-spoken", "cnv-300", "cnv-100"]);
   });
 
   it("does not mutate its input", () => {

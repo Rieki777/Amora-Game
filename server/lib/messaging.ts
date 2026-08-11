@@ -118,23 +118,22 @@ export function previewOf(body: string, deletedAt: string | Date | null): string
 }
 
 /**
- * The epoch-ms segment here is DECIMAL and load-bearing, so do not "tidy" it
- * into base36.
+ * The epoch-ms segment here is DECIMAL, and it used to be load-bearing.
  *
- * inboxFor's ORDER BY ends in `c.id DESC` as its total-order backstop, and
- * that is only meaningful because `Date.now()` renders as a fixed-width
- * 13-digit decimal (and stays 13 digits until 2286), which makes
- * lexicographic DESC equal chronological DESC. Base36 breaks that: its width
- * changes, so a shorter string can sort above a later timestamp and the
- * tie-break silently starts returning the wrong order with no test failing.
+ * Until 0074 the inbox's tie-break was `c.id DESC`, which only meant "newest
+ * first" because `Date.now()` renders as a fixed-width 13-digit decimal
+ * (through 2286), making lexicographic DESC equal chronological DESC. This
+ * file is the odd one out in doing that: the other four `newId`
+ * implementations in `server/lib` (orgChart, orgDrafts, orgRelations,
+ * seasonPatterns) all use `Date.now().toString(36)`, which is variable-width
+ * and would have sorted a shorter string above a later time.
  *
- * This is a local property, not a house fact, and this file is the ODD ONE
- * OUT: `server/lib` holds five `newId` implementations and the other four
- * (orgChart, orgDrafts, orgRelations, seasonPatterns) all render the
- * timestamp as `Date.now().toString(36)`. So the dangerous edit is not
- * hypothetical, it is the tidy-up somebody makes to bring this one in line
- * with its neighbours. It has to stay out of line, and this comment is the
- * only thing standing between that edit and a silently reversed inbox.
+ * 0074 moved the ordering onto `last_message_seq`, so the correctness of the
+ * inbox no longer rests on this format. The id now only separates
+ * conversations nobody has spoken in yet, where any stable order will do.
+ * Kept decimal anyway, because ids of both shapes are already in the table and
+ * changing the format now would make a column that sorts two different ways
+ * depending on when the row was written.
  */
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -364,14 +363,24 @@ export async function renameConversation(pool: Pool, conversationId: string, nam
 // ── Messages ─────────────────────────────────────────────────────────────────
 
 /**
- * The cache rule, stated once: last_message_at is RECOMPUTED from messages,
+ * The cache rule, stated once: both columns are RECOMPUTED from messages,
  * never incremented or set to "now". Tombstones count, because a conversation
  * that was active at that moment really was.
+ *
+ * TWO columns, and they move together or not at all. `last_message_seq` is
+ * what the inbox actually orders by (0074); `last_message_at` is what it
+ * DISPLAYS. Writing one without the other is the failure this module has to
+ * stay clear of, because it produces an inbox that sorts on one truth and
+ * renders another, with no error and no failing test. One statement, so there
+ * is no window where a caller could see them disagree.
  */
 export async function recomputeLastMessageAt(pool: Pool, conversationId: string): Promise<void> {
   await pool.query(
-    "UPDATE conversations SET last_message_at = (SELECT MAX(created_at) FROM messages WHERE conversation_id = ?) WHERE id = ?",
-    [conversationId, conversationId],
+    "UPDATE conversations SET " +
+      "last_message_at = (SELECT MAX(created_at) FROM messages WHERE conversation_id = ?), " +
+      "last_message_seq = (SELECT MAX(seq) FROM messages WHERE conversation_id = ?) " +
+      "WHERE id = ?",
+    [conversationId, conversationId, conversationId],
   );
 }
 
@@ -537,13 +546,17 @@ export async function inboxFor(pool: Pool, userId: string, limit = 50): Promise<
       "m.role, m.muted, m.last_read_seq " +
       "FROM conversation_members m JOIN conversations c ON c.id = m.conversation_id " +
       "WHERE m.user_id = ? AND m.left_at IS NULL " +
-      // c.id last, as a deterministic backstop. The time columns are
-      // timestamp(3) since 0073, so a tie now needs two conversations active
-      // in the same MILLISECOND, but "rare" is not "never" and an inbox that
-      // can reorder itself between two loads is a bug a member would report
-      // and nobody could reproduce. Ids carry their creation ms, so the
-      // fallback is creation order rather than an arbitrary one.
-      "ORDER BY (c.last_message_at IS NULL), c.last_message_at DESC, c.created_at DESC, c.id DESC " +
+      // Ordered by last_message_seq (0074), which is the newest message's
+      // global AUTO_INCREMENT and therefore CANNOT tie: two conversations can
+      // never share a message. So the comparator reaches its fallbacks only
+      // for conversations nobody has spoken in yet, where created_at and then
+      // id settle it. This is the same choice 0066 made for read state, now
+      // applied to ordering as well.
+      //
+      // last_message_at is still the value the row DISPLAYS. It is no longer
+      // the value it sorts by, which is why the two must be recomputed
+      // together.
+      "ORDER BY (c.last_message_seq IS NULL), c.last_message_seq DESC, c.created_at DESC, c.id DESC " +
       `LIMIT ${cap}`,
     [userId],
   );
@@ -800,27 +813,45 @@ export interface CacheAudit {
 }
 
 /**
- * Re-derive last_message_at for every conversation and report what was wrong.
+ * Re-derive BOTH cached columns for every conversation and report what was
+ * wrong.
  *
  * The ledger learned this the expensive way: a denormalized number that is
  * only ever written by the code that also writes the source of truth is a
  * number nobody checks. This runs at boot and reports drift by id, so a bug
  * in the send path shows up as a log line instead of as an inbox that quietly
  * sorts wrong.
+ *
+ * Since 0074 there are TWO of them, and this function is the single most
+ * dangerous place in the module to get that wrong. It re-derives wholesale, so
+ * if it repaired the timestamp and left the seq alone it would not just miss a
+ * drift, it would CREATE one on every boot, and the inbox would order by a
+ * stale key while displaying a fresh time. Both columns are compared, and the
+ * repair writes both in one statement.
+ *
+ * The seq comparison is deliberately numeric rather than a string compare:
+ * MySQL hands a bigint back as a string once it passes 2^53, and "10" < "9"
+ * lexicographically.
  */
 export async function auditLastMessageAt(pool: Pool, repair = true): Promise<CacheAudit> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT c.id, c.last_message_at AS cached, (SELECT MAX(created_at) FROM messages WHERE conversation_id = c.id) AS actual " +
+    "SELECT c.id, c.last_message_at AS cachedAt, c.last_message_seq AS cachedSeq, " +
+      "(SELECT MAX(created_at) FROM messages WHERE conversation_id = c.id) AS actualAt, " +
+      "(SELECT MAX(seq) FROM messages WHERE conversation_id = c.id) AS actualSeq " +
       "FROM conversations c",
   );
+  const num = (v: any): number | null => (v === null || v === undefined ? null : Number(v));
   const drifted: string[] = [];
   for (const r of rows) {
-    const cached = r.cached ? new Date(r.cached).getTime() : null;
-    const actual = r.actual ? new Date(r.actual).getTime() : null;
-    if (cached === actual) continue;
+    const cachedAt = r.cachedAt ? new Date(r.cachedAt).getTime() : null;
+    const actualAt = r.actualAt ? new Date(r.actualAt).getTime() : null;
+    if (cachedAt === actualAt && num(r.cachedSeq) === num(r.actualSeq)) continue;
     drifted.push(String(r.id));
     if (repair) {
-      await pool.query("UPDATE conversations SET last_message_at = ? WHERE id = ?", [r.actual ?? null, r.id]);
+      await pool.query(
+        "UPDATE conversations SET last_message_at = ?, last_message_seq = ? WHERE id = ?",
+        [r.actualAt ?? null, r.actualSeq ?? null, r.id],
+      );
     }
   }
   return { checked: rows.length, repaired: repair ? drifted.length : 0, drifted };

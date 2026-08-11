@@ -100,29 +100,47 @@ reason they can see.
 from. Raising it on the cache alone would only store whole seconds in a column that can hold
 thousandths.
 
-The inbox `ORDER BY` also ends in `c.id DESC` as a deterministic backstop, and
-`sortInbox()` on the client uses the same direction. Those two MUST agree; they disagreed once,
-which meant a tied pair rendered one way from the API and flipped the moment the client re-sorted.
+## What the inbox orders by (0074)
 
-**That backstop rests on the id format**, which is worth knowing before anyone tidies it: the
-epoch-ms segment in `newId` is decimal and fixed-width (13 digits until 2286), so lexicographic
-DESC equals chronological DESC. Base36 would break it silently, because its width changes and a
-shorter string can sort above a later timestamp.
+**`conversations.last_message_seq`**, the newest message's `seq`. Two conversations can never
+share a message, so this key **cannot tie**: the comparator reaches `created_at` and `id` only for
+threads nobody has spoken in yet.
 
-This file is the **odd one out**, which is what makes it a live risk rather than a note: `server/lib`
-holds five `newId` implementations and the other four (`orgChart`, `orgDrafts`, `orgRelations`,
-`seasonPatterns`) all use `Date.now().toString(36)`. The dangerous edit is the tidy-up that brings
-this one in line with its neighbours, so the warning sits on `newId` itself where that edit gets
-made rather than only here.
+`last_message_at` is still what a row DISPLAYS. It is no longer what the list sorts by, and that
+split is the reason both columns are recomputed in one statement.
 
-If exact ordering ever matters more than milliseconds, the honest upgrade is a `last_message_seq`
-column ordered ahead of the id, since `messages.seq` is globally monotonic and cannot tie at all.
-It was weighed and deferred: the sort is already total, so it buys independence from the id-format
-coincidence rather than a correctness fix, and it adds a SECOND denormalized cache that
-`auditLastMessageAt()` would have to set in the same pass as the first. Miss that and the cache
-and the ordering key drift apart with no failing test and no error, which is a worse failure than
-the one it removes. Both precision paths are now pinned by tests: the SQL recompute and the
-audit's JavaScript round-trip, which is the one that could quietly truncate.
+The route went 0066 → 0073 → 0074 and each step is worth keeping straight:
+
+- 0066 ordered on `last_message_at`, declared as whole-second `timestamp`. Two conversations
+  active in the same second tied, fell through to an equally-tied `created_at`, and ran out of
+  tiebreakers, so MySQL returned either order. Red on main for 75 minutes.
+- 0073 made the sort **total** (`, c.id DESC`) and gave the columns `timestamp(3)`. That fixed the
+  bug: determinism from the totality, semantic accuracy from the precision.
+- 0074 makes it **correct rather than coincidental**. `c.id DESC` only meant "newest first"
+  because this module's `newId` keeps the epoch-ms a fixed-width decimal, and messaging is the
+  only one of five `newId` implementations in `server/lib` that does (`orgChart`, `orgDrafts`,
+  `orgRelations` and `seasonPatterns` all use `Date.now().toString(36)`, which is variable-width).
+  Resting the inbox on that was a coincidence waiting to be tidied away.
+
+0066's own header had already made this argument, about read state: seq exists so ordering "never
+turns on a timestamp tie or on the ordering of a random id suffix". Read state used it and inbox
+ordering did not. 0074 closes that inconsistency.
+
+**`sortInbox()` on the client sorts by the same key.** It re-sorts a list the API already ordered,
+so any key it uses that the server does not will reorder the inbox on the next optimistic send.
+That has gone wrong once, when the two tie-breakers ran in opposite directions.
+
+**The dangerous edit is now in `auditLastMessageAt()`.** It re-derives wholesale, so if it ever
+repairs one column and not the other it does not merely miss a drift, it manufactures one on every
+boot, and the inbox sorts on a stale key while rendering a fresh time, with no error and no failing
+test. Both columns are compared and both are written in one statement, and the test for that is
+written before the happy-path ones on purpose. The same rule binds `recomputeLastMessageAt()`.
+
+Four paths are pinned by tests: the SQL recompute; the audit's JavaScript round-trip, which is the
+one that could quietly truncate the milliseconds; the audit repairing each column without
+disturbing the other, checked in both directions; and 0074's backfill, read out of the shipped
+migration file rather than copied, because the harness applies migrations to an empty schema and
+would otherwise never execute that statement at all.
 
 ## Endpoints
 

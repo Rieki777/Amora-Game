@@ -15,9 +15,12 @@
  *
  * Runs against the S5 harness. No TEST_DATABASE_URL → the suite skips loudly.
  */
+import fs from "fs";
+import path from "path";
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from "vitest";
 import mysql from "mysql2/promise";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
+import { splitStatements } from "./db/migrate";
 import type { NotifyDeps } from "./lib/notify";
 import {
   addMembers,
@@ -463,6 +466,116 @@ describe.skipIf(!configured)("messaging repo (MySQL)", () => {
       const inbox = await inboxFor(pool, BEN);
       const tied = inbox.map((e) => e.conversation.id).filter((id) => id === a.id || id === b.id);
       expect(tied, `read ${i + 1} must return the same order as every other read`).toEqual(expected);
+    }
+  });
+
+  it("repairs BOTH cached columns in one pass, never one without the other", async () => {
+    // The worst bug this module could have, and the reason it is tested before
+    // the happy path. Since 0074 the inbox ORDERS BY last_message_seq and
+    // DISPLAYS last_message_at. If the audit re-derives one and leaves the
+    // other, it does not merely miss a drift, it manufactures one on every
+    // boot: the list sorts by a stale key while rendering a fresh time, with
+    // no error anywhere. Both directions are checked because a repair that
+    // only ever fixes the column you thought of passes a one-sided test.
+    const c = await openDirect(pool, ANA, BEN);
+    await sendMessage(pool, { conversationId: c.id, authorId: ANA, body: "one" });
+    const truth = await pool.query<any[]>(
+      "SELECT last_message_at AS at, last_message_seq AS seq FROM conversations WHERE id = ?",
+      [c.id],
+    ).then(([r]) => r[0]);
+    expect(Number(truth.seq), "the send path must fill the seq, not only the timestamp").toBeGreaterThan(0);
+
+    // Corrupt ONLY the seq. The timestamp is still correct, so an audit that
+    // compares timestamps alone would call this row clean and walk past it.
+    await pool.query("UPDATE conversations SET last_message_seq = 1 WHERE id = ?", [c.id]);
+    expect((await auditLastMessageAt(pool)).drifted, "a stale seq alone is drift").toContain(c.id);
+    let after = await pool.query<any[]>(
+      "SELECT last_message_at AS at, last_message_seq AS seq FROM conversations WHERE id = ?",
+      [c.id],
+    ).then(([r]) => r[0]);
+    expect(Number(after.seq)).toBe(Number(truth.seq));
+    expect(new Date(after.at).getTime(), "repairing the seq must not disturb the timestamp").toBe(
+      new Date(truth.at).getTime(),
+    );
+
+    // Corrupt ONLY the timestamp, the mirror case.
+    await pool.query("UPDATE conversations SET last_message_at = '2001-01-01 00:00:00.000' WHERE id = ?", [c.id]);
+    expect((await auditLastMessageAt(pool)).drifted, "a stale timestamp alone is drift").toContain(c.id);
+    after = await pool.query<any[]>(
+      "SELECT last_message_at AS at, last_message_seq AS seq FROM conversations WHERE id = ?",
+      [c.id],
+    ).then(([r]) => r[0]);
+    expect(new Date(after.at).getTime()).toBe(new Date(truth.at).getTime());
+    expect(Number(after.seq), "repairing the timestamp must not drop the seq").toBe(Number(truth.seq));
+
+    // And the row is clean afterwards, so the audit is not reporting forever.
+    expect((await auditLastMessageAt(pool)).drifted).not.toContain(c.id);
+  });
+
+  it("backfills last_message_seq for conversations that predate 0074", async () => {
+    // The harness applies every migration to an EMPTY schema, so 0074's
+    // backfill runs against no rows and is the one statement in it that the
+    // suite would otherwise never execute. On a real database it is the whole
+    // job: without it every existing conversation carries a NULL seq, sorts
+    // into the silent-threads bucket, and the boot audit reports the entire
+    // table as drifted, which makes a genuine drift impossible to spot.
+    //
+    // The statement is READ OUT OF THE SHIPPED FILE rather than copied here,
+    // so this cannot pass against a version of the SQL that is no longer the
+    // one that runs.
+    const sql = fs.readFileSync(path.join(process.cwd(), "drizzle", "0074_messaging_last_message_seq.sql"), "utf8");
+    const backfill = splitStatements(sql).find((s) => /^UPDATE\s+`?conversations`?/i.test(s));
+    expect(backfill, "0074 must still contain its backfill UPDATE").toBeTruthy();
+
+    const withMessages = await openDirect(pool, ANA, BEN);
+    await sendMessage(pool, { conversationId: withMessages.id, authorId: ANA, body: "before the migration" });
+    const silent = await createGroup(pool, { createdBy: ANA, name: "Never spoken", memberIds: [BEN] });
+    const expected = await latestSeq(pool, withMessages.id);
+
+    // Put both rows back into their pre-0074 state.
+    await pool.query("UPDATE conversations SET last_message_seq = NULL WHERE id IN (?, ?)", [
+      withMessages.id, silent.id,
+    ]);
+
+    await pool.query(backfill!);
+
+    const [rows] = await pool.query<any[]>(
+      "SELECT id, last_message_seq AS seq FROM conversations WHERE id IN (?, ?)",
+      [withMessages.id, silent.id],
+    );
+    const byId = new Map(rows.map((r: any) => [String(r.id), r.seq]));
+    expect(Number(byId.get(withMessages.id))).toBe(expected);
+    // A conversation with no messages has no seq, and MAX() over nothing is
+    // NULL rather than 0, which is what keeps it in the silent bucket.
+    expect(byId.get(silent.id)).toBeNull();
+
+    // And the audit agrees the backfill was right, which is the property that
+    // actually matters: a first boot after this migration reports nothing.
+    expect((await auditLastMessageAt(pool, false)).drifted).not.toContain(withMessages.id);
+  });
+
+  it("orders the inbox on a key that cannot tie at all", async () => {
+    // 0073 made the sort total; 0074 makes it independent of the id format.
+    // Two conversations can never share a newest message, so last_message_seq
+    // is unique per row by construction. This forces the condition that broke
+    // main, identical timestamps on both, and shows the order is still exact
+    // rather than merely stable: `newer` holds the higher seq and must lead,
+    // which the old `c.id DESC` fallback could only have got right by luck.
+    const older = await createGroup(pool, { createdBy: ANA, name: "Older", memberIds: [BEN] });
+    const newer = await createGroup(pool, { createdBy: ANA, name: "Newer", memberIds: [BEN] });
+    await sendMessage(pool, { conversationId: older.id, authorId: ANA, body: "first" });
+    await sendMessage(pool, { conversationId: newer.id, authorId: ANA, body: "second" });
+
+    const stamp = "2026-08-11 12:00:00.000";
+    await pool.query("UPDATE conversations SET last_message_at = ?, created_at = ? WHERE id IN (?, ?)", [
+      stamp, stamp, older.id, newer.id,
+    ]);
+
+    for (let i = 0; i < 5; i++) {
+      const seen = (await inboxFor(pool, BEN))
+        .map((e) => e.conversation.id)
+        .filter((id) => id === older.id || id === newer.id);
+      expect(seen, `read ${i + 1}: the later message must lead, every time`).toEqual([newer.id, older.id]);
     }
   });
 

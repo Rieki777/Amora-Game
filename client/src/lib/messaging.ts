@@ -108,17 +108,30 @@ export function inboxUnreadTotal(list: InboxConversation[]): number {
   return (list ?? []).reduce((sum, c) => (c.muted ? sum : sum + Math.max(0, c.unreadCount || 0)), 0);
 }
 
-/** Newest activity first. A conversation nobody has spoken in sorts last. */
+/**
+ * Newest activity first. A conversation nobody has spoken in sorts last.
+ *
+ * Sorts on `latestSeq`, which is the same key the server orders by since 0074
+ * (`conversations.last_message_seq`, the newest message's global
+ * AUTO_INCREMENT). That agreement is the whole point of this function: it
+ * re-sorts a list the API already ordered, so any key it uses that the server
+ * does not will reorder the inbox the moment an optimistic send triggers a
+ * re-sort. It has gone wrong once already, when the two tie-breakers ran in
+ * opposite directions.
+ *
+ * A seq cannot tie, since two conversations never share a message, so the
+ * fallbacks below only separate threads nobody has spoken in yet.
+ */
 export function sortInbox(list: InboxConversation[]): InboxConversation[] {
   return [...(list ?? [])].sort((a, b) => {
+    const sa = Math.max(0, a.latestSeq || 0);
+    const sb = Math.max(0, b.latestSeq || 0);
+    if (sb !== sa) return sb - sa;
+    // Both silent. Fall to time, then to id, descending in both, matching the
+    // server's `c.created_at DESC, c.id DESC`.
     const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
     const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
     if (tb !== ta) return tb - ta;
-    // Newest id first, matching the server's `c.id DESC` backstop exactly.
-    // These two tiebreakers MUST agree: they disagreed once (server
-    // descending, this ascending), which meant a tied pair rendered in one
-    // order from the API and flipped the moment the client re-sorted after
-    // an optimistic send.
     return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
   });
 }
