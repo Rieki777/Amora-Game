@@ -1,20 +1,29 @@
 /**
  * Choose who you will be.
  *
- * A character select screen: the class list down the left, the character on
- * the stage, what the class opens on the right, and the party you have built
- * along the bottom. Multi-class is the point, so nothing here is a radio
- * button between five options.
+ * WHY THIS WAS REWRITTEN, so nobody reintroduces it: the first version was
+ * styled for a dark screen this site does not have. It put cream text
+ * (`text-amber-100`) on cards it assumed were near-black, and `Layout` renders
+ * on the light parchment skin, so the page's own heading measured 1.00:1
+ * against the background. Not low contrast. The same luminance. Invisible.
  *
- * The law of classes, which this page has to SAY and not only obey: a class
- * guides what the game shows you and never locks a door. Any hand may claim
- * any quest. The copy says so out loud, because a player who believes picking
- * The Builder closes the storytelling quests will pick differently than one
- * who knows it does not.
+ * index.css says it directly: the `-light` tokens are BACKGROUNDS for dark
+ * text, and anything rendering on a light surface picks from the dark set
+ * instead. So every string here is teal-deep, gold (#a06b1c, 6.2:1 on white)
+ * or a grey, and there is no cream text anywhere on this page.
  *
- * Art degrades to a medallion. The server returns null for an avatar it does
- * not have rather than a path that might 404, and the img carries an onError
- * as well, because a file can go missing after the server answered.
+ * The arrangement follows the same correction. A character select shows you
+ * the CAST:
+ *   - the portrait is the first thing on the page, not the last. It was below
+ *     the fold and clipped by the bottom nav, which is the most valuable asset
+ *     on the site arriving last;
+ *   - the rail is FACES, not letters in circles. A letter is a placeholder for
+ *     a face, and thirty faces already exist;
+ *   - the heading is small. Two lines of display type in the palest colour
+ *     took 40% of the first screen above a picture nobody could see, and
+ *     fixing the contrast alone would have made the loudest thing on screen
+ *     also the largest. You arrive here by choosing to; the page does not need
+ *     to announce itself.
  */
 import Layout from "@/components/Layout";
 import { useEffect, useMemo, useState } from "react";
@@ -24,7 +33,9 @@ import { Star, X } from "lucide-react";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
-  return t ? { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+  return t
+    ? { Authorization: `Bearer ${t}`, "Content-Type": "application/json" }
+    : { "Content-Type": "application/json" };
 };
 
 interface Archetype {
@@ -33,7 +44,6 @@ interface Archetype {
   subtitle: string;
   blurb: string;
   examples: string[];
-  sigil: string;
 }
 
 interface Character {
@@ -46,7 +56,7 @@ interface Character {
 }
 
 interface Paths {
-  roles: Array<{ id: string; name: string; seats: number; recruiting: boolean; color: string | null }>;
+  roles: Array<{ id: string; name: string; recruiting: boolean; color: string | null }>;
   questCount: number;
 }
 
@@ -56,35 +66,21 @@ const TONES: Array<{ key: Character["tone"]; label: string; swatch: string }> = 
   { key: "light", label: "Light", swatch: "#E3B58C" },
 ];
 
-/** The medallion: a ring in the class colour with the class initial inside. */
-function Medallion({ letter }: { letter: string }) {
-  return (
-    <div className="flex h-full w-full items-center justify-center rounded-2xl bg-gradient-to-b from-emerald-900/20 to-amber-700/20">
-      <div className="flex h-28 w-28 items-center justify-center rounded-full border-4 border-amber-600/60 bg-emerald-950/40 text-4xl font-semibold text-amber-200">
-        {letter}
-      </div>
-    </div>
-  );
-}
+/** The thirty assets are named by class, presentation and tone. */
+const art = (key: string, p: string, t: string) => `/images/avatars/${key}-${p}-${t}.webp`;
 
 export default function Characters() {
   const { user } = useAuth();
   const [archetypes, setArchetypes] = useState<Archetype[]>([]);
   const [party, setParty] = useState<Character[]>([]);
-  const [activeKey, setActiveKey] = useState<string>("");
+  const [activeKey, setActiveKey] = useState("");
   const [presentation, setPresentation] = useState<Character["presentation"]>("f");
   const [tone, setTone] = useState<Character["tone"]>("olive");
   const [paths, setPaths] = useState<Paths | null>(null);
-  const [artMissing, setArtMissing] = useState(false);
+  const [broken, setBroken] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  /**
-   * First run after signup. It adds a way OUT and changes nothing else: the
-   * page is the same page, and skipping leaves a player with no characters,
-   * which is a real state the whole product already handles by showing them
-   * everything.
-   */
   const firstRun = useMemo(
     () => new URLSearchParams(window.location.search).get("first") === "1",
     [],
@@ -109,8 +105,6 @@ export default function Characters() {
   };
   useEffect(loadParty, [user?.id]);
 
-  // Switching class shows what you already chose for it, so revisiting a class
-  // you play does not silently offer to overwrite your character with defaults.
   useEffect(() => {
     if (!activeKey) return;
     const mine = party.find((c) => c.archetypeKey === activeKey);
@@ -118,7 +112,6 @@ export default function Characters() {
       setPresentation(mine.presentation);
       setTone(mine.tone);
     }
-    setArtMissing(false);
     setPaths(null);
     fetch(`/api/archetypes/${encodeURIComponent(activeKey)}/paths`)
       .then((r) => (r.ok ? r.json() : null))
@@ -126,15 +119,16 @@ export default function Characters() {
       .catch(() => {});
   }, [activeKey, party.length]);
 
-  const active = useMemo(
-    () => archetypes.find((a) => a.key === activeKey) ?? null,
-    [archetypes, activeKey],
-  );
-  const playing = useMemo(
-    () => party.some((c) => c.archetypeKey === activeKey),
-    [party, activeKey],
-  );
-  const avatarSrc = activeKey ? `/images/avatars/${activeKey}-${presentation}-${tone}.webp` : "";
+  const active = useMemo(() => archetypes.find((a) => a.key === activeKey) ?? null, [archetypes, activeKey]);
+  const playing = useMemo(() => party.some((c) => c.archetypeKey === activeKey), [party, activeKey]);
+  const heroSrc = activeKey ? art(activeKey, presentation, tone) : "";
+  const heroBroken = broken[`${activeKey}-${presentation}-${tone}`];
+
+  /** A class's face for the rail: the one you play, or a default to meet. */
+  const faceFor = (key: string) => {
+    const mine = party.find((c) => c.archetypeKey === key);
+    return mine?.avatar ?? art(key, "f", "olive");
+  };
 
   const walk = async () => {
     if (!activeKey || busy) return;
@@ -147,8 +141,8 @@ export default function Characters() {
     });
     setBusy(false);
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setError(body.error || "That did not save. Try again.");
+      const b = await res.json().catch(() => ({}));
+      setError(b.error || "That did not save. Try again.");
       return;
     }
     loadParty();
@@ -170,8 +164,8 @@ export default function Characters() {
     return (
       <Layout>
         <div className="mx-auto max-w-2xl px-4 py-16 text-center">
-          <h1 className="text-3xl font-semibold text-amber-100">Choose who you will be</h1>
-          <p className="mt-4 text-amber-200/80">Sign in to pick your paths.</p>
+          <h1 className="text-3xl font-display font-bold text-teal-deep">Choose who you will be</h1>
+          <p className="mt-4 text-gray-700">Sign in to pick your paths.</p>
         </div>
       </Layout>
     );
@@ -179,226 +173,250 @@ export default function Characters() {
 
   return (
     <Layout>
-      <div className="mx-auto max-w-6xl px-4 py-10">
-        <header className="mb-8 text-center">
-          <h1 className="text-3xl font-semibold text-amber-100">Choose who you will be</h1>
-          <p className="mt-3 text-amber-200/80">
-            Play as many as you like. Change any time. Every door stays open to every hand.
-          </p>
-          {firstRun ? (
-            <p className="mt-4 text-sm text-amber-200/70">
-              You can do this later. Skipping shows you the whole land.{" "}
-              <a href="/profile" className="inline-block min-h-11 py-3 underline">
+      <div className="min-h-screen bg-gradient-to-br from-teal-deep/5 to-amber/5 pb-24 pt-6">
+        <div className="container">
+          {/* Small, because the picture is the headline. */}
+          <div className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="text-sm font-semibold uppercase tracking-widest text-teal-deep">
+              Choose who you will be
+            </h1>
+            <p className="text-sm text-gray-700">
+              Play as many as you like. Every door stays open to every hand.
+            </p>
+            {firstRun ? (
+              <a href="/profile" className="min-h-11 py-3 text-sm font-medium text-teal-deep underline">
                 Skip for now
               </a>
-            </p>
-          ) : null}
-        </header>
-
-        <div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)_20rem]">
-          {/* Left rail: the five classes. */}
-          <nav aria-label="Classes" className="flex flex-row gap-2 overflow-x-auto lg:flex-col">
-            {archetypes.map((a) => {
-              const chosen = party.some((c) => c.archetypeKey === a.key);
-              const isActive = a.key === activeKey;
-              return (
-                <button
-                  key={a.key}
-                  type="button"
-                  onClick={() => setActiveKey(a.key)}
-                  aria-current={isActive ? "true" : undefined}
-                  className={`flex min-h-11 shrink-0 items-center gap-3 rounded-xl border px-3 py-2 text-left transition ${
-                    isActive
-                      ? "border-amber-500 bg-amber-500/15 text-amber-100 shadow-[0_0_18px_-4px_rgba(245,190,90,0.6)]"
-                      : "border-amber-900/40 bg-emerald-950/30 text-amber-200/80 hover:border-amber-700/60"
-                  }`}
-                >
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full border border-amber-700/50 text-sm">
-                    {a.name.replace(/^The\s+/i, "").slice(0, 1)}
-                  </span>
-                  <span className="flex-1 text-sm font-medium">{a.name}</span>
-                  {chosen ? <Star className="h-4 w-4 fill-amber-400 text-amber-400" /> : null}
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Centre stage. */}
-          <section className="rounded-2xl border border-amber-900/40 bg-emerald-950/20 p-5">
-            <div className="mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border border-amber-900/40 bg-emerald-950/40">
-              {active && !artMissing ? (
-                <img
-                  src={avatarSrc}
-                  alt={active.name}
-                  loading="lazy"
-                  onError={() => setArtMissing(true)}
-                  /* Slow breathing, transform only so it never repaints the
-                     page, and switched off for anyone who asked for less
-                     motion. */
-                  className="h-full w-full object-cover motion-safe:animate-[breathe_7s_ease-in-out_infinite]"
-                />
-              ) : (
-                <Medallion letter={active ? active.name.replace(/^The\s+/i, "").slice(0, 1) : "?"} />
-              )}
-            </div>
-
-            <div className="mt-5 flex flex-wrap items-center justify-center gap-6">
-              <div className="flex items-center gap-2">
-                {(["f", "m"] as const).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => { setPresentation(p); setArtMissing(false); }}
-                    className={`min-h-11 rounded-lg border px-4 py-2 text-sm ${
-                      presentation === p
-                        ? "border-amber-500 bg-amber-500/15 text-amber-100"
-                        : "border-amber-900/40 text-amber-200/70"
-                    }`}
-                  >
-                    {p === "f" ? "She" : "He"}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-3">
-                {TONES.map((t) => (
-                  <button
-                    key={t.key}
-                    type="button"
-                    aria-label={t.label}
-                    onClick={() => { setTone(t.key); setArtMissing(false); }}
-                    style={{ background: t.swatch }}
-                    className={`h-9 w-9 rounded-full border-2 transition ${
-                      tone === t.key ? "border-amber-300 ring-2 ring-amber-400/50" : "border-amber-900/50"
-                    }`}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-6 text-center">
-              <button
-                type="button"
-                onClick={walk}
-                disabled={busy}
-                className="min-h-11 rounded-xl border border-amber-500 bg-amber-500/20 px-6 py-3 font-medium text-amber-100 hover:bg-amber-500/30 disabled:opacity-50"
-              >
-                {playing ? "Save this look" : "Walk this path"}
-              </button>
-              {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
-            </div>
-          </section>
-
-          {/* Right panel: the class card. */}
-          <aside className="rounded-2xl border border-amber-900/40 bg-emerald-950/20 p-5">
-            {active ? (
-              <>
-                <h2 className="text-xl font-semibold text-amber-100">{active.name}</h2>
-                <p className="mt-1 text-sm uppercase tracking-wide text-amber-300/70">{active.subtitle}</p>
-                <p className="mt-3 text-sm text-amber-200/85">{active.blurb}</p>
-
-                {active.examples.length ? (
-                  <ul className="mt-4 space-y-1.5">
-                    {active.examples.map((e) => (
-                      <li key={e} className="text-sm text-amber-200/75">{e}</li>
-                    ))}
-                  </ul>
-                ) : null}
-
-                <h3 className="mt-6 text-sm font-semibold uppercase tracking-wide text-amber-300/80">
-                  Open paths
-                </h3>
-                {paths === null ? (
-                  <p className="mt-2 text-sm text-amber-200/60">Looking.</p>
-                ) : paths.roles.length === 0 ? (
-                  <p className="mt-2 text-sm text-amber-200/70">
-                    No seats carry this tag yet. Every seat is still open to you.
-                  </p>
-                ) : (
-                  <ul className="mt-2 space-y-2">
-                    {paths.roles.map((r) => (
-                      <li
-                        key={r.id}
-                        className="flex items-center gap-2 rounded-lg border border-amber-900/40 px-3 py-2"
-                      >
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ background: r.color || "#8a6a3a" }}
-                        />
-                        <span className="flex-1 text-sm text-amber-100">{r.name}</span>
-                        {r.recruiting ? (
-                          <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-200">
-                            Open
-                          </span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {paths ? (
-                  <p className="mt-4 text-sm text-amber-200/75">
-                    {paths.questCount === 0
-                      ? "The whole quest board is open to you."
-                      : `${paths.questCount} quests on the land welcome these hands.`}
-                  </p>
-                ) : null}
-              </>
             ) : null}
-          </aside>
-        </div>
+          </div>
 
-        {/* Your Party. */}
-        <section className="mt-10">
-          <h2 className="text-lg font-semibold text-amber-100">Your party</h2>
-          {party.length === 0 ? (
-            <p className="mt-2 text-sm text-amber-200/70">
-              Nobody yet. Pick a path above, or skip and wander as you are.
-            </p>
-          ) : (
-            <ul className="mt-3 flex flex-wrap gap-3">
-              {party.map((c) => {
-                const a = archetypes.find((x) => x.key === c.archetypeKey);
-                return (
-                  <li
-                    key={c.id}
-                    className={`relative w-32 overflow-hidden rounded-xl border bg-emerald-950/30 ${
-                      c.isPrimary ? "border-amber-400" : "border-amber-900/40"
-                    }`}
-                  >
-                    <div className="aspect-[3/4] w-full bg-emerald-950/50">
-                      {c.avatar ? (
-                        <img
-                          src={c.avatar}
-                          alt={a?.name ?? c.archetypeKey}
-                          loading="lazy"
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <Medallion letter={(a?.name ?? "?").replace(/^The\s+/i, "").slice(0, 1)} />
-                      )}
+          <div className="grid gap-6 lg:grid-cols-[6rem_minmax(0,1fr)_20rem]">
+            {/* THE STAGE, first in the DOM so a phone meets the character
+                immediately. The rail follows it on small screens and moves
+                left on wide ones. */}
+            <section className="order-1 lg:order-2">
+              <div className="relative overflow-hidden rounded-2xl bg-white shadow-lg">
+                <div className="mx-auto aspect-[3/4] w-full max-w-sm">
+                  {active && !heroBroken ? (
+                    <img
+                      src={heroSrc}
+                      alt={active.name}
+                      onError={() => setBroken((b) => ({ ...b, [`${activeKey}-${presentation}-${tone}`]: true }))}
+                      className="h-full w-full object-cover motion-safe:animate-[breathe_7s_ease-in-out_infinite]"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-teal-deep/10 to-amber/10">
+                      <div className="flex h-28 w-28 items-center justify-center rounded-full border-4 border-gold/50 text-4xl font-semibold text-teal-deep">
+                        {active ? active.name.replace(/^The\s+/i, "").slice(0, 1) : "?"}
+                      </div>
                     </div>
-                    <p className="truncate px-2 py-1.5 text-xs text-amber-100">{a?.name ?? c.archetypeKey}</p>
+                  )}
+                </div>
+                {/* Name over the art, the way a select screen names its cast. */}
+                {active ? (
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-5 pb-4 pt-12">
+                    <h2 className="text-3xl font-display font-bold text-white">{active.name}</h2>
+                    <p className="text-sm text-white/90">{active.subtitle}</p>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-5">
+                <div className="flex items-center gap-2">
+                  {(["f", "m"] as const).map((p) => (
                     <button
+                      key={p}
                       type="button"
-                      aria-label="Set as primary"
-                      onClick={() => act(`/api/me/characters/${c.id}/primary`, "POST")}
-                      className="absolute left-1 top-1 rounded-full bg-black/50 p-1.5"
+                      onClick={() => setPresentation(p)}
+                      className={`min-h-11 rounded-lg border px-4 py-2 text-sm font-medium ${
+                        presentation === p
+                          ? "border-teal-deep bg-teal-deep text-white"
+                          : "border-gray-300 bg-white text-gray-700"
+                      }`}
                     >
-                      <Star className={`h-4 w-4 ${c.isPrimary ? "fill-amber-400 text-amber-400" : "text-amber-200"}`} />
+                      {p === "f" ? "She" : "He"}
                     </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3">
+                  {TONES.map((t) => (
                     <button
+                      key={t.key}
                       type="button"
-                      aria-label="Leave this path"
-                      onClick={() => act(`/api/me/characters/${c.id}`, "DELETE")}
-                      className="absolute right-1 top-1 rounded-full bg-black/50 p-1.5"
+                      aria-label={t.label}
+                      onClick={() => setTone(t.key)}
+                      style={{ background: t.swatch }}
+                      className={`h-10 w-10 rounded-full border-2 ${
+                        tone === t.key ? "border-teal-deep ring-2 ring-teal-deep/40" : "border-gray-300"
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-5 text-center">
+                <button
+                  type="button"
+                  onClick={walk}
+                  disabled={busy}
+                  className="min-h-11 rounded-xl bg-teal-deep px-8 py-3 font-semibold text-white shadow hover:bg-teal-deep-dark disabled:opacity-50"
+                >
+                  {playing ? "Save this look" : "Walk this path"}
+                </button>
+                {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
+              </div>
+            </section>
+
+            {/* THE CAST. Faces, not letters. */}
+            <nav aria-label="Classes" className="order-2 lg:order-1">
+              <ul className="flex flex-row gap-3 overflow-x-auto pb-2 lg:flex-col lg:overflow-visible">
+                {archetypes.map((a) => {
+                  const chosen = party.some((c) => c.archetypeKey === a.key);
+                  const isActive = a.key === activeKey;
+                  const src = faceFor(a.key);
+                  return (
+                    <li key={a.key} className="shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setActiveKey(a.key)}
+                        aria-current={isActive ? "true" : undefined}
+                        title={a.name}
+                        className={`relative block h-20 w-20 overflow-hidden rounded-xl border-2 bg-white transition ${
+                          isActive
+                            ? "border-teal-deep ring-2 ring-teal-deep/30"
+                            : "border-gray-200 hover:border-teal-deep/50"
+                        }`}
+                      >
+                        {broken[src] ? (
+                          <span className="flex h-full w-full items-center justify-center text-lg font-semibold text-teal-deep">
+                            {a.name.replace(/^The\s+/i, "").slice(0, 1)}
+                          </span>
+                        ) : (
+                          <img
+                            src={src}
+                            alt={a.name}
+                            onError={() => setBroken((b) => ({ ...b, [src]: true }))}
+                            className="h-full w-full object-cover object-top"
+                          />
+                        )}
+                        {chosen ? (
+                          <Star className="absolute right-1 top-1 h-4 w-4 fill-gold text-gold drop-shadow" />
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
+
+            {/* The class card. */}
+            <aside className="order-3 rounded-2xl bg-white p-6 shadow-lg">
+              {active ? (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gold">{active.subtitle}</p>
+                  <p className="mt-2 text-gray-800">{active.blurb}</p>
+                  {active.examples.length ? (
+                    <ul className="mt-4 space-y-1.5">
+                      {active.examples.map((e) => (
+                        <li key={e} className="text-sm text-gray-700">
+                          {e}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  <h3 className="mt-6 text-sm font-semibold uppercase tracking-wide text-teal-deep">
+                    Open paths
+                  </h3>
+                  {paths === null ? (
+                    <p className="mt-2 text-sm text-gray-600">Looking.</p>
+                  ) : paths.roles.length === 0 ? (
+                    <p className="mt-2 text-sm text-gray-700">
+                      No seats carry this tag yet. Every seat is still open to you.
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-2">
+                      {paths.roles.map((r) => (
+                        <li key={r.id} className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2">
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ background: r.color || "#a06b1c" }}
+                          />
+                          <span className="flex-1 text-sm text-gray-800">{r.name}</span>
+                          {r.recruiting ? (
+                            <span className="rounded-full bg-sage-light px-2 py-0.5 text-xs font-medium text-sage">
+                              Open
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {paths ? (
+                    <p className="mt-4 text-sm text-gray-700">
+                      {paths.questCount === 0
+                        ? "The whole quest board is open to you."
+                        : `${paths.questCount} quests on the land welcome these hands.`}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+            </aside>
+          </div>
+
+          {/* Your party. */}
+          {party.length > 0 ? (
+            <section className="mt-10">
+              <h2 className="text-lg font-display font-bold text-teal-deep">Your party</h2>
+              <ul className="mt-3 flex flex-wrap gap-3">
+                {party.map((c) => {
+                  const a = archetypes.find((x) => x.key === c.archetypeKey);
+                  const label = a?.name ?? c.archetypeKey;
+                  return (
+                    <li
+                      key={c.id}
+                      className={`relative w-28 overflow-hidden rounded-xl border-2 bg-white ${
+                        c.isPrimary ? "border-teal-deep" : "border-gray-200"
+                      }`}
                     >
-                      <X className="h-4 w-4 text-amber-200" />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+                      <div className="aspect-[3/4] w-full bg-gray-50">
+                        {c.avatar && !broken[c.avatar] ? (
+                          <img
+                            src={c.avatar}
+                            alt={label}
+                            onError={() => setBroken((b) => ({ ...b, [c.avatar as string]: true }))}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center text-xl font-semibold text-teal-deep">
+                            {label.replace(/^The\s+/i, "").slice(0, 1)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="truncate px-2 py-1.5 text-xs font-medium text-gray-800">{label}</p>
+                      <button
+                        type="button"
+                        aria-label={`Front ${label}`}
+                        onClick={() => act(`/api/me/characters/${c.id}/primary`, "POST")}
+                        className="absolute left-1 top-1 rounded-full bg-white/90 p-1.5 shadow"
+                      >
+                        <Star className={`h-4 w-4 ${c.isPrimary ? "fill-gold text-gold" : "text-gray-500"}`} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Leave ${label}`}
+                        onClick={() => act(`/api/me/characters/${c.id}`, "DELETE")}
+                        className="absolute right-1 top-1 rounded-full bg-white/90 p-1.5 shadow"
+                      >
+                        <X className="h-4 w-4 text-gray-600" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
+        </div>
       </div>
     </Layout>
   );
