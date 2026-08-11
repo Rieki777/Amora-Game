@@ -3,6 +3,7 @@ import GameDashboard from "@/components/GameDashboard";
 import ProfileJourney from "@/components/ProfileJourney";
 import NotifyPrefsPanel from "@/components/NotifyPrefsPanel";
 import ProfileSheet from "@/components/ProfileSheet";
+import ProfileHero from "@/components/ProfileHero";
 import OnchainCard from "@/components/OnchainCard";
 import WalletCard from "@/components/WalletCard";
 import { useAuth } from "@/contexts/AuthContext";
@@ -106,12 +107,10 @@ export default function Profile() {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             {/* Header Section */}
             <div className="mb-8 flex justify-between items-start">
-              <div>
-                <h1 className="text-5xl font-display font-bold text-teal-deep mb-2">
-                  {user.name}
-                </h1>
-                <p className="text-gray-600">{user.handle ? `@${user.handle} · ` : ""}Member since {memberSince}</p>
-              </div>
+              {/* Who you are playing, first. See ProfileHero: a sheet that
+                  opens with settings and mentions your characters two screens
+                  down is a settings page wearing a character sheet's name. */}
+              <ProfileHero name={user.name} handle={user.handle} />
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}

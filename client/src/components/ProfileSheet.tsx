@@ -1,6 +1,6 @@
 /**
  * The character-sheet sections of your own profile: Standing, Gratitude, your
- * party, and where you are in this moon.
+ * and where you are in this moon. The party itself lives in ProfileHero.
  *
  * A separate component rather than four more blocks inside a page that is
  * already long, and it owns its own fetch. That means the sections appear when
@@ -72,34 +72,9 @@ export default function ProfileSheet() {
 
   return (
     <>
-      {party.length > 0 ? (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className={card}>
-          <h2 className={heading}>Your Party</h2>
-          <ul className="flex flex-wrap gap-3">
-            {party.map((c) => (
-              <li
-                key={c.id}
-                className={`w-24 overflow-hidden rounded-xl border bg-gray-50 ${
-                  c.isPrimary ? "border-teal-deep" : "border-gray-200"
-                }`}
-              >
-                <div className="aspect-[3/4] w-full bg-gray-100">
-                  {c.avatar ? (
-                    <img src={c.avatar} alt="" loading="lazy" className="h-full w-full object-cover" />
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-          <a
-            href="/profile/characters"
-            className="mt-4 inline-block min-h-11 py-3 text-sm font-medium text-teal-deep underline"
-          >
-            Add a path
-          </a>
-        </motion.div>
-      ) : null}
-
+      {/* Your Party has moved to ProfileHero, at the very top of the page.
+          A member's characters are the first thing the sheet should answer,
+          and having them here as well would be the same row twice. */}
       {standing.length > 0 ? (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className={card}>
           <h2 className={heading}>Standing</h2>
