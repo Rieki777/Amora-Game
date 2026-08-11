@@ -518,7 +518,13 @@ export async function inboxFor(pool: Pool, userId: string, limit = 50): Promise<
       "m.role, m.muted, m.last_read_seq " +
       "FROM conversation_members m JOIN conversations c ON c.id = m.conversation_id " +
       "WHERE m.user_id = ? AND m.left_at IS NULL " +
-      "ORDER BY (c.last_message_at IS NULL), c.last_message_at DESC, c.created_at DESC " +
+      // c.id last, as a deterministic backstop. The time columns are
+      // timestamp(3) since 0073, so a tie now needs two conversations active
+      // in the same MILLISECOND, but "rare" is not "never" and an inbox that
+      // can reorder itself between two loads is a bug a member would report
+      // and nobody could reproduce. Ids carry their creation ms, so the
+      // fallback is creation order rather than an arbitrary one.
+      "ORDER BY (c.last_message_at IS NULL), c.last_message_at DESC, c.created_at DESC, c.id DESC " +
       `LIMIT ${cap}`,
     [userId],
   );

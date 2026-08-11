@@ -37,6 +37,7 @@ import {
   onMessageSent,
   openDirect,
   previewOf,
+  recomputeLastMessageAt,
   removeMember,
   reportMessage,
   sendMessage,
@@ -431,6 +432,55 @@ describe.skipIf(!configured)("messaging repo (MySQL)", () => {
     const inbox = await inboxFor(pool, BEN);
     expect(inbox.map((e) => e.conversation.id).slice(0, 2)).toEqual([newer.id, older.id]);
     expect(inbox[inbox.length - 1].conversation.id).toBe(quiet.id);
+  });
+
+  it("orders two conversations active in the SAME instant deterministically", async () => {
+    // The regression that redded main. 0066 declared every timestamp without
+    // precision, so MySQL stored whole seconds: two conversations messaged in
+    // the same second held equal last_message_at, fell through to a
+    // created_at that was also equal, and then had no tiebreaker at all. The
+    // inbox came back in whichever order the engine felt like, which failed
+    // this suite roughly half the time and, worse, reordered a real member's
+    // inbox between two loads for no reason they could see.
+    //
+    // 0073 gives the columns millisecond precision and the ORDER BY ends in
+    // `c.id DESC`, so even a genuine same-millisecond tie has one answer.
+    // Written by forcing an EXACT tie rather than by racing the clock: a test
+    // that depends on two writes landing in different milliseconds is the
+    // same coin-flip in a different costume.
+    const a = await createGroup(pool, { createdBy: ANA, name: "Tie A", memberIds: [BEN] });
+    const b = await createGroup(pool, { createdBy: ANA, name: "Tie B", memberIds: [BEN] });
+    await sendMessage(pool, { conversationId: a.id, authorId: ANA, body: "a" });
+    await sendMessage(pool, { conversationId: b.id, authorId: ANA, body: "b" });
+
+    const stamp = "2026-08-11 12:00:00.000";
+    await pool.query("UPDATE conversations SET last_message_at = ?, created_at = ? WHERE id IN (?, ?)", [
+      stamp, stamp, a.id, b.id,
+    ]);
+
+    const expected = [a.id, b.id].sort().reverse(); // c.id DESC
+    for (let i = 0; i < 5; i++) {
+      const inbox = await inboxFor(pool, BEN);
+      const tied = inbox.map((e) => e.conversation.id).filter((id) => id === a.id || id === b.id);
+      expect(tied, `read ${i + 1} must return the same order as every other read`).toEqual(expected);
+    }
+  });
+
+  it("keeps millisecond precision through the cache recompute", async () => {
+    // last_message_at is derived from MAX(messages.created_at), so raising the
+    // precision of the cache without raising it on the SOURCE would just
+    // store whole seconds in a column that can hold thousandths. 0073 changes
+    // both; this proves the sub-second part actually survives the round trip.
+    const c = await openDirect(pool, ANA, BEN);
+    await pool.query("INSERT INTO messages (id, conversation_id, author_id, body, created_at) VALUES (?,?,?,?,?)", [
+      "msg-precision-probe", c.id, ANA, "precise", "2026-08-11 12:00:00.123",
+    ]);
+    await recomputeLastMessageAt(pool, c.id);
+    const [rows] = await pool.query<any[]>(
+      "SELECT MICROSECOND(last_message_at) AS us FROM conversations WHERE id = ?",
+      [c.id],
+    );
+    expect(Number(rows[0].us)).toBe(123000);
   });
 
   it("carries a tombstone into the inbox preview instead of an empty line", async () => {
