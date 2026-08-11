@@ -156,7 +156,29 @@ beforeAll(async () => {
   benId = ben.id;
   const cara = await register("Cara Diaz", "cara");
   caraToken = cara.token;
-}, 180_000);
+  // NO local hook budget: inherit the global 600s from vitest.config.ts.
+  //
+  // This hook used to say 180_000, which broke the config's own stated rule
+  // (`hookTimeout > provisioning + the boot deadline`) and made this file the
+  // only one of six e2e suites below the floor. Measured here on 2026-08-11
+  // against the hosted MySQL:
+  //
+  //     migrations     71 files
+  //     provisioning   118.9s      (1.67s per file, up from the config's 1.25s)
+  //     boot deadline  120s        (the loop below)
+  //     worst case     238.9s      against a 180s budget
+  //
+  // Provisioning ALONE was 66% of the old budget, so the hook could expire
+  // before the server was even started. CI never caught it because CI runs
+  // MySQL as a local service container where provisioning is fast; it only
+  // failed against the hosted database, which is the reverse of the usual
+  // asymmetry and means green CI could not protect this file.
+  //
+  // Inheriting rather than picking a bigger number is deliberate. Provisioning
+  // grows with the migration count and never shrinks, so any figure written
+  // here is a future timeout with a date on it. The global is one place to
+  // raise, and it carries the arithmetic.
+});
 
 afterAll(async () => {
   child?.kill();
