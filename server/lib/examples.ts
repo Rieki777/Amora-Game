@@ -88,6 +88,13 @@ const NOT_EVIDENCE_OF_REAL_CONTENT = new Set([
   // the chain mirrors) — real rows that say nothing about whether this
   // village has built its own market yet.
   "tokens",
+  // Same story, arrived later: 0063 ships the `cartographer` badge from the
+  // migration itself, so every fork is born with a non-example row in `badges`
+  // before seeding runs. Counting it meant badges read as already-populated on
+  // a fresh database and never seeded its examples at all. `badge_awards` is
+  // left in, and is the better question anyway: a badge the platform shipped
+  // says nothing about this village, but an AWARD means someone here used it.
+  "badges",
 ]);
 
 /**
