@@ -1,6 +1,16 @@
-/* Export contract check (§5.2 + geometry layer). Usage: node check-schema.js amora-scene.json */
+/* Export contract check (§5.2 + geometry layer).
+ *
+ *   source ./env.sh && node check-schema.js          # checks the export env.sh names
+ *   node check-schema.js some-other-export.json      # or any file you pass
+ *
+ * The bare default used to be `amora-scene.json` in the current directory, which
+ * is a file no clean worktree has and nothing in the harness writes. So this
+ * gate ENOENT'd for anyone who had not exported by hand into the right cwd,
+ * while reading as green for whoever happened to have a stale one lying there.
+ * EXPORT_OUT is where the suites actually put the export, and env.sh derives it
+ * from this script's own location. */
 const fs = require('fs');
-const J = JSON.parse(fs.readFileSync(process.argv[2] || 'amora-scene.json', 'utf8'));
+const J = JSON.parse(fs.readFileSync(process.argv[2] || process.env.EXPORT_OUT || 'amora-scene.json', 'utf8'));
 let fails = 0;
 const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++; };
 const blocks = ['map_scene','map_zones','map_structures','map_flows','map_structure_facts','map_edits','boundary','circles','org_roles','quests','journeys','forum_threads','events','stays_occupancy','concierge_queries','vital_overrides'];
