@@ -208,6 +208,16 @@ export interface ClaimsRepo {
   forUser(userId: string): Promise<ClaimRecord[]>;
   add(c: ClaimRecord): Promise<ClaimRecord>;
   update(id: string, mutate: (c: ClaimRecord) => void): Promise<ClaimRecord | null>;
+  /**
+   * Put back a quest that was picked up and not yet worked on.
+   *
+   * Deliberately NOT the same as declining. A decline is a steward's judgement
+   * and part of the record; this is a person changing their mind before any
+   * value moved, which should leave no trace and free the quest for somebody
+   * else. The caller enforces that only a `claimed` row reaches here, because
+   * a submitted or consented claim has work or recognition attached to it.
+   */
+  remove(id: string): Promise<ClaimRecord | null>;
   /** Stage rules read this on hot paths — a COUNT, never a full scan. */
   consentedCount(userId: string): Promise<number>;
   /** One grouped query for listing N members (admin players view). */
@@ -315,6 +325,21 @@ export function claimsRepo(pool: Pool): ClaimsRepo {
       } finally {
         conn.release();
       }
+    },
+
+    /*
+     * Guarded in SQL as well as by the caller. The status test rides in the
+     * WHERE so a claim that reached `submitted` between the caller's read and
+     * this delete survives: value in flight is never removed by a race.
+     */
+    async remove(id) {
+      const existing = await this.byId(id);
+      if (!existing || existing.status !== "claimed") return null;
+      const [res] = await pool.query<any>(
+        "DELETE FROM quest_claims WHERE id = ? AND status = 'claimed'",
+        [id],
+      );
+      return Number(res?.affectedRows ?? 0) > 0 ? existing : null;
     },
 
     async consentedCount(userId) {

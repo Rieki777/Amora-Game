@@ -49,6 +49,7 @@ import {
   MAP_VOCABULARY_DOC,
   mayOverwriteAddress,
   normaliseAddressSource,
+  sanitiseMapKey,
   sanitiseMapVocabulary,
   unknownWireSources,
 } from "../shared/mapAddress";
@@ -79,6 +80,18 @@ import {
  * skin keys). Nothing this script reads moved or changed meaning, and the
  * additions are covered below or in SKIPPED_BLOCKS.
  */
+/*
+ * button (0063). A file import and a publish are two doors into ONE absorber,
+ * and this repo has already paid for two enumerations of the same keys that
+ * had to agree forever: `media` and `phases` joined the vocabulary, only the
+ * file door grew, and the bridge quietly absorbed three of five for a whole
+ * release. Two version lists would fail the same way and worse, because the
+ * failure is a scene written from fields that have moved.
+ *
+ * Imported under this file's own names above, so everything below reads as it
+ * always did.
+ */
+
 const SUPPORTED_VERSIONS = ["v0.6-buildmode"];
 const SUPPORTED_FAMILIES = ["v0.7", "v0.8"];
 
@@ -189,6 +202,18 @@ function startsAtFrom(daysUntil: unknown): Date {
 const unmatched: Array<{ kind: string; name: string }> = [];
 /** A person had already placed these, so the doctrine left them alone. */
 const protectedRows: Array<{ kind: string; name: string; held: string }> = [];
+/** Two rows here answer to one name in the map. Loud, because a join needs one. */
+const keyClashes: Array<{ kind: string; name: string; key: string }> = [];
+
+/**
+ * The map's own id for a row, kept as sent.
+ *
+ * An event arrives as `e1`. The row id stays the namespaced
+ * `ev-<sceneKey>-e1`, because a primary key that moved on re-import would
+ * orphan every RSVP against it, and the plain key rides beside it because
+ * that is the only name the bridge can carry.
+ */
+const mapKeyOf = (id: unknown): string | null => sanitiseMapKey(id);
 
 async function findOne(conn: mysql.Connection, sql: string, params: any[]): Promise<any | null> {
   const [rows] = await conn.query<any[]>(sql, params);
@@ -207,7 +232,11 @@ async function findOne(conn: mysql.Connection, sql: string, params: any[]): Prom
 async function addressRows(
   conn: mysql.Connection | null,
   items: any[],
-  opts: { label: string; table: string; matchColumn: string; nameOf: (x: any) => string },
+  opts: {
+    label: string; table: string; matchColumn: string; nameOf: (x: any) => string;
+    /** Set when the table carries `map_key` (0062). Quests do; org_roles do not. */
+    keyed?: boolean;
+  },
 ): Promise<number> {
   let wrote = 0;
   for (const item of items) {
@@ -215,28 +244,69 @@ async function addressRows(
     if (!name) continue;
     const key = item?.structure_key ? String(item.structure_key) : null;
     const incoming = normaliseAddressSource(item?.address_source);
+    const mapKey = opts.keyed ? sanitiseMapKey(item?.key) : null;
 
     if (!conn) {
       console.log(`  ${opts.label.padEnd(6)} ${name} -> ${key ?? "(board)"} (${incoming ?? "unaddressed"})`);
       continue;
     }
-    const row = await findOne(
-      conn,
-      `SELECT id, structure_key, address_source FROM \`${opts.table}\` WHERE \`${opts.matchColumn}\` = ?`,
-      [name],
-    );
+
+    /*
+     * The map's key wins, and the title is the fallback that BOOTSTRAPS it.
+     *
+     * A village importing for the first time has no map_key anywhere, so the
+     * only handle is the title; on that pass the key is stamped. Every import
+     * after it matches on the key, which is why a renamed quest keeps
+     * resolving. The map renamed three of its own seed quests in one
+     * afternoon and every one stopped matching, so this is the failure the
+     * order is chosen against.
+     */
+    let row = mapKey
+      ? await findOne(
+          conn,
+          `SELECT id, structure_key, address_source FROM \`${opts.table}\` WHERE map_key = ?`,
+          [mapKey],
+        )
+      : null;
+    const matchedOnKey = !!row;
+    if (!row) {
+      row = await findOne(
+        conn,
+        `SELECT id, structure_key, address_source FROM \`${opts.table}\` WHERE \`${opts.matchColumn}\` = ?`,
+        [name],
+      );
+    }
     if (!row) { unmatched.push({ kind: opts.label, name }); continue; }
     if (!mayOverwriteAddress(row.address_source, incoming)) {
       protectedRows.push({ kind: opts.label, name, held: String(row.address_source) });
       continue;
     }
-    console.log(`  ${opts.label.padEnd(6)} ${name} -> ${key ?? "(board)"} (${incoming ?? "unaddressed"})`);
+    const stamping = mapKey && !matchedOnKey;
+    console.log(
+      `  ${opts.label.padEnd(6)} ${name} -> ${key ?? "(board)"} (${incoming ?? "unaddressed"})` +
+      (stamping ? `  [key ${mapKey}]` : ""),
+    );
     if (!DRY) {
-      await conn.query(
-        `UPDATE \`${opts.table}\` SET structure_key = ?, address_source = ? WHERE id = ?`,
-        [key, incoming, row.id],
-      );
-      wrote++;
+      try {
+        await conn.query(
+          `UPDATE \`${opts.table}\` SET structure_key = ?, address_source = ?` +
+            (stamping ? ", map_key = ?" : "") + " WHERE id = ?",
+          stamping ? [key, incoming, mapKey, row.id] : [key, incoming, row.id],
+        );
+        wrote++;
+      } catch (err: any) {
+        /*
+         * A duplicate key means two rows here answer to one name in the map,
+         * which would address them as one thing forever. Report it and move
+         * on: the address still failed to land, and a crash halfway through
+         * an import leaves a village in a worse place than a named skip.
+         */
+        if (err?.code === "ER_DUP_ENTRY") {
+          keyClashes.push({ kind: opts.label, name, key: mapKey! });
+          continue;
+        }
+        throw err;
+      }
     }
   }
   return wrote;
@@ -280,6 +350,7 @@ async function main() {
     if (wanted("events") && Array.isArray(scene.events)) {
       for (const e of scene.events) {
         const id = rowId("ev", e.id);
+        const mapKey = mapKeyOf(e.id);
         const startsAt = startsAtFrom(e.days_until);
         const keys = Array.isArray(e.structure_keys) ? e.structure_keys.filter((k: any) => typeof k === "string") : [];
         // The scene labels its own demo rows. They import as examples so the
@@ -294,14 +365,24 @@ async function main() {
         );
         if (DRY || !conn) continue;
 
+        /*
+         * `map_key` is the scene's OWN id, stored exactly as it arrived.
+         *
+         * The row id stays the namespaced `ev-<sceneKey>-e1` it has always
+         * been, because changing a primary key on re-import would orphan
+         * every RSVP. The map's plain `e1` rides beside it, because that is
+         * the only name the map can send over the bridge: it has no idea what
+         * sceneKey this village imported under, and neither does the server
+         * at request time.
+         */
         await conn.query(
-          `INSERT INTO events (id, title, description, starts_at, structure_keys, status, is_example)
-             VALUES (?,?,?,?,?,'draft',?)
+          `INSERT INTO events (id, title, description, starts_at, structure_keys, status, is_example, map_key)
+             VALUES (?,?,?,?,?,'draft',?,?)
            ON DUPLICATE KEY UPDATE
              title = VALUES(title), description = VALUES(description),
              starts_at = VALUES(starts_at), structure_keys = VALUES(structure_keys),
-             is_example = VALUES(is_example)`,
-          [id, String(e.title ?? "Untitled"), description, startsAt, JSON.stringify(keys), isExample],
+             is_example = VALUES(is_example), map_key = VALUES(map_key)`,
+          [id, String(e.title ?? "Untitled"), description, startsAt, JSON.stringify(keys), isExample, mapKey],
         );
         wrote++;
       }
@@ -377,6 +458,7 @@ async function main() {
       wrote += await addressRows(conn, scene.quests, {
         label: "quest", table: "quests", matchColumn: "title",
         nameOf: (x) => String(x?.title ?? "").trim(),
+        keyed: true,
       });
     }
 
@@ -522,6 +604,11 @@ async function main() {
   if (protectedRows.length) {
     console.log(`\n  LEFT ALONE (a person placed these; a scene import never moves them):`);
     for (const p of protectedRows) console.log(`    ${p.kind.padEnd(8)} ${p.name}  [${p.held}]`);
+  }
+  if (keyClashes.length) {
+    console.log(`\n  KEY ALREADY TAKEN (another row here answers to this map name; nothing was changed):`);
+    for (const c of keyClashes) console.log(`    ${c.kind.padEnd(8)} ${c.name}  [${c.key}]`);
+    console.log("    A map key addresses ONE row. Rename one of them here, or in the scene, and re-import.");
   }
 
   /*

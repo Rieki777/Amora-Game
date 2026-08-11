@@ -38,6 +38,8 @@ import { useLocation } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { rememberMapAvailable } from "@/lib/landing";
 import { MAP_SKIN_SAVED_EVENT, MAP_SKIN_SAVED_KEY } from "@shared/mapSkin";
+import { isPromiseKind } from "@shared/mapPromise";
+import { gameFetch } from "@/lib/gameApi";
 
 /** Where the staged artifact is served from, and its presence probe. */
 const GROUNDS = "/grounds/index.html";
@@ -180,6 +182,65 @@ export default function LivingMap() {
   }, []);
 
   /**
+   * A promise the map made, carried to the village and answered.
+   *
+   * The shell is a RELAY and nothing more. It does not decide whether an
+   * answer is allowed, does not turn a status code into words, and does not
+   * know what a quest key is: the route owns all of that so the reason
+   * vocabulary lives in one file. What this adds is the round trip and the
+   * nonce.
+   *
+   * THE REPLY IS SENT ON EVERY PATH, including a network failure, because the
+   * map cannot tell a missing reply from a missing shell. Its own rule is that
+   * silence means the optimistic state stands, which is right for the map
+   * running standalone from `file://` and wrong here: a village that answered
+   * "you are not signed in" has to reach the person. So a throw becomes a
+   * spoken `error` rather than nothing.
+   *
+   * The nonce is echoed EXACTLY and never inspected. It closes the ordering
+   * race: toggle on-off-on quickly and three replies come back carrying the
+   * same id and kind, and the map drops any whose nonce is not the one it is
+   * waiting on.
+   */
+  const relayPromise = useCallback(async (msg: any) => {
+    const win = frame.current?.contentWindow;
+    if (!win) return;
+    const kind = msg.type;
+    const id = typeof msg.id === "string" ? msg.id : "";
+    const on = msg.on === true;
+    const send = (r: Record<string, unknown>) =>
+      win.postMessage(
+        { type: "promise-result", kind, id, nonce: msg.nonce, ...r },
+        window.location.origin,
+      );
+    if (!id) return send({ ok: false, state: on ? "off" : "on", reason: "error" });
+    try {
+      /*
+       * gameFetch, NOT fetch. This deployment authenticates by
+       * `Authorization: Bearer` alone (server `authedUser`), with no cookie
+       * fallback, and gameFetch is the one place that attaches the token. A
+       * plain fetch here reaches the route unauthenticated, so every promise
+       * a signed-in member makes comes back `anonymous` and the map offers
+       * them a way in they do not need. The server tests never see it,
+       * because they set the header themselves.
+       */
+      const res = await gameFetch("/api/map/promise", {
+        method: "POST",
+        body: JSON.stringify({ kind, id, on }),
+      });
+      const body = await res.json().catch(() => null);
+      // A shape we do not recognise is still an answer the map has to draw,
+      // so it becomes a spoken failure instead of a silent one.
+      if (!body || typeof body.state !== "string") {
+        return send({ ok: false, state: on ? "off" : "on", reason: "error" });
+      }
+      send(body);
+    } catch {
+      send({ ok: false, state: on ? "off" : "on", reason: "error" });
+    }
+  }, []);
+
+  /**
    * Messages from the artifact.
    *
    * Two kinds. `grounds-ready` is the boot handshake and the ONLY reliable
@@ -208,6 +269,10 @@ export default function LivingMap() {
         exitApp();
         return;
       }
+      if (isPromiseKind(data.type)) {
+        void relayPromise(data);
+        return;
+      }
       if (data.type !== "nav") return;
       const route = typeof data.route === "string" ? data.route : "";
       if (!/^\/[^/]/.test(route) && route !== "/") return;
@@ -215,7 +280,7 @@ export default function LivingMap() {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [navigate, pushSkin, exitApp]);
+  }, [navigate, pushSkin, exitApp, relayPromise]);
 
   /**
    * A save in the wizard retints an open map.

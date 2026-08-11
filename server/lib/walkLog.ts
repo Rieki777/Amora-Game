@@ -25,6 +25,14 @@ const clampInt = (v: unknown, max: number): number => {
 const idemKey = (source: string, r: WalkLogInput): string =>
   `${source}:${r.sessionKey}:${r.tsSeq ?? 0}:${r.step}`.slice(0, 160);
 
+/** What a batch did: how many rows were usable, and how many were new. */
+export interface WalkLogWrite {
+  /** Rows that survived validation. What the caller asked to be recorded. */
+  accepted: number;
+  /** Of those, the ones this village had not already seen. */
+  stored: number;
+}
+
 /**
  * Record rows.
  *
@@ -32,16 +40,20 @@ const idemKey = (source: string, r: WalkLogInput): string =>
  * idempotency key so re-importing a scene file cannot inflate the numbers the
  * report is built from. That matters more here than in most tables: the whole
  * value of this data is that the counts are true.
+ *
+ * Which is also why this returns two numbers instead of one. `accepted` and
+ * `stored` answer different questions, and collapsing them into a single
+ * "recorded" is what let a replay claim it had written rows it had not.
  */
 export async function recordWalkRows(
   pool: Pool,
   rows: readonly WalkLogInput[],
   source: "live" | "import",
-): Promise<number> {
+): Promise<WalkLogWrite> {
   const clean = rows
     .filter((r) => r && typeof r.sessionKey === "string" && r.sessionKey && typeof r.step === "string" && r.step)
     .slice(0, 2000);
-  if (!clean.length) return 0;
+  if (!clean.length) return { accepted: 0, stored: 0 };
 
   const values: any[] = [];
   const holes: string[] = [];
@@ -58,13 +70,35 @@ export async function recordWalkRows(
       idemKey(source, r),
     );
   }
-  const [res] = await pool.query<any>(
+  /*
+   * Count what is genuinely NEW before writing, because the write cannot tell
+   * you afterwards.
+   *
+   * `affectedRows` on an `INSERT ... ON DUPLICATE KEY UPDATE` is 1 for an
+   * insert and 2 for an update that changed something, so a replayed batch
+   * reported 2 where the honest answer is 0. Nothing consumed the number, so
+   * nothing broke; it just said the opposite of the truth to whoever read it,
+   * and the whole reason this table has an idempotency key is that replays are
+   * expected rather than exceptional.
+   *
+   * A separate SELECT rather than parsing `Records:`/`Duplicates:` out of the
+   * driver's info string: these batches are one walk long, the extra query is
+   * cheap, and a count is a count in any driver version.
+   */
+  const keys = clean.map((r) => idemKey(source, r));
+  const [seen] = await pool.query<any[]>(
+    `SELECT COUNT(*) n FROM walk_log WHERE idempotency_key IN (${keys.map(() => "?").join(",")})`,
+    keys,
+  );
+  const alreadyHere = Number(seen[0]?.n ?? 0);
+
+  await pool.query(
     `INSERT INTO walk_log (id, session_key, step, at_index, ts_seq, lang, source, idempotency_key)
        VALUES ${holes.join(",")}
      ON DUPLICATE KEY UPDATE at_index = VALUES(at_index)`,
     values,
   );
-  return Number(res?.affectedRows ?? 0);
+  return { accepted: clean.length, stored: clean.length - alreadyHere };
 }
 
 /**

@@ -23,10 +23,13 @@ import {
   DEFAULT_WALK_LANG,
   MAP_VOCABULARY_DOC,
   MAP_WALK_DOC,
+  sanitiseMapKey,
   sanitiseMapVocabulary,
   sanitiseWalk,
   WALK_GESTURES,
 } from "../shared/mapAddress";
+import { isPromiseKind, type PromiseReason, type PromiseResult } from "../shared/mapPromise";
+import { goingCountFor, missingReason, rowByMapKey } from "./lib/mapPromise";
 import { toSchemaOrg } from "../shared/gatherings";
 import { recordWalkRows, walkReport } from "./lib/walkLog";
 import {
@@ -12192,7 +12195,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const session = typeof req.body?.sessionKey === "string" ? req.body.sessionKey : "";
     if (!session) return res.status(400).json({ error: "sessionKey required" });
     const lang = typeof req.body?.lang === "string" ? req.body.lang : null;
-    const recorded = await recordWalkRows(
+    const wrote = await recordWalkRows(
       getPool(),
       rows.map((r: any) => ({
         sessionKey: session, step: r?.step, atIndex: r?.at_index ?? r?.atIndex,
@@ -12200,7 +12203,153 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       })),
       "live",
     );
-    res.json({ recorded });
+    /*
+     * `recorded` is the NEW rows, which is what the word has always implied
+     * and did not mean: it used to be `affectedRows`, and MySQL counts an
+     * ON DUPLICATE KEY update as two of those, so a replayed batch reported
+     * more writes than a first send. `accepted` rides beside it for anyone
+     * who wants to know the batch arrived whole.
+     */
+    res.json({ recorded: wrote.stored, accepted: wrote.accepted });
+  });
+
+  /**
+   * A promise made on the map: coming to a gathering, or taking a quest.
+   *
+   * ONE route for both, because the map's two toggles have one shape and the
+   * hard part is shared: turn the map's own key into a row here, and answer
+   * in words the map can show a person. Splitting it would put the reason
+   * vocabulary in two places and they would drift.
+   *
+   * ALWAYS 200 WITH A RESULT. The status code is the transport's opinion; the
+   * map needs the village's. A 403 tells the shell "no" and leaves it
+   * guessing whether to offer a way in, name a steward, or say the gathering
+   * is full. `reason` says which, and the shell relays it untouched.
+   *
+   * Gating is the house gate and nothing else: `hasCapability` for the RSVP,
+   * and the quest's own stage and role rules, read exactly as
+   * /api/game/quests/:id/claim reads them. A promise route that invented its
+   * own permission check would be a second gate.
+   */
+  app.post("/api/map/promise", async (req, res) => {
+    const kind = req.body?.kind;
+    const mapKey = sanitiseMapKey(req.body?.id);
+    const on = req.body?.on === true;
+    if (!isPromiseKind(kind) || !mapKey) {
+      return res.status(400).json({ error: "kind and id are required" });
+    }
+    const pool = getPool();
+    // The state to fall back to when a promise does not stand: whatever the
+    // person was moving away from.
+    const revert: "on" | "off" = on ? "off" : "on";
+    const reply = (r: PromiseResult) => res.json(r);
+
+    const user = await authedUser(req);
+    if (!user) {
+      return reply({ ok: false, state: revert, reason: "anonymous", href: "/login" });
+    }
+
+    try {
+      if (kind === "rsvp") {
+        if (!boolVar("events.rsvp_enabled")) {
+          return reply({ ok: false, state: revert, reason: "closed" });
+        }
+        const row = await rowByMapKey(pool, "events", mapKey);
+        if (!row) {
+          return reply({ ok: false, state: revert, reason: await missingReason(pool, "events") });
+        }
+        if (!on) {
+          // Taking back your own answer needs no capability. Whoever could
+          // say yes can say no, and a village that closed RSVPs after the
+          // fact must not trap people in a gathering.
+          await withdrawRsvp(pool, row.id, user.id);
+          return reply({ ok: true, state: "off", count: await goingCountFor(pool, row.id) });
+        }
+        if (!hasCapability("event.rsvp", await capabilityCtx(user))) {
+          return reply({ ok: false, state: "off", reason: "not-yet" });
+        }
+        const outcome = await rsvp(pool, row.id, user.id, "going");
+        if (!outcome.ok) {
+          const reason: PromiseReason =
+            outcome.reason === "not_found" ? "gone"
+            : outcome.reason === "full" ? "full"
+            : "closed";
+          return reply({ ok: false, state: "off", reason, count: await goingCountFor(pool, row.id) });
+        }
+        if (!outcome.duplicate) {
+          await recordEvent(pool, {
+            kind: "event_rsvp",
+            text: `answered "${outcome.status}" to a gathering`,
+            actorUserId: user.id,
+            entityType: "event",
+            entityRef: row.id,
+            // Same reasoning as the RSVP route: the gathering is public news,
+            // who is attending is not.
+            audience: "admin",
+          });
+        }
+        return reply({ ok: true, state: "on", count: outcome.goingCount });
+      }
+
+      // ── claim ──────────────────────────────────────────────────────────
+      const found = await rowByMapKey(pool, "quests", mapKey);
+      if (!found) {
+        return reply({ ok: false, state: revert, reason: await missingReason(pool, "quests") });
+      }
+      // Read back through the repo so the field names are the mapped ones the
+      // claim rules are written against, never raw columns.
+      const quest: any = await questsRepo.byId(found.id);
+      if (!quest) {
+        return reply({ ok: false, state: revert, reason: "gone" });
+      }
+
+      const mine = await claimsRepo.forUser(user.id);
+      const held = mine.find((c) => c.questId === quest.id && c.status !== "declined");
+
+      if (!on) {
+        // Already not holding it: the person's intent is satisfied, so this
+        // is a success with nothing to undo.
+        if (!held) return reply({ ok: true, state: "off" });
+        if (held.status !== "claimed") {
+          // Work or recognition is attached. Putting it back now would erase
+          // something a steward is looking at.
+          return reply({ ok: false, state: "on", reason: "closed" });
+        }
+        const removed = await claimsRepo.remove(held.id);
+        return reply({ ok: !!removed, state: removed ? "off" : "on", reason: removed ? undefined : "closed" });
+      }
+
+      if (held) return reply({ ok: true, state: "on" });
+      if (await isExampleRow(pool, "quests", quest.id)) {
+        return reply({ ok: false, state: "off", reason: "closed" });
+      }
+      if (quest.minStage) {
+        const needed = stageIndex(quest.minStage);
+        if (needed >= 0 && stageIndex(await stageOf(user)) < needed) {
+          return reply({ ok: false, state: "off", reason: "not-yet" });
+        }
+      }
+      if (quest.requiresRole && !roleIdsFor(user.id).includes(quest.requiresRole)) {
+        return reply({ ok: false, state: "off", reason: "not-yet" });
+      }
+      await claimsRepo.add({
+        id: `claim-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        questId: quest.id,
+        questTitle: quest.title,
+        userId: user.id,
+        userName: user.name,
+        status: "claimed" as const,
+        claimedAt: new Date().toISOString(),
+        artifactUrl: "",
+        note: "",
+      });
+      return reply({ ok: true, state: "on" });
+    } catch (err) {
+      // The map reverts and says so. A promise is not worth a 500 page inside
+      // an iframe the person cannot see the console of.
+      console.error("[map/promise]", err);
+      return reply({ ok: false, state: revert, reason: "error" });
+    }
   });
 
   /** Where the walk loses people. The reason the table exists. */

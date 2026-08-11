@@ -130,6 +130,33 @@ export function mayOverwriteAddress(
   return incomingSource === null || isAddressSource(incomingSource);
 }
 
+/**
+ * The map's own name for a row, as it travels and as it is stored.
+ *
+ * A scene event arrives as `e1`; a scene quest arrives as the key the map
+ * derived from its title once and then kept. Both go into `map_key` exactly as
+ * sent (migration 0062). NOTHING HERE DERIVES A KEY. Two implementations of
+ * the same slug rule must agree forever, and the first title edit on either
+ * side breaks them apart, which is precisely the failure `map_key` exists to
+ * end.
+ *
+ * 190 is the column width and the utf8mb4 ceiling for an indexed varchar. The
+ * pattern is deliberately WIDER than the vocabulary-media rule
+ * (`/^[a-z0-9_-]{1,32}$/`): that one bounds a small fixed table of flow types,
+ * and borrowing it for a join key cut two of twenty seed quests at exactly 32
+ * characters, where truncation silently collides.
+ */
+export const MAP_KEY_MAX = 190;
+const MAP_KEY = /^[a-z0-9_-]+$/i;
+
+/** The key as given, or null when it is unusable. Never repaired, never cut. */
+export function sanitiseMapKey(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const key = input.trim();
+  if (!key || key.length > MAP_KEY_MAX || !MAP_KEY.test(key)) return null;
+  return key;
+}
+
 /** The `app_config` document key the map's founder-named words live under. */
 export const MAP_VOCABULARY_DOC = "map_vocabulary";
 

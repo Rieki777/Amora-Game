@@ -308,7 +308,43 @@ it.
 The founder's own words for roads, water and zones live in the
 `map_vocabulary` document in `app_config`, served at `GET /api/map/vocabulary`
 (behind the `map` module's gate) and written by `PUT
-/api/admin/map/vocabulary`.
+/api/admin/map/vocabulary`. The same document carries `media` (what flows along
+a line, with the colour and glyph it is drawn in) and `phases` (what a build
+phase is called, keyed by the number the scene stores).
+
+### Promises made on the map (0062)
+
+`quests.map_key` and `events.map_key`: varchar(190), nullable, UNIQUE. The name
+the MAP uses for a row, stored exactly as it arrived and never computed here.
+No provisioning, no env var, nothing to turn on.
+
+A visitor can RSVP to a gathering and claim a quest from inside the map. When
+they do, the map posts the only id it has: a scene event id (`e1`) or the key
+it derived from a quest title once and then kept. `POST /api/map/promise`
+(behind the `map` module's gate) turns that into a row and answers.
+
+**Nothing here derives a key.** Two implementations of one slug rule must agree
+forever, and the first title edit breaks them apart, which is the exact failure
+this column ends: the map renamed three of its own seed quests in one afternoon
+and every one stopped matching on title. The importer stamps the key on the
+first pass, matching by title because that is all there is, and matches on the
+key every pass after. A renamed quest keeps resolving.
+
+The route always answers **200 with a body**, because the shell relays a
+result and a bare status code leaves the map guessing. `reason` is one of
+`anonymous` (401; `href` is the way in), `not-yet` (the capability gate or a
+quest's stage and role rules; signing in again fixes nothing), `closed`,
+`full`, `not-here`, `gone`, `error`.
+
+**`not-here` and `gone` are different and `not-here` is the common one.** A
+village that has never imported a scene has no row for ANY key the map sends,
+which is the default state of a fresh fork. It is not a deletion and must not
+read like one. The discriminator is whether the table holds any map keys at
+all.
+
+Withdrawing a claim removes it only while it is still `claimed`. Once it is
+submitted or consented, work or recognition is attached and the route refuses
+with `closed`.
 
 ### App mode, the Welcome Walk, and installing the map
 
