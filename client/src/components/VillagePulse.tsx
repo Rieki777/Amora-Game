@@ -68,7 +68,7 @@ export default function VillagePulse() {
                     whole URL. On a 393px phone that pushed the document to 558px
                     and gave the entire page a horizontal scroll. */}
                 <span className="min-w-0 flex-1 break-words text-sm text-stone-700">{e.text}</span>
-                <span className="shrink-0 text-xs text-stone-400">{timeAgo(e.at)}</span>
+                <span className="shrink-0 text-xs text-stone-500">{timeAgo(e.at)}</span>
               </li>
             );
           })}

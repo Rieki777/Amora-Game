@@ -16,7 +16,7 @@ const STATUS_META: Record<Milestone["status"], { label: string; badge: string; i
   complete: { label: "Complete", badge: "bg-emerald-100 text-emerald-700 border-emerald-200", iconColor: "text-emerald-600 bg-emerald-50", ring: "border-emerald-300", Icon: CheckCircle2 },
   "in-progress": { label: "In Progress", badge: "bg-amber-100 text-amber-700 border-amber-200", iconColor: "text-amber-600 bg-amber-50 animate-pulse", ring: "border-amber-300", Icon: Clock },
   upcoming: { label: "Planned", badge: "bg-stone-100 text-stone-600 border-stone-200", iconColor: "text-stone-400 bg-stone-50", ring: "border-stone-200", Icon: Circle },
-  future: { label: "Future", badge: "bg-stone-50 text-stone-400 border-stone-200", iconColor: "text-stone-300 bg-stone-50", ring: "border-stone-200", Icon: Sparkles },
+  future: { label: "Future", badge: "bg-stone-50 text-stone-500 border-stone-200", iconColor: "text-stone-300 bg-stone-50", ring: "border-stone-200", Icon: Sparkles },
 };
 
 export default function BuildProgress() {
@@ -58,7 +58,7 @@ export default function BuildProgress() {
         <div className="space-y-10">
           {Object.entries(phases).map(([phase, milestones]) => (
             <div key={phase}>
-              <h3 className="font-display text-sm font-bold uppercase tracking-widest text-teal-deep/70 mb-4">
+              <h3 className="font-display text-sm font-bold uppercase tracking-widest text-teal-deep mb-4">
                 {phase}
               </h3>
               <div className="space-y-3">
@@ -84,7 +84,7 @@ export default function BuildProgress() {
                         </div>
                         <p className="text-sm text-stone-600 leading-relaxed">{m.description}</p>
                         {m.completedDate && m.status === "complete" && (
-                          <p className="text-xs text-stone-400 mt-2">Completed {m.completedDate}</p>
+                          <p className="text-xs text-stone-500 mt-2">Completed {m.completedDate}</p>
                         )}
                         {m.updateNote && (
                           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 mt-2 inline-block">
