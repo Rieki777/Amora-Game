@@ -591,7 +591,7 @@ export default function CoCreatorsGuide() {
 
 
       {/* VOICE & GOVERNANCE SECTION */}
-      <section id="voice" className="py-20 bg-background">
+      <section id="voice" className="py-20 bg-background overflow-x-clip">
         <div className="container">
           <motion.div
             initial={{ opacity: 0 }}

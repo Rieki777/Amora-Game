@@ -188,6 +188,11 @@ function ThreadView({ id }: { id: string }) {
   const { user } = useAuth();
   const [thread, setThread] = useState<any>(null);
   const [gone, setGone] = useState(false);
+  // 410 had a state and nothing else did, so every other way the fetch could
+  // come back empty landed on the same `thread === null` as the first paint and
+  // the page said "Loading..." forever. A 404 from an old link held it there for
+  // as long as anyone was willing to wait.
+  const [miss, setMiss] = useState<"" | "notfound" | "failed">("");
   const [reply, setReply] = useState("");
   const [outcome, setOutcome] = useState("");
   const [status, setStatus] = useState("");
@@ -206,10 +211,12 @@ function ThreadView({ id }: { id: string }) {
     fetch(`/api/forum/threads/${id}`, { headers: headers() })
       .then(async (r) => {
         if (r.status === 410) { setGone(true); return null; }
-        return r.ok ? r.json() : null;
+        if (r.status === 404) { setMiss("notfound"); return null; }
+        if (!r.ok) { setMiss("failed"); return null; }
+        return r.json();
       })
-      .then((d) => d && setThread(d))
-      .catch(() => {});
+      .then((d) => { if (d) { setThread(d); setMiss(""); } })
+      .catch(() => setMiss("failed"));
   };
   useEffect(load, [id]);
 
@@ -299,6 +306,25 @@ function ThreadView({ id }: { id: string }) {
         <div className="container max-w-2xl py-24 text-center text-muted-foreground">
           This thread was hidden by moderation.
           <div className="mt-4"><Link href="/forum" className="text-teal-deep font-medium">← Back to the forum</Link></div>
+        </div>
+      </Layout>
+    );
+  }
+  if (!thread && miss) {
+    return (
+      <Layout>
+        <div className="container max-w-2xl py-24 text-center">
+          <h1 className="font-display text-2xl font-bold text-foreground mb-3">
+            {miss === "failed"
+              ? "The forum could not be loaded just now."
+              : "That conversation is not in the forum."}
+          </h1>
+          <p className="text-muted-foreground mb-8">
+            {miss === "failed"
+              ? "Reload to try again."
+              : "It may have been removed, or the link may be old."}
+          </p>
+          <Link href="/forum" className="text-teal-deep font-medium">← Back to the forum</Link>
         </div>
       </Layout>
     );

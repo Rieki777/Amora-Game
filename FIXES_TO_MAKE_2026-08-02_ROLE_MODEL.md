@@ -1,7 +1,8 @@
 # Fixes to Make, 2026-08-02: the role model split
 
-Continues from `FIXES_TO_MAKE_2026-08-01_ROLES_CIRCLES.md`, which made the org chart editable.
-This one makes it real data.
+Continues from the 2026-08-01 round, which made the org chart editable and has
+since been deleted along with the rest of the completed fix lists. This one
+makes it real data.
 
 Reference for the design decisions: `docs/PEERDOM_LESSONS.md`.
 
