@@ -123,6 +123,16 @@ time so `/health` cannot report a build that isn't running.
   on a phrase; turning an em-dash into a period capitalizes the next word and the match
   dies. Grep test files CASE-SENSITIVELY before editing any string, and reach for a colon
   or a comma when the asserted phrase would otherwise start a new sentence.
+- **CI runs Node 22 and this machine does not.** `.github/workflows/ci.yml` pins
+  `node-version: 22` and `.node-version` says 22; dev boxes here are on 25.x. Every local
+  gate therefore runs on a runtime three majors from the one that decides, and a dependency
+  whose behaviour differs across that gap builds green locally and goes red in CI with no
+  local signal at all. **`engines` does not describe the gap and reading it actively
+  misleads.** The live example: `nanoid@6` declares `engines.node` as
+  `^22 || ^24 || >=26`, which ALLOWS Node 22, while `"type": "module"` makes it ESM-only,
+  and the module format is the risk rather than the version range. Before bumping or adding
+  a dependency, check `npm view <pkg> type` alongside `engines`, and treat any ESM-only
+  package as needing a CI run before it is believed.
 
 ## House voice
 
