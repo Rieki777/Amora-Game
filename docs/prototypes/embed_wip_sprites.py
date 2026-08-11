@@ -44,7 +44,12 @@ if not entries:
              "or gen_wip_sprites.py to make them. Refusing to embed nothing.")
 
 data = "/*SPRITES_WIP_DATA*/window.SPRITES_WIP={" + ",".join(entries) + "};/*SPRITES_WIP_DATA_END*/"
-src = open(HTML, encoding="utf8").read()
+# `newline=""` on the READ as well as the write. On this LF artifact the write
+# alone is enough, but a default-mode read normalizes CRLF to LF in the string,
+# so running this in a worktree where the file had become CRLF would rewrite all
+# 5.4 MB to LF while reporting only that it embedded some images. Verbatim in,
+# verbatim out, whichever the file happens to be.
+src = open(HTML, encoding="utf8", newline="").read()
 try:
     a = src.index("/*SPRITES_WIP_DATA*/")
     b = src.index("/*SPRITES_WIP_DATA_END*/") + len("/*SPRITES_WIP_DATA_END*/")
