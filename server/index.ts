@@ -13663,13 +13663,46 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   const CREW_MAX_SIZE = 12;
 
-  /*
-   * A crew has no thread yet. The messaging module is not on main, so the
-   * conversation half of a crew lands with it: crewsRepo.attachConversation
-   * is ready and the contract is agreed (kind 'crew', context_type 'quest',
-   * context_id the quest id). A crew is whole without a room in the meantime,
-   * which is the state a village with messaging switched off lives in anyway.
+  /**
+   * A crew gets a thread when, and only when, the village runs messaging.
+   *
+   * Quests is a core module and cannot be switched off; messaging is not, and
+   * ships off. So a crew has to be whole without one: the roster is the crew,
+   * and the conversation is a room it gains if the village has rooms. Every
+   * call here is best-effort for the same reason, because failing to open a
+   * chat must never fail the act of forming a crew, and a village that turns
+   * messaging off later keeps its crews and simply loses the rooms.
    */
+  const messagingOn = () => effectiveLifecycle("messaging") !== "off";
+
+  async function openCrewThread(
+    crew: { id: string; name: string; questId: string },
+    founderId: string,
+  ) {
+    if (!messagingOn()) return;
+    try {
+      const conversation = await createGroup(getPool(), {
+        createdBy: founderId,
+        name: crew.name,
+        memberIds: [founderId],
+        kind: "crew",
+        contextType: "quest",
+        contextId: crew.questId,
+      });
+      await crewsRepo.attachConversation(crew.id, conversation.id);
+    } catch (e) {
+      console.error("[crews] could not open a thread for", crew.id, e);
+    }
+  }
+
+  async function addToCrewThread(conversationId: string | null, userId: string) {
+    if (!conversationId || !messagingOn()) return;
+    try {
+      await addConversationMembers(getPool(), conversationId, [userId]);
+    } catch (e) {
+      console.error("[crews] could not add", userId, "to", conversationId, e);
+    }
+  }
   /** First names only, the rule every public-facing member surface follows. */
   async function crewShape(crew: any) {
     const names = await Promise.all(
@@ -13726,6 +13759,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       creatorId: user.id,
       maxSize,
     });
+    await openCrewThread(crew, user.id);
     const fresh = (await crewsRepo.byId(crew.id)) ?? crew;
     res.json({ ...(await crewShape(fresh)), joined: true, inviteCode: crew.inviteCode });
   });
@@ -13740,6 +13774,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const outcome = await crewsRepo.join(crew.id, user.id);
     if (outcome === "full") return res.status(409).json({ error: "That crew is full" });
     if (outcome === "gone") return res.status(404).json({ error: "That invite is no longer open" });
+    if (outcome === "joined") await addToCrewThread(crew.conversationId, user.id);
     const fresh = await crewsRepo.byId(crew.id);
     res.json({
       ...(await crewShape(fresh)),
@@ -13753,7 +13788,17 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.post("/api/crews/:id/leave", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in first" });
+    const before = await crewsRepo.byId(String(req.params.id));
     const outcome = await crewsRepo.leave(String(req.params.id), user.id);
+    if (outcome !== "not-a-member" && before?.conversationId && messagingOn()) {
+      // Leaving the crew leaves its room. A thread you can still read after
+      // walking out is a privacy bug wearing a convenience hat.
+      try {
+        await leaveConversation(getPool(), before.conversationId, user.id);
+      } catch (e) {
+        console.error("[crews] could not remove", user.id, "from", before.conversationId, e);
+      }
+    }
     if (outcome === "not-a-member") {
       return res.status(404).json({ error: "You are not in that crew" });
     }

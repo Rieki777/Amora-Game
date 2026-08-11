@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen, ToggleLeft } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
+import { linesToList, listToLines } from "@/lib/questBoard";
 import { ALL_CAPABILITIES } from "@shared/capabilities";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
@@ -2751,9 +2752,25 @@ function QuestsTab({ password }: { password: string }) {
       ) : (
         <div className="space-y-3">
           {quests.map((q: any) => {
-            const d = draft[q.id] ?? q;
-            const dirty = JSON.stringify({ t: d.title, de: d.description, g: d.gratitude, s: d.status, c: d.circle })
-              !== JSON.stringify({ t: q.title, de: q.description, g: q.gratitude, s: q.status, c: q.circle });
+            const d = draft[q.id] ?? {
+              ...q,
+              stepsText: listToLines(q.steps),
+              tipsText: listToLines(q.tips),
+            };
+            // The dirty check projects every editable field, story layer
+            // included, so a change buried in a collapsed section still
+            // lights the Save button.
+            const proj = (x: any, stepsText: string, tipsText: string) =>
+              JSON.stringify({
+                t: x.title, de: x.description, g: x.gratitude, s: x.status, c: x.circle,
+                su: x.subtitle ?? "", st: x.story ?? "", fs: x.firstStep ?? "",
+                dv: x.deliverable ?? "", iu: x.imageUrl ?? "", im: x.impact ?? "",
+                di: x.difficulty ?? "", du: x.duration ?? "",
+                sl: stepsText, tl: tipsText,
+              });
+            const dirty =
+              proj(d, d.stepsText ?? "", d.tipsText ?? "") !==
+              proj(q, listToLines(q.steps), listToLines(q.tips));
             return (
               <div key={q.id} className="bg-white border border-gray-100 rounded-xl p-4">
                 {/* On a fresh fork the whole board is examples. Without the
@@ -2783,6 +2800,42 @@ function QuestsTab({ password }: { password: string }) {
                     </select>
                   </label>
                 </div>
+
+                {/* The story layer (0068): everything a member reads on the
+                    quest's own page. Collapsed by default so the board list
+                    stays scannable; every field is optional and an empty one
+                    simply does not render. */}
+                <details className="mt-3 rounded-lg border border-gray-100 bg-gray-50/50 px-3 py-2">
+                  <summary className="text-xs font-semibold text-gray-600 cursor-pointer select-none">
+                    Story, steps, and poster
+                  </summary>
+                  <div className="grid sm:grid-cols-2 gap-2 mt-3">
+                    <label className="text-xs text-gray-500">Subtitle
+                      <input value={d.subtitle ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, subtitle: e.target.value } })} className={`${inputCls} w-full mt-1`} />
+                    </label>
+                    <label className="text-xs text-gray-500">First step
+                      <input value={d.firstStep ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, firstStep: e.target.value } })} className={`${inputCls} w-full mt-1`} />
+                    </label>
+                    <label className="text-xs text-gray-500 sm:col-span-2">Why it matters
+                      <textarea value={d.story ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, story: e.target.value } })} rows={3} className={`${inputCls} w-full mt-1 resize-y`} />
+                    </label>
+                    <label className="text-xs text-gray-500">Steps, one per line
+                      <textarea value={d.stepsText ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, stepsText: e.target.value } })} rows={4} className={`${inputCls} w-full mt-1 resize-y`} />
+                    </label>
+                    <label className="text-xs text-gray-500">Tips, one per line
+                      <textarea value={d.tipsText ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, tipsText: e.target.value } })} rows={4} className={`${inputCls} w-full mt-1 resize-y`} />
+                    </label>
+                    <label className="text-xs text-gray-500">What they'll share
+                      <input value={d.deliverable ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, deliverable: e.target.value } })} className={`${inputCls} w-full mt-1`} />
+                    </label>
+                    <label className="text-xs text-gray-500">Poster path
+                      <input value={d.imageUrl ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, imageUrl: e.target.value } })} placeholder="/api/uploads/quest-01.webp" className={`${inputCls} w-full mt-1`} />
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    A poster comes through the village's own upload, so its path starts with /api/uploads/. Leave it empty and the card paints a scene from the quest's circle.
+                  </p>
+                </details>
                 <div className="flex items-center gap-3 mt-3">
                   <button
                     disabled={!dirty}
@@ -2790,6 +2843,10 @@ function QuestsTab({ password }: { password: string }) {
                       const r = await call(`/admin/quests/${q.id}`, {
                         title: d.title, description: d.description, gratitude: d.gratitude,
                         status: d.status, circle: d.circle,
+                        subtitle: d.subtitle ?? "", story: d.story ?? "", firstStep: d.firstStep ?? "",
+                        deliverable: d.deliverable ?? "", imageUrl: d.imageUrl ?? "",
+                        difficulty: d.difficulty ?? "", duration: d.duration ?? "", impact: d.impact ?? "",
+                        steps: linesToList(d.stepsText ?? ""), tips: linesToList(d.tipsText ?? ""),
                       }, "PUT");
                       if (r) { toast.success("Saved"); setDraft({ ...draft, [q.id]: undefined }); load(); }
                     }}
