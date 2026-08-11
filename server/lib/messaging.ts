@@ -117,6 +117,21 @@ export function previewOf(body: string, deletedAt: string | Date | null): string
   return flat.length > PREVIEW_CHARS ? `${flat.slice(0, PREVIEW_CHARS - 1)}…` : flat;
 }
 
+/**
+ * The epoch-ms segment here is DECIMAL and load-bearing, so do not "tidy" it
+ * into base36.
+ *
+ * inboxFor's ORDER BY ends in `c.id DESC` as its total-order backstop, and
+ * that is only meaningful because `Date.now()` renders as a fixed-width
+ * 13-digit decimal (and stays 13 digits until 2286), which makes
+ * lexicographic DESC equal chronological DESC. Base36 breaks that: its width
+ * changes, so a shorter string can sort above a later timestamp and the
+ * tie-break silently starts returning the wrong order with no test failing.
+ *
+ * This is a local property, not a house fact: `server/lib/orgChart.ts`
+ * defines its own `newId` as `Date.now().toString(36)`. Same name, different
+ * format, and copying that one here would be the exact regression.
+ */
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }

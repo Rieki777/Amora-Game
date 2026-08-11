@@ -466,6 +466,35 @@ describe.skipIf(!configured)("messaging repo (MySQL)", () => {
     }
   });
 
+  it("keeps millisecond precision through the AUDIT's repair, not just the recompute", async () => {
+    // The recompute stays inside SQL, so its precision never leaves the
+    // engine. auditLastMessageAt() is the other path and it is the risky one:
+    // it SELECTs the value into JavaScript, compares it as a Date, and writes
+    // it back as a bound parameter. If that round trip drops thousandths, the
+    // boot audit would "repair" a correct row into a truncated one, then keep
+    // reporting the same row as drifted forever, and the ordering key would
+    // silently lose the precision 0073 exists to give it.
+    const c = await openDirect(pool, ANA, BEN);
+    await pool.query("INSERT INTO messages (id, conversation_id, author_id, body, created_at) VALUES (?,?,?,?,?)", [
+      "msg-audit-ms-probe", c.id, ANA, "precise", "2026-08-11 12:00:00.456",
+    ]);
+    // Force the audit down its repair branch by corrupting the cache first.
+    await pool.query("UPDATE conversations SET last_message_at = '2001-01-01 00:00:00.000' WHERE id = ?", [c.id]);
+
+    const first = await auditLastMessageAt(pool);
+    expect(first.drifted).toContain(c.id);
+
+    const [rows] = await pool.query<any[]>(
+      "SELECT MICROSECOND(last_message_at) AS us FROM conversations WHERE id = ?",
+      [c.id],
+    );
+    expect(Number(rows[0].us), "the repair must write thousandths, not whole seconds").toBe(456000);
+
+    // And the row must now be CLEAN: an audit that repairs to a value it will
+    // reject on the next pass is an infinite drift report.
+    expect((await auditLastMessageAt(pool)).drifted).not.toContain(c.id);
+  });
+
   it("keeps millisecond precision through the cache recompute", async () => {
     // last_message_at is derived from MAX(messages.created_at), so raising the
     // precision of the cache without raising it on the SOURCE would just
