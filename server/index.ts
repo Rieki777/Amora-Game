@@ -30,6 +30,23 @@ import {
 } from "../shared/mapAddress";
 import { isPromiseKind, type PromiseReason, type PromiseResult } from "../shared/mapPromise";
 import { goingCountFor, missingReason, rowByMapKey } from "./lib/mapPromise";
+import {
+  SCENE_BODY_LIMIT,
+  changeSummary,
+  sceneProblem,
+  sceneSizeProblem,
+  sceneSummary,
+} from "../shared/mapScene";
+import {
+  discardDraft,
+  getDraft,
+  listRevisions,
+  publishScene,
+  publishedScene,
+  publishedVersion,
+  restoreRevision,
+  saveDraft,
+} from "./lib/mapScene";
 import { toSchemaOrg } from "../shared/gatherings";
 import { recordWalkRows, walkReport } from "./lib/walkLog";
 import {
@@ -4192,6 +4209,21 @@ async function startServer() {
     );
     res.status(out.status).json(out.body);
   });
+
+  /*
+   * A scene is legitimately bigger than a form post, so the two routes that
+   * carry one get their own parser MOUNTED BEFORE the general one (0063).
+   * Order is the whole trick, and it is the same trick the Stripe webhook
+   * above uses: the first json parser to see a request wins, and body-parser
+   * skips a request whose body is already read. Mounted after the global
+   * parser these would never run, and a founder publishing a 1.2 MB map would
+   * get Express's own 413 with no sentence attached, on the one action where
+   * a confusing failure costs the most trust.
+   *
+   * The ceiling here is deliberately above MAX_SCENE_BYTES so the size
+   * message a person reads is the one written in shared/mapScene.ts.
+   */
+  app.use(["/api/map/draft", "/api/map/publish"], express.json({ limit: SCENE_BODY_LIMIT }));
 
   app.use(express.json({ limit: "1mb" }));
 
@@ -12213,10 +12245,27 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       : DEFAULT_WALK_LANG;
     const walkDoc = sanitiseWalk(mapWalkRepo.get());
     const steps = walkDoc[lang] ?? walkDoc[DEFAULT_WALK_LANG] ?? null;
+    /*
+     * The published scene rides along (0063), for exactly the reason the walk
+     * and the vocabulary do: one call, one push, no half-configured frame.
+     * It is the whole point of the publish button, because until the shell
+     * hands the map a scene, a village that has published still gets the
+     * artifact's own seed and the button was a lie.
+     *
+     * Null when nothing has been published, which is the ordinary state of a
+     * fresh fork and the instruction to keep the map's own seed. The same
+     * "absent means keep yours" rule the walk already follows, so a village
+     * that has customised nothing is served nothing to apply.
+     */
+    const live = await publishedScene(getPool());
     res.json({
       skin: getBrand().skin,
       walk: steps && steps.length ? steps : null,
       vocabulary: mapVocabRepo.get(),
+      // JSON text, not an object: the bytes the map wrote are the bytes it
+      // gets back. The shell parses it once, on its way into the frame.
+      scene: live?.scene ?? null,
+      sceneVersion: live?.version ?? 0,
       lang,
     });
   });
@@ -12390,6 +12439,289 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       console.error("[map/promise]", err);
       return reply({ ok: false, state: revert, reason: "error" });
     }
+  });
+
+  /*
+   * ── THE MAP'S OWN DOORS: draft, publish, undo (0063) ───────────────────
+   *
+   * THE GATE IS HERE AND ONLY HERE. `grounds-v0.html` is a static file served
+   * at a URL anyone can open directly, so its Build button is decoration:
+   * hiding it stops nobody, and the artifact could not be trusted to enforce
+   * a permission even if it tried. Every one of these routes asks the one
+   * gate itself. What the artifact gets told is what to DRAW, never what is
+   * allowed.
+   *
+   * All of them sit under `/api/map`, so `requireModule("map")` already
+   * covers them: 404 while the module is off, 401 for a signed-out visitor
+   * while it is members-only.
+   *
+   * The scene crosses this boundary as a STRING, deliberately. It is parsed
+   * here to be CHECKED and the original text is what gets stored, so the
+   * bytes the map wrote are the bytes the next reader gets. Re-serialising a
+   * parsed scene would reorder keys and re-space the text for no gain, and
+   * the whole point of `shared/mapScene.ts` is that nothing between the map
+   * and the column has an opinion about the body.
+   */
+
+  /** What this member may do to the map, asked once per request. */
+  async function mapHand(req: express.Request) {
+    const user = await authedUser(req);
+    if (!user) return { user: null, canEdit: false, canPublish: false };
+    const ctx = await capabilityCtx(user);
+    return {
+      user,
+      canEdit: hasCapability("map.edit", ctx),
+      canPublish: hasCapability("map.publish", ctx),
+    };
+  }
+
+  /**
+   * A published revision, dressed for reading: ids become names.
+   *
+   * `listRevisions` and NOT `publishedScene`, deliberately. This runs on every
+   * boot of every map, and the scene is megabytes: fetching one to report a
+   * version number and a name would put the whole published land on the wire
+   * for a card that renders eleven words. The history query never selects the
+   * body for exactly this reason.
+   */
+  async function liveCard(): Promise<Record<string, unknown> | null> {
+    /*
+     * TWO rows, because `previous` cannot be computed as version - 1.
+     * `version` is AUTO_INCREMENT and a refused publish still consumes an id,
+     * so a village where two admins ever raced has GAPS in its history. An
+     * Undo button that guessed the number below would 404 on exactly the
+     * villages busy enough to need it.
+     */
+    const [live, prev] = await listRevisions(getPool(), 2);
+    if (!live) return null;
+    const who = live.actorUserId ? await members.byId(live.actorUserId) : null;
+    return {
+      version: live.version,
+      by: who?.name ?? null,
+      at: live.createdAt,
+      note: live.note,
+      restoredFrom: live.restoredFrom,
+      summary: live.summary,
+      previous: prev?.version ?? null,
+    };
+  }
+
+  /**
+   * Take a scene off the wire: check it, and hand back the exact text.
+   *
+   * Returns the string to store, or the sentence to show the person. The
+   * parse happens for validation only and its result is thrown away.
+   */
+  function readScene(body: any): { scene: string } | { error: string } {
+    const raw = body?.scene;
+    if (typeof raw !== "string") {
+      return { error: "Send the scene as JSON text, so it can be stored exactly as the map wrote it." };
+    }
+    const sizeProblem = sceneSizeProblem(Buffer.byteLength(raw, "utf8"));
+    if (sizeProblem) return { error: sizeProblem };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { error: "That scene is not valid JSON." };
+    }
+    const problem = sceneProblem(parsed);
+    if (problem) return { error: problem };
+    return { scene: raw };
+  }
+
+  /**
+   * The member's own working copy, plus what is live and what they may do.
+   *
+   * 200 for a signed-out visitor rather than 401, with everything false. The
+   * shell asks this on every boot of every map, and the overwhelming majority
+   * of those are visitors who will never edit anything. Answering "you may do
+   * nothing, here is the live version" is the true answer and costs no error.
+   */
+  app.get("/api/map/draft", async (req, res) => {
+    const { user, canEdit, canPublish } = await mapHand(req);
+    const draft = user && canEdit ? await getDraft(getPool(), user.id) : null;
+    res.json({
+      canEdit,
+      canPublish,
+      live: await liveCard(),
+      liveVersion: await publishedVersion(getPool()),
+      draft: draft
+        ? { scene: draft.scene, baseVersion: draft.baseVersion, updatedAt: draft.updatedAt }
+        : null,
+    });
+  });
+
+  /** Autosave. Private to this member and invisible to the live map. */
+  app.put("/api/map/draft", async (req, res) => {
+    const { user, canEdit } = await mapHand(req);
+    if (!user) return res.status(401).json({ error: "Sign in to keep a draft of the map." });
+    if (!canEdit) return res.status(403).json({ error: "Shaping the map is a cartographer's work." });
+
+    const read = readScene(req.body);
+    if ("error" in read) return res.status(400).json({ error: read.error });
+
+    const baseVersion = Number.isInteger(req.body?.baseVersion)
+      ? Math.max(0, Number(req.body.baseVersion))
+      : await publishedVersion(getPool());
+
+    await saveDraft(getPool(), user.id, read.scene, baseVersion);
+    res.json({ ok: true, baseVersion });
+  });
+
+  /** Throw away my draft. Never touches anyone else's, never touches live. */
+  app.delete("/api/map/draft", async (req, res) => {
+    const { user, canEdit } = await mapHand(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!canEdit) return res.status(403).json({ error: "Shaping the map is a cartographer's work." });
+    res.json({ ok: true, discarded: await discardDraft(getPool(), user.id) });
+  });
+
+  /**
+   * Make my draft the map everybody sees.
+   *
+   * The stale case is the one worth reading. Two admins each hold a draft
+   * forked from version 5; the first publishes and the map becomes 6. The
+   * second gets 409 with WHO moved it and WHEN, their draft untouched on
+   * disk, and nothing written. That refusal is the entire reason
+   * `base_version` is a UNIQUE column: a read-then-write here would have a
+   * window, and the window is where a founder's afternoon disappears.
+   *
+   * A successful publish REBASES the member's draft instead of deleting it.
+   * The work under their hands is the same work a second later, now forked
+   * from what they just made live, so pressing publish twice in a row is
+   * harmless and nothing vanishes at the moment they were told it worked.
+   */
+  app.post("/api/map/publish", async (req, res) => {
+    const { user, canPublish } = await mapHand(req);
+    if (!user) return res.status(401).json({ error: "Sign in to publish the map." });
+    if (!canPublish) {
+      return res.status(403).json({
+        error: "Publishing the map is a cartographer's work. Your draft is safe and still yours.",
+      });
+    }
+
+    const read = readScene(req.body);
+    if ("error" in read) return res.status(400).json({ error: read.error });
+
+    const baseVersion = Number.isInteger(req.body?.baseVersion)
+      ? Math.max(0, Number(req.body.baseVersion))
+      : 0;
+    const note = typeof req.body?.note === "string" ? req.body.note.slice(0, 500) : null;
+    const parsed = JSON.parse(read.scene);
+
+    const result = await publishScene(getPool(), {
+      scene: read.scene,
+      baseVersion,
+      actorUserId: user.id,
+      note,
+      summary: changeSummary(parsed, 40),
+    });
+
+    if (!result.ok) {
+      const who = result.live.actorUserId ? await members.byId(result.live.actorUserId) : null;
+      return res.status(409).json({
+        ok: false,
+        reason: "stale",
+        error: who?.name
+          ? `${who.name} published a change to the live map while you were working. Your draft is safe. Take a look at what moved, then publish again.`
+          : "The live map changed while you were working. Your draft is safe. Take a look at what moved, then publish again.",
+        live: { version: result.live.version, by: who?.name ?? null, at: result.live.createdAt },
+      });
+    }
+
+    // Rebase, so the draft they are still looking at is forked from the map
+    // they just made live.
+    await saveDraft(getPool(), user.id, read.scene, result.version);
+
+    const counts = sceneSummary(parsed);
+    await recordEvent(getPool(), {
+      kind: "map_published",
+      text: `made version ${result.version} of the living map the one everyone sees (${counts.buildings} buildings)`,
+      actorUserId: user.id,
+      entityType: "map_scene",
+      entityRef: String(result.version),
+      // The shape of the land is public news, the same way a new gathering is.
+      audience: "public",
+    });
+
+    res.json({ ok: true, version: result.version, live: await liveCard() });
+  });
+
+  /**
+   * What has been made live, and by whom.
+   *
+   * Gated on `map.edit` and not on publishing: someone trusted to draft a
+   * change needs to see what the land has already been through to draft a
+   * sensible one. The scenes themselves never travel in this list.
+   */
+  app.get("/api/map/revisions", async (req, res) => {
+    const { user, canEdit } = await mapHand(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!canEdit) return res.status(403).json({ error: "Forbidden" });
+
+    const rows = await listRevisions(getPool(), 50);
+    const names = new Map<string, string>();
+    for (const r of rows) {
+      if (r.actorUserId && !names.has(r.actorUserId)) {
+        const who = await members.byId(r.actorUserId);
+        names.set(r.actorUserId, who?.name ?? "");
+      }
+    }
+    res.json({
+      liveVersion: rows[0]?.version ?? 0,
+      revisions: rows.map((r) => ({
+        version: r.version,
+        by: r.actorUserId ? names.get(r.actorUserId) || null : null,
+        at: r.createdAt,
+        note: r.note,
+        restoredFrom: r.restoredFrom,
+        summary: r.summary,
+      })),
+    });
+  });
+
+  /**
+   * Put an earlier version back.
+   *
+   * An undo is a publish carrying an old scene, so it needs the same key and
+   * settles the same race. Nothing is deleted and nothing is rewritten: the
+   * version that was live a moment ago is still in the history, which is what
+   * makes this safe to press when you are not certain.
+   */
+  app.post("/api/map/revisions/:version/restore", async (req, res) => {
+    const { user, canPublish } = await mapHand(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!canPublish) {
+      return res.status(403).json({ error: "Putting an earlier map back is a cartographer's work." });
+    }
+    const version = Number(req.params.version);
+    if (!Number.isInteger(version) || version < 1) {
+      return res.status(400).json({ error: "That is not a version number." });
+    }
+
+    const result = await restoreRevision(getPool(), version, user.id);
+    if (!result.ok && result.reason === "missing") {
+      return res.status(404).json({ error: `There is no version ${version} to put back.` });
+    }
+    if (!result.ok) {
+      return res.status(409).json({
+        ok: false,
+        reason: "stale",
+        error: "The live map changed a moment ago. Take a look at what moved, then try again.",
+      });
+    }
+
+    await recordEvent(getPool(), {
+      kind: "map_restored",
+      text: `put version ${version} of the living map back`,
+      actorUserId: user.id,
+      entityType: "map_scene",
+      entityRef: String(version),
+      audience: "public",
+    });
+
+    res.json({ ok: true, version: result.version, live: await liveCard() });
   });
 
   /** Where the walk loses people. The reason the table exists. */

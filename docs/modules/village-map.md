@@ -192,6 +192,62 @@ The full slide vision plus what Phase 3+ unlocks (~2 sessions): nested sub-circl
 - Layout crowding past ~120 visible nodes: v1 caps quest satellites with a '+n more' chip; genuine scale needs v2's per-circle collapse.
 - Scope temptation: 'circle lead' here is a display/contact convention (circles.leadRoleId), not a governance object — actual circle authority/domains belong to the F5 agreements work on Hypha's side of the boundary; keep the map from quietly becoming a governance UI.
 
+## Publishing the land (0063 / artifact D8)
+
+Build mode used to end at `Export scene`: a file, a person with database
+access, and `scripts/import-map-scene.ts`, which skips `structures`, `zones`
+and `flows` because the geometry had nowhere to land. The scene now has a home,
+so the founder's hand reaches the live map.
+
+| piece | where |
+|---|---|
+| Envelope, verbs, size ceiling, edit words | `shared/mapScene.ts` |
+| Draft/publish/undo repository | `server/lib/mapScene.ts` |
+| Tables | `drizzle/0063_map_scene_publish.sql` |
+| Routes | `/api/map/draft` (GET/PUT/DELETE), `/api/map/publish`, `/api/map/revisions`, `/api/map/revisions/:v/restore` |
+| Shell relay | `client/src/pages/LivingMap.tsx` |
+| Artifact | `patch_d8_publish.py`, `patch_d8b_standalone_hand.py`, `patch_d8c_discard.py` |
+| Gate | `qa/verify_publish.js` |
+
+**The scene is stored verbatim.** `longtext`, not `json`: MySQL's json type
+reorders keys and strips duplicates, which would quietly make "stored exactly
+as the map wrote it" false. It is parsed on the way in to be CHECKED and the
+original text is what is written. A field-by-field sanitiser here would be the
+round-D boundary bug with twenty blocks of surface, firing every time the map
+lane adds a field.
+
+**The race is settled by the database.** `map_scene_revisions.base_version` is
+UNIQUE, so two admins publishing from the same base means the second insert
+fails with `ER_DUP_ENTRY` and is told who moved it. A read-then-write would
+have a window, and the window is where a founder's afternoon disappears. Six
+concurrent publishes are pinned in `server/lib/mapScene.test.ts`.
+
+**Undo appends.** Restoring version 3 publishes a NEW revision carrying that
+scene with `restored_from = 3`. Nothing is deleted or mutated, so the version
+that was live when somebody pressed undo is still there to go back to, which
+is what makes undo safe to press when unsure.
+
+**A push never repaints over unpublished work.** If a colleague publishes while
+you are mid-drag, your land does not move and your `BASE_VERSION` deliberately
+stays stale, so your next publish is REFUSED and explains itself. Silently
+rebasing you is how one admin overwrites another with neither noticing.
+
+**Two capability keys, not one.** `map.edit` opens build mode and a private
+draft; `map.publish` puts a change in front of every visitor. Split, a member
+can shape a proposal without holding the live land. Neither is in
+`STAGE_UNLOCKS`: both are appointments, granted by a role or the Cartographer
+badge that 0063 seeds. A warning badge's deny suspends publishing on its own,
+because the gate is the one gate.
+
+**The gate is the server's, always.** `grounds-v0.html` is a static file at a
+URL anyone can open, so its Build button is decoration. Every route asks
+`hasCapability` itself; what the artifact is told only decides what it draws.
+
+**Silence means local only.** With no shell there is no village to ask, so the
+artifact keeps the founder's full hand and stays the standalone design tool it
+has always been. Reading silence as a refusal is what made D8's first cut
+invisible from `file://`, caught by `verify_doors` in one line.
+
 ## Open questions
 
 - Source of truth for circles per deployment: some villages will already model circles in their Hypha DHO — should map.circles_source (platform | hypha-readonly) be a v2 deployment choice, and if hypha, does the concierge still resolve contacts against platform role_holders?

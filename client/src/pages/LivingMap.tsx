@@ -16,6 +16,13 @@
  * top-left selector offers Living and Circles, so this shell adds no second
  * selector of its own.
  *
+ * Since 0063 the shell also carries the LAND itself. The artifact ships a
+ * `const SCENE` seed baked into it; a village that has published one gets its
+ * own scene pushed on boot and draws that instead. Build mode's draft, the
+ * publish, and an undo all relay through here to `/api/map/*`. The shell
+ * decides none of it: every permission question is the server's, and what
+ * arrives here only decides what gets DRAWN.
+ *
  * Three bridges to the artifact, in order of how much they can be trusted:
  *
  *  1. THE HASH. `/map#/place/greenhouse` forwards to the iframe so a deep
@@ -39,6 +46,7 @@ import { useModule, useModules } from "@/modules/ModuleProvider";
 import { rememberMapAvailable } from "@/lib/landing";
 import { MAP_SKIN_SAVED_EVENT, MAP_SKIN_SAVED_KEY } from "@shared/mapSkin";
 import { isPromiseKind } from "@shared/mapPromise";
+import { isSceneVerb } from "@shared/mapScene";
 import { gameFetch } from "@/lib/gameApi";
 
 /** Where the staged artifact is served from, and its presence probe. */
@@ -155,7 +163,7 @@ export default function LivingMap() {
    * the artifact now offers a real inbound contract and a message is the part
    * of it that survives the artifact being rewritten.
    */
-  const pushSkin = useCallback(async () => {
+  const pushConfig = useCallback(async () => {
     const win = frame.current?.contentWindow;
     if (!win) return;
     try {
@@ -175,9 +183,150 @@ export default function LivingMap() {
       if (body?.skin) payload.skin = body.skin;
       if (Array.isArray(body?.walk) && body.walk.length) payload.walk = body.walk;
       if (body?.vocabulary) payload.vocabulary = body.vocabulary;
+      /*
+       * The published land (0063). Same "absent means keep your own" rule as
+       * the walk: a village that has never published sends null and the map
+       * draws its own seed, which is the ordinary state of a fresh fork.
+       *
+       * The scene crosses the wire as JSON TEXT so the server stores the
+       * bytes the map wrote. This is the one place it becomes an object
+       * again, and a scene that will not parse is dropped rather than pushed:
+       * the map keeps drawing the land it already has, which is a strictly
+       * better failure than a half-applied scene.
+       */
+      if (typeof body?.scene === "string" && body.scene) {
+        try {
+          payload.scene = JSON.parse(body.scene);
+          payload.sceneVersion = Number(body.sceneVersion) || 0;
+        } catch {
+          /* Unparseable: the map keeps the land it is already drawing. */
+        }
+      }
       win.postMessage(payload, window.location.origin);
     } catch {
       /* The map keeps whatever it is already wearing. */
+    }
+  }, []);
+
+  /**
+   * What THIS member may do to the map, and the draft waiting for them.
+   *
+   * Separate from the config push because it is the only part that depends on
+   * who is asking. `/api/map/config` is the same answer for everyone and is
+   * fetched without credentials; this one carries the session.
+   *
+   * A failure here is silent and safe by construction: the artifact starts
+   * with no hand at all, so a member who cannot be identified simply keeps
+   * the read-only map every visitor gets. The gate is the SERVER's, and this
+   * message only decides what gets drawn.
+   */
+  const pushHand = useCallback(async () => {
+    const win = frame.current?.contentWindow;
+    if (!win) return;
+    try {
+      const res = await gameFetch("/api/map/draft");
+      if (!res.ok) return;
+      const body = await res.json();
+      let draft: unknown = null;
+      if (body?.draft && typeof body.draft.scene === "string") {
+        try {
+          draft = {
+            scene: JSON.parse(body.draft.scene),
+            baseVersion: Number(body.draft.baseVersion) || 0,
+            updatedAt: body.draft.updatedAt,
+          };
+        } catch {
+          /* A draft that will not parse is no draft. Nothing is destroyed:
+             the row stays and the next save replaces it. */
+        }
+      }
+      win.postMessage(
+        {
+          type: "hand",
+          canEdit: body?.canEdit === true,
+          canPublish: body?.canPublish === true,
+          liveVersion: Number(body?.liveVersion) || 0,
+          live: body?.live ?? null,
+          draft,
+        },
+        window.location.origin,
+      );
+    } catch {
+      /* No hand pushed: the map stays exactly as read-only as it booted. */
+    }
+  }, []);
+
+  /**
+   * The map asking the village to keep, publish, discard or roll back its
+   * work.
+   *
+   * Same relay discipline as the promises above and for the same reasons: the
+   * shell decides nothing, the route owns every permission question and every
+   * sentence, and A REPLY GOES BACK ON EVERY PATH including a thrown fetch.
+   * The map's rule is that silence means the optimistic state stands, which
+   * is right when it runs standalone from `file://` and dangerous here: a
+   * village that answered "you may not publish" has to reach the person, or
+   * they will believe the land moved when it did not.
+   *
+   * The nonce is echoed exactly and never inspected, so a reply to a publish
+   * the member already replaced cannot apply itself over the newer one.
+   */
+  const relayScene = useCallback(async (msg: any) => {
+    const win = frame.current?.contentWindow;
+    if (!win) return;
+    const send = (r: Record<string, unknown>) =>
+      win.postMessage({ type: "scene-result", of: msg.type, nonce: msg.nonce, ...r }, window.location.origin);
+
+    // The scene is stringified ONCE, here, and that exact text is what the
+    // server stores. Building it twice would risk two different strings.
+    const sceneText = () => {
+      try {
+        return JSON.stringify(msg.scene);
+      } catch {
+        return null;
+      }
+    };
+
+    try {
+      if (msg.type === "draft-save") {
+        const scene = sceneText();
+        if (!scene) return send({ ok: false, error: "That draft could not be written down." });
+        const res = await gameFetch("/api/map/draft", {
+          method: "PUT",
+          body: JSON.stringify({ scene, baseVersion: msg.baseVersion ?? 0 }),
+        });
+        const body = await res.json().catch(() => null);
+        return send(res.ok ? { ok: true, baseVersion: body?.baseVersion } : { ok: false, error: body?.error });
+      }
+
+      if (msg.type === "draft-discard") {
+        const res = await gameFetch("/api/map/draft", { method: "DELETE" });
+        const body = await res.json().catch(() => null);
+        return send(res.ok ? { ok: true } : { ok: false, error: body?.error });
+      }
+
+      if (msg.type === "publish") {
+        const scene = sceneText();
+        if (!scene) return send({ ok: false, error: "That scene could not be written down." });
+        const res = await gameFetch("/api/map/publish", {
+          method: "POST",
+          body: JSON.stringify({ scene, baseVersion: msg.baseVersion ?? 0, note: msg.note ?? null }),
+        });
+        const body = await res.json().catch(() => null);
+        if (res.ok) return send({ ok: true, version: body?.version, live: body?.live });
+        // 409 carries WHO moved the map and WHEN. It travels untouched: the
+        // route owns that sentence so there is one place it is written.
+        return send({ ok: false, reason: body?.reason, error: body?.error, live: body?.live });
+      }
+
+      if (msg.type === "restore") {
+        const version = Number(msg.version);
+        const res = await gameFetch(`/api/map/revisions/${version}/restore`, { method: "POST" });
+        const body = await res.json().catch(() => null);
+        return send(res.ok ? { ok: true, version: body?.version, live: body?.live } : { ok: false, error: body?.error });
+      }
+    } catch {
+      return send({ ok: false, error: "The village could not be reached. Your work is still here." });
     }
   }, []);
 
@@ -261,7 +410,12 @@ export default function LivingMap() {
       if (!data || typeof data !== "object") return;
 
       if (data.type === "grounds-ready") {
-        pushSkin();
+        // Two pushes, deliberately. The config is the same for everyone and
+        // needs no session; the hand depends on who is asking. Sending them
+        // separately means a signed-out visitor still gets the published land
+        // even though their hand request tells them they may do nothing.
+        pushConfig();
+        pushHand();
         return;
       }
       // The map asking to be closed. Same path as the browser Back button.
@@ -273,6 +427,10 @@ export default function LivingMap() {
         void relayPromise(data);
         return;
       }
+      if (isSceneVerb(data.type)) {
+        void relayScene(data);
+        return;
+      }
       if (data.type !== "nav") return;
       const route = typeof data.route === "string" ? data.route : "";
       if (!/^\/[^/]/.test(route) && route !== "/") return;
@@ -280,7 +438,7 @@ export default function LivingMap() {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [navigate, pushSkin, exitApp, relayPromise]);
+  }, [navigate, pushConfig, pushHand, exitApp, relayPromise, relayScene]);
 
   /**
    * A save in the wizard retints an open map.
@@ -292,9 +450,9 @@ export default function LivingMap() {
    * load-bearing: the map takes the current skin on its next boot regardless.
    */
   useEffect(() => {
-    const onSaved = () => pushSkin();
+    const onSaved = () => pushConfig();
     const onStorage = (ev: StorageEvent) => {
-      if (ev.key === MAP_SKIN_SAVED_KEY) pushSkin();
+      if (ev.key === MAP_SKIN_SAVED_KEY) pushConfig();
     };
     window.addEventListener(MAP_SKIN_SAVED_EVENT, onSaved);
     window.addEventListener("storage", onStorage);
@@ -302,7 +460,7 @@ export default function LivingMap() {
       window.removeEventListener(MAP_SKIN_SAVED_EVENT, onSaved);
       window.removeEventListener("storage", onStorage);
     };
-  }, [pushSkin]);
+  }, [pushConfig]);
 
   /** Parent hash changes reach the artifact without reloading it. */
   useEffect(() => {

@@ -27,6 +27,8 @@ export type Capability =
   | "proposal.decide" // record a decision's outcome
   | "map.viewPeople" // see WHO holds seats on the village map (not just counts)
   | "map.contact" // reach a role holder through the contact relay
+  | "map.edit" // enter build mode and keep a draft of the land
+  | "map.publish" // push a draft onto the live map everyone sees
   | "feed.announce" // post announcements to the village feed (role-only)
   | "stay.member_rate" // book accommodation at the member price, not the guest one
   | "exchange.buy" // buy listed tokens for fiat
@@ -51,6 +53,8 @@ export const ALL_CAPABILITIES: Capability[] = [
   "proposal.decide",
   "map.viewPeople",
   "map.contact",
+  "map.edit",
+  "map.publish",
   "feed.announce",
   "stay.member_rate",
   "exchange.buy",
@@ -93,6 +97,16 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   // something on the village calendar is an appointment, granted by a role or
   // a badge, never reached by climbing.
   "event.rsvp": "guest",
+  // `map.edit` and `map.publish` are deliberately absent for the same reason,
+  // and the second one matters more than the first. The map is the village's
+  // front door: a stage rung would hand the land's shape to everyone who
+  // climbed far enough, on a surface where one careless drag is visible to
+  // every visitor at once. Both are appointments. A founder grants them with
+  // the Cartographer badge (0063) or a role.
+  //
+  // They are TWO keys on purpose. One key would mean anyone trusted to
+  // propose a change to the land is also trusted to overwrite it live. Split,
+  // they buy the useful middle: a member drafts, a cartographer publishes.
 };
 
 /**

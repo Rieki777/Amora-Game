@@ -728,6 +728,45 @@
   #restoreBar{position:absolute;top:64px;left:50%;transform:translateX(-50%);z-index:62;display:flex;align-items:center;gap:10px;
     background:linear-gradient(180deg,#fdf3d7,#efdcae);border:1px solid #8a6a33;border-radius:8px;color:var(--ink);
     box-shadow:0 10px 30px rgba(0,0,0,.55);padding:9px 14px;font-size:12.5px}
+  /* ---------- D8: draft, publish, and the way back ---------- */
+  /* The Build button is drawn only for a hand the village recognises. This is
+     cosmetics and is commented as such: the artifact is a static file anyone
+     can open directly, so every real check is on the server. */
+  #buildBtn{display:none}
+  body.can-edit #buildBtn{display:block}
+  /* The standing bar. Persistent for as long as build mode is on, because the
+     thing it says (your edits are not live) has to be true and visible the
+     whole time, not for four seconds after a click. */
+  #draftBar{position:absolute;top:52px;left:50%;transform:translateX(-50%);z-index:63;display:none;
+    align-items:center;gap:12px;background:linear-gradient(180deg,rgba(58,44,20,.97),rgba(38,28,12,.97));
+    border:1px solid var(--gold-b);border-left:4px solid #e0a34e;border-radius:8px;color:var(--parch);
+    box-shadow:0 10px 30px rgba(0,0,0,.6);padding:8px 14px;font-size:12.5px;max-width:min(760px,92vw)}
+  body.build.can-edit #draftBar{display:flex}
+  body.visiting #draftBar{display:flex;border-left-color:#7bb0a0}
+  #draftBar .dsep{opacity:.4}
+  #draftBar b{color:var(--gold-b);font-weight:600}
+  #draftLive{opacity:.72;font-size:11.5px}
+  #pubGo:disabled{opacity:.45;cursor:default}
+  /* Publishing is the one irreversible-feeling act in the map, so it gets a
+     real modal and not a confirm() the browser styles like a warning. */
+  #pubWrap{position:fixed;inset:0;z-index:90;display:none;align-items:center;justify-content:center;
+    background:rgba(8,6,3,.62)}
+  #pubWrap.show{display:flex}
+  #pubCard{width:min(560px,92vw);max-height:84vh;overflow:auto;background:linear-gradient(180deg,#fdf3d7,#efdcae);
+    border:1px solid #8a6a33;border-radius:10px;color:var(--ink);box-shadow:0 24px 70px rgba(0,0,0,.6);padding:18px 20px}
+  #pubCard h4{font-variant:small-caps;letter-spacing:.14em;font-size:14px;margin-bottom:4px}
+  #pubCard .blast{font-size:12.5px;margin:8px 0 12px;padding:8px 10px;border-radius:6px;
+    background:rgba(160,90,30,.13);border:1px solid rgba(138,106,51,.5)}
+  #pubList{list-style:none;font-size:12px;margin:0 0 12px;max-height:230px;overflow:auto;
+    border:1px solid rgba(138,106,51,.35);border-radius:6px}
+  #pubList li{padding:5px 10px;border-bottom:1px solid rgba(138,106,51,.18)}
+  #pubList li:last-child{border-bottom:none}
+  #pubNote{width:100%;font-family:inherit;font-size:12.5px;padding:7px 9px;border-radius:6px;
+    border:1px solid #8a6a33;background:rgba(255,255,255,.5);color:var(--ink);margin-bottom:12px}
+  #pubActions{display:flex;gap:8px;justify-content:flex-end}
+  /* The conflict card. Same furniture as the confirm, different colour, so a
+     refusal reads as information and not as an error page. */
+  #pubCard.conflict .blast{background:rgba(120,40,30,.14);border-color:rgba(150,60,40,.55)}
   .poi .sprite{position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);height:76px;display:none;pointer-events:none}
   .poi.m-painted .flat,.poi.m-painted .iso{opacity:0}
   .poi.m-painted .sprite{display:block}
@@ -858,7 +897,7 @@
 </div>
 <button id="buildBtn">⚒ Build</button>
 <div id="buildBar"><h3>Build mode · the founder's hand</h3><div id="palette"></div>
-  <div id="buildFoot"><button class="chip" id="drawBtn">✎ Draw</button><button class="chip" id="spriteBtn">✦ Sprites</button><button class="chip" id="boundBtn">◇ Boundary</button><button class="chip" id="resolverBtn">⌖ Address a quest</button><button class="chip" id="skinBtn">✂ Make it yours</button><button class="chip" id="pubBtn">⚿ Public land</button><button class="chip" id="undoBtn">↩ Undo</button><button class="chip" id="exportBtn">⤓ Export scene</button></div></div>
+  <div id="buildFoot"><button class="chip" id="drawBtn">✎ Draw</button><button class="chip" id="spriteBtn">✦ Sprites</button><button class="chip" id="boundBtn">◇ Boundary</button><button class="chip" id="resolverBtn">⌖ Address a quest</button><button class="chip" id="skinBtn">✂ Make it yours</button><button class="chip" id="pubBtn">⚿ Public land</button><button class="chip" id="undoBtn">↩ Undo</button><button class="chip" id="exportBtn">⤓ Export scene</button><button class="chip" id="pubChip">⇧ Publish</button></div></div>
 <div id="ghostPoi"></div>
 <div id="wall"><h3>Get Involved · find somewhere to help</h3><div id="wallList" ></div></div>
 <div id="loom">
@@ -958,6 +997,26 @@
   <button class="btn" id="restoreYes" style="font-size:11px;padding:4px 12px">Restore it</button>
   <button class="btn ghostbtn" id="restoreNo" style="font-size:11px;padding:4px 12px">Start fresh</button>
 </div>
+
+<div id="draftBar">
+  <span id="draftState">Editing a draft. The live map is unchanged.</span>
+  <span class="dsep">|</span>
+  <span id="draftLive"></span>
+  <button class="btn" id="pubGo" style="font-size:11px;padding:4px 12px">Publish to the live map</button>
+  <button class="btn ghostbtn" id="visitBtn" style="font-size:11px;padding:4px 12px">View as visitor</button>
+  <button class="btn ghostbtn" id="dropBtn" style="font-size:11px;padding:4px 12px">Discard draft</button>
+</div>
+
+<div id="pubWrap"><div id="pubCard">
+  <h4 id="pubTitle">Publish to the live map</h4>
+  <div class="blast" id="pubBlast"></div>
+  <ul id="pubList"></ul>
+  <input id="pubNote" maxlength="200" placeholder="What changed, in a few words (optional)">
+  <div id="pubActions">
+    <button class="btn ghostbtn" id="pubCancel" style="font-size:11.5px">Not yet</button>
+    <button class="btn" id="pubConfirm" style="font-size:11.5px">Publish it</button>
+  </div>
+</div></div>
 
 <div id="resolver">
   <h3>Where does this quest live? <button id="resolverClose">✕</button></h3>
@@ -3278,8 +3337,13 @@ function inBound(x,y){const p=SCENE.bound;let inside=false;
         $('ghostPoi').style.display='block';maiaSay(`Placing a <b>${name}</b>. Click the land to set it down. The dashed line is the property; I won't let it land outside. Esc to change your mind.`)};
       pal.appendChild(b)}}})();
 $('buildBtn').onclick=()=>{buildMode=!buildMode;document.body.classList.toggle('build',buildMode);
+  if(typeof renderDraftBar==='function')renderDraftBar();
   if(buildMode){$('panel').classList.remove('open');panelKey=null;hideHover();
-    maiaSay(`<b>Build mode.</b> Drag any building to its true position, ✕ removes, the palette adds, ↩ undoes. When the map matches the land, <b>Export scene</b> writes the seed the real build grows from. Your hand becomes the ground truth.`)}
+    maiaSay(`<b>Build mode.</b> Drag any building to its true position, ✕ removes, the palette adds, ↩ undoes. `+
+      (HAND.canEdit
+        ?`You are editing <b>a draft</b>. The live map does not change and no other draft is touched until you press <b>Publish</b>.`
+        :`When the map matches the land, <b>Export scene</b> writes the seed the real build grows from.`)+
+      ` Your hand becomes the ground truth.`)}
   else{placing=null;document.body.classList.remove('placing');$('ghostPoi').style.display='none';closeInspect();boundaryMode=false;document.body.classList.remove('bounding');$('boundBtn').classList.remove('on');$('resolver').classList.remove('show');$('curation').classList.remove('show');if(typeof drawMode!=='undefined'&&drawMode)$('drawBtn').click()}};
 addEventListener('pointermove',e=>{if(!placing)return;const g=$('ghostPoi');
   g.style.transform=`translate(${e.clientX}px,${e.clientY}px)`;
@@ -3847,9 +3911,17 @@ const EDITS=[];let editSeq=0;
 function logEdit(action,target,diff){EDITS.push({seq:++editSeq,actor:'founder',action,target,diff:diff||{},at:new Date().toISOString()});scheduleAutosave();window.rebuildVitals&&rebuildVitals()}
 let autosaveT=null,saveNudged=false;
 function scheduleAutosave(){clearTimeout(autosaveT);
-  autosaveT=setTimeout(()=>{try{localStorage.setItem('amora-grounds-scene',JSON.stringify(buildExportJSON()))}catch(e){}},2500);
+  autosaveT=setTimeout(()=>{const J=buildExportJSON();
+    /* Two saves, and the local one is not a fallback for the other. This
+       file runs from file:// with no parent in every QA suite, and there
+       localStorage is the only save that exists. */
+    try{localStorage.setItem('amora-grounds-scene',JSON.stringify(J))}catch(e){}
+    if(inShell()&&HAND.canEdit&&!VISITOR_VIEW)shellAsk('draft-save',{scene:J,baseVersion:BASE_VERSION});
+    if(typeof renderDraftBar==='function')renderDraftBar();},2500);
   if(!saveNudged&&EDITS.length>=5){saveNudged=true;
-    toast('Your work saves itself in this browser. ⤓ Export scene hands you the file any time.')}}
+    toast(inShell()&&HAND.canEdit
+      ?'Your work saves itself to your own draft. Nobody else sees it until you publish.'
+      :'Your work saves itself in this browser. ⤓ Export scene hands you the file any time.')}}
 addEventListener('beforeunload',e=>{if(EDITS.length>0){e.preventDefault();e.returnValue=''}});
 const CIRCLE_HOMES={Outreach:'gate',Community:'welcome',Finance:'market',Land:'greenhouse',Coordination:'community',
   Gathering:'kitchen',Learning:'library',Wisdom:'council',Building:'ridgeA',Healing:'sanctuary',Arts:'community'};
@@ -4428,7 +4500,7 @@ refreshWork();
 /* ---------- MODULE DOORS — the map as the primary point of interaction.
    Every module has two doors: the menu (site nav) and the land (this map). Same routes, same data — D9 holds. ---------- */
 window.SITE_BASE='https://amora.regencivics.earth'; // forks set their own in Make This Yours
-window.BUILD_VERSION='v0.8-roundF';
+window.BUILD_VERSION='v0.8-publish';
 const SITE_ROUTES={j1:'/first-walk',j2:'/resident',j3:'/steward',j4:'/investor'};
 const DOOR_DEFS={
   stay:{module:'stay',icon:'🛏',cta:'Book a room'},
@@ -5054,6 +5126,299 @@ renderVocab();
 renderMediaVocab();renderPhaseVocab();
 
 
+/* ---------- D8: THE VILLAGE'S HAND ON THE MAP ----------
+   Draft, publish and undo. Everything here is about WHAT TO DRAW; every
+   question of what is allowed is answered by the server, because this file is
+   served at a URL any visitor can open and its buttons prove nothing.
+
+   PUBLISH_MARK is the honest definition of "unpublished": the edit sequence
+   as it stood the last time this draft was made live. Counting EDITS.length
+   would call a restored draft's whole history unpublished work every time,
+   and counting nothing would call a real change nothing. */
+let HAND={canEdit:false,canPublish:false};
+let LIVE=null;            /* {version,by,at} as the village last reported it */
+let LIVE_SCENE=null;      /* the published land, kept for View as visitor */
+let BASE_VERSION=0;       /* the published version THIS draft forked from */
+let PUBLISH_MARK=0;       /* editSeq at the last successful publish */
+let SCENE_APPLIED=false;  /* has a pushed scene ever landed */
+let VISITOR_VIEW=false;
+let DRAFT_HOLD=null;      /* my work, stashed while I look at the live map */
+let PUB_SEQ=0;
+const PUB_PENDING={};
+
+function inShell(){try{return window.parent!==window}catch(_){return false}}
+function shellPost(m){try{if(inShell())window.parent.postMessage(m,'*')}catch(_){}}
+
+/* Ask the village to do something and wait for its answer.
+   The nonce is what makes an answer belong to a question: publish twice
+   quickly and two replies come back, and the second must not apply itself
+   over a newer intent. Eight seconds of silence resolves as `quiet`, NOT as a
+   failure, because the map runs standalone from file:// in every QA suite and
+   there is no village there to answer. A caller decides what quiet means; for
+   an autosave it means nothing at all. */
+function shellAsk(type,extra){
+  const nonce='sc'+(++PUB_SEQ)+'-'+Date.now();
+  return new Promise(res=>{
+    PUB_PENDING[nonce]=res;
+    shellPost(Object.assign({type:type,nonce:nonce},extra||{}));
+    setTimeout(()=>{if(PUB_PENDING[nonce]){delete PUB_PENDING[nonce];res({ok:false,quiet:true})}},8000);
+  });
+}
+function sceneResult(d){const fn=PUB_PENDING[d.nonce];if(!fn)return;delete PUB_PENDING[d.nonce];fn(d)}
+window.sceneResult=sceneResult;
+
+function unpublished(){return EDITS.filter(e=>(e.seq||0)>PUBLISH_MARK)}
+
+/* The village telling this browser what its holder may do. */
+function applyHand(d){
+  HAND={canEdit:d.canEdit===true,canPublish:d.canPublish===true};
+  LIVE=d.live||null;
+  document.body.classList.toggle('can-edit',HAND.canEdit);
+  document.body.classList.toggle('can-publish',HAND.canPublish);
+  /* Only adopt the village's version as MY base when I have nothing of my own
+     riding on an older one. See the note in applyScene: a silent rebase is
+     how one admin overwrites another. */
+  if(!unpublished().length)BASE_VERSION=+d.liveVersion||0;
+  if(d.draft&&d.draft.scene)offerDraft(d.draft);
+  renderDraftBar();
+}
+
+/* A draft waiting on the server, offered through the bar the browser-saved
+   session already uses. The server's copy wins when both exist: it is the one
+   that followed you here from another machine. */
+function offerDraft(draft){
+  const n=(draft.scene.map_edits||[]).length,b=(draft.scene.map_structures||[]).length;
+  $('restoreMsg').textContent=`You have an unpublished draft of the map: ${b} buildings, ${n} changes.`;
+  $('restoreYes').textContent='Open my draft';
+  $('restoreNo').textContent='Start from the live map';
+  $('restoreBar').style.display='flex';
+  $('restoreYes').onclick=()=>{$('restoreBar').style.display='none';
+    if(restoreScene(draft.scene)){BASE_VERSION=+draft.baseVersion||0;PUBLISH_MARK=0;renderDraftBar()}};
+  $('restoreNo').onclick=()=>{$('restoreBar').style.display='none'};
+}
+
+/* The published land arriving over the bridge.
+   NOTHING REPAINTS OVER UNPUBLISHED WORK. A colleague publishing while you
+   are mid-drag must not move the ground under your hands, and your base
+   version deliberately stays where it was so your next publish is refused and
+   explains itself. Rebasing you here would turn that refusal into a silent
+   overwrite of the person who just published. */
+function applyScene(scene,version){
+  LIVE_SCENE=scene;
+  const mine=unpublished().length;
+  if(SCENE_APPLIED&&mine){
+    toast('The live map changed. Your draft is untouched.');
+    renderDraftBar();return false}
+  if(restoreScene(scene)){SCENE_APPLIED=true;BASE_VERSION=+version||0;PUBLISH_MARK=0;
+    renderDraftBar();return true}
+  return false;
+}
+
+function renderDraftBar(){
+  const st=$('draftState'),lv=$('draftLive'),go=$('pubGo');if(!st)return;
+  if(!inShell()){
+    st.innerHTML='<b>Build mode.</b> This map is running on its own.';
+    lv.textContent='⤓ Export scene hands you the file.';
+    go.style.display='none';$('visitBtn').style.display='none';
+    $('dropBtn').style.display='none';return}
+  go.style.display='';$('visitBtn').style.display='';$('dropBtn').style.display='';
+  if(VISITOR_VIEW){
+    st.innerHTML='<b>Seeing what a visitor sees.</b> This is the live map.';
+    lv.textContent=LIVE?`Version ${LIVE.version}`:'Nothing published yet';
+    go.style.display='none';$('visitBtn').textContent='Back to my draft';return}
+  go.style.display='';$('visitBtn').textContent='View as visitor';
+  const n=unpublished().length;
+  st.innerHTML=n?`<b>${n}</b> unpublished change${n===1?'':'s'}. The live map is unchanged.`
+                :'Editing a draft. The live map is unchanged.';
+  lv.textContent=LIVE?`Live: version ${LIVE.version}${LIVE.by?', by '+LIVE.by:''}`:'Nothing published yet';
+  go.disabled=!HAND.canPublish||!n;
+  go.title=HAND.canPublish?'':'Publishing the map is a cartographer\'s work.';
+}
+window.renderDraftBar=renderDraftBar;
+
+/* ---------- View as visitor ----------
+   Stash the draft, draw the live land, and put the draft back untouched. The
+   stash is a full export and the restore is the same absorber every other
+   scene goes through, so this cannot drift from what publishing does. */
+function toggleVisitor(){
+  if(!VISITOR_VIEW){
+    if(!LIVE_SCENE)return toast('Nothing has been published yet, so this already is what a visitor sees.');
+    DRAFT_HOLD=buildExportJSON();
+    VISITOR_VIEW=true;document.body.classList.add('visiting');
+    restoreScene(LIVE_SCENE);
+    toast('This is the live map. Your draft is waiting.');
+  }else{
+    VISITOR_VIEW=false;document.body.classList.remove('visiting');
+    if(DRAFT_HOLD){restoreScene(DRAFT_HOLD);DRAFT_HOLD=null}
+  }
+  renderDraftBar();
+}
+
+/* ---------- publish ---------- */
+function openPublish(){
+  const changes=unpublished();
+  if(!HAND.canPublish)return toast(inShell()
+    ?'Publishing the map is a cartographer\'s work.'
+    :'This map is running on its own, with no village to publish to. ⤓ Export scene hands you the file.');
+  if(!changes.length)return toast('Nothing to publish: the live map already matches this one.');
+  const card=$('pubCard');card.classList.remove('conflict');
+  $('pubTitle').textContent='Publish to the live map';
+  $('pubBlast').innerHTML=`<b>${changes.length} change${changes.length===1?'':'s'}</b> will become the map every visitor sees, straight away. `+
+    (LIVE?`This replaces version ${LIVE.version}.`:'This is the first published version.')+
+    ' Nobody else\'s draft is touched.';
+  /* The founder's own words, from the journal the map has kept all along. */
+  $('pubList').innerHTML=changes.slice().reverse().slice(0,40)
+    .map(e=>`<li>${escq(editLine(e))}</li>`).join('');
+  $('pubActions').style.display='flex';$('pubNote').style.display='';
+  $('pubConfirm').textContent='Publish it';
+  $('pubConfirm').onclick=doPublish;
+  $('pubWrap').classList.add('show');$('pubNote').focus();
+}
+function closePublish(){$('pubWrap').classList.remove('show')}
+
+/* One line per edit, in the same plain words shared/mapScene.ts uses on the
+   site side. Two lists that must agree is a known way to lose things, so the
+   verbs live in ONE place per side and qa/verify_publish.js checks that every
+   action this map can log has a word on the site's list. */
+const EDIT_VERBS={place:'placed',move:'moved',remove:'removed',rename:'renamed',duplicate:'duplicated',
+  scale:'resized',archetype:'changed the kind of',phase:'changed the phase of',circle:'changed the circle of',
+  blurb:'rewrote the description of',origin:'rewrote the origin story of',activity:'changed the activity of',
+  fund:'changed the funding of',badges:'changed the marks on',door:'changed a door on',
+  'door-add':'opened a door on','door-remove':'closed a door on',doors:'changed the doors on',
+  'feature-edit':'redrew','flow-add':'drew a flow','flow-remove':'removed a flow',
+  'flow-endpoint':'rerouted a flow','flow-medium':'changed what flows through','flow-via':'rerouted a flow',
+  'flow-style':'changed the flow styling','label-style':'changed the label styling',
+  'quest-add':'created a quest','quest-address':'moved a quest to','quest-weight':'changed the weight of a quest',
+  'seat-add':'created a seat','seat-address':'moved a seat to','address-override':'set the place of',
+  'public-unlock':'opened to the public','vision-boundary-seed':'drew the vision boundary',
+  'vital-override':'set a village vital','sprite-approve':'approved artwork for',
+  'sprite-reroll':'asked for new artwork for',skin:'restyled the map',
+  vocab:"renamed the village's words",undo:'undid a change'};
+function editLine(e){
+  const t=String(e.target||''),name=t.indexOf(':')>=0?t.slice(t.indexOf(':')+1):t;
+  const verb=EDIT_VERBS[e.action]||e.action;
+  return name?verb+' '+name:verb;
+}
+window.EDIT_VERBS=EDIT_VERBS;
+
+async function doPublish(){
+  const note=$('pubNote').value.trim();
+  $('pubConfirm').disabled=true;$('pubConfirm').textContent='Publishing...';
+  const r=await shellAsk('publish',{scene:buildExportJSON(),baseVersion:BASE_VERSION,note:note||null});
+  $('pubConfirm').disabled=false;$('pubConfirm').textContent='Publish it';
+  if(r.ok){
+    closePublish();
+    BASE_VERSION=+r.version||BASE_VERSION;PUBLISH_MARK=editSeq;
+    LIVE=(r.live&&r.live.version)?r.live:{version:r.version};
+    LIVE_SCENE=buildExportJSON();
+    $('pubNote').value='';
+    renderDraftBar();liveSince(r.version);
+    return}
+  if(r.quiet){closePublish();
+    return toast('This map is running on its own, with no village to publish to.')}
+  if(r.reason==='stale')return showConflict(r);
+  toast(r.error||'The village could not take that change. Your draft is safe.');
+}
+
+/* The refusal, given the same room as the act. A person who just pressed
+   publish and was told no needs to know who moved it and that their work
+   survived, in that order. */
+function showConflict(r){
+  const card=$('pubCard');card.classList.add('conflict');
+  $('pubTitle').textContent='The live map moved while you were working';
+  $('pubBlast').innerHTML=escq(r.error||'Someone published a change to the live map.')+
+    (r.live&&r.live.version?` It is now version ${r.live.version}.`:'');
+  $('pubList').innerHTML='<li>Your draft is exactly as you left it. Nothing was published.</li>'+
+    '<li>Look at the live map first, then bring your changes onto it.</li>';
+  $('pubNote').style.display='none';
+  $('pubConfirm').textContent='Show me the live map';
+  $('pubConfirm').onclick=()=>{closePublish();if(!VISITOR_VIEW)toggleVisitor()};
+}
+
+/* Throwing a draft away.
+   The same card publishing uses, in its refusal colour, because this is the
+   other irreversible-feeling act in build mode and it deserves the same room
+   to explain itself. The two facts a person needs before pressing it lead the
+   card: the live map does not move, and nobody else's draft is touched. */
+function openDiscard(){
+  const n=unpublished().length;
+  if(!n)return toast('There is no unpublished work to throw away.');
+  if(!inShell())return toast('This map is running on its own. Reload the page to start over.');
+  const card=$('pubCard');card.classList.add('conflict');
+  $('pubTitle').textContent='Throw away my draft';
+  $('pubBlast').innerHTML=`Your <b>${n}</b> unpublished change${n===1?'':'s'} will be gone. `+
+    `The live map does not move, and nobody else's draft is touched.`;
+  $('pubList').innerHTML='<li>The map goes back to the version everyone sees.</li>';
+  $('pubNote').style.display='none';
+  $('pubConfirm').textContent='Throw it away';
+  $('pubConfirm').onclick=doDiscard;
+  $('pubWrap').classList.add('show');
+}
+async function doDiscard(){
+  $('pubConfirm').disabled=true;
+  const r=await shellAsk('draft-discard',{});
+  $('pubConfirm').disabled=false;closePublish();
+  if(r.quiet)return toast('No village to reach from here. Nothing was thrown away.');
+  if(!r.ok)return toast(r.error||'That draft could not be thrown away.');
+  /* Back to the live land. Falling back to a reload rather than leaving the
+     discarded work on screen: the row is gone, and a map still showing it
+     would be the one lie this whole round exists to stop telling. */
+  if(LIVE_SCENE&&restoreScene(LIVE_SCENE)){PUBLISH_MARK=0;DRAFT_HOLD=null;renderDraftBar();
+    return toast('Draft thrown away. You are looking at the live map.')}
+  toast('Draft thrown away.');
+}
+
+/* Live since, with the undo sitting right there for the minute it matters. */
+function liveSince(version){
+  const t=new Date();
+  const hh=String(t.getHours()).padStart(2,'0'),mm=String(t.getMinutes()).padStart(2,'0');
+  maiaSay(`<b>Live since ${hh}:${mm}.</b> Version ${version} is the map every visitor sees now. `+
+    `<button class="btn ghostbtn" style="font-size:11px;padding:3px 9px;margin-top:6px" onclick="undoPublish()">Undo this</button>`);
+  toast('Live. Everyone sees this map now.');
+}
+
+/* Undo is a publish carrying an older scene, so it takes the same key and
+   settles the same race. Nothing is deleted, which is what makes it safe to
+   press when you are not sure. */
+async function undoPublish(){
+  /* UNDO_ASKS. The version below the live one is NOT live minus one. A
+     refused publish still consumes an AUTO_INCREMENT id, and a refused
+     publish is how two admins racing get settled, so any village with two
+     cartographers has gaps. The server reports `previous` from the history
+     itself and this asks for that rather than doing arithmetic on it. */
+  const back=(LIVE&&+LIVE.previous)||0;
+  if(back<1)return toast('There is no earlier version to go back to.');
+  const r=await shellAsk('restore',{version:back});
+  if(r.quiet)return toast('No village to reach from here.');
+  if(!r.ok)return toast(r.error||'That version could not be put back.');
+  LIVE=(r.live&&r.live.version)?r.live:{version:r.version};
+  BASE_VERSION=+r.version||BASE_VERSION;
+  renderDraftBar();
+  toast(`Version ${back} is live again.`);
+}
+window.undoPublish=undoPublish;
+
+(function publishBoot(){
+  $('pubGo').onclick=openPublish;
+  $('pubChip').onclick=openPublish;
+  $('visitBtn').onclick=toggleVisitor;
+  $('dropBtn').onclick=openDiscard;
+  $('pubCancel').onclick=closePublish;
+  /* STANDALONE_HAND. No shell means no village to ask, and no village to ask
+     means this is the founder's own design tool exactly as it has always
+     been. Reading silence as a refusal locked the Build button away from
+     every file:// session and every QA suite. A shell that IS present will
+     overrule this the moment it answers, which is the only opinion that
+     counts inside the site. */
+  if(!inShell()){HAND.canEdit=true;document.body.classList.add('can-edit')}
+  $('pubWrap').addEventListener('click',e=>{if(e.target===$('pubWrap'))closePublish()});
+  $('pubWrap').addEventListener('keydown',e=>{
+    if(e.key==='Escape'){closePublish();return}
+    if(e.target&&/^(INPUT|TEXTAREA)$/.test(e.target.tagName))e.stopPropagation();
+  });
+  renderDraftBar();
+})();
+
 /* ---------- embed bridge — the site shell speaks, the map listens ----------
    parent → map: {type:'skin', skin:<art_manifest.skin shape>} applies Village Settings live;
                  {type:'goto', hash:'#/place/kitchen'} routes the land.
@@ -5065,6 +5430,10 @@ addEventListener('message',e=>{try{
   if(d.type==='skin'&&d.skin){applySkinExport(d.skin);toast('✂ Skin applied from Village Settings.')}
   if(d.type==='goto'&&typeof d.hash==='string'){leaveIntro();location.hash=d.hash;routeHash()}
   if(d.type==='promise-result'&&d.id&&(d.kind==='rsvp'||d.kind==='claim'))promiseResult(d);
+  /* D8. `hand` is the village saying who is holding this map; `scene-result`
+     answers a draft-save, a publish or a restore. */
+  if(d.type==='hand')applyHand(d);
+  if(d.type==='scene-result'&&d.nonce)sceneResult(d);
 }catch(_){}});
 try{if(window.parent!==window)window.parent.postMessage({type:'grounds-ready',version:window.BUILD_VERSION||'v0.7'},'*')}catch(_){}
 
@@ -5201,6 +5570,10 @@ const _openPanelW=openPanel;openPanel=function(k,t,i){window.WGATE&&(WGATE.tap=t
 addEventListener('message',e=>{try{
   if(location.protocol!=='file:'&&e.origin!==location.origin)return;
   const d=e.data;if(!d||d.type!=='config')return;
+  /* The land first: everything below dresses what the scene puts down, and
+     restoreScene rebuilds the vocabulary anyway. Applying the skin to a
+     map that is about to be replaced wholesale is work thrown away. */
+  if(d.scene&&typeof d.scene==='object')applyScene(d.scene,d.sceneVersion);
   if(d.skin)applySkinExport(d.skin);
   if(Array.isArray(d.walk)&&d.walk.length)window.WALK=d.walk;
   if(d.vocabulary&&applyVocabulary(d.vocabulary).length){
