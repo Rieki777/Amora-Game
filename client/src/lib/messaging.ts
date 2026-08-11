@@ -114,7 +114,12 @@ export function sortInbox(list: InboxConversation[]): InboxConversation[] {
     const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
     const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
     if (tb !== ta) return tb - ta;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    // Newest id first, matching the server's `c.id DESC` backstop exactly.
+    // These two tiebreakers MUST agree: they disagreed once (server
+    // descending, this ascending), which meant a tied pair rendered in one
+    // order from the API and flipped the moment the client re-sorted after
+    // an optimistic send.
+    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
   });
 }
 

@@ -2,62 +2,57 @@ import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
-  Compass,
-  Heart,
-  Clock,
-  Star,
-  Calendar,
-  Sprout,
-  Users,
-  Home,
-  Brush,
-  Laptop,
-  ShieldCheck,
-  BookOpen,
-  TreePine,
-  ChefHat,
-  Camera,
-  Hammer,
-  Music,
-  Baby,
-  Leaf,
-  Filter,
-  Lightbulb,
   ArrowRight,
+  Calendar,
+  Compass,
+  Filter,
+  Heart,
+  Lightbulb,
+  Sparkles,
+  Star,
+  Sprout,
 } from "lucide-react";
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchGameMe, QuestClaim, useGameConfig } from "@/lib/gameApi";
-import QuestActions from "@/components/QuestActions";
 import { rewardCeiling } from "@shared/questRewards";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
+import QuestCard, { iconFor, QuestPoster } from "@/components/QuestCard";
+import {
+  currentClaims,
+  nextQuestFor,
+  relativeWhen,
+  revealedFrom,
+  ringFor,
+  RING_ORDER,
+  type BoardQuest,
+  type FieldSigns,
+  type Ring,
+} from "@/lib/questBoard";
 
-type QuestStatus = "Open" | "In Progress" | "Seasonal";
 type Difficulty = "Beginner" | "Intermediate" | "Advanced";
-/**
- * A circle name as a quest carries it. This was a nine-member union of one
- * village's circle names, hardcoded in platform code: a fork with different
- * circles got filter chips for circles it did not have, and no chip for the
- * ones it did. The chips are derived from the board itself now, so the list
- * is whatever the village is actually running.
- */
-type QuestCircle = string;
 
-interface Quest {
-  id: string;
-  title: string;
-  description: string;
-  impact: string;
-  gratitude: string;
-  duration: string;
-  difficulty: string;
-  circle: string;
-  status: string;
-  roleRequired?: string | null;
-  /** Icon SLUG from the server; iconFor() maps it to a component. */
-  icon: string;
-  tags: string[];
-}
+/**
+ * What each ring is for, said once at the top of its section. The rings are
+ * derived from the quests themselves (see ringFor), so a village that gates a
+ * quest or retunes a difficulty moves it here without touching this file.
+ */
+const RING_COPY: Record<Ring, { title: string; blurb: string }> = {
+  welcome: {
+    title: "Start here",
+    blurb:
+      "Open to everyone with a profile. Small enough to finish in an afternoon, and worth doing on its own.",
+  },
+  village: {
+    title: "The village",
+    blurb: "The everyday work the village runs on. Pick what fits your gift.",
+  },
+  further: {
+    title: "Further in",
+    blurb:
+      "These open as you walk the Path of Growth or step into a role. Each one says what opens it.",
+  },
+};
 
 /**
  * S10: quests render from GET /api/quests — the server list with REAL ids.
@@ -65,42 +60,34 @@ interface Quest {
  * rename silently orphaned claims (hazard table, questIdFromTitle). Server
  * ids are the only join key now, and admin quest edits appear without a
  * client release.
+ *
+ * The board itself is tier one of the disclosure ladder ported from the
+ * sibling game's quest redesigns: cards draw the eye and state the offer,
+ * and everything else (story, steps, claiming, submitting) lives on each
+ * quest's own page at /quests/:id. Circle names come from the data, so the
+ * filter row is whatever this village's quests actually use, never a
+ * hardcoded list.
  */
-const QUEST_ICONS: Record<string, React.ElementType> = {
-  Users, Sprout, ChefHat, TreePine, BookOpen, Home, Camera, Baby, Laptop,
-  Leaf, Hammer, Brush, Music, ShieldCheck, Star, Calendar, Compass,
-};
-const iconFor = (name: string | null | undefined): React.ElementType =>
-  QUEST_ICONS[String(name ?? "")] ?? Star;
-
-const difficultyColors: Record<string, string> = {
-  Beginner: "bg-sage/10 text-sage",
-  Intermediate: "bg-teal/10 text-teal-700",
-  Advanced: "bg-primary/10 text-primary",
-};
-
-const statusColors: Record<string, string> = {
-  Open: "bg-green-100 text-green-700",
-  "In Progress": "bg-amber/20 text-amber-700",
-  Seasonal: "bg-blue-100 text-blue-700",
-};
-
 export default function Quests() {
-  // The value token's live name (Admin → Tokens) — a fork's rename reaches
-  // the explainer below without a code change.
+  // The recognition and value tokens' live names (Admin → Tokens) — a fork's
+  // rename reaches every line below without a code change.
   const cfg = useGameConfig();
+  const currencyName = cfg?.currency?.name ?? "Gratitude";
   const valueName = cfg?.currency?.value?.name ?? "village tokens";
   // Same rule for the village's own name and its events page: this page is
   // platform code, so it asks the config rather than naming anybody.
   const villageName = cfg?.project?.name ?? "the village";
   const eventsUrl = cfg?.project?.eventsUrl ?? "";
-  const [activeCircle, setActiveCircle] = useState<QuestCircle>("All");
+  const stages = cfg?.stages ?? [];
+  const [activeCircle, setActiveCircle] = useState<string>("All");
   const [activeDifficulty, setActiveDifficulty] = useState<Difficulty | "All">(
     "All"
   );
   const { user } = useAuth();
   const [claims, setClaims] = useState<Record<string, QuestClaim>>({});
-  const [quests, setQuests] = useState<Quest[]>([]);
+  const [claimList, setClaimList] = useState<QuestClaim[]>([]);
+  const [quests, setQuests] = useState<BoardQuest[]>([]);
+  const [signs, setSigns] = useState<FieldSigns | null>(null);
   const [boardFailed, setBoardFailed] = useState(false);
 
   useEffect(() => {
@@ -113,35 +100,38 @@ export default function Quests() {
       // A swallowed failure used to render as "no quests match those
       // filters" — an outage presented as a fact about the village.
       .catch(() => setBoardFailed(true));
+    // Life signs are decoration on top of the board: if they fail, the
+    // board still renders, just quieter.
+    fetch("/api/quests/field")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && d.perQuest) setSigns(d); })
+      .catch(() => { /* board renders without counts */ });
   }, []);
 
   const refreshClaims = () => {
     fetchGameMe().then((me) => {
       if (!me) return;
-      const map: Record<string, QuestClaim> = {};
-      for (const c of me.quests) {
-        // keep the most relevant claim per quest (active beats declined)
-        if (!map[c.questId] || map[c.questId].status === "declined") map[c.questId] = c;
-      }
-      setClaims(map);
+      setClaimList(me.quests);
+      // Live work outranks finished work, and within one rank the later claim
+      // wins. Taking the first non-declined claim showed a repeatable quest as
+      // "Completed" while the member was holding it again.
+      setClaims(currentClaims(me.quests));
     });
   };
 
   useEffect(refreshClaims, []);
 
-  // The chips are the circles this board actually uses, in the order the
-  // village sorted them, so a fork never advertises a circle it does not run.
-  const circles = useMemo<QuestCircle[]>(
-    () => ["All", ...Array.from(new Set(quests.map((q) => q.circle).filter(Boolean))).sort()],
-    [quests],
-  );
-
-  // A chip can vanish when the board changes underneath a chosen filter.
-  // Without this the page would render "no quests match" about a circle that
-  // no longer exists, which reads as a fact about the village.
-  useEffect(() => {
-    if (!circles.includes(activeCircle)) setActiveCircle("All");
-  }, [circles, activeCircle]);
+  // The filter row is built from the data: every circle that actually has a
+  // quest, in board order. A village that renames its circles sees its own
+  // names here the moment the board updates.
+  const circles = useMemo(() => {
+    const seen: string[] = [];
+    for (const q of quests) {
+      const c = String(q.circle ?? "").trim();
+      if (c && !seen.includes(c)) seen.push(c);
+    }
+    return ["All", ...seen];
+  }, [quests]);
 
   const filtered = quests.filter((q) => {
     const circleMatch = activeCircle === "All" || q.circle === activeCircle;
@@ -150,9 +140,36 @@ export default function Quests() {
     return circleMatch && diffMatch;
   });
 
-  // Was `parseInt(q.gratitude.split("–")[1])`, which split on an en dash
-  // specifically and produced NaN for a plain hyphen or a single number.
-  const totalGratitude = filtered.reduce((sum, q) => sum + rewardCeiling(q.gratitude), 0);
+  // The filtered board, grouped into its rings. Filters apply inside a ring,
+  // so narrowing to one circle empties the rings it does not touch instead of
+  // flattening the whole page back into a wall.
+  const byRing = useMemo(() => {
+    const out: Record<Ring, BoardQuest[]> = { welcome: [], village: [], further: [] };
+    for (const q of filtered) out[ringFor(q)].push(q);
+    return out;
+  }, [filtered]);
+
+  // Progress counts read the WHOLE board, never the filtered view: "2 of 4
+  // walked" must not change because somebody tapped a circle chip.
+  const walkedIn = useMemo(() => {
+    const out: Record<Ring, number> = { welcome: 0, village: 0, further: 0 };
+    for (const q of quests) {
+      if (claims[q.id]?.status === "consented") out[ringFor(q)] += 1;
+    }
+    return out;
+  }, [quests, claims]);
+
+  const [expandedRings, setExpandedRings] = useState<Partial<Record<Ring, boolean>>>({});
+
+  const questById = useMemo(() => new Map(quests.map((q) => [q.id, q])), [quests]);
+  const inFlight = claimList.filter(
+    (c) => (c.status === "claimed" || c.status === "submitted") && questById.has(c.questId),
+  );
+  const suggestion = useMemo(
+    () => (user && quests.length ? nextQuestFor(quests, claimList) : null),
+    [user, quests, claimList],
+  );
+  const now = new Date();
 
   return (
     <Layout>
@@ -171,7 +188,7 @@ export default function Quests() {
               Community Quests
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-4">
-              Quests are how you contribute to the village and earn Gratitude, our
+              Quests are how you contribute to the village and earn {currencyName}, our
               way of acknowledging every contribution. Every quest builds
               relationships, regenerates the land, and grows the community's
               collective score.
@@ -182,7 +199,7 @@ export default function Quests() {
               {quests
                 .reduce((s, q) => s + rewardCeiling(q.gratitude), 0)
                 .toLocaleString()}{" "}
-              Gratitude available
+              {currencyName} available
             </p>
 
             {/* Propose-your-own CTA — right alongside the hero */}
@@ -209,6 +226,73 @@ export default function Quests() {
           </motion.div>
         </div>
       </section>
+
+      {/* Your journey: what you hold now, or the gentlest place to begin.
+          Signed-out visitors see nothing here; the board speaks for itself. */}
+      {user && (inFlight.length > 0 || suggestion) && (
+        <section className="pb-4 bg-background">
+          <div className="container max-w-7xl">
+            <div className="bg-card border border-border rounded-2xl p-5 sm:p-6 shadow-sm">
+              <h2 className="font-display text-lg font-bold text-foreground mb-4 flex items-center gap-2">
+                <Sprout className="w-5 h-5 text-teal-deep" />
+                {inFlight.length > 0 ? "Pick up where you left off" : "A good first quest"}
+              </h2>
+              {inFlight.length > 0 ? (
+                <ul className="grid sm:grid-cols-2 gap-3">
+                  {inFlight.map((c) => {
+                    const q = questById.get(c.questId)!;
+                    const Icon = iconFor(q.icon);
+                    return (
+                      <li key={c.id}>
+                        <Link
+                          href={`/quests/${q.id}`}
+                          className="flex items-center gap-3 rounded-xl border border-border p-3 hover:border-teal/40 hover:shadow-sm transition-all"
+                        >
+                          <QuestPoster quest={q} className="w-14 h-14 rounded-xl shrink-0">
+                            <Icon className="absolute inset-0 m-auto w-6 h-6 text-white" />
+                          </QuestPoster>
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-semibold text-sm text-foreground truncate">
+                              {q.title}
+                            </span>
+                            <span className="block text-xs text-muted-foreground">
+                              {c.status === "claimed"
+                                ? "In progress: submit your work when it's done"
+                                : "Submitted, awaiting circle consent"}
+                            </span>
+                          </span>
+                          <ArrowRight className="w-4 h-4 text-teal-deep shrink-0" />
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : suggestion ? (
+                <Link
+                  href={`/quests/${suggestion.quest.id}`}
+                  className="flex items-center gap-3 rounded-xl border border-border p-3 hover:border-teal/40 hover:shadow-sm transition-all"
+                >
+                  <QuestPoster quest={suggestion.quest} className="w-14 h-14 rounded-xl shrink-0">
+                    {(() => {
+                      const Icon = iconFor(suggestion.quest.icon);
+                      return <Icon className="absolute inset-0 m-auto w-6 h-6 text-white" />;
+                    })()}
+                  </QuestPoster>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold text-sm text-foreground truncate">
+                      {suggestion.quest.title}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {suggestion.quest.subtitle ?? "A gentle way in. See the first step."}
+                    </span>
+                  </span>
+                  <ArrowRight className="w-4 h-4 text-teal-deep shrink-0" />
+                </Link>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Filters */}
       {/* The nav is 96px tall (a 64px logo inside container py-4), not 64 —
@@ -257,93 +341,66 @@ export default function Quests() {
         </div>
       </section>
 
-      {/* Quest Cards */}
+      {/* The board, in rings. Each ring is a plain section with its own count,
+          so the page reads as a walk rather than as one long wall. */}
       <section className="py-16 bg-background">
         <div className="container">
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-7xl mx-auto mb-16">
-            {filtered.map((quest, index) => (
-              <motion.div
-                key={quest.id}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.04 }}
-                className="bg-card rounded-xl shadow-sm border border-border flex flex-col overflow-hidden"
-              >
-                {/* Card Header */}
-                <div className="bg-gradient-to-br from-teal/5 to-sage/10 px-6 pt-6 pb-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="w-10 h-10 rounded-lg bg-white shadow-sm flex items-center justify-center">
-                      {(() => { const QuestIcon = iconFor(quest.icon); return <QuestIcon className="w-5 h-5 text-teal-700" />; })()}
+          <div className="max-w-7xl mx-auto mb-16 space-y-14">
+            {RING_ORDER.map((ring) => {
+              const all = byRing[ring] ?? [];
+              if (all.length === 0) return null;
+              const meta = RING_COPY[ring];
+              const shown = expandedRings[ring]
+                ? all
+                : revealedFrom(all, user?.id ?? null, walkedIn[ring] ?? 0);
+              const hidden = all.length - shown.length;
+              return (
+                <div key={ring}>
+                  <div className="mb-5">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <h2 className="font-display text-2xl font-bold text-foreground">
+                        {meta.title}
+                      </h2>
+                      {user && walkedIn[ring] > 0 && (
+                        <span className="text-sm font-medium text-teal-deep">
+                          {walkedIn[ring]} of {all.length} walked
+                        </span>
+                      )}
                     </div>
-                    <div className="flex gap-2">
-                      <span
-                        className={`px-2 py-0.5 text-xs font-medium rounded-full ${(statusColors[quest.status] ?? "bg-muted text-muted-foreground")}`}
-                      >
-                        {quest.status}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 text-xs font-medium rounded-full ${(difficultyColors[quest.difficulty] ?? "bg-muted text-muted-foreground")}`}
-                      >
-                        {quest.difficulty}
-                      </span>
-                    </div>
+                    <p className="text-muted-foreground mt-1 max-w-2xl">{meta.blurb}</p>
                   </div>
-                  <h3 className="font-display text-lg font-bold text-foreground mb-1">
-                    {quest.title}
-                  </h3>
-                  <p className="text-xs text-primary font-medium">
-                    {quest.circle}
-                  </p>
-                </div>
-
-                {/* Card Body */}
-                <div className="px-6 py-4 flex-1">
-                  <p className="text-muted-foreground text-sm leading-relaxed mb-3">
-                    {quest.description}
-                  </p>
-                  <p className="text-xs text-foreground/60 italic mb-4">
-                    "{quest.impact}"
-                  </p>
-
-                  {quest.roleRequired && (
-                    <div className="mb-3 px-3 py-1.5 bg-amber/10 rounded-lg text-xs text-amber-700 font-medium">
-                      Requires: {quest.roleRequired}
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-1 mb-4">
-                    {quest.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="px-2 py-0.5 bg-muted rounded text-xs text-muted-foreground"
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {shown.map((quest, index) => (
+                      <motion.div
+                        key={quest.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        transition={{ delay: Math.min(index, 5) * 0.04 }}
+                        className="h-full"
                       >
-                        #{tag}
-                      </span>
+                        <QuestCard
+                          quest={quest}
+                          claim={claims[quest.id]}
+                          signs={signs?.perQuest[quest.id]}
+                          stages={stages}
+                          currencyName={currencyName}
+                          priority={ring === RING_ORDER[0] && index === 0}
+                        />
+                      </motion.div>
                     ))}
                   </div>
+                  {hidden > 0 && (
+                    <button
+                      onClick={() => setExpandedRings((r) => ({ ...r, [ring]: true }))}
+                      className="mt-5 min-h-11 px-5 rounded-lg border border-border font-semibold text-teal-deep hover:border-teal/40 transition-colors"
+                    >
+                      Show all {all.length}
+                    </button>
+                  )}
                 </div>
-
-                {/* Card Footer */}
-                <div className="px-6 py-4 border-t border-border bg-muted/30 flex items-center justify-between">
-                  <div className="flex items-center gap-1 text-primary font-semibold text-sm">
-                    <Heart className="w-4 h-4" />
-                    <span>{quest.gratitude} Gratitude</span>
-                  </div>
-                  <div className="flex items-center gap-1 text-muted-foreground text-xs">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>{quest.duration}</span>
-                  </div>
-                </div>
-
-                <QuestActions
-                  questId={quest.id}
-                  signedIn={!!user}
-                  claim={claims[quest.id]}
-                  onChanged={refreshClaims}
-                />
-              </motion.div>
-            ))}
+              );
+            })}
           </div>
 
           {filtered.length === 0 && (
@@ -356,6 +413,35 @@ export default function Quests() {
                     ? "There are no quests on the board yet."
                     : "No quests match those filters. Try a different combination."}
               </p>
+            </div>
+          )}
+
+          {/* Life signs: recent consented completions. Absent when there are
+              none — an empty feed renders as silence, never as a zero. */}
+          {signs && signs.recent.length > 0 && (
+            <div className="max-w-3xl mx-auto mb-16">
+              <h2 className="font-display text-xl font-bold text-foreground mb-4 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-gold" />
+                Recently completed
+              </h2>
+              <ul className="space-y-2">
+                {signs.recent.map((r, i) => (
+                  <li key={`${r.questId}-${i}`}>
+                    <Link
+                      href={`/quests/${r.questId}`}
+                      className="flex items-center justify-between gap-3 bg-card border border-border rounded-xl px-4 py-3 hover:border-teal/40 transition-colors"
+                    >
+                      <span className="text-sm text-foreground min-w-0 truncate">
+                        <span className="font-semibold">{r.name}</span> completed{" "}
+                        <span className="font-medium text-teal-deep">{r.questTitle}</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {relativeWhen(r.when, now)}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
@@ -400,29 +486,29 @@ export default function Quests() {
         <div className="container">
           <div className="max-w-3xl mx-auto">
             <h2 className="font-display text-3xl font-bold text-foreground mb-4 text-center">
-              What Is Gratitude?
+              What Is {currencyName}?
             </h2>
             <p className="text-muted-foreground text-center mb-10">
-              Gratitude is how {villageName} acknowledges contributions, a recognition signal with
+              {currencyName} is how {villageName} acknowledges contributions, a recognition signal with
               no financial value of its own. The value rides beside it: each cycle the
               community sets aside a real pool of {valueName} and shares it across
-              everyone's Gratitude, so appreciation decides where the value flows.
+              everyone's {currencyName}, so appreciation decides where the value flows.
             </p>
             <div className="grid sm:grid-cols-3 gap-6">
               {[
                 {
                   title: "Earn",
-                  body: "Complete quests, contribute to circles, steward the land, teach, build, host, create. Every meaningful act earns Gratitude.",
+                  body: `Complete quests, contribute to circles, steward the land, teach, build, host, create. Every meaningful act earns ${currencyName}.`,
                   icon: Heart,
                 },
                 {
                   title: "Hold",
-                  body: "Gratitude accumulates in your Village Profile and reflect your full contribution history. They're a record of everything you've invested.",
+                  body: `${currencyName} accumulates in your Village Profile and reflects your full contribution history. It's a record of everything you've invested.`,
                   icon: Star,
                 },
                 {
                   title: "Share",
-                  body: `Each cycle, everyone's Gratitude shares in a real pool of ${valueName}. As ${villageName} grows, ${valueName} can convert to cash, equity, or community currency. This is how we honor contributions made before we could pay in cash.`,
+                  body: `Each cycle, everyone's ${currencyName} shares in a real pool of ${valueName}. As ${villageName} grows, ${valueName} can convert to cash, equity, or community currency. This is how we honor contributions made before we could pay in cash.`,
                   icon: Sprout,
                 },
               ].map((item) => (

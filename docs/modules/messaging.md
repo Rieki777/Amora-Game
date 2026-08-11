@@ -88,6 +88,24 @@ module is non-off, and logs loudly when anything was wrong. The ledger's lesson,
 denormalized number only ever written by the code that also writes its source is a number nobody
 checks.
 
+**The columns are `timestamp(3)`, and that is load-bearing (0073).** 0066 shipped them without
+precision, and a MySQL `timestamp` with no precision stores WHOLE SECONDS. Two conversations that
+received a message in the same second therefore held equal `last_message_at`, fell through to a
+`created_at` that was also whole-second and equal, and ran out of tiebreakers, so the engine was
+free to return either order. It reddened main on the ordering test about half the time, but the
+test was the messenger: the same ambiguity reorders a real member's inbox between two loads for no
+reason they can see.
+
+`messages.created_at` carries the precision too, because it is the SOURCE the cache is derived
+from. Raising it on the cache alone would only store whole seconds in a column that can hold
+thousandths.
+
+The inbox `ORDER BY` also ends in `c.id DESC` as a deterministic backstop, and
+`sortInbox()` on the client uses the same direction. Those two MUST agree; they disagreed once,
+which meant a tied pair rendered one way from the API and flipped the moment the client re-sorted.
+If exact ordering ever matters more than milliseconds, the honest upgrade is to order by the
+newest message's `seq`, which is globally monotonic and cannot tie at all.
+
 ## Endpoints
 
 Every route mounts behind `requireModule("messaging")`.

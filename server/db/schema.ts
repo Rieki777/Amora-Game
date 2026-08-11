@@ -109,8 +109,19 @@ export const submissions = mysqlTable("submissions", {
 export const quests = mysqlTable("quests", {
   id: varchar("id", { length: 64 }).primaryKey(),
   title: varchar("title", { length: 255 }).notNull(),
+  /** One line under the title, the quest's own voice (0068). */
+  subtitle: varchar("subtitle", { length: 160 }),
   description: text("description"),
   impact: text("impact"),
+  /** The story layer (0068): why the quest matters, the first small step,
+   *  the path through the work, what to share, and a poster. Every column is
+   *  nullable, so a board written before 0068 keeps rendering unchanged. */
+  story: text("story"),
+  firstStep: varchar("first_step", { length: 400 }),
+  steps: json("steps"),
+  deliverable: varchar("deliverable", { length: 400 }),
+  tips: json("tips"),
+  imageUrl: varchar("image_url", { length: 500 }),
   /** The advertised range EXACTLY as the village wrote it, e.g. "50-100".
    *  0001 declared this an int because of the name; it never was one. */
   gratitude: varchar("gratitude", { length: 64 }).default("").notNull(),

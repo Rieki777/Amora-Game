@@ -156,6 +156,21 @@ describe("sortInbox", () => {
     expect(sortInbox(list).map((c) => c.id)).toEqual(["new", "old", "quiet"]);
   });
 
+  it("breaks a tie by newest id, the same way the server does", () => {
+    // The server's ORDER BY ends `c.id DESC`. If this disagreed, a tied pair
+    // would render one way from the API and flip the moment the client
+    // re-sorted after an optimistic send. It DID disagree once.
+    const same = "2026-08-10T00:00:00.000Z";
+    const list = [
+      conversation({ id: "cnv-100", lastMessageAt: same }),
+      conversation({ id: "cnv-300", lastMessageAt: same }),
+      conversation({ id: "cnv-200", lastMessageAt: same }),
+    ];
+    expect(sortInbox(list).map((c) => c.id)).toEqual(["cnv-300", "cnv-200", "cnv-100"]);
+    // And it is stable: sorting an already-sorted list changes nothing.
+    expect(sortInbox(sortInbox(list)).map((c) => c.id)).toEqual(["cnv-300", "cnv-200", "cnv-100"]);
+  });
+
   it("does not mutate its input", () => {
     const list = [
       conversation({ id: "a", lastMessageAt: "2026-08-01T00:00:00.000Z" }),
