@@ -128,9 +128,13 @@ export function previewOf(body: string, deletedAt: string | Date | null): string
  * changes, so a shorter string can sort above a later timestamp and the
  * tie-break silently starts returning the wrong order with no test failing.
  *
- * This is a local property, not a house fact: `server/lib/orgChart.ts`
- * defines its own `newId` as `Date.now().toString(36)`. Same name, different
- * format, and copying that one here would be the exact regression.
+ * This is a local property, not a house fact, and this file is the ODD ONE
+ * OUT: `server/lib` holds five `newId` implementations and the other four
+ * (orgChart, orgDrafts, orgRelations, seasonPatterns) all render the
+ * timestamp as `Date.now().toString(36)`. So the dangerous edit is not
+ * hypothetical, it is the tidy-up somebody makes to bring this one in line
+ * with its neighbours. It has to stay out of line, and this comment is the
+ * only thing standing between that edit and a silently reversed inbox.
  */
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

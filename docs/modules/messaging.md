@@ -106,9 +106,14 @@ which meant a tied pair rendered one way from the API and flipped the moment the
 
 **That backstop rests on the id format**, which is worth knowing before anyone tidies it: the
 epoch-ms segment in `newId` is decimal and fixed-width (13 digits until 2286), so lexicographic
-DESC equals chronological DESC. Base36 would break it silently, and `server/lib/orgChart.ts`
-already defines a different `newId` doing exactly that, so this is a local property rather than a
-house fact. The comment sits on `newId` itself, where the dangerous edit would be made.
+DESC equals chronological DESC. Base36 would break it silently, because its width changes and a
+shorter string can sort above a later timestamp.
+
+This file is the **odd one out**, which is what makes it a live risk rather than a note: `server/lib`
+holds five `newId` implementations and the other four (`orgChart`, `orgDrafts`, `orgRelations`,
+`seasonPatterns`) all use `Date.now().toString(36)`. The dangerous edit is the tidy-up that brings
+this one in line with its neighbours, so the warning sits on `newId` itself where that edit gets
+made rather than only here.
 
 If exact ordering ever matters more than milliseconds, the honest upgrade is a `last_message_seq`
 column ordered ahead of the id, since `messages.seq` is globally monotonic and cannot tie at all.
