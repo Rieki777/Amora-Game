@@ -6,6 +6,25 @@ const EXE = process.env.PW_EXE || '/opt/pw-browsers/chromium-1194/chrome-linux/c
 let fails = 0;
 const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++; };
 
+/*
+ * Wait for a STATE, not a clock.
+ *
+ * Every gate in this directory sleeps a fixed number of milliseconds after
+ * boot, and this one then asserts a deep link has landed. On 2026-08-10 that
+ * assertion failed once on a cold page in a fresh directory and passed three
+ * times afterwards on the same bytes, which is the signature of a boot that
+ * occasionally takes longer than the sleep rather than of a bug in the map.
+ *
+ * A gate that fails intermittently costs more than the bug it guards, because
+ * it teaches the next session to re-run instead of read. This returns whether
+ * the condition arrived rather than throwing, so a genuine failure still
+ * prints as a FAIL with its detail instead of a Playwright timeout stack.
+ */
+async function until(page, fn, ms = 15000) {
+  try { await page.waitForFunction(fn, undefined, { timeout: ms, polling: 100 }); return true; }
+  catch (_) { return false; }
+}
+
 (async () => {
   const browser = await chromium.launch({ executablePath: EXE });
   const ctx = await browser.newContext({ viewport: { width: 1480, height: 1180 } });
@@ -16,7 +35,9 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
 
   /* ---------- A. deep-link boot: #/place/kitchen enters straight onto the land ---------- */
   await page.goto(FILE + '#/place/kitchen');
-  await page.waitForTimeout(2400);
+  await until(page, () => typeof panelKey !== 'undefined' && panelKey === 'kitchen'
+    && !document.body.classList.contains('intro'));
+  await page.waitForTimeout(300); // the panel is open; let it finish drawing before reading it
   const deep = await page.evaluate(() => ({
     intro: document.body.classList.contains('intro'),
     panel: panelKey, hash: location.hash

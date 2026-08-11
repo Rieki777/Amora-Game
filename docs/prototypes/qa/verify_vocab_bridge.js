@@ -27,6 +27,14 @@ const EXE = process.env.PW_EXE || '/opt/pw-browsers/chromium-1194/chrome-linux/c
 let fails = 0;
 const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++; };
 
+/* Wait for a state, not a clock: a fixed post-boot sleep is what makes
+ * verify_doors.js fail about once in ten on a cold page. Returns whether the
+ * condition arrived, so a real failure reads as a FAIL and not as a stack. */
+async function until(page, fn, ms = 15000) {
+  try { await page.waitForFunction(fn, undefined, { timeout: ms, polling: 100 }); return true; }
+  catch (_) { return false; }
+}
+
 /*
  * A village that has renamed everything it is allowed to rename, written as a
  * literal for the same reason the skin bridge does it: this pins the WIRE
@@ -54,7 +62,13 @@ const PUSHED = {
   page.on('console', m => { if (m.type() === 'error') cerr.push(m.text()); });
 
   await page.goto(FILE);
-  await page.waitForTimeout(2600);
+  /* Bare identifiers: SUBTYPES and SCENE are top-level `const` in an inline
+     script, so they are SCRIPT scope and never properties of `window`. Only
+     what is explicitly assigned (window.MEDIA, window.phaseName) is there. */
+  const booted = await until(page, () => typeof SUBTYPES !== 'undefined'
+    && typeof SCENE !== 'undefined' && !!(SCENE.vocabulary && SCENE.vocabulary.media)
+    && typeof window.phaseName === 'function' && !!window.MEDIA);
+  ok(booted, 'the map finished booting (waited on state, not a clock)');
 
   /* ---------- A. the map starts in the platform's words ---------- */
   const before = await page.evaluate(() => ({

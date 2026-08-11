@@ -58,8 +58,8 @@ node qa/verify_features.js               # FEATURES: ALL GREEN   (~90 checks)
 node qa/verify_badges.js                 # BADGES: ALL GREEN     (36 checks)
 node qa/verify_loom.js                   # LOOM: ALL GREEN
 node qa/verify_skin_bridge.js            # SKIN BRIDGE: ALL GREEN (site lane's)
-node qa/verify_vocab_bridge.js           # VOCAB BRIDGE: ALL GREEN (20 checks)
-node qa/verify_bridge_doors.js           # BRIDGE DOORS: ALL GREEN (15 checks)
+node qa/verify_vocab_bridge.js           # VOCAB BRIDGE: ALL GREEN (21 checks)
+node qa/verify_bridge_doors.js           # BRIDGE DOORS: ALL GREEN (16 checks)
 node qa/_dump_scene.js out.json && node qa/check-schema.js out.json
 ```
 
@@ -199,6 +199,18 @@ only the new work contains.
 `hasTouch` alone. `qa/` also needs its own `package.json` (`type: commonjs`)
 because the repo root is `type: module`.
 
+**Most of the artifact's state is NOT on `window`.** `SCENE`, `SUBTYPES`,
+`SKIN`, `MEDIA` and the rest are top-level `const` in an inline script, which
+makes a SCRIPT-scope binding: `SCENE` resolves from `page.evaluate`, and
+`window.SCENE` is `undefined`. Only what is explicitly assigned is a property
+(`window.EVENTS`, `window.promiseWatch`, `window.phaseName`, `window.MEDIA`,
+which `rebuildMedia()` sets). This is silent in the worst way inside a
+`waitForFunction`, where a predicate that is merely never true is
+indistinguishable from a page that never booted: a boot check written against
+`window.SCENE` waited its full timeout on a page that was ready in a second,
+and every assertion after it passed. Use bare identifiers with a `typeof`
+guard, and when a wait times out, check the predicate before the map.
+
 **A leading slash resolves against the current DRIVE on Windows.** A suite
 writing to `/root/amora/...` passed here only because a stray `C:\root\amora\`
 existed from an earlier session. Found by the site lane deleting the directory.
@@ -336,12 +348,24 @@ quietly.
   cannot carry a key. Two lists say the same thing. Confirmed still true and
   still correct: they sit beside `events` in the export, and the importer reads
   them there.
-- **`verify_doors.js` is flaky at least once in ten.** It failed one assertion
-  on a snapshot that then passed the same suite twice in a row, unchanged, and
-  passed again in isolation. Not chased down, because it went green on the
-  bytes that shipped and the failure was not reproduced. Written here so the
-  next session that sees one red door re-runs before rebuilding anything: a
-  gate that fails intermittently costs more than the bug it was guarding.
+- **The gates wait on a clock, and that is why one of them flaked.**
+  `verify_doors.js` failed its deep-link assertion once on a cold page, then
+  passed repeatedly on the same bytes. The cause is structural rather than
+  local: across the eight gates there are **111 `waitForTimeout` calls and
+  zero `waitForFunction`**. Boot is a fixed sleep followed immediately by an
+  assertion about a state that boot may not have reached yet, so the suite is
+  measuring the machine as much as the map. Fixed at the three places it bit,
+  by waiting for the state: `verify_doors.js` waits for the deep link to land,
+  and `verify_bridge_doors.js` and `verify_vocab_bridge.js` wait for the
+  globals they read. The helper is a five-line `until()` that returns false
+  instead of throwing, so a genuine failure still prints as a FAIL with its
+  detail rather than a Playwright stack.
+  **Left undone on purpose:** the other ~100 sleeps, most of them mid-suite
+  waits after a click where the risk is much lower, and all of
+  `verify_features.js` and `verify_badges.js`, which the round E lane had open
+  in the tree at the time. Copy the pattern from `verify_doors.js` when you are
+  next in one of them. A gate that fails intermittently costs more than the bug
+  it guards, because it teaches the next session to re-run instead of read.
 
 **Closed this round:** the vocabulary inbound gap. `applyVocabulary()` is the
 one door, `patch_d7_vocab_inbound.py` is the change, `qa/verify_vocab_bridge.js`

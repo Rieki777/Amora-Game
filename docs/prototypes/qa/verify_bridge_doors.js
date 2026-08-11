@@ -39,6 +39,14 @@ const COVERED_ELSEWHERE = {
 };
 const COVERED_HERE = ['skin', 'goto', 'promise-result'];
 
+/* Wait for a state, not a clock: a fixed post-boot sleep is what makes
+ * verify_doors.js fail about once in ten on a cold page. Returns whether the
+ * condition arrived, so a real failure reads as a FAIL and not as a stack. */
+async function until(page, fn, ms = 15000) {
+  try { await page.waitForFunction(fn, undefined, { timeout: ms, polling: 100 }); return true; }
+  catch (_) { return false; }
+}
+
 function pathFromFileUrl(u) {
   let p = decodeURIComponent(String(u).replace(/^file:\/\//, '').replace(/[?#].*$/, ''));
   if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1); // file:///C:/x gives /C:/x on Windows
@@ -54,7 +62,18 @@ function pathFromFileUrl(u) {
   page.on('console', m => { if (m.type() === 'error') cerr.push(m.text()); });
 
   await page.goto(FILE);
-  await page.waitForTimeout(2600);
+  /*
+   * Bare identifiers, not `window.X`. Most of the artifact's state is declared
+   * with top-level `const` in an inline script, which makes a SCRIPT-scope
+   * binding: `SCENE` resolves, `window.SCENE` is undefined. Only what is
+   * explicitly assigned (`window.EVENTS`, `window.promiseWatch`) is on the
+   * object. The first draft of this predicate used `window.SCENE` and waited
+   * the full timeout on a page that was ready in a second.
+   */
+  const booted = await until(page, () => typeof SKIN !== 'undefined' && typeof SCENE !== 'undefined'
+    && Array.isArray(window.EVENTS) && window.EVENTS.length > 0
+    && typeof window.promiseWatch === 'function');
+  ok(booted, 'the map finished booting (waited on state, not a clock)');
 
   /* ---------- A. the {type:'skin'} door ----------
    * Village Settings pushes this on save. verify_skin_bridge.js owns whether
