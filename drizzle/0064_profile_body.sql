@@ -1,4 +1,4 @@
--- 0063: the body of the Player Profile.
+-- 0064: the body of the Player Profile.
 --
 -- The profile is a character sheet, so it needs a name a stranger can reach it
 -- by, a title the player equips, a place on the land, and a say in which of

@@ -1,4 +1,4 @@
--- 0064: the mint rules, and the two columns gratitude was missing.
+-- 0065: the mint rules, and the two columns gratitude was missing.
 --
 -- There is no `ledger_events` table here and no second token registry, on
 -- purpose. `token_ledger` has been the one ledger since 0005 and it is

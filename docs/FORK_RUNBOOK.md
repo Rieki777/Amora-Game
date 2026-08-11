@@ -600,7 +600,7 @@ Every seat recorded under that name ends and loses the name and the note, past
 seats included. The seats keep their history and their counts; only the person
 goes.
 
-## Characters and the economy (0062 to 0065)
+## Characters and the economy (0063 to 0066)
 
 Four migrations arrive together. Snapshot first, then boot: the runner applies
 them fail-loud before the server serves.

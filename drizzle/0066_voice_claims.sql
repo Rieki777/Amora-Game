@@ -1,4 +1,4 @@
--- 0065: carrying accrued voice to Hypha.
+-- 0066: carrying accrued voice to Hypha.
 --
 -- Voice accrues in this ledger like every other token and settles on Hypha.
 -- The bridge between them is a claim, and the claim is a ROW because the

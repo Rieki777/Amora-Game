@@ -12973,7 +12973,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       c.status = "consented";
       c.amount = granted;
       c.resolvedAt = new Date().toISOString();
-      // WHO witnessed it (0063). The guard above already refuses self-consent
+      // WHO witnessed it (0064). The guard above already refuses self-consent
       // in the moment; recording the witness is what lets the audit see a
       // reciprocal pair afterwards, and what makes the rule checkable at all
       // once the request is over.
