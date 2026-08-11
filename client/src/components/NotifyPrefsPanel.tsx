@@ -147,7 +147,7 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
         <label className="flex items-center gap-2 text-sm text-gray-700 mb-4">
           <input type="checkbox" checked={contactable} onChange={(e) => saveContactable(e.target.checked)} />
           Contactable through the Village Map
-          <span className="text-xs text-gray-400">(role holders only; senders see a relay, never your email)</span>
+          <span className="text-xs text-gray-600">(role holders only; senders see a relay, never your email)</span>
         </label>
       )}
 
