@@ -599,3 +599,51 @@ curl -X POST https://<your-domain>/api/admin/org/seatings/<seating-id>/forget \
 Every seat recorded under that name ends and loses the name and the note, past
 seats included. The seats keep their history and their counts; only the person
 goes.
+
+## Characters and the economy (0062 to 0065)
+
+Four migrations arrive together. Snapshot first, then boot: the runner applies
+them fail-loud before the server serves.
+
+Nothing here needs an env var. The two Hypha secrets the voice claim will need
+are NOT wired yet and are named in the PR, not here, so nobody sets a variable
+that nothing reads.
+
+**Seeded at every boot**, beside `ensureStayToken` and `ensureLibraryToken`:
+
+- the village voice token (`village-voice`), platform-governed so it can accrue
+  here, at 3 decimals so a rule of 0.1 posts 100 thousandths rather than
+  truncating to zero;
+- the five classes (`archetypes`), which UPSERT, so an improvement to the copy
+  reaches every village on the next deploy;
+- the starting `mint_rules`, which INSERT ONLY WHEN ABSENT and are never
+  updated. An amount your village has edited is never restored to the platform
+  default by a redeploy. To change one, edit the row.
+
+Re-running seeds nothing twice and grants nobody anything: value only ever
+enters through the engine.
+
+**One new scheduled job**, `moon-settlement`, hourly. Hourly is how often it
+ASKS, not a payment cadence: every mint is keyed on cycle, seat and holder, so
+twenty-four runs a day pay exactly what one does and an interrupted run
+finishes on the next tick. It thanks seat holders at the amounts the rules
+already promised. It does NOT close a gratitude cycle, which stays a human act.
+
+**Two new variables**, both in Admin under Gratitude:
+
+| key | default | what it counts |
+|---|---|---|
+| `economy.giving_allowance_per_moon` | 30 | Hearts a member may give each lunation |
+| `economy.hearts_per_recipient_per_moon` | 10 | Hearts to any one person each lunation |
+
+These are separate from `gratitude.base_budget` and
+`gratitude.max_per_recipient_per_cycle`, which govern the older acknowledgement
+flow and count SENDS rather than Hearts. Both pairs are live and both write
+`gratitude_log`; the new pair is the stricter, so the overlap runs in the safe
+direction. Retiring one is a decision, not a cleanup.
+
+**Avatars.** `scripts/gen_avatars.py` needs `GEMINI_API_KEY` in the
+environment, never committed, and is only ever run by hand. It keeps its 2K
+masters in `scripts/avatar-bases/` (gitignored) and delivers 1024px webp, which
+is what keeps 30 portraits inside the CI budget of 6000 KB for the whole of
+`dist`. Re-running skips what exists.
