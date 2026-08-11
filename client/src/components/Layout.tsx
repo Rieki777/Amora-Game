@@ -38,6 +38,7 @@ export default function Layout({ children }: LayoutProps) {
   const toolsModule = useModule("tools");
   const mapModule = useModule("map");
   const forumModule = useModule("forum");
+  const messagingModule = useModule("messaging");
   const feedModule = useModule("feed");
   const staysModule = useModule("stays");
   const exchangeModule = useModule("exchange");
@@ -227,6 +228,14 @@ export default function Layout({ children }: LayoutProps) {
                 )}
               </Link>
             )}
+            {messagingModule && (
+              <Link href="/messages" className="text-white hover:underline transition-colors text-sm">
+                Messages
+                {messagingModule.lifecycle === "preview" && (
+                  <span className="ml-1 text-[9px] bg-amber/30 text-amber-200 px-1 py-0.5 rounded uppercase">preview</span>
+                )}
+              </Link>
+            )}
             {mapModule && (
               <Link href="/map" className="text-white hover:underline transition-colors text-sm">
                 Map
@@ -397,6 +406,11 @@ export default function Layout({ children }: LayoutProps) {
                 {forumModule && (
                   <Link href="/forum" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
                     Forum{forumModule.lifecycle === "preview" ? " (preview)" : ""}
+                  </Link>
+                )}
+                {messagingModule && (
+                  <Link href="/messages" className="block text-white hover:underline transition-colors text-sm py-2" onClick={() => setMobileMenuOpen(false)}>
+                    Messages{messagingModule.lifecycle === "preview" ? " (preview)" : ""}
                   </Link>
                 )}
                 {mapModule && (

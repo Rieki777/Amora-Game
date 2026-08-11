@@ -1,0 +1,7 @@
+{
+  "//": "Typechecks the test files, which tsconfig.json deliberately excludes. `pnpm check` therefore CANNOT catch a test calling a helper with an old signature: on 2026-08-10 two such calls passed all five gates and only failed thirty minutes into the suite, as an assertion error rather than as a type error. Run `npx tsc --noEmit -p tsconfig.tests.json` after changing any exported signature a test uses.",
+  "//2": "OPT-IN, not a gate. It currently reports three PRE-EXISTING errors in server/lib/knowledge.test.ts that belong to the village-brain lane, so a non-empty result here does not mean your change is broken. Read the filenames before believing it. Wiring this into CI needs those cleared first.",
+  "extends": "./tsconfig.json",
+  "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
+  "exclude": ["node_modules", "build", "dist"]
+}

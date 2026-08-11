@@ -32,6 +32,11 @@ const CADENCES: Record<string, Array<{ v: string; label: string }>> = {
     { v: "daily", label: "Daily digest" },
     { v: "off", label: "In-app only" },
   ],
+  messagesEmail: [
+    { v: "immediate", label: "Right away" },
+    { v: "daily", label: "Daily digest" },
+    { v: "off", label: "In-app only" },
+  ],
 };
 
 const LABELS: Record<string, string> = {
@@ -40,6 +45,7 @@ const LABELS: Record<string, string> = {
   gratitudeEmail: "Appreciation received",
   mentionsEmail: "Someone mentions you",
   repliesEmail: "Replies to your threads",
+  messagesEmail: "New messages",
 };
 
 export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void }) {

@@ -181,6 +181,23 @@ export const MODULES: ModuleDef[] = [
     apiPrefixes: ["/api/feed"],
   },
   {
+    id: "messaging",
+    name: "Messages",
+    description:
+      "Private conversations between members: one to one, or a named group carrying its own membership and read state. A direct message is the two-party case of the same thread, so every conversation in the village has one home, one report path, and one place to moderate.",
+    requires: [],
+    recommends: [],
+    capabilities: ["message.send"],
+    variableKeys: ["messaging.sends_per_minute", "messaging.max_members"],
+    apiPrefixes: ["/api/messages", "/api/admin/messages"],
+    // No openStateCheck, on purpose. That hook exists for modules holding
+    // VALUE somebody is owed: open loans, active stays, unsettled orders,
+    // standing warnings. Messaging holds none, so a village may switch it off
+    // whenever it likes. Off hides the surface; the conversations stay in the
+    // table and come back intact when it is switched on again. Read the
+    // module doc before adding one here: an unread message is not a debt.
+  },
+  {
     id: "stays",
     name: "Stays",
     description:
