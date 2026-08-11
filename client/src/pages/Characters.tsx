@@ -177,7 +177,7 @@ export default function Characters() {
         <div className="container">
           {/* Small, because the picture is the headline. */}
           <div className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h1 className="text-sm font-semibold uppercase tracking-widest text-teal-deep">
+            <h1 className="text-sm font-semibold uppercase tracking-widest text-gold">
               Choose who you will be
             </h1>
             <p className="text-sm text-gray-700">
@@ -367,7 +367,7 @@ export default function Characters() {
           {/* Your party. */}
           {party.length > 0 ? (
             <section className="mt-10">
-              <h2 className="text-lg font-display font-bold text-teal-deep">Your party</h2>
+              <h2 className="text-lg font-display font-bold text-gold">Your party</h2>
               <ul className="mt-3 flex flex-wrap gap-3">
                 {party.map((c) => {
                   const a = archetypes.find((x) => x.key === c.archetypeKey);
