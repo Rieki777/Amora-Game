@@ -71,20 +71,31 @@ have come back with its next advisory. Two lanes reached that conclusion
 independently within three days, which is the sign of a class worth checking
 rather than a one-off.
 
-Still in `package.json`, and inert: the `tailwindcss>nanoid: 3.3.7` override.
-It binds to nothing. `tailwindcss@4.1.14` has no dependencies at all in the
-lockfile, so the `tailwindcss>nanoid` selector has had no edge to match since
-tailwindcss went to v4. The only `nanoid` left in the tree arrives as
-`postcss@8.5.6 > nanoid@3.3.11`, a devDependency path that `--prod` does not
-audit, which is why the gate is green with it still there.
+The `tailwindcss>nanoid: 3.3.7` override came out on 2026-08-11, in its own
+commit as this page asked. It bound to nothing. `tailwindcss@4.1.14` has no
+dependencies at all in the lockfile, so the `tailwindcss>nanoid` selector had
+no edge to match from the moment tailwindcss went to v4. Removing it changed no
+resolution at all: the entire lockfile diff was the two override lines, and
+`nanoid` still arrives exactly where it did, at `postcss@8.5.6 > nanoid@3.3.11`.
 
-That pin is worth removing on purpose, because the version it names is the
-worse one. `3.3.7` sits below the patched floor of two high advisories that a
-full `pnpm audit` still reports: GHSA-28wg-ghj8-5hjv (patched >= 3.3.16) and
-GHSA-2v37-7h3g-55p8 (patched >= 3.3.17). Both also cover the 3.3.11 that
-resolves today. If a future tailwindcss release ever takes a `nanoid`
-dependency, this override would quietly pin it to a version carrying both.
-Clean it up in its own commit, so a security fix stays revertible in one.
+It was worth removing because the version it named was the worse one. `3.3.7`
+sits below the patched floor of two high advisories that a full `pnpm audit`
+still reports: GHSA-28wg-ghj8-5hjv (patched >= 3.3.16) and GHSA-2v37-7h3g-55p8
+(patched >= 3.3.17). A dead selector stays harmless only while it stays dead,
+and this one pointed at a version carrying both, so a future tailwindcss
+release that took a `nanoid` dependency would have activated it straight into
+a vulnerability.
+
+Both advisories do still apply to the `nanoid@3.3.11` that postcss resolves
+today, and both stay off the ignore list, because neither one is accepted and
+neither one needs to be. That path is a devDependency, so `--prod` never
+reaches it. What postcss wants `nanoid` for is the debug label in
+`'<input css ' + nanoid(6) + '>'`, a build-time source-map id, which gives a
+non-secure-generator advisory nothing to reach. And postcss asks for
+`nanoid: ^3.3.11`, a range that already admits the patched 3.3.18, so the next
+refresh of that pin closes both on its own. A scoped `postcss>nanoid` override
+would close them today, and it would go dead the day postcss raises its own
+floor, which is how the pin described above came to exist in the first place.
 
 Worth remembering as a class: **the cheapest security fix is a dependency you
 were not using.** Before accepting an advisory, check whether the package is
