@@ -16,7 +16,10 @@ Usage: python3 patch_walklog_atindex.py [grounds-v0.html]
 import sys
 
 HTML = sys.argv[1] if len(sys.argv) > 1 else "grounds-v0.html"
-src = open(HTML, encoding="utf8").read()
+# Text mode would translate every newline on the way in and back out, so a
+# one-anchor edit would rewrite all of this LF file as CRLF. The artifact is
+# `-text` in .gitattributes: bytes in, same bytes out. Keep newline="".
+src = open(HTML, encoding="utf8", newline="").read()
 
 OLD = ("function endWalk(done){clearTimeout(WTMR);WIDX=-1;"
        "$('walkCard').classList.remove('show');\n")
@@ -33,5 +36,5 @@ n2 = src.count(OLD2)
 assert n2 == 1, f"terminal-row anchor appears {n2} times, expected 1"
 src = src.replace(OLD2, NEW2, 1)
 
-open(HTML, "w", encoding="utf8").write(src)
+open(HTML, "w", encoding="utf8", newline="").write(src)
 print("terminal walk rows now carry the step they ended on")

@@ -20,7 +20,10 @@ Usage: python3 patch_walklog_post.py [grounds-v0.html]
 import sys
 
 HTML = sys.argv[1] if len(sys.argv) > 1 else "grounds-v0.html"
-src = open(HTML, encoding="utf8").read()
+# Text mode would translate every newline on the way in and back out, so a
+# one-anchor edit would rewrite all of this LF file as CRLF. The artifact is
+# `-text` in .gitattributes: bytes in, same bytes out. Keep newline="".
+src = open(HTML, encoding="utf8", newline="").read()
 before = len(src)
 
 
@@ -86,5 +89,5 @@ src = src.replace(
     1,
 )
 
-open(HTML, "w", encoding="utf8").write(src)
+open(HTML, "w", encoding="utf8", newline="").write(src)
 print(f"walk-log POST wired: {before} -> {len(src)} chars (+{len(src)-before})")
