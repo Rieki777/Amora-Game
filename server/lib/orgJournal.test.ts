@@ -6,7 +6,10 @@ const role = (over: Partial<OrgRole> = {}): OrgRole => ({
   domain: "Arrivals.", accountabilities: ["a", "b"], whyItMatters: null,
   seats: 1, criticality: "normal", active: true, recruiting: false,
   expiresEachSeason: null, statusOverride: null, statusOverrideExpiresAt: null,
-  icon: null, color: null, order: 0, isExample: false, ...over,
+  icon: null, color: null, order: 0, isExample: false,
+  authority: null, firstYearOutcomes: null, first90DayOutcomes: null,
+  locationExpectations: null, compensationReality: null, evidenceRequired: null,
+  ...over,
 });
 
 describe("what a structural change says about itself", () => {

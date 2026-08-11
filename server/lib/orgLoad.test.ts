@@ -16,6 +16,8 @@ const role = (id: string, over: Partial<OrgRole> = {}): OrgRole => ({
   active: true, recruiting: false, expiresEachSeason: null,
   statusOverride: null, statusOverrideExpiresAt: null,
   icon: null, color: null, order: 0, isExample: false,
+  authority: null, firstYearOutcomes: null, first90DayOutcomes: null,
+  locationExpectations: null, compensationReality: null, evidenceRequired: null,
   ...over,
 });
 
@@ -24,6 +26,7 @@ const seat = (orgRoleId: string, holderKey: string, over: Partial<OrgAssignment>
   id: `a${(n += 1)}`, orgRoleId, holderKind: "member", userId: holderKey,
   displayName: holderKey, holderKey, focus: null, note: null, seasonId: null,
   termEndsAt: null, startedAt: new Date("2026-01-01"), endedAt: null, endedReason: null,
+  isExample: false,
   ...over,
 });
 

@@ -103,8 +103,26 @@ thousandths.
 The inbox `ORDER BY` also ends in `c.id DESC` as a deterministic backstop, and
 `sortInbox()` on the client uses the same direction. Those two MUST agree; they disagreed once,
 which meant a tied pair rendered one way from the API and flipped the moment the client re-sorted.
-If exact ordering ever matters more than milliseconds, the honest upgrade is to order by the
-newest message's `seq`, which is globally monotonic and cannot tie at all.
+
+**That backstop rests on the id format**, which is worth knowing before anyone tidies it: the
+epoch-ms segment in `newId` is decimal and fixed-width (13 digits until 2286), so lexicographic
+DESC equals chronological DESC. Base36 would break it silently, because its width changes and a
+shorter string can sort above a later timestamp.
+
+This file is the **odd one out**, which is what makes it a live risk rather than a note: `server/lib`
+holds five `newId` implementations and the other four (`orgChart`, `orgDrafts`, `orgRelations`,
+`seasonPatterns`) all use `Date.now().toString(36)`. The dangerous edit is the tidy-up that brings
+this one in line with its neighbours, so the warning sits on `newId` itself where that edit gets
+made rather than only here.
+
+If exact ordering ever matters more than milliseconds, the honest upgrade is a `last_message_seq`
+column ordered ahead of the id, since `messages.seq` is globally monotonic and cannot tie at all.
+It was weighed and deferred: the sort is already total, so it buys independence from the id-format
+coincidence rather than a correctness fix, and it adds a SECOND denormalized cache that
+`auditLastMessageAt()` would have to set in the same pass as the first. Miss that and the cache
+and the ordering key drift apart with no failing test and no error, which is a worse failure than
+the one it removes. Both precision paths are now pinned by tests: the SQL recompute and the
+audit's JavaScript round-trip, which is the one that could quietly truncate.
 
 ## Endpoints
 

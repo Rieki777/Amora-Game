@@ -1,7 +1,11 @@
 {
   "//": "Typechecks the test files, which tsconfig.json deliberately excludes. `pnpm check` therefore CANNOT catch a test calling a helper with an old signature: on 2026-08-10 two such calls passed all five gates and only failed thirty minutes into the suite, as an assertion error rather than as a type error. Run `npx tsc --noEmit -p tsconfig.tests.json` after changing any exported signature a test uses.",
-  "//2": "OPT-IN, not a gate. It currently reports three PRE-EXISTING errors in server/lib/knowledge.test.ts that belong to the village-brain lane, so a non-empty result here does not mean your change is broken. Read the filenames before believing it. Wiring this into CI needs those cleared first.",
+  "//2": "OPT-IN, not a gate: no CI step and no package.json script runs it yet. It is CLEAN as of 2026-08-11, so a non-empty result is something your change introduced and is not inherited debt. Keep it that way. The header used to claim three known errors in one file while the real count had reached eight across five, because every lane that added tests added to the pile and nobody ran it.",
+  "//3": "`target` is set here because tsconfig.json omits it, which leaves typechecking at the ES5 default and refuses to iterate a Set or a Map (TS2802). The tests run on modern Node under vitest, so es2022 is what they actually execute as. Setting it here rather than in the base config keeps `pnpm check` behaviour untouched.",
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "es2022"
+  },
   "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
   "exclude": ["node_modules", "build", "dist"]
 }
