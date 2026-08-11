@@ -72,6 +72,17 @@ jobs:
         # whole, which is why it can be a hard gate.
         run: node scripts/check-auth-fetch.mjs
 
+      - name: Living map artifact budget
+        # The bundle budget below measures dist/public. The living map is served
+        # straight from docs/prototypes and never copied into dist, so it is the
+        # largest thing this site sends to a phone and the one thing no budget
+        # could see: 5.2 MiB on disk, 3.7 MiB gzipped, thirteen times the main JS
+        # bundle. Exactly the blind spot the bundle budget's own comment names.
+        #
+        # Runs BEFORE the build because it needs no build: it reads a file in the
+        # repo, so it fails in seconds rather than after pnpm build and pnpm test.
+        run: node scripts/check-artifact-budget.mjs
+
       - name: Build
         run: pnpm build
 

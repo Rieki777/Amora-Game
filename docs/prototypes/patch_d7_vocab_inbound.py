@@ -45,8 +45,15 @@ Usage: python3 patch_d7_vocab_inbound.py [grounds-v0.html]
 import sys
 
 HTML = sys.argv[1] if len(sys.argv) > 1 else "grounds-v0.html"
-src = open(HTML, encoding="utf8").read()
+# newline="" on BOTH ends, or this is not a patch script, it is a rewriter.
+# Text mode reads translate \r\n to \n, and writing that back with newline=""
+# converts every line ending in the file. On today's all-LF artifact that is
+# invisible; on a CRLF one it silently rewrites all 5604 lines and destroys the
+# byte-identity that makes "two lanes replayed the scripts and got the same
+# sha256" a proof of what is live.
+src = open(HTML, encoding="utf8", newline="").read()
 before = len(src)
+applied = 0
 
 
 def swap(old, new, count=1):
@@ -56,17 +63,27 @@ def swap(old, new, count=1):
     src = src.replace(old, new, count)
 
 
-def step(name, old, new, marker):
+def step(name, old, new, marker, required=True):
     """One edit, skipped when its marker says it already landed.
 
     Per step rather than one guard at the top: a global guard would make a
     file that got three of four edits look finished, which is the same shape
     as the bug this patch is here to remove.
+
+    `required=False` is for an edit whose anchor going missing means another
+    lane moved on rather than that something is wrong. Only the build label
+    qualifies: the code edits abort, because a missing code anchor is a real
+    disagreement about the file.
     """
+    global applied
     if marker in src:
         print(f"  skip  {name} (already applied)")
         return
+    if not required and src.count(old) == 0:
+        print(f"  skip  {name} (anchor gone, another lane owns it now)")
+        return
     swap(old, new)
+    applied += 1
     print(f"  apply {name}")
 
 
@@ -145,12 +162,24 @@ step(
 # `/grounds/manifest.json` verification greps this string to tell live from
 # stale. The FAMILY is what the site importer pins (`v0.8`), so a point release
 # inside it is admitted by design; qa/verify_features.js moves with it.
+# Not required: the label belongs to whoever ships next, and by the time this
+# is replayed it has usually moved on (roundE, publish, ...). Pinning the exact
+# predecessor is what made patch_e9_version.py abort mid-round when the other
+# lane bumped roundD1 to roundD2. A missing label anchor means the round moved,
+# never that the file is wrong, so this one steps aside instead of refusing.
 step(
     "the build label",
     "BUILD_VERSION='v0.8-roundD'",
     "BUILD_VERSION='v0.8-roundD1'",
     "v0.8-roundD1",
+    required=False,
 )
 
-open(HTML, "w", encoding="utf8", newline="").write(src)
-print(f"vocabulary inbound patched {HTML}: {before} -> {len(src)} bytes ({len(src)-before:+d})")
+# A replay that changed nothing does not touch the file at all. Rewriting it
+# with identical content still updates the mtime, and on a shared worktree that
+# is enough to make another lane think someone is in their artifact.
+if applied:
+    open(HTML, "w", encoding="utf8", newline="").write(src)
+    print(f"vocabulary inbound patched {HTML}: {before} -> {len(src)} bytes ({len(src)-before:+d})")
+else:
+    print(f"vocabulary inbound already present in {HTML}: nothing written")
