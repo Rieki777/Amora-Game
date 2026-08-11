@@ -177,7 +177,7 @@ export default function GratitudeWall() {
           )}
 
           {wall.length === 0 ? (
-            <div className="text-center py-14 text-stone-400">
+            <div className="text-center py-14 text-stone-500">
               <Sparkles className="w-10 h-10 mx-auto mb-3 opacity-30" />
               <p>The wall is waiting for its first appreciation.</p>
             </div>
