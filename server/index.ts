@@ -75,8 +75,9 @@ import {
   TREASURY,
 } from "./lib/ledger";
 import type { TransferGuard } from "./lib/ledger";
-import { allowanceFor, checkIn, economyReady, give, mintForConfirmedClaim, runSettlement, villageId } from "./lib/economy";
+import { allowanceFor, checkIn, cycleWindow, economyReady, give, mintForConfirmedClaim, runSettlement, villageId } from "./lib/economy";
 import { addCharacter, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
+import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy } from "./lib/economySeed";
 import { installCrashHandlers, reportError, wireErrorReporting } from "./lib/errors";
 import {
@@ -13256,6 +13257,57 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   /** The five classes, as this village names them. Public: it is the front door. */
   app.get("/api/archetypes", async (_req, res) => {
     res.json(await listArchetypes(getPool(), villageId()));
+  });
+
+  // ── The Player Profile ────────────────────────────────────────────────────
+
+  /** Your own sheet. Everything, because it is yours. */
+  app.get("/api/me/profile", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const loaded = await loadProfile(getPool(), villageId(), user.id);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const { startsAt } = cycleWindow();
+    res.json({
+      ...loaded.view,
+      standing: await loadStanding(getPool(), user.id),
+      gratitude: await loadGratitude(getPool(), villageId(), user.id, startsAt),
+      party: await partyFor(getPool(), villageId(), user.id),
+      allowance: await allowanceFor(getPool(), user.id),
+    });
+  });
+
+  /**
+   * Somebody else's sheet.
+   *
+   * The privacy filter runs in `publicView`, which builds a stranger's copy by
+   * adding what the flags permit rather than by deleting from a full one. The
+   * expensive reads are still done first and then dropped, which is a little
+   * wasteful and much harder to get wrong than deciding twice.
+   *
+   * A member reading their OWN handle gets the full sheet, because being told
+   * your own home is private by you is absurd.
+   */
+  app.get("/api/profiles/:handle", async (req, res) => {
+    const targetId = await userIdForHandle(getPool(), req.params.handle);
+    if (!targetId) return res.status(404).json({ error: "Not found" });
+    const loaded = await loadProfile(getPool(), villageId(), targetId);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+
+    const viewer = await authedUser(req);
+    const { startsAt } = cycleWindow();
+    const full = {
+      ...loaded.view,
+      standing: await loadStanding(getPool(), targetId),
+      gratitude: await loadGratitude(getPool(), villageId(), targetId, startsAt),
+    };
+    if (viewer?.id === targetId) {
+      return res.json({ ...full, party: await partyFor(getPool(), villageId(), targetId) });
+    }
+    res.json({
+      ...publicView(full, loaded.privacy),
+      party: await partyFor(getPool(), villageId(), targetId),
+    });
   });
 
   /** What a class opens. A suggestion, never a restriction. */

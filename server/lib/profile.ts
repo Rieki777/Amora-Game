@@ -147,6 +147,71 @@ export async function loadProfile(
   return { view, privacy };
 }
 
+/**
+ * The Standing row: one chip per token this member actually holds.
+ *
+ * Read from the ledger through the registry, so a token added tomorrow appears
+ * without this function changing. Zero balances are dropped: a chip reading 0
+ * is an accusation, and a member before their first confirmed quest is new on
+ * the land rather than empty-handed.
+ *
+ * `decimals` travels with each chip because the ledger stores minor units. The
+ * caller divides; nothing here pretends 100 thousandths of voice is 100.
+ */
+export async function loadStanding(
+  pool: Pool,
+  userId: string,
+): Promise<Array<{ token: string; name: string; balance: number; decimals: number }>> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT b.`token_type` AS slug, b.`balance` AS balance, t.`name` AS name, " +
+      "t.`decimals` AS decimals, t.`sort_order` AS sort_order " +
+      "FROM `token_balances` b JOIN `tokens` t ON t.`slug` = b.`token_type` " +
+      "WHERE b.`account_id` = ? AND b.`balance` > 0 AND t.`active` = 1 " +
+      "ORDER BY t.`sort_order`, t.`slug`",
+    [`mem:${userId}`],
+  );
+  return rows.map((r) => ({
+    token: String(r.slug),
+    name: String(r.name ?? r.slug),
+    balance: Number(r.balance ?? 0),
+    decimals: Number(r.decimals ?? 0),
+  }));
+}
+
+/**
+ * Gratitude, both directions.
+ *
+ * Given sits co-equal with received on purpose: generosity is a status axis in
+ * this village and not only accumulation, and a sheet that shows one number
+ * teaches members to collect rather than to notice each other.
+ *
+ * The headline counts PEOPLE this season, not hearts. "Thanked by 14 members"
+ * says something true about a person; a running total says something about a
+ * scoreboard.
+ */
+export async function loadGratitude(
+  pool: Pool,
+  villageId: string,
+  userId: string,
+  seasonStart: Date,
+): Promise<{ receivedThisSeason: number; givenThisSeason: number; lifetime: number }> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT " +
+      "(SELECT COUNT(DISTINCT `from_id`) FROM `gratitude_log` " +
+      "  WHERE `village_id` = ? AND `to_id` = ? AND `at` >= ?) AS received_people, " +
+      "(SELECT COUNT(DISTINCT `to_id`) FROM `gratitude_log` " +
+      "  WHERE `village_id` = ? AND `from_id` = ? AND `at` >= ?) AS given_people, " +
+      "(SELECT COALESCE(SUM(`amount`), 0) FROM `gratitude_log` " +
+      "  WHERE `village_id` = ? AND `to_id` = ?) AS lifetime",
+    [villageId, userId, seasonStart, villageId, userId, seasonStart, villageId, userId],
+  );
+  return {
+    receivedThisSeason: Number(rows[0]?.received_people ?? 0),
+    givenThisSeason: Number(rows[0]?.given_people ?? 0),
+    lifetime: Number(rows[0]?.lifetime ?? 0),
+  };
+}
+
 /** Find a member by the name a stranger reaches them with. */
 export async function userIdForHandle(pool: Pool, handle: string): Promise<string | null> {
   const [rows] = await pool.query<RowDataPacket[]>(

@@ -210,6 +210,7 @@ const Team = lazyPage(() => import("./pages/Team"));
 const Admin = lazyPage(() => import("./pages/Admin"));
 const Profile = lazyPage(() => import("./pages/Profile"));
 const Characters = lazyPage(() => import("./pages/Characters"));
+const PublicProfile = lazyPage(() => import("./pages/PublicProfile"));
 const Register = lazyPage(() => import("./pages/Register"));
 const SetPassword = lazyPage(() => import("./pages/SetPassword"));
 const ForgotPassword = lazyPage(() => import("./pages/ForgotPassword"));
@@ -316,6 +317,10 @@ function Router() {
       {/* The class select. Under /profile because a party is part of who you
           are here, not a separate account setting. */}
       <Route path="/profile/characters" component={Characters} />
+      {/* AFTER /profile/characters, and that order is the whole point: wouter
+          takes the first match, so a :handle route above it would turn the
+          class select into a lookup for a member called "characters". */}
+      <Route path="/profile/:handle" component={PublicProfile} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/set-password" component={SetPassword} />
