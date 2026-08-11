@@ -190,7 +190,7 @@ export default function Characters() {
             ) : null}
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[6rem_minmax(0,1fr)_20rem]">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[6rem_minmax(0,1fr)_20rem]">
             {/* THE STAGE, first in the DOM so a phone meets the character
                 immediately. The rail follows it on small screens and moves
                 left on wide ones. */}
@@ -268,8 +268,8 @@ export default function Characters() {
             </section>
 
             {/* THE CAST. Faces, not letters. */}
-            <nav aria-label="Classes" className="order-2 lg:order-1">
-              <ul className="flex flex-row gap-3 overflow-x-auto pb-2 lg:flex-col lg:overflow-visible">
+            <nav aria-label="Classes" className="order-2 min-w-0 lg:order-1">
+              <ul className="flex flex-wrap justify-center gap-3 lg:flex-nowrap lg:flex-col lg:justify-start">
                 {archetypes.map((a) => {
                   const chosen = party.some((c) => c.archetypeKey === a.key);
                   const isActive = a.key === activeKey;
