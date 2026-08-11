@@ -36,6 +36,8 @@ const role = (over: Partial<OrgRole> = {}): OrgRole => ({
   active: true, recruiting: false, expiresEachSeason: null,
   statusOverride: null, statusOverrideExpiresAt: null,
   icon: null, color: null, order: 0, isExample: false,
+  authority: null, firstYearOutcomes: null, first90DayOutcomes: null,
+  locationExpectations: null, compensationReality: null, evidenceRequired: null,
   ...over,
 });
 

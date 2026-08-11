@@ -400,7 +400,16 @@ export interface SectionQuery {
   moduleKeys?: readonly string[];
   /** How many documents stage one may choose. */
   maxDocs?: number;
-  budget?: Partial<typeof SHELF_BUDGET>;
+  /**
+   * Override any of the budget's four numbers. The keys are tied to
+   * `SHELF_BUDGET` so a misspelled one is still a type error, but the VALUES
+   * are plain numbers: `SHELF_BUDGET` is `as const`, so `Partial<typeof
+   * SHELF_BUDGET>` typed each override as the literal default it was meant to
+   * replace, and `{ maxTokens: 400 }` was rejected as "not assignable to type
+   * 2500". The option could not be used with any number but the one already
+   * in force, at any call site.
+   */
+  budget?: Partial<Record<keyof typeof SHELF_BUDGET, number>>;
 }
 
 /** Stage one: which documents is this question about. Exported for tests. */
