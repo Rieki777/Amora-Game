@@ -118,3 +118,10 @@ do_audit_commit.bat
 DEPLOY_HANDOFF_2026-07-04.md
 .qa-db-url
 .demo-db-url
+
+# Where the map QA suites write their scene export. env.sh derives this from
+# its own location, so EVERY lane running the suites generates one of these in
+# its own tree. Untracked and unignored is the combination that gets swept into
+# somebody's `git add .`, which is how another lane's in-flight work has been
+# committed under the wrong message before.
+docs/prototypes/.qa-out/
