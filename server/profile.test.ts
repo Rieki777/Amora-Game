@@ -97,7 +97,7 @@ describe("profile privacy", () => {
     const withSecret = { ...full(), inventory: ["a borrowed drill"] } as ProfileView & {
       inventory: string[];
     };
-    const out = publicView(withSecret, PRIVACY_DEFAULTS) as Record<string, unknown>;
+    const out = publicView(withSecret, PRIVACY_DEFAULTS) as unknown as Record<string, unknown>;
     expect(out.inventory).toBeUndefined();
     expect(Object.keys(out).sort()).toEqual(
       ["gratitude", "handle", "joinedAt", "moonsOnTheLand", "name", "primaryCharacterId", "standing", "title"].sort(),
@@ -106,7 +106,7 @@ describe("profile privacy", () => {
 
   it("never leaks the privacy settings themselves", () => {
     // Which questions somebody answered no to is itself an answer.
-    const out = publicView(full(), PRIVACY_DEFAULTS) as Record<string, unknown>;
+    const out = publicView(full(), PRIVACY_DEFAULTS) as unknown as Record<string, unknown>;
     expect(out.privacy).toBeUndefined();
   });
 
