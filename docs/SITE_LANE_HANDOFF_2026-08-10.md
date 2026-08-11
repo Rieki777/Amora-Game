@@ -85,9 +85,20 @@ the quests block is exactly what makes the loss invisible.
 
 ## Open — site lane (next session)
 
-**1. `quest.how_to` and `map_scene.vision_bound` have no column.** The
-importer names them on every run that carries them. `how_to` is founder
-writing (the map's "Your first step" block) and is the one worth a home.
+**1. Nothing tests a signed-in member through a real shell.** This is the
+seam the promise bug lived in, and it is still open on both sides. The site's
+route tests set `Authorization` themselves; the map's artifact suites drive it
+from `file://` with no parent frame, so every promise takes the
+"silence means local only" path by construction. Between them the route is
+proven and the map is proven and the round trip is not. Nothing today would
+catch a promise that reaches the server as anonymous.
+
+The cheap half is a static guard, in the house style of the brand and voice
+checks: an authenticated route reached from client code must go through
+`gameFetch`, never bare `fetch`. It needs an allowlist, because the genuinely
+public calls (`/api/map/config`, the manifest probe) are correct as they are.
+The expensive half is a browser test that signs in and drives `/map`, which
+needs Playwright as a real dependency and is a bigger call than one round.
 
 **2. The exchange test has no headroom.** `S33-S35` in `loop.e2e` runs 38s to
 61s against a 120s ceiling and times out whenever the shared MySQL is slow. It
@@ -102,6 +113,19 @@ knowing before someone calls it dead.
 **4. Events has no seed and no public surface beyond `/events`.** No
 recurrence, no waitlist, no ticketing. `is_example` rides on the table but
 `EXAMPLE_TABLES` is untouched, so standing-examples does not retire these rows.
+
+---
+
+### Two the map lane pushed back on, correctly
+
+`quest.how_to` is real founder writing, shown on the map under "Your first
+step" when a quest is claimed. It does not travel, and whether a claimed quest
+on the SITE should show it is a product call for Rye rather than a schema gap
+to fill quietly. `map_scene.vision_bound` is not lost at all: the scene
+document keeps it and the map consumes it in vision mode. Neither is a defect
+here. The importer keeps naming both on every run that carries them, and that
+line is the feature: it is the one thing that would have caught every silent
+drop this round.
 
 ---
 

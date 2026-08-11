@@ -176,6 +176,15 @@ keys means the scene never came across; some keys and not this one means
   back `anonymous`. Ten passing route tests never saw it, because they set the
   header themselves.
 
+**The seam both lanes leave open.** The site's route tests supply the
+Authorization header; these suites drive the artifact from `file://` with no
+parent frame, so `bridgePost` goes nowhere and every promise takes the
+"silence means local only" path by construction. One side proves the route,
+the other proves the map, and NOBODY tests a signed-in member making a
+promise through a real shell. That is precisely where the `gameFetch` bug
+lived. A server test proves the route, not that the client reaches it; an
+artifact suite proves the map, not that the shell answers.
+
 ---
 
 ## Doctrine, and where it is enforced
