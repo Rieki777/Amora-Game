@@ -60,7 +60,14 @@ export default function VillagePulse() {
                 <span className="shrink-0 w-8 h-8 rounded-full bg-teal-deep/10 text-teal-deep flex items-center justify-center">
                   <Icon className="w-4 h-4" />
                 </span>
-                <span className="flex-1 text-sm text-stone-700">{e.text}</span>
+                {/* min-w-0 and break-words together, and both are load-bearing.
+                    A flex child defaults to min-width:auto, so it refuses to
+                    shrink below its content's min-content width — and an event
+                    text carrying a bare URL ("tokens.base_rpc_url is now
+                    https://...") has no break opportunity, so min-content is the
+                    whole URL. On a 393px phone that pushed the document to 558px
+                    and gave the entire page a horizontal scroll. */}
+                <span className="min-w-0 flex-1 break-words text-sm text-stone-700">{e.text}</span>
                 <span className="shrink-0 text-xs text-stone-400">{timeAgo(e.at)}</span>
               </li>
             );

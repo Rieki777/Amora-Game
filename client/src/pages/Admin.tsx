@@ -720,7 +720,11 @@ function SubmissionsTab({ password }: { password: string }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      {/* flex-wrap and gap, because this row does not fit a phone: the heading
+          plus a 171px type filter plus the refresh button need about 657px, and
+          justify-between on a non-wrapping flex pushed the overflow onto the
+          document rather than onto this row. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h2 className="text-xl font-bold text-gray-900">Form Submissions</h2>
         <div className="flex items-center gap-3">
           <select
