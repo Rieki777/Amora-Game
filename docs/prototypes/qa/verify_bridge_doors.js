@@ -41,10 +41,33 @@ const COVERED_HERE = ['skin', 'goto', 'promise-result'];
 
 /* Wait for a state, not a clock: a fixed post-boot sleep is what makes
  * verify_doors.js fail about once in ten on a cold page. Returns whether the
- * condition arrived, so a real failure reads as a FAIL and not as a stack. */
-async function until(page, fn, ms = 15000) {
-  try { await page.waitForFunction(fn, undefined, { timeout: ms, polling: 100 }); return true; }
-  catch (_) { return false; }
+ * condition arrived, so a real failure reads as a FAIL and not as a stack.
+ *
+ * Terms are named expression STRINGS, and that is the point. A predicate that
+ * can never be true reads exactly like a slow boot, because both arrive as the
+ * same timeout: `window.SCENE` is undefined forever, since SCENE is a top-level
+ * `const` and lives in script scope rather than on window. On timeout this
+ * names the terms that never went true, from the same strings it waited on. */
+async function untilReady(page, terms, ms = 15000) {
+  const truth = (src) => {
+    const out = {};
+    for (const k of Object.keys(src)) {
+      try { out[k] = !!eval(src[k]); } catch (_) { out[k] = false; }
+    }
+    return out;
+  };
+  try {
+    await page.waitForFunction(
+      (src) => Object.keys(src).every(k => { try { return !!eval(src[k]); } catch (_) { return false; } }),
+      terms, { timeout: ms, polling: 100 });
+    return true;
+  } catch (_) {
+    const t = await page.evaluate(truth, terms);
+    const dead = Object.keys(t).filter(k => !t[k]);
+    console.log('  waited ' + ms + 'ms. never true: '
+      + (dead.join(', ') || '(every term reads true, so the wait itself is wrong)'));
+    return false;
+  }
 }
 
 function pathFromFileUrl(u) {
@@ -70,9 +93,12 @@ function pathFromFileUrl(u) {
    * object. The first draft of this predicate used `window.SCENE` and waited
    * the full timeout on a page that was ready in a second.
    */
-  const booted = await until(page, () => typeof SKIN !== 'undefined' && typeof SCENE !== 'undefined'
-    && Array.isArray(window.EVENTS) && window.EVENTS.length > 0
-    && typeof window.promiseWatch === 'function');
+  const booted = await untilReady(page, {
+    SKIN: "typeof SKIN !== 'undefined'",
+    SCENE: "typeof SCENE !== 'undefined'",
+    'window.EVENTS': 'Array.isArray(window.EVENTS) && window.EVENTS.length > 0',
+    'window.promiseWatch': "typeof window.promiseWatch === 'function'",
+  });
   ok(booted, 'the map finished booting (waited on state, not a clock)');
 
   /* ---------- A. the {type:'skin'} door ----------

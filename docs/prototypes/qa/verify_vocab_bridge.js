@@ -29,10 +29,33 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
 
 /* Wait for a state, not a clock: a fixed post-boot sleep is what makes
  * verify_doors.js fail about once in ten on a cold page. Returns whether the
- * condition arrived, so a real failure reads as a FAIL and not as a stack. */
-async function until(page, fn, ms = 15000) {
-  try { await page.waitForFunction(fn, undefined, { timeout: ms, polling: 100 }); return true; }
-  catch (_) { return false; }
+ * condition arrived, so a real failure reads as a FAIL and not as a stack.
+ *
+ * Terms are named expression STRINGS, and that is the point. A predicate that
+ * can never be true reads exactly like a slow boot, because both arrive as the
+ * same timeout: `window.SCENE` is undefined forever, since SCENE is a top-level
+ * `const` and lives in script scope rather than on window. On timeout this
+ * names the terms that never went true, from the same strings it waited on. */
+async function untilReady(page, terms, ms = 15000) {
+  const truth = (src) => {
+    const out = {};
+    for (const k of Object.keys(src)) {
+      try { out[k] = !!eval(src[k]); } catch (_) { out[k] = false; }
+    }
+    return out;
+  };
+  try {
+    await page.waitForFunction(
+      (src) => Object.keys(src).every(k => { try { return !!eval(src[k]); } catch (_) { return false; } }),
+      terms, { timeout: ms, polling: 100 });
+    return true;
+  } catch (_) {
+    const t = await page.evaluate(truth, terms);
+    const dead = Object.keys(t).filter(k => !t[k]);
+    console.log('  waited ' + ms + 'ms. never true: '
+      + (dead.join(', ') || '(every term reads true, so the wait itself is wrong)'));
+    return false;
+  }
 }
 
 /*
@@ -65,9 +88,13 @@ const PUSHED = {
   /* Bare identifiers: SUBTYPES and SCENE are top-level `const` in an inline
      script, so they are SCRIPT scope and never properties of `window`. Only
      what is explicitly assigned (window.MEDIA, window.phaseName) is there. */
-  const booted = await until(page, () => typeof SUBTYPES !== 'undefined'
-    && typeof SCENE !== 'undefined' && !!(SCENE.vocabulary && SCENE.vocabulary.media)
-    && typeof window.phaseName === 'function' && !!window.MEDIA);
+  const booted = await untilReady(page, {
+    SUBTYPES: "typeof SUBTYPES !== 'undefined'",
+    SCENE: "typeof SCENE !== 'undefined'",
+    'SCENE.vocabulary.media': "typeof SCENE !== 'undefined' && !!(SCENE.vocabulary && SCENE.vocabulary.media)",
+    'window.phaseName': "typeof window.phaseName === 'function'",
+    'window.MEDIA': '!!window.MEDIA',
+  });
   ok(booted, 'the map finished booting (waited on state, not a clock)');
 
   /* ---------- A. the map starts in the platform's words ---------- */

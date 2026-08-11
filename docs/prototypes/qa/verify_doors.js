@@ -19,10 +19,31 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
  * it teaches the next session to re-run instead of read. This returns whether
  * the condition arrived rather than throwing, so a genuine failure still
  * prints as a FAIL with its detail instead of a Playwright timeout stack.
+ *
+ * Terms are named expression STRINGS so that a timeout can say WHICH one never
+ * went true. A structurally false predicate (a typo, or `window.X` for a
+ * script-scope `const`) is otherwise indistinguishable from a slow boot.
  */
-async function until(page, fn, ms = 15000) {
-  try { await page.waitForFunction(fn, undefined, { timeout: ms, polling: 100 }); return true; }
-  catch (_) { return false; }
+async function untilReady(page, terms, ms = 15000) {
+  const truth = (src) => {
+    const out = {};
+    for (const k of Object.keys(src)) {
+      try { out[k] = !!eval(src[k]); } catch (_) { out[k] = false; }
+    }
+    return out;
+  };
+  try {
+    await page.waitForFunction(
+      (src) => Object.keys(src).every(k => { try { return !!eval(src[k]); } catch (_) { return false; } }),
+      terms, { timeout: ms, polling: 100 });
+    return true;
+  } catch (_) {
+    const t = await page.evaluate(truth, terms);
+    const dead = Object.keys(t).filter(k => !t[k]);
+    console.log('  waited ' + ms + 'ms. never true: '
+      + (dead.join(', ') || '(every term reads true, so the wait itself is wrong)'));
+    return false;
+  }
 }
 
 (async () => {
@@ -35,8 +56,10 @@ async function until(page, fn, ms = 15000) {
 
   /* ---------- A. deep-link boot: #/place/kitchen enters straight onto the land ---------- */
   await page.goto(FILE + '#/place/kitchen');
-  await until(page, () => typeof panelKey !== 'undefined' && panelKey === 'kitchen'
-    && !document.body.classList.contains('intro'));
+  await untilReady(page, {
+    "panelKey === 'kitchen'": "typeof panelKey !== 'undefined' && panelKey === 'kitchen'",
+    'intro cleared': "!document.body.classList.contains('intro')",
+  });
   await page.waitForTimeout(300); // the panel is open; let it finish drawing before reading it
   const deep = await page.evaluate(() => ({
     intro: document.body.classList.contains('intro'),
