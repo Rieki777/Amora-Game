@@ -17,6 +17,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import mysql from "mysql2/promise";
 import { spawn, type ChildProcess } from "child_process";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -203,5 +204,97 @@ describe.skipIf(!DB_CONFIGURED)("crew privacy", () => {
   it("refuses an invite nobody minted", async () => {
     const res = await fetch(`${BASE}/api/crews/join/not-a-real-code`, { method: "POST" });
     expect(res.status).toBe(401);
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("a crew gets its room when the village has rooms", () => {
+  // The repo layer proves attachConversation stores a conversation id. What it
+  // cannot prove is that the ROUTE calls it, that it uses the agreed contract,
+  // or that joining and leaving reach the thread. Those are three separate
+  // wires and all three are best-effort, which is exactly the shape of thing
+  // that silently stops working.
+  let pool: mysql.Pool;
+  let founder = "";
+  let mate = "";
+  let questId = QUEST_ID;
+
+  const call = async (method: string, route: string, body?: unknown, token = founder) => {
+    const res = await fetch(BASE + route, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+
+  beforeAll(async () => {
+    pool = mysql.createPool({ uri: testDb!.url, timezone: "Z", connectionLimit: 4 });
+    const boot = await call("POST", "/api/admin/bootstrap", {
+      password: ADMIN,
+      email: `crew-founder-${PORT}@example.test`,
+      name: "Crew Founder",
+    }, "");
+    const claim = decodeURIComponent(
+      String(boot.json?.claimUrl ?? "").match(/token=([^&]+)/)?.[1] ?? "",
+    );
+    const pw = await call("POST", "/api/auth/set-password",
+      { token: claim, password: "CrewTest123!" }, "");
+    founder = String(pw.json?.token ?? "");
+    expect(founder, "the founder must hold a session").toBeTruthy();
+    // Messaging ships OFF. A crew only gains a room once a village turns it on.
+    const on = await call("PUT", "/api/admin/modules/messaging/lifecycle", { lifecycle: "members" });
+    expect(on.status, "messaging must switch on").toBe(200);
+    const reg = await call("POST", "/api/auth/register",
+      { email: `crew-mate-${PORT}@example.test`, password: "CrewTest123!", name: "Crew Mate", paths: ["resident"] }, "");
+    mate = String(reg.json?.token ?? "");
+    expect(mate, "the second member must hold a session").toBeTruthy();
+  }, 120_000);
+
+  afterAll(async () => { await pool?.end(); });
+
+  it("opens a conversation on the agreed contract when a crew forms", async () => {
+    const made = await call("POST", `/api/quests/${questId}/crews`, { name: "The Thursday Crew" });
+    expect(made.status).toBe(200);
+    const crewId = String(made.json?.id ?? "");
+    expect(crewId).toBeTruthy();
+    const [rows] = await pool.query<any[]>(
+      "SELECT c.id, c.kind, c.context_type, c.context_id, c.name FROM conversations c " +
+        "JOIN quest_crews q ON q.conversation_id = c.id WHERE q.id = ?",
+      [crewId],
+    );
+    expect(rows, "the crew must carry a conversation").toHaveLength(1);
+    expect(rows[0].kind).toBe("crew");
+    expect(rows[0].context_type).toBe("quest");
+    expect(rows[0].context_id).toBe(questId);
+    expect(rows[0].name).toBe("The Thursday Crew");
+  });
+
+  it("takes a joiner into the room, and takes them back out when they leave", async () => {
+    const made = await call("POST", `/api/quests/${questId}/crews`, { name: "The Second Crew" });
+    const crewId = String(made.json?.id ?? "");
+    const invite = String(made.json?.inviteCode ?? "");
+    expect(invite).toBeTruthy();
+
+    const joined = await call("POST", `/api/crews/join/${encodeURIComponent(invite)}`, undefined, mate);
+    expect(joined.status).toBe(200);
+
+    const membersIn = async () => {
+      const [r] = await pool.query<any[]>(
+        "SELECT COUNT(*) AS n FROM conversation_members m " +
+          "JOIN quest_crews q ON q.conversation_id = m.conversation_id " +
+          "WHERE q.id = ? AND m.left_at IS NULL",
+        [crewId],
+      );
+      return Number(r[0]?.n ?? 0);
+    };
+    expect(await membersIn(), "founder and joiner are both in the room").toBe(2);
+
+    const left = await call("POST", `/api/crews/${crewId}/leave`, undefined, mate);
+    expect(left.status).toBe(200);
+    // A room somebody can still read after walking out is a privacy bug.
+    expect(await membersIn(), "the leaver is out of the room too").toBe(1);
   });
 });
