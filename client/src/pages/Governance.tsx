@@ -233,7 +233,7 @@ export default function Governance() {
           <div className="flex flex-wrap items-center justify-center gap-3">
             <Link
               href="/steward"
-              className="inline-flex items-center gap-2 bg-amber text-teal-deep font-semibold px-6 py-3 rounded-xl hover:bg-amber/90 transition-colors"
+              className="inline-flex items-center gap-2 bg-amber text-foreground font-semibold px-6 py-3 rounded-xl hover:bg-amber/90 transition-colors"
             >
               Become a Steward <ArrowRight className="w-4 h-4" />
             </Link>

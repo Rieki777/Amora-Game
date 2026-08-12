@@ -96,7 +96,7 @@ export default function InvestorSummary() {
           <div className="text-center mb-8">
             <a
               href={data.cta_url}
-              className="inline-flex items-center gap-2 bg-amber text-teal-deep font-semibold px-6 py-3 rounded-xl hover:bg-amber/90 transition-colors"
+              className="inline-flex items-center gap-2 bg-amber text-foreground font-semibold px-6 py-3 rounded-xl hover:bg-amber/90 transition-colors"
             >
               {data.cta_label}
               <ArrowRight className="w-4 h-4" />

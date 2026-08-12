@@ -705,7 +705,7 @@ export default function GameMechanics() {
                                 )
                                   act(`/api/admin/mechanics/proposals/${p.id}/apply`);
                               }}
-                              className="text-sm bg-amber text-teal-deep rounded-lg px-3 py-1.5 font-medium"
+                              className="text-sm bg-amber text-foreground rounded-lg px-3 py-1.5 font-medium"
                             >
                               Verify & apply
                             </button>

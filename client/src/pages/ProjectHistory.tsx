@@ -2041,7 +2041,7 @@ export default function ProjectHistory() {
                                     title="Set who owns this item"
                                     className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded border outline-none cursor-pointer ${
                                       isAmora
-                                        ? "bg-amber text-teal-deep border-amber"
+                                        ? "bg-amber text-foreground border-amber"
                                         : isCollab
                                         ? "bg-violet-100 text-violet-700 border-violet-200"
                                         : effStatus === "done"
@@ -2195,7 +2195,7 @@ export default function ProjectHistory() {
                                     <p className="text-xs text-stone-700 leading-relaxed mb-2">{d.text}</p>
                                     <div className="text-xs text-stone-400 mb-2">{d.weekLabel}</div>
                                     {isAmora && (
-                                      <span className="inline-block text-xs bg-amber text-teal-deep font-semibold px-1.5 py-0.5 rounded mb-2">
+                                      <span className="inline-block text-xs bg-amber text-foreground font-semibold px-1.5 py-0.5 rounded mb-2">
                                         Amora
                                       </span>
                                     )}

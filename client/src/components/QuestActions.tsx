@@ -117,7 +117,7 @@ export default function QuestActions({
         ) : (
           <button
             onClick={() => setShowSubmit(true)}
-            className="inline-flex items-center gap-2 text-sm font-semibold bg-amber text-teal-deep px-4 py-2 rounded-lg hover:bg-amber/90 transition-colors pointer-coarse:min-h-11"
+            className="inline-flex items-center gap-2 text-sm font-semibold bg-amber text-foreground px-4 py-2 rounded-lg hover:bg-amber/90 transition-colors pointer-coarse:min-h-11"
           >
             <Send className="w-4 h-4" /> Submit your work
           </button>

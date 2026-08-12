@@ -294,13 +294,13 @@ export default function JourneyToLaunch() {
           <div className="flex flex-wrap gap-2 mt-5">
             <button
               onClick={() => setView("launch")}
-              className={`text-sm rounded-lg px-3 py-1.5 font-medium ${view === "launch" ? "bg-amber text-teal-deep" : "bg-white/10 text-white"}`}
+              className={`text-sm rounded-lg px-3 py-1.5 font-medium ${view === "launch" ? "bg-amber text-foreground" : "bg-white/10 text-white"}`}
             >
               Launch readiness
             </button>
             <button
               onClick={() => setView("economics")}
-              className={`text-sm rounded-lg px-3 py-1.5 font-medium ${view === "economics" ? "bg-amber text-teal-deep" : "bg-white/10 text-white"}`}
+              className={`text-sm rounded-lg px-3 py-1.5 font-medium ${view === "economics" ? "bg-amber text-foreground" : "bg-white/10 text-white"}`}
             >
               Village economics
             </button>

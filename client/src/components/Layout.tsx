@@ -201,7 +201,7 @@ export default function Layout({ children }: LayoutProps) {
                 </div>
               </div>
             ) : (
-              <Link href="/login" className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors whitespace-nowrap">
+              <Link href="/login" className="flex items-center gap-2 px-3 py-1.5 bg-black/10 hover:bg-black/20 rounded-lg text-sm transition-colors whitespace-nowrap">
                 <User className="w-4 h-4" />
                 Sign In
               </Link>
@@ -212,7 +212,7 @@ export default function Layout({ children }: LayoutProps) {
                 href={siteUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-sm whitespace-nowrap"
+                className="px-4 py-2 bg-amber text-foreground rounded-lg font-medium hover:bg-amber/90 transition-colors text-sm whitespace-nowrap"
               >
                 Main Site
               </a>
@@ -335,7 +335,7 @@ export default function Layout({ children }: LayoutProps) {
                     href={siteUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block px-4 py-2 bg-amber text-teal-deep rounded-lg font-medium hover:bg-amber/90 transition-colors text-center mt-3"
+                    className="block px-4 py-2 bg-amber text-foreground rounded-lg font-medium hover:bg-amber/90 transition-colors text-center mt-3"
                   >
                     Main Site
                   </a>
