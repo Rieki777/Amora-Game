@@ -455,6 +455,43 @@ export async function messagesFor(
 }
 
 /**
+ * Edit your own line, and wear the mark for it.
+ *
+ * `edited_at` shipped in 0066 and nothing wrote it, which is CLAUDE.md's trap
+ * 12 turned inside out: a column that promises a feature the code never
+ * delivers. Either wire it or drop it; this wires it.
+ *
+ * Scoped by conversation id for the same reason softDeleteMessage is, and
+ * refused on a tombstone: editing a deleted message would un-delete it in
+ * every surface that reads the body while the tombstone flag stayed set.
+ *
+ * The edit marker is PUBLIC and permanent, the posture the forum already
+ * takes. A message that can change after it was read, with no sign it
+ * changed, is a different and worse thing than one that cannot change at all.
+ */
+export async function editMessage(
+  pool: Pool,
+  conversationId: string,
+  messageId: string,
+  authorId: string,
+  body: string,
+): Promise<boolean> {
+  const clean = cleanText(body);
+  if (!clean) throw new Error("a message needs a body");
+  if (clean.length > MAX_BODY_CHARS) throw new Error(`a message may be at most ${MAX_BODY_CHARS} characters`);
+  // CURRENT_TIMESTAMP, not CURRENT_TIMESTAMP(3): edited_at is still the
+  // whole-second column 0066 declared, because 0073 raised precision only on
+  // the three columns that ORDER things. This one is displayed, never sorted
+  // by, so writing thousandths would just be rounded away at the door.
+  const [r]: any = await pool.query(
+    "UPDATE messages SET body = ?, edited_at = CURRENT_TIMESTAMP " +
+      "WHERE id = ? AND conversation_id = ? AND author_id = ? AND deleted_at IS NULL",
+    [clean, messageId, conversationId, authorId],
+  );
+  return (r?.affectedRows ?? 0) > 0;
+}
+
+/**
  * Soft delete: the body goes, the row and its seq stay. Only the author may
  * do this; moderation is a separate act with its own audit trail.
  *

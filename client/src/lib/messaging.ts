@@ -45,6 +45,8 @@ export interface ThreadMessage {
   mine: boolean;
   author: { userId: string; name: string | null; handle: string | null };
   createdAt: string;
+  /** Set once the author edits. The marker is public and never cleared. */
+  editedAt?: string | null;
 }
 
 /** Everyone still in the thread. Members who left keep their old lines named. */

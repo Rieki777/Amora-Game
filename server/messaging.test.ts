@@ -30,6 +30,7 @@ import {
   conversationFor,
   createGroup,
   directKeyFor,
+  editMessage,
   inboxFor,
   latestSeq,
   leaveConversation,
@@ -318,6 +319,38 @@ describe.skipIf(!configured)("messaging repo (MySQL)", () => {
     expect(await softDeleteMessage(pool, c.id, m.id, ANA)).toBe(true);
     // And deleting twice is not a second event.
     expect(await softDeleteMessage(pool, c.id, m.id, ANA)).toBe(false);
+  });
+
+  it("lets only the author edit their own line, and marks it", async () => {
+    const c = await openDirect(pool, ANA, BEN);
+    const m = await sendMessage(pool, { conversationId: c.id, authorId: ANA, body: "teh meeting is at 4" });
+
+    expect(await editMessage(pool, c.id, m.id, BEN, "hijacked"), "not your line").toBe(false);
+    expect(await editMessage(pool, c.id, m.id, ANA, "the meeting is at 4")).toBe(true);
+
+    const page = await messagesFor(pool, c.id);
+    expect(page[0].body).toBe("the meeting is at 4");
+    expect(page[0].editedAt, "an edit must leave its mark").not.toBeNull();
+    expect(page[0].seq, "editing must not move the ordering key").toBe(m.seq);
+  });
+
+  it("will not edit a line in another conversation, or a tombstone", async () => {
+    // Same scoping rule as deleting, and the same reason: proving membership
+    // of one thread must not authorize a write in another.
+    const theirs = await createGroup(pool, { createdBy: ANA, name: "Elsewhere", memberIds: [BEN, CARA] });
+    const target = await sendMessage(pool, { conversationId: theirs.id, authorId: CARA, body: "on the record" });
+    const mine = await openDirect(pool, CARA, BEN);
+    expect(await editMessage(pool, mine.id, target.id, CARA, "rewritten")).toBe(false);
+    expect((await messagesFor(pool, theirs.id))[0].body).toBe("on the record");
+
+    // A tombstone stays a tombstone. Editing it would restore a body while
+    // deleted_at stayed set, so it would read as deleted and render as text.
+    const own = await sendMessage(pool, { conversationId: mine.id, authorId: CARA, body: "oops" });
+    expect(await softDeleteMessage(pool, mine.id, own.id, CARA)).toBe(true);
+    expect(await editMessage(pool, mine.id, own.id, CARA, "un-deleting myself")).toBe(false);
+    const after = (await messagesFor(pool, mine.id)).find((x) => x.id === own.id);
+    expect(after?.deletedAt).not.toBeNull();
+    expect(after?.body).toBe("");
   });
 
   it("will not reach into another conversation to delete a line", async () => {

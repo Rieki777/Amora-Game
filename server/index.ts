@@ -231,6 +231,7 @@ import {
   cleanText,
   conversationFor,
   createGroup,
+  editMessage,
   inboxFor,
   latestSeq,
   leaveConversation,
@@ -6362,6 +6363,44 @@ async function startServer() {
     if (!toUserId || toUserId === user.id) return res.status(400).json({ error: "Name another member of this conversation" });
     const ok = await transferConversationOwnership(getPool(), found.conversation.id, user.id, toUserId);
     if (!ok) return res.status(400).json({ error: "That person is not in this conversation" });
+    res.json({ success: true });
+  });
+
+  /**
+   * Only the author edits their own line, and the edit shows.
+   *
+   * Behind message.send, unlike deleting: an edit puts NEW text in front of
+   * people, so a member whose sending was suspended by a warning badge must
+   * not reach it, or the suspension is one PATCH away from meaningless.
+   * Deleting your own words stays available under suspension, because
+   * removing text is self-limiting.
+   */
+  app.patch("/api/messages/:id/messages/:messageId", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await canSendMessages(user))) {
+      return res.status(403).json({ error: "Messaging is suspended for this account" });
+    }
+    const perMinute = Math.max(1, numberVar("messaging.sends_per_minute"));
+    if (await overLimit(`msg-send:${user.id}`, perMinute, 60 * 1000)) {
+      return res.status(429).json({ error: "Slow down a little. Try again in a minute" });
+    }
+    const found = await requireConversation(req, res, user);
+    if (!found) return;
+    const body = cleanText(req.body?.body);
+    if (!body) return res.status(400).json({ error: "Say something" });
+    if (body.length > MAX_BODY_CHARS) {
+      return res.status(400).json({ error: `A message holds up to ${MAX_BODY_CHARS} characters` });
+    }
+    const edited = await editMessage(getPool(), found.conversation.id, String(req.params.messageId), user.id, body);
+    // Same 404 as deleting, and for the same reason: a tombstone and a
+    // message that was never yours are both "no message of yours with that
+    // id" from here, and telling them apart would say something about a
+    // conversation the caller may only be guessing at.
+    if (!edited) return res.status(404).json({ error: "No message of yours with that id" });
+    // No notification, deliberately. An edit is not a new message, and
+    // re-ringing everyone for a typo fix is how a thread teaches people to
+    // mute it.
     res.json({ success: true });
   });
 

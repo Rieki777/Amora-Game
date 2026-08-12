@@ -270,6 +270,30 @@ describe.skipIf(!DB_CONFIGURED)("messaging routes: the gate and the 404 posture"
     expectHidden(await call("POST", `/api/messages/${id}/owner`, { userId: benId }), "taking a closed thread over");
   });
 
+  it("edits a line, marks it, and refuses everyone who is not its author", async () => {
+    const room = await call("POST", "/api/messages/groups", { name: "Edit room", memberIds: [benId] }, anaToken);
+    const id = String(room.json?.id);
+    const line = await call("POST", `/api/messages/${id}/messages`, { body: "teh meeting is at 4" }, anaToken);
+    const messageId = String(line.json?.id);
+
+    // The founder is an admin and a non-member: same 404 as everything else.
+    expectHidden(
+      await call("PATCH", `/api/messages/${id}/messages/${messageId}`, { body: "rewritten" }),
+      "editing inside a thread the caller is not in",
+    );
+
+    const ok = await call("PATCH", `/api/messages/${id}/messages/${messageId}`, { body: "the meeting is at 4" }, anaToken);
+    expect(ok.status, "the author can edit their own line").toBe(200);
+
+    const read = await call("GET", `/api/messages/${id}`, undefined, anaToken);
+    const edited = read.json?.messages?.find((m: any) => m.id === messageId);
+    expect(edited?.body).toBe("the meeting is at 4");
+    expect(edited?.editedAt, "the edit marker must reach the client").toBeTruthy();
+
+    // An empty body is a refusal, not a silent delete.
+    expect((await call("PATCH", `/api/messages/${id}/messages/${messageId}`, { body: "   " }, anaToken)).status).toBe(400);
+  });
+
   it("will not delete a line in one conversation through membership of another", async () => {
     // The security review's finding, over HTTP. Proving membership of thread
     // B must not authorize a destructive write against thread A, or the
