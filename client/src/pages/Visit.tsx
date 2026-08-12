@@ -70,11 +70,11 @@ export default function Visit() {
 
   return (
     <Layout>
-      <section className="bg-teal-deep text-white py-20">
+      <section className="bg-teal-band text-white py-20">
         <div className="container max-w-4xl mx-auto px-4">
           <div className="flex items-center gap-3 mb-3">
-            <MapPin className="w-6 h-6 text-amber" />
-            <span className="text-amber font-medium text-sm tracking-widest uppercase">
+            <MapPin className="w-6 h-6 text-amber-on-band" />
+            <span className="text-amber-on-band font-medium text-sm tracking-widest uppercase">
               Plan a Visit
             </span>
           </div>

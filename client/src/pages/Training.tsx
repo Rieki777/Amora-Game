@@ -91,11 +91,11 @@ export default function Training() {
 
   return (
     <Layout>
-      <div className="bg-teal-deep text-white py-16">
+      <div className="bg-teal-band text-white py-16">
         <div className="container max-w-4xl">
           <div className="flex items-center gap-3 mb-3">
-            <GraduationCap className="w-6 h-6 text-amber" />
-            <span className="text-amber font-medium text-sm tracking-widest uppercase">
+            <GraduationCap className="w-6 h-6 text-amber-on-band" />
+            <span className="text-amber-on-band font-medium text-sm tracking-widest uppercase">
               Community Training
             </span>
           </div>

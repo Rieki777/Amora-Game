@@ -261,11 +261,11 @@ export default function JourneyToLaunch() {
   return (
     <Layout>
       {/* ── Header ── */}
-      <div className="bg-teal-deep text-white py-8">
+      <div className="bg-teal-band text-white py-8">
         <div className="container">
           <div className="flex items-center gap-3 mb-2">
-            <TreePine className="w-6 h-6 text-amber" />
-            <span className="text-amber font-medium text-sm tracking-widest uppercase">
+            <TreePine className="w-6 h-6 text-amber-on-band" />
+            <span className="text-amber-on-band font-medium text-sm tracking-widest uppercase">
               {launched ? "Launched" : "Journey to Launch"}
             </span>
           </div>
@@ -283,7 +283,7 @@ export default function JourneyToLaunch() {
             <div className="flex-1 max-w-xs bg-white/20 rounded-full h-2 min-w-24">
               <div className="bg-amber h-2 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
             </div>
-            <span className="text-amber text-sm font-semibold">{pct}%</span>
+            <span className="text-amber-on-band text-sm font-semibold">{pct}%</span>
             {status && !launched && (
               <span className="text-white text-xs">
                 {status.blockingOpen} blocking · {status.recommendedOpen} recommended remaining

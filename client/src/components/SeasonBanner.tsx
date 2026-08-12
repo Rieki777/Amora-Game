@@ -15,9 +15,9 @@ export default function SeasonBanner() {
   if (!active) {
     if (!next?.name) return null;
     return (
-      <section className="bg-teal-deep text-white py-4">
+      <section className="bg-teal-band text-white py-4">
         <div className="container flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-center">
-          <span className="inline-flex items-center gap-2 text-amber font-semibold text-sm tracking-widest uppercase">
+          <span className="inline-flex items-center gap-2 text-amber-on-band font-semibold text-sm tracking-widest uppercase">
             <Sunrise className="w-4 h-4" /> {next.name}
           </span>
           {next.focus && <span className="text-white text-sm">{next.focus}</span>}
@@ -36,9 +36,9 @@ export default function SeasonBanner() {
   const met = goals.filter((g) => g.done).length;
 
   return (
-    <section className="bg-teal-deep text-white py-4">
+    <section className="bg-teal-band text-white py-4">
       <div className="container flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-center">
-        <span className="inline-flex items-center gap-2 text-amber font-semibold text-sm tracking-widest uppercase">
+        <span className="inline-flex items-center gap-2 text-amber-on-band font-semibold text-sm tracking-widest uppercase">
           <Sun className="w-4 h-4" /> {active.name}
         </span>
         {active.focus && <span className="text-white text-sm">{active.focus}</span>}

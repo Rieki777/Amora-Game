@@ -111,9 +111,9 @@ export default function WorkWithUs() {
   if (submitted) {
     return (
       <Layout>
-        <section className="bg-teal-deep text-white py-24">
+        <section className="bg-teal-band text-white py-24">
           <div className="container max-w-2xl mx-auto px-4 text-center">
-            <CheckCircle2 className="w-14 h-14 text-amber mx-auto mb-6" />
+            <CheckCircle2 className="w-14 h-14 text-amber-on-band mx-auto mb-6" />
             <h1 className="font-display text-4xl font-bold mb-4">Your proposal is with us</h1>
             <p className="text-white/80 text-lg">
               Thank you for offering your gifts to {projectName}. We review every proposal with care.
@@ -127,11 +127,11 @@ export default function WorkWithUs() {
 
   return (
     <Layout>
-      <section className="bg-teal-deep text-white py-16">
+      <section className="bg-teal-band text-white py-16">
         <div className="container max-w-3xl mx-auto px-4">
           <div className="flex items-center gap-3 mb-3">
-            <Handshake className="w-6 h-6 text-amber" />
-            <span className="text-amber font-medium text-sm tracking-widest uppercase">Work With Us</span>
+            <Handshake className="w-6 h-6 text-amber-on-band" />
+            <span className="text-amber-on-band font-medium text-sm tracking-widest uppercase">Work With Us</span>
           </div>
           <h1 className="font-display text-4xl md:text-5xl font-bold mb-4">
             Build and grow alongside {projectName}

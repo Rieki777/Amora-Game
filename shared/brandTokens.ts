@@ -141,7 +141,7 @@ export function cardById(id: string | undefined | null): CharacterCard | null {
 
 // ── Derivation ───────────────────────────────────────────────────────────────
 
-export interface ContrastPair { name: string; fg: string; bg: string; ratio: number; verdict: "pass" | "adjusted" | "fail" }
+export interface ContrastPair { name: string; fg: string; bg: string; ratio: number; wanted: number; verdict: "pass" | "adjusted" | "fail" }
 export interface ContrastReport {
   /** "unverified" whenever anything was NOT computed — never silently "ok" (A3). */
   status: "ok" | "adjusted" | "fail" | "unverified";
@@ -178,7 +178,7 @@ export function deriveTheme(seedHex: string | undefined | null, cardId: string |
     const ratio = contrastRatio(fgHex, bgHex);
     const verdict: ContrastPair["verdict"] = ratio >= wanted ? (wasAdjusted ? "adjusted" : "pass") : "fail";
     if (wasAdjusted) adjusted = true;
-    pairs.push({ name, fg: fgHex, bg: bgHex, ratio: Math.round(ratio * 100) / 100, verdict });
+    pairs.push({ name, fg: fgHex, bg: bgHex, ratio: Math.round(ratio * 100) / 100, wanted, verdict });
   };
 
   // brand: the seed, at a lightness where white text clears AA body. This is
@@ -209,6 +209,46 @@ export function deriveTheme(seedHex: string | undefined | null, cardId: string |
   const sunHex = hslToHex(sun);
   measured("ink on accent", inkHex, sunHex, AA_LARGE, Math.abs(sun.l - 0.62) > 0.02);
 
+  /*
+   * THE ACCENT AS A LABEL ON THE BRAND SURFACE — the pairing this file did not
+   * have, and the reason fifteen section eyebrows shipped at 2.53:1. `sun` above
+   * is derived for ink to sit ON it. The client also does the opposite: the
+   * accent AS TEXT, on the brand band. Nothing measured that, so nothing caught
+   * it, and the header of this file was still telling the truth: it measures the
+   * pairings it DERIVES, and that one was composed in JSX.
+   *
+   * Naively lifting the accent until it clears does not work, and the simulation
+   * says so: `brand` is already derived so that WHITE only just clears 4.5 on it,
+   * so no saturated colour can clear 4.5 above it without becoming white. Across
+   * 72 seed x card combinations, lifting alone washed 34 accents past L 0.92.
+   * Darkening the band alone is no better at the other end: a navy seed drove its
+   * band to L 0.02, which is not navy any more, it is black.
+   *
+   * So BOTH MOVE, one step each, and the search stops the moment the pair clears.
+   * Neither colour carries the whole cost. Measured over the same 72:
+   *
+   *     accents washed near-white   34 -> 0
+   *     bands driven near-black      6 (from 1 catastrophic) and none below L 0.02
+   *     worst pairing              4.51:1, max deviation 0.185 L on either side
+   *     white on the deepened band 5.36:1 worst, so white text only gets safer
+   *
+   * That is the A3 philosophy applied to a pair rather than to one colour: the
+   * village's hues stay theirs, and the legibility is non-negotiable.
+   */
+  const bandSeed = hexToHsl(brandHex)!;
+  let brandBand = bandSeed;
+  let sunOnBand = sun;
+  for (let i = 0; i <= 100; i++) {
+    const step = i * 0.005;
+    brandBand = { ...bandSeed, l: Math.max(0, bandSeed.l - step) };
+    sunOnBand = { ...sun, l: Math.min(1, sun.l + step) };
+    if (contrastRatio(hslToHex(sunOnBand), hslToHex(brandBand)) >= AA_BODY) break;
+  }
+  const brandBandHex = hslToHex(brandBand);
+  const sunOnBandHex = hslToHex(sunOnBand);
+  measured("accent label on brand band", sunOnBandHex, brandBandHex, AA_BODY, brandBand.l < bandSeed.l - 0.001);
+  measured("white on brand band", "#ffffff", brandBandHex, AA_BODY, false);
+
   // Soft steps — decorative tints, checked only where text sits on them.
   // brand-mid carries white text in hovers and secondary chips, so it is not
   // a blind lightness offset: it rises toward brand.l+0.14 only as far as
@@ -227,7 +267,11 @@ export function deriveTheme(seedHex: string | undefined | null, cardId: string |
   measured("muted text on muted", hslToHex(mutedFg), mutedBg, AA_BODY, false);
   measured("white on brand-mid (large only)", "#ffffff", brandMid, AA_LARGE, false);
 
-  const worst = Math.min(...pairs.map((p) => p.ratio / (p.name.includes("large") || p.name.includes("accent") ? AA_LARGE : AA_BODY)));
+  // Each pair now CARRIES the floor it was judged against. This used to sniff the
+  // name for "large" or "accent", which happened to be right for the six pairings
+  // that existed and would have quietly mis-scored the next one added: "accent
+  // label on brand band" is an AA_BODY pairing whose name contains "accent".
+  const worst = Math.min(...pairs.map((p) => p.ratio / p.wanted));
   const anyFail = pairs.some((p) => p.verdict === "fail");
   const contrast: ContrastReport = {
     status: anyFail ? "fail" : adjusted ? "adjusted" : "ok",
@@ -245,6 +289,11 @@ export function deriveTheme(seedHex: string | undefined | null, cardId: string |
     "--tone-mist-light": mistLight,
     "--tone-cream": cream,
     "--tone-sun": sunHex,
+    // The band, and the accent that is legible AS TEXT on it. Derived as a pair
+    // above, because neither one alone can carry the contrast without ceasing to
+    // be a colour the village would recognise.
+    "--tone-brand-band": brandBandHex,
+    "--tone-sun-on-band": sunOnBandHex,
     // The shadcn semantic set (already runtime vars in :root).
     "--primary": brandHex,
     "--primary-foreground": "#ffffff",

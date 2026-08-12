@@ -97,6 +97,17 @@
   --color-aqua-light: var(--tone-mist-light, #c6dde0);
   --color-cream: var(--tone-cream, #efe8d7);
   --color-amber: var(--tone-sun, #ecb163);
+  /* The BAND and the accent that is legible AS TEXT on it, derived as a pair in
+     shared/brandTokens.ts. `amber on teal-deep` is 2.53:1, below even the 3:1
+     large-text floor, so no size or weight rescued the fifteen section eyebrows
+     that used it. Lifting the accent alone washes it to white for half of all
+     seeds; darkening the band alone drove a navy seed to L 0.02. Both move one
+     step at a time until the pair clears 4.5, so neither colour stops being the
+     village's own. The fallbacks are that same search run on the shipped pair:
+       amber #ecb163 on teal-deep #157f7d  =  2.53:1
+       #f0c285        on #105e5d           =  4.59:1, and white on the band 7.55 */
+  --color-teal-band: var(--tone-brand-band, #105e5d);
+  --color-amber-on-band: var(--tone-sun-on-band, #f0c285);
   --color-gray-light: #f2f2f2;     /* Official light gray */
   /* UI accent colors - warm tones, dark enough for white text (WCAG AA) */
   /* MEASURED, not estimated. The old comment here claimed 6.2:1 vs white and
@@ -334,6 +345,14 @@
 
   .text-teal-deep {
     color: var(--color-teal-deep);
+  }
+
+  .bg-teal-band {
+    background-color: var(--color-teal-band);
+  }
+
+  .text-amber-on-band {
+    color: var(--color-amber-on-band);
   }
   
   .text-teal {

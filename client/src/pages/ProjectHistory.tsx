@@ -1658,11 +1658,11 @@ export default function ProjectHistory() {
   return (
     <Layout>
       {/* ── Page Header ─────────────────────────────────────────────────── */}
-      <div className="bg-teal-deep text-white py-8">
+      <div className="bg-teal-band text-white py-8">
         <div className="container">
           <div className="flex items-center gap-3 mb-2">
-            <TreePine className="w-6 h-6 text-amber" />
-            <span className="text-amber font-medium text-sm tracking-widest uppercase">Internal Tool</span>
+            <TreePine className="w-6 h-6 text-amber-on-band" />
+            <span className="text-amber-on-band font-medium text-sm tracking-widest uppercase">Internal Tool</span>
           </div>
           <h1 className="font-display text-3xl md:text-4xl font-bold mb-2">
             Project History
@@ -1670,7 +1670,7 @@ export default function ProjectHistory() {
           <p className="text-white text-sm max-w-2xl mb-6">
             The original build tracker: the six weeks that made this site, kept
             whole. For what's left before launch, see{" "}
-            <Link href="/journey-to-launch" className="text-amber underline">Journey to Launch</Link>.
+            <Link href="/journey-to-launch" className="text-amber-on-band underline">Journey to Launch</Link>.
           </p>
 
           {/* Resource Links */}
@@ -1699,7 +1699,7 @@ export default function ProjectHistory() {
                 style={{ width: `${progressPct}%` }}
               />
             </div>
-            <span className="text-amber text-sm font-semibold">{progressPct}%</span>
+            <span className="text-amber-on-band text-sm font-semibold">{progressPct}%</span>
             <span className="text-white text-xs">
               {deliveredCount} with Amora · {confirmedCount} confirmed
             </span>

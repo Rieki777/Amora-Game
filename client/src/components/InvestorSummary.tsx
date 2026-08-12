@@ -52,10 +52,10 @@ export default function InvestorSummary() {
   if (!data) return null;
 
   return (
-    <section className="bg-teal-deep text-white py-20">
+    <section className="bg-teal-band text-white py-20">
       <div className="container max-w-5xl mx-auto px-4">
         <div className="text-center mb-12">
-          <span className="inline-block text-xs tracking-widest uppercase text-amber font-semibold mb-3">
+          <span className="inline-block text-xs tracking-widest uppercase text-amber-on-band font-semibold mb-3">
             Investment Summary
           </span>
           <h2 className="font-display text-3xl md:text-4xl font-bold mb-3">
@@ -74,7 +74,7 @@ export default function InvestorSummary() {
                 className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur"
               >
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber/15 text-amber flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-amber/15 text-amber-on-band flex items-center justify-center shrink-0">
                     <Icon className="w-5 h-5" />
                   </div>
                   <span className="text-xs uppercase tracking-widest text-white font-semibold">

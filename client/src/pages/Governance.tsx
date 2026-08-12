@@ -46,11 +46,11 @@ export default function Governance() {
   return (
     <Layout>
       {/* Hero */}
-      <section className="bg-teal-deep text-white py-20">
+      <section className="bg-teal-band text-white py-20">
         <div className="container max-w-4xl mx-auto px-4">
           <div className="flex items-center gap-3 mb-3">
-            <Vote className="w-6 h-6 text-amber" />
-            <span className="text-amber font-medium text-sm tracking-widest uppercase">
+            <Vote className="w-6 h-6 text-amber-on-band" />
+            <span className="text-amber-on-band font-medium text-sm tracking-widest uppercase">
               How We Govern
             </span>
           </div>
