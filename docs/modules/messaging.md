@@ -156,6 +156,7 @@ Every route mounts behind `requireModule("messaging")`.
 - `PATCH /api/messages/:id` — `{ muted }` for yourself, `{ name }` for a group's owner.
 - `POST /api/messages/:id/leave` — anyone, always.
 - `POST /api/messages/:id/members`, `DELETE /api/messages/:id/members/:userId`, `POST /api/messages/:id/owner` — owner only, groups only.
+- `PATCH /api/messages/:id/messages/:messageId` — author only, behind `message.send`, leaves a public edit marker; refused on a tombstone.
 - `DELETE /api/messages/:id/messages/:messageId` — author only, leaves a tombstone.
 - `POST /api/messages/:id/messages/:messageId/report` — the report path every thread inherits.
 - `GET /api/admin/messages/reports`, `PUT /api/admin/messages/reports/:id` — the moderation queue.
@@ -263,6 +264,14 @@ The site-wide `prefers-reduced-motion` rule in `index.css` covers CSS transition
 `scrollIntoView`, which is a script API, so the thread's scroll-to-newest checks the media query
 itself and jumps instead of gliding.
 
+**The members panel carries the owner's powers**, which were routes without a surface for a while:
+add people (the same search that starts a conversation, with existing members filtered OUT of the
+results rather than shown and refused), remove someone, and hand the conversation on. Each control
+is drawn only when the server would actually accept it — owner-only, group-only, and never against
+yourself — because a button that always answers 400 teaches people the app is broken rather than
+that they lack a permission. Every member sees rename state, mute, leave, and per-message edit,
+delete and report.
+
 Pure logic lives in `client/src/lib/messaging.ts` with unit tests beside it, the same shape as
 `questBoard.ts`: titles, member summaries, unread badges, relative timestamps, day grouping, and
 the owner-affordance mirrors. Those mirrors keep the UI honest and are never the gate.
@@ -302,6 +311,6 @@ beyond the existing notification spine. Each is a real feature and each is its o
 
 - **No per-member "who may start a conversation with me" control.** Any member may open a direct thread with any other member today. The remedies are per-conversation mute, leave, the report path, and a warning badge's deny. The map's `contactable` toggle was NOT overloaded for this: its label says "Contactable through the Village Map (role holders only)", and silently widening a setting somebody chose under one description is a worse surprise than not having the control yet. If a village asks for one, it is a new pref with its own copy.
 - **Ownership succession is automatic.** An owner who leaves a group hands it to the longest-standing remaining member rather than being refused until they nominate someone. A thread with members and no owner has nobody who can add anyone, and the only way back would be an admin editing a table by hand. Refuse-until-nominated is the other defensible answer.
-- **Message editing is not built.** The `edited_at` column exists and nothing writes it. Either wire an edit path with a visible edit marker, the way forum threads carry theirs, or drop the column in a later migration.
+- ~~**Message editing is not built.**~~ **Built.** `PATCH /api/messages/:id/messages/:messageId`, author-only, scoped to the conversation, refused on a tombstone (editing one would restore a body while `deleted_at` stayed set, so it would read as deleted and render as text). The marker is public and permanent, the posture the forum already takes: a message that can change after it was read, with no sign it changed, is worse than one that cannot change at all. Behind `message.send` unlike deleting, because an edit puts NEW text in front of people; deleting your own words stays available under suspension since removing text is self-limiting. No notification fires, because an edit is not a new message and re-ringing a thread for a typo is how people learn to mute it.
 - **Group conversations have no `context` consumer yet.** `context_type`/`context_id` are indexed and unused until crews land.
 - **Leaving a direct thread is archiving, not blocking.** `openDirect` clears `left_at` for both parties, so the other person writing again brings the thread back into your inbox. That is deliberate: the alternative is that they talk to a wall and are never told, and nothing stops them opening a fresh thread anyway. Mute is the control for "stop tapping me on the shoulder". A real block is a different feature, and it belongs with the per-member "who may start a conversation with me" question above.

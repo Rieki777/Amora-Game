@@ -16,7 +16,10 @@ import { Link, useLocation, useRoute } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
-import { ArrowLeft, Bell, BellOff, Flag, LogOut, Plus, Search, Send, Trash2, Users } from "lucide-react";
+import {
+  ArrowLeft, Bell, BellOff, Crown, Flag, LogOut, Pencil, Plus, Search, Send, Trash2,
+  UserMinus, UserPlus, Users, X,
+} from "lucide-react";
 import {
   canManageMembers,
   canRename,
@@ -330,6 +333,129 @@ function NewConversation({ onClose }: { onClose: () => void }) {
   );
 }
 
+/**
+ * Add people to a group thread. Same search as starting a conversation, with
+ * one difference that matters: members already present are filtered OUT of the
+ * results rather than shown and refused. Re-adding somebody who is already
+ * there is a no-op the server accepts, so offering it would be a control that
+ * looks like it did nothing.
+ */
+function AddMembers({
+  present,
+  onAdd,
+  onCancel,
+}: {
+  present: string[];
+  onAdd: (ids: string[]) => Promise<boolean>;
+  onCancel: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PersonResult[]>([]);
+  const [chosen, setChosen] = useState<PersonResult[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setResults([]);
+      return;
+    }
+    const id = setTimeout(() => {
+      fetch(`/api/messages/people?q=${encodeURIComponent(query.trim())}`, { headers: headers() })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((d) => setResults(Array.isArray(d) ? d.filter((p: PersonResult) => !present.includes(p.userId)) : []))
+        .catch(() => setResults([]));
+    }, 200);
+    return () => clearTimeout(id);
+  }, [query, present]);
+
+  const submit = async () => {
+    if (!chosen.length || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      if (!(await onAdd(chosen.map((c) => c.userId)))) {
+        setError("They could not be added. The group may be at its limit");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-3 mb-3">
+      {!!chosen.length && (
+        <ul className="flex flex-wrap gap-2 mb-2">
+          {chosen.map((c) => (
+            <li key={c.userId}>
+              <button
+                type="button"
+                onClick={() => setChosen((prev) => prev.filter((x) => x.userId !== c.userId))}
+                className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-full bg-teal-deep/10 text-teal-deep text-sm font-medium"
+              >
+                {c.name}
+                <X className="w-3 h-3" aria-hidden="true" />
+                <span className="sr-only">Remove {c.name} from the list</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <label className="block relative mb-2">
+        <span className="sr-only">Search for someone to add</span>
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by name or handle"
+          className={`w-full ${TAP} pl-9 pr-3 rounded-lg border border-border bg-background text-foreground`}
+        />
+      </label>
+
+      {!!results.length && (
+        <ul className="divide-y divide-border rounded-lg border border-border mb-2 overflow-hidden">
+          {results.map((p) => (
+            <li key={p.userId}>
+              <button
+                type="button"
+                onClick={() => {
+                  setChosen((prev) => (prev.some((x) => x.userId === p.userId) ? prev : [...prev, p]));
+                  setQuery("");
+                  setResults([]);
+                }}
+                className={`w-full text-left flex items-center gap-3 px-3 ${TAP} hover:bg-muted/50`}
+              >
+                <span className="w-8 h-8 rounded-full bg-teal-deep/10 text-teal-deep grid place-items-center text-xs font-semibold" aria-hidden="true">
+                  {initialsOf(p.name)}
+                </span>
+                <span className="text-sm text-foreground">{p.name}</span>
+                {p.handle && <span className="text-xs text-muted-foreground">@{p.handle}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {error && <p className="text-sm text-destructive mb-2">{error}</p>}
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={!chosen.length || busy}
+          onClick={submit}
+          className={`inline-flex items-center ${TAP} px-4 rounded-lg bg-teal-deep text-white font-semibold text-sm disabled:opacity-50`}
+        >
+          {busy ? "Adding…" : "Add"}
+        </button>
+        <button type="button" onClick={onCancel} className={`inline-flex items-center ${TAP} px-3 rounded-lg border border-border text-sm`}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Thread ───────────────────────────────────────────────────────────────────
 
 interface ThreadData {
@@ -355,6 +481,7 @@ function ThreadView({ id }: { id: string }) {
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  const [adding, setAdding] = useState(false);
   const bottom = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(
@@ -498,17 +625,73 @@ function ThreadView({ id }: { id: string }) {
                   .map((m) => (
                     <li
                       key={m.userId}
-                      className="inline-flex items-center gap-1.5 min-h-[32px] px-2.5 rounded-full bg-card border border-border text-sm"
+                      className="inline-flex items-center gap-1.5 min-h-[32px] pl-2.5 pr-1 rounded-full bg-card border border-border text-sm"
                     >
                       <span className="w-5 h-5 rounded-full bg-teal-deep/10 text-teal-deep grid place-items-center text-[10px] font-semibold" aria-hidden="true">
                         {initialsOf(m.name)}
                       </span>
                       {m.name ?? "A member"}
                       {m.role === "owner" && <span className="text-xs text-muted-foreground">owner</span>}
+                      {/* Owner-only, and never against yourself: the server
+                          refuses both, and drawing a control that always 400s
+                          teaches people the app is broken. */}
+                      {canManageMembers(thread) && m.userId !== user.id && (
+                        <span className="inline-flex">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`Hand this conversation to ${m.name ?? "them"}? You stay in it as a member.`)) {
+                                act("/owner", { method: "POST", body: JSON.stringify({ userId: m.userId }) });
+                              }
+                            }}
+                            className="grid place-items-center w-8 h-8 rounded-full hover:bg-muted"
+                            title={`Make ${m.name ?? "them"} the owner`}
+                          >
+                            <Crown className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span className="sr-only">Make {m.name ?? "them"} the owner</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`Remove ${m.name ?? "them"} from this conversation?`)) {
+                                act(`/members/${m.userId}`, { method: "DELETE" });
+                              }
+                            }}
+                            className="grid place-items-center w-8 h-8 rounded-full hover:bg-muted text-destructive"
+                            title={`Remove ${m.name ?? "them"}`}
+                          >
+                            <UserMinus className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span className="sr-only">Remove {m.name ?? "them"}</span>
+                          </button>
+                        </span>
+                      )}
                     </li>
                   ))}
               </ul>
+
+              {adding && (
+                <AddMembers
+                  present={thread.members.filter((m) => !m.left).map((m) => m.userId)}
+                  onCancel={() => setAdding(false)}
+                  onAdd={async (ids) => {
+                    const ok = await act("/members", { method: "POST", body: JSON.stringify({ userIds: ids }) });
+                    if (ok) setAdding(false);
+                    return ok;
+                  }}
+                />
+              )}
+
               <div className="flex flex-wrap gap-2">
+                {canManageMembers(thread) && !adding && (
+                  <button
+                    type="button"
+                    onClick={() => setAdding(true)}
+                    className={`inline-flex items-center gap-1.5 ${TAP} px-3 rounded-lg border border-border text-sm`}
+                  >
+                    <UserPlus className="w-4 h-4" aria-hidden="true" />
+                    Add people
+                  </button>
+                )}
                 {canRename(thread) && (
                   <button
                     type="button"
@@ -520,11 +703,6 @@ function ThreadView({ id }: { id: string }) {
                   >
                     Rename
                   </button>
-                )}
-                {canManageMembers(thread) && (
-                  <span className="inline-flex items-center text-xs text-muted-foreground px-1">
-                    You own this conversation
-                  </span>
                 )}
                 <button
                   type="button"
@@ -538,6 +716,11 @@ function ThreadView({ id }: { id: string }) {
                   Leave
                 </button>
               </div>
+              {canManageMembers(thread) && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  You own this conversation, so you can add people, remove them, and hand it on.
+                </p>
+              )}
             </div>
           )}
 
@@ -570,6 +753,26 @@ function ThreadView({ id }: { id: string }) {
                         </div>
                         <span className="flex items-center gap-2 text-[11px] text-muted-foreground px-1 mt-0.5">
                           {relativeTime(m.createdAt, new Date())}
+                          {/* The edit marker is public and permanent. A
+                              message that can change after it was read, with
+                              no sign it changed, is worse than one that
+                              cannot change at all. */}
+                          {m.editedAt && !m.deleted && <span title="This message was edited">edited</span>}
+                          {m.mine && !m.deleted && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = window.prompt("Edit this message", m.body);
+                                if (next !== null && next.trim() && next.trim() !== m.body) {
+                                  act(`/messages/${m.id}`, { method: "PATCH", body: JSON.stringify({ body: next.trim() }) });
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 py-2 hover:text-foreground"
+                            >
+                              <Pencil className="w-3 h-3" aria-hidden="true" />
+                              <span className="sr-only">Edit this message</span>
+                            </button>
+                          )}
                           {m.mine && !m.deleted && (
                             <button
                               type="button"
