@@ -50,7 +50,7 @@ import {
 
 /** Seeded by 0024. Named here rather than imported so this module does not
  *  depend on the library module being present. */
-const LIBRARY_MINT = "sys:library-mint";
+export const LIBRARY_MINT = "sys:library-mint";
 
 // ── The tokens this build knows ─────────────────────────────────────────────
 
@@ -969,4 +969,86 @@ export function canSettleClaim(from: ClaimState, to: ClaimState): { ok: boolean;
 /** Refunds go back through `reverse`, so they inherit every guard the debit passed. */
 export function claimRefunds(state: ClaimState): boolean {
   return state === "canceled" || state === "stale" || state === "rejected";
+}
+
+// ── The Mint's public feeds ─────────────────────────────────────────────────
+
+/**
+ * What the village promises, in its own words.
+ *
+ * ENABLED rules only, and only fields chosen one at a time. A rules feed is a
+ * public statement of what the village pays for, so it must not leak a rule
+ * somebody turned off while deciding, and it must not carry the internal id,
+ * the cycle stamp, or anything else nobody asked to publish. Whitelisted by
+ * construction: the object is BUILT, never a row with fields deleted.
+ */
+export async function publicRules(pool: Pool): Promise<Array<{ trigger: string; token: string; says: string }>> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT r.`trigger`, r.`token_slug`, r.`amount`, r.`ceiling`, r.`recipient`, " +
+      "t.`name` AS token_name, t.`decimals` " +
+      "FROM `mint_rules` r JOIN `tokens` t ON t.`slug` = r.`token_slug` " +
+      "WHERE r.`village_id` = ? AND r.`enabled` = 1 AND t.`active` = 1 " +
+      "ORDER BY r.`trigger`, r.`token_slug`",
+    [villageId()],
+  );
+  return rows.map((r) => {
+    const name = String(r.token_name ?? r.token_slug);
+    const amount = r.amount === null ? null : Number(r.amount);
+    const ceiling = Number(r.ceiling ?? 0);
+    // Plain sentences, not a table dump. Somebody reading this is asking what
+    // the village does, and "quest.completed / 0.1 / 1 / claimant" answers a
+    // different question than they asked.
+    const what =
+      amount === null
+        ? `up to ${ceiling} ${name}, as much as the work was posted for`
+        : `${amount} ${name}`;
+    const when: Record<string, string> = {
+      "quest.completed": "when a steward confirms finished work",
+      "gratitude.given": "when a member thanks another",
+      "role.cycle": "each moon, to everyone holding a seat",
+      "journey.stage_reached": "on reaching a stage of the journey",
+      "welcome_aboard.quest": "on a welcome quest",
+      "library.contributed": "on lending something to the library",
+      "stay.work_exchange": "on a work exchange for a stay",
+    };
+    return {
+      trigger: String(r.trigger),
+      token: name,
+      says: `${what} ${when[String(r.trigger)] ?? "when the village says so"}`,
+    };
+  });
+}
+
+/**
+ * How much of each token exists, and nothing finer.
+ *
+ * VILLAGE TOTALS ONLY, per token, per moon. The admin dashboard breaks supply
+ * down by source; this feed deliberately cannot, because at small N a
+ * per-source public series deanonymises individual holdings. Six members and a
+ * "role.cycle: 40 Hearts" line is two people's balances, and a member who set
+ * showHearts false has just had them published by arithmetic.
+ *
+ * Each faucet's NEGATIVE balance is that token's issued supply, which is why
+ * conservation being provable is what makes this feed possible at all.
+ */
+export async function publicSupply(
+  pool: Pool,
+): Promise<{ cycleKey: string; tokens: Array<{ token: string; issued: number; decimals: number }> }> {
+  const { key } = cycleWindow();
+  const faucets = [RECOGNITION_FAUCET, VOICE_MINT, MINT_FAUCET, LIBRARY_MINT];
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT b.`token_type` AS slug, t.`name`, t.`decimals`, SUM(-b.`balance`) AS issued " +
+      `FROM \`token_balances\` b JOIN \`tokens\` t ON t.\`slug\` = b.\`token_type\` ` +
+      `WHERE b.\`account_id\` IN (${faucets.map(() => "?").join(",")}) AND t.\`active\` = 1 ` +
+      "GROUP BY b.`token_type`, t.`name`, t.`decimals` HAVING issued > 0 ORDER BY t.`sort_order`, t.`slug`",
+    faucets,
+  );
+  return {
+    cycleKey: key,
+    tokens: rows.map((r) => ({
+      token: String(r.name ?? r.slug),
+      issued: Number(r.issued ?? 0),
+      decimals: Number(r.decimals ?? 0),
+    })),
+  };
 }

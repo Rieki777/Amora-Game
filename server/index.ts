@@ -94,7 +94,7 @@ import {
   TREASURY,
 } from "./lib/ledger";
 import type { TransferGuard } from "./lib/ledger";
-import { allowanceFor, checkIn, cycleWindow, economyReady, give, mintForConfirmedClaim, runSettlement, villageId } from "./lib/economy";
+import { allowanceFor, checkIn, cycleWindow, economyReady, give, mintForConfirmedClaim, publicRules, publicSupply, runSettlement, villageId } from "./lib/economy";
 import { addCharacter, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
@@ -14505,6 +14505,35 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Classes GUIDE and never gate. These routes read and write which classes a
   // player is playing; nothing here is ever consulted to decide whether an
   // action is allowed, and the capability gate does not know these words.
+
+  // ── The Mint's public feeds ───────────────────────────────────────────────
+  //
+  // The village's books are public. Both are unauthenticated on purpose: a
+  // village that pays for work should be able to say so to somebody who has not
+  // joined yet, and a supply figure nobody outside can read is a promise with
+  // no witness.
+
+  /** What the village pays for, in sentences rather than a table dump. */
+  app.get("/api/economy/rules", async (_req, res) => {
+    const ready = await economyReady(getPool());
+    if (!ready.ready) return res.json({ rules: [] });
+    res.json({ rules: await publicRules(getPool()) });
+  });
+
+  /**
+   * How much of each token exists. VILLAGE TOTALS ONLY.
+   *
+   * The admin dashboard breaks this down by source and this feed deliberately
+   * cannot, because at small N a per-source public series deanonymises
+   * individual holdings: six members and a "role.cycle: 40 Hearts" line is two
+   * people's balances, and a member who set showHearts false has just had them
+   * published by arithmetic.
+   */
+  app.get("/api/economy/supply", async (_req, res) => {
+    const ready = await economyReady(getPool());
+    if (!ready.ready) return res.json({ cycleKey: null, tokens: [] });
+    res.json(await publicSupply(getPool()));
+  });
 
   /** The five classes, as this village names them. Public: it is the front door. */
   app.get("/api/archetypes", async (_req, res) => {
