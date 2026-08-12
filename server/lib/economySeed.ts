@@ -14,7 +14,7 @@
  * Neither is a genesis grant. Re-running this seeds nothing twice and grants
  * nobody anything: value only ever enters through the engine.
  */
-import type { Pool } from "mysql2/promise";
+import type { Pool, RowDataPacket } from "mysql2/promise";
 import { ensureVoiceToken, HEARTS, VILLAGE_VOICE } from "./economy";
 
 /**
@@ -181,4 +181,79 @@ export async function seedEconomy(
   }
 
   return report;
+}
+
+/**
+ * Suggested class tags on work that already exists.
+ *
+ * The character select's "Open paths" panel is empty until something carries a
+ * tag, so a fresh village meets five classes that appear to open nothing. This
+ * fills that in from words the village already wrote.
+ *
+ * KEYWORDS, NOT IDS. Hardcoding a quest id would put one village's content in
+ * platform code, and a fork would inherit tags for quests it does not have.
+ * Matching on the title and tags a village wrote works on any village's board
+ * and degrades to "no suggestion" rather than to a wrong one.
+ *
+ * EVERY TAG IS A SUGGESTION AND SAYS SO. `archetypes_suggested = 1` is what the
+ * admin surface renders amber: a machine's guess awaiting a human's word. And
+ * the write only ever touches rows where `archetypes IS NULL`, so a tag anybody
+ * has confirmed or cleared is never overwritten by a later boot. Clearing a
+ * suggestion to an empty array is a decision, and an empty array is not NULL.
+ */
+const CLASS_WORDS: Array<{ key: string; words: string[] }> = [
+  { key: "building", words: ["build", "infrastructure", "tech", "platform", "trail", "garden", "food", "forest", "repair", "tool", "maintain", "construct", "greenhouse", "install"] },
+  { key: "researching", words: ["research", "design", "scribe", "record", "map", "plan", "steward", "survey", "analys", "framework", "architect"] },
+  { key: "facilitating", words: ["host", "facilitat", "circle", "gather", "potluck", "welcome", "play", "heal", "retreat", "gathering", "gatekeep", "hold"] },
+  { key: "catalyzing", words: ["connect", "ambassador", "partner", "introduc", "weave", "outreach", "alliance", "network"] },
+  // No bare "art": it is a substring of "Arts" in "Healing Arts Practitioner",
+  // which is a therapy and not a story, and of part, party, chart and start.
+  // Short generic stems are where a keyword matcher earns its false positives.
+  { key: "storytelling", words: ["story", "photo", "write", "mural", "artist", "paint", "music", "document", "communicat", "publish", "newsletter", "film"] },
+];
+
+function suggestClasses(text: string): string[] {
+  const hay = text.toLowerCase();
+  const hits = CLASS_WORDS.filter((c) => c.words.some((w) => hay.includes(w))).map((c) => c.key);
+  // Two is a suggestion; five is noise. A row that matches everything is
+  // telling us the words are too generic, not that it suits every class.
+  return hits.length && hits.length <= 3 ? hits : [];
+}
+
+export async function suggestClassTags(
+  pool: Pool,
+  villageId: string,
+  opts: { dryRun?: boolean } = {},
+): Promise<{ quests: number; roles: number }> {
+  const out = { quests: 0, roles: 0 };
+
+  const [quests] = await pool.query<RowDataPacket[]>(
+    "SELECT `id`, `title`, `tags` FROM `quests` WHERE `archetypes` IS NULL AND `is_example` = 0",
+  );
+  for (const q of quests) {
+    const tags = Array.isArray(q.tags) ? q.tags.join(" ") : String(q.tags ?? "");
+    const keys = suggestClasses(`${q.title ?? ""} ${tags}`);
+    if (!keys.length) continue;
+    out.quests += 1;
+    if (opts.dryRun) continue;
+    await pool.query(
+      "UPDATE `quests` SET `archetypes` = ?, `archetypes_suggested` = 1 WHERE `id` = ? AND `archetypes` IS NULL",
+      [JSON.stringify(keys), q.id],
+    );
+  }
+
+  const [roles] = await pool.query<RowDataPacket[]>(
+    "SELECT `id`, `name`, `aim` FROM `org_roles` WHERE `archetypes` IS NULL AND `is_example` = 0",
+  );
+  for (const r of roles) {
+    const keys = suggestClasses(`${r.name ?? ""} ${r.aim ?? ""}`);
+    if (!keys.length) continue;
+    out.roles += 1;
+    if (opts.dryRun) continue;
+    await pool.query(
+      "UPDATE `org_roles` SET `archetypes` = ?, `archetypes_suggested` = 1 WHERE `id` = ? AND `archetypes` IS NULL",
+      [JSON.stringify(keys), r.id],
+    );
+  }
+  return out;
 }

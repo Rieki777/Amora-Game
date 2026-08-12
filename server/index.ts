@@ -97,7 +97,7 @@ import type { TransferGuard } from "./lib/ledger";
 import { allowanceFor, checkIn, cycleWindow, economyReady, give, mintForConfirmedClaim, runSettlement, villageId } from "./lib/economy";
 import { addCharacter, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
-import { seedEconomy } from "./lib/economySeed";
+import { seedEconomy, suggestClassTags } from "./lib/economySeed";
 import { installCrashHandlers, reportError, wireErrorReporting } from "./lib/errors";
 import {
   STAY_CREDIT,
@@ -3310,6 +3310,20 @@ async function startServer() {
   // village's own amounts are never restored to a default by a redeploy.
   await seedEconomy(getPool(), villageId());
   await loadTokenRegistry(getPool());
+  // Suggested class tags on work that already exists, so a fresh village does
+  // not meet five classes that appear to open nothing. Only rows where
+  // `archetypes IS NULL` are touched, so a tag a human confirmed or cleared is
+  // never overwritten by a later boot, and every one is flagged as a suggestion
+  // rather than a decision.
+  try {
+    const tagged = await suggestClassTags(getPool(), villageId());
+    if (tagged.quests || tagged.roles) {
+      console.log(`[characters] suggested class tags on ${tagged.quests} quest(s), ${tagged.roles} role(s)`);
+    }
+  } catch (err) {
+    // A suggestion is not worth failing a boot over.
+    console.error("[characters] class tag suggestion failed:", err);
+  }
   {
     const inv = await checkLedgerInvariants(getPool());
     if (!inv.ok) {
