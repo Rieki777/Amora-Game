@@ -34,7 +34,7 @@ export default function MobileTabBar() {
         className="absolute top-0 left-0 right-0 h-0.5 opacity-70"
         style={{ background: "linear-gradient(to right, transparent, #7fb8ac, transparent)" }}
       />
-      <div className="grid grid-cols-5 h-16 items-stretch max-w-2xl mx-auto min-w-0">
+      <div className="grid grid-cols-[repeat(5,minmax(0,1fr))] h-16 items-stretch max-w-2xl mx-auto min-w-0">
         {TAB_SLOTS.map((slot) => {
           const active =
             !!slot.path &&

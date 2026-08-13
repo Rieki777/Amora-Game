@@ -186,7 +186,7 @@ export default function Feed() {
             }
             return (
               <div key={item.id} className="bg-card border border-border rounded-xl p-4">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-2">
                   <span className="font-medium text-foreground">{item.author.name}</span>
                   {item.author.handle && <span>@{item.author.handle}</span>}
                   {/* The lens is category-wide, so the forum's example threads

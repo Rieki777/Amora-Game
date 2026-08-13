@@ -93,7 +93,7 @@ export default function Badges() {
                   <p className="text-xs text-muted-foreground">Declare what you can do. It helps the village find you.</p>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <input value={skill} onChange={(e) => setSkill(e.target.value)} placeholder="e.g. carpentry"
                   className="flex-1 text-sm border border-border rounded-lg px-3 py-2" />
                 <button
