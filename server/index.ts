@@ -15252,7 +15252,25 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (result.previous !== result.value) {
       const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
       await recordMechanicsChange(req.params.key, result, actor, "admin");
-      await addActivity("settings", `A game rule changed: ${req.params.key} is now ${result.value}`, { actorUserId: actor, entityType: "variable", entityRef: req.params.key });
+      /*
+       * THE VALUE DOES NOT GO IN THE PUBLIC LINE. This used to read
+       * `${key} is now ${result.value}`, and `/api/game/pulse` is
+       * UNAUTHENTICATED and renders on the home page, so every game variable's
+       * value was narrated to visitors. QA found the homepage publishing
+       *
+       *     tokens.base_rpc_url is now https://base-mainnet.g.alchemy.com/v2/<key>
+       *
+       * to signed-out readers. A variable's value is admin state; a variable
+       * CHANGING is village news. Those are different audiences and this line
+       * only ever needed the second.
+       *
+       * Nothing is lost from the record: recordMechanicsChange above keeps the
+       * before and after for the audit trail, behind auth, which is where a
+       * value belongs. Redacting by pattern was the other option and it is the
+       * weaker one, because it needs a list of what looks secret and a URL with
+       * a key in the path defeats most such lists.
+       */
+      await addActivity("settings", `A game rule changed: ${req.params.key}`, { actorUserId: actor, entityType: "variable", entityRef: req.params.key });
     }
     res.json(result);
   });
