@@ -78,6 +78,23 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <div className="flex flex-col min-h-screen">
+      {/*
+       * Skip link. Measured before it existed: 40 to 63 focus stops between the
+       * first Tab and the page content, on every route, because the header nav
+       * and its dropdowns come first. A keyboard or switch user paid that toll
+       * on every navigation.
+       *
+       * Visually hidden until focused rather than display:none, because a
+       * display:none link is not focusable and the skip link would not exist
+       * for exactly the people it is for.
+       */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:rounded-lg focus:bg-white focus:text-teal-deep focus:font-semibold focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-teal-deep"
+      >
+        Skip to content
+      </a>
+
       {/* Navigation */}
       <nav className="sticky top-0 z-50 bg-teal-deep text-white shadow-lg">
         <div className="container py-4 flex items-center justify-between">
@@ -347,7 +364,7 @@ export default function Layout({ children }: LayoutProps) {
       </nav>
 
       {/* Main Content */}
-      <main className="flex-1">
+      <main id="main" tabIndex={-1} className="flex-1">
         {children}
       </main>
 
@@ -375,7 +392,7 @@ export default function Layout({ children }: LayoutProps) {
 
             {/* Your Journey */}
             <div>
-              <h4 className="font-display text-lg font-semibold mb-4">Your Journey</h4>
+              <h2 className="font-display text-lg font-semibold mb-4">Your Journey</h2>
               <ul className="space-y-2">
                 <li>
                   <Link href="/investor" className="text-white hover:underline transition-colors text-sm">
@@ -422,7 +439,7 @@ export default function Layout({ children }: LayoutProps) {
 
             {/* Governance & Structure */}
             <div>
-              <h4 className="font-display text-lg font-semibold mb-4">Governance</h4>
+              <h2 className="font-display text-lg font-semibold mb-4">Governance</h2>
               <ul className="space-y-2">
                 <li>
                   <Link href="/governance" className="text-white hover:underline transition-colors text-sm">
@@ -481,7 +498,7 @@ export default function Layout({ children }: LayoutProps) {
 
             {/* Resources */}
             <div>
-              <h4 className="font-display text-lg font-semibold mb-4">Resources</h4>
+              <h2 className="font-display text-lg font-semibold mb-4">Resources</h2>
               <ul className="space-y-2">
                 <li>
                   <Link href="/co-creators-guide" className="text-white hover:underline transition-colors text-sm">
@@ -525,7 +542,7 @@ export default function Layout({ children }: LayoutProps) {
 
             {/* Connect */}
             <div>
-              <h4 className="font-display text-lg font-semibold mb-4">Connect</h4>
+              <h2 className="font-display text-lg font-semibold mb-4">Connect</h2>
               <ul className="space-y-2">
                 {siteUrl && (
                   <li>

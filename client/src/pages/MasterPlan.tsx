@@ -19,7 +19,12 @@ import { Image } from "@/components/Image";
 const HERO_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/4.jpg";
 
 const stats = [
-  { label: "Total Acres", value: "300+", icon: Mountain },
+  // 266, because that is what the other seven pages say. This tile read "300+"
+  // and sat next to "$16M+ Appraised Value" on the page an investor reads first,
+  // while /, /investor, /love-letter, /steward-rights, /resident-rights and
+  // /visit all say 266 acres in Dominicalito. ProjectHistory already listed
+  // "Total Acres" among its unverified placeholders, so the repo knew.
+  { label: "Total Acres", value: "266", icon: Mountain },
   { label: "Planned Homes", value: "150+", icon: Home },
   { label: "Retreat Keys", value: "120-150", icon: Tent },
   { label: "Appraised Value", value: "$16M+", icon: Building },

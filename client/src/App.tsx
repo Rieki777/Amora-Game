@@ -2,6 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation } from "wouter";
+import { MotionConfig } from "framer-motion";
 import { lazy, Suspense, useEffect, useState } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -352,15 +353,34 @@ function Router() {
 function App() {
   return (
     <ThemeProvider defaultTheme="light">
+      {/*
+       * "reduce" has to be honoured HERE, not only in CSS. index.css already
+       * carries a prefers-reduced-motion block and it was measured doing nothing
+       * on 19 routes: it caps animation-duration and transition-duration, and
+       * Framer Motion does not use either. It drives inline transform and
+       * opacity from JS, frame by frame, so a CSS rule has nothing to bite on.
+       *
+       * `reducedMotion="user"` makes every motion component in the tree read the
+       * OS setting: transform, layout and scroll animations stop, opacity and
+       * colour still cross-fade because neither triggers vestibular symptoms.
+       * That keeps the reveals from stranding an element at opacity 0, which is
+       * the failure mode the CSS block's 1ms transition was written to avoid.
+       *
+       * The two Level A cases this closes are the loops rather than the reveals:
+       * the scroll dot on Home and the rotating tile on the investor journey both
+       * run `repeat: Infinity` and never stopped for anyone.
+       */}
+      <MotionConfig reducedMotion="user">
         <AuthProvider>
         <ModuleProvider>
           <TooltipProvider>
             <Toaster />
             <Router />
           </TooltipProvider>
- 
+
         </ModuleProvider>
         </AuthProvider>
+      </MotionConfig>
     </ThemeProvider>
   );
 }

@@ -507,7 +507,16 @@ export default function InvestorJourney() {
                     >
                       <div className="flex items-start gap-4">
                         {/* Checkbox */}
+                        {/* Named and typed the way the steward, resident and prosperity
+                            journeys already do it. This one was the outlier:
+                            sixteen bare icon buttons whose only child is an svg,
+                            so a screen reader announced "button" and this was the
+                            ONLY keyboard path to mark an investor stage done. */}
                         <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={isCompleted}
+                          aria-label={`${step.title}: mark as ${isCompleted ? "not done" : "done"}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleStep(step.id);
