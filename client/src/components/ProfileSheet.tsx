@@ -89,7 +89,7 @@ export default function ProfileSheet() {
             ))}
           </ul>
           <p className="mt-4 text-sm text-gray-600">
-            Hearts are held, never spent. They say what the village noticed.
+            Gratitude is held, never spent. It says what the village noticed.
           </p>
         </motion.div>
       ) : null}
@@ -110,7 +110,7 @@ export default function ProfileSheet() {
               ? "You have not thanked anyone yet this season."
               : `You thanked ${g.givenThisSeason} members in return.`}
           </p>
-          <p className="mt-3 text-sm text-gray-500">{g.lifetime} Hearts held in all.</p>
+          <p className="mt-3 text-sm text-gray-500">{g.lifetime} Gratitude held in all.</p>
         </motion.div>
       ) : null}
 
@@ -120,7 +120,7 @@ export default function ProfileSheet() {
           <p className="text-gray-800">
             {a.remaining === 0
               ? "You have given everything you had to give this moon."
-              : `You can still give ${a.remaining} Hearts this moon.`}
+              : `You can still give ${a.remaining} Gratitude this moon.`}
           </p>
           <div
             className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100"

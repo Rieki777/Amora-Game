@@ -152,36 +152,36 @@ export const VARIABLES: VariableDef[] = [
   // the two pairs measure different things. The older pair governs the
   // acknowledgement flow: a budget scaled by stage, and a cap counting SENDS,
   // set to 1 so acknowledging someone is a considered act. The engine's pair
-  // governs Hearts as an economy: a flat per-moon allowance, and a cap counting
-  // HEARTS rather than sends, so a member can thank the same person more than
+  // governs Gratitude as an economy: a flat per-moon allowance, and a cap
+  // counting GRATITUDE rather than sends, so a member can thank the same person more than
   // once in a moon without either dial meaning something different than it says.
   //
   // Reusing the sends cap as an amount cap was a real bug in this build: a
-  // default of 1 refused every gift of 2 hearts or more, and the refusal
+  // default of 1 refused every gift of 2 Gratitude or more, and the refusal
   // message named a dial that was doing its own job correctly.
   {
     key: "economy.giving_allowance_per_moon",
     category: "Gratitude",
-    label: "Hearts a member can give each moon",
+    label: "Gratitude a member can give each moon",
     description:
-      "How many Hearts a member can give away in one lunation. Hearts are given, never paid: giving mints fresh Hearts to the person being thanked and takes nothing from the giver, so this allowance is what bounds it. Unused allowance does not roll over, and nothing anyone has been given is ever taken back.",
+      "How much Gratitude a member can give away in one lunation. Gratitude is given, never paid: giving mints fresh Gratitude to the person being thanked and takes nothing from the giver, so this allowance is what bounds it. Unused allowance does not roll over, and nothing anyone has been given is ever taken back.",
     type: "integer",
     default: "30",
     min: 0,
     max: 100000,
-    unit: "Hearts",
+    unit: "Gratitude",
   },
   {
     key: "economy.hearts_per_recipient_per_moon",
     category: "Gratitude",
-    label: "Hearts to any one person each moon",
+    label: "Gratitude to any one person each moon",
     description:
       "The most one member can give another in a single lunation. Stops a single friendship from carrying the whole of someone's standing, while still leaving room to thank the same person more than once.",
     type: "integer",
     default: "10",
     min: 1,
     max: 100000,
-    unit: "Hearts",
+    unit: "Gratitude",
   },
   {
     key: "gratitude.max_per_recipient_per_cycle",

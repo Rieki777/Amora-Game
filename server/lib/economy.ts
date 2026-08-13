@@ -19,20 +19,30 @@
  *
  * Every rule below was a live exploit in review. None of them is polish.
  *
- * THE TOKENS, and the one confusion worth spelling out.
+ * THE TOKENS, and the naming, which has moved once and must not move again by
+ * accident.
  *
- *   Hearts        the `gratitude` token. Recognition. Given, never paid, and
- *                 never spent: standing is held. Mints from the recognition
- *                 faucet at the moment of giving.
+ *   GRATITUDE     the `gratitude` token, and the name of the whole recognition
+ *                 system. Given, never paid, and never spent: standing is held.
+ *                 Mints from the recognition faucet at the moment of giving.
+ *                 "Hearts" was an earlier working name for this and is RETIRED:
+ *                 if you find it in user-facing copy it is a leftover, not a
+ *                 second concept. The heart TAP on a feed post is a different
+ *                 thing and keeps its own name.
  *   Stay credits  `stay-credit`. A real thing you spend on a real night.
  *   Library       `library-credit`. Spendable, backed by shelves.
  *   Voice         `village-voice`. Earned only from confirmed contribution,
  *                 accrued here, claimed to Hypha.
  *
+ * The constant is still called HEARTS because renaming an exported symbol
+ * touches every call site for no behavioural gain, and the string it holds,
+ * "gratitude", was always the truth. The COPY is what a member reads and the
+ * copy says Gratitude.
+ *
  * `amora` is NONE of these. It is the village's equity token, it is governed by
  * Hypha, it lives on Base, and this platform is forbidden from minting or
- * moving it (`governance: 'hypha'`, refused by `validateLeg`). Hearts are
- * gratitude and Amora is equity. Nothing here may ever quietly turn one into
+ * moving it (`governance: 'hypha'`, refused by `validateLeg`). Gratitude is
+ * recognition and Amora is equity. Nothing here may ever quietly turn one into
  * the other, and no surface should let a member read one number as the other.
  */
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
@@ -54,7 +64,8 @@ export const LIBRARY_MINT = "sys:library-mint";
 
 // ── The tokens this build knows ─────────────────────────────────────────────
 
-/** Hearts. The recognition token that has existed since 0006, under its name. */
+/** The recognition token, live since 0006. Reads as Gratitude everywhere a
+ *  member can see it; the symbol keeps its old name to spare every call site. */
 export const HEARTS = "gratitude";
 /** The village's own voice token. Accrues here, settles on Hypha. */
 export const VILLAGE_VOICE = "village-voice";
@@ -557,7 +568,7 @@ export function checkGive(
   // gift of two Hearts or more and blame a dial that was working correctly.
   const perRecipient = numberVar("economy.hearts_per_recipient_per_moon");
   if (alreadyToThisPerson + amount > perRecipient) {
-    return { ok: false, error: `You can give one person ${perRecipient} Hearts a moon` };
+    return { ok: false, error: `You can give one person ${perRecipient} Gratitude a moon` };
   }
   return { ok: true };
 }
