@@ -38,7 +38,13 @@ export default function GameDashboard() {
           <Compass className="w-6 h-6 text-amber shrink-0" />
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-widest text-white font-semibold">Your next step</p>
-            <p className="font-display text-lg font-semibold truncate">{me.nextAction.label}</p>
+            {/* `truncate` cut this banner's own headline: "Continue your community
+                  training" needs 294px and the box is 241px at 393px, so a member
+                  read "Continue your community tr...". At 320 barely half survived.
+                  It is the ONE call to action on the page, so ellipsising it hides
+                  the thing the banner exists to say. Two lines is cheaper than a
+                  guess. */}
+                <p className="font-display text-lg font-semibold leading-snug">{me.nextAction.label}</p>
           </div>
         </div>
         <ArrowRight className="w-5 h-5 shrink-0" />
