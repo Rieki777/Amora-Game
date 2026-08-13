@@ -31,6 +31,10 @@ import {
   MAX_KEY,
   mint,
   mintForConfirmedClaim,
+  mintView,
+  queueRuleChange,
+  applyPendingRules,
+  rulesFor,
   reverse,
   VILLAGE_VOICE,
   VOICE_MINT,
@@ -39,6 +43,7 @@ import {
 } from "./lib/economy";
 import { balanceOf, loadTokenRegistry, memberAccount, registerToken, RECOGNITION_FAUCET } from "./lib/ledger";
 import { loadVariables } from "./lib/variables";
+import { cycleBoundsFor } from "../shared/lunar";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
 
 const configured = testDbConfigured();
@@ -440,6 +445,78 @@ describe.skipIf(!configured)("the village economy engine", () => {
       expect(out.skipped).toMatch(/epoch/);
       expect(out.minted).toHaveLength(0);
       expect(await balanceOf(pool, memberAccount(u), VILLAGE_VOICE)).toBe(0);
+    });
+  });
+
+  // ── A dial change waits for the moon ─────────────────────────────────────
+
+  describe("a queued rule change", () => {
+    // Self-contained: this suite never runs seedEconomy, so the block makes
+    // the row it measures rather than assuming one a seeder would have left.
+    const RULE = "rule-deferral-test";
+    beforeAll(async () => {
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
+          "VALUES (?,?,'quest.completed',?,0.1000,1,'claimant',1) ON DUPLICATE KEY UPDATE `amount` = 0.1000, " +
+          "`ceiling` = 1, `enabled` = 1, `pending_from_cycle` = NULL",
+        [RULE, villageId(), HEARTS],
+      );
+    });
+
+    it("does not touch the live numbers", async () => {
+      const before = (await rulesFor(pool, "quest.completed")).find((r) => r.id === RULE);
+      expect(before).toBeTruthy();
+      const out = await queueRuleChange(pool, RULE, { amount: 0.9 }, "admin-1");
+      expect(out.ok).toBe(true);
+      // The whole point of the deferral. A rule cannot be raised, paid against
+      // and lowered again around a settlement, and nobody's owed amount changes
+      // under them mid-cycle.
+      const after = (await rulesFor(pool, "quest.completed")).find((r) => r.id === RULE);
+      expect(after?.amount).toBe(before?.amount);
+    });
+
+    it("lands at the NEXT cycle, never this one", async () => {
+      const out = await queueRuleChange(pool, RULE, { amount: 0.7 }, "admin-1");
+      expect(out.ok && out.fromCycle).toBe(cycleBoundsFor(new Date()).cycleNumber + 1);
+    });
+
+    it("replaces a queued change rather than stacking on it", async () => {
+      await queueRuleChange(pool, RULE, { amount: 0.7 }, "admin-1");
+      await queueRuleChange(pool, RULE, { amount: 0.3 }, "admin-2");
+      const view = await mintView(pool);
+      const r = view.rules.find((x) => x.id === RULE);
+      // Two pending amounts for one rule have no defined meaning, and somebody
+      // would have to invent one.
+      expect(r?.pending?.amount).toBe(0.3);
+    });
+
+    it("refuses a fixed amount above its own ceiling", async () => {
+      const out = await queueRuleChange(pool, RULE, { amount: 99 }, "admin-1");
+      expect(out.ok).toBe(false);
+    });
+
+    it("refuses a negative ceiling, and zero is a real answer", async () => {
+      expect((await queueRuleChange(pool, RULE, { ceiling: -1 }, "a")).ok).toBe(false);
+      expect((await queueRuleChange(pool, RULE, { ceiling: 0 }, "a")).ok).toBe(true);
+    });
+
+    it("promotes only when the moon has come, and clears the queue with it", async () => {
+      await queueRuleChange(pool, RULE, { amount: 0.4, ceiling: 1 }, "admin-1");
+      // A cycle that has not arrived promotes nothing.
+      expect(await applyPendingRules(pool, new Date())).toBe(0);
+
+      // One lunation on, it lands.
+      const nextMoon = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      expect(await applyPendingRules(pool, nextMoon)).toBeGreaterThan(0);
+
+      const view = await mintView(pool);
+      const r = view.rules.find((x) => x.id === RULE);
+      expect(r?.amount).toBe(0.4);
+      // Applied and cleared in one write, so no rule ever carries both a new
+      // value and a stale pending copy of it.
+      expect(r?.pending).toBeNull();
+      // And a second run has nothing left to do.
+      expect(await applyPendingRules(pool, nextMoon)).toBe(0);
     });
   });
 

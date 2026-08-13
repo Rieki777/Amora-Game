@@ -94,7 +94,7 @@ import {
   TREASURY,
 } from "./lib/ledger";
 import type { TransferGuard } from "./lib/ledger";
-import { allowanceFor, checkIn, cycleWindow, economyReady, give, mintForConfirmedClaim, publicRules, publicSupply, runSettlement, villageId } from "./lib/economy";
+import { allowanceFor, checkIn, cycleWindow, economyReady, give, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
 import { addCharacter, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
@@ -14505,6 +14505,42 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Classes GUIDE and never gate. These routes read and write which classes a
   // player is playing; nothing here is ever consulted to decide whether an
   // action is allowed, and the capability gate does not know these words.
+
+  // ── The Mint, admin side ──────────────────────────────────────────────────
+  //
+  // Under /api/admin, so the audit middleware attributes every non-GET
+  // automatically. Every economic dial change is deferred to the next cycle by
+  // the engine, not by this route: a surface that could write a live amount
+  // would be a way around the deferral rather than a use of it.
+
+  app.get("/api/admin/economy", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    res.json(await mintView(getPool()));
+  });
+
+  /** Queue a change. It lands at the next moon and says so in the response. */
+  app.patch("/api/admin/economy/rules/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? "admin";
+    const body = req.body ?? {};
+    const change: { amount?: number | null; ceiling?: number; enabled?: boolean } = {};
+    if ("amount" in body) change.amount = body.amount === null ? null : Number(body.amount);
+    if ("ceiling" in body) change.ceiling = Number(body.ceiling);
+    if ("enabled" in body) change.enabled = body.enabled === true;
+
+    const out = await queueRuleChange(getPool(), req.params.id, change, actor);
+    if (!out.ok) return res.status(400).json({ error: out.error });
+    // The audit feed is visible to all members: transparency is the control.
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: `economy:rule-queued:${req.params.id}:from-cycle-${out.fromCycle}`,
+      actorUserId: actor,
+      entityType: "mint_rule",
+      entityRef: req.params.id,
+      audience: "admin",
+    });
+    res.json({ success: true, fromCycle: out.fromCycle, view: await mintView(getPool()) });
+  });
 
   // ── The Mint's public feeds ───────────────────────────────────────────────
   //

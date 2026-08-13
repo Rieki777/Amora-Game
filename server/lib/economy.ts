@@ -854,6 +854,12 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
   const ready = await economyReady(pool);
   if (!ready.ready) return out;
 
+  // Promote queued dial changes FIRST. A change stamped for this cycle is
+  // meant to govern this settlement; reading the rules before promoting would
+  // pay the old rate and then apply the new one a moon late, which is the
+  // deferral working backwards.
+  await applyPendingRules(pool, at);
+
   const rules = await rulesFor(pool, "role.cycle", cycleBoundsFor(at).cycleNumber);
   if (!rules.length) return out;
 
@@ -1050,5 +1056,166 @@ export async function publicSupply(
       issued: Number(r.issued ?? 0),
       decimals: Number(r.decimals ?? 0),
     })),
+  };
+}
+
+// ── The Mint, admin side ────────────────────────────────────────────────────
+
+/**
+ * Queue a change to a rule. It lands at the NEXT cycle, never this one.
+ *
+ * The live numbers are untouched, so the village keeps paying what it promised
+ * for the cycle it is in. That is the whole point of the deferral: a rule
+ * cannot be raised, paid against, and lowered again around a settlement, and
+ * an admin cannot accidentally change what a member was already owed.
+ *
+ * Queueing over a queued change REPLACES it rather than stacking, because two
+ * pending amounts for one rule have no defined meaning and somebody would have
+ * to invent one.
+ */
+export async function queueRuleChange(
+  pool: Pool,
+  ruleId: string,
+  change: { amount?: number | null; ceiling?: number; enabled?: boolean },
+  actorUserId: string,
+): Promise<{ ok: true; fromCycle: number } | { ok: false; error: string }> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT * FROM `mint_rules` WHERE `id` = ? AND `village_id` = ?",
+    [ruleId, villageId()],
+  );
+  const rule = rows[0];
+  if (!rule) return { ok: false, error: "no such rule" };
+
+  if (change.ceiling !== undefined && (!Number.isFinite(change.ceiling) || change.ceiling < 0)) {
+    return { ok: false, error: "a ceiling is zero or more, and zero means zero" };
+  }
+  if (change.amount !== undefined && change.amount !== null) {
+    if (!Number.isFinite(change.amount) || change.amount <= 0) {
+      return { ok: false, error: "an amount is greater than zero, or null to read it from the source" };
+    }
+    // A fixed amount above its own ceiling is a rule that contradicts itself.
+    const ceiling = change.ceiling ?? Number(rule.ceiling ?? 0);
+    if (ceiling > 0 && change.amount > ceiling) {
+      return { ok: false, error: `${change.amount} is above this rule's ceiling of ${ceiling}` };
+    }
+  }
+
+  const fromCycle = cycleBoundsFor(new Date()).cycleNumber + 1;
+  await pool.query(
+    "UPDATE `mint_rules` SET `pending_amount` = ?, `pending_ceiling` = ?, `pending_enabled` = ?, " +
+      "`pending_from_cycle` = ?, `pending_by` = ?, `pending_at` = CURRENT_TIMESTAMP " +
+      "WHERE `id` = ? AND `village_id` = ?",
+    [
+      change.amount === undefined ? rule.amount : change.amount,
+      change.ceiling === undefined ? rule.ceiling : change.ceiling,
+      change.enabled === undefined ? rule.enabled : change.enabled ? 1 : 0,
+      fromCycle,
+      actorUserId,
+      ruleId,
+      villageId(),
+    ],
+  );
+  return { ok: true, fromCycle };
+}
+
+/**
+ * Promote every queued change whose moon has come. Called by settlement.
+ *
+ * One statement, so a run interrupted between rules cannot promote half a
+ * governance decision, and the same four columns are cleared in the same write
+ * that applies them: there is no window where a rule carries both a new value
+ * and a stale pending copy of it.
+ */
+export async function applyPendingRules(pool: Pool, at: Date = new Date()): Promise<number> {
+  const cycle = cycleBoundsFor(at).cycleNumber;
+  const [res]: any = await pool.query(
+    "UPDATE `mint_rules` SET " +
+      "`amount` = `pending_amount`, `ceiling` = `pending_ceiling`, `enabled` = `pending_enabled`, " +
+      "`effective_from_cycle` = `pending_from_cycle`, " +
+      "`pending_amount` = NULL, `pending_ceiling` = NULL, `pending_enabled` = NULL, " +
+      "`pending_from_cycle` = NULL, `pending_by` = NULL, `pending_at` = NULL " +
+      "WHERE `village_id` = ? AND `pending_from_cycle` IS NOT NULL AND `pending_from_cycle` <= ?",
+    [villageId(), cycle],
+  );
+  return Number(res?.affectedRows ?? 0);
+}
+
+export interface MintView {
+  cycleKey: string;
+  rules: Array<{
+    id: string;
+    trigger: string;
+    token: string;
+    tokenName: string;
+    amount: number | null;
+    ceiling: number;
+    recipient: string;
+    enabled: boolean;
+    pending: null | { amount: number | null; ceiling: number; enabled: boolean; fromCycle: number };
+  }>;
+  /** Per token per SOURCE. Admin only: the public feed is totals-only. */
+  supply: Array<{ token: string; source: string; issued: number }>;
+  settlementPreview: { seats: number; mints: Array<{ token: string; units: number }> };
+}
+
+/** Everything the Mint panel shows, in one read. */
+export async function mintView(pool: Pool): Promise<MintView> {
+  const { key } = cycleWindow();
+  const [rules] = await pool.query<RowDataPacket[]>(
+    "SELECT r.*, t.`name` AS token_name FROM `mint_rules` r " +
+      "LEFT JOIN `tokens` t ON t.`slug` = r.`token_slug` " +
+      "WHERE r.`village_id` = ? ORDER BY r.`trigger`, r.`token_slug`",
+    [villageId()],
+  );
+  // Per-source detail lives HERE and never on the public feed, because at small
+  // N a public per-source series deanonymises individual holdings.
+  const [supply] = await pool.query<RowDataPacket[]>(
+    "SELECT `token_type` AS token, `source`, SUM(`amount`) AS issued FROM `token_ledger` " +
+      "WHERE `from_account` IN (?,?,?,?) GROUP BY `token_type`, `source` ORDER BY `token_type`, `source`",
+    [RECOGNITION_FAUCET, VOICE_MINT, MINT_FAUCET, LIBRARY_MINT],
+  );
+
+  const [seats] = await pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS n FROM `org_role_assignments` " +
+      "WHERE `active_holder_key` IS NOT NULL AND `holder_kind` = 'member' AND `user_id` IS NOT NULL AND `is_example` = 0",
+  );
+  const seatCount = Number(seats[0]?.n ?? 0);
+  const cycleRules = await rulesFor(pool, "role.cycle");
+
+  return {
+    cycleKey: key,
+    rules: rules.map((r) => ({
+      id: String(r.id),
+      trigger: String(r.trigger),
+      token: String(r.token_slug),
+      tokenName: String(r.token_name ?? r.token_slug),
+      amount: r.amount === null ? null : Number(r.amount),
+      ceiling: Number(r.ceiling ?? 0),
+      recipient: String(r.recipient ?? "claimant"),
+      enabled: !!r.enabled,
+      pending:
+        r.pending_from_cycle === null || r.pending_from_cycle === undefined
+          ? null
+          : {
+              amount: r.pending_amount === null ? null : Number(r.pending_amount),
+              ceiling: Number(r.pending_ceiling ?? 0),
+              enabled: !!r.pending_enabled,
+              fromCycle: Number(r.pending_from_cycle),
+            },
+    })),
+    supply: supply.map((s) => ({
+      token: String(s.token),
+      source: String(s.source),
+      issued: Number(s.issued ?? 0),
+    })),
+    // What the next settlement WOULD pay, from the rules in force now. A
+    // preview computed from pending numbers would show a moon that is not the
+    // one about to close.
+    settlementPreview: {
+      seats: seatCount,
+      mints: cycleRules
+        .filter((r) => (r.amount ?? 0) > 0)
+        .map((r) => ({ token: r.tokenSlug, units: toLedgerUnits(r.tokenSlug, (r.amount ?? 0) * seatCount) })),
+    },
   };
 }
