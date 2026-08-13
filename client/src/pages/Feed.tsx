@@ -204,7 +204,11 @@ export default function Feed() {
                       {new Date(item.meta.startsAt).toLocaleDateString()}
                     </span>
                   )}
-                  <span className="ml-auto">{new Date(item.at).toLocaleString()}</span>
+                  {/* toLocaleString() prints "7/31/2026, 1:32:55 AM": seconds nobody needs,
+                      59px of it, and the widest thing on the card. It was the whole
+                      reason /feed panned 53px sideways at 320. /forum renders the same
+                      posts as a date alone, so this now matches it. */}
+                  <span className="ml-auto shrink-0">{new Date(item.at).toLocaleDateString()}</span>
                 </div>
                 {item.title && <p className="font-semibold text-foreground text-sm mb-1">{item.title}</p>}
                 <p className="text-sm text-foreground whitespace-pre-wrap">{item.body}</p>

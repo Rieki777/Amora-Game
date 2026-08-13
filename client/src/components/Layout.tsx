@@ -395,42 +395,42 @@ export default function Layout({ children }: LayoutProps) {
               <h2 className="font-display text-lg font-semibold mb-4">Your Journey</h2>
               <ul className="space-y-2">
                 <li>
-                  <Link href="/investor" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/investor" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Investor
                   </Link>
                 </li>
                 <li>
-                  <Link href="/steward" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/steward" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Village Steward
                   </Link>
                 </li>
                 <li>
-                  <Link href="/resident" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/resident" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Resident
                   </Link>
                 </li>
                 <li>
-                  <Link href="/prosperity" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/prosperity" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Prosperity Creator
                   </Link>
                 </li>
                 <li>
-                  <Link href="/love-letter" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/love-letter" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Sign the Love Letter
                   </Link>
                 </li>
                 <li>
-                  <Link href="/visit" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/visit" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Plan a Visit
                   </Link>
                 </li>
                 <li>
-                  <Link href="/gratitude" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/gratitude" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Gratitude Wall
                   </Link>
                 </li>
                 <li>
-                  <Link href="/work-with-us" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/work-with-us" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Work With Us
                   </Link>
                 </li>
@@ -442,32 +442,32 @@ export default function Layout({ children }: LayoutProps) {
               <h2 className="font-display text-lg font-semibold mb-4">Governance</h2>
               <ul className="space-y-2">
                 <li>
-                  <Link href="/governance" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/governance" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Governance
                   </Link>
                 </li>
                 <li>
-                  <Link href="/circles" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/circles" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Circles
                   </Link>
                 </li>
                 <li>
-                  <Link href="/roles" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/roles" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Roles & Leadership
                   </Link>
                 </li>
                 <li>
-                  <Link href="/how-we-create" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/how-we-create" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     How We Create
                   </Link>
                 </li>
                 <li>
-                  <Link href="/good-neighbor" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/good-neighbor" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Good Neighbor Criteria
                   </Link>
                 </li>
                 <li>
-                  <Link href="/team" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/team" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Our Team
                   </Link>
                 </li>
@@ -477,18 +477,18 @@ export default function Layout({ children }: LayoutProps) {
                     optional module, so an ungated link would be a dead end on
                     a fresh fork. /exit-policy is core and always reachable. */}
                 <li>
-                  <Link href="/game-mechanics" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/game-mechanics" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Game Mechanics
                   </Link>
                 </li>
                 <li>
-                  <Link href="/exit-policy" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/exit-policy" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Leaving Well
                   </Link>
                 </li>
                 {networkModule && (
                   <li>
-                    <Link href="/network" className="text-white hover:underline transition-colors text-sm">
+                    <Link href="/network" className="text-white hover:underline transition-colors text-sm block py-1.5">
                       Village Network
                     </Link>
                   </li>
@@ -501,39 +501,39 @@ export default function Layout({ children }: LayoutProps) {
               <h2 className="font-display text-lg font-semibold mb-4">Resources</h2>
               <ul className="space-y-2">
                 <li>
-                  <Link href="/co-creators-guide" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/co-creators-guide" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Co-Creators Guide
                   </Link>
                 </li>
                 <li>
-                  <Link href="/feedback" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/feedback" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Report a Bug / Share an Idea
                   </Link>
                 </li>
                 <li>
-                  <Link href="/quests" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/quests" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Community Quests
                   </Link>
                 </li>
                 {commerceModule && (
                   <li>
-                    <Link href="/contribute" className="text-white hover:underline transition-colors text-sm">
+                    <Link href="/contribute" className="text-white hover:underline transition-colors text-sm block py-1.5">
                       Contribute
                     </Link>
                   </li>
                 )}
                 <li>
-                  <Link href="/housing" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/housing" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Housing
                   </Link>
                 </li>
                 <li>
-                  <Link href="/opportunities" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/opportunities" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Business Opportunities
                   </Link>
                 </li>
                 <li>
-                  <Link href="/master-plan" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/master-plan" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     Master Plan
                   </Link>
                 </li>
@@ -550,7 +550,7 @@ export default function Layout({ children }: LayoutProps) {
                       href={siteUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-white hover:underline transition-colors text-sm"
+                      className="text-white hover:underline transition-colors text-sm block py-1.5"
                     >
                       Main Website
                     </a>
@@ -562,14 +562,14 @@ export default function Layout({ children }: LayoutProps) {
                       href={eventsUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-white hover:underline transition-colors text-sm"
+                      className="text-white hover:underline transition-colors text-sm block py-1.5"
                     >
                       Events
                     </a>
                   </li>
                 )}
                 <li>
-                  <Link href="/profile" className="text-white hover:underline transition-colors text-sm">
+                  <Link href="/profile" className="text-white hover:underline transition-colors text-sm block py-1.5">
                     My Village Profile
                   </Link>
                 </li>

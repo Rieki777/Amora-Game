@@ -1708,10 +1708,16 @@ export default function ProjectHistory() {
       </div>
 
       {/* ── Body ────────────────────────────────────────────────────────── */}
-      <div className="flex min-h-screen bg-stone-50">
+      <div className="flex flex-col md:flex-row min-h-screen bg-stone-50">
 
         {/* ── Sidebar ───────────────────────────────────────────────────── */}
-        <aside className="w-56 shrink-0 bg-white border-r border-stone-200 sticky top-0 h-screen overflow-y-auto">
+        {/* A fixed 224px rail beside the content leaves about 145px at 393px, and
+            the content column then wrapped every word onto its own line and cut
+            text mid-word: "Pending items that need attentio", "WHAT ST". It is an
+            internal tool, and it was still the one route on the site where content
+            was unreadable. Below md the rail becomes a full-width strip that
+            scrolls sideways on its own, and the content gets the whole viewport. */}
+          <aside className="w-full md:w-56 shrink-0 bg-white border-b md:border-b-0 md:border-r border-stone-200 md:sticky md:top-0 md:h-screen overflow-y-auto">
           {/* Timeline nav */}
           <div className="p-3 space-y-1">
             <button

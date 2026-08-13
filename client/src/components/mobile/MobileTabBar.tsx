@@ -34,7 +34,7 @@ export default function MobileTabBar() {
         className="absolute top-0 left-0 right-0 h-0.5 opacity-70"
         style={{ background: "linear-gradient(to right, transparent, #7fb8ac, transparent)" }}
       />
-      <div className="grid grid-cols-5 h-16 items-stretch max-w-2xl mx-auto">
+      <div className="grid grid-cols-5 h-16 items-stretch max-w-2xl mx-auto min-w-0">
         {TAB_SLOTS.map((slot) => {
           const active =
             !!slot.path &&
@@ -51,12 +51,16 @@ export default function MobileTabBar() {
               />
               <div
                 className={`relative flex items-center justify-center rounded-2xl transition-all duration-300 ${
-                  active ? "px-4 py-1 -translate-y-0.5 bg-white/15" : "px-3 py-1"
+                  active ? "px-2.5 py-1 -translate-y-0.5 bg-white/15" : "px-1.5 py-1"
                 }`}
               >
                 <slot.Icon className="w-[22px] h-[22px]" />
               </div>
-              <span className={`text-[11px] leading-none ${active ? "font-semibold" : "font-medium"}`}>
+              {/* min-w-0 + truncate, because at a 320px viewport the five labels needed
+                  325px of min-content and the bar itself became wider than the
+                  screen. It is fixed, so it set the document width and every page
+                  with it: /profile's entire 5px of overflow was this bar. */}
+              <span className={`text-[11px] leading-none min-w-0 truncate ${active ? "font-semibold" : "font-medium"}`}>
                 {slot.label}
               </span>
             </>
