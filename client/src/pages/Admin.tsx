@@ -16,7 +16,11 @@ import MapSkinPanel from "@/components/MapSkinPanel";
 import EventsAdminPanel from "@/components/EventsAdminPanel";
 import WalkEditorPanel from "@/components/WalkEditorPanel";
 import { ExampleChip, ExamplesBanner, forgetExamplesCache, RETIRES_WITH } from "@/components/ExamplesBanner";
-const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
+// visit-inquiry and membership-508 were missing, and they are the two highest-value
+// submissions on the site: a request to walk the land, and a signed 508(c)(1)(a)
+// membership. Both were reachable only by scrolling "All types". The strings are
+// the ones the pages actually POST, from Visit.tsx and LoveLetter.tsx.
+const FORM_TYPES = ["work-with-us", "quest-proposal", "visit-inquiry", "membership-508", "investor", "steward", "resident", "prosperity", "contact"] as const;
 
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
   return { Authorization: `Bearer ${password}`, ...extra };

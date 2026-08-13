@@ -148,8 +148,21 @@ export default function Feedback() {
                   : `Where this goes: ${cfg?.villageName ?? "your village"}'s team, and nowhere else.`}
               </p>
 
+              {/* The thresholds used to be silent: the button was disabled with no title,
+                  no aria-disabled and no helper text, so clicking it changed nothing on
+                  the page and said nothing about why. This is the channel members use to
+                  report every other bug, so it is the last surface that should make
+                  somebody guess. */}
+              {(title.trim().length < 4 || detail.trim().length < 10) && (
+                <p className="text-xs text-muted-foreground">
+                  {title.trim().length < 4
+                    ? "Give it a short title first, at least four characters."
+                    : "Add a little more detail, at least ten characters, so somebody can act on it."}
+                </p>
+              )}
               <button
                 onClick={submit}
+                aria-disabled={busy || title.trim().length < 4 || detail.trim().length < 10}
                 disabled={busy || title.trim().length < 4 || detail.trim().length < 10}
                 className="w-full inline-flex items-center justify-center gap-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-3 font-medium disabled:opacity-50"
               >

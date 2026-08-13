@@ -40,13 +40,19 @@ export default function Visit() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [cfgFailed, setCfgFailed] = useState(false);
 
   useEffect(() => {
     let alive = true;
+    // A swallowed failure is why this section could sit on "Loading..." with no
+    // end: `cfg` stayed null, and null is also the first-paint state, so the
+    // page could not tell "not here yet" from "never coming". Measured at 14s
+    // with the request failing, still Loading, while the form below kept
+    // working, so the page read as half-built rather than as broken.
     fetch("/api/visit-config")
-      .then((r) => r.json())
-      .then((data) => { if (alive) setCfg(data); })
-      .catch(() => { /* ignore */ });
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data) => { if (alive) { setCfg(data); setCfgFailed(false); } })
+      .catch(() => { if (alive) setCfgFailed(true); });
     return () => { alive = false; };
   }, []);
 
@@ -94,8 +100,12 @@ export default function Visit() {
               Three Ways to Connect
             </h2>
           </div>
-          {!cfg ? (
-            <div className="text-center text-stone-400">Loading...</div>
+          {!cfg && cfgFailed ? (
+            <div className="text-center text-stone-600">
+              The ways to visit could not be loaded just now. Reload to try again, or use the form below and we will write back.
+            </div>
+          ) : !cfg ? (
+            <div className="text-center text-stone-500">Loading...</div>
           ) : (
             <div className="grid md:grid-cols-3 gap-5">
               {[...cfg.visit_types].sort((a, b) => a.order - b.order).map((v) => (

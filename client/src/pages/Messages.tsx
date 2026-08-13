@@ -350,6 +350,7 @@ function ThreadView({ id }: { id: string }) {
   const [, navigate] = useLocation();
   const [thread, setThread] = useState<ThreadData | null>(null);
   const [gone, setGone] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -366,7 +367,17 @@ function ThreadView({ id }: { id: string }) {
             setGone(true);
             return null;
           }
-          return r.ok ? r.json() : null;
+          // Anything else that is not ok has to land somewhere too. 404 was the only
+          // handled failure, so a 401, a 500 or a thrown fetch all returned null into
+          // `if (!d) return`, `thread` stayed at its first-paint null, and the page
+          // said "Loading the conversation" for as long as anyone waited. Not
+          // reachable today only because the module gate answers 404 first. It
+          // becomes reachable the moment messaging is switched on.
+          if (!r.ok) {
+            setLoadFailed(true);
+            return null;
+          }
+          return r.json();
         })
         .then((d: ThreadData | null) => {
           if (!d) return;
@@ -420,6 +431,17 @@ function ThreadView({ id }: { id: string }) {
   };
 
   if (gone) return <NotFound />;
+  if (!thread && loadFailed) {
+    return (
+      <Layout>
+        <div className="container max-w-2xl py-24 text-center">
+          <h1 className="font-display text-2xl font-bold text-foreground mb-3">This conversation could not be loaded just now.</h1>
+          <p className="text-muted-foreground mb-8">Reload to try again.</p>
+          <Link href="/messages" className="text-teal-deep font-medium">← Back to messages</Link>
+        </div>
+      </Layout>
+    );
+  }
   if (!user || !thread) {
     return (
       <Layout>
