@@ -23,9 +23,9 @@ const criteria = [
     title: "Core Values Alignment",
     subtitle: "You Live the Vision",
     description:
-      "You understand and embrace Amora's vision of regenerative living and community stewardship. You're genuinely interested in being part of a living experiment-not just finding a nice place to live.",
+      "You understand and embrace Amora's vision of regenerative living and community stewardship. You're genuinely interested in being part of a living experiment, not just finding a nice place to live.",
     practices: [
-      "You engage with the community intentionally-show up to potlucks, participate in circles, take your voice seriously.",
+      "You engage with the community intentionally: show up to potlucks, participate in circles, take your voice seriously.",
       "You're curious about how things work here: our governance, our economy, our values.",
       "You accept that community life sometimes requires conversations you'd rather skip. We do it anyway, with care.",
     ],
@@ -41,7 +41,7 @@ const criteria = [
       "You're willing to learn and practice Nonviolent Communication (NVC) or similar practices for authentic relating. You see conflict as a doorway to deeper connection, not a threat.",
     practices: [
       "You attend our community training in NVC or conflict resolution (required for residents).",
-      "When something's bothering you, you address it directly-not through gossip or silence.",
+      "When something's bothering you, you address it directly, not through gossip or silence.",
       "You're willing to apologize, make repairs, and evolve.",
     ],
     note: "What disqualifies someone: Unwillingness to engage in honest conversation or a pattern of avoiding conflict through manipulation, blame, or withdrawal.",
@@ -70,7 +70,7 @@ const criteria = [
     title: "Contribution to Community Life",
     subtitle: "You Show Up and Participate",
     description:
-      "You give your time, energy, or skills to the community in some way. You're not just a consumer of community benefits-you're a co-creator.",
+      "You give your time, energy, or skills to the community in some way. You're not just a consumer of community benefits, you're a co-creator.",
     practices: [
       "You identify your Amora R-Ikigai: the intersection of what you love, what you're good at, and what Amora needs.",
       "You propose contributions and earn Gratitude through meaningful work.",
@@ -86,7 +86,7 @@ const criteria = [
     title: "Respect for Land, Nature, and All Beings",
     subtitle: "You Are a Steward",
     description:
-      "You understand that Amora's land is sacred and alive. You practice stewardship-protecting water, supporting regeneration, leaving no trace where possible.",
+      "You understand that Amora's land is sacred and alive. You practice stewardship: protecting water, supporting regeneration, leaving no trace where possible.",
     practices: [
       "You follow our water conservation guidelines and waste reduction practices.",
       "You participate in land stewardship (gardening, trail maintenance, reforestation) or support those who do.",
@@ -116,7 +116,7 @@ const criteria = [
     title: "Background Check Acknowledgment",
     subtitle: "Safety and Trust for Everyone",
     description:
-      "You're willing to undergo a standard background check as part of our resident vetting process. This is not about judgment-it's about safety and trust for the whole community.",
+      "You're willing to undergo a standard background check as part of our resident vetting process. This is about safety and trust for the whole community.",
     practices: [
       "You'll provide identifying information and authorize a background check.",
       "Results are reviewed confidentially by the Resident Circle.",
@@ -224,7 +224,7 @@ export default function GoodNeighbor() {
               className="text-xl text-muted-foreground leading-relaxed mb-8"
             >
               This is not a legal document or a list of rules. This is a
-              heartfelt covenant-a living agreement that expresses the values we
+              heartfelt covenant, a living agreement that expresses the values we
               embody together and the commitment we make to one another as
               neighbors.
             </motion.p>
@@ -253,7 +253,7 @@ export default function GoodNeighbor() {
               {[
                 {
                   title: "Regenerative Living",
-                  body: "We don't just sustain-we heal. This community is built on the belief that humans can actively restore the land, water systems, and ecosystems we depend on. We leave things better than we found them.",
+                  body: "We don't just sustain, we heal. This community is built on the belief that humans can actively restore the land, water systems, and ecosystems we depend on. We leave things better than we found them.",
                 },
                 {
                   title: "Community Care",
@@ -261,7 +261,7 @@ export default function GoodNeighbor() {
                 },
                 {
                   title: "Regenerative Purpose",
-                  body: "Your life here has meaning. You're not just living in a nice place-you're aligning your unique gifts with what Amora needs. This is the heart of the Amora R-Ikigai.",
+                  body: "Your life here has meaning. You're not just living in a nice place, you're aligning your unique gifts with what Amora needs. This is the heart of the Amora R-Ikigai.",
                 },
               ].map((item) => (
                 <div

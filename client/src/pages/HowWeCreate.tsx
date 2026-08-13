@@ -26,7 +26,7 @@ const principles = [
   },
   {
     title: "Adaptive Governance",
-    description: "Using Hypha tools, each circle designs its own governance strategy-from consent to consensus-tailored to its unique culture, values, and mission.",
+    description: "Using Hypha tools, each circle designs its own governance strategy, from consent to consensus, tailored to its unique culture, values, and mission.",
     icon: Settings,
   },
   {
