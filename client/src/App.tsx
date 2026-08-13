@@ -213,6 +213,7 @@ const Team = lazyPage(() => import("./pages/Team"));
 const Admin = lazyPage(() => import("./pages/Admin"));
 const Profile = lazyPage(() => import("./pages/Profile"));
 const Characters = lazyPage(() => import("./pages/Characters"));
+const Mint = lazyPage(() => import("./pages/Mint"));
 const PublicProfile = lazyPage(() => import("./pages/PublicProfile"));
 const Register = lazyPage(() => import("./pages/Register"));
 const SetPassword = lazyPage(() => import("./pages/SetPassword"));
@@ -320,6 +321,9 @@ function Router() {
       <Route path="/master-plan" component={MasterPlan} />
       <Route path="/team" component={Team} />
       <Route path="/admin" component={Admin} />
+      {/* The Mint has its own route rather than a tab inside Admin: that file
+          is 5,000 lines and shared, and this surface reads in one screen. */}
+      <Route path="/admin/mint" component={Mint} />
       <Route path="/profile" component={Profile} />
       {/* The class select. Under /profile because a party is part of who you
           are here, not a separate account setting. */}
