@@ -103,9 +103,13 @@ const ARCHETYPES = [
  * faucet with a form in front of it.
  */
 const RULES = [
-  { trigger: "quest.completed", token: VILLAGE_VOICE, amount: 0.1, ceiling: 1, recipient: "claimant" },
+  // Whole numbers on purpose (Rye, 2026-08-11). 10 a quest and 50 a season
+  // against a claim threshold of 100 means ten quests, or two seasons holding a
+  // seat, or a mix. Whole numbers read better on a chip than 0.1 does and they
+  // make the threshold arithmetic something a member can do in their head.
+  { trigger: "quest.completed", token: VILLAGE_VOICE, amount: 10, ceiling: 100, recipient: "claimant" },
   { trigger: "role.cycle", token: HEARTS, amount: 20, ceiling: 100, recipient: "holder" },
-  { trigger: "role.cycle", token: VILLAGE_VOICE, amount: 0.5, ceiling: 2, recipient: "holder" },
+  { trigger: "role.cycle", token: VILLAGE_VOICE, amount: 50, ceiling: 200, recipient: "holder" },
 ];
 
 export interface SeedReport {
