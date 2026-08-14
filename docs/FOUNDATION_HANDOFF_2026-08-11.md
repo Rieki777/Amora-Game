@@ -59,7 +59,17 @@ privacy layer built by ADDING what flags permit rather than deleting.
 
 ## 3 · What is NOT built, and exactly why
 
-### 3a. The voice claim bridge — BLOCKED on a secret
+### 3a. The voice claim bridge — mostly built now
+
+**This section is superseded by `docs/HYPHA_VOICE_CLAIM_HANDOFF.md`,** which is
+current. Steps 1, 3 and 5 below are built and tested; the secret is set; the
+three numbers are decided and live as dials in Admin → The Mint. What remains is
+the DHO slug, and steps 2 and 4, which cannot be written until a real space
+exists to send an intent to.
+
+The original text is kept below because the reasoning in it still holds.
+
+### 3a-old. The voice claim bridge — BLOCKED on a secret
 
 `0072` ships the schema and the guards. Voice accrues correctly today. It cannot
 leave, and the chip says "accruing" rather than offering a button that fails.
