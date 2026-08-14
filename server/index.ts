@@ -98,6 +98,7 @@ import { allowanceFor, checkIn, cycleWindow, economyReady, give, mintForConfirme
 import { addCharacter, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
+import { assertVoiceSecret, checkVoiceSecret, claimHistory, claimReadiness, requestVoiceClaim, settleVoiceClaim } from "./lib/voiceClaim";
 import { installCrashHandlers, reportError, wireErrorReporting } from "./lib/errors";
 import {
   STAY_CREDIT,
@@ -3337,6 +3338,20 @@ async function startServer() {
   // S12: fill every store cache before a single route can read one.
   await initStores();
 
+  /*
+   * The claim receiver's secret, checked at boot rather than at the first
+   * request: the dangerous state is a receiver that is REACHABLE with a weak
+   * secret, not one that is idle. Silent when the village has not named a Hypha
+   * space, because that village has not opened the crossing.
+   *
+   * AFTER `initStores`, which is where `loadVariables` runs. This sat above it
+   * first, and every read of `economy.hypha_space` returned the empty DEFAULT
+   * instead of the village's value, so the assertion took its "crossing is not
+   * open" early return every time and could never have fired. A guard that
+   * cannot fail is indistinguishable from a guard that passes.
+   */
+  assertVoiceSecret();
+
   // S17: the scheduler host — one mechanism, DB-claimed jobs. It closes NO
   // cycles and rolls NO seasons (both stay human/compute-on-read by design).
   registerJob("notification-digest", 24 * 60 * 60 * 1000, async () => {
@@ -4376,6 +4391,124 @@ async function startServer() {
       async (title, dedupeKey) => notifyAdmins("payments_alert", title, dedupeKey),
     );
     res.status(out.status).json(out.body);
+  });
+
+  /**
+   * Hypha tells us how a voice claim was voted on.
+   *
+   * Mounted HERE, beside the Stripe webhook and before `express.json()`, for
+   * the same reason: an HMAC is over the bytes that were sent, and a parsed and
+   * re-serialised body is not those bytes. Key order, unicode escapes and
+   * number formatting all survive a round trip through JSON looking identical
+   * and hashing differently.
+   *
+   * THE PAYLOAD SUPPLIES EXACTLY TWO THINGS: which claim, and what happened.
+   * Village, member, token and amount are read back from the stored row, so
+   * even a correctly signed message cannot redirect a claim, retarget its
+   * token, or change what it is worth. A receiver that believes its input is a
+   * mint with a webhook in front of it.
+   *
+   * Fails CLOSED. No secret is not permission, and `assertVoiceSecret` at boot
+   * means a village with the crossing open cannot reach this state anyway.
+   */
+  const HYPHA_VERDICTS: Record<string, "confirmed" | "rejected"> = {
+    accepted: "confirmed",
+    approved: "confirmed",
+    passed: "confirmed",
+    executed: "confirmed",
+    rejected: "rejected",
+    declined: "rejected",
+    failed: "rejected",
+    expired: "rejected",
+  };
+  app.post("/api/webhooks/hypha-voice", express.raw({ type: "application/json" }), async (req, res) => {
+    const now = Date.now();
+    const who = clientIp(req);
+    const slot = webhookHits.get(who);
+    if (!slot || slot.resetAt < now) {
+      if (webhookHits.size > 5000) webhookHits.clear();
+      webhookHits.set(who, { n: 1, resetAt: now + 60_000 });
+    } else if (++slot.n > WEBHOOK_MAX_PER_MIN) {
+      return res.status(429).json({ error: "too many webhook deliveries; retry shortly" });
+    }
+
+    const secret = String(process.env.HYPHA_VOICE_WEBHOOK_SECRET ?? "").trim();
+    if (!secret) return res.status(503).json({ error: "this village has no claim receiver configured" });
+
+    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from("");
+    const sent = String(req.headers["x-hypha-signature"] ?? "").replace(/^sha256=/, "").trim();
+    const expected = crypto.createHmac("sha256", secret).update(raw).digest("hex");
+    /*
+     * Shape first, then the constant-time compare, and the compare is the one
+     * that already exists.
+     *
+     * The first version of this guarded `timingSafeEqual` with
+     * `sent.length !== expected.length`, which is UTF-16 CODE UNITS while
+     * `timingSafeEqual` throws on unequal BYTE length. Node's HTTP parser
+     * accepts obs-text and latin1-decodes it, so a header of 63 hex characters
+     * plus one high byte measured 64 either way to that check, reached the
+     * compare as 65 bytes, and threw a RangeError straight out of the handler:
+     * a stack trace and a 500 where a 401 was intended, from an unauthenticated
+     * caller, three hundred times a minute. The guard written to prevent the
+     * throw was the thing that let it through.
+     *
+     * The hex test makes anything that is not a sha256 digest fail on shape, and
+     * `secretEquals` compares BUFFER lengths, which is the length that matters.
+     */
+    if (!/^[0-9a-f]{64}$/.test(sent)) return res.status(401).json({ error: "bad signature" });
+    if (!secretEquals(sent, expected)) return res.status(401).json({ error: "bad signature" });
+
+    let payload: any;
+    try {
+      payload = JSON.parse(raw.toString("utf8"));
+    } catch {
+      return res.status(400).json({ error: "that body is not JSON" });
+    }
+
+    const claimId = String(payload?.claimId ?? payload?.claim_id ?? "").trim();
+    const verdict = HYPHA_VERDICTS[String(payload?.status ?? payload?.state ?? "").toLowerCase()];
+    if (!claimId) return res.status(400).json({ error: "no claim named" });
+    if (!verdict) {
+      /*
+       * A SIGNED delivery this village cannot read. Whoever sent it holds the
+       * secret, so this is not a stranger: it is Hypha using a word the mapping
+       * does not have, which is the most likely way a working integration
+       * quietly stops working. Dropping it with a 400 and no record would leave
+       * a member's voice held at the bridge with nobody able to learn why.
+       *
+       * Signature failures are deliberately NOT reported here: those are
+       * reachable by anyone with the URL, and the rate limiter is their answer.
+       */
+      void reportError(new Error(`unmapped Hypha verdict: ${String(payload?.status ?? payload?.state ?? "")}`), {
+        where: "hypha voice claim webhook",
+        detail: { claimId },
+      });
+      return res.status(400).json({ error: "that is not a verdict this village understands" });
+    }
+
+    const out = await settleVoiceClaim(
+      getPool(),
+      claimId,
+      verdict,
+      payload?.note ? String(payload.note).slice(0, 280) : `Hypha: ${verdict}`,
+    );
+    if (!out.ok) {
+      // A replay of a verdict already applied is a SUCCESS, not an error: the
+      // sender is retrying because it did not hear us the first time, and a
+      // non-2xx would keep it retrying forever over a claim that is settled.
+      //
+      // Matched on the REASON, never on the message. The first version of this
+      // tested `error.includes("cannot")`, which is the wording for a confirmed
+      // claim but not for an already-rejected one ("this claim is already
+      // rejected"), so a perfectly ordinary replay would have 500'd and Hypha
+      // would have retried it forever.
+      if (out.reason === "terminal" || out.reason === "raced") {
+        return res.status(200).json({ ok: true, alreadySettled: true });
+      }
+      void reportError(new Error(out.error), { where: "hypha voice claim webhook", detail: { claimId, verdict } });
+      return res.status(500).json({ error: out.error });
+    }
+    res.json({ ok: true, refunded: out.refunded });
   });
 
   /*
@@ -14630,7 +14763,57 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       gratitude: await loadGratitude(getPool(), villageId(), user.id, startsAt),
       party: await partyFor(getPool(), villageId(), user.id),
       allowance: await allowanceFor(getPool(), user.id),
+      voice: await claimReadiness(getPool(), user.id),
     });
+  });
+
+  /**
+   * Ask to carry accrued voice to Hypha.
+   *
+   * The engine decides everything; this route only carries the answer. It
+   * returns the refusal SENTENCE rather than a code, because the sentence is
+   * the one the chip already shows and two sources for the same message drift.
+   */
+  app.post("/api/me/voice-claim", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const out = await requestVoiceClaim(getPool(), user.id);
+    if (!out.ok) return res.status(out.status).json({ error: out.error });
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: `voice:claim-requested:${out.claimId}:${out.amount}`,
+      actorUserId: user.id,
+      entityType: "voice_claim",
+      entityRef: out.claimId,
+      audience: "admin",
+    });
+    res.json({ success: true, claimId: out.claimId, amount: out.amount });
+  });
+
+  /**
+   * Change your mind, and take the voice back.
+   *
+   * Scoped to the claim's OWNER, so a claim id — which is not a secret and
+   * rides in the member's own JSON — cannot be used to cancel somebody else's.
+   */
+  app.post("/api/me/voice-claim/:id/cancel", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    const [own] = await getPool().query<any[]>(
+      "SELECT `id` FROM `voice_claims` WHERE `id` = ? AND `village_id` = ? AND `user_id` = ? LIMIT 1",
+      [req.params.id, villageId(), user.id],
+    );
+    if (!own.length) return res.status(404).json({ error: "Not found" });
+    const out = await settleVoiceClaim(getPool(), req.params.id, "canceled", "The member withdrew it");
+    if (!out.ok) return res.status(409).json({ error: out.error });
+    res.json({ success: true, refunded: out.refunded });
+  });
+
+  /** Every claim you have made. Yours only. */
+  app.get("/api/me/voice-claims", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first" });
+    res.json({ claims: await claimHistory(getPool(), user.id) });
   });
 
   /**
@@ -15322,6 +15505,40 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       const isOff = v === "0" || v === "false" || v === "";
       if (!isOff) return res.status(409).json({ error: blocked });
     }
+
+    /*
+     * NAMING A HYPHA SPACE IS A PRECONDITION CHECK, NOT JUST A VALUE.
+     *
+     * `economy.hypha_space` lives in the database and the secret that guards its
+     * receiver lives in the process environment, so this one field is the only
+     * place where an admin edit can put the deployment into a state its own boot
+     * check refuses. Before this branch existed, typing a slug here with a
+     * short or borrowed secret meant the next restart threw and kept throwing,
+     * with the panel that could undo it served by the process that would not
+     * start. The refusal belongs in front of the person who can act on it.
+     *
+     * An EMPTY secret is not refused here and is not fatal at boot: the receiver
+     * answers 503 without one, so the village is unreachable rather than
+     * exposed, and a founder should be able to save the slug the moment they
+     * have it. The panel says what is still missing.
+     */
+    if (req.params.key === "economy.hypha_space" && String(raw).trim()) {
+      const verdict = checkVoiceSecret();
+      if (!verdict.ok && verdict.fatal) {
+        return res.status(409).json({
+          error: `${verdict.error} Fix the secret on the deployment before naming a space, or the server will refuse to start.`,
+        });
+      }
+      const slug = String(raw).trim();
+      // varchar(120) in `voice_claims`.`hypha_space` (0072). The registry's text
+      // validator allows 255, so without this a slug between the two saves
+      // cleanly here and then fails the claim INSERT under strict mode, which
+      // is a refusal the member meets and the admin never sees.
+      if (slug.length > 120) {
+        return res.status(400).json({ error: "A Hypha space slug cannot be longer than 120 characters." });
+      }
+    }
+
     const result = await setVariable(getPool(), req.params.key, String(raw));
     if (!result.ok) return res.status(400).json({ error: result.error });
     if (result.previous !== result.value) {
