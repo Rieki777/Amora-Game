@@ -183,6 +183,54 @@ export const VARIABLES: VariableDef[] = [
     max: 100000,
     unit: "Gratitude",
   },
+  // ── The voice claim ───────────────────────────────────────────────────────
+  {
+    key: "economy.voice_claim_threshold",
+    category: "The Mint",
+    label: "Voice needed before a member can claim",
+    description:
+      "How much voice someone gathers before their chip turns claimable. What this really sets is how much attention your governance spends: every claim becomes a real proposal in your Hypha space, so a low number fills that space with small ones and a high number leaves people waiting a year for a loop that never visibly closes. At the seeded rates, 100 is ten confirmed quests, or two seasons holding a seat, or a mix of both. A good way to pick it: decide how many claim proposals your circle can genuinely consider in one Claims Week, then set this so about that many members qualify.",
+    type: "integer",
+    default: "100",
+    min: 1,
+    max: 100000,
+    unit: "voice",
+  },
+  {
+    key: "economy.claims_week_days",
+    category: "The Mint",
+    label: "How many days Claims Week stays open",
+    description:
+      "Claims open for one window each season, so a whole season of contribution formalises in one governance pass instead of a drip of separate proposals. Outside the window a member's chip reads how much they have gathered and when it next opens. Worth lining the window up so it CLOSES just before your governance actually meets: if it shuts six weeks before anyone votes, claims simply sit and wait.",
+    type: "integer",
+    default: "7",
+    min: 1,
+    max: 90,
+    unit: "days",
+  },
+  {
+    key: "economy.claims_week_starts",
+    category: "The Mint",
+    label: "When each Claims Week begins",
+    description:
+      "Four dates a year, one per season, as MM-DD separated by commas. The default follows the solstices and equinoxes, which is the same rhythm the moon settlement already runs on. Leave it blank to keep claims open all year, which suits a village that would rather not batch.",
+    type: "text",
+    default: "03-21,06-21,09-23,12-21",
+  },
+  {
+    key: "economy.hypha_space",
+    category: "The Mint",
+    // FOUNDER ring, explicitly. This names where value is sent, so it is legal
+    // and infrastructural posture rather than a community-tunable rule. A
+    // governance proposal that could redirect claims would be a way to move the
+    // village's voice somewhere the village did not choose.
+    ring: "founder",
+    label: "Your Hypha space",
+    description:
+      "The DHO slug that voice claims are raised into, from app.hypha.earth. Until this is set, voice gathers correctly and cannot be claimed, and members are told exactly that. Nobody is shown a button that would fail. Set it ONLY to a space your village controls: a claim is a proposal to move real value, and an intent aimed somewhere else is value leaving through a door you did not open.",
+    type: "text",
+    default: "",
+  },
   {
     key: "gratitude.max_per_recipient_per_cycle",
     category: "Gratitude",
@@ -1360,6 +1408,13 @@ export function ringOf(def: VariableDef): VariableRing {
 
 /** Keys whose mid-cycle change would corrupt a settlement basis. */
 const CYCLE_APPLY_KEYS = new Set([
+  // The claim dials shape what a member is told they can do THIS season, so a
+  // mid-season change would move the goalposts under somebody already counting.
+  "economy.voice_claim_threshold",
+  "economy.claims_week_days",
+  "economy.claims_week_starts",
+  "economy.giving_allowance_per_moon",
+  "economy.hearts_per_recipient_per_moon",
   "gratitude.base_budget",
   "gratitude.pool_per_cycle",
   "gratitude.pool_token",
