@@ -48,6 +48,30 @@ interface View {
   settlementPreview: { seats: number; mints: Array<{ token: string; units: number }> };
 }
 
+/**
+ * One dial from the variables registry.
+ *
+ * Read and written through `/api/admin/variables`, NOT through a second
+ * endpoint of this panel's own: that route already carries the bounds, the
+ * refusal wording and the audit line, and a parallel writer would have to
+ * reproduce all three and would eventually disagree with one of them.
+ */
+interface Dial {
+  key: string;
+  label: string;
+  description: string;
+  type: string;
+  value: string;
+  default: string;
+  isDefault: boolean;
+  min?: number;
+  max?: number;
+  unit?: string;
+}
+
+/** The slug is pulled out of the list and given the top of the page. */
+const HYPHA_KEY = "economy.hypha_space";
+
 const card = "bg-white rounded-2xl shadow-lg p-6";
 const h2 = "text-xl font-display font-bold text-teal-deep mb-4";
 
@@ -65,9 +89,23 @@ const TRIGGER_WORDS: Record<string, string> = {
 export default function Mint() {
   const { user } = useAuth();
   const [view, setView] = useState<View | null>(null);
+  const [dials, setDials] = useState<Dial[]>([]);
   const [denied, setDenied] = useState(false);
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
+  /*
+   * CONTROLLED, deliberately.
+   *
+   * These were `defaultValue` with an onBlur, which React never updates on a
+   * re-render: pressing "Back to 100" saved the default, flipped the chip to
+   * "Platform default", and left the discarded village number sitting in the
+   * box. Focusing and leaving that box then wrote the discarded number straight
+   * back, so the reset undid itself and the panel disagreed with the server
+   * about what the village had chosen.
+   */
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  /** A refusal belongs beside the control that caused it, not 1500px above it. */
+  const [dialNote, setDialNote] = useState<{ key: string; text: string } | null>(null);
 
   const load = () => {
     fetch("/api/admin/economy", { headers: headers() })
@@ -80,8 +118,63 @@ export default function Mint() {
       })
       .then((d) => d && setView(d))
       .catch(() => {});
+    fetch("/api/admin/variables", { headers: headers() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        const mine = (d.categories ?? []).find((c: { name: string }) => c.name === "The Mint");
+        setDials(mine?.variables ?? []);
+      })
+      .catch(() => {});
   };
   useEffect(load, [user?.id]);
+
+  const hypha = dials.find((d) => d.key === HYPHA_KEY) ?? null;
+
+  /**
+   * Write one dial. The refusal wording comes from the server, never from here.
+   *
+   * On success the local edit is DROPPED so the refreshed stored value takes
+   * over the box. On refusal the edit is kept, so the admin can see and correct
+   * what they typed, with the reason beside that control.
+   *
+   * The `finally` is load-bearing: without it a rejected fetch (an offline
+   * laptop, a dropped connection) skipped `setBusy("")` and pinned the whole
+   * page's busy key forever, disabling that dial and its reset button with the
+   * message already cleared and nothing to explain it.
+   */
+  const saveDial = async (dial: Dial, value: string): Promise<boolean> => {
+    setBusy(dial.key);
+    setDialNote(null);
+    try {
+      const res = await fetch(`/api/admin/variables/${encodeURIComponent(dial.key)}`, {
+        method: "PUT",
+        headers: headers(),
+        body: JSON.stringify({ value }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDialNote({ key: dial.key, text: body.error || "That value was refused." });
+        return false;
+      }
+      setEdits((e) => {
+        const next = { ...e };
+        delete next[dial.key];
+        return next;
+      });
+      setDialNote({ key: dial.key, text: `Saved. ${dial.label} is now ${value || "blank"}.` });
+      load();
+      return true;
+    } catch {
+      setDialNote({ key: dial.key, text: "That did not reach the server. Nothing was changed." });
+      return false;
+    } finally {
+      setBusy("");
+    }
+  };
+
+  /** What the box shows: the admin's unsaved edit, else the stored value. */
+  const shown = (d: Dial) => edits[d.key] ?? d.value;
 
   const queue = async (rule: Rule, change: Record<string, unknown>) => {
     setBusy(rule.id);
@@ -125,6 +218,75 @@ export default function Mint() {
             <p className="mt-4 rounded-lg border border-sage/40 bg-sage-light px-4 py-3 text-sm text-sage">
               {note}
             </p>
+          ) : null}
+
+          {/*
+            THE HYPHA SPACE, AT THE TOP AND ON ITS OWN.
+            It is one text field, and it is the single thing standing between
+            accruing voice and voice that can actually be claimed, so it gets
+            the first thing an admin sees rather than a row in a list of dials.
+            The card states which of the two states the village is in, because
+            "empty field" and "deliberately not using this" look identical.
+          */}
+          {hypha ? (
+            <section
+              className={`${card} mt-6 border-2 ${hypha.value ? "border-sage/50" : "border-amber/60"}`}
+            >
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-xl font-display font-bold text-teal-deep">Your Hypha space</h2>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    hypha.value ? "bg-sage-light text-sage" : "bg-amber-light text-gray-900"
+                  }`}
+                >
+                  {hypha.value ? "Saved" : "Not set yet"}
+                </span>
+              </div>
+              <p className="mt-3 text-gray-800">{hypha.description}</p>
+              <label className="mt-4 block text-sm font-semibold text-gray-900">
+                DHO slug
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-gray-700">app.hypha.earth/</span>
+                  <input
+                    type="text"
+                    value={shown(hypha)}
+                    placeholder="your-space"
+                    maxLength={120}
+                    onChange={(e) => setEdits((s) => ({ ...s, [HYPHA_KEY]: e.target.value }))}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v !== hypha.value) void saveDial(hypha, v);
+                    }}
+                    className="min-h-11 min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-base"
+                  />
+                </div>
+              </label>
+              <p className="mt-3 text-sm text-gray-700">
+                {hypha.value
+                  ? "Saved. Voice claims will be raised into this space once the connection is finished. Clearing it puts things back as they were: voice keeps gathering and members are told it cannot be claimed yet."
+                  : "Safe to fill in as soon as you have it. Nothing is lost by leaving it empty while the space is being set up."}
+              </p>
+              {/*
+                SETTING THE SLUG IS NOT THE LAST STEP, and the panel has to say
+                so. Claims stay shut until the dispatch that raises the proposal
+                on Hypha exists, because a claim debits a member's voice and
+                waits for an answer: with nothing raising the proposal, no
+                answer is ever coming and the voice would sit stranded. An admin
+                who filled this in and believed claims were live would be
+                waiting on something that had not started.
+              */}
+              {dialNote?.key === HYPHA_KEY ? (
+                <p className="mt-3 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900">
+                  {dialNote.text}
+                </p>
+              ) : null}
+              <p className="mt-3 rounded-lg bg-amber-light px-3 py-2 text-sm text-gray-900">
+                Claims are not open yet, whatever is in this box. The piece that raises the
+                proposal on Hypha is still being built, and until it ships a claim would take a
+                member's voice with nothing able to answer it. The member-facing chip that shows
+                gathering voice is not built either, so nobody is being shown a promise about it.
+              </p>
+            </section>
           ) : null}
 
           {/* The rules. */}
@@ -194,6 +356,101 @@ export default function Mint() {
               </ul>
             )}
           </section>
+
+          {/*
+            THE DIALS, WITH THEIR REASONING ATTACHED.
+            The description is shown in full rather than behind a tooltip: these
+            are set once, by somebody deciding how their village should work,
+            and the cost of reading a paragraph is far below the cost of picking
+            a number blind. Each one also shows the platform default, so a
+            founder can see what they have changed and put it back.
+          */}
+          {dials.filter((d) => d.key !== HYPHA_KEY).length ? (
+            <section className={`${card} mt-6`}>
+              <h2 className={h2}>When voice can be claimed</h2>
+              <p className="-mt-2 mb-5 text-gray-700">
+                Voice gathers all season and formalises in one pass, so a season of contribution
+                becomes a handful of proposals your circle can genuinely sit with. These decide
+                when that happens and how much it takes.
+              </p>
+              <ul className="space-y-5">
+                {dials
+                  .filter((d) => d.key !== HYPHA_KEY)
+                  .map((d) => (
+                    <li key={d.key} className="rounded-xl border border-gray-200 p-4">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <p className="font-semibold text-gray-900">{d.label}</p>
+                        {d.isDefault ? (
+                          <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">
+                            Platform default
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-sage-light px-3 py-1 text-xs font-semibold text-sage">
+                            Set by this village
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-2 text-sm leading-relaxed text-gray-800">{d.description}</p>
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <input
+                          type={d.type === "integer" || d.type === "decimal" ? "number" : "text"}
+                          inputMode={d.type === "integer" ? "numeric" : undefined}
+                          min={d.min}
+                          max={d.max}
+                          value={shown(d)}
+                          onChange={(e) => setEdits((s) => ({ ...s, [d.key]: e.target.value }))}
+                          onBlur={(e) => {
+                            const v = e.target.value.trim();
+                            if (v !== d.value) void saveDial(d, v);
+                          }}
+                          className="min-h-11 w-44 rounded-lg border border-gray-300 px-3 py-2 text-base"
+                        />
+                        {d.unit ? <span className="text-sm text-gray-700">{d.unit}</span> : null}
+                        {d.isDefault ? null : (
+                          <button
+                            type="button"
+                            /*
+                              NOT disabled on `busy`, and mousedown is swallowed.
+                              The input's blur sets busy to this same key, and
+                              blur flushes synchronously during mousedown, so
+                              the button disabled itself in the instant between
+                              press and click and the reset silently never fired.
+                              Preventing the default on mousedown keeps focus in
+                              the input, so no blur happens and the click lands.
+                            */
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setEdits((s) => ({ ...s, [d.key]: d.default }));
+                              void saveDial(d, d.default);
+                            }}
+                            className="min-h-11 rounded-lg border border-teal-deep px-4 py-2 text-sm font-semibold text-teal-deep"
+                          >
+                            Back to {d.default || "blank"}
+                          </button>
+                        )}
+                      </div>
+                      {dialNote?.key === d.key ? (
+                        <p className="mt-2 rounded-lg bg-amber-light px-3 py-2 text-sm text-gray-900">
+                          {dialNote.text}
+                        </p>
+                      ) : null}
+                      {d.min !== undefined && d.max !== undefined ? (
+                        <p className="mt-2 text-xs text-gray-700">
+                          Anything from {d.min} to {d.max}. The platform default is {d.default}.
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-xs text-gray-700">The platform default is {d.default || "blank"}.</p>
+                      )}
+                    </li>
+                  ))}
+              </ul>
+              <p className="mt-5 text-sm text-gray-700">
+                A change you make here takes effect straight away, because you are the founder and
+                this is your setup. The same dials moved by a governance proposal wait for the next
+                moon instead, so a vote cannot shift the goalposts under a season already counting.
+              </p>
+            </section>
+          ) : null}
 
           {/* Supply, per source. This detail is admin-only on purpose. */}
           <section className={`${card} mt-6`}>
