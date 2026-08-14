@@ -1359,6 +1359,7 @@ async function ensureDataFiles() {
   await runOnce("voice-sweep-2026-08-01-part-2", applyVoiceSweepToSeededDocuments);
   await runOnce("voice-sweep-2026-08-01-part-3", applyVoiceSweepWhereWordsChanged);
   await runOnce("org-roles-backfill-2026-08", applyOrgRolesBackfill);
+  await runOnce("collation-alignment-2026-08-13", alignTableCollations);
 
   // 0054: a starter relationship vocabulary, into an EMPTY table only. Same
   // rule the quest library follows, and the reason matters here: these are
@@ -1840,6 +1841,67 @@ async function runOnce(id: string, fn: () => void | Promise<void>) {
     console.log(`[MIGRATION] applied ${id}`);
   } catch (e) {
     console.error(`[MIGRATION] ${id} failed (continuing)`, e);
+  }
+}
+
+/**
+ * Aligns every table's collation with THIS schema's own default.
+ *
+ * Seven migrations (0046, 0059, 0061, 0069-0072) end their CREATE TABLE with a
+ * bare `DEFAULT CHARSET=utf8mb4`. On MySQL 8 that takes the CHARACTER SET's
+ * default collation — utf8mb4_0900_ai_ci — and NOT the database's. The other 35
+ * table-creating migrations name no charset at all, so they inherit the database
+ * default. On Railway the two agree, because Railway's default happens to be
+ * utf8mb4_0900_ai_ci, and every test schema is created on that same server and
+ * inherits it too. That is why 55 passing tests and ten green gates never saw
+ * this.
+ *
+ * Anywhere else they disagree, and then any join across the boundary dies with
+ * ER_CANT_AGGREGATE_2COLLATIONS — `mint_rules`→`tokens` (the Mint),
+ * `player_characters`→`users` (the character sheet), `voice_claims`→`users` and
+ * →`tokens` (the claim path). VILLAGE_OVERVIEW promises fork, set DATABASE_URL,
+ * deploy; this is what that promise costs on a database whose default is the
+ * far more common utf8mb4_general_ci.
+ *
+ * It converts TOWARDS the schema default rather than pinning a literal, for two
+ * reasons. A literal would still leave the other 35 tables on the deployer's
+ * default and merely move the mismatch. And on an already-correct database this
+ * finds nothing to do, so production takes no table rewrite it does not need.
+ */
+async function alignTableCollations() {
+  const pool = getPool();
+  const [schemaRows] = await pool.query<any[]>(
+    "SELECT DEFAULT_CHARACTER_SET_NAME AS cs, DEFAULT_COLLATION_NAME AS coll " +
+      "FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = DATABASE()",
+  );
+  const cs = String(schemaRows?.[0]?.cs ?? "");
+  const coll = String(schemaRows?.[0]?.coll ?? "");
+  // These come from information_schema rather than from anyone's input, but they
+  // are interpolated into DDL, which cannot take a placeholder. Refuse anything
+  // that is not a plain identifier rather than trusting provenance.
+  if (!/^[a-z0-9_]+$/.test(cs) || !/^[a-z0-9_]+$/.test(coll)) {
+    throw new Error(`[collation] refusing to build DDL from cs=${cs} coll=${coll}`);
+  }
+
+  const [rows] = await pool.query<any[]>(
+    "SELECT TABLE_NAME AS t, TABLE_COLLATION AS c FROM information_schema.TABLES " +
+      "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' " +
+      "AND TABLE_COLLATION IS NOT NULL AND TABLE_COLLATION <> ?",
+    [coll],
+  );
+  if (!rows.length) {
+    console.log(`[collation] all tables already ${coll}; nothing to align`);
+    return;
+  }
+
+  console.log(`[collation] ${rows.length} table(s) differ from the schema default ${coll}; aligning`);
+  for (const r of rows) {
+    const name = String(r.t);
+    if (!/^[A-Za-z0-9_]+$/.test(name)) {
+      throw new Error(`[collation] refusing to alter a table with an unexpected name: ${name}`);
+    }
+    await pool.query(`ALTER TABLE \`${name}\` CONVERT TO CHARACTER SET ${cs} COLLATE ${coll}`);
+    console.log(`[collation]   ${name}: ${r.c} -> ${coll}`);
   }
 }
 
