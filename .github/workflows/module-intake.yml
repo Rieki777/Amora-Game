@@ -92,37 +92,28 @@ jobs:
         # that does not match a marker, it says the stage is unclassified rather
         # than guessing, because a wrong stage sends a builder to fix the wrong
         # thing.
+        #
+        # THE LOGIC IS IN `scripts/intake-classify.mjs`, NOT HERE, and that
+        # move is the fix rather than a tidy-up. This step used to be a chain of
+        # greps, one of which matched a bare `clause 14` anywhere in the lint's
+        # output. The lint also prints a standing note saying the pool field
+        # does not exist yet and so the clause cannot be enforced. A clean
+        # repository therefore classified its own informational text as a stage
+        # 5 block, and it failed the first real module pull request it saw.
+        #
+        # Logic embedded in a workflow only runs when a pull request runs it, so
+        # nothing exercised the passing path until a contributor did. In a
+        # script it has `scripts/intake-classify.test.mjs` beside it, and the
+        # first case that test asserts is that a clean listing passes.
         run: |
           set +e
-          listing=$(cat /tmp/intake/listing.txt)
-          stage=""
-
-          if [ "${{ steps.checks.outputs.facts }}" != "0" ]; then
-            stage="Stage 0 (intake): this repository could not report its own facts. A source file the framework depends on is missing."
-          elif echo "$listing" | grep -q "vendor record present  <-- VIOLATION\|support URL and support email both set  <-- VIOLATION"; then
-            stage="Stage 1 (diligence): the counterparty this listing needs is incomplete."
-          elif echo "$listing" | grep -q "member driver somewhere under server/  <-- VIOLATION"; then
-            stage="Stage 3 (data and legal): a member-pii listing must register a member driver, so a deletion reaches outside."
-          elif echo "$listing" | grep -q "licence slot it owns  <-- VIOLATION\|pool eligible  <-- VIOLATION\|clause 14"; then
-            stage="Stage 5 (tier and commercials): the price, the licence slot and the pool rule are not consistent."
-          elif echo "$listing" | grep -q "raw fetch\|raw SQL\|eval or a non-literal\|protected table\|credential written into code\|new dependencies"; then
-            stage="Stage 6 (build and security review): the diff contains a pattern contract clause 13 refuses."
-          elif [ "${{ steps.checks.outputs.links }}" != "0" ]; then
-            stage="Stage 6 (build): a builder document points at a path that does not exist."
-          elif [ "${{ steps.checks.outputs.listing }}" != "0" ]; then
-            stage="Stage 6 (build): the listing lint reported a violation. The output below names it; it did not match a known stage marker."
-          fi
-
-          if [ -z "$stage" ]; then
-            echo "blocked=no" >> "$GITHUB_OUTPUT"
-          else
-            echo "blocked=yes" >> "$GITHUB_OUTPUT"
-          fi
-          {
-            echo "stage<<EOF"
-            echo "$stage"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          node scripts/intake-classify.mjs \
+            --listing /tmp/intake/listing.txt \
+            --facts   /tmp/intake/facts.txt \
+            --facts-exit   "${{ steps.checks.outputs.facts }}" \
+            --links-exit   "${{ steps.checks.outputs.links }}" \
+            --listing-exit "${{ steps.checks.outputs.listing }}" \
+            --github-output "$GITHUB_OUTPUT"
           exit 0
 
       - name: Write the summary
@@ -145,6 +136,12 @@ jobs:
               echo "> ${{ steps.verdict.outputs.stage }}"
               echo ""
               echo "Fix that first. The full output is below, and other findings may resolve with it."
+            fi
+            if [ -n "${{ steps.verdict.outputs.warnings }}" ]; then
+              echo ""
+              echo "### Warning, not blocking"
+              echo ""
+              echo "${{ steps.verdict.outputs.warnings }}"
             fi
             echo ""
             echo "| Check | Result |"
