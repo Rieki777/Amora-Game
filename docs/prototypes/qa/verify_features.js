@@ -555,31 +555,205 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   await page.waitForTimeout(300);
 
   /* D2 A2: a plate is a name and a mark is a door, so plates step over marks
-     and then over each other. Swept across the far zooms where both live. */
-  const vplate = await page.evaluate(() => {
+     and then over each other, AND the vitals bar owns the top of the screen.
+     Swept across the far zooms where both live.
+
+     This sweep used to run one camera on one profile, and it was byte-for-byte
+     insensitive to a change that buried four district names under the vitals
+     bar and left a real overlap standing on the phone. Three things were wrong
+     with it and all three are fixed here:
+       - ONE CAMERA. (1240,700) is the east of the land; the plates that reach
+         the top of the screen are the ones the FIT camera brings up there, so
+         the fixed frame could not reach the condition at all. Both cameras now.
+       - ONE PROFILE. #vitals is 46 px on the desk and 35 px on the phone, but
+         the phone is 390 px wide, so the whole width of it is under the bar's
+         x-band. Every burial reproduces on pocket first. Both profiles now.
+       - NO VITALS ASSERTION ANYWHERE IN THE SUITE. #vitals is z-index 30 with
+         an opaque gradient and #banners is 11: a plate that lands under the bar
+         is not misplaced, it is GONE, which is worse. Asserted now, and the
+         report carries the buried px so a regression reads as a measurement. */
+  const plateSweep = (camTag) => {
     const rows = [];
+    /* BOTH CAMERA AXES. This swept two cameras that both sit at cam.y=700 or the
+       fit centre, and every defect of the pass that added the vitals half needed
+       a SOUTHWARD PAN to reach: pan south and a district's whole land goes off
+       the TOP of the screen, which is what fires the placement's last resort.
+       On the shipped artifact those rows alone carry 16 of the 24 raw
+       plate-over-mark overlaps and 36 of the 52 buried plates in this sweep, and
+       neither of the old cameras could see any of them.
+       Then cam.y was added and cam.x was left where it was, which is the same
+       blindness turned ninety degrees: an EASTWARD pan is what puts a district's
+       land off the SIDE, and the side is where a 390 px window clips a 148 px
+       plate. Seven cameras now, three of them off the gate column. */
+    const CAM = { gate: [1240, 700], s1100: [1240, 1100], s1500: [1240, 1500],
+      w600: [600, 700], e1900: [1900, 700], e1900s1500: [1900, 1500] };
     for (const z of [0.52, 0.62, 0.72, 0.82, 0.9]) {
-      cam.z = z; cam.x = 1240; cam.y = 700; clampCam(); refreshBadges(); syncBanners(); syncBanners(); syncBanners();
+      cam.z = z;
+      if (camTag === 'fit') { const b = camBounds(); cam.x = (b[0] + b[1]) / 2; cam.y = (b[2] + b[3]) / 2; }
+      else { cam.x = CAM[camTag][0]; cam.y = CAM[camTag][1]; }
+      clampCam(); refreshBadges(); syncBanners(); syncBanners(); syncBanners();
       /* districts AND geography names: with the land extended to the rim, the
          whole-land view is where people sit, and both kinds print in it */
-      const plates = [...SCENE.districts.map(d => bEls['d_' + d.id]), ...GEO.map((g, i) => bEls['g_' + i])]
-        .filter(e => e && e.style.display !== 'none').map(e => e.getBoundingClientRect());
+      const els = [...SCENE.districts.map(d => bEls['d_' + d.id]), ...GEO.map((g, i) => bEls['g_' + i])]
+        .filter(e => e && e.style.display !== 'none');
+      const plates = els.map(e => e.getBoundingClientRect());
       const marks = [...document.querySelectorAll('.aseal,.hchip')]
         .filter(e => getComputedStyle(e).display !== 'none' && /\b(on|far)\b/.test(e.closest('.bgroup').className))
         .map(e => e.getBoundingClientRect());
       const hits = (a, c) => a.left < c.right && c.left < a.right && a.top < c.bottom && c.top < a.bottom;
-      let pp = 0, pm = 0;
+      const vb = document.getElementById('vitals').getBoundingClientRect();
+      let pp = 0, pm = 0, pv = 0, buried = 0, who = null;
       for (let i = 0; i < plates.length; i++) {
         for (let j = i + 1; j < plates.length; j++) if (hits(plates[i], plates[j])) pp++;
         for (const m of marks) if (hits(plates[i], m)) pm++;
+        if (hits(plates[i], vb)) {
+          pv++;
+          const d = Math.min(plates[i].bottom, vb.bottom) - Math.max(plates[i].top, vb.top);
+          if (d > buried) { buried = d; who = els[i].textContent; }
+        }
       }
-      rows.push({ z, plates: plates.length, marks: marks.length, pp, pm });
+      /* THE FEATURE ITSELF, which this suite asserted nothing about: a district
+         plate stands ON the buildings whose own record names it, and it is on the
+         screen while it does. Both halves are needed and neither implies the
+         other. A gap measured against a building that is off the screen, or from
+         a plate that is off the screen, is not a measurement: a plate at x
+         430..578 on a 390 px phone scored a perfect 0.0 against a building that
+         was outside with it, which is how a strict regression read as a tie. So
+         a pair is SCORED only when the plate is at least 80% inside the window
+         and the building has a pixel in it; everything else is counted, not
+         scored. `gone` is the case that has to stay near zero: a name drawn
+         entirely outside the window while its own land is inside it. */
+      const VW = innerWidth, VH = innerHeight;
+      const sprites = [];
+      for (const s of SCENE.structures) {
+        const p = pEls[s.key]; if (!p || p.style.display === 'none') continue;
+        const r = p.getBoundingClientRect(); if (!r.width) continue;
+        if (Math.min(r.right, VW) <= Math.max(r.left, 0) || Math.min(r.bottom, VH) <= Math.max(r.top, 0)) continue;
+        sprites.push({ d: s.district, l: r.left, t: r.top, r: r.right, b: r.bottom });
+      }
+      let scored = 0, sum = 0, touch = 0, gone = 0, far = 0, drawn = 0, missing = 0, burKin = 0;
+      const goneWho = [], farWho = [], missWho = [], burWho = [];
+      for (const d of SCENE.districts) {
+        const el = bEls['d_' + d.id];
+        if (!el || el.style.display === 'none') { missing++; missWho.push(`${d.name} ${camTag}@${z}`); continue; }
+        drawn++;
+        const q = el.getBoundingClientRect();
+        const area = Math.max(1, q.width * q.height);
+        const on = Math.max(0, Math.min(q.right, VW) - Math.max(q.left, 0))
+                 * Math.max(0, Math.min(q.bottom, VH) - Math.max(q.top, 0)) / area;
+        let g = null;
+        for (const s of sprites) {
+          if (s.d !== d.id) continue;
+          const gg = Math.hypot(Math.max(0, q.left - s.r, s.l - q.right), Math.max(0, q.top - s.b, s.t - q.bottom));
+          if (g === null || gg < g) g = gg;
+        }
+        if (g === null) continue;                 // nothing of its own on the screen to measure against
+        /* A NAME FOR LAND YOU CAN SEE IS NEVER PRINTED UNDER THE BAR. That is the
+           half of the burial rule a placement can actually hold at zero: the
+           slot table refuses everything the bar paints over, and the one
+           unpriced rung left, the floor this file has always had, is reached
+           only by a district with nothing of its own on the screen. */
+        if (q.left < vb.right && vb.left < q.right && q.top < vb.bottom && vb.top < q.bottom) {
+          burKin++; burWho.push(`${d.name} ${camTag}@${z}`);
+        }
+        if (on <= 0.001) { gone++; goneWho.push(`${d.name} ${camTag}@${z}`); continue; }
+        if (on < 0.8) continue;                   // clipped: counted by `gone`'s rule, never scored 0.0
+        scored++; sum += g; if (g <= 2) touch++;
+        if (g > 24) { far++; farWho.push(`${d.name} ${camTag}@${z} ${g.toFixed(0)}px`); }
+      }
+      /* a whole-pass suppression is a different finding from a deleted name, and
+         `plates > 3` below is what catches it, so `missing` only speaks when the
+         pass ran */
+      if (!drawn) { missing = 0; missWho.length = 0; }
+      rows.push({ cam: camTag, z, plates: plates.length, marks: marks.length, pp, pm, pv,
+        buried: +buried.toFixed(1), who, h: +plates.reduce((a, r) => Math.max(a, r.height), 0).toFixed(1),
+        due: SCENE.districts.length, drawn, missing, missWho, burKin, burWho,
+        scored, sum: +sum.toFixed(1), touch, gone, far, goneWho, farWho });
     }
     return rows;
-  });
-  const bad = vplate.filter(r => r.pp || r.pm);
-  ok(bad.length === 0 && vplate[0].plates > 3 && vplate[0].marks > 8,
-    `D2 A2: district plates clear the marks and each other at every far zoom (${vplate.map(r => r.z).join(', ')})${bad.length ? ' — ' + JSON.stringify(bad) : ''}`);
+  };
+  const SWEEP = ['gate', 'fit', 's1100', 's1500', 'w600', 'e1900', 'e1900s1500'];
+  const vplate = [];
+  for (const c of SWEEP) vplate.push(...await page.evaluate(plateSweep, c));
+  /* the same sweep in a hand. A fresh context, because the profile is decided
+     once at boot (HUD_PROFILE, :5458) and cannot be toggled on a live page. */
+  const vpocket = await (async () => {
+    const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true });
+    const pp = await pctx.newPage();
+    const pe = []; pp.on('pageerror', e => pe.push(String(e)));
+    await pp.goto(FILE + '#hud=pocket'); await pp.waitForTimeout(1200);
+    try { if (await pp.locator('#enterBtn').isVisible({ timeout: 900 })) await pp.click('#enterBtn'); } catch (_) { }
+    await pp.waitForTimeout(1800);
+    const pocket = await pp.evaluate(() => document.body.classList.contains('pocket'));
+    const rows = [];
+    for (const c of SWEEP) rows.push(...await pp.evaluate(plateSweep, c));
+    await pctx.close();
+    return { pocket, rows, errs: pe };
+  })();
+  const show = r => `${r.cam}@${r.z}${r.pp ? ' pp=' + r.pp : ''}${r.pm ? ' pm=' + r.pm : ''}${r.pv ? ' vitals=' + r.pv + ' buried ' + r.buried + '/' + r.h + 'px "' + r.who + '"' : ''}`;
+  const tot = (rows, k) => rows.reduce((a, r) => a + r[k], 0);
+  /* THE CEILING IS THE SHIPPED ARTIFACT, NOT THE CURRENT COUNT. A threshold set
+     to whatever the change happens to score is a snapshot; these two pairs are
+     what grounds-v0.html at HEAD scores on THIS EXACT SWEEP, 7 cameras by 5
+     zooms, measured with the same counters below and recorded here. The
+     invariant they carry is the one that matters to a reader: the change may not
+     make the land busier than the artifact it replaces. Zero is not reachable
+     while every district keeps its name, because a name that cannot find a free
+     slot has to stand somewhere, and the pass that did reach zero reached it by
+     deleting 134 plate-frames. Every surviving overlap is named in the message,
+     so a new one changes the line even while the count passes. */
+  const SHIPPED = { desk: { pp: 6, pm: 12 }, pocket: { pp: 37, pm: 31 } };
+  const ppD = tot(vplate, 'pp'), pmD = tot(vplate, 'pm');
+  const ppP = tot(vpocket.rows, 'pp'), pmP = tot(vpocket.rows, 'pm');
+  const badD = vplate.filter(r => r.pp || r.pm), badP = vpocket.rows.filter(r => r.pp || r.pm);
+  ok(ppD <= SHIPPED.desk.pp && pmD <= SHIPPED.desk.pm && vplate[0].plates > 3 && vplate[0].marks > 8,
+    `D2 A2: desk district plates are no busier than the shipped artifact — plate-over-plate ${ppD} of ${SHIPPED.desk.pp} allowed, plate-over-mark ${pmD} of ${SHIPPED.desk.pm}${badD.length ? ' — ' + badD.map(show).join('; ') : ''}`);
+  ok(vpocket.pocket && ppP <= SHIPPED.pocket.pp && pmP <= SHIPPED.pocket.pm && vpocket.rows[0].plates > 3 && !vpocket.errs.length,
+    `D2 A2: and in a hand, where the land is 390 px wide — plate-over-plate ${ppP} of ${SHIPPED.pocket.pp} allowed, plate-over-mark ${pmP} of ${SHIPPED.pocket.pm}${badP.length ? ' — ' + badP.map(show).join('; ') : ''}${vpocket.errs.length ? ' — page error ' + vpocket.errs[0] : ''}`);
+  /* A NAME IS NEVER DELETED. The pass before this one replaced the floor with a
+     hide and took names the shipped artifact draws readable and touching their
+     own building. There is no threshold here and there should not be one: the
+     district pass draws every district it is asked for, in every frame. */
+  const missD = vplate.filter(r => r.missing), missP = vpocket.rows.filter(r => r.missing);
+  ok(!missD.length && !missP.length,
+    `D2 A2: and every district keeps its name in every frame of the sweep — ${tot(vplate, 'drawn')}/${tot(vplate, 'due')} desk, ${tot(vpocket.rows, 'drawn')}/${tot(vpocket.rows, 'due')} hand${missD.length + missP.length ? ' — NOT DRAWN: ' + [...missD, ...missP].flatMap(r => r.missWho).join('; ') : ''}`);
+  const burD = vplate.filter(r => r.burKin), burP = vpocket.rows.filter(r => r.burKin);
+  ok(!burD.length && !burP.length,
+    `D2 A2: and no district with a building of its own on the screen is printed under the vitals bar, which paints over it${burD.length + burP.length ? ' — ' + [...burD, ...burP].flatMap(r => r.burWho).join('; ') : ''}`);
+
+  /* D2 A2: THE ADJACENCY HALF. Everything above says where a plate must NOT be.
+     Nothing said it has to be near the thing it names, which is the whole item,
+     and the suite was byte-for-byte silent when the aim ordering was reverted.
+     Thresholds are set where the shipped artifact is not, and both endpoints were
+     measured by running THIS FILE against both artifacts on this seven-camera
+     sweep: the change reads desk 5.14 px mean with 87% touching over 160 scored
+     plates and a hand 7.14 px with 68% over 85, while grounds-v0.html at HEAD,
+     before any aim ordering, reads 13.31 px / 34% over 128 and 9.39 px / 50%
+     over 54. 8 px and 75% sit between them on the desk and 8 px and 60% in a
+     hand. Read the desk numbers on this page rather than on a fresh one: sixty
+     assertions have run before this point and they leave the map in a state a
+     standalone probe does not reproduce, which is why the same build measures
+     2.62 px / 94% under qa/_probe_g4d_live.js and 5.14 px / 87% here. The floors
+     on `n` are there so an artifact that draws nothing cannot pass by scoring
+     nothing, and they count plates SCORED, never plates drawn. */
+  const adj = rows => {
+    const s = rows.reduce((a, r) => ({ n: a.n + r.scored, sum: a.sum + r.sum, t: a.t + r.touch,
+      gone: a.gone + r.gone, far: a.far + r.far,
+      gw: a.gw.concat(r.goneWho), fw: a.fw.concat(r.farWho) }),
+      { n: 0, sum: 0, t: 0, gone: 0, far: 0, gw: [], fw: [] });
+    s.mean = +(s.sum / Math.max(1, s.n)).toFixed(2);
+    s.pct = Math.round(100 * s.t / Math.max(1, s.n));
+    return s;
+  };
+  const aD = adj(vplate), aP = adj(vpocket.rows);
+  ok(aD.n >= 60 && aD.mean <= 8 && aD.pct >= 75 && aP.n >= 30 && aP.mean <= 8 && aP.pct >= 60,
+    `D2 A2: a district plate stands on the buildings its own record names — desk ${aD.mean}px mean over ${aD.n} scored plates, ${aD.pct}% touching; in a hand ${aP.mean}px over ${aP.n}, ${aP.pct}% touching${aD.fw.length + aP.fw.length ? ' — over 24px: ' + [...aD.fw, ...aP.fw].slice(0, 6).join('; ') : ''}`);
+  /* ZERO, ON BOTH. This read `aP.gone <= 2` and 2 was exactly what the tree
+     scored, which is a snapshot wearing a gate's clothes. Off the screen is a
+     price the placement pays last now, so both sides hold at zero and a single
+     survivor fails the line and names itself. */
+  ok(aD.gone === 0 && aP.gone === 0,
+    `D2 A2: and no district name is drawn outside the window while its own land is inside it, which scores a perfect gap from a place nobody can see — desk ${aD.gone}, hand ${aP.gone}${aD.gw.length + aP.gw.length ? ' — ' + [...aD.gw, ...aP.gw].join('; ') : ''}`);
 
   /* ---------- D4: the founder's hands ---------- */
   const d4 = await page.evaluate(async () => {

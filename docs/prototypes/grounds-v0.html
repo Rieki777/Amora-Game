@@ -2756,10 +2756,31 @@ const PLATE_LEASH=[[0,0],[0,-14],[0,13],[-40,-4],[40,-4],[0,-28],[-54,11],[54,11
 /* A district names an AREA, not a roof, so drift costs it far less meaning
    than it costs a building name, and it only draws when the camera is pulled
    back, which is exactly when it is the only wayfinding on the screen. Wider,
-   with more places to try, and it never gives up its spot entirely. */
+   with more places to try, and it never gives up its spot entirely.
+
+   THE ORDER WRITTEN HERE IS NOT THE ORDER THE SOLVER SEES. plateSlots splits
+   a copy of it per call into the slots that are on the screen and the slots
+   that are not, and orders each by how near the district's own buildings it
+   stands, so an offset appended to the end is still reachable. Do not
+   hand-sort this list. Sorting it by distance from the ANCHOR is what pass 1
+   did, and the anchor is 43 to 74 px from the middle of the district's own
+   roofs before any plate is placed, so that sort walks names AWAY from the
+   buildings they name; sorting it by distance to the buildings ALONE is what
+   pass 2 did, and it promotes the outermost offsets in this table until the
+   plate walks off the side of a 390 px phone, which is the same defect in a
+   different coordinate. Both keys are in plateSlots, in that order.
+   What still matters is whether an offset EXISTS. Straight below the anchor
+   this table stopped at 64 px and the next offset with any downward component
+   was 89 px out to the side, while the badge ring grows with the camera and
+   the leash stays in fixed screen px, so past z=0.82 the near column is eaten
+   and the name had to cross the land. [0,80] is taken 22 times in 144 measured
+   placements. [-40,10], [40,10], [-40,-30] and [40,-30] were measured beside
+   it and taken zero times, so they are not here, and neither is [0,-82]: it is
+   the most vitals-dangerous offset this table could hold and it is selected
+   zero times in the same 144. */
 const DISTRICT_LEASH=[[0,0],[0,-18],[0,17],[-62,-6],[62,-6],[0,-34],[0,32],
   [-88,14],[88,14],[-62,-32],[62,-32],[0,48],[0,-50],
-  [-120,0],[120,0],[-120,-34],[120,-34],[0,-66],[0,64],[-150,20],[150,20]];
+  [-120,0],[120,0],[-120,-34],[120,-34],[0,-66],[0,64],[0,80],[-150,20],[150,20]];
 /* HOW MANY marks a plate laid here would cover. A mark is a door and a
    plate is a name, so the mark still wins; counting rather than announcing is
    what lets a plate that MUST draw pick the cheapest spot instead of the
@@ -2798,6 +2819,132 @@ function platePlace(ax,ay,w,h,others,avoidMarks,icons,selfKey,table,mustDraw){
     if(cost===0)return{x,y};
     if(cost<bestCost){bestCost=cost;best={x,y}}}
   return mustDraw?best:null}
+/* WHICH OFFSETS THIS FRAME ALLOWS, IN TWO TABLES: THE ONES ON THE SCREEN AND
+   THE ONES THAT ARE NOT. Two facts about platePlace make this necessary and
+   both are load-bearing.
+
+   One: it prices marks, plates and icons and never distance, and it returns
+   the FIRST slot that costs nothing. The order of the table it is handed is
+   the only distance preference the solver has.
+
+   Two: a static order can only aim at the ANCHOR, and a district's anchor is
+   its authored point for an AREA, measured 43 px from the centroid of its own
+   buildings pulled right back and 74 px at the near end of the band, before
+   any plate is placed. Sorting by distance from it moves a name AWAY from the
+   roofs it names: it took The Ridge off a building it was touching and stood
+   it 38 px clear in open jungle. `aim` is the district's own icons as screen
+   points, and the offsets come back ordered by the gap between the plate they
+   would make and the NEAREST of them, ties broken by the gap to the middle of
+   the whole set: touch a building you name first, and of the places that do,
+   stand in the middle of your own land rather than off the far end of it.
+   Both are measured to the icon's ANCHOR POINT, so a gap of 0 here means the
+   plate covers the point, and a gap of 16 can still be a plate touching the
+   sprite's box. That is why this pass is greedy: at pocket z=0.46 The Arrival
+   moves 98 px to close 31 px of point gap (10.6 px of box gap) and lands on
+   The Ponds' only free slot, which costs The Ponds its place in 12 of the 90
+   frames swept. A tolerance wide enough to stop that is a tolerance that calls
+   an 11 px gap close enough, which is the state this item was raised about, so
+   it is not taken. Nothing here is tuned for it.
+
+   AND OFF THE SCREEN IS A PRICE, NOT A PREFERENCE. This table reaches +-150 px
+   and a phone is 390 px wide, so aiming at the buildings alone promotes the
+   outermost offsets and a plate half off the side of the screen scores a
+   perfect gap to a building that is off the side with it. Ordering alone does
+   not fix that, because platePlace stops at the first slot costing nothing:
+   an offset entirely outside a 390 px window collides with nothing, prices at
+   zero, and wins outright over an on-screen slot that costs 4. So the two
+   kinds are returned SEPARATELY and the caller spends `on` first, both its
+   free pass and its cheapest pass, at both neighbourhoods, before `off` is
+   offered at all. That makes being off the screen dearer than every collision
+   this file prices and cheaper than not drawing, which is the order a reader
+   would choose. It is lexicographic rather than a number added to the cost
+   because platePlace is not this lane's to touch, and the consequence is
+   worth reading twice: a slot clipped by more than a fifth loses to a fully
+   on-screen slot that covers a door chip.
+
+   A fifth is not a taste. It is the readable threshold the probe and the gate
+   both use: at least 80% of the plate inside the window. Inside each table the
+   order is what it was, spill first, and the split is monotone in that same
+   spill, so wherever `off` goes unspent the offered order is unchanged. In a
+   desk frame nothing is clipped, `off` is empty, and this is a no-op.
+
+   platePlace is untouched, so "is this slot clear" is bit-for-bit what it was
+   and cost==0 still means clear. Nothing here prices a collision; this decides
+   only which order the clear slots are offered in, and which ones are offered
+   at all before the others.
+
+   And the bar. #vitals is z-index 30 with an opaque gradient while #banners is
+   11, so a plate that lands under the bar is not misplaced, it is GONE, and
+   districts and place-names were the only plates with no rule about it. `bar`
+   is its live rect, read once a frame by the caller. The building names use a
+   scalar box for the same job, the +-360 x-band with y<88, and that box is one
+   number standing in for two bar heights (46 on a desk, 35 in a hand), two bar
+   widths and every plate height: it refuses a place-name standing 0.9 px CLEAR
+   of the bar and fully legible. The rect refuses exactly what the bar paints
+   over, plus 2 px so a name does not sit flush against it, which is the margin
+   marksHit already keeps from a door. Without a laid-out bar it falls back to
+   the scalar box. A rejection here is not a hide: the district caller has a
+   priced ladder ending in the floor the artifact has always used, and a
+   place-name goes on not drawing, as it always did.
+
+   THE COORDINATE SPACE IS THE PLATE'S, NOT THE VIEWPORT'S, and that is not a
+   detail. .banner left/top are relative to #banners; a getBoundingClientRect
+   is relative to the VIEWPORT; the two agree only while the document is not
+   scrolled. verify_features reaches a state where it is scrolled 400 px and
+   they do not, and a bar rect read in the wrong space protected a strip of
+   empty land while four names printed under the real bar. `bar` and `view`
+   are both converted by the caller, once a frame.
+
+   No aim, no sort of any kind, so a place-name keeps its authored order inside
+   each table and gains only the bar and the split.
+
+   AND IT IS A const, NOT A function DECLARATION, WHICH IS NOT A STYLE CHOICE.
+   These three script tags are classic and top-level, which is exactly why SCENE
+   and bEls are reachable here as bare identifiers, and it is the same fact that
+   makes `function plateSlots(){}` at column 0 into window.plateSlots with no
+   assignment written anywhere: window's own properties go 1496 to 1497 and this
+   lane may add none. Grepping for `window.X=` cannot see that class, so the
+   count is enumerated instead. Nothing is lost by giving up the hoisting: this
+   line runs some 240 lines before syncBanners is even defined and some 1200
+   before it is first called, and the three callers are all inside it. */
+const plateSlots=function(T,ax,ay,w,h,aim,bar,view){
+  const on=[],off=[];let cx=0,cy=0;
+  if(aim&&aim.length){for(let n=0;n<aim.length;n++){cx+=aim[n].x;cy+=aim[n].y}
+    cx/=aim.length;cy/=aim.length}
+  /* .banner is translate(-50%,-100%): x is the CENTRE and y is the BOTTOM
+     edge, so the plate rect is x+-w/2 by y-h..y. Rect to point, and 0 when
+     the plate would cover the point outright. Math.sqrt and not Math.hypot:
+     hypot carries overflow and underflow scaffolding that two screen offsets
+     can never reach, and this line runs some hundreds of times a frame from
+     inside the rAF loop. */
+  const gap=(x,y,px,py)=>{const dx=Math.max(0,x-w/2-px,px-(x+w/2)),
+    dy=Math.max(0,y-h-py,py-y);return Math.sqrt(dx*dx+dy*dy)};
+  const V=view||{l:0,t:0,r:innerWidth,b:innerHeight};
+  /* px^2 of that rect outside the window. Whole px^2, so float noise cannot
+     outrank the aim. A fifth of the plate is the readable line. */
+  const spill=(x,y)=>Math.round(w*h
+    -Math.max(0,Math.min(x+w/2,V.r)-Math.max(x-w/2,V.l))
+    *Math.max(0,Math.min(y,V.b)-Math.max(y-h,V.t)));
+  const SPILL_MAX=w*h*0.2;
+  const B=(bar&&bar.r>bar.l)?bar:null;
+  for(let i=0;i<T.length;i++){const x=ax+T[i][0],y=ay+T[i][1],o=spill(x,y);
+    if(B?(x-w/2<B.r+2&&B.l-2<x+w/2&&y-h<B.b+2&&B.t-2<y)
+        :(y<V.t+88&&Math.abs(x-(V.l+V.r)/2)<360))continue; // the bar owns this
+    let d=0,c=0;
+    if(aim&&aim.length){d=Infinity;
+      for(let n=0;n<aim.length;n++)d=Math.min(d,gap(x,y,aim[n].x,aim[n].y));
+      c=gap(x,y,cx,cy)}
+    (o<=SPILL_MAX?on:off).push({t:T[i],o,d,c,r:Math.hypot(T[i][0],T[i][1]),i})}
+  /* least clipped; then touch a building you name; of the places that do,
+     stand in the middle of your own land; then nearest the anchor; then as
+     written. No aim, no sort at all: a caller with no icons to aim at has
+     nothing to say about which slot is nearer anything, and reordering one by
+     the window alone dragged a district with no buildings in it out of the
+     margin and across two door chips. The split above is not a sort, so a
+     place-name keeps its authored order inside each table. */
+  if(aim&&aim.length){const by=(a,b)=>(a.o-b.o)||(a.d-b.d)||(a.c-b.c)||(a.r-b.r)||(a.i-b.i);
+    on.sort(by);off.sort(by)}
+  return{on:on.map(o=>o.t),off:off.map(o=>o.t)}};
 /* How many building names the land carries at once. A phone is not a desk: the
    count that reads as a map on a laptop reads as a wall of words in a hand. */
 function plateBudget(){return document.body.classList.contains('pocket')?7:16}
@@ -2930,22 +3077,210 @@ function syncBanners(){
   const k=Math.max(.5,Math.min(1.4,0.28+cam.z*0.5)); // emblem LOD scale
   const roomy=W*cam.z>900; // pulled back past this and the plates are wider than the land they name
   const placedD=[]; // district plates dodge the marks, then each other
+  /* The window and the bar that paints over a plate, measured once for the
+     whole frame and handed to every placement in it. Two getBoundingClientRects
+     in a pass that already forces layout once per banner with offsetWidth.
+     BOTH ARE CONVERTED INTO THE PLATE'S COORDINATE SPACE. A plate's left/top
+     are relative to #banners and a client rect is relative to the VIEWPORT;
+     those agree only while the document is not scrolled, and mixing them put
+     four district names under the real bar while the box guarded a strip of
+     empty land 400 px away. */
+  const bwr=bWrap.getBoundingClientRect();
+  const VIEW={l:-bwr.left,t:-bwr.top,r:innerWidth-bwr.left,b:innerHeight-bwr.top};
+  const vbar=$('vitals').getBoundingClientRect();
+  const BAR=vbar.width?{l:vbar.left-bwr.left,t:vbar.top-bwr.top,
+    r:vbar.right-bwr.left,b:vbar.bottom-bwr.top}:null;
+  /* EVERY STRUCTURE'S SCREEN POINT, ONCE FOR THE WHOLE FRAME. This function
+     runs from the rAF loop, so a line in it is paid sixty times a second, and
+     worldToScreen returns a fresh array on every call. The same world point
+     used to be converted four times over: by the sprite transform, by the
+     icon-point list, by the name-ordering sort, and once per district by the
+     placement below, which alone was six passes over every structure on the
+     land. One pass now, and all four readers take the object it makes.
+     KIN groups those points by the district whose own record names them, which
+     is what the placement aims at. Its own visibility test and not the DOM,
+     because the sprite loop has not run yet this frame and the display flags
+     still belong to the last one. */
+  const SPT={},KIN={};
+  for(const s of SCENE.structures){const[ix,iy]=worldToScreen(s.x,s.y),q={x:ix/DPR,y:iy/DPR};
+    SPT[s.key]=q;
+    if(mode==='now'&&s.state==='blueprint'&&!buildMode)continue;
+    (KIN[s.district]||(KIN[s.district]=[])).push(q)}
+  /* HALF THE SPRITE'S BOX, so "is one of my buildings on the screen" can be
+     asked about the BOX and not about the anchor point inside it. The sprite
+     element is square about its anchor and its half-extent is 42.9*k px for
+     the largest structure on this land, measured right across the band the
+     district names draw in: 21.8 px at z=0.46 and 31.3 px at z=0.90, the same
+     on a 1480 px desk, an 1180 px lap and a 390 px phone, because it follows
+     the LOD scale and nothing else. Asking the bare point instead reads a
+     building 30 px inside the window as off it, and that answer was used to
+     delete names for districts with a building plainly on the screen. */
+  const KIN_R=k*43;
   for(const d of SCENE.districts){const el=bEls['d_'+d.id];const[sx,sy]=worldToScreen(d.x,d.y-46);
     const hideD=(zoomed||!roomy);el.style.display=hideD?'none':'block';if(hideD)continue;
     const dw=el.offsetWidth||140,dh=el.offsetHeight||22;
     /* Never silent at this zoom, because the district names are the only
        words on the land, so it takes the cheapest spot in its table rather
-       than the raw anchor, which used to park it on top of a door. */
-    const spot=platePlace(sx/DPR,sy/DPR,dw,dh,placedD,true,null,null,DISTRICT_LEASH,true)
-      ||{x:sx/DPR,y:Math.max(sy/DPR,26)};
+       than the raw anchor, which used to park it on top of a door.
+
+       A DISTRICT NAME IS NEVER DELETED. A pass that hid it instead of flooring
+       it took names this artifact draws readable and touching their own
+       building: where every offset lands above y=26 the untouched guard inside
+       platePlace empties the table, and a hide there is a name lost for a
+       reason that has nothing to do with the name. The ladder below always
+       ends somewhere, and the last rung is this file's own floor, unchanged.
+
+       AND ONE QUESTION DECIDES WHICH LADDER IT CLIMBS: IS ONE OF THIS
+       DISTRICT'S OWN BUILDINGS ON THE SCREEN. It is asked of the sprite's BOX,
+       through KIN_R above, and not of the anchor point inside it, which is the
+       question pass 3 asked and got wrong in 24 plate-frames. It decides an
+       ORDER and never a deletion.
+         A district you CAN see prefers the slots on the screen: it is worth
+         scuffing a door chip to keep a name beside the roofs it names.
+         A district you CANNOT see keeps this file's own order, so its name
+         stays out at the edge with its land instead of being dragged into the
+         middle of somebody else's. That is not a nicety. Preferring the screen
+         for a district whose land is off it took plate-over-plate on the phone
+         from 27 on-screen overlaps to 61 and printed 54 more legible names for
+         land nobody could see, and the same rule tested against the anchor
+         point rather than the box is what deleted the 24.
+
+       EVERY RUNG IS PRICED, and there are six of them rather than one. A hard
+       {x:anchor,y:88} consults nothing: not the plates already laid, not the
+       door chips, not the icons, and it printed one district name on top of
+       another and laid names across door chips, at 8 a chip the most expensive
+       collision this file has.
+         1. A FREE slot where the district stands: on the screen for a district
+            you can see, anywhere in the leash for one you cannot. Nearest its
+            own roofs, which is the whole feature.
+         2. Nothing free there, and a building of its own IS on the screen:
+            floor the anchor to y>=26 and ask the same two functions again.
+            That is a second neighbourhood, and it is the rung that matters,
+            because refusing the bar also took away the free slot this artifact
+            escaped to and left only slots that cover a door. Built only if the
+            floor actually moves the anchor, because otherwise it is the same
+            table twice.
+            x IS PULLED IN ONLY FOR A DISTRICT YOU CAN SEE, and that condition
+            is the whole of it. Clamping x for every district stood every one
+            whose land is off the side of a phone at the same screen edge: six
+            names in one spot, plate-over-plate on the phone from 27 on-screen
+            overlaps to 118, and 213 legible names for land nobody could see.
+            Measured, and cut back to the districts that have a building on the
+            screen, where the edge nearest their own land is a true place to
+            stand and the leash on its own cannot reach the window.
+         3. The cheapest slot in that same table where it stands. For a district
+            you can see, an on-screen name that scuffs a door chip beats a
+            perfect one nobody can see, and THAT is the whole of the off-screen
+            price: it is paid here, not by a number added to the cost.
+         4. The cheapest slot on the screen at the floor. Pass 3 gave the
+            floored neighbourhood a free pass and no cheapest pass, so when the
+            anchor table was empty nothing ever took the cheapest slot there.
+         5. Only now, and only for a district you can see, the slots that hang
+            off the window, cheapest first, at the anchor and then at the floor.
+            A district you cannot see was offered them at rung 1 already, in one
+            joined table, and the residue that leaves is measured and recorded
+            at the T= line below rather than fixed here: the repair reaches 1 of
+            the 5 frames it is raised about, and it fails the plate-over-mark
+            ceiling verify_features holds at the shipped artifact's own count.
+         6. Nowhere legal at all: y=Math.max(anchor,26), which is exactly what
+            this file has always done, and the reason it is reachable is that a
+            name is worth more than the rule that would have deleted it. It is
+            left EXACTLY as it was, including the fact that it can land under
+            the bar, and the reason is measured. Dropping it clear of the bar
+            instead unburies 68 plate-frames and every one of them belongs to a
+            district with no building on the screen, so what it really does is
+            take a name nobody could see and stand it on top of a name they
+            could: readable-and-not-overlapped names for districts you can see
+            fell on all three profiles, desk 344 to 342, lap 266 to 257, phone
+            172 to 168. Every plate still buried on this sweep belongs to a
+            district with nothing of its own on the screen, 0 of 68 otherwise,
+            and that is the line verify_features holds at zero. */
+    const px=sx/DPR,py=sy/DPR,aimD=KIN[d.id];
+    let kinOn=0;if(aimD)for(let n=0;n<aimD.length;n++){const q=aimD[n];
+      if(q.x>=VIEW.l-KIN_R&&q.x<=VIEW.r+KIN_R&&q.y>=VIEW.t-KIN_R&&q.y<=VIEW.b+KIN_R)kinOn++}
+    const S=plateSlots(DISTRICT_LEASH,px,py,dw,dh,aimD,BAR,VIEW);
+    /* One table for a district you can see, the whole leash in its own order
+       for one you cannot: S.on and S.off are sorted by the same comparator and
+       spill leads it, so joined they are the order pass 3 offered.
+
+       AND THE JOIN LEAVES A RESIDUE OF B1. It is RECORDED here and not fixed,
+       and both halves of that decision are measured rather than argued.
+       platePlace returns the FIRST slot costing nothing, so inside a joined
+       table a slot entirely outside the window, colliding with nothing, can
+       still beat an on-screen slot that costs 4. The mechanism is real: over a
+       12-camera by 13-zoom sweep of all three profiles, 2,808 plate-frames, 36
+       plates end up less on the screen than the shipped artifact puts them and
+       5 land entirely off it.
+         SPENDING `on` TO EXHAUSTION FIRST, which is the obvious repair, reaches
+       ONE of those 5. In the other 4 the on-screen table is EMPTY: every offset
+       in the leash is more than a fifth clipped, so there is no on-screen slot
+       to prefer and nothing for a tier to order. What decides those frames is
+       inside `off`, where spill is the SORT KEY and not a cost. At lap cam
+       600,1100 z 0.82, The Ridge: [-150,20] is 23.6% clipped and costs
+       something, [150,20] is 100% clipped and is free, and the free one wins.
+       That is B1 one level down, and reaching it means a spill tier INSIDE the
+       off table, which is a design change and not this pass's to make.
+         AND THE REPAIR COSTS MORE THAN IT BUYS. Preferring the cheapest
+       on-screen slot for a district with nothing of its own on the screen means
+       preferring a name over a DOOR, at 8 the dearest collision this file
+       prices. Measured: verify_features goes from plate-over-mark 29 of 31
+       allowed in a hand to 33 of 31, and FAILS, on a ceiling that is the
+       shipped artifact's own count; and of the 24 names it newly makes readable
+       on the phone, all 24 are names for land nobody can see.
+         WHAT THE RESIDUE DOES NOT COST IS A READABLE NAME, which is why it is
+       a residue. In all 5 frames the shipped artifact's own plate is already
+       unreadable: 0.53 to 0.68 of the way onto the screen in three of them, and
+       in the other two mostly UNDER THE BAR, which paints over it. readable ->
+       NOT readable stays 0 on all three profiles either way.
+       qa/_probe_g4g_rung.js prints the offered tables, their spill and what
+       platePlace prices them at, frame by frame. */
+    const T=(kinOn||!S.off.length)?S.on:S.on.concat(S.off);
+    const fy=Math.max(py,26),fx=kinOn?Math.min(Math.max(px,VIEW.l+dw/2),VIEW.r-dw/2):px;
+    let F=null;
+    let spot=T.length?platePlace(px,py,dw,dh,placedD,true,null,null,T,false):null;
+    if(!spot&&kinOn&&(fy!==py||fx!==px)){F=plateSlots(DISTRICT_LEASH,fx,fy,dw,dh,aimD,BAR,VIEW);
+      if(F.on.length)spot=platePlace(fx,fy,dw,dh,placedD,true,null,null,F.on,false)}
+    if(!spot&&T.length)spot=platePlace(px,py,dw,dh,placedD,true,null,null,T,true);
+    if(!spot&&F&&F.on.length)spot=platePlace(fx,fy,dw,dh,placedD,true,null,null,F.on,true);
+    if(!spot&&kinOn&&S.off.length)spot=platePlace(px,py,dw,dh,placedD,true,null,null,S.off,true);
+    if(!spot&&F&&F.off.length)spot=platePlace(fx,fy,dw,dh,placedD,true,null,null,F.off,true);
+    if(!spot)spot={x:px,y:fy};
     el.style.left=spot.x+'px';el.style.top=spot.y+'px';placedD.push({x:spot.x,y:spot.y,w:dw})}
   GEO.forEach((g,i)=>{const el=bEls['g_'+i];const[sx,sy]=worldToScreen(g.x,g.y);
-    const hideG=!(cam.z<1.25&&roomy);el.style.display=hideG?'none':'block';if(hideG)return;
+    const hideG=!(cam.z<1.25&&roomy);
+    /* THE BOX IS MEASURED WHILE THE NAME IS ON AND REMEMBERED WHILE IT IS OFF,
+       and that is a cost fix, not a tidy-up. This loop used to set display to
+       block and read offsetWidth two lines later. For a name that was hidden
+       last frame and is about to be hidden again, that pair is a write that
+       dirties layout followed by a read that forces it back, once per name per
+       frame, from inside the rAF loop. It never showed while place-names nearly
+       always found a slot; the moment the bar rule started refusing the slots
+       that print underneath it, four names on the phone began toggling every
+       frame and this one pattern cost 0.20 ms against 0.007 ms for the whole
+       loop. The width of a place-name changes when its text or its stylesheet
+       changes and neither ever does, so the last measurement taken while it was
+       visible is the right one; any frame that draws it takes a fresh one,
+       which is what carries it across a late font load; and display is written
+       only when it actually changes, so a steady camera forces no layout here
+       at all. */
+    if(el.style.display!=='none'){el._gw=el.offsetWidth||el._gw;el._gh=el.offsetHeight||el._gh}
+    const gw=el._gw||120,gh=el._gh||20;
+    if(hideG){if(el.style.display!=='none')el.style.display='none';return}
     /* Last into the same pass the district plates just ran, so a place-name
        steps around a district rather than through it. */
-    const gw=el.offsetWidth||120,gh=el.offsetHeight||20;
-    const spot=platePlace(sx/DPR,sy/DPR,gw,gh,placedD,true);
-    if(!spot){el.style.display='none';return}
+    /* The same bar the district plates just refused, and the same split. No
+       aim: a place-name names water and rock, which carry no icons, so
+       PLATE_LEASH keeps the order it was written in inside each table. The
+       on-screen table first and the other one after, which is the district
+       ladder with the rungs a place-name has no use for taken out: it is
+       allowed not to draw, so there is no floor and no last resort. Offering
+       the on-screen table alone was measured and dropped: it gained no readable
+       name on any profile and it hid enough names to pay the toggle above. */
+    const gS=plateSlots(PLATE_LEASH,sx/DPR,sy/DPR,gw,gh,null,BAR,VIEW);
+    let spot=gS.on.length?platePlace(sx/DPR,sy/DPR,gw,gh,placedD,true,null,null,gS.on):null;
+    if(!spot&&gS.off.length)spot=platePlace(sx/DPR,sy/DPR,gw,gh,placedD,true,null,null,gS.off);
+    if(!spot){if(el.style.display!=='none')el.style.display='none';return}
+    if(el.style.display!=='block')el.style.display='block';
     el.style.left=spot.x+'px';el.style.top=spot.y+'px';placedD.push({x:spot.x,y:spot.y,w:gw})});
   document.body.classList.toggle('night',dayPhase>=1.6||dayPhase<0.1);
   const useIso=iconMode==='iso'||(iconMode==='auto'&&cam.z>=1.05);
@@ -2959,11 +3294,11 @@ function syncBanners(){
     p.classList.toggle('talk',((window.PULSE&&PULSE[s.key])||0)>performance.now());
     p.style.display=hideP?'none':'block';
     if(hideP&&bgEls[s.key]){bgEls[s.key].classList.remove('on','far');bgEls[s.key]._on=false}
-    if(!hideP){const[sx,sy]=worldToScreen(s.x,s.y);
+    if(!hideP){const q=SPT[s.key],sx=q.x,sy=q.y; // converted once at the top of the frame
       const iso=!painted&&useIso&&s.state!=='blueprint';
       const sc=((typeof FAM_SCALE!=='undefined'&&FAM_SCALE[fam])||1)*(s.scale||1)*(window.GSCALE||1);
       s._crownOff=(painted?k*1.35*sc*54:(iso?k*1.35*sc*34:k*30*(window.GSCALE||1)))+6;
-      p.style.transform=`translate(${sx/DPR}px,${sy/DPR}px) scale(${(iso||painted)?k*1.35*sc:k*(window.GSCALE||1)})`;
+      p.style.transform=`translate(${sx}px,${sy}px) scale(${(iso||painted)?k*1.35*sc:k*(window.GSCALE||1)})`;
       p.style.zIndex=1000+Math.round(s.y);
       p.classList.toggle('m-iso',iso);p.classList.toggle('m-painted',painted);
       p.classList.toggle('st-blueprint',s.state==='blueprint');
@@ -2977,8 +3312,8 @@ function syncBanners(){
         bg.classList.toggle('on',show);
         bg.classList.toggle('far',!show&&!hideP); // one glyph language: far is one seal, near is the set
         bg.classList.toggle('bmid',cam.z<1.45);
-        bg.style.transform=`translate(${sx/DPR}px,${sy/DPR}px)`;
-        bg._off=(s._crownOff||30)*0.72;bg._cx=sx/DPR;bg._cy=sy/DPR;bg._on=!hideP;
+        bg.style.transform=`translate(${sx}px,${sy}px)`;
+        bg._off=(s._crownOff||30)*0.72;bg._cx=sx;bg._cy=sy;bg._on=!hideP;
       }
       /* The lantern used to live in here and be counter-scaled out of the
          building's own transform. It is a seal now, in the badge plane with
@@ -2988,13 +3323,12 @@ function syncBanners(){
   const placed=placedD.slice(); // one field: a place-name and a building name never overlap
   const iconPts=[]; // ...and a label never squats on a neighbour's doorstep (its icon click centre)
   for(const s of SCENE.structures){if(mode==='now'&&s.state==='blueprint')continue;
-    const[ax,ay]=worldToScreen(s.x,s.y);iconPts.push({k:s.key,x:ax/DPR,y:ay/DPR})}
+    const q=SPT[s.key];iconPts.push({k:s.key,x:q.x,y:q.y})}
   /* Nearest the middle of the screen first, because the middle is what the
      reader is asking about, so the budget runs out from the edges inward.
      Whatever panel is open keeps its name whatever else happens. */
   const cxm=innerWidth/2,cym=innerHeight/2;
-  const order=SCENE.structures.map(s=>{const[sx,sy]=worldToScreen(s.x,s.y);
-      const px=sx/DPR,py=sy/DPR;
+  const order=SCENE.structures.map(s=>{const q=SPT[s.key],px=q.x,py=q.y;
       return{s,px,py,d:(typeof panelKey!=='undefined'&&panelKey===s.key)?-1:Math.hypot(px-cxm,py-cym)}})
     .sort((a,b)=>a.d-b.d);
   let budget=plateBudget();
