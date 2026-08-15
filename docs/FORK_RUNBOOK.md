@@ -846,3 +846,45 @@ Give one of them a distinct title and the next run files it.
 
 The record is fork-local. It is excluded by name from the feedback relay, the
 peer publish surface and the platform handshake, and a test enforces that.
+
+## Half-price call syntheses (`assistant.synthesis_batch`, 0082) — opt-in, off by default
+
+Call synthesis is the most token-expensive thing the platform does: up to 400
+transcript segments against a 2000-token reply cap. Anthropic's Message Batches
+API charges **half** for every token in a batch. What you pay instead is time:
+results usually arrive **within about an hour**, and are allowed to take up to
+24. Not seconds.
+
+That trade only makes sense when nobody is waiting, so the switch draws exactly
+that line:
+
+| Path | Behaviour |
+| --- | --- |
+| **Admin → Calls → Synthesize** | Unchanged. Synchronous, answers in seconds, full price. A person clicked it and is watching. This is true whether the setting is on or off. |
+| **The `synthesis-batch-poll` job** | Only runs when the setting is on. It picks up recordings that have a transcript and no synthesis, submits them as one batch, and writes each synthesis when the results come back. |
+
+**Two new tables** (0082), `synthesis_batches` and `synthesis_batch_items`.
+Nothing to provision: no env var, no seed, no extra step. They stay empty on a
+village that leaves the setting off.
+
+**One new scheduled job**, `synthesis-batch-poll`, every 5 minutes. It polls
+open batches first and then submits a new one, and it early-returns while the
+automation module is off, while the setting is off, or with no assistant key
+configured. Its result line reads `N open, N ended, N written, N unusable, N
+errored, N expired, N canceled` plus what it submitted. It applies the same
+three brakes the Synthesize button applies: the ready-queue backpressure
+(`maxReadyQueue` in the automation module config), the global assistant daily
+cap, and the key check.
+
+Before turning it on, know what changes:
+
+| Property | What it means for your village |
+| --- | --- |
+| Synthesis stops being a human act | Today a draft appears because an admin asked for one. On, drafts appear because recordings exist. Nothing publishes itself either way: publishing to the forum is still a human act, and so is accepting a task. |
+| Standing examples are never touched | The seeded example recording is excluded by the query, so no tokens are ever spent drafting over a sample. |
+| Retries are bounded at one | A request that errors, expires or is canceled is retried exactly once. The second failure marks it `failed` and leaves it for a person. |
+| One synthesis per recording, still | Enforced by the database (`call_syntheses.recording_id` is unique), so a re-poll or a restart mid-read cannot produce a second draft. |
+| Token counts are recorded, prices are not | `assistant_usage` records real token counts for batch calls the same as for synchronous ones. The 50% is a billing fact, so apply it in the rollup, not by halving the counts. |
+
+Turn it off and any batch already in flight still lands: the poll keeps
+draining open batches. Nothing new is submitted.
