@@ -1,0 +1,206 @@
+/**
+ * The headers and the shell files, against the BUILT server.
+ *
+ * Every case here was a live finding measured with `curl -sI` against the
+ * deployed site (round-2 QA, 2026-08-15), and every one of them is invisible
+ * to a typecheck and to a unit test of any handler: they are properties of
+ * what leaves the process, not of what a function returns.
+ *
+ * The one worth naming is `frame-ancestors`. /map is a full-viewport iframe of
+ * a SAME-ORIGIN artifact, so the fix and the regression look identical from
+ * the outside: a header strict enough to stop a stranger framing the village
+ * is one character away from a header that blanks the map for everyone. So the
+ * assertion is not "the header is set" — it is set AND /grounds/index.html
+ * still serves the artifact under it.
+ *
+ * Skips loudly without TEST_DATABASE_URL, like every DB-backed suite here.
+ */
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { spawn, type ChildProcess } from "child_process";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+
+const DB_CONFIGURED = testDbConfigured();
+if (!DB_CONFIGURED) {
+  console.warn("[hygiene.routes] TEST_DATABASE_URL not set — DB-backed tests SKIPPED.");
+}
+
+const DIST = path.resolve(process.cwd(), "dist/index.js");
+// Its own port range, clear of the loop, examples, quest-share, messaging and
+// map-promise suites (which between them hold 3781-8799).
+const PORT = 8900 + (process.pid % 900);
+const BASE = `http://localhost:${PORT}`;
+const ADMIN = "hygiene-admin";
+
+let child: ChildProcess | undefined;
+let testDb: TestDb | undefined;
+let dataDir = "";
+
+/** The set every response carries, whatever it is. */
+const EXPECTED: Array<[string, string]> = [
+  ["x-content-type-options", "nosniff"],
+  ["referrer-policy", "strict-origin-when-cross-origin"],
+  ["x-frame-options", "SAMEORIGIN"],
+  ["content-security-policy", "frame-ancestors 'self'"],
+  ["permissions-policy", "camera=(), microphone=(), geolocation=()"],
+];
+
+beforeAll(async () => {
+  if (!DB_CONFIGURED) return;
+  if (!fs.existsSync(DIST)) {
+    throw new Error(`${DIST} is missing. Run \`pnpm build\` before the hygiene route test.`);
+  }
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-hygiene-"));
+  testDb = await provisionTestDb();
+
+  child = spawn(process.execPath, [DIST], {
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      PORT: String(PORT),
+      DATA_DIR: dataDir,
+      DATABASE_URL: testDb.url,
+      ADMIN_PASSWORD: ADMIN,
+      AUTH_TOKEN_SECRET: "hygiene-token-secret",
+      RESEND_API_KEY: "",
+      ANTHROPIC_API_KEY: "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const logs: string[] = [];
+  child.stdout?.on("data", (d) => logs.push(String(d)));
+  child.stderr?.on("data", (d) => logs.push(String(d)));
+
+  const deadline = Date.now() + E2E_BOOT_DEADLINE_MS;
+  for (;;) {
+    if (Date.now() > deadline) throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s:\n${logs.join("")}`);
+    try { if ((await fetch(`${BASE}/health`)).ok) break; } catch { /* not up yet */ }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+});
+
+afterAll(async () => {
+  child?.kill();
+  await testDb?.drop();
+  if (dataDir) fs.rmSync(dataDir, { recursive: true, force: true });
+});
+
+describe.skipIf(!DB_CONFIGURED)("security response headers", () => {
+  // The SPA shell, a JSON API route, and a path that matches nothing: a header
+  // set on two of the three is the shape of the bug this replaces.
+  for (const route of ["/", "/api/modules", "/nothing-is-here"]) {
+    it(`are on ${route}`, async () => {
+      const res = await fetch(BASE + route);
+      for (const [name, value] of EXPECTED) {
+        expect(res.headers.get(name), `${route} is missing ${name}`).toBe(value);
+      }
+    });
+  }
+
+  it("no longer advertise the server stack", async () => {
+    for (const route of ["/", "/api/modules"]) {
+      expect((await fetch(BASE + route)).headers.get("x-powered-by")).toBeNull();
+    }
+  });
+
+  it("say nothing about HSTS, because no hostname list was verified", async () => {
+    // Written as an assertion rather than a comment: max-age is not reversible,
+    // so this header arriving by accident is worth a red test.
+    expect((await fetch(`${BASE}/`)).headers.get("strict-transport-security")).toBeNull();
+  });
+
+  it("still let /map embed the map artifact it lives on", async () => {
+    // frame-ancestors 'self' and X-Frame-Options SAMEORIGIN both permit the
+    // same-origin iframe the shell renders. If the artifact stops serving, or
+    // the policy tightens past 'self', this is where it shows.
+    const res = await fetch(`${BASE}/grounds/index.html`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/text\/html/);
+    expect(res.headers.get("content-security-policy")).toBe("frame-ancestors 'self'");
+    expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("the crawler's two files", () => {
+  it("serve robots.txt as text with a sitemap line", async () => {
+    const res = await fetch(`${BASE}/robots.txt`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/text\/plain/);
+    const body = await res.text();
+    // The failure being guarded is the SPA shell answering with a 200.
+    expect(body).not.toContain("<div id=\"root\">");
+    expect(body).toContain("User-agent: *");
+    expect(body).toContain("Disallow: /api/");
+    expect(body).toMatch(/Sitemap: https?:\/\/[^/]+\/sitemap\.xml/);
+  });
+
+  it("serve sitemap.xml as XML with absolute public URLs", async () => {
+    const res = await fetch(`${BASE}/sitemap.xml`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/xml/);
+    const body = await res.text();
+    expect(body).not.toContain("<div id=\"root\">");
+    expect(body).toContain("<urlset");
+    expect(body).toMatch(new RegExp(`<loc>http://localhost:${PORT}/quests</loc>`));
+    // Module-gated pages stay out until their module serves everyone, and every
+    // optional module is off on a fresh village.
+    expect(body).not.toContain("/network</loc>");
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("a refusal", () => {
+  it("has one shape for every route that means sign in", async () => {
+    for (const route of ["/api/profile", "/api/notifications", "/api/admin/economy"]) {
+      const res = await fetch(BASE + route);
+      expect(res.status, route).toBe(401);
+      const body = await res.json();
+      expect(body.error, `${route} answered ${JSON.stringify(body)}`).toBe("auth_required");
+    }
+  });
+
+  it("keeps the human sentence where a route had one", async () => {
+    // A core-module route on purpose: every optional module is off on a fresh
+    // village, and a module 404 would never reach the refusal being measured.
+    const res = await fetch(`${BASE}/api/game/quests/q-welcome-ambassador/claim`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe("auth_required");
+    expect(body.message).toBe("Sign in to claim quests");
+  });
+
+  it("still tells someone with a wrong password what actually happened", async () => {
+    // Credential verification is not "you are anonymous", and the sign-in page
+    // renders this string. Unifying it would have put `auth_required` in front
+    // of every person who mistyped a password.
+    const res = await fetch(`${BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "nobody@example.test", password: "wrong" }),
+    });
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("Invalid credentials");
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("the seeded quest board", () => {
+  it("asks for no poster this build does not ship", async () => {
+    // The 14 seeded quests carried /api/uploads/quest-NN-*.webp, which 404 on
+    // every deployment: the files live in one dev box's uploads volume. Each
+    // one was a console error on the busiest public page.
+    const res = await fetch(`${BASE}/api/quests`);
+    const quests = await res.json();
+    expect(Array.isArray(quests)).toBe(true);
+    expect(quests.length).toBeGreaterThan(0);
+    // Read as bytes rather than by field name: the board has been served as
+    // `image` and as `imageUrl` in different rounds, and the thing that must
+    // not be there is the upload path under either name.
+    const [firstMiss] = JSON.stringify(quests).match(/\/api\/uploads\/quest-[^"]*/) ?? [];
+    expect(firstMiss, `a seeded quest still names an upload: ${firstMiss}`).toBeUndefined();
+  });
+});
