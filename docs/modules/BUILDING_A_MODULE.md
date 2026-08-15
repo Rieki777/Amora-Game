@@ -232,6 +232,29 @@ Connected listing. `billingUrl` is where a village goes to buy from you. Whether
 bills on your behalf is an open decision recorded in
 `docs/integration-program-research/STORE_DESIGN.md`, and nothing has been built for it.
 
+### If you do not charge: the builders' pool
+
+Charging is one of two ways to be paid here, and the other one is the default.
+
+Every free third-party module is in a recurring $ReGen distribution to whoever built it, sized by
+how many known villages run it. It pays for adoption instead of for negotiation, and it is why a
+module with no price is still a module somebody is paid for.
+
+**Declaring a price takes you out of the pool**, and that is arithmetic instead of a penalty. A paid
+module is already paid by the villages running it, so drawing from a common pool as well would have
+every village funding a product only some of them use. A listing picks one. The platform's own
+modules and the four core modules sit outside the pool for the same reason, because the platform is
+not a third party, and a withdrawn listing leaves it because it is no longer being offered.
+
+To be paid, create your ReGen Civics account and link your Hypha account with a Base address in
+profile setup. The pool pays an account and never a raw address written into a registry file,
+because a payout identity in a code file is one nobody can rotate or recover.
+
+Clause 14 of `docs/MODULE_LIBRARY_CONTRACT.md` is the binding text. Eligibility is not a registry
+field yet, so today the listing lint reports the rule as one it cannot check, and a reviewer applies
+it by reading. The contract's status appendix says the same, and both change together when the field
+lands.
+
 ### What you may not do on lapse
 
 This is a hard rule, not a guideline, and it is the one every open-source plugin ecosystem has
