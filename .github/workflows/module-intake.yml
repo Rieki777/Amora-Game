@@ -1,0 +1,231 @@
+# The automated first response on a module listing.
+#
+# Contract v1.1 promises a builder an automated first response "within minutes,
+# naming the blocking stage". This is that promise. Most rejections are
+# mechanical, and a builder should not wait ten working days to learn about a
+# missing field.
+#
+# WHY THIS RUNS ON `pull_request` AND NOT `pull_request_target`.
+#
+# Module builders submit from forks. On `pull_request`, a fork's job gets a
+# READ-ONLY token, which is why the summary below is the guaranteed channel and
+# the comment is best effort. `pull_request_target` would hand us a writable
+# token, and it would also run a stranger's code with it, because checking out
+# the pull request head under that trigger is the well-known privilege
+# escalation. Contract clause 13 exists precisely because contributed code is
+# untrusted until a human has read it, so running it with a writable token to
+# save a comment would contradict the document this workflow enforces.
+#
+# The job summary always renders, on every pull request from anywhere, and it is
+# linked from the checks tab. A builder never has to guess.
+name: module intake
+
+on:
+  pull_request:
+    paths:
+      - "shared/modules.ts"
+      - "shared/capabilities.ts"
+      - "shared/draftKinds.ts"
+      - "server/lib/modules.ts"
+      - "server/lib/secrets.ts"
+      - "scripts/enable-all-modules.mjs"
+      - "docs/modules/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  intake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The contribution checks diff against the base, so the history has
+          # to reach a merge base.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        # version comes from package.json "packageManager" — one source of truth
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Fetch the base branch
+        # `--diff` resolves a merge base against this ref. An unresolvable base
+        # is a VIOLATION inside the validator and never a silent skip, so this
+        # step failing surfaces as a real finding rather than a quiet pass.
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Run the intake checks
+        id: checks
+        # Every check runs even when an earlier one fails, so the summary names
+        # the first blocking stage AND shows everything else that is wrong. A
+        # report that stops at the first error makes a builder fix one thing per
+        # round trip, which is the slow failure this workflow exists to avoid.
+        run: |
+          set +e
+          mkdir -p /tmp/intake
+
+          node scripts/module-facts.mjs             > /tmp/intake/facts.txt   2>&1
+          echo "facts=$?"   >> "$GITHUB_OUTPUT"
+
+          node scripts/check-doc-links.mjs          > /tmp/intake/links.txt   2>&1
+          echo "links=$?"   >> "$GITHUB_OUTPUT"
+
+          node scripts/validate-module.mjs --all --diff="origin/${{ github.base_ref }}" \
+                                                    > /tmp/intake/listing.txt 2>&1
+          echo "listing=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Name the first blocking stage
+        id: verdict
+        # The mapping is deliberately coarse and truthful. It keys on markers
+        # the validator prints, in stage order, and stops at the first hit. It
+        # does not try to infer a stage it cannot see: when something failed
+        # that does not match a marker, it says the stage is unclassified rather
+        # than guessing, because a wrong stage sends a builder to fix the wrong
+        # thing.
+        run: |
+          set +e
+          listing=$(cat /tmp/intake/listing.txt)
+          stage=""
+
+          if [ "${{ steps.checks.outputs.facts }}" != "0" ]; then
+            stage="Stage 0 (intake): this repository could not report its own facts. A source file the framework depends on is missing."
+          elif echo "$listing" | grep -q "vendor record present  <-- VIOLATION\|support URL and support email both set  <-- VIOLATION"; then
+            stage="Stage 1 (diligence): the counterparty this listing needs is incomplete."
+          elif echo "$listing" | grep -q "member driver somewhere under server/  <-- VIOLATION"; then
+            stage="Stage 3 (data and legal): a member-pii listing must register a member driver, so a deletion reaches outside."
+          elif echo "$listing" | grep -q "licence slot it owns  <-- VIOLATION\|pool eligible  <-- VIOLATION\|clause 14"; then
+            stage="Stage 5 (tier and commercials): the price, the licence slot and the pool rule are not consistent."
+          elif echo "$listing" | grep -q "raw fetch\|raw SQL\|eval or a non-literal\|protected table\|credential written into code\|new dependencies"; then
+            stage="Stage 6 (build and security review): the diff contains a pattern contract clause 13 refuses."
+          elif [ "${{ steps.checks.outputs.links }}" != "0" ]; then
+            stage="Stage 6 (build): a builder document points at a path that does not exist."
+          elif [ "${{ steps.checks.outputs.listing }}" != "0" ]; then
+            stage="Stage 6 (build): the listing lint reported a violation. The output below names it; it did not match a known stage marker."
+          fi
+
+          if [ -z "$stage" ]; then
+            echo "blocked=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "blocked=yes" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "stage<<EOF"
+            echo "$stage"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Write the summary
+        run: |
+          {
+            echo "## Module intake"
+            echo ""
+            if [ "${{ steps.verdict.outputs.blocked }}" = "no" ]; then
+              echo "**Every automated check passed.**"
+              echo ""
+              echo "That is the mechanical half. What remains is human judgement, and contract clause 13"
+              echo "makes a security review required before merge rather than optional after it. Expect an"
+              echo "answer within ten working days."
+              echo ""
+              echo "The reviewer works from \`docs/modules/REVIEW_CHECKLIST.md\`. Reading it now is the"
+              echo "cheapest way to shorten the round trip."
+            else
+              echo "### First blocking stage"
+              echo ""
+              echo "> ${{ steps.verdict.outputs.stage }}"
+              echo ""
+              echo "Fix that first. The full output is below, and other findings may resolve with it."
+            fi
+            echo ""
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| Framework facts | $([ "${{ steps.checks.outputs.facts }}" = "0" ] && echo "pass" || echo "**fail**") |"
+            echo "| Doc links | $([ "${{ steps.checks.outputs.links }}" = "0" ] && echo "pass" || echo "**fail**") |"
+            echo "| Listing lint and contribution checks | $([ "${{ steps.checks.outputs.listing }}" = "0" ] && echo "pass" || echo "**fail**") |"
+            echo ""
+            echo "<details><summary>Listing lint output</summary>"
+            echo ""
+            echo '```'
+            cat /tmp/intake/listing.txt
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "<details><summary>Doc link output</summary>"
+            echo ""
+            echo '```'
+            cat /tmp/intake/links.txt
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "<details><summary>Framework facts</summary>"
+            echo ""
+            echo '```'
+            cat /tmp/intake/facts.txt
+            echo '```'
+            echo ""
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on the pull request
+        # Best effort by design. A pull request from a fork carries a read-only
+        # token, so this step is expected to be skipped there and the summary
+        # above is what the builder reads. It never fails the job: a listing is
+        # not blocked by our inability to comment on it.
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set +e
+          marker="<!-- module-intake -->"
+          if [ "${{ steps.verdict.outputs.blocked }}" = "no" ]; then
+            body="$marker
+          **Module intake: every automated check passed.**
+
+          That is the mechanical half. A human security review is required before merge (contract
+          clause 13), and the reviewer works from \`docs/modules/REVIEW_CHECKLIST.md\`. Expect an
+          answer within ten working days.
+
+          Full output is in the job summary."
+          else
+            body="$marker
+          **Module intake: blocked.**
+
+          > ${{ steps.verdict.outputs.stage }}
+
+          Fix that first; other findings may resolve with it. Full output is in the job summary.
+
+          If you think this is wrong, say so in a comment. A refusal that names the wrong stage is our
+          defect, not yours."
+          fi
+
+          # One comment, updated in place. A new comment per push turns a busy
+          # pull request into a wall of bot noise nobody reads.
+          existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" \
+                       --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -f body="$body" >/dev/null
+          else
+            gh api -X POST "repos/${{ github.repository }}/issues/$PR/comments" -f body="$body" >/dev/null
+          fi
+          exit 0
+
+      - name: Fail if blocked
+        # The comment and the summary are the message; this is the gate. It runs
+        # last so a builder gets the full report even when the job goes red.
+        if: steps.verdict.outputs.blocked == 'yes'
+        run: |
+          echo "::error::${{ steps.verdict.outputs.stage }}"
+          exit 1

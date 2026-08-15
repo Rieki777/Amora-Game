@@ -98,6 +98,19 @@ jobs:
         # repo, so it fails in seconds rather than after pnpm build and pnpm test.
         run: node scripts/check-artifact-budget.mjs
 
+      - name: Doc link guard
+        # The builder documents route a newcomer to files by path, and they
+        # deliberately link instead of restating so they cannot drift from the
+        # code. That design has one failure mode: a file moves, every link to it
+        # rots silently, and the first person to find out is the newcomer the
+        # document exists to help.
+        #
+        # It runs BEFORE the build, with the other guards, because it reads
+        # files that exist the moment the repo is cloned. Build outputs are
+        # skipped for exactly that reason: dist/ is absent on a fresh runner and
+        # resolving it here would make a correct document a red gate.
+        run: node scripts/check-doc-links.mjs
+
       - name: Build
         run: pnpm build
 

@@ -1,0 +1,59 @@
+# Code owners for the module library.
+#
+# These paths decide what a module may do and who a village trusts. Contract
+# clause 13 makes a human security review required before merge rather than
+# optional after it, and this file is what routes the review to a human.
+#
+# BRANCH PROTECTION: leave "Require review from Code Owners" OFF until a second
+# maintainer exists below.
+#
+# With one owner, the setting blocks every landing on that one person, and it
+# blocks it hardest in the case that matters: an author cannot approve their own
+# pull request, so any change to these paths opened by the sole owner can never
+# be approved. A rule that stops the only maintainer from merging is not a
+# security control, it is an outage. Until a second name is here, the review is
+# a commitment and CODEOWNERS is what makes the request automatic.
+#
+# TO ADD A SECOND MAINTAINER:
+#   1. Give them write access to the repository.
+#   2. Uncomment the second name on each line below and replace the placeholder.
+#   3. Only then turn on "Require review from Code Owners" in branch protection.
+#      From that point every listing needs an approval from somebody who did not
+#      write it, which is the property this file is really for.
+
+# The registry itself: what a module is allowed to declare.
+/shared/modules.ts            @Rieki777    # @second-maintainer
+
+# The one capability gate. A change here changes what every member may do.
+/shared/capabilities.ts       @Rieki777    # @second-maintainer
+
+# Draft kinds carry the consequence lines a member reads before acting.
+/shared/draftKinds.ts         @Rieki777    # @second-maintainer
+
+# Module mounting and lifecycle.
+/server/lib/modules.ts        @Rieki777    # @second-maintainer
+
+# Integration secrets: write-only, read back masked. The credential plane is the
+# mechanical definition of a tier, so this file is where a tier can quietly stop
+# being honest.
+/server/lib/secrets.ts        @Rieki777    # @second-maintainer
+
+# The listing lint and the facts command. A change here changes what the
+# automated half of intake checks, so it needs the same eyes as the rules
+# themselves.
+/scripts/validate-module.mjs  @Rieki777    # @second-maintainer
+/scripts/module-facts.mjs     @Rieki777    # @second-maintainer
+/scripts/check-doc-links.mjs  @Rieki777    # @second-maintainer
+
+# The contract and everything a builder is told.
+/docs/MODULE_LIBRARY_CONTRACT.md  @Rieki777    # @second-maintainer
+/docs/modules/                    @Rieki777    # @second-maintainer
+
+# The intake machinery. A pull request that edits the gate it must pass is the
+# oldest trick there is.
+/.github/workflows/ci.yml                  @Rieki777    # @second-maintainer
+/.github/workflows/module-intake.yml       @Rieki777    # @second-maintainer
+/.github/workflows/module-review-agent.yml @Rieki777    # @second-maintainer
+/.github/review-agent/                     @Rieki777    # @second-maintainer
+/.github/PULL_REQUEST_TEMPLATE/            @Rieki777    # @second-maintainer
+/.github/CODEOWNERS                        @Rieki777    # @second-maintainer
