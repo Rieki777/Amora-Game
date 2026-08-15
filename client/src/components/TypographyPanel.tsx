@@ -100,7 +100,7 @@ export default function TypographyPanel({ password }: { password: string }) {
         body: form,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
+      if (!res.ok) throw new Error(data.message ?? data.error ?? "Upload failed");
       toast.success(`"${data.family}" uploaded and set as the heading face`);
       setFamily("");
       setAck(false);

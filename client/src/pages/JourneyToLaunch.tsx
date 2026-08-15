@@ -77,7 +77,7 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
       .then(async (r) => {
         const d = await r.json();
         if (r.status === 503) { setGone(true); return; }
-        if (!r.ok) throw new Error(d.error || "failed");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "failed");
         setMsgs((m) => [...m, { role: "assistant", content: d.reply, consulted: d.consulted }]);
       })
       .catch(() => setMsgs((m) => [...m, { role: "assistant", content: "Something hiccuped. Ask me that again?" }]))
@@ -229,7 +229,7 @@ export default function JourneyToLaunch() {
     fetch("/api/admin/launch/launched", { method: "POST", headers: headers() })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Refused");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Refused");
         load();
       })
       .catch((e) => window.alert(e.message))

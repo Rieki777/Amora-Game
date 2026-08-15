@@ -98,7 +98,7 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
     })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not delete");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Could not delete");
         clearAuthToken();
         onDeleted?.();
         /*

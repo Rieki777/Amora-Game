@@ -67,7 +67,7 @@ export default function IdentityPackPanel({ password }: { password: string }) {
         body: form,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
+      if (!res.ok) throw new Error(data.message ?? data.error ?? "Upload failed");
       setPack({ ...pack, references: [...(pack.references ?? []), { url: data.url, thumbUrl: data.thumbUrl }] });
       if (fileRef.current) fileRef.current.value = "";
       toast.success("Reference added. Remember to save");

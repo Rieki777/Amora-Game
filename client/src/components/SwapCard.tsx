@@ -37,12 +37,20 @@ export type SwapPair = {
 
 /** A refusal the member can act on, rather than a status code. */
 function refusalText(code: string, body: any): string {
+  /*
+   * Where the sentence lives. A refusal that means "sign in" answers
+   * { error: "auth_required", message: "..." }, so `error` is a code there and
+   * the words are in `message`; every coded refusal below still puts its words
+   * in `error` and carries no `message` at all. Resolved once, because the
+   * alternative is the same fallback written six times and eventually five.
+   */
+  const said = body?.message ?? body?.error;
   switch (code) {
     case "RECENT_PURCHASE_HOLD":
-      return `${body.error}${body.clearsAt ? ` They come free on ${day(body.clearsAt)}.` : ""}`;
+      return `${said}${body.clearsAt ? ` They come free on ${day(body.clearsAt)}.` : ""}`;
     case "TOKEN_CAP":
     case "MEMBER_CAP":
-      return `${body.error}${typeof body.remaining === "number" ? ` (${body.remaining} left this lunation)` : ""}`;
+      return `${said}${typeof body.remaining === "number" ? ` (${body.remaining} left this lunation)` : ""}`;
     case "IN_FLIGHT":
     case "KEY_REUSED":
     case "LEDGER_REFUSED":
@@ -52,11 +60,11 @@ function refusalText(code: string, body: any): string {
     case "FIREWALL":
     case "DUST":
     case "NO_PRICE":
-      return body.error;
+      return said;
     case "TRADING_DISABLED":
-      return body.error ?? "Swapping is not open in this village.";
+      return said ?? "Swapping is not open in this village.";
     default:
-      return body?.error ?? "That did not go through.";
+      return said ?? "That did not go through.";
   }
 }
 

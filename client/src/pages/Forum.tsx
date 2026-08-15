@@ -71,7 +71,7 @@ function ThreadList() {
     fetch("/api/forum/threads", { method: "POST", headers: headers(), body: JSON.stringify(draft) })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not post");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Could not post");
         setComposing(false);
         setDraft({ title: "", body: "", category: "", kind: "discussion" });
         // The server has just retired this module's examples; drop the label
@@ -271,7 +271,7 @@ function ThreadView({ id }: { id: string }) {
       .then(async (r) => {
         const { ok, data: d, refusal: refused } = await readRefusal(r);
         if (refused) { setRefusal({ where, message: refused }); return; }
-        if (!ok) throw new Error(d?.error || "Failed");
+        if (!ok) throw new Error(d?.message ?? d?.error ?? "Failed");
         setStatus("Done.");
         setReply("");
         setReplyingTo(null);
@@ -291,7 +291,7 @@ function ThreadView({ id }: { id: string }) {
     })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not save that edit");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Could not save that edit");
         setEditing(null);
         setDraft("");
         load();

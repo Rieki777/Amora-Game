@@ -49,7 +49,7 @@ export default function Badges() {
     fetch(path, { method, headers: headers(), body: body ? JSON.stringify(body) : undefined })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Request failed");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Request failed");
         load();
       })
       .catch((e) => setError(e.message));
@@ -189,7 +189,7 @@ export default function Badges() {
                               body: JSON.stringify({ badgeIds: next }),
                             }).then(async (r) => {
                               const d = await r.json();
-                              if (!r.ok) throw new Error(d.error || "failed");
+                              if (!r.ok) throw new Error(d.message ?? d.error ?? "failed");
                               load();
                             }).catch((e) => setError(e.message));
                           }}

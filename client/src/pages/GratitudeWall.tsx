@@ -54,7 +54,7 @@ export default function GratitudeWall() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setFeedback({ ok: false, text: data.error ?? "Something went wrong" });
+        setFeedback({ ok: false, text: data.message ?? data.error ?? "Something went wrong" });
       } else {
         setFeedback({ ok: true, text: "Your appreciation is on the wall." });
         setForm({ toEmail: "", amount: 10, message: "" });

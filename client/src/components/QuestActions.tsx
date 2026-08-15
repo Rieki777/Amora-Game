@@ -46,7 +46,7 @@ export default function QuestActions({
       const res = await gameFetch(`/api/game/quests/${questId}/claim`, { method: "POST" });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        setError(d.error ?? "Could not claim");
+        setError(d.message ?? d.error ?? "Could not claim");
       } else {
         onChanged();
       }
@@ -67,7 +67,7 @@ export default function QuestActions({
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        setError(d.error ?? "Could not submit");
+        setError(d.message ?? d.error ?? "Could not submit");
       } else {
         setShowSubmit(false);
         onChanged();

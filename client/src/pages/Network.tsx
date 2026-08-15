@@ -85,7 +85,7 @@ export default function Network() {
     return fetch(route, { headers: headers(), ...opts })
       .then(async (r) => {
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || "That did not go through");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "That did not go through");
         return d;
       })
       .catch((e) => { setError(e.message); return null; })

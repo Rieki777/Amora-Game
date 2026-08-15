@@ -518,7 +518,7 @@ function NodeDetail({ data, selected, onSelect }: {
     })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not send");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Could not send");
         setStatus("Sent. They'll get an email they can reply to directly.");
         setComposing(false);
         setMessage("");
@@ -535,7 +535,7 @@ function NodeDetail({ data, selected, onSelect }: {
     })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not raise your hand");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Could not raise your hand");
         setStatus("Hand raised. The founding team will be in touch.");
         setRaising(false);
         setNote("");
@@ -788,7 +788,7 @@ function ConciergeBar({ onPick }: { onPick: (kind: string, id: string) => void }
     })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not ask");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Could not ask");
         setResult(d);
       })
       .catch((e) => setResult({ error: e.message }))

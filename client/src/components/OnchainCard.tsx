@@ -44,13 +44,25 @@ export default function OnchainCard() {
     setBusy(true);
     try {
       const [address] = await eth.request({ method: "eth_requestAccounts" });
-      const ch = await fetch("/api/wallet/challenge", { method: "POST", headers: headers(), body: "{}" }).then((r) => r.json());
-      if (!ch.message) throw new Error(ch.error || "Could not create a challenge");
+      /*
+       * THE STATUS DECIDES, never the shape of the body.
+       *
+       * This read `if (!ch.message)` to mean "the challenge failed", which was
+       * true only while a refusal had no `message` of its own. A 401 now
+       * carries its sentence there, and `message` is also the field a
+       * challenge puts its text in, so the old guard would have seen "Sign in
+       * first" as a perfectly good challenge and asked the member's wallet to
+       * sign those two words. A signature over a refusal is not a login.
+       */
+      const chRes = await fetch("/api/wallet/challenge", { method: "POST", headers: headers(), body: "{}" });
+      const ch = await chRes.json().catch(() => ({}));
+      if (!chRes.ok) throw new Error(ch.message ?? ch.error ?? "Could not create a challenge");
+      if (!ch.message) throw new Error("Could not create a challenge");
       const signature = await eth.request({ method: "personal_sign", params: [ch.message, address] });
       const v = await fetch("/api/wallet/verify", {
         method: "POST", headers: headers(), body: JSON.stringify({ address, signature }),
       }).then(async (r) => ({ ok: r.ok, body: await r.json() }));
-      if (!v.ok) throw new Error(v.body.error || "Verification failed");
+      if (!v.ok) throw new Error(v.body.message ?? v.body.error ?? "Verification failed");
       load();
     } catch (e: any) {
       setError(e?.message || "Verification failed");

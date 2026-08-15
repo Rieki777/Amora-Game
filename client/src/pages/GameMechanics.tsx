@@ -293,7 +293,7 @@ export default function GameMechanics() {
       const d = await res.json();
       if (!res.ok) {
         setProblems(Array.isArray(d.problems) ? d.problems : []);
-        setFeedback({ ok: false, text: d.error ?? "Something went wrong" });
+        setFeedback({ ok: false, text: d.message ?? d.error ?? "Something went wrong" });
       } else {
         setFeedback({ ok: true, text: d.message ?? "Proposed." });
         setStaged({});
@@ -317,7 +317,7 @@ export default function GameMechanics() {
       });
       const d = await res.json().catch(() => null);
       if (!res.ok) {
-        setFeedback({ ok: false, text: d?.error ?? "That did not work" });
+        setFeedback({ ok: false, text: d?.message ?? d?.error ?? "That did not work" });
         return null;
       }
       loadProposals();

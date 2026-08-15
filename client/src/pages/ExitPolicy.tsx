@@ -36,7 +36,7 @@ export default function ExitPolicy() {
     })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not open the process");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Could not open the process");
         setMsg("Your departure process is open. The stewards will walk each step with you. Nothing happens automatically.");
         setPassword(""); setNote("");
       })
@@ -50,7 +50,7 @@ export default function ExitPolicy() {
     })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not send");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Could not send");
         setMsg(`Your message reached ${d.reached} steward(s), privately. Nothing was posted anywhere.`);
         setIntake("");
       })
