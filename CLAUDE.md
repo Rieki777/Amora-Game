@@ -29,7 +29,11 @@ pnpm test                           # vitest run — see loop-test rules first
 node scripts/check-brand-refs.mjs   # brand ratchet (read $?, its last line is blank on failure)
 node scripts/check-voice.mjs        # house writing rules on shipped copy
 node scripts/check-auth-fetch.mjs   # a client call to a route that refuses strangers carries a token
+node scripts/check-doc-links.mjs    # every path the builder docs name resolves on disk
 ```
+
+`node scripts/module-facts.mjs` prints the gate list above straight from `.github/workflows/ci.yml`,
+so it is right on the day you run it. Prefer it to this block when the two disagree.
 
 The build marker is stamped from the git SHA by `scripts/build-server.mjs` — never hand-edit
 it. Only `BUILD_LABEL` in `server/index.ts` is human-written; the SHA is appended at build

@@ -3248,6 +3248,16 @@ function GameRolesTab({ password }: { password: string }) {
 
 // ── Modules (S13): the catalog, lifecycles, and the Hypha integration card ───
 
+/**
+ * The builder guide, on the UPSTREAM repository.
+ *
+ * Every fork inherits this exact link, and that is deliberate. Modules ship by
+ * pull request to upstream and by no other route, so a link pointing at this
+ * fork's own origin would send a builder somewhere their work cannot be
+ * reviewed or shipped from. The one URL is correct in every village.
+ */
+const BUILDER_GUIDE_URL = "https://github.com/Rieki777/Amora-Game/blob/main/docs/modules/START_HERE.md"; // brand-ok: the upstream platform repository's own address, never a village's brand
+
 const LIFECYCLES = ["off", "preview", "members", "public"] as const;
 const LIFECYCLE_HINT: Record<string, string> = {
   off: "Routes 404, no nav, no admin surface.",
@@ -3526,6 +3536,31 @@ function ModulesTab({ password }: { password: string }) {
                 Not connected yet. Every Hypha surface is hidden.
               </p>
             )}
+          </div>
+
+          {/* The front door for builders. It sits above the catalog because
+              somebody browsing what exists is the person most likely to notice
+              what does not. Mobile first, on the same numbers as the catalog
+              controls below: 16px text and a 44px target on a phone, dropping
+              to the compact sizes on a pointer device, and the link is
+              underlined at rest because a phone has no hover. */}
+          <div className="border border-[#2D5A5A]/30 bg-white rounded-xl p-5">
+            <h3 className="font-semibold text-gray-900 mb-1">Start building modules. Start here.</h3>
+            <p className="text-sm sm:text-xs text-gray-600 leading-relaxed">
+              Anyone can build a module for this platform. One guide covers all of it: what to read,
+              what to run, and how a finished module reaches other villages. Every free module earns a
+              share of the ReGen builders' pool, sized by how many villages run it. To receive your
+              share, create your ReGen Civics account and link your Hypha account with a Base address
+              in profile setup.
+            </p>
+            <a
+              href={BUILDER_GUIDE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center mt-3 text-base sm:text-xs font-medium text-[#2D5A5A] underline min-h-[44px] sm:min-h-0 pr-3"
+            >
+              Open the builder guide ↗
+            </a>
           </div>
 
           {/* The catalog toolbar. Search always; each filter only once the

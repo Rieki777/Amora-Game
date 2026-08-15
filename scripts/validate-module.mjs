@@ -19,11 +19,22 @@
  * OUTSIDE the registry: the docs shelf, the launch registry, and the server's
  * driver wiring.
  *
+ * THE CONTRIBUTION CHECKS. Everything above reads the registry. Section 3
+ * reads the DIFF, because the review checklist's security section is mostly
+ * about code a contributor added rather than about the listing they declared,
+ * and every item there that a machine can decide belongs in a machine. A
+ * reviewer who is hand-grepping for `fetch(` is a reviewer who is not spending
+ * their attention on intent, which is the half no script can take.
+ *
  * Usage:
  *   node scripts/validate-module.mjs             every listing in the registry
  *   node scripts/validate-module.mjs saberra     one module id
  *   node scripts/validate-module.mjs --all       every module, listings or not
+ *   node scripts/validate-module.mjs --diff      also run the contribution
+ *                                                checks against origin/main
+ *   node scripts/validate-module.mjs --diff=<ref>   ... against another base
  */
+import { execFileSync } from "node:child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -170,6 +181,16 @@ console.log("Registry shape (shared/modules.ts:moduleListingProblems)");
 const docs = readModuleDocs();
 const drivers = registeredDriverIds();
 
+// The pool rule is a property of the REGISTRY and not of one listing, so it is
+// reported once. Repeating "the field does not exist yet" per module would bury
+// the per-listing findings under eighteen copies of one sentence.
+if (!MODULES.some((m) => Object.prototype.hasOwnProperty.call(m, "pool"))) {
+  note(
+    'Contract clause 14: pool eligibility is not a registry field yet, so "a listing that declares ' +
+      'pricing is not pool-eligible" cannot bite. The field will be `pool`; this check activates when it lands.',
+  );
+}
+
 if (docs === null) {
   bad("read MODULE_DOCS from server/lib/knowledge.ts: COULD NOT PARSE");
 } else {
@@ -206,6 +227,24 @@ for (const m of targets) {
     }
   } else if (m.tier !== "included") {
     console.log("    price: none declared, so this listing adds no charge of its own");
+  }
+
+  // 2b-ii. The builders' pool: a listing that charges is out of it.
+  //
+  // Contract clause 14. A paid module is already paid by the villages running
+  // it, so drawing from a common pool as well would have every village funding
+  // a product only some of them use. Declaring a price and taking the pool are
+  // two ways of being paid for the same work and a listing picks one.
+  //
+  // TODO(lane P): the registry field carrying eligibility is `pool` and its
+  // TYPE is owned by the pool lane, so this reads the field defensively
+  // instead of declaring it. When `pool` lands in `ModuleDef`, this check
+  // starts biting with no edit. Until then it is vacuous by construction, and
+  // it says so below rather than reporting a pass it did not earn.
+  if (Object.prototype.hasOwnProperty.call(m, "pool")) {
+    m.pricing && m.pool
+      ? bad("a listing that declares pricing is not pool-eligible (contract clause 14)")
+      : ok("pricing and pool eligibility are not both declared (contract clause 14)");
   }
 
   // 2c. dataClass sanity: member-pii means somebody outside can be asked to forget.
@@ -284,7 +323,192 @@ for (const m of targets) {
   }
 }
 
-// ── 3. What this script cannot check ─────────────────────────────────────────
+// ── 3. Contribution checks, over the diff ────────────────────────────────────
+//
+// The review checklist's security section, minus everything a human has to
+// read intent for. Each rule here was a checklist line first, and moving it
+// into code is what lets the checklist honestly say "the validator already
+// checked these, you check the rest".
+//
+// A GENUINE EXCEPTION TAKES A WAIVER, on the line itself:
+//     // module-review-ok: <reason>
+// which is the same shape as the house `brand-ok:` and `voice-ok:` waivers, so
+// nobody has to learn a second convention. Waivers are counted and printed,
+// which is what keeps them honest.
+
+const WAIVER = /module-review-ok:/;
+
+/**
+ * Files changed against the base: tracked modifications AND untracked new
+ * files.
+ *
+ * The untracked half is not a nicety. A new module is mostly NEW files, and
+ * `git diff` cannot see a file git has never heard of. Without this, a builder
+ * running the lint locally before committing gets a clean sheet on the exact
+ * files they just wrote, then the same command in CI (where the files are
+ * committed, so the diff does see them) reports findings they never had a
+ * chance to fix. A check whose answer depends on whether you have run `git add`
+ * yet is a check nobody can trust.
+ */
+function changedFiles(base) {
+  try {
+    const git = (a) =>
+      execFileSync("git", a, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const mergeBase = git(["merge-base", base, "HEAD"]).trim();
+    const tracked = git(["diff", "--name-only", mergeBase]).split(/\r?\n/);
+    const untracked = git(["ls-files", "--others", "--exclude-standard"]).split(/\r?\n/);
+    return Array.from(new Set([...tracked, ...untracked].filter(Boolean)));
+  } catch {
+    return null;
+  }
+}
+
+/** The base's copy of a file, or null when it did not exist there. */
+function fileAtBase(base, relPath) {
+  try {
+    return execFileSync("git", ["show", `${base}:${relPath}`], {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The code-pattern rules. Each is scoped to where it is a real rule: a raw
+ * `fetch` is a finding on the server and ordinary in the client, and raw SQL
+ * is the entire job of `server/repos` and a finding anywhere else.
+ */
+const CODE_RULES = [
+  {
+    id: "raw fetch outside guardedFetchJson",
+    scope: (f) => /^(server|shared)\//.test(f) && !/^server\/lib\/toolcheck\.ts$/.test(f),
+    pattern: /(?<![A-Za-z0-9_.])fetch\s*\(/,
+    exempt: (line) => /guardedFetchJson/.test(line),
+    why: "outbound calls carry a correlation id and land in the call record only when they go through the helper",
+  },
+  {
+    id: "raw SQL outside server/repos",
+    scope: (f) => /^(server|shared|client)\//.test(f) && !/^server\/(repos|db|seeds)\//.test(f),
+    pattern: /\b(?:pool|conn|connection|db|c)\s*\.\s*(?:query|execute)\s*\(|createPool\s*\(|createConnection\s*\(/,
+    exempt: () => false,
+    why: "queries live in a repo so the caches above them stay correct and a table's readers stay enumerable",
+  },
+  {
+    id: "eval or a non-literal dynamic import",
+    scope: (f) => /^(server|shared|client)\//.test(f),
+    pattern: /\beval\s*\(|new\s+Function\s*\(|\bimport\s*\(\s*(?!["'`])/,
+    exempt: () => false,
+    why: "remote or computed code defeats every review this process performs",
+  },
+  {
+    id: "a write to a protected table",
+    scope: (f) => /^(server|shared)\//.test(f),
+    pattern:
+      /(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+`?(?:token_ledger|token_balances|module_settings|module_events|badge_awards|user_capabilities)`?/i,
+    exempt: () => false,
+    why: "the ledger, the capability gate and module lifecycle are the platform's own; a module never writes them directly",
+  },
+  {
+    id: "a credential written into code",
+    scope: (f) => /^(server|shared|client|scripts)\//.test(f),
+    pattern:
+      /(?:api[_-]?key|secret|password|token)\s*[:=]\s*["'`](?!\s*$)[A-Za-z0-9_\-]{20,}["'`]|\bsk-[A-Za-z0-9]{20,}|\bAKIA[0-9A-Z]{16}\b/i,
+    exempt: () => false,
+    why: "credentials belong in the secrets store, where they are write-only and rotatable",
+  },
+];
+
+const wantDiff = args.some((a) => a === "--diff" || a.startsWith("--diff="));
+const diffBase = (args.find((a) => a.startsWith("--diff=")) ?? "--diff=origin/main").split("=")[1];
+
+let waivers = 0;
+
+if (wantDiff) {
+  console.log(`\nContribution checks (diff against ${diffBase})`);
+  const files = changedFiles(diffBase);
+
+  if (files === null) {
+    // Unresolvable base is a VIOLATION and never a skip: in CI this is the
+    // whole security half of the run, and a silent skip would report a clean
+    // sheet for checks that never executed.
+    bad(`resolve the diff base "${diffBase}" (is the ref fetched?)`);
+  } else if (!files.length) {
+    ok(`nothing changed against ${diffBase}, so there is no contribution to check`);
+  } else {
+    console.log(`    ${files.length} changed file(s)`);
+
+    // 3a. New dependencies. The house rule is that the answer is no, and CI
+    // runs a Node three majors behind the dev boxes here, so a package that
+    // builds green locally can go red there with no local signal.
+    if (files.includes("package.json")) {
+      const before = fileAtBase(diffBase, "package.json");
+      const afterRaw = fs.readFileSync(path.join(ROOT, "package.json"), "utf8");
+      let added = [];
+      try {
+        const a = JSON.parse(before ?? "{}");
+        const b = JSON.parse(afterRaw);
+        const keys = (o) => Object.keys({ ...(o.dependencies ?? {}), ...(o.devDependencies ?? {}) });
+        const had = new Set(keys(a));
+        added = keys(b).filter((k) => !had.has(k));
+      } catch {
+        bad("parse package.json at both ends of the diff");
+      }
+      if (added.length) {
+        for (const dep of added) console.log(`    adds dependency: ${dep}`);
+        bad(`no new dependencies (${added.length} added)`);
+      } else {
+        ok("no new dependencies");
+      }
+    } else {
+      ok("package.json unchanged, so no new dependencies");
+    }
+
+    // 3b. The code patterns.
+    const findings = new Map(CODE_RULES.map((r) => [r.id, []]));
+    for (const f of files) {
+      const full = path.join(ROOT, ...f.split("/"));
+      if (!/\.(ts|tsx|js|jsx|mjs)$/.test(f) || !fs.existsSync(full)) continue;
+      let body = "";
+      try { body = fs.readFileSync(full, "utf8"); } catch { continue; }
+      const lines = body.split(/\r?\n/);
+      for (const rule of CODE_RULES) {
+        if (!rule.scope(f)) continue;
+        lines.forEach((line, i) => {
+          const code = line.replace(/\/\/.*$/, "").replace(/\/\*.*?\*\//g, "");
+          if (!rule.pattern.test(code)) return;
+          if (WAIVER.test(line)) { waivers++; return; }
+          if (rule.exempt(line)) return;
+          findings.get(rule.id).push(`${f}:${i + 1}  ${line.trim().slice(0, 100)}`);
+        });
+      }
+    }
+    for (const rule of CODE_RULES) {
+      const hits = findings.get(rule.id);
+      if (hits.length) {
+        for (const h of hits) console.log(`    ${h}`);
+        bad(`${rule.id}: ${hits.length} (${rule.why})`);
+      } else {
+        ok(rule.id);
+      }
+    }
+    if (waivers) console.log(`    ${waivers} waiver(s) in force on the lines above.`);
+  }
+
+  note(
+    "Whether a changed file does what its diff appears to do. The patterns above are a floor and the " +
+      "security review in contract clause 13 is the ceiling; a human reads the diff.",
+  );
+} else {
+  note(
+    "The contribution checks did not run. Pass --diff to grep the changed files for raw fetch, raw SQL, " +
+      "eval, protected-table writes, embedded credentials and new dependencies.",
+  );
+}
+
+// ── 4. What this script cannot check ─────────────────────────────────────────
 
 console.log("\nCannot be checked here (a reviewer owns each of these):");
 const STANDING = [
