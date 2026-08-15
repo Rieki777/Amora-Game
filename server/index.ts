@@ -986,6 +986,20 @@ const circlesRepo = dbCollection(getPool(), {
     { js: "status", db: "status" },
     { js: "order", db: "sort_order", kind: "int" },
     { js: "isExample", db: "is_example", kind: "bool" },
+    /*
+     * `replaceAll` is DELETE-all plus a re-INSERT of exactly the columns in
+     * this spec, so a column left out is not preserved: it is re-defaulted.
+     * `circles.created_at` is `NOT NULL DEFAULT CURRENT_TIMESTAMP`, so every
+     * admin circle edit was resetting EVERY circle's birth date to the moment
+     * of that edit.
+     *
+     * Nothing reads it today, which is why this was quiet rather than
+     * harmless: the next feature wanting "how long has this circle existed"
+     * would have got a confident wrong answer. `defaultNow` carries an
+     * existing value through the round trip and stamps now only when a row
+     * genuinely has none.
+     */
+    { js: "createdAt", db: "created_at", kind: "time", defaultNow: true },
   ],
 });
 

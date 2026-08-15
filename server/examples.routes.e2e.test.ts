@@ -26,7 +26,7 @@ import path from "path";
 import mysql from "mysql2/promise";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -117,14 +117,11 @@ beforeAll(async () => {
   child.stdout?.on("data", (d) => logs.push(String(d)));
   child.stderr?.on("data", (d) => logs.push(String(d)));
 
-  // 180s, matching loop.e2e: this boots the same server, so it pays the same
-  // 0049 org-chart backfill (about 64 sequential round trips) before /health
-  // answers. See loop.e2e for the diagnosis and for why the hookTimeout has to
-  // stay above this.
-  const deadline = Date.now() + 180_000;
+  // Shared with every other e2e suite; see E2E_BOOT_DEADLINE_MS.
+  const deadline = Date.now() + E2E_BOOT_DEADLINE_MS;
   for (;;) {
     if (Date.now() > deadline) {
-      throw new Error(`server did not start in 180s. Output:\n${logs.join("")}`);
+      throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s. Output:\n${logs.join("")}`);
     }
     try {
       const res = await fetch(`${BASE}/health`);

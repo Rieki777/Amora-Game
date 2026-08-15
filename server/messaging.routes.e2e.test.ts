@@ -30,7 +30,7 @@ import path from "path";
 import mysql from "mysql2/promise";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -123,10 +123,10 @@ beforeAll(async () => {
   child.stdout?.on("data", (d) => logs.push(String(d)));
   child.stderr?.on("data", (d) => logs.push(String(d)));
 
-  const deadline = Date.now() + 120_000;
+  const deadline = Date.now() + E2E_BOOT_DEADLINE_MS;
   for (;;) {
     if (Date.now() > deadline) {
-      throw new Error(`server did not start in 120s. Output:\n${logs.join("")}`);
+      throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s. Output:\n${logs.join("")}`);
     }
     try {
       const res = await fetch(`${BASE}/health`);
@@ -165,8 +165,8 @@ beforeAll(async () => {
   //
   //     migrations     71 files
   //     provisioning   118.9s      (1.67s per file, up from the config's 1.25s)
-  //     boot deadline  120s        (the loop below)
-  //     worst case     238.9s      against a 180s budget
+  //     boot deadline  E2E_BOOT_DEADLINE_MS (180s, the loop below)
+  //     worst case     298.9s      against the global 600s hook budget
   //
   // Provisioning ALONE was 66% of the old budget, so the hook could expire
   // before the server was even started. CI never caught it because CI runs

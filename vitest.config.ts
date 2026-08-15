@@ -41,9 +41,13 @@ export default defineConfig({
      *
      * An e2e hook does two slow things in series: provision a scratch schema
      * (drop, create, then run every migration) and then wait for the server to
-     * answer /health. The second has its own 180s deadline inside the file. So:
+     * answer /health. The second has its own deadline, and that deadline is now
+     * ONE exported number, `E2E_BOOT_DEADLINE_MS` in `server/db/testDb.ts`. It
+     * used to be five hand-copied literals and they had drifted: three files
+     * said 180s and two said 120s, so two suites sat below the floor this
+     * comment describes as the rule. So:
      *
-     *     hookTimeout  >  provisioning  +  180s
+     *     hookTimeout  >  provisioning  +  E2E_BOOT_DEADLINE_MS
      *
      * Measured 2026-08-11, at rest, against the hosted MySQL:
      *     round trip     140ms
@@ -63,8 +67,9 @@ export default defineConfig({
      * and throws that log away. The informative error has to be the one that
      * fires, so this number stays the outer bound.
      *
-     * TO RECOMPUTE: time one `provisionTestDb()` and add 180. If that is within
-     * ~40% of this number, raise it. Do not lower the boot deadline instead.
+     * TO RECOMPUTE: time one `provisionTestDb()` and add E2E_BOOT_DEADLINE_MS.
+     * If that is within ~40% of this number, raise it. Do not lower the boot
+     * deadline instead.
      */
     hookTimeout: 600_000,
     // One server process per file, no parallel port fights.

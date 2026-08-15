@@ -144,3 +144,25 @@ export async function provisionTestDb(opts: ProvisionOptions = {}): Promise<Test
     },
   };
 }
+
+/**
+ * How long an e2e suite waits for the built server to answer `/health`.
+ *
+ * ONE number, because it was five hand-copied ones and they had already
+ * drifted: three files said 180s and two said 120s, and the two short ones
+ * were below the floor `vitest.config.ts` documents as the rule
+ * (`hookTimeout > provisioning + this`). `messaging.routes.e2e` failed on it
+ * against the hosted MySQL while CI stayed green, because CI runs MySQL as a
+ * local service container where boot is fast.
+ *
+ * The number is not arbitrary. A first boot against a fresh scratch schema
+ * runs every SQL migration, then every data migration, and ends with the 0049
+ * org-chart backfill, which walks circles, seats and holders as separate
+ * statements. That cost grows with every migration anyone adds.
+ *
+ * Raise this rather than lower it, and raise `hookTimeout` with it. When a
+ * server genuinely will not start, THIS deadline prints the server's own log
+ * and says what it was doing; the hook timeout says "Hook timed out" and
+ * throws that log away. The informative error has to be the one that fires.
+ */
+export const E2E_BOOT_DEADLINE_MS = 180_000;

@@ -134,6 +134,40 @@ time so `/health` cannot report a build that isn't running.
   a dependency, check `npm view <pkg> type` alongside `engines`, and treat any ESM-only
   package as needing a CI run before it is believed.
 
+- **An absent substring proves nothing about a fix.** Checking whether
+  `anonymizeMember` handled org seatings by counting `org_role_assignments` in its
+  body returned zero, and the correct answer was "handled, via
+  `releaseSeatingsForUser`". A fix that gets factored into a well-named helper
+  makes the old string disappear, which is what factoring is FOR. The same shape
+  bites the other way: a test asserting a payload does `not.toContain("holders")`
+  fails on a seat accountable for "external financial and legal stakeholders".
+  **Verify a behaviour or a call graph, never the presence or absence of a
+  string.** For "is this defect still real", the cheap correct check is to follow
+  what the function CALLS, or to exercise the path.
+
+## Worklists: when a fix list may be deleted
+
+Records of completed work are deleted, and anything forward-looking is kept.
+That rule is right and the whole risk lives in deciding which one a file is.
+
+**Verify every item before the file goes, and verify it the way the trap above
+demands.** A worklist is a set of claims about the code; deleting it asserts all
+of them are now false. Twelve worklists came out in `2069f32` and the call was
+sound, but nothing in the process required the check, so a wrong one would have
+gone out silently with the right ones.
+
+Three rules that make the deletion safe:
+
+1. **Check each item against the code, not against memory or a commit message.**
+   Fixed items usually leave a comment saying what they fixed; that comment is
+   the evidence, and its absence is not counter-evidence.
+2. **If any item survives, do not keep the whole file.** Move the survivors into
+   a new short file carrying nothing finished, and delete the original. A
+   backlog with ninety percent completed items is one nobody re-reads.
+3. **Say in the commit message which items you verified and how.** The next
+   person deleting a worklist inherits your standard, and "I checked" is not a
+   standard.
+
 ## House voice
 
 `scripts/check-voice.mjs` holds shipped language to the writing rules in

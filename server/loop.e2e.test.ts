@@ -27,7 +27,7 @@ import { spawn, type ChildProcess } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
 import { verifyDocument } from "./lib/villageExport";
 
 /**
@@ -146,10 +146,10 @@ beforeAll(async () => {
    * both were 180s the hook always fired first and threw away the captured log
    * this deadline exists to print.
    */
-  const deadline = Date.now() + 180_000;
+  const deadline = Date.now() + E2E_BOOT_DEADLINE_MS;
   for (;;) {
     if (Date.now() > deadline) {
-      throw new Error(`server did not start in 180s. Output:\n${logs.join("")}`);
+      throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s. Output:\n${logs.join("")}`);
     }
     try {
       const res = await fetch(`${BASE}/health`);

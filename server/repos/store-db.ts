@@ -202,3 +202,13 @@ export function dbDocument<T extends Row = Row>(pool: Pool, key: string, fallbac
     },
   };
 }
+
+/**
+ * The two column coercers, for tests only.
+ *
+ * They decide what value the writer HANDS the database, which is where the
+ * `replaceAll` re-default trap lives, and that decision happens before any
+ * connection is involved. Exposing them lets the round trip be tested without
+ * a MySQL instance; nothing in the app should import this.
+ */
+export const __testing = { toDb, fromDb };

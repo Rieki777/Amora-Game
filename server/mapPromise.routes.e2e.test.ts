@@ -20,7 +20,7 @@ import path from "path";
 import mysql from "mysql2/promise";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -84,9 +84,9 @@ beforeAll(async () => {
 
   // 180s, matching the other suites that boot this server: it pays the same
   // org-chart backfill before /health answers.
-  const deadline = Date.now() + 180_000;
+  const deadline = Date.now() + E2E_BOOT_DEADLINE_MS;
   for (;;) {
-    if (Date.now() > deadline) throw new Error(`server did not start in 180s:\n${logs.join("")}`);
+    if (Date.now() > deadline) throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s:\n${logs.join("")}`);
     try { if ((await fetch(`${BASE}/health`)).ok) break; } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 400));
   }
