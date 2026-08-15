@@ -123,9 +123,15 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
               m.role === "user" ? "ml-auto bg-[#2D5A5A] text-white" : "bg-stone-100 text-stone-800"
             }`}>
               {m.role === "assistant" ? linkify(m.content) : m.content}
-              {m.consulted && (m.consulted.ownRecord?.length > 0 || m.consulted.references?.length > 0) && (
+              {m.consulted
+                && (m.consulted.ownRecord?.length > 0
+                  || m.consulted.references?.length > 0
+                  || m.consulted.readers?.length > 0) && (
                 <p className="text-[10px] text-stone-400 mt-1.5 border-t border-stone-200 pt-1">
                   {m.consulted.ownRecord?.length > 0 && <>Your calls: {m.consulted.ownRecord.join("; ")}. </>}
+                  {/* Optional-chained on purpose: a reply cached before the
+                      readers shipped carries no `readers` key at all. */}
+                  {m.consulted.readers?.length > 0 && <>Read from the village record: {m.consulted.readers.join("; ")}. </>}
                   {m.consulted.references?.length > 0 && <>References: {m.consulted.references.join("; ")}.</>}
                 </p>
               )}

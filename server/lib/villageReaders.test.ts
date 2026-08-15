@@ -15,11 +15,14 @@ import path from "path";
 import { describe, expect, it } from "vitest";
 import {
   READERS,
+  READER_KEYS,
   callReader,
   capTokens,
   fenceForPrompt,
   readerCatalog,
   readerRefusal,
+  toolNameForKey,
+  toolNameToKey,
   wireReaders,
   type ReaderViewer,
 } from "./villageReaders";
@@ -175,5 +178,57 @@ describe("is_example discipline, checked in the source", () => {
     // Without this the whole scan passes by matching nothing, which is exactly
     // how a guard stops guarding without anyone noticing.
     expect(checked, "the table scan matched no SQL at all, so it checked nothing").toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe("tool names for the wire", () => {
+  // Anthropic rejects a name with a dot in it, and EVERY reader key has one.
+  // Sending them raw is a 400 on the first request, which the engine maps to a
+  // generic 502 with the upstream body only in a console line. So this is
+  // checked here, before anything reaches a live call.
+  const NAME = /^[a-zA-Z0-9_-]{1,128}$/;
+
+  it("every generated name is one Anthropic accepts", () => {
+    expect(READER_KEYS.length).toBeGreaterThan(0);
+    for (const key of READER_KEYS) {
+      expect(toolNameForKey(key), key).toMatch(NAME);
+    }
+  });
+
+  it("round-trips every key in the registry", () => {
+    for (const key of READER_KEYS) {
+      expect(toolNameToKey(toolNameForKey(key))).toBe(key);
+    }
+  });
+
+  it("maps names one to one, so two readers can never share a tool", () => {
+    const names = READER_KEYS.map(toolNameForKey);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("hands an unknown name straight back, for callReader to refuse by name", () => {
+    expect(toolNameToKey("not_a_reader")).toBe("not.a.reader");
+  });
+});
+
+describe("the village record is readable", () => {
+  it("is registered, and reaches members", () => {
+    // Without this reader the derivation job fills a table the tool loop
+    // cannot see, and "what did we decide about X" stays unanswerable.
+    expect(READER_KEYS).toContain("record.decisions");
+    expect(READER_KEYS).toHaveLength(8);
+    const r = READERS.find((x) => x.key === "record.decisions")!;
+    expect(r.audience).toBe("member");
+    // The brain is core: no module of its own, so a fork with everything
+    // switched off can still answer from its own record.
+    expect(r.module).toBeUndefined();
+    expect(r.capability).toBeUndefined();
+  });
+
+  it("is offered to a signed-in member who is not an admin", async () => {
+    allOn();
+    expect(readerRefusal(READERS.find((x) => x.key === "record.decisions")!, viewer())).toBeNull();
+    expect(readerCatalog(viewer()).map((r) => r.key)).toContain("record.decisions");
+    expect(readerCatalog(anon).map((r) => r.key)).not.toContain("record.decisions");
   });
 });

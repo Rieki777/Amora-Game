@@ -11,11 +11,14 @@ import { describe, expect, it } from "vitest";
 import { BRIEF_SECTIONS, MINIMUM_BRIEF } from "../../shared/villageBrief";
 import {
   capMarkdown,
+  decisionOccurredAt,
+  decisionToRecord,
   estimateTokens,
   renderIndexMarkdown,
   renderSectionMarkdown,
   slugify,
   type BriefRow,
+  type DecisionThreadRow,
   type RecordSummary,
 } from "./villageBrain";
 
@@ -186,5 +189,90 @@ describe("renderIndexMarkdown", () => {
     // Every section blank is the worst case for the index, and it is also the
     // state every new village starts in.
     expect(estimateTokens(renderIndexMarkdown([], [], "admin"))).toBeLessThanOrEqual(400);
+  });
+});
+
+describe("a decided thread becomes a record entry", () => {
+  const CREATED = "2026-03-01T10:00:00.000Z";
+  const thread = (over: Partial<DecisionThreadRow> = {}): DecisionThreadRow => ({
+    id: "thr-1",
+    title: "Proposal: quiet hours from 9pm to 7am",
+    body: "Raised at three consecutive circle meetings.",
+    meta: { status: "decided", outcome: "Adopted, with an exception for harvest week." },
+    created_at: CREATED,
+    last_reply_at: null,
+    ...over,
+  });
+
+  it("files into a real section, from a real source, keyed to the thread", () => {
+    const r = decisionToRecord(thread());
+    expect(r.section).toBe("decisions");
+    expect(r.source).toBe("decision");
+    // With `source`, the idempotency key: a rerun must not file it twice.
+    expect(r.sourceRef).toBe("thr-1");
+  });
+
+  it("leads with what was decided, then the case that was made", () => {
+    const r = decisionToRecord(thread());
+    expect(r.body).toContain("Adopted, with an exception for harvest week.");
+    expect(r.body).toContain("Raised at three consecutive circle meetings.");
+    expect(r.body.indexOf("Adopted")).toBeLessThan(r.body.indexOf("Raised"));
+  });
+
+  it("takes decidedAt when a person recorded one", () => {
+    const r = decisionToRecord(thread({ meta: { status: "decided", decidedAt: "2026-06-15T12:00:00.000Z" } }));
+    expect((r.occurredAt as Date).toISOString()).toBe("2026-06-15T12:00:00.000Z");
+  });
+
+  it("falls back to created_at, never to now, when decidedAt is absent", () => {
+    // The examples seed carries exactly this shape: status decided, no
+    // decidedBy and no decidedAt. A fallback of "now" would date every
+    // historical decision to the morning the job first ran.
+    const r = decisionToRecord(thread({ meta: { status: "decided", outcome: "Adopted." } }));
+    expect((r.occurredAt as Date).toISOString()).toBe(CREATED);
+  });
+
+  it("refuses a date outside the timestamp column's range", () => {
+    // `meta` is unvalidated client JSON, and occurred_at is a MySQL timestamp
+    // whose range ends in 2038. A typed year of 9999 is not a wrong date, it
+    // is a failed INSERT that stops the whole job on its first bad row.
+    for (const bad of ["9999-01-01T00:00:00.000Z", "1200-01-01T00:00:00.000Z", "not a date", "", 0, null]) {
+      const r = decisionToRecord(thread({ meta: { status: "decided", decidedAt: bad } }));
+      expect((r.occurredAt as Date).toISOString(), String(bad)).toBe(CREATED);
+    }
+  });
+
+  it("keeps the boundary years and rejects the ones past them", () => {
+    // UTC on both sides. Read in local time, 1990-01-01Z is 1989 west of
+    // Greenwich, and the same instant would be kept or dropped depending on
+    // where the server sits.
+    expect(decisionOccurredAt({ decidedAt: "1990-01-01T00:00:00.000Z" }, CREATED).getUTCFullYear()).toBe(1990);
+    expect(decisionOccurredAt({ decidedAt: "2037-12-31T00:00:00.000Z" }, CREATED).getUTCFullYear()).toBe(2037);
+    expect(decisionOccurredAt({ decidedAt: "1989-12-31T00:00:00.000Z" }, CREATED).toISOString()).toBe(CREATED);
+    expect(decisionOccurredAt({ decidedAt: "2038-06-01T00:00:00.000Z" }, CREATED).toISOString()).toBe(CREATED);
+  });
+
+  it("survives a thread with no title at all", () => {
+    const r = decisionToRecord(thread({ title: null }));
+    expect(r.title).toBe("A decision with no title");
+    expect(slugify(r.title)).not.toBe("");
+  });
+
+  it("survives an all-punctuation title, which slugify would empty", () => {
+    const r = decisionToRecord(thread({ title: "!!! ??? ..." }));
+    expect(slugify(r.title, "entry")).toBe("entry");
+  });
+
+  it("survives a title far past the column width", () => {
+    // The column is varchar(200) and recordAppend does the slicing, so what
+    // matters here is that nothing throws on the way.
+    const r = decisionToRecord(thread({ title: "x".repeat(400) }));
+    expect(r.title).toHaveLength(400);
+    expect(slugify(r.title).length).toBeLessThanOrEqual(100);
+  });
+
+  it("survives a thread with no body and no outcome", () => {
+    const r = decisionToRecord(thread({ body: null, meta: { status: "decided" } }));
+    expect(r.body.length).toBeGreaterThan(0);
   });
 });

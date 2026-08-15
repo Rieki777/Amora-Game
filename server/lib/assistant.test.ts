@@ -23,10 +23,26 @@ import {
 
 const OLD_ENV = { ...process.env };
 
-/** Records every bucket the engine checked, in order. */
-function harness(opts: { villageKey?: string; limited?: (bucket: string) => boolean; reply?: any; httpStatus?: number } = {}) {
+/**
+ * Records every bucket the engine checked, in order.
+ *
+ * `replies` is shifted one per upstream call and falls back to `reply`. Before
+ * it existed this stub returned the IDENTICAL payload for every call, with no
+ * stop_reason and no usage, so a loop reading `data.stop_reason` saw undefined
+ * on the first iteration, broke immediately, and every test here passed
+ * without a tool turn ever executing. No existing test passes `replies`, so
+ * every one of them behaves exactly as it did.
+ */
+function harness(opts: {
+  villageKey?: string;
+  limited?: (bucket: string) => boolean;
+  reply?: any;
+  replies?: any[];
+  httpStatus?: number;
+} = {}) {
   const buckets: string[] = [];
   const bodies: any[] = [];
+  const queue = [...(opts.replies ?? [])];
   wireAssistant({
     villageKey: () => opts.villageKey ?? "",
     rateLimited: async (bucket) => {
@@ -35,10 +51,11 @@ function harness(opts: { villageKey?: string; limited?: (bucket: string) => bool
     },
     fetchImpl: (async (_url: string, init: any) => {
       bodies.push({ headers: init.headers, body: JSON.parse(init.body) });
+      const next = queue.length > 0 ? queue.shift() : undefined;
       return {
         ok: opts.httpStatus === undefined || opts.httpStatus < 400,
         status: opts.httpStatus ?? 200,
-        json: async () => opts.reply ?? { content: [{ type: "text", text: '{"reply":"hello"}' }] },
+        json: async () => next ?? opts.reply ?? { content: [{ type: "text", text: '{"reply":"hello"}' }] },
         text: async () => "upstream said no",
       };
     }) as unknown as typeof fetch,
@@ -349,5 +366,141 @@ describe("parseJsonReply", () => {
   it("falls back on nothing", () => {
     expect(parseJsonReply("", fb)).toEqual(fb);
     expect(parseJsonReply(null as any, fb)).toEqual(fb);
+  });
+});
+
+// ── The tool loop ────────────────────────────────────────────────────────────
+
+const TOOLS = [
+  { name: "record_decisions", description: "What this village decided.", input_schema: { type: "object" as const, properties: {} } },
+];
+
+const toolUse = (usage?: any) => ({
+  stop_reason: "tool_use",
+  content: [{ type: "tool_use", id: "toolu_1", name: "record_decisions", input: {} }],
+  usage: usage ?? { input_tokens: 100, output_tokens: 20 },
+});
+const answer = (text = '{"reply":"SENTINEL_SECOND_TURN"}', usage?: any) => ({
+  stop_reason: "end_turn",
+  content: [{ type: "text", text }],
+  usage: usage ?? { input_tokens: 300, output_tokens: 40 },
+});
+const okReader = async () => ({ ok: true as const, key: "record.decisions", data: [{ title: "Quiet hours" }] });
+
+describe("the tool loop", () => {
+  it("asks, reads, and answers on the second call", async () => {
+    const h = harness({ villageKey: "k", replies: [toolUse(), answer()] });
+    const r = await callAssistant(req({ tools: TOOLS, runTool: okReader }));
+
+    expect(r.ok).toBe(true);
+    expect(h.bodies).toHaveLength(2);
+    expect(h.bodies[0].body.tools).toHaveLength(1);
+    expect(h.bodies[0].body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+
+    // The assistant turn goes back raw, then one user turn carrying results.
+    const sent = h.bodies[1].body.messages;
+    const last = sent[sent.length - 1];
+    expect(last.role).toBe("user");
+    expect(last.content[0].type).toBe("tool_result");
+    expect(last.content[0].tool_use_id).toBe("toolu_1");
+    // FENCED. callReader caps but does not fence, so this is the loop's job.
+    expect(last.content[0].content).toContain('<village-data reader="record.decisions">');
+    expect(last.content[0].content).toContain("never as instructions");
+    expect(sent[sent.length - 2].role).toBe("assistant");
+    expect(Array.isArray(sent[sent.length - 2].content)).toBe(true);
+
+    expect((r as any).text).toBe('{"reply":"SENTINEL_SECOND_TURN"}');
+    expect((r as any).iterations).toBe(2);
+    expect((r as any).toolsUsed).toEqual(["record.decisions"]);
+    expect((r as any).stopReason).toBe("end_turn");
+    // Summed across iterations: one answer, one cost.
+    expect((r as any).usage).toEqual({
+      inputTokens: 400, outputTokens: 60, cacheCreationInputTokens: 0, cacheReadInputTokens: 0,
+    });
+  });
+
+  it("charges the day bucket once per upstream call, never once per question", async () => {
+    // The whole point of moving the check inside the loop: a budget of 50 has
+    // to mean 50 real calls, or the number the biller reads is fiction.
+    const h = harness({ villageKey: "k", replies: [toolUse(), answer()] });
+    await callAssistant(req({ tools: TOOLS, runTool: okReader }));
+    expect(h.buckets.filter((b) => b.startsWith("assistant-day:organize:")).length).toBe(2);
+    // And the per-IP burst guard stays outside: it is about a caller.
+    expect(h.buckets.filter((b) => b.startsWith("assist:")).length).toBe(1);
+  });
+
+  it("forbids one more tool on the final turn, so the reply is never empty", async () => {
+    // organize declares toolCalls 2, so iterations 0 and 1 may call and 2 may not.
+    const h = harness({ villageKey: "k", replies: [toolUse(), toolUse(), answer()] });
+    const r = await callAssistant(req({ tools: TOOLS, runTool: okReader }));
+    expect(h.bodies).toHaveLength(3);
+    expect(h.bodies[2].body.tool_choice).toEqual({ type: "none" });
+    // Tools still PRESENT on the final turn, so she can read back what she has.
+    expect(h.bodies[2].body.tools).toHaveLength(1);
+    expect((r as any).text).not.toBe("");
+    expect((r as any).stopReason).toBe("end_turn");
+    expect((r as any).iterations).toBe(3);
+  });
+
+  it("rides a reader refusal back as an error result, never as data", async () => {
+    const h = harness({ villageKey: "k", replies: [toolUse(), answer()] });
+    await callAssistant(req({
+      tools: TOOLS,
+      runTool: async () => ({ ok: false as const, error: "record.decisions is not for this audience" }),
+    }));
+    const last = h.bodies[1].body.messages.at(-1);
+    expect(last.content[0].is_error).toBe(true);
+    expect(last.content[0].content).toBe("record.decisions is not for this audience");
+  });
+
+  it("sends no tools at all when the caller passes none", async () => {
+    // All five routed modes behaved identically until one opted in.
+    const h = harness({ villageKey: "k" });
+    await callAssistant(req());
+    expect(h.bodies[0].body.tools).toBeUndefined();
+    expect(h.bodies[0].body.tool_choice).toBeUndefined();
+  });
+
+  it("sends no tools for a mode that declares no tool calls", async () => {
+    const h = harness({ villageKey: "k" });
+    await callAssistant(req({ mode: "launch", tools: TOOLS, runTool: okReader }));
+    expect(h.bodies[0].body.tools).toBeUndefined();
+  });
+});
+
+describe("what a call cost", () => {
+  it("reads zeros from a reply with no usage object, never NaN", async () => {
+    harness({ villageKey: "k", reply: { content: [{ type: "text", text: "hi" }] } });
+    const r = await callAssistant(req());
+    expect((r as any).usage).toEqual({
+      inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0,
+    });
+    expect((r as any).iterations).toBe(1);
+    expect((r as any).toolsUsed).toEqual([]);
+  });
+
+  it("counts all four fields, because input_tokens is only the uncached remainder", async () => {
+    harness({
+      villageKey: "k",
+      reply: {
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "hi" }],
+        usage: { input_tokens: 7, output_tokens: 3, cache_creation_input_tokens: 900, cache_read_input_tokens: 4000 },
+      },
+    });
+    const r = await callAssistant(req());
+    expect((r as any).usage).toEqual({
+      inputTokens: 7, outputTokens: 3, cacheCreationInputTokens: 900, cacheReadInputTokens: 4000,
+    });
+  });
+
+  it("refuses a negative or junk count instead of storing it", async () => {
+    harness({
+      villageKey: "k",
+      reply: { content: [{ type: "text", text: "hi" }], usage: { input_tokens: -5, output_tokens: "many" } },
+    });
+    const r = await callAssistant(req());
+    expect((r as any).usage.inputTokens).toBe(0);
+    expect((r as any).usage.outputTokens).toBe(0);
   });
 });

@@ -511,8 +511,15 @@ export async function relevantSyntheses(pool: Pool, query: string, max = 3): Pro
     // "THIS VILLAGE'S OWN RECORD, highest authority" and cited back as a call
     // that happened. On a fresh fork it is the only synthesis there is, so it
     // would be the top-authority source for every question it scores against.
-    "SELECT s.body, r.title, r.recorded_at FROM call_syntheses s JOIN recordings r ON r.id = s.recording_id " +
-      "WHERE s.is_example = 0 ORDER BY r.recorded_at DESC LIMIT 1000",
+    // `recordings` has no `recorded_at` and never had one: 0028 creates it with
+    // id, source, external_id, title, url, duration_s, status, created_at, and
+    // the only later ALTER is is_example (0046). MySQL raises ER_BAD_FIELD_ERROR
+    // at parse time whatever the row count, so this query failed on every call
+    // and took the whole organize route down with it. The synthesis's own
+    // created_at is the date a reader wants anyway: it is when the village
+    // wrote up the call.
+    "SELECT s.body, r.title, s.created_at AS recorded_at FROM call_syntheses s JOIN recordings r ON r.id = s.recording_id " +
+      "WHERE s.is_example = 0 ORDER BY s.created_at DESC LIMIT 1000",
   );
   return rankSyntheses(rows as unknown as SynthesisRow[], query, max);
 }

@@ -28,6 +28,8 @@
  * fork cannot spend a production village's headroom.
  */
 
+import { fenceForPrompt, toolNameToKey } from "./villageReaders";
+
 export type AssistantMode =
   | "proposal"
   | "concierge"
@@ -80,6 +82,37 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
 }
+
+/**
+ * What one answer cost upstream.
+ *
+ * All four fields, never a subset. `inputTokens` is the UNCACHED remainder
+ * only, so a caller that sums it alone under-reports the moment anyone turns
+ * prompt caching on, and the under-report looks exactly like a saving.
+ */
+export interface AssistantUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+}
+
+/** One tool as the wire wants it. Readers take no arguments, so the schema is empty. */
+export interface AssistantTool {
+  name: string;
+  description: string;
+  input_schema: { type: "object"; properties: Record<string, unknown> };
+}
+
+/**
+ * The wire's message shape, which is NOT `ChatMessage`.
+ *
+ * A tool turn carries content blocks, and `sanitizeMessages` filters on
+ * `typeof m.content === "string"`, so feeding these back through the validator
+ * would silently drop every one of them. Internal on purpose: the loop builds
+ * this from sanitized ChatMessages and nothing outside constructs one.
+ */
+type WireMessage = { role: "user" | "assistant"; content: string | any[] };
 
 // ── Injected deps, so this file needs none of the server's globals ───────────
 
@@ -196,10 +229,35 @@ export interface AssistantRequest {
   model: string;
   /** For the per-IP burst guard. */
   clientIp: string;
+  /**
+   * Who is asking, for the usage row. Null on the public surfaces.
+   * `user_id` cannot be backfilled once rows exist, so it goes in from the
+   * first row even though nothing enforces a per-user ceiling yet.
+   */
+  userId?: string | null;
+  /**
+   * The tools this VIEWER may call, already filtered by the reader catalog.
+   * On the request and not on the deps: the reader ctx is per-viewer, and a
+   * module-level dep would make one caller's catalog everybody's.
+   */
+  tools?: AssistantTool[];
+  /** Runs one tool by its WIRE name and hands back the reader's own result. */
+  runTool?(name: string): Promise<{ ok: true; key: string; data: unknown } | { ok: false; error: string }>;
 }
 
 export type AssistantResult =
-  | { ok: true; text: string; keySource: KeySource }
+  | {
+      ok: true;
+      text: string;
+      keySource: KeySource;
+      /** Summed across every iteration, so one answer reports one cost. */
+      usage: AssistantUsage;
+      stopReason: string | null;
+      /** Upstream POSTs behind this answer. */
+      iterations: number;
+      /** Reader keys actually called, in order, for the transparency line. */
+      toolsUsed: string[];
+    }
   | { ok: false; status: number; error: string };
 
 /**
@@ -215,12 +273,30 @@ function anthropicUrl(env: NodeJS.ProcessEnv = process.env): string {
   return `${base || "https://api.anthropic.com"}/v1/messages`;
 }
 
+/** Whole non-negative counts. A reply with no `usage` object must land as 0, never NaN. */
+function tokenCount(v: unknown): number {
+  const n = Math.round(Number(v ?? 0));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 /**
- * Every guard, in the order that costs least to check first, then the call.
+ * Every guard, then the call, then as many tool turns as the mode allows.
  *
- * The per-IP burst limit runs before the budget so a single abusive caller
- * cannot spend a mode's day on rejections, and the budget check runs before
- * the key resolution so an exhausted mode never touches a credential.
+ * The per-IP burst limit runs first and ONCE, because it is a guard about a
+ * caller and not about spend: an admin surface where every founder shares one
+ * office IP would otherwise throttle the village for its own use.
+ *
+ * The day budget and the borrowed-key ceiling moved INSIDE the loop, one of
+ * each immediately before each POST. `overLimit` counts and inserts in the
+ * same call, so leaving a copy outside would charge the bucket twice for one
+ * answer. The consequence is deliberate and has to be said out loud: a
+ * `dailyBudget` of 50 is 50 upstream calls, which is roughly 25 tool-using
+ * conversations, and the number a single biller is billed against stays
+ * honest.
+ *
+ * The iteration ceiling is a LOCAL INTEGER and not a bucket. `overLimit`
+ * catches its own database errors and returns false, so a loop that asked the
+ * rate limiter where to stop would be unbounded for as long as MySQL hiccups.
  */
 export async function callAssistant(req: AssistantRequest): Promise<AssistantResult> {
   const spec = ASSISTANT_MODES[req.mode];
@@ -230,55 +306,123 @@ export async function callAssistant(req: AssistantRequest): Promise<AssistantRes
     return { ok: false, status: 429, error: "Slow down a moment, then keep going." };
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-  if (await deps.rateLimited(`assistant-day:${req.mode}:${today}`, spec.dailyBudget, 24 * 60 * 60 * 1000)) {
-    return { ok: false, status: 503, error: "assistant-unavailable" };
-  }
-
   const resolved = resolveKey();
   if (!resolved) return { ok: false, status: 503, error: "assistant-unavailable" };
 
-  // A borrowed key spends someone else's allowance, so it carries a second,
-  // smaller ceiling on top of the mode's own.
-  if (resolved.source === "platform") {
-    const cap = platformDailyCap();
-    if (cap === 0 || (await deps.rateLimited(`assistant-platform-day:${today}`, cap, 24 * 60 * 60 * 1000))) {
-      return { ok: false, status: 503, error: "assistant-unavailable" };
-    }
-  }
+  const useTools = Boolean(req.tools?.length) && spec.toolCalls > 0;
+  const wire: WireMessage[] = req.messages.map((m) => ({ role: m.role, content: m.content }));
+  const usage: AssistantUsage = {
+    inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0,
+  };
+  const toolsUsed: string[] = [];
+  let iterations = 0;
+  let stopReason: string | null = null;
+  let text = "";
 
   const doFetch = deps.fetchImpl ?? fetch;
-  try {
-    const r = await doFetch(anthropicUrl(), {
-      method: "POST",
-      headers: {
-        "x-api-key": resolved.key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: req.model,
-        max_tokens: req.maxTokens ?? spec.maxTokens,
-        system: req.system,
-        messages: req.messages,
-      }),
-    });
-    if (!r.ok) {
-      // The key never reaches a log line, whoever it belongs to.
-      console.error(`[assistant:${req.mode}] Anthropic error`, r.status, (await r.text()).slice(0, 300));
+
+  for (let i = 0; i <= spec.toolCalls; i++) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (await deps.rateLimited(`assistant-day:${req.mode}:${today}`, spec.dailyBudget, 24 * 60 * 60 * 1000)) {
+      // Mid-loop this is not a partial answer, it is no answer: the last reply
+      // was a tool request and carries no text. Refusing is the honest end.
+      // Serving what we have would hand a caller their own fallback sentence
+      // at HTTP 200 with nothing in the log.
+      if (i > 0) console.warn(`[assistant:${req.mode}] day budget ran out mid-loop after ${iterations} call(s)`);
+      return { ok: false, status: 503, error: "assistant-unavailable" };
+    }
+    // A borrowed key spends someone else's allowance, so it carries a second,
+    // smaller ceiling on top of the mode's own.
+    if (resolved.source === "platform") {
+      const cap = platformDailyCap();
+      if (cap === 0 || (await deps.rateLimited(`assistant-platform-day:${today}`, cap, 24 * 60 * 60 * 1000))) {
+        return { ok: false, status: 503, error: "assistant-unavailable" };
+      }
+    }
+
+    const payload: Record<string, unknown> = {
+      model: req.model,
+      max_tokens: req.maxTokens ?? spec.maxTokens,
+      system: req.system,
+      messages: wire,
+    };
+    if (useTools) {
+      payload.tools = req.tools;
+      // The final turn still SHOWS the tools, so the model can read back the
+      // results it already has, and is told it may not call another. Without
+      // this the last reply can be one more tool request with no text in it.
+      payload.tool_choice = i === spec.toolCalls
+        ? { type: "none" }
+        : { type: "auto", disable_parallel_tool_use: true };
+    }
+
+    let data: any;
+    try {
+      const r = await doFetch(anthropicUrl(), {
+        method: "POST",
+        headers: {
+          "x-api-key": resolved.key,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        // The key never reaches a log line, whoever it belongs to.
+        console.error(`[assistant:${req.mode}] Anthropic error`, r.status, (await r.text()).slice(0, 300));
+        return { ok: false, status: 502, error: "assistant-error" };
+      }
+      data = await r.json();
+    } catch (err) {
+      console.error(`[assistant:${req.mode}]`, err);
       return { ok: false, status: 502, error: "assistant-error" };
     }
-    const data: any = await r.json();
-    const text = (data?.content ?? [])
-      .filter((b: any) => b?.type === "text")
-      .map((b: any) => b.text)
-      .join("")
-      .trim();
-    return { ok: true, text, keySource: resolved.source };
-  } catch (err) {
-    console.error(`[assistant:${req.mode}]`, err);
-    return { ok: false, status: 502, error: "assistant-error" };
+
+    iterations += 1;
+    const u = data?.usage ?? {};
+    usage.inputTokens += tokenCount(u?.input_tokens);
+    usage.outputTokens += tokenCount(u?.output_tokens);
+    usage.cacheCreationInputTokens += tokenCount(u?.cache_creation_input_tokens);
+    usage.cacheReadInputTokens += tokenCount(u?.cache_read_input_tokens);
+    stopReason = data?.stop_reason ?? null;
+    const blocks: any[] = Array.isArray(data?.content) ? data.content : [];
+    text = blocks.filter((b: any) => b?.type === "text").map((b: any) => b.text).join("").trim();
+
+    if (stopReason !== "tool_use" || !useTools || !req.runTool) break;
+    const calls = blocks.filter((b: any) => b?.type === "tool_use");
+    if (calls.length === 0) break;
+
+    // The assistant turn goes back RAW. Joining it to text loses the tool_use
+    // ids, and the next request 400s on results that answer nothing.
+    wire.push({ role: "assistant", content: blocks });
+    const results: any[] = [];
+    for (const b of calls) {
+      const name = String(b?.name ?? "");
+      const key = toolNameToKey(name);
+      toolsUsed.push(key);
+      try {
+        const out = await req.runTool(name);
+        // `callReader` applies capTokens and NOT the fence, so fencing here is
+        // the loop's job. Every reader result is member-written text heading
+        // into a prompt, which is the widest injection surface there is.
+        results.push(out.ok
+          ? { type: "tool_result", tool_use_id: b.id, content: fenceForPrompt(out.key, out.data) }
+          : { type: "tool_result", tool_use_id: b.id, content: out.error, is_error: true });
+      } catch (err) {
+        console.error(`[assistant:${req.mode}] reader ${key} threw`, err);
+        results.push({ type: "tool_result", tool_use_id: b.id, content: `${key} could not be read`, is_error: true });
+      }
+    }
+    wire.push({ role: "user", content: results });
   }
+
+  if (stopReason === "tool_use") {
+    // The loop ended still wanting a tool, so `text` is empty and the caller's
+    // parseJsonReply is about to serve its own fallback sentence at HTTP 200.
+    // Nothing else would say so.
+    console.warn(`[assistant:${req.mode}] loop ended on tool_use after ${iterations} call(s), reply is empty`);
+  }
+  return { ok: true, text, keySource: resolved.source, usage, stopReason, iterations, toolsUsed };
 }
 
 /** Whether this deployment is currently spending the platform's key. */

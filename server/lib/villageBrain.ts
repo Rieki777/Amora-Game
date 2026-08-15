@@ -73,6 +73,69 @@ export function capMarkdown(md: string, maxTokens: number): string {
   return `${cut.slice(0, lastBreak > 0 ? lastBreak : cut.length)}\n\n[truncated]`;
 }
 
+/** One decided forum thread, as the derivation reads it. */
+export interface DecisionThreadRow {
+  id: string;
+  title: string | null;
+  body: string | null;
+  meta: any;
+  created_at: Date | string;
+  last_reply_at?: Date | string | null;
+}
+
+/**
+ * When a decision happened, from a field a member can write.
+ *
+ * `meta` is unvalidated client JSON: the thread create route spreads the
+ * client's object AFTER its own default, so anyone holding `proposal.open`
+ * chooses `decidedAt`. `occurred_at` is a MySQL timestamp and its range ends
+ * in 2038, so a typed year of 9999 is not a wrong date, it is a failed INSERT
+ * that stops the whole job. Anything outside 1990-2037 falls back to when the
+ * row was created, which is a fact nobody can type.
+ *
+ * Never `new Date()`. A fallback of "now" would date every historical decision
+ * to the morning the job first ran.
+ */
+export function decisionOccurredAt(meta: any, createdAt: Date | string): Date {
+  const raw = meta?.decidedAt;
+  if (raw) {
+    const d = new Date(raw);
+    // getUTCFullYear, not getFullYear. Every connection in this system sets
+    // timezone 'Z', and a local-time boundary would accept or reject the same
+    // instant differently depending on where the server sits.
+    if (Number.isFinite(d.getTime())) {
+      const year = d.getUTCFullYear();
+      if (year >= 1990 && year <= 2037) return d;
+    }
+  }
+  return new Date(createdAt);
+}
+
+/**
+ * One decided thread, as a record entry. Pure, so the date rules above are
+ * testable without a database.
+ *
+ * `section: "decisions"` is a real BRIEF_SECTIONS id and `source: "decision"`
+ * is already in RECORD_SOURCES and in the SQL enum, so this needs no migration
+ * and no edit under `shared/`.
+ */
+export function decisionToRecord(row: DecisionThreadRow): RecordAppend {
+  const outcome = String(row.meta?.outcome ?? "").trim();
+  const body = [
+    outcome ? `What was decided: ${outcome}` : null,
+    String(row.body ?? "").trim() || null,
+  ].filter((p): p is string => Boolean(p)).join("\n\n");
+  return {
+    section: "decisions",
+    title: String(row.title ?? "").trim() || "A decision with no title",
+    body: body || "This decision was recorded with no text.",
+    source: "decision",
+    // With `source`, the idempotency key. A rerun must not file it twice.
+    sourceRef: String(row.id),
+    occurredAt: decisionOccurredAt(row.meta, row.created_at),
+  };
+}
+
 /** One section, with the frontmatter that tells a reader how far to trust it. */
 export function renderSectionMarkdown(row: BriefRow): string {
   return [
@@ -204,6 +267,84 @@ export async function recordSummaries(pool: Pool): Promise<RecordSummary[]> {
       entries: Number(r.n),
       recent: recent.map((x) => String(x.title)),
     });
+  }
+  return out;
+}
+
+/**
+ * Decided threads worth deriving, oldest first.
+ *
+ * `locked_at IS NOT NULL` is the forgery filter and the only structural
+ * fingerprint there is. The decide route sets `meta` and `locked_at` in ONE
+ * update; the create route's INSERT sets no `locked_at` and spreads the
+ * client's `meta` after its own default, so a member holding `proposal.open`
+ * can publish a thread that already reads as decided. Filtering on
+ * `meta.status` alone would file that as village history.
+ *
+ * `ORDER BY created_at ASC` so successive daily runs walk a backlog forward.
+ * Newest-first under a LIMIT means a village with 500 historical decisions
+ * files 200 on day one and never sees the other 300.
+ */
+export async function decidedThreadsToDerive(pool: Pool, limit = 200): Promise<DecisionThreadRow[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT id, title, body, meta, created_at, last_reply_at FROM forum_threads " +
+      "WHERE kind = 'decision' AND is_example = 0 AND hidden_at IS NULL AND locked_at IS NOT NULL " +
+      "ORDER BY created_at ASC LIMIT ?",
+    [limit],
+  );
+  return rows
+    .map((r) => {
+      let meta: any = r.meta;
+      if (typeof meta === "string") { try { meta = JSON.parse(meta); } catch { meta = null; } }
+      return {
+        id: String(r.id),
+        title: r.title === null || r.title === undefined ? null : String(r.title),
+        body: r.body === null || r.body === undefined ? null : String(r.body),
+        meta,
+        created_at: r.created_at,
+        last_reply_at: r.last_reply_at ?? null,
+      };
+    })
+    .filter((r) => r.meta?.status === "decided");
+}
+
+export interface DerivationResult {
+  scanned: number;
+  created: number;
+  alreadyDerived: number;
+  /** Slug collisions. A real loss, counted rather than hidden. */
+  lost: number;
+}
+
+/**
+ * File every decided thread that is not filed yet.
+ *
+ * Why the counts are three and not two. `record_dedupe_idx (source,
+ * source_ref)` is a plain KEY and `source_ref` is nullable, so dedupe is a
+ * SELECT then an INSERT with no constraint behind it. And the slug is
+ * `<date>-<source>-<title>` with no id in it, against a UNIQUE key, so two
+ * decisions with the same title on the same day collide: the second gets
+ * ER_DUP_ENTRY, `recordAppend`'s catch returns `{created: false, slug}` where
+ * the slug belongs to a DIFFERENT decision, and from the outside "already
+ * filed" and "lost the race" look identical. Asking whether the pair was
+ * present BEFORE the append is what tells them apart.
+ *
+ * Errors are not swallowed. The scheduler's own handler writes the failure
+ * where an admin can read it and routes to reportError for free.
+ */
+export async function deriveDecisions(pool: Pool): Promise<DerivationResult> {
+  const threads = await decidedThreadsToDerive(pool);
+  const out: DerivationResult = { scanned: threads.length, created: 0, alreadyDerived: 0, lost: 0 };
+  for (const thread of threads) {
+    const [existing] = await pool.query<RowDataPacket[]>(
+      "SELECT id FROM village_record WHERE source = 'decision' AND source_ref = ? LIMIT 1",
+      [thread.id],
+    );
+    const wasThere = existing.length > 0;
+    const result = await recordAppend(pool, decisionToRecord(thread));
+    if (result.created) out.created += 1;
+    else if (wasThere) out.alreadyDerived += 1;
+    else out.lost += 1;
   }
   return out;
 }

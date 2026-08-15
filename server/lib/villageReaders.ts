@@ -276,6 +276,57 @@ export const READERS: VillageReader[] = [
         recognizes: r.description ? String(r.description).slice(0, 200) : null,
       })),
   },
+  {
+    key: "record.decisions",
+    describe: "Decisions this village has recorded, newest first, with what was decided and when.",
+    // No module key: the brain is core, so this answer exists on a fork that
+    // has enabled nothing. `member` audience because the point of the record
+    // is that a member can ask what was decided before they arrived; the
+    // member-facing route is a separate piece of work and this is ready for it.
+    audience: "member",
+    maxTokens: 800,
+    read: async ({ pool }) =>
+      // Newest 25, whole rows, and capTokens degrades the tail. The model does
+      // the selecting from the fenced list: `callReader` takes no arguments
+      // (:99-102), and widening that signature to accept a search term breaks
+      // three test files that import it by name.
+      (
+        await rows(
+          pool,
+          "SELECT title, body, occurred_at, created_at, source FROM village_record " +
+            "WHERE section = 'decisions' AND is_example = 0 " +
+            "ORDER BY occurred_at DESC, created_at DESC LIMIT 25",
+        )
+      ).map((r) => ({
+        title: String(r.title),
+        decidedOn: r.occurred_at ? new Date(r.occurred_at).toISOString().slice(0, 10) : null,
+        summary: String(r.body ?? "").slice(0, 600),
+        derivedFrom: String(r.source),
+      })),
+  },
 ];
 
 export const READER_KEYS = READERS.map((r) => r.key);
+
+// ── Tool names ───────────────────────────────────────────────────────────────
+
+/**
+ * Anthropic requires a tool name to match `^[a-zA-Z0-9_-]{1,128}$` and every
+ * reader key has a dot in it. Sending the keys raw is a 400 on the FIRST
+ * request, which the engine maps to a generic 502 with the upstream body only
+ * in a console line, so the mapping lives here beside the keys it maps and is
+ * round-tripped by a test rather than trusted.
+ */
+export function toolNameForKey(key: string): string {
+  return key.replace(/\./g, "_");
+}
+
+/**
+ * Back to the key. Resolved against the registry rather than by reversing the
+ * substitution, because an underscore in a future reader key would make the
+ * naive reversal silently wrong. The fallback only ever runs for a name no
+ * reader claims, and `callReader` refuses that by name.
+ */
+export function toolNameToKey(name: string): string {
+  return READER_KEYS.find((k) => toolNameForKey(k) === name) ?? name.replace(/_/g, ".");
+}

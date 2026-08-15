@@ -2679,6 +2679,169 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect((await api("GET", "/api/admin/recordings", undefined, founderToken)).status).toBe(404);
   });
 
+  it("S77: the organize route answers at all", async () => {
+    /*
+     * This is the first server-side test of this route in the repo, and it
+     * exists because the route was DEAD.
+     *
+     * `relevantSyntheses` selected `r.recorded_at` from `recordings`, which has
+     * no such column and never had one: 0028 creates it with id, source,
+     * external_id, title, url, duration_s, status, created_at, and the only
+     * later ALTER is is_example. MySQL raises ER_BAD_FIELD_ERROR at parse time
+     * whatever the row count, and the caller is unguarded, so every single
+     * request to this route ended in the terminal error handler as a 500.
+     *
+     * The proof is that the answer now comes from the ASSISTANT ENGINE and not
+     * from the terminal error handler: the query ran, and the handler got as
+     * far as its guards.
+     *
+     * Two engine answers are both correct here, and which one lands depends on
+     * whether a key is configured. It is, and not on purpose: S54 sets
+     * `assistant_api_key` and clears it with `{ assistant_api_key: "" }`, but
+     * `PUT /api/admin/email-config` only forwards a NON-EMPTY value to the
+     * secrets store, and `getEmailConfig()` reads the key from that store. So
+     * S54's clear is a no-op and its key survives for the life of this child
+     * process. Asserting one of the two exact codes would make this test a
+     * hostage to that bug, so it asserts what the fix is actually about.
+     */
+    const r = await api(
+      "POST",
+      "/api/admin/assistant/organize",
+      { messages: [{ role: "user", content: "how do we decide things" }] },
+      founderToken,
+    );
+    expect(r.status, JSON.stringify(r.json)).not.toBe(500);
+    expect(String(r.json.error)).not.toBe("Internal server error");
+    expect([502, 503], JSON.stringify(r.json)).toContain(r.status);
+    expect(["assistant-error", "assistant-unavailable"]).toContain(String(r.json.error));
+
+    // A stranger still gets nothing.
+    expect((await api("POST", "/api/admin/assistant/organize",
+      { messages: [{ role: "user", content: "hello" }] }, peerToken)).status).toBe(401);
+  });
+
+  it("S77: she reads the village's own record, and the budget counts real calls", async () => {
+    /*
+     * The acceptance criterion for the memory lane, over HTTP, against the
+     * built server.
+     *
+     * Placed after the S54 block because port 3783 is single-occupancy: the
+     * child server is spawned once with ANTHROPIC_BASE_URL pointed at it, and
+     * S54 binds and closes 3783 inside its own try/finally. Same discipline
+     * here, including clearing the key, or it leaks into every later test in
+     * the same child process.
+     */
+    const { createServer: createHttpServer } = await import("http");
+
+    // Something for her to actually read.
+    await testDb.conn.query(
+      "INSERT INTO village_record (id, section, slug, title, body, occurred_at, source, source_ref, is_example) " +
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+      ["rec-loop-1", "decisions", "loop-decision-quiet-hours", "Quiet hours from 9pm",
+        "What was decided: adopted, with an exception for harvest week.",
+        new Date("2026-07-20T00:00:00Z"), "decision", "thr-loop-1", 0],
+    );
+
+    const seen: any[] = [];
+    // REQUEST-AWARE, unlike the S54 stub, which returns one payload for every
+    // call and so can never emit a tool_use turn. And every content block here
+    // carries `type`: without it the engine's `b?.type === 'text'` filter
+    // yields an empty string and the caller silently serves its own fallback
+    // sentence at HTTP 200.
+    const llm = createHttpServer((req, res) => {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        let body: any = {};
+        try { body = JSON.parse(raw); } catch { /* recorded as {} below */ }
+        seen.push(body);
+        const last = body?.messages?.[body.messages.length - 1];
+        const answered = Array.isArray(last?.content)
+          && last.content.some((b: any) => b?.type === "tool_result");
+        const payload = body?.tools?.length && !answered
+          ? {
+              stop_reason: "tool_use",
+              content: [{ type: "tool_use", id: "toolu_1", name: "record_decisions", input: {} }],
+              usage: { input_tokens: 1200, output_tokens: 45 },
+            }
+          : {
+              stop_reason: "end_turn",
+              content: [{ type: "text", text: JSON.stringify({ reply: "SENTINEL_SECOND_TURN" }) }],
+              usage: { input_tokens: 2400, output_tokens: 120 },
+            };
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(payload));
+      });
+    });
+    await new Promise<void>((r) => llm.listen(3783, "127.0.0.1", r));
+
+    const today = new Date().toISOString().slice(0, 10);
+    const bucket = `assistant-day:organize:${today}`;
+    await testDb.conn.query("DELETE FROM rate_hits WHERE bucket = ?", [bucket]);
+
+    try {
+      await api("PUT", "/api/admin/email-config", { assistant_api_key: "test-key" }, founderToken);
+      const r = await api(
+        "POST",
+        "/api/admin/assistant/organize",
+        { messages: [{ role: "user", content: "what did we decide about quiet hours" }] },
+        founderToken,
+      );
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+
+      // 1. Two upstream calls, no more and no fewer.
+      expect(seen).toHaveLength(2);
+
+      // 2. The first carried the readers as tools, under wire-legal names.
+      const names = (seen[0].tools ?? []).map((t: any) => t.name);
+      expect(names).toContain("record_decisions");
+      for (const n of names) expect(n).toMatch(/^[a-zA-Z0-9_-]{1,128}$/);
+      expect(seen[0].tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+
+      // 3. The second carried the result back, fenced, against the right id.
+      const last = seen[1].messages[seen[1].messages.length - 1];
+      expect(last.role).toBe("user");
+      expect(last.content[0].type).toBe("tool_result");
+      expect(last.content[0].tool_use_id).toBe("toolu_1");
+      expect(last.content[0].content).toContain('<village-data reader="record.decisions">');
+      expect(last.content[0].content).toContain("Quiet hours from 9pm");
+      // The turn before it is the assistant's tool request, RAW.
+      expect(seen[1].messages[seen[1].messages.length - 2].role).toBe("assistant");
+
+      // 4. The answer is the SECOND response, never the first.
+      expect(r.json.reply).toBe("SENTINEL_SECOND_TURN");
+
+      // 5. The citation the UI renders names the reader she opened.
+      expect(r.json.consulted.readers).toContain("record.decisions");
+      // references stays a string array: the client joins it.
+      expect(Array.isArray(r.json.consulted.references)).toBe(true);
+
+      // 6. The budget counted upstream CALLS. This is the one assertion a loop
+      //    that silently fell back to single-shot cannot satisfy.
+      const [[hits]] = await testDb.conn.query<any[]>(
+        "SELECT COUNT(*) AS n FROM rate_hits WHERE bucket = ?", [bucket],
+      );
+      expect(Number(hits.n)).toBe(2);
+
+      // And what it cost is written down, once, with the tool turn counted.
+      const [[usage]] = await testDb.conn.query<any[]>(
+        "SELECT mode, model, key_source, user_id, input_tokens, output_tokens, iterations, stop_reason, village_id " +
+          "FROM assistant_usage WHERE mode = 'organize' ORDER BY created_at DESC LIMIT 1",
+      );
+      expect(usage.mode).toBe("organize");
+      expect(Number(usage.iterations)).toBe(2);
+      expect(Number(usage.input_tokens)).toBe(3600);
+      expect(Number(usage.output_tokens)).toBe(165);
+      expect(usage.stop_reason).toBe("end_turn");
+      expect(usage.key_source).toBe("village");
+      expect(String(usage.user_id ?? "")).not.toBe("");
+      expect(String(usage.village_id ?? "")).not.toBe("");
+    } finally {
+      await new Promise<void>((r) => llm.close(() => r()));
+      await api("PUT", "/api/admin/email-config", { assistant_api_key: "" }, founderToken);
+    }
+  });
+
   it("S56: the interop handshake — a deployment says what it is, from config", async () => {
     // Public, unauthenticated: a village directory could read this, and the
     // fork smoke test uses it to prove no path hardcodes a brand.
