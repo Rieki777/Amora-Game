@@ -963,7 +963,14 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const created = await api(
       "POST",
       "/api/admin/tokens",
-      { slug: "stay-credits", name: "Stay Credits", kind: "credit", transferable: false },
+      // NOT "Stay Credits": the stays module registers slug `stay-credit`
+      // under exactly that name (stays.ts), so this fixture was creating a
+      // SECOND token displaying the same words. The registry now refuses a
+      // duplicate display name, and it is right to — a member holding both
+      // would see two chips reading "Stay Credits" and no way to tell which
+      // balance is which. The slug is what the rest of this section mints
+      // against, so only the display name moves.
+      { slug: "stay-credits", name: "Stay Passes", kind: "credit", transferable: false },
       founderToken,
     );
     expect(created.status).toBe(200);
