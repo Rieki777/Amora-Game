@@ -101,7 +101,7 @@ export default function Home() {
         </div>
 
         {/* Content */}
-        <div className="container relative z-10 py-20">
+        <div className="container relative z-10 py-10 md:py-20">
           <div className="max-w-2xl">
             <motion.div
               initial={{ opacity: 0, y: 20 }}

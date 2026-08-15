@@ -107,9 +107,9 @@ export default function Housing() {
                 <div className="w-14 h-14 rounded-full bg-teal/10 flex items-center justify-center mx-auto mb-4">
                   <feature.icon className="w-7 h-7 text-teal" />
                 </div>
-                <h3 className="font-display text-lg font-semibold text-foreground mb-2">
+                <h2 className="font-display text-lg font-semibold text-foreground mb-2">
                   {feature.title}
-                </h3>
+                </h2>
                 <p className="text-sm text-muted-foreground">
                   {feature.description}
                 </p>

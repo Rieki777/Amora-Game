@@ -223,7 +223,7 @@ function ProposalForm({
       fd.append("file", file);
       const res = await fetch("/api/work-with-us/attachment", { method: "POST", body: fd });
       const data = await res.json();
-      if (!res.ok) setError(data.error || "Could not attach that file.");
+      if (!res.ok) setError(data.message ?? data.error ?? "Could not attach that file.");
       else setForm({ ...form, attachment: data.filename, attachmentName: data.originalName || file.name });
     } catch {
       setError("Could not attach that file.");
@@ -243,13 +243,17 @@ function ProposalForm({
     if (ok) onSubmitted(); else setError("Something went wrong sending your proposal. Please try again.");
   };
 
+  // The field key doubles as the control's id, so the label this helper
+  // already renders is tied to the textarea it already renders. Six of these
+  // go on the page and every one of them reached a screen reader unnamed.
   const field = (key: keyof Proposal, label: string, hint: string, required: boolean, rows = 3) => (
     <div>
-      <label className="block text-sm font-semibold text-foreground mb-1">
+      <label htmlFor={`work-${String(key)}`} className="block text-sm font-semibold text-foreground mb-1">
         {label} {required && <span className="text-red-500">*</span>}
       </label>
       <p className="text-xs text-muted-foreground mb-2">{hint}</p>
       <textarea
+        id={`work-${String(key)}`}
         value={String(form[key])}
         onChange={(e) => set(key, e.target.value)}
         rows={rows}
@@ -266,20 +270,20 @@ function ProposalForm({
         <p className="text-sm text-muted-foreground mb-4">So we know who we're speaking with.</p>
         <div className="grid md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-semibold text-foreground mb-1">Name <span className="text-red-500">*</span></label>
-            <input type="text" value={form.name} onChange={(e) => set("name", e.target.value)} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep" />
+            <label htmlFor="work-name" className="block text-sm font-semibold text-foreground mb-1">Name <span className="text-red-500">*</span></label>
+            <input id="work-name" autoComplete="name" type="text" value={form.name} onChange={(e) => set("name", e.target.value)} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep" />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-foreground mb-1">Email <span className="text-red-500">*</span></label>
-            <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep" />
+            <label htmlFor="work-email" className="block text-sm font-semibold text-foreground mb-1">Email <span className="text-red-500">*</span></label>
+            <input id="work-email" autoComplete="email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep" />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-foreground mb-1">Phone / WhatsApp</label>
-            <input type="text" value={form.phone} onChange={(e) => set("phone", e.target.value)} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep" />
+            <label htmlFor="work-phone" className="block text-sm font-semibold text-foreground mb-1">Phone / WhatsApp</label>
+            <input id="work-phone" autoComplete="tel" type="text" value={form.phone} onChange={(e) => set("phone", e.target.value)} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep" />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-foreground mb-1">What you do / where you're based</label>
-            <input type="text" value={form.background} onChange={(e) => set("background", e.target.value)} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep" />
+            <label htmlFor="work-background" className="block text-sm font-semibold text-foreground mb-1">What you do / where you're based</label>
+            <input id="work-background" type="text" value={form.background} onChange={(e) => set("background", e.target.value)} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep" />
           </div>
         </div>
       </div>
@@ -324,9 +328,9 @@ function ProposalForm({
             );
           })}
         </div>
-        <label className="block text-sm font-semibold text-foreground mb-1">Tell us more about the exchange you're proposing</label>
+        <label htmlFor="work-reciprocity" className="block text-sm font-semibold text-foreground mb-1">Tell us more about the exchange you're proposing</label>
         <p className="text-xs text-muted-foreground mb-2">Amounts, structure, percentages, a blend, or something we haven't listed.</p>
-        <textarea value={form.reciprocityDetail} onChange={(e) => set("reciprocityDetail", e.target.value)} rows={3} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep resize-y" />
+        <textarea id="work-reciprocity" value={form.reciprocityDetail} onChange={(e) => set("reciprocityDetail", e.target.value)} rows={3} className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg outline-none focus:border-teal-deep resize-y" />
       </div>
 
       {/* Optional attachment */}

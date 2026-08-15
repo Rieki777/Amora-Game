@@ -185,9 +185,14 @@ export default function Visit() {
             <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-stone-200 p-6 md:p-8 space-y-4">
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-semibold text-stone-500 uppercase tracking-wide block mb-1.5">Name</label>
+                  {/* htmlFor on all four. These fields carry no placeholder
+                      either, so an unlinked label left them with nothing at
+                      all to announce. */}
+                  <label htmlFor="visit-name" className="text-xs font-semibold text-stone-500 uppercase tracking-wide block mb-1.5">Name</label>
                   <input
+                    id="visit-name"
                     type="text"
+                    autoComplete="name"
                     required
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -195,9 +200,11 @@ export default function Visit() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-stone-500 uppercase tracking-wide block mb-1.5">Email</label>
+                  <label htmlFor="visit-email" className="text-xs font-semibold text-stone-500 uppercase tracking-wide block mb-1.5">Email</label>
                   <input
+                    id="visit-email"
                     type="email"
+                    autoComplete="email"
                     required
                     value={form.email}
                     onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -206,8 +213,9 @@ export default function Visit() {
                 </div>
               </div>
               <div>
-                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wide block mb-1.5">Visit Type</label>
+                <label htmlFor="visit-type" className="text-xs font-semibold text-stone-500 uppercase tracking-wide block mb-1.5">Visit Type</label>
                 <select
+                  id="visit-type"
                   value={form.visitType}
                   onChange={(e) => setForm({ ...form, visitType: e.target.value })}
                   className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-teal-deep bg-white"
@@ -219,8 +227,9 @@ export default function Visit() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wide block mb-1.5">Anything we should know?</label>
+                <label htmlFor="visit-message" className="text-xs font-semibold text-stone-500 uppercase tracking-wide block mb-1.5">Anything we should know?</label>
                 <textarea
+                  id="visit-message"
                   value={form.message}
                   onChange={(e) => setForm({ ...form, message: e.target.value })}
                   rows={3}

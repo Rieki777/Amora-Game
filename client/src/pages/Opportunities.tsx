@@ -173,9 +173,9 @@ export default function Opportunities() {
                     {opp.status}
                   </span>
                 </div>
-                <h3 className="font-display text-2xl font-bold text-foreground mb-2">
+                <h2 className="font-display text-2xl font-bold text-foreground mb-2">
                   {opp.title}
-                </h3>
+                </h2>
                 <p className="text-muted-foreground mb-4">
                   {opp.description}
                 </p>

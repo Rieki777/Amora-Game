@@ -159,10 +159,16 @@ export default function ToolsHub() {
                           </div>
                         )}
                         <div className="mt-auto pt-3 flex items-center justify-between">
+                          {/* The box was 31.5x16 and the tap zone came only
+                              from the global 44px overlay, which any future
+                              opt-out would have quietly removed. It is a real
+                              44px now, and the label still reads at the same
+                              size beside the link. */}
                           {(tool.description || tool.gettingStarted) && (
                             <button
                               onClick={() => setExpanded(expanded === tool.id ? "" : tool.id)}
-                              className="text-xs text-muted-foreground hover:text-foreground"
+                              aria-expanded={expanded === tool.id}
+                              className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center min-h-[44px] min-w-[44px] px-2 -ml-2"
                             >
                               {expanded === tool.id ? "Less" : "More"}
                             </button>

@@ -155,9 +155,14 @@ export default function Contribute() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 mt-3">
+                {/* aria-label rather than a <label for>: these two fields
+                    repeat once per plan, so a fixed id would be duplicated
+                    down the page. The plan's own name is what tells someone
+                    which amount and which address they are filling in. */}
                 {p.amountMinor == null && (
                   <input
                     type="number" min={p.minAmountMinor / 100} step="1" inputMode="decimal"
+                    aria-label={`Amount to give toward ${p.name}`}
                     value={amounts[p.id] ?? ""}
                     onChange={(e) => setAmounts({ ...amounts, [p.id]: e.target.value })}
                     placeholder={`${(p.minAmountMinor / 100).toFixed(0)} or more`}
@@ -167,6 +172,8 @@ export default function Contribute() {
                 {!user && (
                   <input
                     type="email"
+                    autoComplete="email"
+                    aria-label={`Your email address for ${p.name}`}
                     value={emails[p.id] ?? ""}
                     onChange={(e) => setEmails({ ...emails, [p.id]: e.target.value })}
                     placeholder="you@example.org"

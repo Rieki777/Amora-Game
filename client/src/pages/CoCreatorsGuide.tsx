@@ -403,10 +403,10 @@ export default function CoCreatorsGuide() {
               {/* DESCRIPTIONS */}
               <div className="space-y-6">
                 <div className="p-4 rounded-lg bg-primary/5 border-l-4 border-primary">
-                  <h4 className="font-bold text-foreground mb-2 flex items-center gap-2">
+                  <h3 className="font-bold text-foreground mb-2 flex items-center gap-2">
                     <Heart className="w-5 h-5 text-primary" />
                     What You LOVE (Passion)
-                  </h4>
+                  </h3>
                   <p className="text-sm text-muted-foreground">
                     Your authentic desires and what brings you alive. What would you do
                     even if no one paid you?
@@ -414,10 +414,10 @@ export default function CoCreatorsGuide() {
                 </div>
 
                 <div className="p-4 rounded-lg bg-sage/5 border-l-4 border-sage">
-                  <h4 className="font-bold text-foreground mb-2 flex items-center gap-2">
+                  <h3 className="font-bold text-foreground mb-2 flex items-center gap-2">
                     <Star className="w-5 h-5 text-sage" />
                     What You&apos;re GOOD AT (Skills)
-                  </h4>
+                  </h3>
                   <p className="text-sm text-muted-foreground">
                     Your natural abilities, experience, and expertise. What do others
                     come to you for?
@@ -425,10 +425,10 @@ export default function CoCreatorsGuide() {
                 </div>
 
                 <div className="p-4 rounded-lg bg-emerald-100/50 border-l-4 border-emerald-600">
-                  <h4 className="font-bold text-foreground mb-2 flex items-center gap-2">
+                  <h3 className="font-bold text-foreground mb-2 flex items-center gap-2">
                     <Leaf className="w-5 h-5 text-emerald-600" />
                     What AMORA NEEDS (Regeneration)
-                  </h4>
+                  </h3>
                   <p className="text-sm text-muted-foreground">
                     The gaps we need filled to create a thriving, regenerative community.
                     Where can you fill a real need?
@@ -436,10 +436,10 @@ export default function CoCreatorsGuide() {
                 </div>
 
                 <div className="p-4 rounded-lg bg-amber/5 border-l-4 border-amber">
-                  <h4 className="font-bold text-foreground mb-2 flex items-center gap-2">
+                  <h3 className="font-bold text-foreground mb-2 flex items-center gap-2">
                     <DollarSign className="w-5 h-5 text-amber" />
                     What Earns GRATITUDE (Compensation)
-                  </h4>
+                  </h3>
                   <p className="text-sm text-muted-foreground">
                     Roles, quests, and contributions that our community values and rewards.
                   </p>

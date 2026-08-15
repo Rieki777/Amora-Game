@@ -252,11 +252,17 @@ export default function LoveLetter() {
               {/* Name + Email */}
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  {/* htmlFor on every label here. The text was already above
+                      each field; nothing tied the two together, so a screen
+                      reader met five unnamed controls on the form that
+                      introduces someone to the village. */}
+                  <label htmlFor="letter-name" className="block text-sm font-medium text-foreground mb-2">
                     Full Name <span className="text-destructive">*</span>
                   </label>
                   <input
+                    id="letter-name"
                     type="text"
+                    autoComplete="name"
                     required
                     value={form.name}
                     onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
@@ -265,11 +271,13 @@ export default function LoveLetter() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label htmlFor="letter-email" className="block text-sm font-medium text-foreground mb-2">
                     Email Address <span className="text-destructive">*</span>
                   </label>
                   <input
+                    id="letter-email"
                     type="email"
+                    autoComplete="email"
                     required
                     value={form.email}
                     onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
@@ -281,11 +289,13 @@ export default function LoveLetter() {
 
               {/* Phone */}
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
+                <label htmlFor="letter-phone" className="block text-sm font-medium text-foreground mb-2">
                   Phone / WhatsApp (optional)
                 </label>
                 <input
+                  id="letter-phone"
                   type="tel"
+                  autoComplete="tel"
                   value={form.phone}
                   onChange={e => setForm(p => ({ ...p, phone: e.target.value }))}
                   placeholder="+1 555 000 0000"
@@ -323,13 +333,14 @@ export default function LoveLetter() {
 
               {/* Monthly contribution */}
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
+                <label htmlFor="letter-contribution" className="block text-sm font-medium text-foreground mb-2">
                   Monthly Membership Contribution
                 </label>
                 <p className="text-sm text-muted-foreground mb-3">
                   Tax-deductible contribution to Amora 508(c)(1)(a). Suggested: $33-$108/month.
                 </p>
                 <select
+                  id="letter-contribution"
                   value={form.contribution}
                   onChange={e => setForm(p => ({ ...p, contribution: e.target.value }))}
                   className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
@@ -344,6 +355,7 @@ export default function LoveLetter() {
                 {form.contribution === "custom" && (
                   <input
                     type="text"
+                    aria-label="Your custom monthly contribution"
                     placeholder="Tell us what works for you (e.g. $20/month, in-kind, barter)"
                     value={form.customAmount}
                     onChange={e => setForm(p => ({ ...p, customAmount: e.target.value }))}
@@ -354,10 +366,11 @@ export default function LoveLetter() {
 
               {/* Why */}
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
+                <label htmlFor="letter-why" className="block text-sm font-medium text-foreground mb-2">
                   What called you to Amora? <span className="text-destructive">*</span>
                 </label>
                 <textarea
+                  id="letter-why"
                   required
                   value={form.why}
                   onChange={e => setForm(p => ({ ...p, why: e.target.value }))}

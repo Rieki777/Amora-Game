@@ -132,7 +132,10 @@ export default function Library() {
                   <div className="flex items-center gap-2 mb-1">
                     <Wrench className="w-4 h-4 text-teal-deep" />
                     <p className="font-semibold text-foreground text-sm">{i.name}</p>
-                    <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ${i.status === "available" ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                    {/* gray-500 on gray-100 measured 4.39:1 at 10px, under the
+                        4.5 floor. gray-600 on the same chip is 6.86:1 and the
+                        chip reads the same. */}
+                    <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ${i.status === "available" ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>
                       {STATUS_LABEL[i.status] ?? i.status}
                     </span>
                   </div>

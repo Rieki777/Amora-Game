@@ -174,7 +174,7 @@ export default function Quests() {
   return (
     <Layout>
       {/* Hero */}
-      <section className="py-24 bg-gradient-to-b from-teal/10 to-background">
+      <section className="py-10 md:py-24 bg-gradient-to-b from-teal/10 to-background">
         <div className="container">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -300,14 +300,23 @@ export default function Quests() {
           header, hiding two thirds of the first filter row. top-24 = 6rem. */}
       <section className="sticky top-24 z-30 bg-background/95 backdrop-blur border-b border-border py-4 shadow-sm">
         <div className="container">
-          <div className="flex flex-wrap gap-2 items-center mb-3">
-            <Filter className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-            <span className="text-sm text-muted-foreground">Circle:</span>
+          {/* One scrolling row per filter group instead of five wrapped ones.
+              Wrapped, the fourteen pills stacked seven rows deep and each row
+              sat 32px from the next, which is the whole story on both counts:
+              a 24px pill inside a 32px pitch cannot hold a 44px tap target
+              (the neighbours' hit areas clip it to 32), and seven rows of
+              sticky chrome ate a quarter of a phone screen before a single
+              quest showed. Nowrap gives each pill its own 44px and gives the
+              bar back four rows. The pills themselves are unchanged to look
+              at. */}
+          <div className="flex gap-2 items-center mb-1 overflow-x-auto flex-nowrap" data-scroll-contain>
+            <Filter className="w-4 h-4 text-muted-foreground flex-shrink-0" aria-hidden="true" />
+            <span className="text-sm text-muted-foreground flex-shrink-0">Circle:</span>
             {circles.map((c) => (
               <button
                 key={c}
                 onClick={() => setActiveCircle(c)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                className={`px-3 min-h-[44px] inline-flex items-center whitespace-nowrap flex-shrink-0 rounded-full text-xs font-medium transition-colors ${
                   activeCircle === c
                     ? "bg-teal-deep text-white"
                     : "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -317,14 +326,14 @@ export default function Quests() {
               </button>
             ))}
           </div>
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-sm text-muted-foreground ml-5">Level:</span>
+          <div className="flex gap-2 items-center overflow-x-auto flex-nowrap" data-scroll-contain>
+            <span className="text-sm text-muted-foreground ml-5 flex-shrink-0">Level:</span>
             {(["All", "Beginner", "Intermediate", "Advanced"] as const).map(
               (d) => (
                 <button
                   key={d}
                   onClick={() => setActiveDifficulty(d)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  className={`px-3 min-h-[44px] inline-flex items-center whitespace-nowrap flex-shrink-0 rounded-full text-xs font-medium transition-colors ${
                     activeDifficulty === d
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -334,10 +343,10 @@ export default function Quests() {
                 </button>
               )
             )}
-            <span className="ml-auto text-xs text-muted-foreground">
-              {filtered.length} quest{filtered.length !== 1 ? "s" : ""} shown
-            </span>
           </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            {filtered.length} quest{filtered.length !== 1 ? "s" : ""} shown
+          </p>
         </div>
       </section>
 

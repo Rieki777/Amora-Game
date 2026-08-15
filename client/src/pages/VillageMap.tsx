@@ -425,7 +425,7 @@ function SidePanel({ data, selected, onSelect, onClose }: {
   const seats = data.roles.reduce((n, r) => n + r.seats, 0);
   const open = data.roles.filter((r) => r.vacant).length;
   return (
-    <aside className="w-80 shrink-0 bg-card border border-border rounded-2xl p-5 sticky top-24 max-h-[80vh] overflow-y-auto">
+    <aside data-scroll-contain className="w-80 shrink-0 bg-card border border-border rounded-2xl p-5 sticky top-24 max-h-[80vh] overflow-y-auto">
       {!selected && (
         <div>
           <h2 className="font-display text-lg font-bold text-foreground mb-1">The whole village</h2>
@@ -756,7 +756,8 @@ function NodeCard({ data, selected, onClose }: { data: MapData; selected: { kind
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="bg-white w-full rounded-t-2xl p-6 pb-[calc(1.5rem+4rem+env(safe-area-inset-bottom,0px))] max-h-[80vh] overflow-y-auto focus:outline-none"
+        data-scroll-contain
+        className="bg-white w-full rounded-t-2xl p-6 pb-[calc(1.5rem+var(--tabbar-h))] max-h-[80vh] overflow-y-auto focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-3">
@@ -798,8 +799,11 @@ function ConciergeBar({ onPick }: { onPick: (kind: string, id: string) => void }
     <div className="max-w-2xl mx-auto mb-8">
       <div className="flex gap-2">
         <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          {/* The placeholder was the only thing naming this field, and a
+              placeholder goes away the moment someone types. */}
           <input
+            aria-label="What do you want to help with?"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && ask()}

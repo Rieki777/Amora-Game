@@ -86,14 +86,14 @@ function ThreadList() {
 
   return (
     <Layout>
-      <section className="py-12 bg-gradient-to-b from-teal-deep/5 to-background">
+      <section className="py-6 md:py-12 bg-gradient-to-b from-teal-deep/5 to-background">
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Village Forum</h1>
           <p className="text-muted-foreground">Conversations, questions, and the decisions we make together.</p>
           <ExamplesBanner moduleId="forum" noun="thread" />
         </div>
       </section>
-      <section className="py-8 bg-background">
+      <section className="py-4 md:py-8 bg-background">
         <div className="container max-w-3xl space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => setCategory("")}

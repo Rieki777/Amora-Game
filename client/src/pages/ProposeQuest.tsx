@@ -224,10 +224,12 @@ export default function ProposeQuest() {
 
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
+                <label htmlFor="quest-name" className="block text-sm font-medium text-foreground mb-2">
                   Your name <span className="text-destructive">*</span>
                 </label>
                 <input
+                  id="quest-name"
+                  autoComplete="name"
                   type="text"
                   required
                   value={form.name}
@@ -237,10 +239,12 @@ export default function ProposeQuest() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
+                <label htmlFor="quest-email" className="block text-sm font-medium text-foreground mb-2">
                   Email <span className="text-destructive">*</span>
                 </label>
                 <input
+                  id="quest-email"
+                  autoComplete="email"
                   type="email"
                   required
                   value={form.email}
@@ -252,10 +256,11 @@ export default function ProposeQuest() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
+              <label htmlFor="quest-title" className="block text-sm font-medium text-foreground mb-2">
                 Quest title <span className="text-muted-foreground font-normal">(optional)</span>
               </label>
               <input
+                id="quest-title"
                 type="text"
                 value={form.title}
                 onChange={(e) => set("title", e.target.value)}
@@ -265,10 +270,11 @@ export default function ProposeQuest() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
+              <label htmlFor="quest-what" className="block text-sm font-medium text-foreground mb-2">
                 What do you want to do? <span className="text-destructive">*</span>
               </label>
               <textarea
+                id="quest-what"
                 required
                 rows={4}
                 value={form.whatYouWantToDo}
@@ -279,10 +285,11 @@ export default function ProposeQuest() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
+              <label htmlFor="quest-bringing" className="block text-sm font-medium text-foreground mb-2">
                 What resources are you bringing?
               </label>
               <textarea
+                id="quest-bringing"
                 rows={3}
                 value={form.resourcesBringing}
                 onChange={(e) => set("resourcesBringing", e.target.value)}
@@ -292,10 +299,11 @@ export default function ProposeQuest() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
+              <label htmlFor="quest-needed" className="block text-sm font-medium text-foreground mb-2">
                 What do you need from Amora?
               </label>
               <textarea
+                id="quest-needed"
                 rows={3}
                 value={form.resourcesNeeded}
                 onChange={(e) => set("resourcesNeeded", e.target.value)}
@@ -305,10 +313,11 @@ export default function ProposeQuest() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
+              <label htmlFor="quest-compensation" className="block text-sm font-medium text-foreground mb-2">
                 What compensation, if any, do you want?
               </label>
               <textarea
+                id="quest-compensation"
                 rows={2}
                 value={form.compensation}
                 onChange={(e) => set("compensation", e.target.value)}
@@ -318,10 +327,11 @@ export default function ProposeQuest() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
+              <label htmlFor="quest-timeline" className="block text-sm font-medium text-foreground mb-2">
                 Execution timeline &amp; payment milestones, if any
               </label>
               <textarea
+                id="quest-timeline"
                 rows={3}
                 value={form.timelineMilestones}
                 onChange={(e) => set("timelineMilestones", e.target.value)}

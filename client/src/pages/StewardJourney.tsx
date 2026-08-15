@@ -672,11 +672,16 @@ function StewardNextStepForm() {
     <form onSubmit={handleSubmit} className="bg-card rounded-2xl p-8 shadow-sm space-y-5">
       <div className="grid sm:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">
+          {/* Each label is tied to its field by htmlFor. They were plain text
+              above unlinked inputs, so a screen reader announced four
+              controls here with no names at all. */}
+          <label htmlFor="steward-name" className="block text-sm font-medium text-foreground mb-1.5">
             Your name <span className="text-destructive">*</span>
           </label>
           <input
+            id="steward-name"
             type="text"
+            autoComplete="name"
             required
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -685,11 +690,13 @@ function StewardNextStepForm() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">
+          <label htmlFor="steward-email" className="block text-sm font-medium text-foreground mb-1.5">
             Email <span className="text-destructive">*</span>
           </label>
           <input
+            id="steward-email"
             type="email"
+            autoComplete="email"
             required
             value={form.email}
             onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
@@ -700,10 +707,11 @@ function StewardNextStepForm() {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-foreground mb-1.5">
+        <label htmlFor="steward-gifts" className="block text-sm font-medium text-foreground mb-1.5">
           What gifts do you bring? (skills, time, passion)
         </label>
         <input
+          id="steward-gifts"
           type="text"
           value={form.gifts}
           onChange={(e) => setForm((f) => ({ ...f, gifts: e.target.value }))}
@@ -713,10 +721,11 @@ function StewardNextStepForm() {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-foreground mb-1.5">
+        <label htmlFor="steward-question" className="block text-sm font-medium text-foreground mb-1.5">
           What called you to stewardship?
         </label>
         <textarea
+          id="steward-question"
           rows={3}
           value={form.question}
           onChange={(e) => setForm((f) => ({ ...f, question: e.target.value }))}

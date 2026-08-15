@@ -42,7 +42,7 @@ export default function Feedback() {
     })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not send that");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Could not send that");
         setSent({ shared: !!d.shared });
       })
       .catch((e) => setError(e.message))

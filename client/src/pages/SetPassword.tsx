@@ -29,7 +29,7 @@ export default function SetPassword() {
         body: JSON.stringify({ token, password: pw }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not set the password");
+      if (!res.ok) throw new Error(data.message ?? data.error ?? "Could not set the password");
       localStorage.setItem("amora-auth-token", data.token);
       setDone(true);
       // Admins land on the admin panel; everyone else on their profile. This
@@ -79,16 +79,26 @@ export default function SetPassword() {
                   </p>
                 )}
                 <form onSubmit={submit} className="space-y-4">
+                  {/* A placeholder is not a name: it disappears on the first
+                      keystroke and a screen reader may never announce it.
+                      Both fields carry a real one, plus the autocomplete
+                      token that lets a password manager offer to save. */}
+                  <label htmlFor="set-password-new" className="sr-only">New password</label>
                   <input
+                    id="set-password-new"
                     type="password"
+                    autoComplete="new-password"
                     value={pw}
                     onChange={(e) => setPw(e.target.value)}
                     placeholder="New password (8+ characters)"
                     autoFocus
                     className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
+                  <label htmlFor="set-password-repeat" className="sr-only">Repeat the new password</label>
                   <input
+                    id="set-password-repeat"
                     type="password"
+                    autoComplete="new-password"
                     value={pw2}
                     onChange={(e) => setPw2(e.target.value)}
                     placeholder="Repeat it"

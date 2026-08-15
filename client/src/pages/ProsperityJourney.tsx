@@ -266,9 +266,9 @@ export default function ProsperityJourney() {
               >
                 <Heart className="w-12 h-12 text-gold mx-auto mb-4" />
               </motion.div>
-              <h3 className="font-display text-xl font-semibold text-foreground mb-3">
+              <h2 className="font-display text-xl font-semibold text-foreground mb-3">
                 Gratitude Economy
-              </h3>
+              </h2>
               <p className="text-muted-foreground text-sm">
                 All businesses integrate with our contribution tracking system. Revenue shares are acknowledged in Gratitude (the recognition signal, with no financial value of its own), and each cycle a real pool of {valueName} is shared across everyone's Gratitude. As Amora matures, {valueName} can convert to cash, equity, or community currency.
               </p>
@@ -287,9 +287,9 @@ export default function ProsperityJourney() {
               >
                 <Users className="w-12 h-12 text-gold mx-auto mb-4" />
               </motion.div>
-              <h3 className="font-display text-xl font-semibold text-foreground mb-3">
+              <h2 className="font-display text-xl font-semibold text-foreground mb-3">
                 Co-Ownership Model
-              </h3>
+              </h2>
               <p className="text-muted-foreground text-sm">
                 All Amora businesses are co-owned by the village community. You operate and manage your 
                 enterprise while the community shares in success through revenue participation.

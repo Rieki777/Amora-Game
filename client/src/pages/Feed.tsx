@@ -92,7 +92,7 @@ export default function Feed() {
     })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Could not post");
+        if (!r.ok) throw new Error(d.message ?? d.error ?? "Could not post");
         setDraft("");
         // Drops the forum's label with it: the two are retired as a pair
         // server-side (RETIRE_TOGETHER), and the helper keeps that rule.
@@ -108,7 +108,7 @@ export default function Feed() {
       .then(async (r) => {
         const { ok, data: d, refusal } = await readRefusal(r);
         if (refusal) { setRefusedPost({ id: item.id, message: refusal }); return; }
-        if (!ok) throw new Error(d?.error || "Could not send");
+        if (!ok) throw new Error(d?.message ?? d?.error ?? "Could not send");
         load();
       })
       .catch((e) => setError(e.message));
@@ -116,7 +116,7 @@ export default function Feed() {
 
   return (
     <Layout>
-      <section className="py-12 bg-gradient-to-b from-teal-deep/5 to-background">
+      <section className="py-6 md:py-12 bg-gradient-to-b from-teal-deep/5 to-background">
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Village Feed</h1>
           <p className="text-muted-foreground">
@@ -126,7 +126,7 @@ export default function Feed() {
           <ExamplesBanner moduleId="feed" noun="post" />
         </div>
       </section>
-      <section className="py-8 bg-background">
+      <section className="py-4 md:py-8 bg-background">
         <div className="container max-w-xl space-y-4">
           {user && data && (
             <div className="bg-card border border-border rounded-xl p-4 space-y-2">
@@ -217,16 +217,24 @@ export default function Feed() {
                     accepted a tag and no card ever showed one, so the only way
                     to use it was to guess a word. Tapping a chip fills the
                     filter, which the effect above already watches. */}
+                {/* The chip a thumb aims at is 44px tall; the chip an eye
+                    reads is the same 19px pill it always was, centred inside
+                    it. Measured before: the tag row's own 19px boxes left
+                    three of them with a 39 to 40px hit area, because the 44px
+                    overlay the global rule adds was being clipped by the row
+                    above. */}
                 {(item.tags ?? []).length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2">
+                  <div className="flex flex-wrap gap-x-1.5 mt-1">
                     {item.tags.map((t: string) => (
                       <button
                         key={t}
                         onClick={() => setTag(t)}
                         aria-label={`Show only posts tagged ${t}`}
-                        className="text-[10px] bg-muted text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded-full"
+                        className="inline-flex items-center min-h-[44px]"
                       >
-                        #{t}
+                        <span className="text-[10px] bg-muted text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded-full">
+                          #{t}
+                        </span>
                       </button>
                     ))}
                   </div>
