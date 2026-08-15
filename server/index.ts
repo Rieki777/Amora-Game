@@ -133,7 +133,19 @@ import {
   transcriptFor,
   videoIdsFromRss,
 } from "./lib/recordings";
-import { chapterCandidates, synthesisSystemPrompt, validateTasks } from "./lib/callSynthesis";
+import { chapterCandidates, synthesisSystemPrompt } from "./lib/callSynthesis";
+// ── K2 ZONE START: synthesis through the batch API ──────────────────────────
+import {
+  MAX_BATCH_SIZE,
+  SYNTHESIS_MAX_TOKENS,
+  SYNTHESIS_MODEL,
+  enqueueSynthesis,
+  pendingSynthesisRecordings,
+  pollSynthesisBatches,
+  type BatchRecordingInput,
+} from "./lib/synthesisBatch";
+import { writeSynthesis } from "./lib/synthesisWriter";
+// ── K2 ZONE END: synthesis through the batch API ────────────────────────────
 import { doughnutData, governanceReads, regenEntries, regenTotals, snapshotCycle, snapshotSeries, thresholdAlerts } from "./lib/health";
 import { REGEN_METRICS, TREND_MIN_LUNATIONS } from "../shared/healthMetrics";
 import {
@@ -3519,6 +3531,22 @@ async function assistantDailyCapReached(max: number): Promise<boolean> {
   return overLimit(`assistant-day:${today}`, max, 24 * 60 * 60 * 1000);
 }
 
+/**
+ * Check-only twin of the above, for callers that are not themselves a call.
+ *
+ * `overLimit` INSERTS a hit whenever it answers "not yet", which is exactly
+ * right for a request a person just made and exactly wrong for a timer. The
+ * batch job asks this question every five minutes, 288 times a day, and using
+ * the recording version would have spent nearly half the village's daily
+ * assistant budget on ticks that submitted nothing at all. The batch path
+ * records its hits per request it actually submits, one each, which is the
+ * same accounting the Synthesize button does per click.
+ */
+async function assistantDailyCapAtLimit(max: number): Promise<boolean> {
+  const today = new Date().toISOString().slice(0, 10);
+  return atLimit(`assistant-day:${today}`, max, 24 * 60 * 60 * 1000);
+}
+
 async function startServer() {
   /*
    * PY6: crashes get somewhere before anything else can crash.
@@ -3952,6 +3980,106 @@ async function startServer() {
     // person took: the manual ingest route and the admin clear button.
     return `${entries.length} in feed, ${fresh} new`;
   });
+
+  // ── K2 ZONE START: synthesis through the batch API ───────────────────────
+  /*
+   * Half-price synthesis for the recordings nobody is waiting on.
+   *
+   * The admin synthesize route is untouched and still synchronous: a person
+   * clicked it and is watching a spinner, so latency is the product there and
+   * full price is what an answer now costs. This job is the other case. A
+   * recording that arrived by RSS or webhook and got a transcript is sitting
+   * there with nobody watching, and the Message Batches API charges half for
+   * every token in exchange for time: results usually inside an hour, at most
+   * 24. A timer has all the time there is.
+   *
+   * OFF by default, and that is a decision rather than caution. Turning it on
+   * changes what synthesis IS. Today it is an explicit admin act, which
+   * server/lib/callSynthesis.ts states in its own header ("nothing in this
+   * file runs on a schedule"), and the automation module promises members that
+   * nothing publishes or applies itself. On, a schedule starts drafting. That
+   * is a village's call to make, not a default this lane gets to set for every
+   * fork, so `assistant.synthesis_batch` ships off and the runbook says what
+   * flipping it buys and what it costs.
+   *
+   * THE BRAKES ARE THE ROUTE'S BRAKES. The ready-queue backpressure, the
+   * global daily cap and the key check all run here too. A timer that outran
+   * the guards a person agreed to would be a way of spending past them.
+   *
+   * Same idiom as every job in this block: getPool(), the module check and the
+   * variable read all sit INSIDE the closure. `loadModuleSettings` and the
+   * variable load both run AFTER this registerJob call, so a check evaluated
+   * at registration time reads the platform default for the life of the
+   * process. registerJob captures a function, never a value.
+   */
+  registerJob("synthesis-batch-poll", 5 * 60 * 1000, async () => {
+    if (effectiveLifecycle("automation") === "off") return "automation module off";
+    const apiKey = getEmailConfig().assistant_api_key || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return "no assistant key";
+    const batchOpts = {
+      apiKey,
+      baseUrl: process.env.ANTHROPIC_BASE_URL,
+      villageId: instanceIdentity().instanceId,
+    };
+
+    // Poll BEFORE reading the switch, and unconditionally. A batch that was
+    // already submitted has already been paid for, so turning batching off has
+    // to drain what is in flight rather than strand it. Polling also has to
+    // come before the enqueue below: an ended batch writes syntheses into the
+    // ready queue, and the backpressure check has to see the queue as it is
+    // after that.
+    const polled = await pollSynthesisBatches(getPool(), batchOpts);
+    if (!boolVar("assistant.synthesis_batch")) {
+      return polled.polled
+        ? `batching off, draining ${polled.polled} open, ${polled.written} written`
+        : "batching off";
+    }
+
+    let enqueued = "";
+    const maxQueue = Number((moduleConfig("automation") as any)?.maxReadyQueue ?? 15);
+    const [[queue]] = await getPool().query<any[]>(
+      "SELECT COUNT(*) AS n FROM call_syntheses WHERE published_at IS NULL AND is_example = 0",
+    );
+    if (Number(queue.n) >= maxQueue) {
+      enqueued = `; ready queue full at ${queue.n}`;
+    } else if (await assistantDailyCapAtLimit(600)) {
+      enqueued = "; daily cap reached";
+    } else {
+      const room = Math.min(MAX_BATCH_SIZE, maxQueue - Number(queue.n));
+      const inputs: BatchRecordingInput[] = [];
+      let capped = false;
+      for (const p of await pendingSynthesisRecordings(getPool(), room)) {
+        const transcript = await transcriptFor(getPool(), p.id);
+        if (!transcript) continue;
+        // The same zero-token pre-pass the route runs: the candidates the
+        // model may choose from, computed before a single token is spent.
+        const roleCandidates = scoreCandidates(
+          transcript.body.slice(0, 4000),
+          rolesRepo.all().map((r: any) => ({ kind: "role" as any, id: r.id, name: r.name ?? r.id, purpose: r.purpose ?? r.description ?? "" })),
+        ).filter((c: any) => c.score > 0).slice(0, 8)
+          .map((c: any) => ({ id: c.id, name: c.name, purpose: String(c.purpose ?? "").slice(0, 120) }));
+        // One hit per request that is actually going in, which is what the
+        // Synthesize button spends per click. Charged here rather than at the
+        // top of the tick so a tick that submits nothing costs nothing.
+        if (await assistantDailyCapReached(600)) { capped = true; break; }
+        inputs.push({
+          recordingId: p.id,
+          title: p.title,
+          segments: transcript.segments,
+          chapterMarks: chapterCandidates(transcript.segments),
+          roleCandidates,
+        });
+      }
+      const submitted = await enqueueSynthesis(getPool(), inputs, batchOpts);
+      if (submitted.batchId) enqueued = `; enqueued ${submitted.requested} in ${submitted.batchId}`;
+      else if (submitted.reason) enqueued = `; ${submitted.reason}`;
+      if (capped) enqueued += "; daily cap reached";
+    }
+    return `${polled.polled} open, ${polled.ended} ended, ${polled.written} written, ` +
+      `${polled.unusable} unusable, ${polled.errored} errored, ${polled.expired} expired, ` +
+      `${polled.canceled} canceled${enqueued}`;
+  });
+  // ── K2 ZONE END: synthesis through the batch API ─────────────────────────
 
   // ── LANE A ZONE START: the derivation job ────────────────────────────────
   /*
@@ -10150,8 +10278,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
         method: "POST",
         headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 2000,
+          // The model and the reply cap are shared with the batch path, so the
+          // two ways a synthesis can arrive can never quietly ask for
+          // different things. Batching changes the price, never the ask.
+          model: SYNTHESIS_MODEL,
+          max_tokens: SYNTHESIS_MAX_TOKENS,
           system: synthesisSystemPrompt(roleCandidates),
           messages: [{
             role: "user",
@@ -10177,7 +10308,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       await recordAssistantUsage(getPool(), {
         villageId: instanceIdentity().instanceId,
         mode: "synthesize",
-        model: "claude-haiku-4-5-20251001",
+        model: SYNTHESIS_MODEL,
         // Always the village's own: this path resolves the admin-typed key or
         // ANTHROPIC_API_KEY and never reaches the borrowed platform key.
         keySource: "village",
@@ -10192,37 +10323,29 @@ Send an empty drafts array when you are still listening. A role payload is {name
         stopReason: data?.stop_reason ?? null,
       });
       // ── LANE A ZONE END: the raw synthesis path ──────────────────────────
-      const text = String(data?.content?.[0]?.text ?? "").replace(/^```json\s*|```\s*$/g, "");
-      let parsed: any;
-      try { parsed = JSON.parse(text); } catch {
+      // ── K2 ZONE START: one writer, two arrival times ─────────────────────
+      // The parse, the evidence rule and the four writes moved to
+      // server/lib/synthesisWriter.ts unchanged. They are shared now because a
+      // reply also arrives on the batch poll up to a day later, and a second
+      // copy of the rule that drops unevidenced tasks is one copy that will
+      // eventually stop dropping them. This route is otherwise untouched: same
+      // guards, same synchronous upstream call, same responses.
+      const written = await writeSynthesis(getPool(), {
+        recordingId: rec.id,
+        replyText: String(data?.content?.[0]?.text ?? ""),
+        segments: transcript.segments,
+        candidateRoleIds: new Set(roleCandidates.map((c) => c.id)),
+        chapterMarks,
+        model: SYNTHESIS_MODEL,
+      });
+      if (!written.ok) {
         return res.status(502).json({ error: "The assistant's answer was not usable JSON. Nothing was saved" });
       }
-
-      // THE EVIDENCE RULE: quote + timestamp verified against the tape, or
-      // dropped — and the drops are counted where admins can see them.
-      const candidateIds = new Set(roleCandidates.map((c) => c.id));
-      const { kept, dropped } = validateTasks(parsed.tasks, transcript.segments, candidateIds);
-
-      const synthId = `syn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const overview = String(parsed.overview ?? "").slice(0, 20000) || "(the assistant returned no overview)";
-      await getPool().query(
-        "INSERT INTO call_syntheses (id, recording_id, ai_body, body, chapters, decisions, model, dropped_task_count) VALUES (?,?,?,?,?,?,?,?)",
-        [synthId, rec.id, overview, overview,
-          JSON.stringify(Array.isArray(parsed.chapters) ? parsed.chapters : chapterMarks),
-          JSON.stringify(Array.isArray(parsed.decisions) ? parsed.decisions : []),
-          "claude-haiku-4-5-20251001", dropped],
-      );
-      for (const t of kept) {
-        await getPool().query(
-          "INSERT INTO call_tasks (id, synthesis_id, description, quote, timestamp_ms, role_id) VALUES (?,?,?,?,?,?)",
-          [`ct-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, synthId, t.description, t.quote, t.timestampMs, t.roleId],
-        );
-      }
-      await getPool().query("UPDATE recordings SET status = 'synthesized' WHERE id = ?", [rec.id]);
+      // ── K2 ZONE END: one writer, two arrival times ───────────────────────
       await moduleActivity("automation", "automation", `A call synthesis is ready for review: ${rec.title}`, {
         actorUserId: adminActor(req)?.id, entityType: "recording", entityRef: rec.id,
       });
-      res.json({ success: true, synthesisId: synthId, tasks: kept.length, dropped });
+      res.json({ success: true, synthesisId: written.synthesisId, tasks: written.kept, dropped: written.dropped });
     } catch (e) {
       console.error("[automation] synthesis failed", e);
       res.status(502).json({ error: "The assistant did not answer. The recording stays transcribed; try again" });

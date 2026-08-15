@@ -24,9 +24,12 @@ import type { AssistantUsage, KeySource } from "./assistant";
  * `loop` is the two-POST tool loop and the default, because every row written
  * before this existed came off it. `prefetch` read the reader first and made
  * one POST. `deterministic` answered from the village record with no model at
- * all, and its row carries zeros throughout.
+ * all, and its row carries zeros throughout. `batch` (Lane K2) went through the
+ * Message Batches API, where every token is billed at HALF the list rate: the
+ * token counts on those rows are real and unhalved, because they are token
+ * facts, and the discount is a billing fact the rollup applies.
  */
-export type AssistantPath = "deterministic" | "prefetch" | "loop";
+export type AssistantPath = "deterministic" | "prefetch" | "loop" | "batch";
 
 export interface UsageRecord {
   /** instanceIdentity().instanceId. Minted at first boot, not configurable. */

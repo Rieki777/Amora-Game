@@ -688,6 +688,18 @@ export const VARIABLES: VariableDef[] = [
     unit: "days",
   },
 
+  // ── Call automation ──────────────────────────────────────────────────────
+  {
+    key: "assistant.synthesis_batch",
+    category: "Automation",
+    label: "Draft call syntheses in the background at half price",
+    description:
+      "Recordings that have a transcript and no synthesis are sent to the model in one batch instead of one call at a time. Every token in a batch costs half. Results usually arrive within an hour and can take up to a day, so this suits the recordings nobody is waiting on. The Synthesize button in Admin is unaffected: it still answers straight away at full price, because a person is watching it. Off keeps every synthesis something a person asks for.",
+    type: "boolean",
+    default: "false",
+    ring: "founder",
+  },
+
   // ── Village map (S19-S23; visible in Admin only while the module is non-off) ──
   {
     key: "map.public_structure",
