@@ -202,27 +202,6 @@ export default function Quests() {
               {currencyName} available
             </p>
 
-            {/* Propose-your-own CTA — right alongside the hero */}
-            <div className="max-w-2xl mx-auto bg-card border border-teal/20 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row items-center gap-4 text-left">
-              <div className="w-12 h-12 rounded-xl bg-amber/15 flex items-center justify-center shrink-0">
-                <Lightbulb className="w-6 h-6 text-amber-600" />
-              </div>
-              <div className="flex-1">
-                <h2 className="font-display text-lg font-bold text-foreground">
-                  Don't see your gift here?
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Anyone with an idea to add value can propose their own unique quest.
-                  Tell us what you want to bring and what you'd need to make it real.
-                </p>
-              </div>
-              <Link href="/propose-quest">
-                <a className="shrink-0 inline-flex items-center gap-2 px-5 py-3 bg-primary text-primary-foreground rounded-lg font-semibold hover:opacity-90 transition-opacity">
-                  Propose a Quest
-                  <ArrowRight className="w-4 h-4" />
-                </a>
-              </Link>
-            </div>
           </motion.div>
         </div>
       </section>
@@ -347,6 +326,49 @@ export default function Quests() {
           <p className="text-xs text-muted-foreground mt-1">
             {filtered.length} quest{filtered.length !== 1 ? "s" : ""} shown
           </p>
+        </div>
+      </section>
+
+      {/*
+       * Propose-your-own CTA. It used to sit at the end of the hero, and on a
+       * phone that put it at y772 to y820 in a 375x812 Safari viewport, where
+       * the fixed tab bar owns everything below y747: the whole control was
+       * behind the bar and a tap at its centre opened Gratitude instead.
+       *
+       * It cannot be nudged out of that band. The clear window at the end of
+       * the hero is a 15px slice (lift it 73px and 812 clears, lift it 89 and
+       * a 664 viewport pulls it back INTO the band from below), which any copy
+       * edit would close again. Clearing it upward instead needs a 201px lift
+       * — the whole explainer paragraph and the stats line — because a 390x664
+       * viewport wants the card either wholly under y599 or wholly past y664.
+       *
+       * So it moves below the filters, where it is past the fold by 76px at
+       * 390x844 and by more at the other two heights, and where "don't see
+       * your gift here" reads better anyway: after the board's filters rather
+       * than before anyone has seen the board.
+       */}
+      <section className="pb-2 bg-background">
+        <div className="container">
+          <div className="max-w-2xl mx-auto bg-card border border-teal/20 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row items-center gap-4 text-left mt-6">
+            <div className="w-12 h-12 rounded-xl bg-amber/15 flex items-center justify-center shrink-0">
+              <Lightbulb className="w-6 h-6 text-amber-600" />
+            </div>
+            <div className="flex-1">
+              <h2 className="font-display text-lg font-bold text-foreground">
+                Don't see your gift here?
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Anyone with an idea to add value can propose their own unique quest.
+                Tell us what you want to bring and what you'd need to make it real.
+              </p>
+            </div>
+            <Link href="/propose-quest">
+              <a className="shrink-0 inline-flex items-center gap-2 px-5 py-3 bg-primary text-primary-foreground rounded-lg font-semibold hover:opacity-90 transition-opacity">
+                Propose a Quest
+                <ArrowRight className="w-4 h-4" />
+              </a>
+            </Link>
+          </div>
         </div>
       </section>
 
