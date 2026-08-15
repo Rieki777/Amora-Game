@@ -437,6 +437,7 @@ import {
   LIFECYCLE_RANK, MODULES, MODULES_BY_ID, priceLine, supportRoute, vendorModules,
   type ModuleLifecycle,
 } from "../shared/modules";
+import { poolStatus } from "../shared/modulePool";
 import { resolveHyphaLinks } from "../shared/hypha";
 import { getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
@@ -5554,6 +5555,13 @@ async function startServer() {
       dataClass: m.dataClass,
       provides: m.provides ?? null,
       support: supportRoute(m),
+      // ── Lane P: the $ReGen builders' pool ─────────────────────────────────
+      // Derived from the registry entry on every request, never stored, so it
+      // cannot drift from `pricing`, `builtBy` or `withdrawn`. It rides beside
+      // `tier` for the same reason `tier` travels at all: a member reading a
+      // module's card is entitled to know whether the person who wrote it is
+      // paid by ReGen Civics or by this village's invoice.
+      pool: poolStatus(m),
     }));
     res.json({
       platform: {

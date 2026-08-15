@@ -246,6 +246,24 @@ export interface ModuleDef {
    * and it is exactly the case a healthy library should make easy.
    */
   builtBy?: string;
+  /**
+   * Where the $ReGen builders' pool sends this module's share, when the
+   * builder wants one.
+   *
+   * A sibling of `builtBy` rather than a field inside it, because `builtBy` is
+   * a credit LINE: a name a person wrote for a reader, and a name is not a
+   * record with an address in it. Widening it into an object would rewrite
+   * every existing credit for the sake of a field almost none of them use.
+   *
+   * Optional on purpose, and absence is a real state rather than a gap. A
+   * module with no address still earns its share; the hub's cycle statement
+   * records the share as unpaid and names why, so a builder can add an address
+   * later and collect what accrued. Eligibility never depends on this field,
+   * only settlement does. `shared/modulePool.ts` checks the shape; nothing
+   * here can check that the address belongs to the person named above, which
+   * is one of the reasons a human signs the statement.
+   */
+  builtByPayout?: { chain: "base"; address: string };
   /** What this listing costs. Absent means it adds no charge of its own. */
   pricing?: ModulePricing;
   /** Set once the listing stops being offered. Blocks new enables, serves as before. */
