@@ -93,13 +93,17 @@ describe.skipIf(!configured)("token visibility", () => {
   });
 
   it("follows a rename through to the public feed", async () => {
+    // A deliberately invented name, not any real village's word for its
+    // currency: the brand guard holds platform code to "no village's brand in
+    // platform code", and a test is platform code like any other.
+    const RENAMED = "Harvest Tokens";
     await setActive(true);
-    await db.conn.query("UPDATE `tokens` SET `name` = ? WHERE `slug` = ?", ["Amora Credits", SLUG]);
+    await db.conn.query("UPDATE `tokens` SET `name` = ? WHERE `slug` = ?", [RENAMED, SLUG]);
     const rules = await publicRules(db.conn as any);
-    expect(rules.map((r) => r.token)).toContain("Amora Credits");
+    expect(rules.map((r) => r.token)).toContain(RENAMED);
     expect(rules.map((r) => r.token)).not.toContain("Village Credits");
     // And the sentence a member actually reads carries the new word.
-    expect(rules.find((r) => r.token === "Amora Credits")?.says ?? "").toContain("Amora Credits");
+    expect(rules.find((r) => r.token === RENAMED)?.says ?? "").toContain(RENAMED);
     await db.conn.query("UPDATE `tokens` SET `name` = ? WHERE `slug` = ?", ["Village Credits", SLUG]);
   });
 
