@@ -20,6 +20,135 @@ export const LIFECYCLE_RANK: Record<ModuleLifecycle, number> = {
   public: 3,
 };
 
+// ── The module library ───────────────────────────────────────────────────────
+// A listing is a module that connects this platform to an outside paid
+// service. Every listing is first-party code in this repository: a connector
+// the platform writes and maintains against somebody's API. No vendor code
+// runs inside a village's server and there is no plugin runtime.
+
+/** The contract version a listing is accepted under. Stamped at enable time. */
+export const MODULE_LIBRARY_CONTRACT_VERSION = "1.0";
+
+/**
+ * Concurrent managed listings, hard. Two, and the second is a transition slot.
+ * The reason lives beside the check in `moduleListingProblems`, where anybody
+ * tempted to raise the number has to read it first.
+ */
+export const MANAGED_LISTING_CAP = 2;
+
+/**
+ * Who bills and who supports. That pair is the only thing anybody asks at the
+ * moment they need an answer, so it is the tier; who BUILT something is a
+ * credit line and never a badge.
+ *
+ *   included   the platform bills (it is in the platform price) and supports
+ *              it end to end. Credential is none, or the village's own
+ *              upstream account where the village is the merchant of record.
+ *              No pill in the catalog: included is the absence of a badge,
+ *              the same way everything that is not core is silent today.
+ *   connected  the vendor bills the village directly and answers for the
+ *              service; the platform answers for the connector. The
+ *              credential is a secrets-store entry the village holds and can
+ *              see as source and last4. That visibility IS the tier: the
+ *              village has its own account and can revoke it unaided.
+ *   managed    the platform bills and takes the first call; the vendor sits
+ *              behind a private escalation the village never sees. The
+ *              credential is platform-held, env-only, and never returned to a
+ *              village even masked, because it is not the village's to see.
+ *              This is the PLATFORM_ASSISTANT_KEY posture generalised, and it
+ *              is settled policy under hub ADR-49.
+ *
+ * The credential PLANE is the mechanical definition of the tier, never a
+ * description of it. That is what makes a tier checkable instead of
+ * decorative, and `moduleListingProblems` below is where it is checked.
+ *
+ * The tier is a label and never a gate. Enabling a module makes no network
+ * call, reads no secret and checks no licence; the credential is the
+ * entitlement in every tier.
+ */
+export type ModuleTier = "included" | "connected" | "managed";
+
+/**
+ * The widest class of data this module's own domain holds. Orthogonal to
+ * tier, deliberately: data protection does not soften because somebody else
+ * sends the invoice.
+ *
+ * Read it as the widest thing in the module's tables, never the average. A
+ * booking, an RSVP, a loan and a private message all identify a named person,
+ * which is why most of this platform carries `member-pii`. The gate hanging
+ * off it applies at every tier: nothing marked `member-pii` goes live behind a
+ * vendor driver without a signed processing agreement, a documented
+ * hard-delete endpoint, and a `forgetMember` driver wired into the deletion
+ * sweep that fails VISIBLY when it cannot confirm.
+ */
+export type ModuleDataClass = "none" | "village-content" | "member-pii";
+
+/**
+ * What healthy looks like, declared by the listing instead of guessed at.
+ *
+ * Absence of a failure is not evidence of health. A module that is off, a
+ * driver that never fires and a job that quietly stopped all produce no
+ * failure record at all, and that blind spot is exactly where slow rot lives.
+ * So a listing states one of two things and lives with it:
+ *
+ *   window     a successful call is normally expected inside `withinHours`.
+ *              Silence longer than that reads as stale.
+ *   on-demand  this integration is called when somebody asks and silence is
+ *              normal. Stated plainly so silence is never read as health
+ *              either.
+ */
+export type ModuleLiveness =
+  | { mode: "window"; withinHours: number }
+  | { mode: "on-demand" };
+
+/**
+ * The named counterparty behind a listing. Every field here is DATA rather
+ * than shipped prose: `scripts/check-voice.mjs` parses `shared/` and reads
+ * string literals, so a vendor's name written into `description` would be
+ * catalog copy held to the house writing rules, while `legalName` is a value
+ * in a field. Keep it that way.
+ *
+ * `supportUrl` and `supportEmail` are BOTH required at every tier and are
+ * validated. A listing with nowhere to send a person cannot exist, whoever
+ * bills. Which address a village is sent to keys on who SUPPORTS and never on
+ * who built: connected points at the vendor, included and managed point at
+ * whoever runs this deployment.
+ */
+export interface ModuleVendor {
+  legalName: string;
+  /**
+   * The exact product URL. Never the bare product name: at least eight live
+   * products share the word "Orbit" and one of those companies shut down in
+   * 2023, so a name identifies nothing.
+   */
+  url: string;
+  supportUrl: string;
+  supportEmail: string;
+  statusUrl: string;
+  termsUrl: string;
+  /**
+   * Secret slots this listing contributes to the village's own secrets store,
+   * where an admin sets a key and reads back its source and last4. MUST be
+   * empty for a managed listing: that credential belongs to the platform and
+   * lives in env only.
+   */
+  secretKeys: string[];
+  /**
+   * The environment variable holding a MANAGED listing's platform-owned
+   * credential. Read from env at call time, never added to SECRET_KEYS, never
+   * returned by any route to any village, not even masked (hub ADR-49,
+   * accepted 2026-08-14). Absent at every other tier.
+   */
+  managedEnvKey?: string;
+  /**
+   * Steps a founder performs inside the vendor's own product, rendered on the
+   * setup card. An empty list is the goal: every step here is a permanent
+   * per-village human cost and it changes the commercial terms.
+   */
+  setupSteps?: string[];
+  liveness: ModuleLiveness;
+}
+
 export interface ModuleDef {
   id: string;
   /** Founder-facing catalog name (platform copy, no village brand). */
@@ -27,6 +156,26 @@ export interface ModuleDef {
   description: string;
   /** Core modules are listed for legibility but cannot be disabled in v1. */
   core?: boolean;
+  /**
+   * Module library: who bills and who supports. Every module the platform
+   * itself writes and carries is `included`, which is why all eighteen are.
+   */
+  tier: ModuleTier;
+  /** Module library: the widest class of data this module's domain holds. */
+  dataClass: ModuleDataClass;
+  /** The named counterparty. Required at connected and managed, absent at included. */
+  vendor?: ModuleVendor;
+  /**
+   * The domain this listing claims.
+   *
+   * A vendor is never a source of truth. A domain is, the platform owns it,
+   * and vendors are drivers behind it. Carried as DATA now so a listing can
+   * declare what it claims; the at-most-one-driver-per-domain refusal on the
+   * enable path deliberately waits for a second vendor inside one domain,
+   * because a catalog is supposed to list two services side by side and only
+   * an ENABLE of the second is a conflict.
+   */
+  provides?: string;
   /** Hard dependencies: block enabling this while one is off, and block
    *  disabling a dependency while this is non-off. */
   requires: string[];
@@ -64,6 +213,8 @@ export const MODULES: ModuleDef[] = [
   //    honest about what exists; not disableable in v1. ──────────────────────
   {
     id: "quests",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Quests",
     description: "The contribution board: post work, claim it, submit it, consent to release recognition.",
     core: true,
@@ -75,6 +226,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "gratitude",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Gratitude",
     description: "Recognition sends, lunar cycles, and the value pool distributed at each close.",
     core: true,
@@ -92,6 +245,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "progression",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Stages & Roles",
     description: "The path from guest to co-creator: stages, capabilities, and appointed roles.",
     core: true,
@@ -103,6 +258,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "profiles",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Profiles",
     description: "Member identity: handles, journeys, balances, and each member's own ledger.",
     core: true,
@@ -117,6 +274,8 @@ export const MODULES: ModuleDef[] = [
   //    per-deployment admin act. ──────────────────────────────────────────────
   {
     id: "map",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Village Map",
     description:
       "The living org chart: circles, the roles that orbit them, who holds each seat, which seats are open calls, plus a concierge that routes 'I want to help with X' to the right person.",
@@ -136,6 +295,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "forum",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Forum & Decisions",
     description:
       "Village conversations: threads by circle-of-life category, @mentions, thread follows, community moderation, and the decision primitive, where proposals are opened and outcomes recorded.",
@@ -169,6 +330,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "feed",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Village Feed",
     description:
       "The everyday stream: microposts, events and announcements from one forum category, woven with the village's own milestones, where a tap of appreciation is a real gift from your cycle budget.",
@@ -181,6 +344,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "messaging",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Messages",
     description:
       "Private conversations between members: one to one, or a named group carrying its own membership and read state. A direct message is the two-party case of the same thread, so every conversation in the village has one home, one report path, and one place to moderate.",
@@ -198,6 +363,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "stays",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Stays",
     description:
       "Accommodation on stay credits: rooms post credit (and optional USD) prices per audience, credits are bought or earned through work-exchange quests, and one credit hosts one night. Funds-bearing: read the legal card before enabling.",
@@ -228,6 +395,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "automation",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Call Automation",
     description:
       "The weekly call becomes assigned work, not content distribution: recordings in, transcripts kept, an AI synthesis whose every task suggestion carries a verbatim quote and timestamp (or is dropped), published to the forum by a human, with suggestions routed to the roles they name. Nothing publishes or applies itself.",
@@ -247,6 +416,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "health",
+    tier: "included",
+    dataClass: "village-content",
     name: "Village Health",
     description:
       "The village's vital signs: per-lunation snapshots frozen at each cycle close, the land's own regeneration ledger (trees, water, hectares: absolute counts, never leaderboards), and season goals. Snapshot COLLECTION runs from the day this ships; turn the dashboard on once a few lunations of history exist.",
@@ -262,6 +433,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "library",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Material Library",
     description:
       "The village's shared tools and goods: donate an item and earn library credits (appraised, capped, dual-signed above a threshold), then borrow against an escrowed deposit. Credits are backed by the shelves; they never swap, and selling them for fiat is a separate caution-card opt-in (L9).",
@@ -301,6 +474,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "badges",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Badges & Skills",
     description:
       "Recognition of who people are and what they can do: self-declared skills, badges earned from settled contribution, granted honors, and warning badges that suspend specific capabilities until resolved. Earned badges never ride applause metrics into permissions.",
@@ -314,6 +489,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "exchange",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Exchange",
     description:
       "Buy the village's own platform tokens for fiat, out of a stocked treasury, buy-only in v1. Recognition and Hypha-governed tokens can never be listed; a token another module sells can't be listed twice. Funds-bearing: read the legal card before enabling.",
@@ -351,6 +528,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "commerce",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Payments & Donations",
     description:
       "Every payment your project issues or receives, as products you define: application fees, donations, deposits and down payments, waitlist seats, recurring memberships, and token packs granted from treasury stock. Rides the same verified Stripe spine as stays and the exchange; Zeffy and manual payment paths for fee-free giving. Money flows IN only, always.",
@@ -365,6 +544,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "network",
+    tier: "included",
+    dataClass: "village-content",
     name: "Village Network",
     description:
       "Federation with other villages running this platform: publish your needs and offers to the network, and read what peer villages share. Foundations for co-hiring, shared events and resource pooling. You choose exactly which villages to listen to; publishing an item is an explicit act, and nothing about individual members is ever shared.",
@@ -376,6 +557,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "tools",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Tools Hub",
     description:
       "An audience-aware registry of the village's tools: one place to find the chat, the documents, the governance space, with a pinned card that deep-links to your Hypha DHO.",
@@ -410,6 +593,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "events",
+    tier: "included",
+    dataClass: "member-pii",
     name: "Events",
     description:
       "The village's calendar: gatherings with a time, a place, a capacity and an RSVP. Other surfaces read it, so the map can light the building something is happening in.",
@@ -428,3 +613,143 @@ export const MODULES: ModuleDef[] = [
 export const MODULES_BY_ID: Record<string, ModuleDef> = Object.fromEntries(
   MODULES.map((m) => [m.id, m]),
 );
+
+// ── The library, derived ─────────────────────────────────────────────────────
+
+/** Every listing with a named counterparty. Empty until the first one lands. */
+export function vendorModules(defs: readonly ModuleDef[] = MODULES): ModuleDef[] {
+  return defs.filter((m) => m.tier !== "included");
+}
+
+/**
+ * Secret slots the registry contributes to the store, deduped and sorted.
+ * Managed listings contribute nothing here on purpose: their credential is the
+ * platform's and lives in env only (hub ADR-49).
+ */
+export function registrySecretKeys(defs: readonly ModuleDef[] = MODULES): string[] {
+  const out = new Set<string>();
+  for (const m of defs) {
+    if (m.tier === "managed") continue;
+    for (const k of m.vendor?.secretKeys ?? []) out.add(k);
+  }
+  return Array.from(out).sort();
+}
+
+export interface SupportRoute {
+  /** Who answers. Keys on who SUPPORTS this listing, never on who built it. */
+  party: "platform" | "vendor";
+  /** The vendor's legal name where the vendor supports it. Null where the platform does. */
+  vendorName: string | null;
+  supportUrl: string | null;
+  supportEmail: string | null;
+}
+
+/**
+ * Where a village is sent when this module needs a human.
+ *
+ * Included and managed answer `platform`, and managed deliberately carries no
+ * vendor name at all: in managed the platform sold the sentence "call us", and
+ * naming the party behind it to a village would sell something else. Connected
+ * answers `vendor`, with the address the listing is required to carry.
+ *
+ * Triage stays the platform's obligation in all three. Routing is what happens
+ * after triage and never instead of it.
+ */
+export function supportRoute(def: ModuleDef): SupportRoute {
+  if (def.tier === "connected" && def.vendor) {
+    return {
+      party: "vendor",
+      vendorName: def.vendor.legalName,
+      supportUrl: def.vendor.supportUrl,
+      supportEmail: def.vendor.supportEmail,
+    };
+  }
+  return { party: "platform", vendorName: null, supportUrl: null, supportEmail: null };
+}
+
+const HTTPS = /^https:\/\/[^\s]+$/;
+const EMAILISH = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Registry-shape problems, as a list of sentences.
+ *
+ * The tier is defined by where the credential lives, so a listing whose
+ * credential is in the wrong plane is not mislabelled, it is a different tier
+ * pretending. Checking it here is what keeps the tier mechanical.
+ *
+ * Boot asserts on this (server/lib/modules.ts, beside the one-seller-per-token
+ * assertion, which is the house precedent for a registry-shape invariant that
+ * throws). A unit test asserts on it too, so a malformed entry fails in CI
+ * without anybody having to boot a server.
+ */
+export function moduleListingProblems(defs: readonly ModuleDef[] = MODULES): string[] {
+  const problems: string[] = [];
+  const say = (id: string, what: string) => problems.push(`module "${id}": ${what}`);
+
+  /*
+   * The managed cap, in code, with its reason beside the number so a later
+   * reader does not mistake it for caution.
+   *
+   * Two slots, and the SECOND is explicitly a transition slot: one
+   * steady-state managed listing, plus room to onboard a replacement without
+   * going dark. The cap exists for the four obligations that routing does not
+   * touch, because managed points at the platform by definition and sends
+   * nothing away: credit risk, variable cost inside a fixed price, the
+   * data-return obligation on exit, and an SLA for software the platform
+   * cannot patch. It moves on evidence (a clean quarter on the first listing,
+   * a measured ticket count and time to resolution, somebody other than one
+   * person answering) and never on appetite.
+   */
+  const managed = defs.filter((m) => m.tier === "managed");
+  if (managed.length > MANAGED_LISTING_CAP) {
+    problems.push(
+      `the module library holds ${managed.length} managed listings (${managed.map((m) => m.id).join(", ")}) against a cap of ${MANAGED_LISTING_CAP}`,
+    );
+  }
+
+  for (const m of defs) {
+    if (m.tier === "included") {
+      if (m.vendor) say(m.id, "is included and carries a vendor record. An included module is the platform's own");
+      continue;
+    }
+    const v = m.vendor;
+    if (!v) {
+      say(m.id, `is ${m.tier} and names no counterparty. No name, no listing`);
+      continue;
+    }
+    if (!v.legalName?.trim()) say(m.id, "needs a legal entity name");
+    for (const [field, value] of [
+      ["url", v.url],
+      ["supportUrl", v.supportUrl],
+      ["statusUrl", v.statusUrl],
+      ["termsUrl", v.termsUrl],
+    ] as const) {
+      if (!HTTPS.test(String(value ?? ""))) say(m.id, `${field} must be an https address`);
+    }
+    // Rye's ruling, settled 2026-08-14: a support URL AND a support email, at
+    // every tier, stored as fields the product renders. A listing whose
+    // support address stops resolving is reviewed and can be withdrawn, and
+    // none of that is possible if the address lives in a document instead.
+    if (!EMAILISH.test(String(v.supportEmail ?? ""))) say(m.id, "needs a support email address");
+    if (v.liveness?.mode === "window" && !(v.liveness.withinHours > 0)) {
+      say(m.id, "declares a liveness window of zero hours or less");
+    }
+    if (!v.liveness?.mode) say(m.id, "must declare a liveness expectation, either a window or on demand only");
+
+    if (m.tier === "managed") {
+      if (v.secretKeys.length) {
+        say(m.id, "is managed and lists secret slots. A managed credential is platform-held and lives in env only");
+      }
+      if (!v.managedEnvKey?.trim()) say(m.id, "is managed and names no environment variable for its platform-held credential");
+      // A managed card is the first card in this product with nothing to type.
+      // The village has no account with anybody here, so a step performed
+      // inside somebody else's product is a step it cannot take, and printing
+      // one on the card is an instruction to a person with no login.
+      if (v.setupSteps?.length) say(m.id, "is managed and lists setup steps. The village has no account here, so there is nothing for it to do");
+    } else {
+      if (!v.secretKeys.length) say(m.id, "is connected and lists no secret slot the village can hold and see");
+      if (v.managedEnvKey) say(m.id, "is connected and names a platform-held credential. The village holds its own key at this tier");
+    }
+  }
+  return problems;
+}

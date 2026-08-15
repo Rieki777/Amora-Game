@@ -1,5 +1,7 @@
 # Module: Events (0059) — the village calendar
 
+Provenance: platform
+
 **Gatherings with a time, a place, a capacity and an RSVP. Other surfaces read
 it: the Living Map lights the building something is happening in.**
 

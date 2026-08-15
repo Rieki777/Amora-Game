@@ -38,6 +38,10 @@ what, where, what breaks without it.
 | `FEEDBACK_HUB_URL` | (S66, optional) **must be `https://` and publicly resolvable** — the relay now dials through the pinned-IP guard, which refuses plain http and any private/loopback/CGNAT address. A self-hosted hub on a VPC-internal or `http://` address will simply never receive anything (rows stay queued locally, no data is lost, one log line per attempt). Where the feedback relay POSTs — defaults to the ReGen Civics hub. The relay is ON by default (`platform.feedback_relay` game variable), sends CONTENT only (never who submitted), queues locally and retries while the hub is unreachable; turning it off keeps everything in Admin → Feedback, local-only. | Default hub endpoint used |
 | `ERROR_WEBHOOK_URL` | (optional, PY6) an HTTPS endpoint that receives a JSON POST when something crashes — a Slack or Discord incoming webhook, a Sentry store URL, or your own collector. Admins are ALWAYS notified in-app regardless; this puts the same alert where your team actually looks. Deduped to one alert per distinct failure per hour, and dialled through the pinned-IP guard like every other outbound call. | Crashes are still logged and still alert admins in-app, but nothing reaches an external channel |
 | `TRUSTED_PROXY_HOPS` | (optional, default `1`) how many proxies sit in front of this process. `X-Forwarded-For` grows left to right, so the client's real address is the Nth entry from the RIGHT, where N is this number — and everything to its left is caller-supplied and forgeable. Every rate limit (checkout attempts, sign-in throttling, the assistant's cost cap, the abuse guard) keys on the result. `1` is correct on Railway, Fly and Render; raise it if the fork puts its own CDN or load balancer in front; `0` means no proxy and the socket address is used directly. | A value too LOW trusts a forged header and lets one caller bypass every rate limit; too HIGH buckets unrelated visitors together and throttles innocents |
+| `PLATFORM_SUPPORT_URL` | (module library, optional) Where a village is sent when the PLATFORM is the supporting party: every Included module, and every Managed listing. Whoever operates this deployment is its own support desk, so platform code carries no address and this is where the fork puts one. It appears in the 503 body a lapsed Managed listing answers with. | The lapse body still says "this one is on us" and still says what keeps working; it just gives nowhere to write |
+| `PLATFORM_SUPPORT_EMAIL` | (module library, optional) The same, as an address. Used when `PLATFORM_SUPPORT_URL` is unset. | As above |
+| *a Managed listing's key* | (module library, per listing) Each Managed listing names its own env var in `vendor.managedEnvKey` in `shared/modules.ts`. The key is the PLATFORM's, is read from env at call time, is never added to `SECRET_KEYS`, and is never returned to a village by any route, not even masked (hub ADR-49). Set it at provisioning by whoever has deploy access; there is deliberately no admin screen for it, exactly as with `PLATFORM_ASSISTANT_KEY`. | That listing answers 503 with "this one is on us" and its Integrations card reads "Not on your plan". Everything else keeps working |
+| *a Connected listing's key* | (module library, per listing) Each Connected listing names its slots in `vendor.secretKeys`. They join `SECRET_KEYS` automatically, so they are settable from **Admin → Integrations** with source and last4 shown, and this env var (the slot name uppercased, e.g. `example_api_key` → `EXAMPLE_API_KEY`) is the fallback. The village holds its own account and can rotate the key unaided. | That listing answers 503 naming the vendor and their support link. Everything else keeps working |
 | `TEST_DATABASE_URL` | (dev/CI only, local .env) scratch-schema MySQL for DB-backed tests — the harness DROPs/CREATEs `village_test`; never point it at the app schema | DB suites skip loudly |
 
 ## Account recovery
@@ -252,6 +256,55 @@ node scripts/enable-all-modules.mjs --base https://your-village.example --email 
 them admin-only first. Funds-bearing modules (stays, exchange) refuse while
 a shared password is the only admin credential — bootstrap per-admin
 identities first.
+
+**Module library listings are skipped by that script, deliberately.** It reads
+the tier from the server and leaves anything above `included` alone: turning a
+listing on without its credential probes a surface that cannot answer, and for
+a Managed listing, enabling it is the village accepting a support arrangement
+and a stamped contract version, which is not a thing a convenience script gets
+to do on somebody's behalf. Enable each one from Admin → Modules after reading
+its card and setting its key. <a id="module-library"></a>
+
+### The module library (tier, vendor, and the 503)
+
+Some modules connect this village to an outside paid service. Every one of them
+is first-party code in this repository: a connector written and maintained here
+against somebody's API. No vendor code runs inside your server.
+
+Each listing sits in one tier, and the tier answers the only two questions
+anybody asks when something breaks: **who do I pay, and who do I call.**
+
+| | Included | Connected | Managed |
+|---|---|---|---|
+| Billed by | the platform price | the vendor, direct to you | the platform |
+| You call | the platform | the vendor for the service, the platform for the wiring | the platform |
+| The credential | none, or your own upstream account | **yours**, set in Admin → Integrations, source and last4 visible | platform-held, env only, you never see it |
+| You have an account with them | n/a | **yes** | no |
+
+Included shows no badge in the catalog; Connected and Managed each show a pill
+and a line saying who supports it.
+
+**When a listing's key is missing or its service is down, its routes answer 503
+and never 404.** A 404 means "this module is off" and is how a village hides
+what it has not turned on. A paid, enabled module that answers 404 would tell
+your members the feature was deleted. The 503 body carries a sentence your
+pages already render: Connected names the vendor and their support link,
+Managed says the platform is on it and never names anybody. Everything else in
+the village keeps working either way.
+
+**What a village agreed to is stored.** Enabling a listing writes the tier and
+the library contract version into that module's `module_settings.config` and
+appends a `module_events` row of kind `listing`. The registry tier is the
+offer; that stamp is what you are on. A later tier change is therefore a
+re-acceptance somebody reads, never a silent rewrite of your support
+arrangement.
+
+**Health is measured, never assumed.** A key being set is not a key that works.
+Every outbound call is wrapped, carries an `x-correlation-id` header the vendor
+is asked to log, and writes one `integration_health` row per (module,
+operation) with the last success, the last failure and its status. With no
+recorded success, Admin → Integrations says "never confirmed working", which is
+the truthful answer and is not the same as broken.
 
 ### The Living Map artifact (`/map`)
 

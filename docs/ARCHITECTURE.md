@@ -1135,10 +1135,17 @@ Three properties worth keeping:
 
 1. **Registry entry** in `shared/modules.ts`: id, founder-facing catalogue
    copy (platform language — the brand guard will hold you to it),
-   `requires`/`recommends`, `apiPrefixes`, `variableKeys`,
-   `capabilities`, and — as applicable — `legalReview`, `sellsToken`
-   (remember: one seller per token is boot-asserted, and the exchange
-   refuses to list what you sell), `defaultConfig` + `validateConfig`.
+   `tier`, `dataClass`, `requires`/`recommends`, `apiPrefixes`,
+   `variableKeys`, `capabilities`, and — as applicable — `legalReview`,
+   `sellsToken` (remember: one seller per token is boot-asserted, and the
+   exchange refuses to list what you sell), `defaultConfig` +
+   `validateConfig`.
+   - `tier` is `included` for anything the platform itself writes and
+     carries. `connected` and `managed` are module library listings and
+     carry the extra obligations in step 12.
+   - `dataClass` is the WIDEST class the module's own tables hold, never
+     the average. Most of this platform is `member-pii`, because a booking,
+     an RSVP, a loan and a private message each identify a named person.
 2. **Migration** in `drizzle/` — next number, plain SQL, one statement per
    `;`-at-end-of-line (see trap 1). Seed any system ledger accounts here
    with `INSERT IGNORE`, and say in a comment whether each is a faucet and
@@ -1174,9 +1181,54 @@ Three properties worth keeping:
 10. **Launch requirement** (only if a founder must act before the module is
     honest to run): one entry in `shared/launchRequirements.ts` + one check
     closure in `launchDeps` — every consumer updates itself.
-11. **Docs + tests**: a design doc in `docs/modules/`, a runbook line for
-    any new env var or seed, unit tests beside the lib, and a
-    `smoke-all-modules.mjs` section.
+11. **Docs + tests**: a design doc in `docs/modules/`, its `MODULE_DOCS`
+    entry in `server/lib/knowledge.ts` (a deliberate allowlist, never a
+    glob, and filenames do not follow module ids), a **`Provenance:` line
+    under its title** or it cannot join Maia's shelf at all
+    (`server/lib/moduleDocProvenance.ts`; the test beside it is the gate),
+    a `docs/FORK_RUNBOOK.md` line for any new env var or seed **in the same
+    session**, unit tests beside the lib, and a `smoke-all-modules.mjs`
+    section. Also add the module to `scripts/enable-all-modules.mjs`
+    TARGETS and PROBES, or it hard-exits 3 refusing to claim completeness.
+
+### Additionally, for a module library listing
+
+A listing is a connector to an outside paid service. Everything above still
+applies; these are the obligations `tier: "connected"` or `"managed"` adds.
+`shared/modules.ts:moduleListingProblems` asserts most of them at boot, and
+`shared/moduleListing.test.ts` asserts them in CI without booting anything.
+
+12. **The `vendor` record**, and it is data rather than prose: a legal name,
+    the EXACT product URL (never the bare product name), a support URL AND a
+    support email (both required at every tier, both validated — a listing
+    with nowhere to send a person cannot exist), a status URL, a terms URL,
+    and a `liveness` expectation, either a window inside which a success is
+    normally expected or an explicit "on demand, silence is normal".
+13. **The credential plane, which IS the tier.** `connected` names slots in
+    `vendor.secretKeys`; those join `SECRET_KEYS` automatically and a village
+    admin holds the key and sees its source and last4. `managed` names an env
+    var in `vendor.managedEnvKey` instead, holds nothing in the store, and
+    never returns that key to any village even masked (hub ADR-49). Putting a
+    managed credential in the store is refused twice, at boot and in the
+    derivation.
+14. **`provides`**, the domain this listing claims. Data today. The
+    at-most-one-driver-per-domain refusal on the enable path waits for a
+    second vendor inside one domain, because a catalog is supposed to list
+    two services side by side and only an ENABLE of the second is a conflict.
+15. **`forgetMember` / `exportMember`**, wired through
+    `registerMemberDriver` (`server/lib/memberDrivers.ts`) at boot, if the
+    listing holds anything about a member. Not optional and not a roadmap
+    item: without them the published constitution's "leaving well is
+    guaranteed" becomes false and nothing goes red.
+16. **Every outbound call through `callVendor`** (`server/lib/integrations.ts`).
+    It mints the correlation id, sends it as a header, and writes the health
+    row. A driver that calls out around it produces no evidence at all.
+    Nothing anywhere may read `secretStatus.setAt` as evidence a credential
+    works: that is when somebody TYPED it.
+
+Nothing else is needed. The catalog pill, the support line, the Integrations
+card, the 503 lapse gate on every declared prefix, the launch requirement and
+the tier stamp at enable time are all derived from the registry entry.
 
 ### Removing (disabling) one safely
 

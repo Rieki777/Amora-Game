@@ -19,12 +19,16 @@ import type { NextFunction, Request, Response } from "express";
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import {
   LIFECYCLE_RANK,
+  MODULE_LIBRARY_CONTRACT_VERSION,
   MODULES,
   MODULES_BY_ID,
+  moduleListingProblems,
+  supportRoute,
   type ModuleDef,
   type ModuleLifecycle,
 } from "../../shared/modules";
 import { recordEvent } from "./events";
+import { secretValue } from "./secrets";
 
 interface ModuleRow {
   lifecycle: ModuleLifecycle;
@@ -142,6 +146,129 @@ export function assertModuleGraph(): void {
     }
     sellers.set(def.sellsToken, def.id);
   }
+  /*
+   * Module library shape, asserted the same way and for the same reason.
+   *
+   * A malformed listing is a defect in platform code and never a village's
+   * configuration, so it belongs with the one-seller-per-token throw above and
+   * not with the demote-and-log treatment a hand-edited table gets. The two
+   * facts it protects are the ones a village cannot recover from on its own: a
+   * support address that does not exist, and a credential sitting in the wrong
+   * plane for its tier.
+   */
+  const listing = moduleListingProblems();
+  if (listing.length) {
+    throw new Error(`module library invalid:\n  ${listing.join("\n  ")}`);
+  }
+}
+
+// ── The vendor lapse gate ────────────────────────────────────────────────────
+
+/**
+ * Where a village is sent when the PLATFORM is the supporting party. Env, with
+ * a runbook line, because platform code carries no operator's brand and every
+ * fork's own operator is its own managed support desk.
+ */
+function platformSupport(): { url: string | null; email: string | null } {
+  return {
+    url: process.env.PLATFORM_SUPPORT_URL?.trim() || null,
+    email: process.env.PLATFORM_SUPPORT_EMAIL?.trim() || null,
+  };
+}
+
+/**
+ * Is this listing's credential present? The tier decides which plane to look
+ * in, which is the whole point of defining the tier by the plane.
+ *
+ * Included never lapses: it has no vendor and no credential of its own, so its
+ * routes keep whatever honest refusal they already carry.
+ */
+export function vendorCredentialPresent(def: ModuleDef): boolean {
+  if (!def.vendor) return true;
+  if (def.tier === "managed") {
+    const envKey = def.vendor.managedEnvKey;
+    return !!(envKey && String(process.env[envKey] ?? "").trim());
+  }
+  return def.vendor.secretKeys.every((k) => !!secretValue(k));
+}
+
+export interface VendorLapseBody {
+  /**
+   * THE SENTENCE, and the field name is the point.
+   *
+   * Around six client pages already render `d.error` from a response body
+   * verbatim, so putting the machine code here would show a member the words
+   * "vendor_unavailable" on the screen where they needed a sentence. The code
+   * lives in `reason` beside it, which is where a program should look anyway.
+   */
+  error: string;
+  reason: "vendor_unavailable";
+  module: string;
+  tier: string;
+  /** Who answers for this. Keys on who supports, never on who built. */
+  responsibleParty: "platform" | "vendor";
+  /** Where to reach them. Null when the deployment has published no address. */
+  supportAt: string | null;
+  /** What is unaffected, so the answer is never only bad news. */
+  stillWorks: string;
+}
+
+/**
+ * The body a lapsed listing answers with, written in exactly one place.
+ *
+ * Connected NAMES the vendor and their support link, because the village holds
+ * that account and the plan is its own. Managed never names the vendor at all:
+ * managed sold the sentence "call us", and a village that never had an account
+ * with anybody cannot act on a name. Included never reaches here, so a
+ * platform module keeps whatever honest refusal it already carries.
+ */
+export function vendorLapseBody(def: ModuleDef): VendorLapseBody {
+  const route = supportRoute(def);
+  const stillWorks = "Everything else in the village keeps working.";
+  if (route.party === "vendor") {
+    const at = route.supportUrl ?? route.supportEmail;
+    const where = at ? ` Reach them at ${at}.` : "";
+    return {
+      error: `${route.vendorName} is not answering. Your plan with them is the village's own.${where} ${stillWorks}`,
+      reason: "vendor_unavailable",
+      module: def.id,
+      tier: def.tier,
+      responsibleParty: "vendor",
+      supportAt: at,
+      stillWorks,
+    };
+  }
+  const platform = platformSupport();
+  const at = platform.url ?? platform.email;
+  const where = at ? ` Reach us at ${at}.` : "";
+  return {
+    error: `This one is on us. We know, and we are on it.${where} ${stillWorks}`,
+    reason: "vendor_unavailable",
+    module: def.id,
+    tier: def.tier,
+    responsibleParty: "platform",
+    supportAt: at,
+    stillWorks,
+  };
+}
+
+/**
+ * Mounted AFTER requireModule, never instead of it.
+ *
+ * `requireModule` answers 404 for a module that is off, deliberately, so a
+ * fork's site never advertises what a village has not turned on. Routing a
+ * PAID entitlement through that same gate tells a village its feature was
+ * deleted, which is the one thing that must not happen when the module is on,
+ * paid for, and the vendor simply is not answering. Neither the tier nor the
+ * lifecycle enum can say "enabled and lapsed", so 503 says it.
+ */
+export function requireVendor(id: string) {
+  return (_req: Request, res: Response, next: NextFunction) => {
+    const def = MODULES_BY_ID[id];
+    if (!def?.vendor) return next();
+    if (vendorCredentialPresent(def)) return next();
+    return res.status(503).json(vendorLapseBody(def));
+  };
 }
 
 // ── The gate ─────────────────────────────────────────────────────────────────
@@ -265,7 +392,87 @@ export async function setModuleLifecycle(
     "INSERT INTO module_events (id, module_id, kind, from_value, to_value, by_user_id) VALUES (?,?,?,?,?,?)",
     [`mev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, id, "lifecycle", current, next, byUserId],
   );
+  if (next !== "off") await stampListing(def, byUserId);
   return { ok: true, lifecycle: next };
+}
+
+/** What a village agreed to when it turned a listing on. Written into module_settings.config. */
+export interface ListingStamp {
+  tier: string;
+  contractVersion: string;
+  acceptedAt: string;
+  acceptedBy: string | null;
+}
+
+export function listingStamp(id: string): ListingStamp | null {
+  const cfg = settings.get(id)?.config as any;
+  const s = cfg?.listing;
+  return s && typeof s === "object" ? (s as ListingStamp) : null;
+}
+
+/**
+ * The registry tier is the OFFER. The tier a village is ON is this stamp.
+ *
+ * `shared/modules.ts` is a compile-time constant, so a tier change ships to
+ * every fork at once: a village that enabled something under managed could
+ * wake up connected with its support arrangement rewritten and nobody would
+ * have told it. Keeping the accepted tier and the contract version in the
+ * village's own row turns that into a re-acceptance an admin has to read.
+ *
+ * This is the version-stamped acknowledgement shape the exchange's legal card
+ * already uses, and it follows the same rule: the SERVER stamps who and when,
+ * because who agreed to what is a record about a person and the client may not
+ * author it.
+ *
+ * Re-stamping is deliberately a no-op while the tier and version are unchanged,
+ * so toggling members to public does not manufacture an acceptance nobody made.
+ *
+ * ONLY LISTINGS ARE STAMPED, and the reason is a defect this nearly shipped.
+ * Six read sites resolve a module's config as `moduleConfig(id) ?? defaultConfig`,
+ * so writing ANY key into a previously empty config makes that fallback stop
+ * firing. Stamping every module on enable would have left a freshly enabled
+ * forum with `{listing}` in its config, no `categories` in it, and the seeded
+ * default silently skipped: a village turns the forum on and finds it has no
+ * categories at all. Included modules have no support arrangement to accept
+ * anyway, so restricting the stamp is both the fix and the honest scope. The
+ * defaults are seeded UNDER the stamp below so a listing that carries its own
+ * defaultConfig cannot fall into the same hole.
+ */
+async function stampListing(def: ModuleDef, byUserId: string | null): Promise<void> {
+  if (!pool) return;
+  if (def.tier === "included") return;
+  const prior = listingStamp(def.id);
+  if (prior && prior.tier === def.tier && prior.contractVersion === MODULE_LIBRARY_CONTRACT_VERSION) return;
+  const stamp: ListingStamp = {
+    tier: def.tier,
+    contractVersion: MODULE_LIBRARY_CONTRACT_VERSION,
+    acceptedAt: new Date().toISOString(),
+    acceptedBy: byUserId,
+  };
+  const row = settings.get(def.id) ?? { lifecycle: "off" as ModuleLifecycle, config: null, updatedAt: null };
+  const config = {
+    ...(def.defaultConfig ?? {}),
+    ...(row.config && typeof row.config === "object" ? row.config : {}),
+    listing: stamp,
+  };
+  await pool.query(
+    "INSERT INTO module_settings (module_id, config, updated_by) VALUES (?,?,?) " +
+      "ON DUPLICATE KEY UPDATE config = VALUES(config), updated_by = VALUES(updated_by)",
+    [def.id, JSON.stringify(config), byUserId],
+  );
+  row.config = config;
+  settings.set(def.id, row);
+  await pool.query(
+    "INSERT INTO module_events (id, module_id, kind, from_value, to_value, by_user_id) VALUES (?,?,?,?,?,?)",
+    [
+      `mev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      def.id,
+      "listing",
+      prior ? `${prior.tier}@${prior.contractVersion}` : null,
+      `${stamp.tier}@${stamp.contractVersion}`,
+      byUserId,
+    ],
+  );
 }
 
 export async function setModuleConfig(

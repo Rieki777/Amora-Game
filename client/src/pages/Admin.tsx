@@ -1383,12 +1383,19 @@ function IntegrationsTab({ password }: { password: string }) {
     setBusy("");
   };
 
-  const CARDS: Array<{ key: string; title: string; unlocks: string; getAt: string; placeholder: string }> = [
-    { key: "stripe_secret_key", title: "Stripe secret key", unlocks: "Card checkout for stays and the exchange. Without it, card payments answer an honest 503 and the manual path carries.", getAt: "dashboard.stripe.com → Developers → API keys", placeholder: "sk_live_…" },
-    { key: "stripe_webhook_secret", title: "Stripe webhook signing secret", unlocks: "Settlement. Cards charge but credits never arrive without it: the webhook's signature has nothing to verify against.", getAt: "Stripe → Developers → Webhooks → your endpoint → Signing secret", placeholder: "whsec_…" },
-    { key: "resend_api_key", title: "Resend, email", unlocks: "Every email the village sends: welcomes, receipts, notification digests.", getAt: "resend.com → API Keys", placeholder: "re_…" },
-    { key: "assistant_api_key", title: "Anthropic, the AI guide", unlocks: "Maia: proposal intake and the launch guide. Blank = every form still works, without her.", getAt: "console.anthropic.com", placeholder: "sk-ant-…" },
-  ];
+  /*
+   * The cards come from the server now.
+   *
+   * This was a hardcoded four-entry array while the store held seven keys, so
+   * riverside_webhook_secret, governance_hub_secret and basescan_api_key were
+   * settable over the API, present in this very payload, and had no field
+   * anywhere in the product. Copy in this same file told an admin to set the
+   * Riverside secret "under Integrations", where no such card existed.
+   *
+   * The list is derived from the registry server-side, so a module library
+   * listing brings its own card and there is no second list to keep in step.
+   */
+  const CARDS: any[] = data?.cards ?? [];
 
   const statusOf = (key: string) => (data?.secrets ?? []).find((s: any) => s.key === key);
 
@@ -1432,12 +1439,23 @@ function IntegrationsTab({ password }: { password: string }) {
           </div>
 
           {CARDS.map((c) => {
-            const s = statusOf(c.key);
+            const s = c.key ? statusOf(c.key) : null;
             return (
-              <div key={c.key} className="bg-white border border-gray-100 rounded-xl p-5">
+              <div key={c.key ?? `module:${c.module}`} className="bg-white border border-gray-100 rounded-xl p-5">
                 <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
-                  <p className="font-semibold text-gray-900">{c.title}</p>
-                  {s?.configured ? (
+                  <p className="font-semibold text-gray-900">
+                    {c.title}
+                    {c.tier === "connected" && <span className="ml-2 text-[10px] bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full">connected</span>}
+                    {c.tier === "managed" && <span className="ml-2 text-[10px] bg-violet-50 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded-full">managed</span>}
+                  </p>
+                  {/* A managed listing has no key of the village's to report, so
+                      it reports the entitlement instead. Everything else
+                      reports the slot. */}
+                  {!c.credential ? (
+                    <span className={`text-xs font-medium rounded-full px-2.5 py-1 border ${c.entitled ? "text-emerald-700 bg-emerald-50 border-emerald-200" : "text-gray-500 bg-gray-50 border-gray-200"}`}>
+                      {c.entitled ? "Included in your plan" : "Not on your plan"}
+                    </span>
+                  ) : s?.configured ? (
                     <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
                       Connected · ••••{s.last4}
                       {s.source === "env" ? " · from host env" : s.setBy ? ` · set by ${s.setBy}` : ""}
@@ -1449,33 +1467,58 @@ function IntegrationsTab({ password }: { password: string }) {
                   )}
                 </div>
                 <p className="text-xs text-gray-500 mb-3">{c.unlocks}</p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={drafts[c.key] ?? ""}
-                    onChange={(e) => setDrafts((p) => ({ ...p, [c.key]: e.target.value }))}
-                    placeholder={s?.configured ? `Replace key (${c.placeholder})` : c.placeholder}
-                    className="flex-1 min-w-[220px] px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
-                  />
-                  <button
-                    onClick={() => put(c.key, drafts[c.key] ?? "")}
-                    disabled={busy === c.key || !(drafts[c.key] ?? "").trim()}
-                    className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
-                  >
-                    Save
-                  </button>
-                  {s?.source === "admin" && (
+                {/* A key being set is not a key that works. This line is the
+                    only place either screen may speak about health, and it
+                    reads the recorded outcome of real calls. */}
+                {(c.health ?? []).map((h: any) => (
+                  <p key={h.operation} className={`text-xs mb-2 ${h.verdict === "failing" || h.verdict === "stale" ? "text-red-600" : "text-gray-500"}`}>
+                    {h.operation}: {h.detail}
+                  </p>
+                ))}
+                {c.credential && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={drafts[c.key] ?? ""}
+                      onChange={(e) => setDrafts((p) => ({ ...p, [c.key]: e.target.value }))}
+                      placeholder={s?.configured ? `Replace key (${c.placeholder})` : c.placeholder}
+                      className="flex-1 min-w-[220px] px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+                    />
                     <button
-                      onClick={() => { if (window.confirm("Clear this key? If the host environment provides one, it takes over; otherwise this integration disconnects.")) put(c.key, ""); }}
-                      disabled={busy === c.key}
-                      className="text-sm text-gray-500 bg-gray-100 rounded-lg px-3 py-2 font-medium"
+                      onClick={() => put(c.key, drafts[c.key] ?? "")}
+                      disabled={busy === c.key || !(drafts[c.key] ?? "").trim()}
+                      className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
                     >
-                      Clear
+                      Save
                     </button>
-                  )}
-                </div>
-                <p className="text-xs text-gray-400 mt-2">Get it at: {c.getAt}</p>
+                    {s?.source === "admin" && (
+                      <button
+                        onClick={() => { if (window.confirm("Clear this key? If the host environment provides one, it takes over; otherwise this integration disconnects.")) put(c.key, ""); }}
+                        disabled={busy === c.key}
+                        className="text-sm text-gray-500 bg-gray-100 rounded-lg px-3 py-2 font-medium"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                )}
+                {/* Steps a founder performs inside the other product. Every one
+                    of these is a permanent per-village human cost, which is why
+                    the listing has to declare them where a founder can see. */}
+                {(c.setupSteps ?? []).length > 0 && (
+                  <ul className="text-xs text-gray-500 mt-3 space-y-1 list-disc pl-4">
+                    {c.setupSteps.map((step: string, i: number) => <li key={i}>{step}</li>)}
+                  </ul>
+                )}
+                {c.support?.party === "vendor" && (
+                  <p className="text-xs text-gray-400 mt-2">
+                    Supported by {c.support.vendorName}:{" "}
+                    <a href={c.support.supportUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">{c.support.supportUrl}</a>
+                    {c.support.supportEmail ? ` · ${c.support.supportEmail}` : ""}
+                  </p>
+                )}
+                {c.getAt && <p className="text-xs text-gray-400 mt-2">Get it at: {c.getAt}</p>}
               </div>
             );
           })}
@@ -3346,10 +3389,35 @@ function ModulesTab({ password }: { password: string }) {
                       {m.name}
                       {m.core && <span className="ml-2 text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Core</span>}
                       {m.legalReview && <span className="ml-2 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full">legal review</span>}
+                      {/* The third pill. `included` deliberately shows nothing:
+                          it is the absence of a badge, exactly the way
+                          everything that is not core is silent here today. */}
+                      {m.tier === "connected" && <span className="ml-2 text-[10px] bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full">connected</span>}
+                      {m.tier === "managed" && <span className="ml-2 text-[10px] bg-violet-50 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded-full">managed</span>}
                     </h3>
                     <p className="text-sm text-gray-500 mt-0.5">{m.description}</p>
                     {m.requires.length > 0 && (
                       <p className="text-xs text-gray-400 mt-1.5">requires: {m.requires.join(", ")}</p>
+                    )}
+                    {/* The fourth line: who answers for this one. Only where
+                        somebody outside is involved, so eighteen platform
+                        modules gain no noise. */}
+                    {m.support?.party === "vendor" && (
+                      <p className="text-xs text-gray-400 mt-1.5">
+                        built and supported by {m.support.vendorName}, and you hold the account.{" "}
+                        <a href={m.support.supportUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Support</a>
+                      </p>
+                    )}
+                    {m.tier === "managed" && (
+                      <p className="text-xs text-gray-400 mt-1.5">
+                        supported by whoever runs this deployment. One bill, one number to call.
+                      </p>
+                    )}
+                    {m.listing && (
+                      <p className="text-xs text-gray-400 mt-1.5">
+                        enabled as {m.listing.tier} under library contract {m.listing.contractVersion}
+                        {m.listing.acceptedAt ? ` on ${new Date(m.listing.acceptedAt).toLocaleDateString()}` : ""}
+                      </p>
                     )}
                   </div>
                   {m.core ? (

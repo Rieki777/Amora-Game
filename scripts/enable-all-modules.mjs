@@ -43,6 +43,8 @@ const TARGETS = [
   ["exchange", "public"],
   ["commerce", "public"],
   ["network", "public"],
+  ["events", "public"],
+  ["messaging", "members"],
   ["automation", "members"],
 ];
 
@@ -59,6 +61,7 @@ const PROBES = {
   exchange: "/api/exchange",
   commerce: "/api/products",
   network: "/api/network/published",
+  events: "/api/events",
 };
 
 async function api(method, path, body, token) {
@@ -107,8 +110,26 @@ async function main() {
   // the SERVER actually has and refuse to claim completeness while any
   // optional module is unaccounted for.
   const covered = new Set(TARGETS.map(([id]) => id));
+
+  /*
+   * Module library listings are EXCLUDED, deliberately, and the exclusion is
+   * read from the server's own tier field so it can never go stale the way
+   * TARGETS did.
+   *
+   * Turning a listing on without its credential probes a surface that cannot
+   * answer: the route is mounted, requireVendor answers 503, and this script
+   * would report a failure that is nobody's defect. Worse for a MANAGED
+   * listing, where turning it on is the village accepting a support
+   * arrangement and a stamped contract version, which is not a thing a
+   * convenience script gets to do on somebody's behalf.
+   *
+   * A village that wants one enables it from the Modules tab, having read the
+   * card, having set the key. That is the whole point of the tier being an
+   * acceptance.
+   */
+  const listings = before.json.modules.filter((m) => m.tier && m.tier !== "included");
   const missing = before.json.modules
-    .filter((m) => !m.core && !covered.has(m.id))
+    .filter((m) => !m.core && !covered.has(m.id) && !listings.some((l) => l.id === m.id))
     .map((m) => m.id);
   if (missing.length) {
     console.error(
@@ -116,6 +137,12 @@ async function main() {
         `Add them to TARGETS (and PROBES) in scripts/enable-all-modules.mjs — refusing to report success while the list is stale.`,
     );
     process.exit(3);
+  }
+  if (listings.length) {
+    console.log(
+      `\nSkipping ${listings.length} module library listing(s): ${listings.map((m) => `${m.id} (${m.tier})`).join(", ")}.\n` +
+        `Enable each one from Admin -> Modules after reading its card and setting its credential.`,
+    );
   }
 
   console.log(`\n${DRY ? "DRY RUN — " : ""}Enabling ${TARGETS.length} module(s) on ${BASE}\n`);

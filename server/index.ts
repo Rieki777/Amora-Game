@@ -337,12 +337,29 @@ import {
   moduleConfig,
   moduleDemotions,
   moduleOrphans,
+  listingStamp,
   requireModule,
+  requireVendor,
   setModuleConfig,
   setModuleLifecycle,
   storedLifecycle,
+  vendorCredentialPresent,
   wireModuleAuth,
 } from "./lib/modules";
+// ── Lane C: the module library's own server pieces ───────────────────────────
+import {
+  allIntegrationHealth,
+  healthReading,
+  loadIntegrationHealth,
+} from "./lib/integrations";
+import {
+  erasureSentence,
+  exportMemberEverywhere,
+  forgetMemberEverywhere,
+  registeredMemberDrivers,
+  type ErasureOutcome,
+} from "./lib/memberDrivers";
+// ── End Lane C imports ───────────────────────────────────────────────────────
 import {
   EXAMPLE_REFUSAL,
   EXAMPLE_REFUSAL_BODY,
@@ -410,7 +427,10 @@ import {
   stripeConfigured,
   webhookSecretConfigured,
 } from "./lib/payments";
-import { LIFECYCLE_RANK, MODULES, MODULES_BY_ID, type ModuleLifecycle } from "../shared/modules";
+import {
+  LIFECYCLE_RANK, MODULES, MODULES_BY_ID, supportRoute, vendorModules,
+  type ModuleLifecycle,
+} from "../shared/modules";
 import { resolveHyphaLinks } from "../shared/hypha";
 import { getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
@@ -1039,6 +1059,12 @@ async function initStores(): Promise<void> {
   // after migrating: a secret should have one home, and a JSON blob every
   // admin route can read was never the right one.
   await loadSecrets(getPool());
+  // ── Lane C zone: the module library's boot reads. Ends at the S70/S72 line. ──
+  // What every listing's outbound calls have actually DONE, as opposed to when
+  // somebody typed its key. Loaded here beside the secrets so nothing can read
+  // a credential without the record of whether it works being available too.
+  await loadIntegrationHealth(getPool());
+  // ── End Lane C zone ─────────────────────────────────────────────────────────
   // S70/S72: Maia's shared brain — shipped files, split into sections, loaded once.
   {
     const shelves = loadShelves(process.cwd());
@@ -2932,14 +2958,27 @@ async function runRetentionSweep(): Promise<string> {
  *  - PUBLIC pulse lines naming them are deleted; ADMIN audit rows are kept
  *    (id-only, retained as the legal record — Law 8968 permits retention
  *    for accountability obligations).
+ *
+ * ── Lane C: and the stores OUTSIDE this village ──────────────────────────────
+ *
+ * Everything above is a local sweep, and a local sweep is the whole answer only
+ * while nothing outside holds a copy. The moment a listing does, "their name is
+ * scrubbed everywhere" (shared/constitution.ts, on a public page) stops being
+ * true and nothing goes red. So every registered member driver is asked, and
+ * the ANSWER travels back to the caller.
+ *
+ * The local scrub runs regardless of what the drivers say. A village holding
+ * the data one moment longer helps nobody, and a refusing vendor must not be
+ * able to veto a member's deletion here. What changes is what the member is
+ * TOLD: an unconfirmed store is named, never counted as done.
  */
-async function anonymizeMember(target: any, actorId: string | null): Promise<void> {
+async function anonymizeMember(target: any, actorId: string | null): Promise<ErasureOutcome> {
   const pool = getPool();
   // Defensive: every route into here refuses example identities, and if one
   // ever slips through, the scrub would rename the author of every seeded
   // thread and feed post to "A departed member" — irreversibly, since the
   // rename is a write and the seed is only re-applied on a refresh.
-  if (isExampleUser(target)) return;
+  if (isExampleUser(target)) return { asked: [], confirmed: [], unconfirmed: [] };
   const anon = "A departed member";
 
   // Ledger descriptions first, while gratitude_log still links names to refs.
@@ -3055,6 +3094,31 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<voi
     entityRef: target.id,
     audience: "admin",
   });
+
+  // ── Lane C: the stores outside this village ────────────────────────────────
+  // Asked AFTER the local sweep, so a slow or refusing driver never delays the
+  // one deletion this deployment fully controls.
+  const external = await forgetMemberEverywhere(target.id);
+  for (const miss of external.unconfirmed) {
+    // An erasure that did not complete is a fact about an OBLIGATION, so it
+    // gets an audit row of its own beside the integration_health failure the
+    // wrapper already wrote. A health row answers "is that integration well";
+    // this answers "does this village still owe this person something", and
+    // those are different questions that go stale at different rates.
+    await recordEvent(pool, {
+      kind: "audit",
+      text: `member:forget-unconfirmed:${miss.module}`,
+      actorUserId: actorId,
+      entityType: "user",
+      entityRef: target.id,
+      audience: "admin",
+    });
+    console.error(
+      `[erasure] "${miss.module}" did not confirm deletion for ${target.id}: ${miss.detail}. This village still owes that member a confirmation`,
+    );
+  }
+  return external;
+  // ── End Lane C zone ────────────────────────────────────────────────────────
 }
 
 async function nextActionFor(user: any): Promise<{ id: string; label: string; href: string }> {
@@ -5406,6 +5470,21 @@ async function startServer() {
       core: !!m.core,
       lifecycle: effectiveLifecycle(m.id),
       hyphaLinks: m.hyphaLinks ?? [],
+      // ── Lane C: module library. Three hand-written payloads carry these or
+      //    the field is invisible; `served`, `config` and `recommends` are all
+      //    already here as the standing evidence of what happens otherwise.
+      //
+      //    A viewer gets the tier word, the data class, the domain, and WHO
+      //    ANSWERS. It does not get the vendor's terms page, status page,
+      //    secret slot names or setup steps: those are the admin's operating
+      //    detail and they live on /api/admin/modules. What does travel is the
+      //    support route, because a member who meets the 503 is going to be
+      //    told the same name by that body one second later, and a support
+      //    address a member cannot see is a support address that does not work.
+      tier: m.tier,
+      dataClass: m.dataClass,
+      provides: m.provides ?? null,
+      support: supportRoute(m),
     }));
     res.json({
       platform: {
@@ -5460,11 +5539,57 @@ async function startServer() {
         variableKeys: m.variableKeys,
         capabilities: m.capabilities,
         config: moduleConfig(m.id) ?? m.defaultConfig ?? null,
+        // ── Lane C: module library, the admin's full view ──────────────────
+        tier: m.tier,
+        dataClass: m.dataClass,
+        provides: m.provides ?? null,
+        support: supportRoute(m),
+        // The whole counterparty record, admin-only: terms, status page, the
+        // slot names, and any step a founder performs inside the vendor's own
+        // product. A managed listing's env key name is NOT here and its value
+        // is nowhere: that credential is the platform's (hub ADR-49).
+        vendor: m.vendor
+          ? {
+              legalName: m.vendor.legalName,
+              url: m.vendor.url,
+              supportUrl: m.vendor.supportUrl,
+              supportEmail: m.vendor.supportEmail,
+              statusUrl: m.vendor.statusUrl,
+              termsUrl: m.vendor.termsUrl,
+              secretKeys: m.vendor.secretKeys,
+              setupSteps: m.vendor.setupSteps ?? [],
+              liveness: m.vendor.liveness,
+            }
+          : null,
+        // The offer is the registry tier. THIS is the tier the village is on,
+        // and the version it accepted, so a later change reads as a
+        // re-acceptance instead of a silent rewrite.
+        listing: listingStamp(m.id),
+        credentialPresent: m.vendor ? vendorCredentialPresent(m) : null,
+        health: m.vendor
+          ? allIntegrationHealth(m.id).map((h) => ({ ...h, reading: healthReading(h, m.vendor!.liveness) }))
+          : [],
       })),
       orphans: moduleOrphans(),
       hypha: resolveHyphaLinks(stringVar),
     });
   });
+
+  // ── Lane C: the vendor lapse gate, mounted from the registry ───────────────
+  //
+  // requireModule then requireVendor, on every prefix a listing declares. A
+  // loop rather than a hand-written mount per listing, because the hand-written
+  // list is the thing that rots: TARGETS in enable-all-modules.mjs went stale
+  // for two modules exactly this way, and a listing that forgot this line would
+  // answer 404 for a feature the village is paying for.
+  //
+  // A no-op today: nothing is above `included`.
+  for (const def of vendorModules()) {
+    for (const prefix of def.apiPrefixes) {
+      app.use(prefix, requireModule(def.id), requireVendor(def.id));
+    }
+  }
+  // ── End Lane C zone ────────────────────────────────────────────────────────
 
   app.put("/api/admin/modules/:id/lifecycle", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
@@ -8367,6 +8492,36 @@ async function startServer() {
               detail: "Still the shipped placeholder. Members are told the terms are yet to be decided",
             };
       },
+      // ── Lane C: one check per listing, generated the same way the
+      //    requirements themselves are. A listing that lands in the registry
+      //    without a resolver would render "no check wired, this is a platform
+      //    bug", which is the visible failure this machinery is worth reusing
+      //    for. Building the pair together means it never has to.
+      ...Object.fromEntries(
+        vendorModules().map((m) => [
+          `listing-credential:${m.id}`,
+          () => {
+            const present = vendorCredentialPresent(m);
+            // A CREDENTIAL is set, which is a different fact from a credential
+            // that works, and this line must never blur the two. What works is
+            // recorded by the driver wrapper on real calls and read below.
+            const reading = healthReading(allIntegrationHealth(m.id)[0] ?? null, m.vendor!.liveness);
+            if (!present) {
+              return {
+                state: "missing" as const,
+                detail:
+                  m.tier === "managed"
+                    ? "The platform has not provisioned this deployment's key yet. This module answers 503 and says so"
+                    : "No key yet. This module answers 503 and names who to reach",
+              };
+            }
+            return reading.verdict === "working" || reading.verdict === "quiet"
+              ? { state: "ok" as const, detail: reading.detail }
+              : { state: "partial" as const, detail: reading.detail };
+          },
+        ]),
+      ),
+      // ── End Lane C zone ──────────────────────────────────────────────────
     },
   };
 
@@ -12102,6 +12257,15 @@ Send an empty drafts array when you are still listening. A role payload is {name
       demotedBecause: demotions.get(m.id) ?? null,
       requires: m.requires,
       legalReview: !!m.legalReview,
+      // ── Lane C: who answers for this one. This is the screen a founder
+      //    opens when something is dark, so it is the screen that has to say
+      //    whose problem it is before anybody raises their voice.
+      tier: m.tier,
+      support: supportRoute(m),
+      credentialPresent: m.vendor ? vendorCredentialPresent(m) : null,
+      health: m.vendor
+        ? allIntegrationHealth(m.id).map((h) => ({ operation: h.operation, ...healthReading(h, m.vendor!.liveness) }))
+        : [],
     }));
 
     // The human gate's queue: submitted work waiting for consent.
@@ -12378,11 +12542,103 @@ Send an empty drafts array when you are still listening. A role payload is {name
   // Reads return {configured, source, last4, setBy, setAt}; a value NEVER
   // travels toward a browser. Env vars keep working as the fallback, so
   // nothing changes for deployments that configured via Railway.
+  /*
+   * ── Lane C: the cards are DATA, and they cover every slot ──────────────────
+   *
+   * The card list used to be a hardcoded four-entry array in Admin.tsx while
+   * the store held seven keys, all seven settable over this API and all seven
+   * present in the status payload. Three of them had no field anywhere in the
+   * product: `riverside_webhook_secret`, `governance_hub_secret` and
+   * `basescan_api_key`. Shipped copy in that same file told an admin to set
+   * the Riverside secret "under Integrations", where no such card existed.
+   *
+   * So the list moves here and is DERIVED. The platform's own seven are
+   * declared once; a listing's slots come from its registry entry, with its
+   * support address and any step a founder performs inside the vendor's own
+   * product. Adding a listing adds its card, and there is no second list to
+   * forget.
+   *
+   * A MANAGED listing gets a card with NO credential field at all. There is
+   * nothing for the village to type, because the key is the platform's (hub
+   * ADR-49) and showing a field for it would be inviting somebody to fill in a
+   * box that does nothing. It shows the arrangement and who to call instead.
+   */
+  const PLATFORM_CARDS: Array<{ key: SecretKey; title: string; unlocks: string; getAt: string; placeholder: string }> = [
+    { key: "stripe_secret_key", title: "Stripe secret key", unlocks: "Card checkout for stays, the exchange and paid products. Without it, card payments answer an honest 503 and the manual path carries.", getAt: "dashboard.stripe.com → Developers → API keys", placeholder: "sk_live_…" },
+    { key: "stripe_webhook_secret", title: "Stripe webhook signing secret", unlocks: "Settlement. Cards charge but credits never arrive without it: the webhook's signature has nothing to verify against.", getAt: "Stripe → Developers → Webhooks → your endpoint → Signing secret", placeholder: "whsec_…" },
+    { key: "resend_api_key", title: "Resend, email", unlocks: "Every email the village sends: welcomes, receipts, notification digests.", getAt: "resend.com → API Keys", placeholder: "re_…" },
+    { key: "assistant_api_key", title: "Anthropic, the AI guide", unlocks: "Maia: proposal intake, the launch guide, and call synthesis. Blank = every form still works, without her.", getAt: "console.anthropic.com", placeholder: "sk-ant-…" },
+    { key: "riverside_webhook_secret", title: "Riverside recording deliveries", unlocks: "Call automation's inbound deliveries. It fails closed: with no secret set, every payload is discarded with an inert 200 and nobody is told why.", getAt: "Riverside → webhook settings → send this same value as the x-riverside-secret header", placeholder: "a long random string you choose" },
+    { key: "governance_hub_secret", title: "Governance hub deliveries", unlocks: "How a Hypha vote's executed outcome comes home. Fails closed the same way. Until it is set, outcomes are reported by the proposer and applied by an admin.", getAt: "Issued when your fork is registered with the hub", placeholder: "the value the hub issued you" },
+    { key: "basescan_api_key", title: "Basescan token lookup", unlocks: "Game Mechanics → Integrate DAO finds your token's contract address on Base by name. Without it that lookup answers 409 and addresses can still be pasted by hand.", getAt: "etherscan.io → API keys (one free key serves Base)", placeholder: "your Etherscan API key" },
+  ];
+
+  interface IntegrationCard {
+    /** The secrets-store slot this card writes. Null on a managed card, which has no field. */
+    key: SecretKey | null;
+    /** False means "this card shows an arrangement", so the client renders no input at all. */
+    credential: boolean;
+    title: string;
+    unlocks: string;
+    getAt: string;
+    placeholder: string;
+    module: string | null;
+    tier: string;
+    support: ReturnType<typeof supportRoute> | null;
+    setupSteps: string[];
+    /** Managed only: does the platform's own key exist for this deployment. */
+    entitled?: boolean | null;
+    health?: Array<{ operation: string } & ReturnType<typeof healthReading>>;
+  }
+
+  function integrationCards(): IntegrationCard[] {
+    const platform: IntegrationCard[] = PLATFORM_CARDS.map((c) => ({ ...c, module: null, tier: "included", support: null, setupSteps: [], credential: true }));
+    const listings: IntegrationCard[] = vendorModules().flatMap((m): IntegrationCard[] => {
+      const support = supportRoute(m);
+      const base = {
+        module: m.id,
+        tier: m.tier,
+        support,
+        setupSteps: m.vendor?.setupSteps ?? [],
+        health: allIntegrationHealth(m.id).map((h) => ({ operation: h.operation, ...healthReading(h, m.vendor!.liveness) })),
+      };
+      if (m.tier === "managed") {
+        return [{
+          ...base,
+          key: null,
+          credential: false,
+          title: m.name,
+          unlocks: `${m.name} is part of what this deployment already pays for. There is nothing to enter here: the key belongs to the platform and the platform takes the first call.`,
+          getAt: "",
+          placeholder: "",
+          entitled: vendorCredentialPresent(m),
+        }];
+      }
+      return (m.vendor?.secretKeys ?? []).map((key) => ({
+        ...base,
+        key,
+        credential: true,
+        title: `${m.vendor!.legalName}, for ${m.name}`,
+        unlocks: `Your own account with ${m.vendor!.legalName}. You hold this key and can rotate it without asking anybody. While it is blank, ${m.name} answers 503 and names who to reach.`,
+        getAt: m.vendor!.url,
+        placeholder: "",
+        entitled: null,
+      }));
+    });
+    return [...platform, ...listings];
+  }
+
   app.get("/api/admin/integrations", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
     const origin = notifyDeps.origin();
     res.json({
       secrets: allSecretStatuses(),
+      cards: integrationCards(),
+      // What each credential has actually DONE. `setAt` on a secret status is
+      // when somebody typed it, so nothing here or anywhere else may read it
+      // as evidence that a key works. With no recorded success the honest
+      // answer is that it has never been confirmed working.
+      health: allIntegrationHealth(),
       // What each key UNLOCKS, and the one value a founder must copy the
       // other direction: the webhook URL Stripe needs to be told about.
       stripeWebhookUrl: `${origin}/api/webhooks/stripe`,
@@ -12411,6 +12667,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     });
     res.json({ success: true, secrets: allSecretStatuses() });
   });
+  // ── End Lane C integrations zone ──────────────────────────────────────────
 
   // â”€â”€ "Work With Us" AI guide (Anthropic-backed, dormant without a key) â”€â”€â”€â”€â”€â”€
 
@@ -17547,8 +17804,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (blocking.length) {
       return res.status(409).json({ error: "Open state must settle through its own domain first", blocking });
     }
-    await anonymizeMember(target, adminActor(req)?.id ?? null);
-    res.json({ success: true, removed: { id: target.id, email: target.email }, anonymized: true });
+    const external = await anonymizeMember(target, adminActor(req)?.id ?? null);
+    // Lane C: an admin sees the same shortfall the member is told about, named
+    // per store, so the village knows what it is still chasing on their behalf.
+    res.json({ success: true, removed: { id: target.id, email: target.email }, anonymized: true, external });
   });
 
   /** Member-initiated deletion (Law 8968 posture): same path, own account. */
@@ -17568,8 +17827,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (blocking.length) {
       return res.status(409).json({ error: "Open state must settle through its own domain first", blocking });
     }
-    await anonymizeMember(user, user.id);
-    res.json({ success: true, anonymized: true });
+    const external = await anonymizeMember(user, user.id);
+    // Lane C: a member is never told "deleted" about a store that did not
+    // answer. The sentence says what happened here, and names the shortfall
+    // plainly where there is one.
+    res.json({ success: true, anonymized: true, external, message: erasureSentence(external) });
   });
 
   /** Member data export (Law 8968 posture): everything the village holds on you. */
@@ -17633,6 +17895,20 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       conciergeQueries: await mine("SELECT query, created_at FROM concierge_queries WHERE user_id = ?"),
       onchainBalances: await mine("SELECT * FROM onchain_balances WHERE user_id = ?"),
       exits: await mine("SELECT * FROM exits WHERE user_id = ?"),
+      /*
+       * ── Lane C: the domains that are not in this database ────────────────
+       *
+       * The comment above is about eight missing domains, and every one of
+       * them was a table right here. A listing puts a domain somewhere this
+       * process cannot reach at all, and the same defect arrives by a new
+       * road: a document that says "everything" while a store it knows about
+       * is missing from it.
+       *
+       * `unavailable` is why this is an object and not a spread. A store that
+       * could not be read is NAMED in the file the member downloads, so a
+       * partial export announces itself instead of looking complete.
+       */
+      externalStores: await exportMemberEverywhere(user.id),
     };
     res.setHeader("Content-Disposition", `attachment; filename="my-data-${user.id}.json"`);
     res.json(exportDoc);

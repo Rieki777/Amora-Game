@@ -55,6 +55,8 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
   const [confirming, setConfirming] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  /** Set only when an outside store did not confirm. Holds the redirect open. */
+  const [farewell, setFarewell] = useState("");
 
   const headers = () => ({ Authorization: `Bearer ${authToken()}`, "Content-Type": "application/json" });
 
@@ -99,6 +101,18 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
         if (!r.ok) throw new Error(d.error || "Could not delete");
         clearAuthToken();
         onDeleted?.();
+        /*
+         * A member is never told "deleted" about a store that did not answer.
+         *
+         * Where a connected service has not confirmed, the redirect waits and
+         * the sentence is shown, because a page that vanishes the instant the
+         * local scrub finishes would have told this person the whole job was
+         * done. Where everything confirmed, nothing changes.
+         */
+        if (d?.external?.unconfirmed?.length) {
+          setFarewell(d.message || "Some connected services have not confirmed yet.");
+          return;
+        }
         window.location.href = "/";
       })
       .catch((e) => setError(e.message));
@@ -187,7 +201,17 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
             export failure was written to state nothing displayed. */}
         {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
 
-        {!confirming ? (
+        {farewell ? (
+          <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-xs text-amber-900">{farewell}</p>
+            <button
+              onClick={() => { window.location.href = "/"; }}
+              className="text-sm text-amber-900 underline mt-2"
+            >
+              I have read this
+            </button>
+          </div>
+        ) : !confirming ? (
           <button
             // Clear a stale export error on the way in, so it cannot appear
             // to be about the deletion the member is now considering.

@@ -1311,17 +1311,40 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
           </p>
           <div className="space-y-1.5">
             {data.modules.map((m: any) => (
-              <div key={m.id} className="flex items-center justify-between text-sm">
-                <span className="text-stone-600">{m.name}{m.core && <span className="text-[10px] text-stone-400 ml-1">core</span>}</span>
-                <span>
-                  {m.demotedBecause ? (
-                    <span className="text-xs text-red-600 font-semibold">serving OFF, needs {m.demotedBecause.join(", ")}</span>
-                  ) : (
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${m.served === "off" ? "bg-stone-100 text-stone-400" : m.served === "public" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-                      {m.served}
-                    </span>
-                  )}
-                </span>
+              <div key={m.id}>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-stone-600">{m.name}{m.core && <span className="text-[10px] text-stone-400 ml-1">core</span>}</span>
+                  <span>
+                    {m.demotedBecause ? (
+                      <span className="text-xs text-red-600 font-semibold">serving OFF, needs {m.demotedBecause.join(", ")}</span>
+                    ) : (
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${m.served === "off" ? "bg-stone-100 text-stone-400" : m.served === "public" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                        {m.served}
+                      </span>
+                    )}
+                  </span>
+                </div>
+                {/* Who answers for this one. This is the screen a founder opens
+                    when something is dark, so it is where "whose problem is
+                    this" has to be legible without a second click. */}
+                {m.support?.party === "vendor" && (
+                  <p className="text-[11px] text-stone-400 mt-0.5">
+                    {m.support.vendorName} answers for the service.{" "}
+                    <a href={m.support.supportUrl} target="_blank" rel="noopener noreferrer" className="text-teal-deep underline">Support</a>
+                    {m.credentialPresent === false ? " · no key set, so this module answers 503" : ""}
+                  </p>
+                )}
+                {m.tier === "managed" && (
+                  <p className="text-[11px] text-stone-400 mt-0.5">
+                    Whoever runs this deployment answers for this one.
+                    {m.credentialPresent === false ? " The platform key is not provisioned here yet, so it answers 503." : ""}
+                  </p>
+                )}
+                {(m.health ?? []).map((h: any) => (
+                  <p key={h.operation} className={`text-[11px] mt-0.5 ${h.verdict === "failing" || h.verdict === "stale" ? "text-red-600" : "text-stone-400"}`}>
+                    {h.operation}: {h.detail}
+                  </p>
+                ))}
               </div>
             ))}
           </div>

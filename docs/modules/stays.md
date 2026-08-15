@@ -1,5 +1,7 @@
 # Module design: Stays / Accommodation Payments (slide 32) — module id `stays`
 
+Provenance: platform
+
 > Produced by the 13-agent design workflow, 2026-07-26, from the 2020 village-demo deck (slides + speaker notes),
 > the AMORA_FOUNDATION_UPGRADE_PLAN constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
 > where this file and the master plan disagree, **the master plan wins** (it applies the two critique passes).

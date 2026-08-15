@@ -1,5 +1,23 @@
 # Module design: module-framework
 
+Provenance: platform
+
+> **Corrections, 2026-08-14.** This file is a DESIGN document from before the build, and three things
+> in it are now wrong. It is not on Maia's shelf (`MODULE_DOCS` excludes it deliberately), so nothing
+> quotes it to a founder, and it is kept as the record of the design.
+>
+> 1. **The `ModuleDef` quoted below is stale.** The live interface is `shared/modules.ts` and carries
+>    `tier`, `dataClass`, `vendor?`, `provides?`, `sellsToken?` and `openStateCheck?` as well. Read the
+>    file, never this quote.
+> 2. **`client/src/modules/registry.tsx` does not exist and was never built.** The only file in
+>    `client/src/modules/` is `ModuleProvider.tsx`. There is no client-side per-module manifest: nav,
+>    routes and admin tabs are wired in `App.tsx` and `Admin.tsx` against the ids the server sends from
+>    `/api/modules`, and the Admin Modules tab renders whatever the registry contains.
+> 3. **The "Interim JSON" section is void.** `data/modules.json` and `data/module-events.json` never
+>    became the authority and MySQL is the only one now (`module_settings`, `module_events`, migration
+>    0015). `server/lib/modules.ts` is a boot-loaded cache over those tables, not an mtime-memoised
+>    JSON reader.
+>
 > Produced by the 13-agent design workflow, 2026-07-26, from the 2020 village-demo deck (slides + speaker notes),
 > the AMORA_FOUNDATION_UPGRADE_PLAN constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
 > where this file and the master plan disagree, **the master plan wins** (it applies the two critique passes).
@@ -55,6 +73,8 @@ Estimated sessions: 6
 
 ### Registry (code, not DB) — `shared/modules.ts`
 
+**Stale. See correction 1 at the top of this file; read `shared/modules.ts` instead.**
+
 ```ts
 interface ModuleDef {
   id: string;                    // 'forum', 'library', 'stays', 'exchange', 'map', 'tools', 'notifications', 'economics', 'automation'
@@ -73,7 +93,7 @@ interface ModuleDef {
 }
 ```
 
-Client-side manifest lives separately in `client/src/modules/registry.tsx` (components can't live in shared/): per module — nav entries for the drawer, FAB actions, lazy route components, admin tab components, profile widgets.
+~~Client-side manifest lives separately in `client/src/modules/registry.tsx`~~ — **never built, see correction 2.** `client/src/modules/` holds `ModuleProvider.tsx` alone; nav, routes and admin tabs are wired directly against the module ids `/api/modules` sends.
 
 ## Endpoints
 

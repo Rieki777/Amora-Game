@@ -24,6 +24,7 @@
  * without dragging in mysql2. Adding a requirement means: one entry here,
  * one check function there, and every consumer updates itself.
  */
+import { MODULES } from "./modules";
 
 export type LaunchGroup =
   | "identity" // who runs this village: admins, handles, the shared-password exit
@@ -73,7 +74,8 @@ export interface LaunchRequirement {
   runbookAnchor?: string;
 }
 
-export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
+/** The platform's own requirements. Listings add theirs below, from the registry. */
+const PLATFORM_REQUIREMENTS: LaunchRequirement[] = [
   // ── Identity: the shared-password exit is the platform's oldest debt ──────
   {
     id: "admin-identities",
@@ -261,6 +263,72 @@ export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
     fixLabel: "Open Data & backups",
     runbookAnchor: "backups",
   },
+];
+
+// ── Module library listings contribute their own ─────────────────────────────
+
+/**
+ * One requirement per listing, generated from the registry.
+ *
+ * Reusing this machinery rather than inventing a vendor registry buys four
+ * things that already work: `appliesWhenModule` so a listing withdraws its own
+ * requirement when the module is off, `effectiveLifecycle` gating so a DEMOTED
+ * module withdraws it too, three consumers that render it without being told,
+ * and a visible failure when a check is not wired. A parallel mechanism would
+ * have had to earn all four again.
+ *
+ * Connected asks a village to connect its own account. Managed asks nothing of
+ * the village and instead DISCLOSES the arrangement, using the sentence
+ * `assistant-own-key` already ships, because that sentence is exactly the
+ * managed risk and it is already in house voice: the deployment runs on a key
+ * somebody else holds, that key can be rotated at any time, and when it is,
+ * the thing stops answering.
+ */
+export function listingRequirements(
+  listings: ReadonlyArray<{ id: string; name: string; tier: string; vendor?: { legalName: string } }>,
+): LaunchRequirement[] {
+  const out: LaunchRequirement[] = [];
+  for (const m of listings) {
+    if (m.tier === "connected") {
+      out.push({
+        id: `listing-credential-${m.id}`,
+        group: "integrations",
+        title: `Connect your own account for ${m.name}`,
+        why: `${m.vendor?.legalName ?? "The service behind this module"} bills your village directly and you hold the account. Until the key is set, this module answers an honest 503 and says who to reach. Everything else keeps working.`,
+        severity: "recommended",
+        checkKey: `listing-credential:${m.id}`,
+        fixAt: "/admin?tab=integrations",
+        fixLabel: "Open Integrations",
+        appliesWhenModule: m.id,
+        runbookAnchor: "module-library",
+      });
+    }
+    if (m.tier === "managed") {
+      out.push({
+        id: `listing-lent-key-${m.id}`,
+        group: "integrations",
+        title: `Know what ${m.name} runs on`,
+        why: "This deployment is running that module on a key the platform lends it. That key can be rotated at any time, and when it is, the module stops answering. One bill and one number to call is what you bought here, so the escalation is ours; this is the thing to know about it.",
+        severity: "optional",
+        checkKey: `listing-credential:${m.id}`,
+        fixAt: "/admin?tab=modules",
+        fixLabel: "Open Modules",
+        appliesWhenModule: m.id,
+        runbookAnchor: "module-library",
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * The ONE list every consumer reads. Composed rather than hand-maintained, so
+ * a listing that lands in the registry appears on the launch journey, in the
+ * admin banner and in the guide's answer without anybody editing this file.
+ */
+export const LAUNCH_REQUIREMENTS: LaunchRequirement[] = [
+  ...PLATFORM_REQUIREMENTS,
+  ...listingRequirements(MODULES),
 ];
 
 /** Ids of requirements that gate "Mark launched" (severity: blocking). */
