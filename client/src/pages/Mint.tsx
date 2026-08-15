@@ -18,6 +18,7 @@
  */
 import Layout from "@/components/Layout";
 import NotFound from "@/pages/NotFound";
+import { Link } from "wouter";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
@@ -87,7 +88,7 @@ const TRIGGER_WORDS: Record<string, string> = {
 };
 
 export default function Mint() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const [view, setView] = useState<View | null>(null);
   const [dials, setDials] = useState<Dial[]>([]);
   const [denied, setDenied] = useState(false);
@@ -127,7 +128,24 @@ export default function Mint() {
       })
       .catch(() => {});
   };
-  useEffect(load, [user?.id]);
+  /*
+   * NOTHING IS ASKED FOR UNTIL SOMEONE IS SIGNED IN.
+   *
+   * This ran `load` on every mount. A signed-out visitor opening /admin/mint
+   * therefore fired GET /api/admin/economy and GET /api/admin/variables with no
+   * token, collected two 401s in the console, and was then shown the 404 body
+   * while the tab still read "Village settings". /admin has answered the same
+   * visitor with a sign-in prompt all along; this makes the two agree, and the
+   * prompt below is what renders instead of the 404.
+   *
+   * `loading` is the guard that makes it correct rather than merely quiet: the
+   * session is restored asynchronously, so a first paint with `user` still null
+   * is "we do not know yet" and not "this is a stranger".
+   */
+  useEffect(() => {
+    if (user) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const hypha = dials.find((d) => d.key === HYPHA_KEY) ?? null;
 
@@ -194,6 +212,38 @@ export default function Mint() {
     setNote("Queued. It takes effect at the next moon.");
   };
 
+  /*
+   * Signed out is a DOOR, not a dead end. A signed-in account without the
+   * capability still gets the 404 body below, which is the opacity /admin's
+   * own gate keeps: a member has no way to learn that this surface exists.
+   */
+  if (loading) {
+    return (
+      <Layout>
+        <div className="container py-16 text-gray-700">Looking.</div>
+      </Layout>
+    );
+  }
+  if (!user) {
+    return (
+      <Layout>
+        <div className="container max-w-md py-16">
+          <div className={card}>
+            <h1 className="text-2xl font-display font-bold text-teal-deep">The Mint</h1>
+            <p className="mt-3 text-gray-700">
+              Sign in with your admin account to open the Mint.
+            </p>
+            <Link
+              href="/admin"
+              className="mt-6 inline-block rounded-lg bg-teal-deep px-5 py-3 text-white"
+            >
+              Go to village settings
+            </Link>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
   if (denied) return <NotFound />;
   if (!view) {
     return (

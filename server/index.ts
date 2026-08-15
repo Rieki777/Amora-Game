@@ -2178,6 +2178,31 @@ async function retireBlendedTokenCopy() {
 
 // â”€â”€ Game engine helpers (platform-level; all project specifics live in gameConfig) â”€â”€
 
+/**
+ * THE 401 BODY, and it is one shape now.
+ *
+ * A refusal used to be whatever its author felt like typing: `Unauthorized`
+ * on 247 routes, `Sign in first` on 25, `auth_required` from the module gate,
+ * and forty-six one-off sentences. A caller could not tell "you are not signed
+ * in" from any other 401 without matching prose, which is a contract that
+ * breaks on a copy edit.
+ *
+ * Every 401 that means "this caller is not signed in, or not signed in as
+ * someone allowed here" now answers
+ *
+ *     { error: "auth_required" }                       // no sentence to keep
+ *     { error: "auth_required", message: "Sign in to claim quests" }
+ *
+ * `error` is the machine word and never changes; `message` carries the human
+ * sentence the route had before, so nothing that a person was meant to read
+ * was thrown away. Status codes are untouched.
+ *
+ * THREE FAMILIES ARE DELIBERATELY NOT THIS. `Invalid credentials`, the two
+ * `bad signature` webhook refusals, and the set-password link failures are
+ * credential VERIFICATION failures: the caller has credentials and they are
+ * wrong. Telling them to sign in is a wrong answer, and the login page and the
+ * set-password page render two of those strings verbatim.
+ */
 async function authedUser(req: express.Request): Promise<any | null> {
   const header = req.headers.authorization;
   if (!header || !header.startsWith("Bearer ")) return null;
@@ -4604,6 +4629,50 @@ async function startServer() {
   }
 
   /**
+   * SECURITY RESPONSE HEADERS, on every response this process writes.
+   *
+   * Registered FIRST, ahead of the webhooks and every route below, because a
+   * header set per-route is a header some route will be added without. Live
+   * measurement before this landed: no CSP, no X-Frame-Options, no nosniff, no
+   * Referrer-Policy, no Permissions-Policy on any path, and `x-powered-by:
+   * Express` announcing the stack to anyone running `curl -sI`.
+   *
+   * `frame-ancestors 'self'` is the one that mattered most. /map is a
+   * full-viewport iframe of /grounds/index.html, so the whole village was
+   * embeddable in anyone's page: a pixel-perfect copy under a stranger's
+   * domain, with the member's own session inside it. Same-origin framing is
+   * what the shell does (LivingMap, MapPeek, WalkEditorPanel all point at
+   * /grounds/index.html), so 'self' keeps every one of them and refuses the
+   * rest. X-Frame-Options rides along for the browsers that still read it.
+   *
+   * A FULL CSP IS DELIBERATELY OUT OF SCOPE. docs/prototypes/grounds-v0.html
+   * is ~5 MB of self-contained page with inline scripts and inline styles
+   * throughout, so any script-src or style-src worth writing would blank the
+   * map. frame-ancestors stands on its own and needs no allowlist to maintain.
+   *
+   * Permissions-Policy denies all three of camera, microphone and geolocation:
+   * grep across client/, server/, shared/ and the map prototype finds no
+   * getCurrentPosition, no watchPosition and no navigator.geolocation, so
+   * nothing in this build asks for any of them. A page that starts needing one
+   * removes it from this list, which is a deliberate act rather than a default.
+   *
+   * NO Strict-Transport-Security. It is set once and believed for its whole
+   * max-age, so it can only be sent when EVERY hostname this app answers on
+   * terminates TLS. The custom domain does (`curl -sI http://…` answers 301 to
+   * https), and the Railway-generated hostname cannot be enumerated from here.
+   * An unverified HSTS is not a header that can be taken back. See the report.
+   */
+  app.disable("x-powered-by");
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    next();
+  });
+
+  /**
    * S13/S32, the framework-owned settlement seam (economy invariant #10): ONE
    * raw-body Stripe webhook, mounted BEFORE express.json(). payments.ts owns
    * everything behind it — signature verification against the RAW body,
@@ -4928,7 +4997,7 @@ async function startServer() {
   // GET /api/admin/submissions?type=investor   (Authorization: Bearer <admin password>)
   app.get("/api/admin/submissions", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     let submissions: any[] = submissionsRepo.all();
     if (req.query.type) {
@@ -4943,7 +5012,7 @@ async function startServer() {
   // Admin: Delete Submission
   app.delete("/api/admin/submissions/:id", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     const submissions: any[] = submissionsRepo.all();
     const filtered = submissions.filter((s) => s.id !== req.params.id);
@@ -4958,7 +5027,7 @@ async function startServer() {
   // into the game for a matching member (contribution + Gratitude + pulse).
   const SUBMISSION_STATUSES = ["new", "reviewing", "in-conversation", "accepted", "declined"];
   app.put("/api/admin/submissions/:id/status", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { status } = req.body ?? {};
     if (!SUBMISSION_STATUSES.includes(status)) return res.status(400).json({ error: "Invalid status" });
     const submissions: any[] = submissionsRepo.all();
@@ -4979,7 +5048,7 @@ async function startServer() {
   // GET /api/admin/submissions/export?type=optional   (Authorization: Bearer <admin password>)
   app.get("/api/admin/submissions/export", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     let submissions: any[] = submissionsRepo.all();
     if (req.query.type) {
@@ -5083,7 +5152,7 @@ async function startServer() {
   // Admin: Read All Content
   app.get("/api/admin/content", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     res.json(contentRepo.get());
   });
@@ -5092,7 +5161,7 @@ async function startServer() {
   // PUT /api/admin/content/:section   (Authorization: Bearer <admin password>)
   app.put("/api/admin/content/:section", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     const content = contentRepo.get();
     content[req.params.section] = req.body;
@@ -5208,7 +5277,7 @@ async function startServer() {
       });
     }
     if (!secretEquals(String(password), ADMIN_PASSWORD)) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     const normEmail = String(email).trim().toLowerCase();
     const all = await members.all();
@@ -5365,7 +5434,7 @@ async function startServer() {
    */
   app.post("/api/auth/logout", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     await members.update(user.id, (u: any) => { u.tokenVersion = (u.tokenVersion ?? 0) + 1; });
     res.json({ success: true });
   });
@@ -5414,7 +5483,7 @@ async function startServer() {
    * the stronger one's password and inherits the deployment.
    */
   app.post("/api/admin/users/:id/send-password-link", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (req as any).adminUser;
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
@@ -5453,7 +5522,7 @@ async function startServer() {
 
   /** Revoke every session a member holds (S1's tokenVersion lever). */
   app.post("/api/admin/users/:id/revoke-sessions", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
     await members.update(target.id, (u: any) => { u.tokenVersion = (u.tokenVersion ?? 0) + 1; });
@@ -5468,7 +5537,7 @@ async function startServer() {
    * admin, because bootstrap is spent.
    */
   app.put("/api/admin/users/:id/role", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (req as any).adminUser;
     if (actor.role !== "founder") {
       return res.status(403).json({ error: "Only a founder can change roles" });
@@ -5505,7 +5574,7 @@ async function startServer() {
 
   /** The audit trail, newest first. Every admin mutation lands here. */
   app.get("/api/admin/audit", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Legacy response shape preserved: the Admin audit view reads action/target.
     const rows = await recentEvents(getPool(), "admin", 200);
     res.json(rows.map((r) => ({
@@ -5567,7 +5636,7 @@ async function startServer() {
 
   /** The full truth for the admin panel: every module, dependency status, orphans. */
   app.get("/api/admin/modules", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const demotions = new Map(moduleDemotions().map((d) => [d.id, d.missing]));
     res.json({
       modules: MODULES.map((m) => ({
@@ -5677,7 +5746,7 @@ async function startServer() {
   // ── End Lane C zone ────────────────────────────────────────────────────────
 
   app.put("/api/admin/modules/:id/lifecycle", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { lifecycle } = req.body ?? {};
     // Funds-bearing modules refuse to enable while no per-admin identity with
     // a real credential exists (invariants #11-#12).
@@ -5727,7 +5796,7 @@ async function startServer() {
    * more exempt from it than a publish is.
    */
   app.post("/api/admin/modules/:id/examples/clear", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!MODULES_BY_ID[req.params.id]) return res.status(404).json({ error: "No such module" });
     if (retiresWith(req.params.id).every((id) => isRetired(id))) {
       return res.json({ success: true, removed: 0, alreadyRetired: true });
@@ -5752,7 +5821,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/modules/:id/config", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     let config = req.body?.config;
     // WHO accepted a legal card, and WHEN, is a record about a person — the
     // client may not author it. The server stamps the authenticated actor and
@@ -5772,7 +5841,7 @@ async function startServer() {
         });
       }
       const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
-      if (!actor) return res.status(401).json({ error: "Accepting the caution card needs a named admin, not a shared password" });
+      if (!actor) return res.status(401).json({ error: "auth_required", message: "Accepting the caution card needs a named admin, not a shared password" });
       config = {
         ...config,
         [card.field]: { cardVersion: card.version, acceptedBy: actor, acceptedAt: new Date().toISOString() },
@@ -5916,7 +5985,7 @@ async function startServer() {
    */
   app.post("/api/feed/threads/:id/heart", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to send appreciation" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to send appreciation" });
     const thread = await forumThreadById(req.params.id);
     if (!thread || thread.hiddenAt) return res.status(404).json({ error: "Post not found" });
     // A heart is a real budgeted send that posts a ledger leg. Spending it on
@@ -6069,7 +6138,7 @@ async function startServer() {
 
   app.post("/api/forum/threads", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to post" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to post" });
     const ctx = await capabilityCtx(user);
     if (!hasCapability("forum.post", ctx)) {
       return res.status(403).json({ error: "Posting opens at the member stage" });
@@ -6189,7 +6258,7 @@ async function startServer() {
 
   app.post("/api/forum/threads/:id/replies", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to reply" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to reply" });
     const ctx = await capabilityCtx(user);
     if (!hasCapability("forum.post", ctx)) {
       return res.status(403).json({ error: "Replying opens at the member stage" });
@@ -6262,7 +6331,7 @@ async function startServer() {
    */
   app.patch("/api/forum/:kind(threads|replies)/:id", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const isThread = req.params.kind === "threads";
     const table = isThread ? "forum_threads" : "forum_replies";
     const [[row]] = await getPool().query<any[]>(`SELECT * FROM ${table} WHERE id = ?`, [req.params.id]);
@@ -6306,7 +6375,7 @@ async function startServer() {
 
   app.post("/api/forum/threads/:id/subscribe", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const thread = await forumThreadById(req.params.id);
     if (!thread) return res.status(404).json({ error: "Not found" });
     // A subscription to a thread that will be deleted is an orphan row and a
@@ -6321,7 +6390,7 @@ async function startServer() {
   /** Report a thread or reply: once per person; soft reports can auto-hide. */
   app.post("/api/forum/threads/:id/report", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to report" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to report" });
     const thread = await forumThreadById(req.params.id);
     if (!thread) return res.status(404).json({ error: "Not found" });
     // Reporting an example would let enough soft reports auto-hide platform
@@ -6363,7 +6432,7 @@ async function startServer() {
   /** Moderation: hide/restore/pin/unpin/lock/unlock — capability or admin. */
   app.post("/api/forum/threads/:id/moderate", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     // Pinning or locking a row that retirement will delete is moderation
     // that quietly undoes itself.
     if (await isExampleRow(getPool(), "forum_threads", req.params.id)) {
@@ -6400,7 +6469,7 @@ async function startServer() {
   /** The decision primitive: record the outcome, lock the thread. */
   app.post("/api/forum/threads/:id/decide", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     if (await isExampleRow(getPool(), "forum_threads", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
@@ -6424,7 +6493,7 @@ async function startServer() {
   });
 
   app.get("/api/admin/forum/reports", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const status = ["open", "resolved", "dismissed"].includes(String(req.query.status)) ? String(req.query.status) : "open";
     /*
      * Joined, not raw ids. This endpoint returned thread_id and reporter_id
@@ -6459,7 +6528,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/forum/reports/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const status = String(req.body?.status ?? "");
     if (!["resolved", "dismissed"].includes(status)) return res.status(400).json({ error: "status must be resolved or dismissed" });
     const [r]: any = await getPool().query(
@@ -6531,7 +6600,7 @@ async function startServer() {
 
   app.get("/api/messages", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to see your messages" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to see your messages" });
     const entries = await inboxFor(getPool(), user.id);
     res.json({
       unreadTotal: await totalUnreadFor(getPool(), user.id),
@@ -6573,7 +6642,7 @@ async function startServer() {
    */
   app.get("/api/messages/people", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const q = String(req.query.q ?? "").trim().toLowerCase();
     if (q.length < 2) return res.json([]);
     const all = await members.all();
@@ -6592,7 +6661,7 @@ async function startServer() {
   /** Open (or reopen) the direct thread with one other member. */
   app.post("/api/messages/direct", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to send a message" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to send a message" });
     if (!(await canSendMessages(user))) {
       return res.status(403).json({ error: "Messaging opens at the member stage" });
     }
@@ -6618,7 +6687,7 @@ async function startServer() {
   /** A named group thread. The creator owns it and is always in it. */
   app.post("/api/messages/groups", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to start a conversation" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to start a conversation" });
     if (!(await canSendMessages(user))) {
       return res.status(403).json({ error: "Messaging opens at the member stage" });
     }
@@ -6644,7 +6713,7 @@ async function startServer() {
   /** One thread: membership proven first, then a page of its messages. */
   app.get("/api/messages/:id", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to read your messages" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to read your messages" });
     const found = await requireConversation(req, res, user);
     if (!found) return;
     const before = req.query.before ? Number(req.query.before) : undefined;
@@ -6688,7 +6757,7 @@ async function startServer() {
 
   app.post("/api/messages/:id/messages", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to send a message" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to send a message" });
     if (!(await canSendMessages(user))) {
       return res.status(403).json({ error: "Messaging opens at the member stage" });
     }
@@ -6731,7 +6800,7 @@ async function startServer() {
   /** Advance this member's read mark. Monotonic in the repo layer. */
   app.post("/api/messages/:id/read", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const found = await requireConversation(req, res, user);
     if (!found) return;
     // A body-less call means "everything". advanceRead clamps to the newest
@@ -6746,7 +6815,7 @@ async function startServer() {
   /** Mute, or rename a group. Direct threads have no name to set. */
   app.patch("/api/messages/:id", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const found = await requireConversation(req, res, user);
     if (!found) return;
     if (req.body?.muted !== undefined) {
@@ -6772,7 +6841,7 @@ async function startServer() {
   /** Anyone may leave, always. Ownership passes on in the repo layer. */
   app.post("/api/messages/:id/leave", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const found = await requireConversation(req, res, user);
     if (!found) return;
     await leaveConversation(getPool(), found.conversation.id, user.id);
@@ -6781,7 +6850,7 @@ async function startServer() {
 
   app.post("/api/messages/:id/members", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const found = await requireConversation(req, res, user);
     if (!found) return;
     if (found.conversation.kind === "direct") {
@@ -6811,7 +6880,7 @@ async function startServer() {
 
   app.delete("/api/messages/:id/members/:userId", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const found = await requireConversation(req, res, user);
     if (!found) return;
     if (found.conversation.kind === "direct") {
@@ -6833,7 +6902,7 @@ async function startServer() {
 
   app.post("/api/messages/:id/owner", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const found = await requireConversation(req, res, user);
     if (!found) return;
     if (found.conversation.kind === "direct") {
@@ -6863,7 +6932,7 @@ async function startServer() {
    */
   app.patch("/api/messages/:id/messages/:messageId", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     if (!(await canSendMessages(user))) {
       return res.status(403).json({ error: "Messaging is suspended for this account" });
     }
@@ -6893,7 +6962,7 @@ async function startServer() {
   /** Only the author removes their own line, and it leaves a tombstone. */
   app.delete("/api/messages/:id/messages/:messageId", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const found = await requireConversation(req, res, user);
     if (!found) return;
     const gone = await softDeleteMessage(getPool(), found.conversation.id, String(req.params.messageId), user.id);
@@ -6904,7 +6973,7 @@ async function startServer() {
   /** Every thread inherits a report path. Reports go to a human. */
   app.post("/api/messages/:id/messages/:messageId/report", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const found = await requireConversation(req, res, user);
     if (!found) return;
     const [target] = await getPool().query<any[]>(
@@ -6939,7 +7008,7 @@ async function startServer() {
    * reads inside a private conversation at all.
    */
   app.get("/api/admin/messages/reports", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const status = ["open", "resolved", "dismissed"].includes(String(req.query.status))
       ? String(req.query.status)
       : "open";
@@ -6972,7 +7041,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/messages/reports/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const status = String(req.body?.status ?? "");
     if (!["resolved", "dismissed"].includes(status)) {
       return res.status(400).json({ error: "status must be resolved or dismissed" });
@@ -7020,7 +7089,7 @@ async function startServer() {
       viewPeople = hasCapability("map.viewPeople", ctx);
     }
     if (!viewer && !boolVar("map.public_structure")) {
-      return res.status(401).json({ error: "Sign in to see the village map" });
+      return res.status(401).json({ error: "auth_required", message: "Sign in to see the village map" });
     }
     const allMembers = viewPeople ? await members.all() : [];
     const nameOf = (id: string) => firstName(allMembers.find((u: any) => u.id === id)?.name ?? "Member");
@@ -7097,7 +7166,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/circles", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { id, name } = req.body ?? {};
     // A name in any non-Latin script slugifies to "" — so a village writing
     // Russian, Japanese or Arabic could not create a circle AT ALL, and the
@@ -7127,7 +7196,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/circles/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const all = circlesRepo.all();
     const idx = all.findIndex((c: any) => c.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
@@ -7160,7 +7229,7 @@ async function startServer() {
   });
 
   app.delete("/api/admin/circles/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Deleting examples one by one empties the map with no tombstone stamped,
     // so modulesWithExamples still names the module and the banner keeps
     // promising circles that are gone. The clear endpoint is the way out.
@@ -7185,7 +7254,7 @@ async function startServer() {
 
   /** Assign a role to a circle and size its seats. */
   app.put("/api/admin/roles/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const all = rolesRepo.all();
     const idx = all.findIndex((r: any) => r.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Role not found" });
@@ -7211,7 +7280,7 @@ async function startServer() {
   /** Raise your hand on a vacant seat → the EXISTING submissions inbox. */
   app.post("/api/map/roles/:id/raise-hand", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to raise your hand" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to raise your hand" });
     // 0049: the map shows org seats, so this is the id a raised hand carries.
     const role = (await listOrgRoles(getPool())).find((r) => r.id === req.params.id);
     if (!role) return res.status(404).json({ error: "Seat not found" });
@@ -7248,7 +7317,7 @@ async function startServer() {
    */
   app.post("/api/map/contact", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to reach people" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to reach people" });
     const ctx = await capabilityCtx(user);
     if (!hasCapability("map.contact", ctx)) {
       return res.status(403).json({ error: "Reaching people through the relay opens at the member stage" });
@@ -7332,7 +7401,7 @@ async function startServer() {
   /** The member's contactable toggle (server-enforced by the relay). */
   app.put("/api/game/preferences", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const { contactable } = req.body ?? {};
     const updated = await members.update(user.id, (u: any) => {
       if (contactable !== undefined) u.contactable = !!contactable;
@@ -7362,7 +7431,7 @@ async function startServer() {
   app.use("/api/assistant/coordinate", requireModule("map"));
   app.post("/api/assistant/coordinate", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to ask the concierge" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to ask the concierge" });
     if (!boolVar("map.concierge_enabled")) return res.status(404).json({ error: "The concierge is off" });
     const query = String(req.body?.query ?? "").trim();
     if (!query || query.length < 3) return res.status(400).json({ error: "Ask a fuller question" });
@@ -7505,12 +7574,12 @@ async function startServer() {
   });
 
   app.get("/api/admin/map/contact-log", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(await contactLog(getPool()));
   });
 
   app.get("/api/admin/map/concierge-log", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(await conciergeLog(getPool(), String(req.query.unmatched ?? "") === "1"));
   });
 
@@ -7607,7 +7676,7 @@ async function startServer() {
 
   /** Admin list: everything incl. disabled, with 30/90-day click counts. */
   app.get("/api/admin/tools", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [counts] = await getPool().query<any[]>(
       "SELECT tool_id, " +
         "SUM(CASE WHEN at > (NOW() - INTERVAL 30 DAY) THEN 1 ELSE 0 END) AS d30, " +
@@ -7622,7 +7691,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/tools", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const problem = validateToolBody(req.body);
     if (problem) return res.status(400).json({ error: problem });
     const slug = String(req.body.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
@@ -7658,7 +7727,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/tools/order", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
     const all = toolsRepo.all();
     if (ids.length !== all.length || !all.every((t: any) => ids.includes(t.id))) {
@@ -7670,7 +7739,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/tools/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Editing an example keeps its flag, so the admin's own words would be
     // deleted by the first real tool they add. Every sibling module refuses
     // the same edit; tools was the outlier.
@@ -7689,7 +7758,7 @@ async function startServer() {
   });
 
   app.delete("/api/admin/tools/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Deleting examples one by one would empty the grid without stamping a
     // tombstone, so the banner would keep promising them until the next boot.
     // "Clear examples" in Admin is the supported way to be rid of them.
@@ -7706,7 +7775,7 @@ async function startServer() {
 
   /** SSRF-guarded link check (server/lib/toolcheck.ts). Admin-triggered in v1. */
   app.post("/api/admin/tools/check-links", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const all = toolsRepo.all();
     const results: any[] = [];
     for (const t of all as any[]) {
@@ -7854,7 +7923,7 @@ async function startServer() {
       return res.status(403).json({ error: "RSVPs are closed for this village" });
     }
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to RSVP" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to RSVP" });
     if (!hasCapability("event.rsvp", await capabilityCtx(user))) {
       return res.status(403).json({ error: "You cannot RSVP yet" });
     }
@@ -7899,7 +7968,7 @@ async function startServer() {
 
   app.delete("/api/events/:id/rsvp", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const removed = await withdrawRsvp(getPool(), req.params.id, user.id);
     res.json({ success: true, removed });
   });
@@ -7949,7 +8018,7 @@ async function startServer() {
 
   /** Admin list: the only surface that sees drafts. */
   app.get("/api/admin/events", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
     const list = await listGatherings(getPool(), {
       includeDrafts: true,
       // Admins manage the whole calendar, so the member-facing windows do not
@@ -7963,12 +8032,12 @@ async function startServer() {
 
   /** Who is coming, for whoever is catering. Names only, never emails. */
   app.get("/api/admin/events/:id/rsvps", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
     res.json({ rsvps: await listRsvps(getPool(), req.params.id) });
   });
 
   app.post("/api/admin/events", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
     const problem = validateGatheringBody(req.body, true);
     if (problem) return res.status(400).json({ error: problem });
     const actor = await authedUser(req);
@@ -7985,7 +8054,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/events/:id", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
     const problem = validateGatheringBody(req.body, false);
     if (problem) return res.status(400).json({ error: problem });
     const updated = await updateGathering(getPool(), req.params.id, req.body);
@@ -7994,7 +8063,7 @@ async function startServer() {
   });
 
   app.delete("/api/admin/events/:id", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
     const gone = await deleteGathering(getPool(), req.params.id);
     if (!gone) return res.status(404).json({ error: "Not found" });
     res.json({ success: true });
@@ -8056,7 +8125,7 @@ async function startServer() {
   /** Request a stay. Requested, never active: activation is a human act. */
   app.post("/api/stays/request", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to request a stay" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to request a stay" });
     const audience = await stayAudienceFor(user);
     if (audience === "guest" && !boolVar("stay.guest_booking_enabled")) {
       return res.status(403).json({ error: "Stay requests are open to members right now. Write to the village instead" });
@@ -8089,7 +8158,7 @@ async function startServer() {
    */
   app.post("/api/stays/checkout", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to buy stay credits" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to buy stay credits" });
     const { accommodationId, nights } = req.body ?? {};
     const n = Math.floor(Number(nights) || 0);
     if (n < 1) return res.status(400).json({ error: "How many nights?" });
@@ -8135,7 +8204,7 @@ async function startServer() {
 
   /** Admin overview: rooms (incl. inactive), stays with live balances, purchases. */
   app.get("/api/admin/stays", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const accommodations = await listAccommodations(getPool(), { includeInactive: true });
     const stays = await allStays(getPool());
     const withNames = [];
@@ -8170,7 +8239,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/stays/accommodations", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { name, description, capacity, photoUrl } = req.body ?? {};
     if (!String(name ?? "").trim()) return res.status(400).json({ error: "A name is required" });
     const id = `acc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -8183,7 +8252,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/stays/accommodations/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Renaming or deactivating an example room launders it into village
     // content that retirement can still delete. Every sibling admin edit route
     // refuses examples; stays was the one that did not.
@@ -8204,7 +8273,7 @@ async function startServer() {
 
   /** Replace a room's posted prices. Two numbers per audience, never an FX rate. */
   app.put("/api/admin/stays/accommodations/:id/prices", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Worse than the edit route: this deactivates every posted price for the
     // room and re-inserts over the unique (accommodation_id, token_type,
     // audience) key, so it rewrites the seeded example rates in place and
@@ -8237,7 +8306,7 @@ async function startServer() {
    * activate again, deliberately).
    */
   app.post("/api/admin/stays/:id/activate", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const stay = await stayById(getPool(), req.params.id);
     if (!stay) return res.status(404).json({ error: "Not found" });
     if (stay.status === "ended" || stay.status === "cancelled") {
@@ -8268,7 +8337,7 @@ async function startServer() {
 
   /** End or cancel. NEVER automatic — ending a stay is a human act. */
   app.post("/api/admin/stays/:id/end", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const stay = await stayById(getPool(), req.params.id);
     if (!stay) return res.status(404).json({ error: "Not found" });
     const to = req.body?.cancel ? "cancelled" : "ended";
@@ -8277,7 +8346,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/stays/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { autopay, notes, arriveOn } = req.body ?? {};
     const arrive = arriveOn && /^\d{4}-\d{2}-\d{2}$/.test(String(arriveOn)) ? String(arriveOn) : null;
     const [r] = await getPool().query<any>(
@@ -8290,14 +8359,14 @@ async function startServer() {
 
   /** The catch-up button: same code path as the scheduler, hour check skipped. */
   app.post("/api/admin/stays/post-nights", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const result = await runNightlyPosting(getPool(), { forced: true, ...stayPostingHooks() });
     res.json(result);
   });
 
   /** Comp nights: a gift, on the ledger, keyed. */
   app.post("/api/admin/stays/comp", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { userId, credits, note } = req.body ?? {};
     const amount = Math.floor(Number(credits) || 0);
     if (amount < 1) return res.status(400).json({ error: "How many credits?" });
@@ -8313,7 +8382,7 @@ async function startServer() {
 
   /** Manual override: either direction, admin-audited, refuses overdraft. */
   app.post("/api/admin/stays/adjust", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { userId, credits, note } = req.body ?? {};
     const amount = Math.floor(Number(credits) || 0);
     if (!amount) return res.status(400).json({ error: "Credits must be a non-zero integer (negative removes)" });
@@ -8339,7 +8408,7 @@ async function startServer() {
    * never types a credit amount (that's what adjust is for, audited apart).
    */
   app.post("/api/admin/stays/purchases/manual", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { userId, accommodationId, nights, amountMinor } = req.body ?? {};
     const guest = await members.byId(String(userId ?? ""));
     if (!guest) return res.status(404).json({ error: "No such member" });
@@ -8383,7 +8452,7 @@ async function startServer() {
    * refunds the money in the Stripe dashboard, then this purchase is done.
    */
   app.post("/api/admin/stays/purchases/:id/refund", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [rows] = await getPool().query<any[]>("SELECT * FROM stay_purchases WHERE id = ?", [req.params.id]);
     const p = rows[0];
     if (!p) return res.status(404).json({ error: "Not found" });
@@ -8423,7 +8492,7 @@ async function startServer() {
 
   /** Suspensions + recent payment activity, across all fiat modules. */
   app.get("/api/admin/payments", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [suspensions] = await getPool().query<any[]>(
       "SELECT s.*, u.name AS user_name FROM payment_suspensions s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.created_at DESC LIMIT 100",
     );
@@ -8435,7 +8504,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/payments/suspensions/:id/lift", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [r] = await getPool().query<any>(
       "UPDATE payment_suspensions SET lifted_at = NOW(), lifted_by = ? WHERE id = ? AND lifted_at IS NULL",
       [adminActor(req)?.id ?? null, req.params.id],
@@ -8670,15 +8739,15 @@ async function startServer() {
   };
 
   app.get("/api/admin/launch", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(await launchStatus(getPool(), launchDeps));
   });
 
   /** Confirm a manual (real-world) item, attributed to the admin who did it. */
   app.post("/api/admin/launch/confirm", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "Confirming a launch step needs a named admin" });
+    if (!actor) return res.status(401).json({ error: "auth_required", message: "Confirming a launch step needs a named admin" });
     const r = await confirmManual(getPool(), String(req.body?.id ?? ""), actor, req.body?.done !== false);
     if (!r.ok) return res.status(400).json({ error: r.error });
     void recordEvent(getPool(), {
@@ -8696,7 +8765,7 @@ async function startServer() {
    * and the same global daily cap as every other assistant path.
    */
   app.post("/api/admin/assistant/launch", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const clean = sanitizeMessages(req.body?.messages);
     if (!clean.ok) return res.status(400).json({ error: clean.error });
     const messages = clean.messages;
@@ -8777,7 +8846,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     // demonstration.
     if (Number(p.is_example) === 1) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const user = await authedUser(req);
-    if (p.audience === "members" && !user) return res.status(401).json({ error: "Sign in first, this one is for members" });
+    if (p.audience === "members" && !user) return res.status(401).json({ error: "auth_required", message: "Sign in first, this one is for members" });
     if (await overLimit(`product:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
       return res.status(429).json({ error: "A lot of checkouts from here. Give it an hour" });
     }
@@ -8808,7 +8877,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       // (the settle path grants only when user_id is set) — money taken,
       // nothing delivered, and no receipt to complain with.
       if (!user) {
-        return res.status(401).json({ error: "Sign in first, tokens need an account to land in" });
+        return res.status(401).json({ error: "auth_required", message: "Sign in first, tokens need an account to land in" });
       }
       // The exchange's firewalls answer HERE too. Otherwise a product is a
       // side door around a revoked caution card, a warning badge's deny, or
@@ -8872,7 +8941,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   /** Admin: define products, see purchases (a waitlist IS its paid rows). */
   app.get("/api/admin/products", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [products] = await getPool().query<any[]>("SELECT * FROM payment_products ORDER BY sort_order, name");
     const [purchases] = await getPool().query<any[]>(
       "SELECT pp.*, u.name AS user_name, p.name AS product_name, p.kind AS product_kind FROM product_purchases pp " +
@@ -8883,9 +8952,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   });
 
   app.post("/api/admin/products", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "Defining a product needs a named admin" });
+    if (!actor) return res.status(401).json({ error: "auth_required", message: "Defining a product needs a named admin" });
     const b = req.body ?? {};
     const kind = String(b.kind ?? "");
     if (!["fee", "donation", "deposit", "waitlist", "membership", "token_pack"].includes(kind)) {
@@ -8937,7 +9006,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   });
 
   app.put("/api/admin/products/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Inert: an example product is a demo, not a listing to edit.
     if (await isExampleRow(getPool(), "payment_products", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
@@ -8956,7 +9025,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   /** Manual/Zeffy reconciliation: a steward confirms money actually arrived. */
   app.post("/api/admin/products/purchases/:id/confirm", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
     const [[row]] = await getPool().query<any[]>(
       "SELECT pp.*, p.provider, p.token_slug, p.token_amount, p.name AS product_name FROM product_purchases pp JOIN payment_products p ON p.id = pp.product_id WHERE pp.id = ?",
@@ -8991,6 +9060,16 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
      *
      * `members` is the first rank that means "this village is actually running
      * this", so that is the floor for anything that leaves the instance.
+     *
+     * NOT A COPY OF `requireModule`, and a round of QA read it as one. That
+     * gate admits everything above `off`, which includes `preview`; this floor
+     * is `members`, which is the whole point, and the same floor guards
+     * /api/platform/info and village.json. Replacing this with the framework
+     * gate reopens the preview leak described above. The body stays the
+     * generic `Not found` for the same reason the floor is stricter: this
+     * answer goes to anonymous peers on the open internet, and
+     * `module_disabled` would name the module and confirm that this village
+     * has one it is not running.
      */
     if (LIFECYCLE_RANK[effectiveLifecycle("network")] < LIFECYCLE_RANK.members) {
       return res.status(404).json({ error: "Not found" });
@@ -9055,9 +9134,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   /** Publishing is an explicit admin act — an item, not a firehose. */
   app.post("/api/admin/network/share", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "Publishing needs a named admin" });
+    if (!actor) return res.status(401).json({ error: "auth_required", message: "Publishing needs a named admin" });
     const type = String(req.body?.type ?? "");
     if (!SHARED_ITEM_TYPES.includes(type as any)) {
       return res.status(400).json({ error: `type must be one of: ${SHARED_ITEM_TYPES.join(", ")}` });
@@ -9079,7 +9158,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   });
 
   app.put("/api/admin/network/share/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Inert: closing an example need would publish a state change about nothing.
     if (await isExampleRow(getPool(), "shared_items", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
@@ -9092,15 +9171,15 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   });
 
   app.get("/api/admin/network/peers", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [rows] = await getPool().query<any[]>("SELECT * FROM peer_instances ORDER BY name");
     res.json({ peers: rows });
   });
 
   app.post("/api/admin/network/peers", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "Peering needs a named admin" });
+    if (!actor) return res.status(401).json({ error: "auth_required", message: "Peering needs a named admin" });
     const r = await addPeer(getPool(), {
       baseUrl: String(req.body?.baseUrl ?? ""),
       addedBy: actor,
@@ -9118,7 +9197,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   });
 
   app.delete("/api/admin/network/peers/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Deleting the example peer would take the federation half of the demo
     // with it, leaving the banner promising examples that are half gone.
     if (await isExampleRow(getPool(), "peer_instances", req.params.id)) {
@@ -9132,7 +9211,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   /** Un-pause a peer (e.g. after an identity change you have verified). */
   app.post("/api/admin/network/peers/:id/resume", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Resuming after an identity change means ACCEPTING the new identity:
     // re-read the handshake and store what actually answers there now.
     const [[peer]] = await getPool().query<any[]>("SELECT * FROM peer_instances WHERE id = ?", [req.params.id]);
@@ -9162,7 +9241,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   });
 
   app.post("/api/admin/network/sync", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(await syncPeers(getPool()));
   });
 
@@ -9209,7 +9288,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   });
 
   app.get("/api/admin/feedback", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [rows] = await getPool().query<any[]>(
       "SELECT f.*, u.name AS submitter_name FROM feedback_items f LEFT JOIN users u ON u.id = f.submitted_by " +
         "ORDER BY f.created_at DESC LIMIT 300",
@@ -9218,7 +9297,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   });
 
   app.put("/api/admin/feedback/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const status = String(req.body?.status ?? "");
     if (!["new", "seen", "planned", "done", "declined"].includes(status)) {
       return res.status(400).json({ error: "unknown status" });
@@ -9238,7 +9317,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
    */
   // ── LANE A ZONE START: the organize route ────────────────────────────────
   app.post("/api/admin/assistant/organize", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const clean = sanitizeMessages(req.body?.messages);
     if (!clean.ok) return res.status(400).json({ error: clean.error });
     const messages = clean.messages;
@@ -9257,7 +9336,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     // a second gate. capabilityCtx needs the whole user (it computes a stage),
     // which is why this is the object and not the id adminActor carries.
     const actorUser = await authedUser(req);
-    if (!actorUser) return res.status(401).json({ error: "Unauthorized" });
+    if (!actorUser) return res.status(401).json({ error: "auth_required" });
     const actor = String(actorUser.id);
     const capCtx = await capabilityCtx(actorUser);
     const viewer: ReaderViewer = {
@@ -9432,7 +9511,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
    * so a surprising permission has a traceable cause instead of a shrug.
    */
   app.get("/api/admin/members/:id/capabilities", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const target = await members.byId(String(req.params.id));
     if (!target) return res.status(404).json({ error: "No such member" });
     const ctx = await capabilityCtx(target);
@@ -9462,7 +9541,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   /** What's on the shelf — the admin UI lists it for transparency. */
   app.get("/api/admin/assistant/knowledge", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // is_example = 0, like both other reads of this table: a transparency
     // panel reporting the platform's demo call as one of the village's own
     // records is the one thing it cannot do.
@@ -9487,7 +9566,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   /** The whole brief plus the record's shape, for the admin editor. */
   app.get("/api/admin/brain", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [filled, records] = await Promise.all([briefAll(getPool(), "admin"), recordSummaries(getPool())]);
     const byId = new Map(filled.map((r) => [r.section, r]));
     res.json({
@@ -9517,14 +9596,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   /** Write one section. Confirming is a separate, named act. */
   app.put("/api/admin/brain/:section", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const section = String(req.params.section);
     if (!BRIEF_BY_ID[section]) return res.status(400).json({ error: `no brief section called ${section}` });
     const body = String(req.body?.body ?? "").trim();
     if (body.length < 2) return res.status(400).json({ error: "A section needs something in it" });
     if (body.length > 40000) return res.status(400).json({ error: "That section is too long to keep" });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "Writing the brief needs a named admin" });
+    if (!actor) return res.status(401).json({ error: "auth_required", message: "Writing the brief needs a named admin" });
     const row = await briefWrite(getPool(), {
       section,
       body,
@@ -9541,12 +9620,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   /** Confirm a section the assistant or the intake proposed. */
   app.post("/api/admin/brain/:section/confirm", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const section = String(req.params.section);
     const existing = await briefGet(getPool(), section, "admin");
     if (!existing) return res.status(404).json({ error: "There is nothing written there yet" });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "Confirming the brief needs a named admin" });
+    if (!actor) return res.status(401).json({ error: "auth_required", message: "Confirming the brief needs a named admin" });
     const row = await briefWrite(getPool(), {
       section, body: existing.body, audience: existing.audience,
       source: existing.source as any, confirmedBy: actor,
@@ -9565,7 +9644,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
    */
   app.get("/api/village/brain", async (req, res) => {
     const viewer = await authedUser(req);
-    if (!viewer) return res.status(401).json({ error: "Sign in to read this" });
+    if (!viewer) return res.status(401).json({ error: "auth_required", message: "Sign in to read this" });
     const audience = (await isAdmin(req)) ? "admin" : "member";
     const etag = await brainEtag(getPool());
     res.setHeader("Content-Type", "text/markdown; charset=utf-8");
@@ -9602,9 +9681,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
    *      after they have used the thing.
    */
   app.post("/api/admin/assistant/studio", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "The studio needs a named admin" });
+    if (!actor) return res.status(401).json({ error: "auth_required", message: "The studio needs a named admin" });
     const clean = sanitizeMessages(req.body?.messages);
     if (!clean.ok) return res.status(400).json({ error: clean.error });
     const messages = clean.messages;
@@ -9749,7 +9828,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** What is waiting for a decision, newest first. */
   app.get("/api/admin/drafts", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const status = ["proposed", "accepted", "rejected"].includes(String(req.query.status))
       ? (String(req.query.status) as any)
       : "proposed";
@@ -9766,9 +9845,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * appeared after the reviewer looked.
    */
   app.post("/api/admin/drafts/:id/accept", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "Accepting a draft needs a named admin" });
+    if (!actor) return res.status(401).json({ error: "auth_required", message: "Accepting a draft needs a named admin" });
     const draft = await draftById(getPool(), String(req.params.id));
     if (!draft) return res.status(404).json({ error: "No such draft" });
     if (draft.status !== "proposed") return res.status(409).json({ error: `That draft was already ${draft.status}` });
@@ -9847,9 +9926,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Reject one, with a reason. The reasons are the useful half of this queue. */
   app.post("/api/admin/drafts/:id/reject", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "Rejecting a draft needs a named admin" });
+    if (!actor) return res.status(401).json({ error: "auth_required", message: "Rejecting a draft needs a named admin" });
     const draft = await draftById(getPool(), String(req.params.id));
     if (!draft) return res.status(404).json({ error: "No such draft" });
     if (draft.status !== "proposed") return res.status(409).json({ error: `That draft was already ${draft.status}` });
@@ -9938,7 +10017,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.get("/api/admin/recordings", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const recordings = await allRecordings(getPool());
     const [synths] = await getPool().query<any[]>(
       "SELECT recording_id, id, published_at, dropped_task_count, is_example FROM call_syntheses",
@@ -9967,7 +10046,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Manual ingestion: a title and a pasted transcript is a full recording. */
   app.post("/api/admin/recordings", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { title, url, transcript } = req.body ?? {};
     if (!String(title ?? "").trim()) return res.status(400).json({ error: "A title is required" });
     const r = await ingestRecording(getPool(), { source: "manual", title: String(title), url: url ?? null });
@@ -9980,7 +10059,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.put("/api/admin/recordings/:id/transcript", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const rec = await recordingById(getPool(), req.params.id);
     if (!rec) return res.status(404).json({ error: "No such recording" });
     if (rec.status === "synthesized" || rec.status === "published") {
@@ -9993,7 +10072,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.get("/api/admin/recordings/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const rec = await recordingById(getPool(), req.params.id);
     if (!rec) return res.status(404).json({ error: "No such recording" });
     const [synthRows] = await getPool().query<any[]>("SELECT * FROM call_syntheses WHERE recording_id = ?", [rec.id]);
@@ -10019,7 +10098,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * the model may only choose from them.
    */
   app.post("/api/admin/recordings/:id/synthesize", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const rec = await recordingById(getPool(), req.params.id);
     if (!rec) return res.status(404).json({ error: "No such recording" });
     const transcript = await transcriptFor(getPool(), rec.id);
@@ -10136,7 +10215,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Humans edit BODY. No code path anywhere updates ai_body — write once. */
   app.put("/api/admin/syntheses/:id/body", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Same refusal the publish route below carries: an example synthesis is
     // not a draft of the village's own words.
     if (await isExampleRow(getPool(), "call_syntheses", req.params.id)) {
@@ -10163,7 +10242,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * role's holders and nobody else.
    */
   app.post("/api/admin/syntheses/:id/publish", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Inert: publishing turns example content into a REAL forum thread.
     if (await isExampleRow(getPool(), "call_syntheses", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
@@ -10176,7 +10255,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       return res.status(409).json({ error: "Enable the forum (at least to members) first. The synthesis publishes as a thread" });
     }
     const admin = await members.byId(adminActor(req)?.id ?? "");
-    if (!admin) return res.status(401).json({ error: "Unauthorized" });
+    if (!admin) return res.status(401).json({ error: "auth_required" });
     const rec = await recordingById(getPool(), String(synth.recording_id));
     const cats = forumCategories();
     const configured = String((moduleConfig("automation") as any)?.forumCategory ?? "");
@@ -10235,7 +10314,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   /** Accept/dismiss records a HUMAN decision. It moves no value, creates no
    *  quest, applies nothing — suggestions are never timer-mutations. */
   app.post("/api/admin/call-tasks/:id/:action(accept|dismiss)", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // The seeded example task ships in status 'suggested', so this UPDATE
     // matches it: without the guard an admin acts on a demo row and the
     // module quietly stops looking like a demo.
@@ -10263,7 +10342,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.put("/api/admin/exit-policy", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const body = req.body ?? {};
     if (typeof body !== "object" || !body.voluntary || !body.involuntary || !body.restorative) {
       return res.status(400).json({ error: "The policy needs voluntary, involuntary and restorative sections" });
@@ -10279,7 +10358,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** The per-member open-state enumeration, on the admin's desk. */
   app.get("/api/admin/players/:id/exit-state", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
     const states = await exitOpenState(getPool(), target.id, roleIdsFor(target.id));
@@ -10291,7 +10370,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.get("/api/admin/exits", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const exits = await allExits(getPool());
     const withNames = [];
     for (const e of exits) {
@@ -10303,7 +10382,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   /** A member opens their own departure. Password-confirmed, founder-guarded. */
   app.post("/api/profile/request-exit", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const { password, note } = req.body ?? {};
     if (!password || !(await verifyPassword(String(password), user.passwordHash))) {
       return res.status(403).json({ error: "Confirm with your password" });
@@ -10330,7 +10409,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** An admin opens one (on behalf, or involuntary per the published process). */
   app.post("/api/admin/exits", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { userId, kind, note } = req.body ?? {};
     const target = await members.byId(String(userId ?? ""));
     if (!target) return res.status(404).json({ error: "No such member" });
@@ -10364,7 +10443,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * per token. Everything else settles through its own domain's terminals.
    */
   app.post("/api/admin/exits/:id/settle-balances", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const exit = await exitById(getPool(), req.params.id);
     if (!exit) return res.status(404).json({ error: "No such exit" });
     if (exit.status === "resolved" || exit.status === "cancelled") {
@@ -10384,7 +10463,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * never invents a settle path — 2.2 #8 stands.
    */
   app.post("/api/admin/exits/:id/resolve", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const exit = await exitById(getPool(), req.params.id);
     if (!exit) return res.status(404).json({ error: "No such exit" });
     if (exit.status === "resolved" || exit.status === "cancelled") {
@@ -10415,7 +10494,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** A person who stays: the exit closes without a tombstone. */
   app.post("/api/admin/exits/:id/cancel", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [r] = await getPool().query<any>(
       "UPDATE exits SET status = 'cancelled', resolved_at = NOW() WHERE id = ? AND status IN ('open','settling')",
       [req.params.id],
@@ -10432,7 +10511,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    */
   app.post("/api/exit/restorative-intake", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     if (await overLimit(`restorative:${user.id}`, 3, 24 * 60 * 60 * 1000)) {
       return res.status(429).json({ error: "Three intakes a day. The stewards are already listening" });
     }
@@ -10598,7 +10677,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const recorder = await authedUser(req);
     const mayRecord = (await isAdmin(req))
       || (recorder ? hasCapability("health.record", await capabilityCtx(recorder)) : false);
-    if (!mayRecord) return res.status(401).json({ error: "Unauthorized" });
+    if (!mayRecord) return res.status(401).json({ error: "auth_required" });
     const { metricKey, value, unit, note } = req.body ?? {};
     const def = REGEN_METRICS.find((m) => m.key === String(metricKey ?? ""));
     if (!def) return res.status(400).json({ error: `Unknown regen metric. Pick one of: ${REGEN_METRICS.map((m) => m.key).join(", ")}` });
@@ -10606,7 +10685,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!Number.isFinite(v) || v <= 0) return res.status(400).json({ error: "A positive value is required" });
     // Whoever it was — admin or capability holder — the reading is signed.
     const actor = adminActor(req)?.id ?? recorder?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "Unauthorized" });
+    if (!actor) return res.status(401).json({ error: "auth_required" });
     const id = `regen-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     // The unit comes from the REGISTRY, never the request body. A free-text
     // unit made totals meaningless: regenTotals does MAX(unit) per metric to
@@ -10641,13 +10720,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * counting toward totals; the fact that it was once claimed does not.
    */
   app.post("/api/admin/health/regen/:id/retract", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Inert: the land's ledger is append-only; retracting a demo reading writes a real correction.
     if (await isExampleRow(getPool(), "regen_entries", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
     const actor = adminActor(req)?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "Unauthorized" });
+    if (!actor) return res.status(401).json({ error: "auth_required" });
     const note = String(req.body?.note ?? "").trim();
     if (!note) {
       return res.status(400).json({ error: "Say why this reading is being withdrawn. A correction without a reason is just a deletion" });
@@ -10680,7 +10759,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.post("/api/wallet/challenge", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     if (await overLimit(`wallet-challenge:${user.id}`, 10, 60 * 60 * 1000)) {
       return res.status(429).json({ error: "Ten challenges an hour is plenty" });
     }
@@ -10690,7 +10769,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.post("/api/wallet/verify", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const { address, signature } = req.body ?? {};
     const host = notifyDeps.origin().replace(/^https?:\/\//, "");
     const r = await verifyWalletSignature(getPool(), {
@@ -10725,7 +10804,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    */
   app.get("/api/wallet", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const economicsEnabled = boolVar("tokens.show_economics_section");
     let onchain: Record<string, any> | null = null;
     if (economicsEnabled && user.walletVerifiedAt && user.walletAddress) {
@@ -10787,7 +10866,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   /** Reserve: escrow locks first; the refusal names the missing credits. */
   app.post("/api/library/items/:id/reserve", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to borrow" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to borrow" });
     if (await overLimit(`library-reserve:${user.id}`, Math.max(1, numberVar("library.reserve_daily_cap")), 24 * 60 * 60 * 1000)) {
       return res.status(429).json({ error: "Ten reservations in a day is plenty" });
     }
@@ -10817,7 +10896,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   /** The borrower's own acts: cancel a reservation, flag a return. */
   app.post("/api/library/loans/:id/cancel", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const loan = await libraryLoanById(getPool(), req.params.id);
     if (!loan || loan.userId !== user.id) return res.status(404).json({ error: "No such loan" });
     if (loan.status !== "reserved" && loan.status !== "pickup_pending") {
@@ -10830,7 +10909,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.post("/api/library/loans/:id/return", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const loan = await libraryLoanById(getPool(), req.params.id);
     if (!loan || loan.userId !== user.id) return res.status(404).json({ error: "No such loan" });
     const r = await markReturned(getPool(), loan.id, user.id);
@@ -10841,7 +10920,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Admin overview: everything, plus the invariants made visible. */
   app.get("/api/admin/library", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [cats] = await getPool().query<any[]>("SELECT * FROM library_categories ORDER BY sort_order, label");
     const items = await libraryItems(getPool());
     const [loans] = await getPool().query<any[]>(
@@ -10860,7 +10939,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.post("/api/admin/library/categories", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const label = String(req.body?.label ?? "").trim().slice(0, 120);
     if (!label) return res.status(400).json({ error: "A label is required" });
     const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || `cat-${Date.now()}`;
@@ -10873,7 +10952,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Intake: the mint's guarded front door. */
   app.post("/api/admin/library/intake", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { name, description, categoryId, appraisal, donorUserId, minStage, requiresRole } = req.body ?? {};
     if (!String(name ?? "").trim()) return res.status(400).json({ error: "Name the item" });
     const donor = await members.byId(String(donorUserId ?? ""));
@@ -10900,13 +10979,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** The sweep, on demand — same code the daily job runs. */
   app.post("/api/admin/library/sweep", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(await runLibrarySweep());
   });
 
   /** The exchange reaper on demand — see runExchangeReconcile. */
   app.post("/api/admin/exchange/reconcile", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json({ result: await runExchangeReconcile() });
   });
 
@@ -10923,7 +11002,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    */
   app.get("/api/library/items/:id/history", async (req, res) => {
     const viewer = await authedUser(req);
-    if (!viewer) return res.status(401).json({ error: "Sign in first" });
+    if (!viewer) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const item = await libraryItemById(getPool(), req.params.id);
     if (!item) return res.status(404).json({ error: "No such item" });
     const admin = await isAdmin(req);
@@ -10952,7 +11031,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * answer already existed — it just had no door.
    */
   app.get("/api/admin/modules/:id/events", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!MODULES_BY_ID[req.params.id]) return res.status(404).json({ error: "No such module" });
     const [rows] = await getPool().query<any[]>(
       "SELECT e.kind, e.from_value, e.to_value, e.at, u.name AS by_name FROM module_events e " +
@@ -10972,7 +11051,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** The SECOND steward's signature on a high-value intake. */
   app.post("/api/admin/library/items/:id/approve", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const r = await approveIntake(getPool(), req.params.id, adminActor(req)?.id ?? "");
     if (!r.ok) return res.status(409).json({ error: r.error });
     const item = await libraryItemById(getPool(), req.params.id);
@@ -10987,7 +11066,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.put("/api/admin/library/items/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Inert: writing off an example item drifts it from the seeded shape.
     if (await isExampleRow(getPool(), "library_items", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
@@ -11014,7 +11093,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.post("/api/admin/library/loans/:id/pickup", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const r = await markPickedUp(getPool(), req.params.id, adminActor(req)?.id ?? null);
     if (!r.ok) return res.status(409).json({ error: r.error });
     res.json({ success: true, dueOn: r.dueOn });
@@ -11026,7 +11105,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * the same defaults a dispute deadline resolves to.
    */
   app.post("/api/admin/library/loans/:id/settle", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { outcome, wearFee, damageFee } = req.body ?? {};
     if (!["closed", "expired", "cancelled", "disputed"].includes(String(outcome))) {
       return res.status(400).json({ error: "Outcome is closed, expired, cancelled or disputed" });
@@ -11055,7 +11134,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Grant or burn credits by hand — audited, refuses overdraft. */
   app.post("/api/admin/library/adjust", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { userId, credits, note } = req.body ?? {};
     const amount = Math.floor(Number(credits) || 0);
     if (!amount) return res.status(400).json({ error: "Credits must be a non-zero integer (negative burns)" });
@@ -11170,7 +11249,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    */
   app.put("/api/badges/featured", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const ids = Array.isArray(req.body?.badgeIds) ? req.body.badgeIds.map(String).slice(0, 20) : null;
     if (!ids) return res.status(400).json({ error: "badgeIds required (may be empty; a clean byline is a choice)" });
     const max = numberVar("badges.max_featured");
@@ -11232,7 +11311,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.post("/api/badges/:id/claim", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const badge = await badgeById(getPool(), req.params.id);
     if (!badge || !badge.active) return res.status(404).json({ error: "No such badge" });
     // Otherwise every member could self-claim the example badge and the
@@ -11249,7 +11328,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.delete("/api/badges/:id/claim", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const badge = await badgeById(getPool(), req.params.id);
     if (!badge || badge.kind !== "self") return res.status(404).json({ error: "No such self badge" });
     await getPool().query("DELETE FROM badge_awards WHERE badge_id = ? AND user_id = ?", [badge.id, user.id]);
@@ -11259,7 +11338,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   /** Skills gate nothing — they are searchable facts a member declares. */
   app.post("/api/badges/skills", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const tag = String(req.body?.tag ?? "").toLowerCase().trim().replace(/\s+/g, "-").slice(0, 40);
     if (!/^[a-z0-9][a-z0-9-]{1,39}$/.test(tag)) {
       return res.status(400).json({ error: "A skill is 2-40 characters: letters, numbers, dashes" });
@@ -11273,14 +11352,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.delete("/api/badges/skills/:tag", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     await removeSkill(getPool(), user.id, String(req.params.tag));
     res.json({ success: true, skills: await skillsFor(getPool(), user.id) });
   });
 
   /** Admin overview: badges, every live award with names, engine info. */
   app.get("/api/admin/badges", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const badges = await allBadges(getPool());
     const [awards] = await getPool().query<any[]>(
       "SELECT a.*, u.name AS user_name, b.name AS badge_name, b.kind AS badge_kind FROM badge_awards a " +
@@ -11290,7 +11369,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.post("/api/admin/badges", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { name, description, icon, kind, capabilities, denies, rule, seasonScope, multiplier } = req.body ?? {};
     if (!String(name ?? "").trim()) return res.status(400).json({ error: "A name is required" });
     const candidate = {
@@ -11320,7 +11399,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.put("/api/admin/badges/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Inert: editing an example definition can give it capabilities.
     if (await isExampleRow(getPool(), "badges", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
@@ -11401,7 +11480,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * member's act and earned is the engine's — both refuse here, on purpose.
    */
   app.post("/api/admin/badges/:id/award", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const badge = await badgeById(getPool(), req.params.id);
     if (!badge) return res.status(404).json({ error: "No such badge" });
     // An award is the one thing that makes a definition live — a warning
@@ -11457,7 +11536,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.delete("/api/admin/badges/:id/award/:userId", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // The award direction refuses examples; the revoke direction was missed,
     // and this is a raw DELETE that matches the seeded ex-award-* rows. One
     // click permanently emptied the holders demo with no tombstone stamped,
@@ -11482,7 +11561,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** The manual evaluate button — same engine the cycle close runs. */
   app.post("/api/admin/badges/evaluate", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const result = await evaluateEarnedBadges(getPool());
     for (const t of result.newTiers) {
       const badge = await badgeById(getPool(), t.badgeId);
@@ -11605,7 +11684,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   /** Buy: everything is checked before anyone is asked for a card. */
   app.post("/api/exchange/buy", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to buy" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to buy" });
     if (!hasCapability("exchange.buy", await capabilityCtx(user))) {
       return res.status(403).json({ error: "Buying opens at the member stage" });
     }
@@ -11761,7 +11840,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.post("/api/exchange/swap/quote", async (req, res) => {
     if (!tradingOpen()) return res.status(501).json(SWAP_DISABLED);
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to swap" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to swap" });
     if (!hasCapability("exchange.swap", await capabilityCtx(user))) {
       return res.status(403).json({ code: "FORBIDDEN", error: "Swapping opens at the member stage" });
     }
@@ -11791,7 +11870,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.post("/api/exchange/swap", async (req, res) => {
     if (!tradingOpen()) return res.status(501).json(SWAP_DISABLED);
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to swap" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to swap" });
     if (!hasCapability("exchange.swap", await capabilityCtx(user))) {
       return res.status(403).json({ code: "FORBIDDEN", error: "Swapping opens at the member stage" });
     }
@@ -12000,7 +12079,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Halt is one click. Resume takes a sentence. */
   app.post("/api/admin/exchange/tokens/:slug/halt", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
     // The example market is display-only. Halting it would record a real
     // governance act, with a named actor and an audit line, about nothing.
     if (await isExampleRow(getPool(), "tokens", String(req.params.slug), "slug")) {
@@ -12020,7 +12099,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.post("/api/admin/exchange/tokens/:slug/resume", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
     if (await isExampleRow(getPool(), "tokens", String(req.params.slug), "slug")) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
@@ -12046,7 +12125,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Management overview: settings, refusal reasons, prices, stock, orders. */
   app.get("/api/admin/exchange", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
     const settings = await exchangeSettings(getPool());
     const stock = await treasuryStock(getPool());
     const prices: Record<string, any> = {};
@@ -12089,7 +12168,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** List / delist a token. The firewalls answer here AND at boot. */
   app.put("/api/admin/exchange/tokens/:slug", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
     // An example token is never the village's first real listing. upsertSettings
     // claims the row as real (is_example = 0) on every write, which is right for
     // a real slug sharing the key with an example listing and catastrophic for
@@ -12127,7 +12206,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Post a price: append-only, bounded, always with a note. */
   app.post("/api/admin/exchange/tokens/:slug/price", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
     const slug = String(req.params.slug);
     if (!tokenDef(slug)) return res.status(404).json({ error: `unknown token "${slug}"` });
     // The registry loads example tokens like any other, so tokenDef resolves
@@ -12207,7 +12286,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * with one cap beats two doors with two.
    */
   app.post("/api/admin/exchange/stock", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
     const slug = String(req.body?.tokenSlug ?? "");
     const amt = Math.floor(Number(req.body?.amount) || 0);
     const def = tokenDef(slug);
@@ -12257,7 +12336,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** The registry, with each token's issuance-to-date per faucet channel. */
   app.get("/api/admin/tokens", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [issuance] = await getPool().query<any[]>(
       "SELECT tb.token_type, tb.account_id, -tb.balance AS issued FROM token_balances tb " +
         "JOIN ledger_accounts a ON a.id = tb.account_id WHERE a.faucet = 1 AND tb.balance < 0",
@@ -12279,7 +12358,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * something an admin invents here.
    */
   app.post("/api/admin/tokens", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { slug, name, kind, transferable } = req.body ?? {};
     const cleanSlug = String(slug ?? "").toLowerCase().trim();
     if (!/^[a-z0-9][a-z0-9-]{1,30}$/.test(cleanSlug)) {
@@ -12317,7 +12396,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * kind/governance/transferable too.
    */
   app.put("/api/admin/tokens/:slug", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const slug = String(req.params.slug);
     const def = tokenDef(slug);
     if (!def) return res.status(404).json({ error: `unknown token "${slug}"` });
@@ -12368,7 +12447,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * disables manual minting entirely.
    */
   app.post("/api/admin/tokens/:slug/mint", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const slug = String(req.params.slug);
     const { toUserId, amount, reason } = req.body ?? {};
     const amt = Math.trunc(Number(amount) || 0);
@@ -12434,7 +12513,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * reported as "issued to date" — that is what they are.
    */
   app.get("/api/admin/ledger/reconciliation", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const invariants = await checkLedgerInvariants(getPool());
     const [systems] = await getPool().query<any[]>(
       "SELECT a.id, a.label, a.faucet, tb.token_type, tb.balance FROM ledger_accounts a " +
@@ -12478,7 +12557,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * every ACTION lives on its existing admin surface.
    */
   app.get("/api/admin/command-centre", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
 
     // The settlement report: last six CLOSED lunations. Credited amounts
     // exist only for closed cycles — a share of the open cycle is genuinely
@@ -12594,13 +12673,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.get("/api/notifications", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     res.json(await notificationsFor(getPool(), user.id));
   });
 
   app.post("/api/notifications/read", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : undefined;
     const marked = await markNotificationsRead(getPool(), user.id, ids);
     res.json({ success: true, marked });
@@ -12608,13 +12687,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.get("/api/profile/prefs", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     res.json({ notify: resolveNotifyPrefs(user.prefs) });
   });
 
   app.put("/api/profile/prefs", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const incoming = req.body?.notify ?? {};
     const updated = await members.update(user.id, (u: any) => {
       u.prefs = { ...(u.prefs ?? {}), notify: { ...(u.prefs?.notify ?? {}), ...incoming } };
@@ -12629,14 +12708,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // Through requireUser like everything else (S1): a second decode path here
     // silently bypassed the tokenVersion revocation check.
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     res.json(publicUser(user));
   });
 
   // Auth: Update Profile
   app.put("/api/profile", async (req, res) => {
     const authed = await authedUser(req);
-    if (!authed) return res.status(401).json({ error: "Unauthorized" });
+    if (!authed) return res.status(401).json({ error: "auth_required" });
     const { name, bio, avatar, paths, handle } = req.body;
     let wanted: string | undefined;
     if (handle !== undefined) {
@@ -12663,7 +12742,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   // Auth: Log Contribution
   app.post("/api/profile/contribution", async (req, res) => {
     const authed = await authedUser(req);
-    if (!authed) return res.status(401).json({ error: "Unauthorized" });
+    if (!authed) return res.status(401).json({ error: "auth_required" });
     const { type, description } = req.body;
     if (!type || !description) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -12694,7 +12773,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // S2: reads are gated like writes. This is the founding team's internal
     // tracker — notes, decisions, kanban — and it was publicly readable while
     // only mutations checked auth.
-    if (!(await isJourney(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isJourney(req))) return res.status(401).json({ error: "auth_required" });
     const state = journeyRepo.get();
     res.json(state);
   });
@@ -12704,7 +12783,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.post("/api/journey/checkbox", async (req, res) => {
     const { password, id, state } = req.body;
     if (!(await isJourney(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     if (!id || state === undefined || ![0, 1, 2].includes(state)) {
       return res.status(400).json({ error: "Missing or invalid fields" });
@@ -12720,7 +12799,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.post("/api/journey/kanban", async (req, res) => {
     const { password, id, column, assignee } = req.body;
     if (!(await isJourney(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     const validColumns = ["assigned", "actioning", "needs-support", "completed"];
     if (!id || !validColumns.includes(column)) {
@@ -12738,7 +12817,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.post("/api/journey/copy", async (req, res) => {
     const { password, sectionId, content } = req.body;
     if (!(await isJourney(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     if (!sectionId || content === undefined) {
       return res.status(400).json({ error: "Missing fields" });
@@ -12754,7 +12833,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.post("/api/journey/decision", async (req, res) => {
     const { password, id, status, chosen, notes } = req.body;
     if (!(await isJourney(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     const validStatuses = ["open", "decided"];
     if (!id || !validStatuses.includes(status)) {
@@ -12771,7 +12850,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.get("/api/admin/email-config", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     // S63: keys never visit the browser at all anymore — this doc carries
     // routing addresses only. The Integrations tab shows masked key status.
@@ -12781,7 +12860,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.put("/api/admin/email-config", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     const current = getEmailConfig();
     // Refuse a malformed sender at the door rather than storing something
@@ -12938,7 +13017,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   }
 
   app.get("/api/admin/integrations", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const origin = notifyDeps.origin();
     res.json({
       secrets: allSecretStatuses(),
@@ -12963,11 +13042,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.put("/api/admin/integrations/:key", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const key = String(req.params.key) as SecretKey;
     if (!SECRET_KEYS.includes(key)) return res.status(404).json({ error: `unknown integration key "${key}"` });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
-    if (!actor) return res.status(401).json({ error: "Setting a key needs a named admin" });
+    if (!actor) return res.status(401).json({ error: "auth_required", message: "Setting a key needs a named admin" });
     // value: "" clears the admin-typed key (env fallback, if any, resumes).
     await putSecret(getPool(), key, String(req.body?.value ?? ""), actor);
     void recordEvent(getPool(), {
@@ -13087,12 +13166,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.get("/api/admin/work-with-us-config", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(getWorkWithUs());
   });
 
   app.put("/api/admin/work-with-us-config", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     // acceptGratitude moved to the variables registry (it is recognition
     // issuance, not page copy). An old client still sending it gets routed
@@ -13154,7 +13233,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.post("/api/admin/brand/image", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     brandImageUpload.single("file")(req, res, async (err: any) => {
       if (err) return res.status(400).json({ error: err.message || "Upload failed" });
       if (!req.file) return res.status(400).json({ error: "Missing file" });
@@ -13238,7 +13317,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.post("/api/admin/brand/font", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     fontUpload.single("file")(req, res, async (err: any) => {
       if (err) return res.status(400).json({ error: err.message || "Upload failed" });
       if (!req.file) return res.status(400).json({ error: "Missing file" });
@@ -13319,7 +13398,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.get("/api/admin/investor-docs", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     res.json(investorDocsRepo.all());
   });
@@ -13340,7 +13419,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * byte is written.
    */
   const adminOnly = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     next();
   };
 
@@ -13369,7 +13448,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.delete("/api/admin/investor-docs/:id", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     const docs: any[] = investorDocsRepo.all();
     const target = docs.find((d) => d.id === req.params.id);
@@ -13538,7 +13617,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.get("/api/admin/training-modules", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     const mods: any[] = trainingRepo.all();
     mods.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
@@ -13547,7 +13626,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.post("/api/admin/training-modules", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     const { title, description, type, url, order } = req.body ?? {};
     if (!title || !type) return res.status(400).json({ error: "Missing title or type" });
@@ -13567,7 +13646,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.put("/api/admin/training-modules/:id", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     const mods: any[] = trainingRepo.all();
     const idx = mods.findIndex((m) => m.id === req.params.id);
@@ -13582,7 +13661,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.delete("/api/admin/training-modules/:id", async (req, res) => {
     if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "auth_required" });
     }
     const mods: any[] = trainingRepo.all();
     const filtered = mods.filter((m) => m.id !== req.params.id);
@@ -13601,12 +13680,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.get("/api/admin/faqs", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(faqsRepo.get());
   });
 
   app.put("/api/admin/faqs/:pathway", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const pathway = req.params.pathway;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     if (!Array.isArray(req.body)) return res.status(400).json({ error: "Body must be an array" });
@@ -13621,7 +13700,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.post("/api/admin/faqs/:pathway", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const pathway = req.params.pathway;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     const { question, answer } = req.body ?? {};
@@ -13639,7 +13718,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.delete("/api/admin/faqs/:pathway/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { pathway, id } = req.params;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     const all = faqsRepo.get();
@@ -13659,14 +13738,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.get("/api/admin/milestones", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const mils: any[] = milestonesRepo.all();
     mils.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     res.json(mils);
   });
 
   app.post("/api/admin/milestones", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { phase, title, description, status, completedDate, updateNote, order } = req.body ?? {};
     if (!title || !phase) return res.status(400).json({ error: "Missing title or phase" });
     const mils: any[] = milestonesRepo.all();
@@ -13687,7 +13766,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.put("/api/admin/milestones/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const mils: any[] = milestonesRepo.all();
     const idx = mils.findIndex((m) => m.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
@@ -13704,7 +13783,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.delete("/api/admin/milestones/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const mils: any[] = milestonesRepo.all();
     const filtered = mils.filter((m) => m.id !== req.params.id);
     if (filtered.length === mils.length) return res.status(404).json({ error: "Not found" });
@@ -13719,12 +13798,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.get("/api/admin/settings", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json({ ...DEFAULT_SETTINGS, ...(settingsRepo.get()) });
   });
 
   app.put("/api/admin/settings", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     const current = { ...DEFAULT_SETTINGS, ...(settingsRepo.get()) };
     await settingsRepo.put({ ...current, ...req.body });
@@ -13738,12 +13817,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.get("/api/admin/visit-config", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(visitConfigRepo.get());
   });
 
   app.put("/api/admin/visit-config", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     await visitConfigRepo.put(req.body);
     res.json({ success: true });
@@ -13756,12 +13835,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.get("/api/admin/investor-summary", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(investorSummaryRepo.get());
   });
 
   app.put("/api/admin/investor-summary", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     await investorSummaryRepo.put(req.body);
     res.json({ success: true });
@@ -13791,12 +13870,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // Brand overlay: the Setup Wizard reads/writes this to white-label the site live.
   app.get("/api/admin/brand", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json({ brand: getBrand(), defaults: { project: GAME_CONFIG.project, currency: GAME_CONFIG.currency, images: GAME_CONFIG.images } });
   });
 
   app.put("/api/admin/brand", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     const current = getBrand();
     const next = {
@@ -14176,7 +14255,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   /** Autosave. Private to this member and invisible to the live map. */
   app.put("/api/map/draft", async (req, res) => {
     const { user, canEdit } = await mapHand(req);
-    if (!user) return res.status(401).json({ error: "Sign in to keep a draft of the map." });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to keep a draft of the map." });
     if (!canEdit) return res.status(403).json({ error: "Shaping the map is a cartographer's work." });
 
     const read = readScene(req.body);
@@ -14193,7 +14272,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   /** Throw away my draft. Never touches anyone else's, never touches live. */
   app.delete("/api/map/draft", async (req, res) => {
     const { user, canEdit } = await mapHand(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     if (!canEdit) return res.status(403).json({ error: "Shaping the map is a cartographer's work." });
     res.json({ ok: true, discarded: await discardDraft(getPool(), user.id) });
   });
@@ -14215,7 +14294,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.post("/api/map/publish", async (req, res) => {
     const { user, canPublish } = await mapHand(req);
-    if (!user) return res.status(401).json({ error: "Sign in to publish the map." });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to publish the map." });
     if (!canPublish) {
       return res.status(403).json({
         error: "Publishing the map is a cartographer's work. Your draft is safe and still yours.",
@@ -14278,7 +14357,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.get("/api/map/revisions", async (req, res) => {
     const { user, canEdit } = await mapHand(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     if (!canEdit) return res.status(403).json({ error: "Forbidden" });
 
     const rows = await listRevisions(getPool(), 50);
@@ -14312,7 +14391,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.post("/api/map/revisions/:version/restore", async (req, res) => {
     const { user, canPublish } = await mapHand(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     if (!canPublish) {
       return res.status(403).json({ error: "Putting an earlier map back is a cartographer's work." });
     }
@@ -14347,7 +14426,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   /** Where the walk loses people. The reason the table exists. */
   app.get("/api/admin/map/walk-log", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const source = ["live", "import", "all"].includes(String(req.query.source))
       ? (req.query.source as "live" | "import" | "all")
       : "all";
@@ -14356,12 +14435,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   /** The whole walk document, every language, for the editor. */
   app.get("/api/admin/map/walk", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json({ walk: sanitiseWalk(mapWalkRepo.get()), gestures: WALK_GESTURES });
   });
 
   app.put("/api/admin/map/walk", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const next = sanitiseWalk(req.body?.walk ?? req.body);
     await mapWalkRepo.put(next as any);
     res.json({ success: true, walk: next });
@@ -14375,7 +14454,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * where a typo becomes a step that never fires.
    */
   app.get("/api/admin/map/structures", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [rows] = await getPool().query<any[]>(
       `SELECT DISTINCT k FROM (
          SELECT home_structure_key AS k FROM circles WHERE home_structure_key IS NOT NULL
@@ -14387,7 +14466,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.put("/api/admin/map/vocabulary", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const next = sanitiseMapVocabulary(req.body?.vocabulary ?? req.body);
     await mapVocabRepo.put(next as any);
     res.json({ success: true, vocabulary: next });
@@ -14400,7 +14479,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // Admin: the whole season list + cadence + timezone.
   app.get("/api/admin/seasons", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const cfg = getSeasonConfig();
     const state = seasonState();
     const last = [...cfg.seasons].sort((a, b) => (a.endsOn ?? "").localeCompare(b.endsOn ?? "")).pop();
@@ -14413,7 +14492,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.put("/api/admin/seasons", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     const before = seasonState().current?.id ?? null;
     const next = normalizeSeasonConfig(req.body);
@@ -14428,7 +14507,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Legacy single-season save, kept so nothing that still points here breaks:
   // it updates the season covering today, or appends one if there is none.
   app.put("/api/admin/season", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     const cfg = getSeasonConfig();
     const currentId = seasonState().current?.id;
@@ -14673,7 +14752,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.get("/api/quests/:id/crews", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to see crews" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to see crews" });
     const crews = await crewsRepo.forQuest(String(req.params.id));
     const shaped = await Promise.all(crews.map(crewShape));
     // The invite code goes ONLY to members of that crew. It is a capability to
@@ -14693,7 +14772,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.post("/api/quests/:id/crews", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to form a crew" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to form a crew" });
     const quest: any = await questsRepo.byId(String(req.params.id));
     if (!quest) return res.status(404).json({ error: "Quest not found" });
     if (quest.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
@@ -14714,7 +14793,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.post("/api/crews/join/:code", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to join a crew" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to join a crew" });
     const crew = await crewsRepo.byInvite(String(req.params.code));
     if (!crew || crew.status === "disbanded") {
       return res.status(404).json({ error: "That invite is no longer open" });
@@ -14735,7 +14814,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.post("/api/crews/:id/leave", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const before = await crewsRepo.byId(String(req.params.id));
     const outcome = await crewsRepo.leave(String(req.params.id), user.id);
     if (outcome !== "not-a-member" && before?.conversationId && messagingOn()) {
@@ -14770,7 +14849,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   };
 
   app.post("/api/admin/quests", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { title } = req.body ?? {};
     if (!title) return res.status(400).json({ error: "Missing title" });
     if (rejectOffsiteImage(req.body?.imageUrl, res)) return;
@@ -14794,7 +14873,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.put("/api/admin/quests/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Editing an example into a real quest would launder it: the row keeps
     // is_example, so retirement would later delete the admin's own work.
     if (await isExampleRow(getPool(), "quests", req.params.id)) {
@@ -14809,7 +14888,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.delete("/api/admin/quests/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // quests is a CORE module, so on a fresh fork the whole board is examples
     // and deleting them one by one empties the page without stamping a
     // tombstone: refreshRowPresence only runs at boot, on a seed and on a
@@ -14844,7 +14923,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Quests: claim / submit (player)
   app.post("/api/game/quests/:id/claim", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to claim quests" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to claim quests" });
     const quest: any = await questsRepo.byId(req.params.id);
     if (!quest) return res.status(404).json({ error: "Quest not found" });
     // Consent on a claimed quest mints recognition from the faucet, grants
@@ -14897,7 +14976,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.post("/api/game/quests/:id/submit", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const { artifactUrl, note } = req.body ?? {};
     if (!artifactUrl && !note) return res.status(400).json({ error: "Share a link or a few words as evidence of your work" });
     const mine = await claimsRepo.forUser(user.id);
@@ -14969,7 +15048,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.put("/api/game/quest-claims/:id/confidence", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const value = String(req.body?.confidence ?? "");
     // Clearing it is allowed: somebody who flagged a wobble and then sorted it
     // out should not have to leave the flag up.
@@ -14997,7 +15076,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * nobody reads is a form nobody fills in.
    */
   app.get("/api/admin/quest-claims/attention", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [rows]: any = await getPool().query(
       `SELECT id, quest_title, user_name, status, confidence, confidence_note, confidence_at, claimed_at
          FROM quest_claims
@@ -15306,7 +15385,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Journey / training progress sync (server-side game state)
   app.post("/api/game/journey/sync", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const { journeyId, steps } = req.body ?? {};
     if (!journeyId || !Array.isArray(steps)) return res.status(400).json({ error: "Missing journeyId or steps" });
     const updated = await members.update(user.id, (u: any) => {
@@ -15320,7 +15399,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // My game state
   app.get("/api/game/me", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const stageId = await stageOf(user);
     const claims = await claimsRepo.forUser(user.id);
     const ctx = await capabilityCtx(user);
@@ -15353,7 +15432,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // through the ledger, idempotently, from the recognition faucet.
   app.post("/api/game/gratitude/send", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to send " + mergedConfig().currency.nameLower });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to send " + mergedConfig().currency.nameLower });
     const { toEmail, amount, message } = req.body ?? {};
     const outcome = await sendGratitude(gratitudeDeps, { fromUser: user, toEmail, amount, message });
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
@@ -15395,7 +15474,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.post("/api/gratitude", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to give Hearts" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to give Hearts" });
     const ready = await economyReady(getPool());
     if (!ready.ready) {
       return res.status(404).json({ error: "Not found" });
@@ -15450,13 +15529,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // would be a way around the deferral rather than a use of it.
 
   app.get("/api/admin/economy", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(await mintView(getPool()));
   });
 
   /** Queue a change. It lands at the next moon and says so in the response. */
   app.patch("/api/admin/economy/rules/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? "admin";
     const body = req.body ?? {};
     const change: { amount?: number | null; ceiling?: number; enabled?: boolean } = {};
@@ -15517,7 +15596,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   /** Your own sheet. Everything, because it is yours. */
   app.get("/api/me/profile", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const loaded = await loadProfile(getPool(), villageId(), user.id);
     if (!loaded) return res.status(404).json({ error: "Not found" });
     const { startsAt } = cycleWindow();
@@ -15540,7 +15619,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.post("/api/me/voice-claim", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const out = await requestVoiceClaim(getPool(), user.id);
     if (!out.ok) return res.status(out.status).json({ error: out.error });
     void recordEvent(getPool(), {
@@ -15562,7 +15641,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.post("/api/me/voice-claim/:id/cancel", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const [own] = await getPool().query<any[]>(
       "SELECT `id` FROM `voice_claims` WHERE `id` = ? AND `village_id` = ? AND `user_id` = ? LIMIT 1",
       [req.params.id, villageId(), user.id],
@@ -15576,7 +15655,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   /** Every claim you have made. Yours only. */
   app.get("/api/me/voice-claims", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     res.json({ claims: await claimHistory(getPool(), user.id) });
   });
 
@@ -15620,7 +15699,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.get("/api/me/characters", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     res.json({ party: await partyFor(getPool(), villageId(), user.id) });
   });
 
@@ -15634,7 +15713,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.post("/api/me/characters", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const outcome = await addCharacter(getPool(), villageId(), user.id, req.body ?? {});
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     res.json({ success: true, character: outcome.character });
@@ -15643,7 +15722,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   /** Which character fronts the sheet. */
   app.post("/api/me/characters/:id/primary", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const ok = await setPrimary(getPool(), villageId(), user.id, req.params.id);
     if (!ok) return res.status(404).json({ error: "Not one of your characters" });
     res.json({ success: true, party: await partyFor(getPool(), villageId(), user.id) });
@@ -15652,7 +15731,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   /** Leave a path. Removing the primary hands the crown on in the same breath. */
   app.delete("/api/me/characters/:id", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const removed = await removeCharacter(getPool(), villageId(), user.id, req.params.id);
     if (!removed) return res.status(404).json({ error: "Not one of your characters" });
     res.json({ success: true, party: await partyFor(getPool(), villageId(), user.id) });
@@ -15685,7 +15764,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Gratitude: my journal (received + sent, with amounts)
   app.get("/api/game/gratitude/me", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const log = await gratitudeRepo.all();
     res.json({
       received: log.filter((g) => g.toId === user.id).reverse(),
@@ -15754,7 +15833,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * (Amora, Voice) is distributed on Hypha using exactly this report.
    */
   app.post("/api/admin/cycles/close", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
 
     /**
      * The ReGen model (Rye directive, 2026-07-26; mechanics researched in
@@ -15963,7 +16042,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.get("/api/game/progression", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const events: any[] = stageEventsRepo.all();
     const stageId = await stageOf(user);
     const ctx = await capabilityCtx(user);
@@ -15987,7 +16066,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.get("/api/game/gratitude/flows", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const log = await gratitudeRepo.all();
     const dists: DistributionRecord[] = await distributionsRepo.all();
     const mine = dists.filter((d) => d.userId === user.id);
@@ -16012,7 +16091,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.get("/api/game/ledger", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     // All tokens now, not just recognition: since the cycle pool pays value in
     // a separate token (ReGen model), a member's ledger view must show every
     // token they hold, each with its registry display name.
@@ -16093,7 +16172,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   }
 
   app.get("/api/admin/variables", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // S13: a module's tunables only appear while the module is non-off — an
     // off module contributes zero admin surface, variables included.
     const hiddenKeys = new Set(
@@ -16134,7 +16213,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * change gets.
    */
   app.post("/api/admin/hypha/find-token", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const tokenName = String(req.body?.tokenName ?? "").trim();
     if (!tokenName) return res.status(400).json({ error: "Enter the token's exact on-chain name" });
     const founderAddress = stringVar("hypha.founder_base_address").trim();
@@ -16247,7 +16326,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.put("/api/admin/variables/:key", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const raw = req.body?.value;
     if (raw === undefined || raw === null) return res.status(400).json({ error: "A value is required" });
     /*
@@ -16503,7 +16582,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   /** The viewer's own standing + which proposals they already back. */
   app.get("/api/game/mechanics/standing", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const standing = await mechanicsStandingFor(user);
     const [rows] = await getPool().query<any[]>(
       "SELECT proposal_id, kind FROM mechanics_proposal_backers WHERE user_id = ?",
@@ -16518,7 +16597,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.post("/api/game/mechanics/proposals", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to propose a change to the game" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to propose a change to the game" });
     const standing = await mechanicsStandingFor(user);
     if (standing.denied) {
       return res.status(403).json({ error: "A standing warning currently suspends your proposal rights. Talk to a steward" });
@@ -16565,7 +16644,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.post("/api/game/mechanics/proposals/:id/support", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in to support a proposal" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to support a proposal" });
     const p = await proposalById(getPool(), req.params.id);
     if (!p) return res.status(404).json({ error: "Not found" });
     if (p.status !== "open") return res.status(409).json({ error: `This proposal is ${p.status.replace("_", " ")}, not open for support` });
@@ -16582,7 +16661,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    *  opens it. The on-ramp — proposing is something the village teaches. */
   app.post("/api/game/mechanics/proposals/:id/sponsor", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const standing = await mechanicsStandingFor(user);
     if (!standing.qualified) return res.status(403).json({ error: "Sponsoring a draft takes full proposer standing" });
     const p = await proposalById(getPool(), req.params.id);
@@ -16611,7 +16690,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.post("/api/game/mechanics/proposals/:id/withdraw", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const p = await proposalById(getPool(), req.params.id);
     if (!p) return res.status(404).json({ error: "Not found" });
     const mayWithdraw = p.proposerUserId === user.id || (await isAdmin(req));
@@ -16646,7 +16725,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.post("/api/game/mechanics/proposals/:id/to-hypha", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const p = await proposalById(getPool(), req.params.id);
     if (!p) return res.status(404).json({ error: "Not found" });
     if (p.proposerUserId !== user.id && !(await isAdmin(req))) {
@@ -16677,7 +16756,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.post("/api/game/mechanics/proposals/:id/link-hypha", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const p = await proposalById(getPool(), req.params.id);
     if (!p) return res.status(404).json({ error: "Not found" });
     if (p.proposerUserId !== user.id && !(await isAdmin(req))) {
@@ -16739,7 +16818,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    *  verifies next phase. The claim is never itself the apply. */
   app.post("/api/game/mechanics/proposals/:id/passed", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const p = await proposalById(getPool(), req.params.id);
     if (!p) return res.status(404).json({ error: "Not found" });
     if (p.proposerUserId !== user.id && !(await isAdmin(req))) {
@@ -16828,7 +16907,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     });
 
   app.post("/api/admin/mechanics/proposals/:id/apply", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const p = await proposalById(getPool(), req.params.id);
     if (!p) return res.status(404).json({ error: "Not found" });
     if (p.status !== "to_hypha" && p.status !== "passed_claimed" && p.status !== "passed_verified") {
@@ -17452,12 +17531,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * is not the chart.
    */
   app.get("/api/admin/org/drafts", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(await listDrafts(getPool()));
   });
 
   app.post("/api/admin/org/drafts", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const id = await createDraft(getPool(), {
       title: String(req.body?.title ?? ""),
       rationale: req.body?.rationale ?? null,
@@ -17468,7 +17547,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.post("/api/admin/org/drafts/:id/changes", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const ops = ["create_seat", "update_seat", "rest_seat", "seat_holder", "end_holding"];
     const op = String(req.body?.op ?? "");
     if (!ops.includes(op)) return res.status(400).json({ error: `op must be one of: ${ops.join(", ")}` });
@@ -17483,12 +17562,12 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   /** What it would do, and what refuses. Nothing is written. */
   app.get("/api/admin/org/drafts/:id/preview", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(await previewDraft(getPool(), req.params.id));
   });
 
   app.post("/api/admin/org/drafts/:id/publish", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = await authedUser(req);
     const r = await publishDraft(getPool(), req.params.id, actor?.id ?? null);
     if (!r.ok) return res.status(409).json({ error: r.error });
@@ -17508,14 +17587,14 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.post("/api/admin/org/drafts/:id/revert", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const r = await revertDraft(getPool(), req.params.id);
     if (!r.ok) return res.status(409).json({ error: r.error });
     res.json({ success: true, reverted: r.reverted });
   });
 
   app.post("/api/admin/org/relations", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const r = await createRelation(getPool(), {
       typeId: String(req.body?.typeId ?? ""),
       fromKind: String(req.body?.fromKind ?? ""),
@@ -17543,7 +17622,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.delete("/api/admin/org/relations/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const ok = await deleteRelation(getPool(), String(req.params.id));
     if (!ok) return res.status(404).json({ error: "No such link" });
     res.json({ success: true });
@@ -17557,7 +17636,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * worse than one that says out loud it is overdue.
    */
   app.get("/api/admin/org/expiring", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const within = Math.max(1, Math.min(365, Number(req.query.days ?? 30)));
     const rows = await expiringSeatings(getPool(), lapseContext(), within);
     const allMembers = await members.all();
@@ -17591,7 +17670,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const maySee =
       (await isAdmin(req)) ||
       (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
-    if (!maySee) return res.status(401).json({ error: "Sign in to read this history" });
+    if (!maySee) return res.status(401).json({ error: "auth_required", message: "Sign in to read this history" });
     const kind = req.params.kind === "circles" ? "circle" : "org_role";
     const [rows]: any = await getPool().query(
       `SELECT id, kind, text, actor_user_id, at FROM health_events
@@ -17618,7 +17697,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const maySeePeople =
       (await isAdmin(req)) ||
       (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
-    if (!maySeePeople) return res.status(401).json({ error: "Sign in to see who held this seat" });
+    if (!maySeePeople) return res.status(401).json({ error: "auth_required", message: "Sign in to see who held this seat" });
     const allMembers = await members.all();
     const rows = await orgRoleHistory(getPool(), req.params.id);
     res.json(
@@ -17647,7 +17726,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    */
   app.get("/api/org/my-unclaimed-seats", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const rows = await unclaimedSeatingsFor(getPool(), user.name);
     if (!rows.length) return res.json([]);
     const roles = await listOrgRoles(getPool());
@@ -17664,7 +17743,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   app.post("/api/org/seatings/:id/claim", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Sign in first" });
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     // Answered before the name check, so the refusal says the true reason.
     // `unclaimedSeatingsFor` no longer offers example seatings, and without
     // this the claim would come back "that seat is not recorded under your
@@ -17693,7 +17772,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // ── Admin: the org chart is edited here, and the edits are live ──────────
   app.post("/api/admin/org/roles", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const id = await createOrgRole(getPool(), req.body ?? {});
     // Anything made while a season runs joins that season's pattern, so a
     // village never sits down to author one. Nothing happens when the season
@@ -17708,7 +17787,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.put("/api/admin/org/roles/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const role = (await listOrgRoles(getPool())).find((r) => r.id === req.params.id);
     if (!role) return res.status(404).json({ error: "Seat not found" });
     if (role.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
@@ -17733,7 +17812,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.post("/api/admin/org/roles/:id/holders", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const role = (await listOrgRoles(getPool())).find((r) => r.id === req.params.id);
     if (!role) return res.status(404).json({ error: "Seat not found" });
     if (role.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
@@ -17770,7 +17849,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // catalogue for any future season to pick up again.
 
   app.get("/api/admin/seasons/patterns", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const [patterns, members] = await Promise.all([
       listPatterns(getPool()),
       listPatternMembers(getPool()),
@@ -17784,13 +17863,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.post("/api/admin/seasons/patterns", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const id = await createPattern(getPool(), req.body ?? {});
     res.json({ success: true, id });
   });
 
   app.post("/api/admin/seasons/patterns/:id/members", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const kind = String(req.body?.kind ?? "") as PatternKind;
     const entityId = String(req.body?.entityId ?? "");
     if (!["circle", "org_role", "badge", "quest"].includes(kind) || !entityId) {
@@ -17801,7 +17880,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.delete("/api/admin/seasons/patterns/:id/members", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     await removePatternMember(
       getPool(),
       req.params.id,
@@ -17822,7 +17901,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * close already follows. The scheduler's charter forbids it explicitly.
    */
   app.post("/api/admin/seasons/roll", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const season = seasonState();
     const patternId = req.body?.patternId !== undefined
       ? (req.body.patternId || null)
@@ -17865,7 +17944,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * will take on, which no report should make on its behalf.
    */
   app.get("/api/admin/seasons/retrospective", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const season = seasonState();
     const patternId = (req.query.patternId as string) || currentPatternId();
     const startsOn = (season.current as any)?.startsOn;
@@ -17881,7 +17960,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.delete("/api/admin/org/seatings/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Read the seating BEFORE ending it, so the journal entry can name which
     // seat it was against. Afterwards the row is history and the route only
     // has an id.
@@ -17920,7 +17999,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * history and its count; only the person goes.
    */
   app.post("/api/admin/org/seatings/:id/forget", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (await isExampleRow(getPool(), "org_role_assignments", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
@@ -17958,7 +18037,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const actorCtx = actorUser ? await capabilityCtx(actorUser) : null;
     const mayDecide = !!actorCtx && hasCapability("proposal.decide", actorCtx);
     if (!isAdminActor && !mayDecide) {
-      return res.status(401).json({ error: "Appointing needs the village's decision capability" });
+      return res.status(401).json({ error: "auth_required", message: "Appointing needs the village's decision capability" });
     }
     // TWO GUARDS on the non-admin path, because `proposal.decide` is the
     // power to RECORD what a village decided — not to decide it alone:
@@ -18081,7 +18160,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 
   // Players admin: list + stage grants
   app.get("/api/admin/players", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Standing-example identities author example threads; they are content,
     // not people, and have no password_hash. They do not belong on the roster.
     const allMembers = (await members.all()).filter((u: any) => !u.isExample);
@@ -18105,7 +18184,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   app.put("/api/admin/players/:id/stage", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const { stageId } = req.body ?? {};
     if (stageId && !GAME_CONFIG.stages.some((s) => s.id === stageId)) {
       return res.status(400).json({ error: "Unknown stage" });
@@ -18127,7 +18206,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // must keep conserving; settlements must keep explaining themselves); the
   // person's identity is scrubbed from every denormalized surface.
   app.delete("/api/admin/players/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
     // anonymizeMember renames the row to "A departed member", so every seeded
@@ -18153,7 +18232,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   /** Member-initiated deletion (Law 8968 posture): same path, own account. */
   app.post("/api/profile/delete-account", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const { password } = req.body ?? {};
     if (!password || !(await verifyPassword(String(password), user.passwordHash))) {
       return res.status(403).json({ error: "Confirm with your password to delete your account" });
@@ -18177,7 +18256,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   /** Member data export (Law 8968 posture): everything the village holds on you. */
   app.get("/api/profile/export", async (req, res) => {
     const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!user) return res.status(401).json({ error: "auth_required" });
     const { passwordHash, tokenVersion, ...member } = user;
     const log = await gratitudeRepo.all();
     const [notifRows] = await getPool().query<any[]>(
@@ -18257,7 +18336,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   // Activity admin: remove a single pulse entry (e.g. a test account's join line).
   // Find the id via GET /api/game/pulse, then DELETE with the admin password.
   app.delete("/api/admin/activity/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const removed = await deleteEvent(getPool(), req.params.id);
     if (!removed) return res.status(404).json({ error: "Not found" });
     res.json({ success: true, removed });
@@ -18400,6 +18479,85 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
         { src: icon, sizes: "any", type: icon.endsWith(".svg") ? "image/svg+xml" : "image/png", purpose: "any" },
       ],
     });
+  });
+
+  /*
+   * ROBOTS AND SITEMAP, as real files.
+   *
+   * Both used to fall through to the SPA catch-all and answer with the app's
+   * HTML shell at status 200. A crawler asking for rules got a document it
+   * cannot parse, read it as "no rules", and had no list of pages either, so
+   * every public page on the site was left to be found by luck.
+   *
+   * Generated per request rather than shipped in client/public, for the reason
+   * the manifest above is generated: client/index.html and everything beside
+   * it goes byte-for-byte to every deployment, so no village's host can be
+   * baked in. The host comes off the request, exactly as the quest unfurl tags
+   * below take it.
+   */
+  const requestOrigin = (req: express.Request): string => {
+    const proto = String(req.headers["x-forwarded-proto"] ?? req.protocol ?? "https")
+      .split(",")[0].trim();
+    const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "").trim();
+    return host ? `${proto}://${host}` : "";
+  };
+
+  /*
+   * The public pages, read off the footer nav in client/src/components/
+   * Layout.tsx rather than invented here: what the village links to is what a
+   * crawler should find. Member surfaces (/profile, /messages, /wallet, the
+   * admin pages, the password flows) are deliberately absent and are refused
+   * in robots.txt below.
+   */
+  const PUBLIC_PATHS = [
+    "/", "/investor", "/steward", "/resident", "/prosperity", "/love-letter",
+    "/visit", "/gratitude", "/work-with-us", "/governance", "/circles", "/roles",
+    "/how-we-create", "/good-neighbor", "/team", "/game-mechanics", "/exit-policy",
+    "/co-creators-guide", "/feedback", "/quests", "/housing", "/opportunities",
+    "/master-plan",
+  ];
+  /*
+   * Two of the footer's links are module-gated and render the 404 view when
+   * their module is off, which is the default for every optional module. A
+   * sitemap that listed them would send crawlers at a dead end on every fresh
+   * fork, so they appear only while the module is serving everyone.
+   */
+  const GATED_PATHS: Array<[string, string]> = [["/network", "network"], ["/contribute", "commerce"]];
+
+  app.get("/robots.txt", (req, res) => {
+    const origin = requestOrigin(req);
+    const lines = [
+      "User-agent: *",
+      "Disallow: /api/",
+      "Disallow: /admin",
+      "Disallow: /profile",
+      "Disallow: /messages",
+      "Disallow: /wallet",
+      "Disallow: /tokens",
+      "Disallow: /set-password",
+      "Disallow: /forgot-password",
+      // Five megabytes of self-contained page, and an app rather than a
+      // document: nothing in it is worth indexing and a crawler re-fetching it
+      // costs real bandwidth on the deployment's bill.
+      "Disallow: /grounds/",
+      origin ? `Sitemap: ${origin}/sitemap.xml` : "",
+    ].filter(Boolean);
+    res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(lines.join("\n") + "\n");
+  });
+
+  app.get("/sitemap.xml", (req, res) => {
+    const origin = requestOrigin(req);
+    const paths = [
+      ...PUBLIC_PATHS,
+      ...GATED_PATHS.filter(([, id]) => effectiveLifecycle(id) === "public").map(([p]) => p),
+    ];
+    const urls = paths
+      .map((p) => `  <url><loc>${escapeHtml(origin + p)}</loc></url>`)
+      .join("\n");
+    res
+      .type("application/xml")
+      .set("Cache-Control", "public, max-age=3600")
+      .send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`);
   });
 
   app.get("/grounds/manifest.json", (_req, res) => {
