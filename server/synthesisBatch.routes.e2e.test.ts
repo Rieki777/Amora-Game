@@ -155,11 +155,16 @@ describe.skipIf(!DB_CONFIGURED)("call synthesis: the batch job and the route it 
       await new Promise((r) => setTimeout(r, 400));
     }
 
+    // Bootstrap forges the founder and hands back a claim link, never a
+    // session. The password gets set through that link, and the set-password
+    // response is what carries the token.
     const boot = await call("POST", "/api/admin/bootstrap", {
       password: ADMIN, email: `founder-${PORT}@example.test`, name: "Batch Founder",
     }, "");
-    token = boot.json?.token ?? "";
-    expect(token, JSON.stringify(boot.json)).toBeTruthy();
+    const claim = decodeURIComponent(String(boot.json?.claimUrl ?? "").match(/token=([^&]+)/)?.[1] ?? "");
+    const setPw = await call("POST", "/api/auth/set-password", { token: claim, password: "BatchTest123!" }, "");
+    token = String(setPw.json?.token ?? "");
+    expect(token, "founder must hold a session").toBeTruthy();
   });
 
   afterAll(async () => {
@@ -173,9 +178,13 @@ describe.skipIf(!DB_CONFIGURED)("call synthesis: the batch job and the route it 
   it("applied 0082, so the batch ledger exists the moment the server answers", async () => {
     const [rows] = await pool.query<any[]>(
       "SELECT table_name AS t FROM information_schema.tables WHERE table_schema = DATABASE() " +
-        "AND table_name IN ('synthesis_batches', 'synthesis_batch_items') ORDER BY table_name",
+        "AND table_name IN ('synthesis_batches', 'synthesis_batch_items')",
     );
-    expect(rows.map((r: any) => String(r.t).toLowerCase())).toEqual(["synthesis_batch_items", "synthesis_batches"]);
+    // Sorted here rather than in SQL: the server's collation decides whether
+    // an underscore sorts before a letter, and this test is about the tables
+    // existing, never about how MySQL orders their names.
+    const names = rows.map((r: any) => String(r.t).toLowerCase()).sort();
+    expect(names).toEqual(["synthesis_batch_items", "synthesis_batches"]);
   });
 
   it("still answers the Synthesize button in one request, evidence rule and all", async () => {
