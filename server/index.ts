@@ -1,4 +1,4 @@
-﻿// Local dev reads .env (PORT=3001 so the API doesn't collide with Vite's 3000);
+// Local dev reads .env (PORT=3001 so the API doesn't collide with Vite's 3000);
 // on Railway the real environment always wins over the file.
 import "dotenv/config";
 import express from "express";
@@ -94,7 +94,7 @@ import {
   TREASURY,
 } from "./lib/ledger";
 import type { TransferGuard } from "./lib/ledger";
-import { allowanceFor, checkIn, cycleWindow, economyReady, give, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
+import { allowanceFor, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
 import { addCharacter, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
@@ -410,6 +410,7 @@ import { LIFECYCLE_RANK, MODULES, MODULES_BY_ID, type ModuleLifecycle } from "..
 import { resolveHyphaLinks } from "../shared/hypha";
 import { getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
+import { alignTableCollations } from "./db/collation";
 import { dbCollection, dbDocument } from "./repos/store-db";
 import { loadVariables } from "./lib/variables";
 import {
@@ -1360,7 +1361,12 @@ async function ensureDataFiles() {
   await runOnce("voice-sweep-2026-08-01-part-2", applyVoiceSweepToSeededDocuments);
   await runOnce("voice-sweep-2026-08-01-part-3", applyVoiceSweepWhereWordsChanged);
   await runOnce("org-roles-backfill-2026-08", applyOrgRolesBackfill);
-  await runOnce("collation-alignment-2026-08-13", alignTableCollations);
+  // Keep this id stable: changing it re-runs the alignment on every deployment
+  // that already recorded it.
+  await runOnce("collation-alignment-2026-08-13", async () => {
+    await alignTableCollations(getPool(), (m) => console.log(m));
+  });
+  await runOnce("currency-name-into-tokens-2026-08-14", migrateCurrencyNameIntoTokens);
 
   // 0054: a starter relationship vocabulary, into an EMPTY table only. Same
   // rule the quest library follows, and the reason matters here: these are
@@ -1846,64 +1852,40 @@ async function runOnce(id: string, fn: () => void | Promise<void>) {
 }
 
 /**
- * Aligns every table's collation with THIS schema's own default.
+ * Carries a village's customised `brand.currency.name` INTO the token registry.
  *
- * Seven migrations (0046, 0059, 0061, 0069-0072) end their CREATE TABLE with a
- * bare `DEFAULT CHARSET=utf8mb4`. On MySQL 8 that takes the CHARACTER SET's
- * default collation — utf8mb4_0900_ai_ci — and NOT the database's. The other 35
- * table-creating migrations name no charset at all, so they inherit the database
- * default. On Railway the two agree, because Railway's default happens to be
- * utf8mb4_0900_ai_ci, and every test schema is created on that same server and
- * inherits it too. That is why 55 passing tests and ten green gates never saw
- * this.
+ * mergedConfig() now derives the currency name from `tokens`.`name`, because a
+ * rename in the Mint has to reach every member-facing instance of the word. A
+ * village that had already set brand.currency.name would otherwise snap back to
+ * the seeded "Gratitude" the moment this deployed — the registry would simply
+ * start winning an argument the brand field used to win alone.
  *
- * Anywhere else they disagree, and then any join across the boundary dies with
- * ER_CANT_AGGREGATE_2COLLATIONS — `mint_rules`→`tokens` (the Mint),
- * `player_characters`→`users` (the character sheet), `voice_claims`→`users` and
- * →`tokens` (the claim path). VILLAGE_OVERVIEW promises fork, set DATABASE_URL,
- * deploy; this is what that promise costs on a database whose default is the
- * far more common utf8mb4_general_ci.
+ * Same shape as migrateAcceptAwardToRegistry below, and for the same reason:
+ * when a value moves house, the deploy that moves it must not change what
+ * anybody sees.
  *
- * It converts TOWARDS the schema default rather than pinning a literal, for two
- * reasons. A literal would still leave the other 35 tables on the deployer's
- * default and merely move the mismatch. And on an already-correct database this
- * finds nothing to do, so production takes no table rewrite it does not need.
+ * Reads the table rather than the in-memory registry on purpose. This runs
+ * inside ensureDataFiles(), and depending on a load that happens earlier in
+ * boot is exactly how a guard ends up silently reading a default.
  */
-async function alignTableCollations() {
-  const pool = getPool();
-  const [schemaRows] = await pool.query<any[]>(
-    "SELECT DEFAULT_CHARACTER_SET_NAME AS cs, DEFAULT_COLLATION_NAME AS coll " +
-      "FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = DATABASE()",
+async function migrateCurrencyNameIntoTokens() {
+  const brandDoc = brandRepo.get() as any;
+  const custom = String(brandDoc?.currency?.name ?? "").trim();
+  // Never customised: the seeded token name is already the right answer.
+  if (!custom) return;
+  const [rows] = await getPool().query<any[]>(
+    "SELECT `name`, `governance` FROM `tokens` WHERE `slug` = ?",
+    [HEARTS],
   );
-  const cs = String(schemaRows?.[0]?.cs ?? "");
-  const coll = String(schemaRows?.[0]?.coll ?? "");
-  // These come from information_schema rather than from anyone's input, but they
-  // are interpolated into DDL, which cannot take a placeholder. Refuse anything
-  // that is not a plain identifier rather than trusting provenance.
-  if (!/^[a-z0-9_]+$/.test(cs) || !/^[a-z0-9_]+$/.test(coll)) {
-    throw new Error(`[collation] refusing to build DDL from cs=${cs} coll=${coll}`);
-  }
-
-  const [rows] = await pool.query<any[]>(
-    "SELECT TABLE_NAME AS t, TABLE_COLLATION AS c FROM information_schema.TABLES " +
-      "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' " +
-      "AND TABLE_COLLATION IS NOT NULL AND TABLE_COLLATION <> ?",
-    [coll],
-  );
-  if (!rows.length) {
-    console.log(`[collation] all tables already ${coll}; nothing to align`);
-    return;
-  }
-
-  console.log(`[collation] ${rows.length} table(s) differ from the schema default ${coll}; aligning`);
-  for (const r of rows) {
-    const name = String(r.t);
-    if (!/^[A-Za-z0-9_]+$/.test(name)) {
-      throw new Error(`[collation] refusing to alter a table with an unexpected name: ${name}`);
-    }
-    await pool.query(`ALTER TABLE \`${name}\` CONVERT TO CHARACTER SET ${cs} COLLATE ${coll}`);
-    console.log(`[collation]   ${name}: ${r.c} -> ${coll}`);
-  }
+  const row = rows?.[0];
+  if (!row) return;
+  if (String(row.name).trim() === custom) return;
+  // A Hypha-governed token's name is a fact about Base, not a setting — the
+  // same refusal the admin rename route gives.
+  if (String(row.governance) !== "platform") return;
+  await getPool().query("UPDATE `tokens` SET `name` = ? WHERE `slug` = ?", [custom.slice(0, 120), HEARTS]);
+  await loadTokenRegistry(getPool());
+  console.log(`[MIGRATION] carried the village's currency name into the token registry: ${custom}`);
 }
 
 /**
@@ -2165,10 +2147,27 @@ function mergedConfig() {
       eventsUrl: pick((brand.project as any).eventsUrl, p.eventsUrl),
       footerBlurb: pick((brand.project as any).footerBlurb, p.footerBlurb),
     },
-    currency: {
-      name: pick(brand.currency.name, c.name),
-      nameLower: pick(brand.currency.nameLower, c.nameLower),
-    },
+    // THE TOKEN REGISTRY IS THE SINGLE SOURCE OF TRUTH FOR A TOKEN'S NAME
+    // (Rye, 2026-08-14). Renaming Gratitude in the Mint has to change every
+    // member-facing instance of the word, and two fields holding the same name
+    // cannot both be that. Before this, `tokens`.`name` drove the Mint while
+    // `brand.currency.name` drove the dashboard and the gratitude wall, so an
+    // admin rename changed one surface and left the other saying the old word.
+    //
+    // brand.currency stays in the document as the pre-registry fallback: a
+    // village that had customised it keeps its value, because
+    // currency-name-into-tokens-2026-08-14 copied that value INTO the registry
+    // rather than letting the seeded default silently win on deploy.
+    currency: (() => {
+      const registryName = tokenDef(HEARTS)?.name?.trim();
+      const name = pick(registryName, pick(brand.currency.name, c.name));
+      return {
+        name,
+        // Derived, never stored. Two fields that must agree are two fields
+        // that can drift, which is the bug this change exists to undo.
+        nameLower: name ? String(name).toLowerCase() : pick(brand.currency.nameLower, c.nameLower),
+      };
+    })(),
     images: {
       hero: pick(brand.images.hero, i.hero),
       investorHero: pick(brand.images.investorHero, i.investorHero),
@@ -11792,9 +11791,31 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // Renaming an example keeps its flag, so the admin's own word for the
     // token would be deleted by the first real one they create.
     if (def.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
-    const name = String(req.body?.name ?? "").trim().slice(0, 120);
-    if (!name) return res.status(400).json({ error: "A display name is required" });
-    await getPool().query("UPDATE tokens SET name = ? WHERE slug = ?", [name, slug]);
+    // Either field alone is a valid edit: the panel sends a name when the admin
+    // finishes typing and an `active` when they flip the switch, and requiring
+    // both would make a toggle silently depend on the name field being intact.
+    const body = req.body ?? {};
+    const wantsName = Object.prototype.hasOwnProperty.call(body, "name");
+    const wantsActive = Object.prototype.hasOwnProperty.call(body, "active");
+    if (!wantsName && !wantsActive) {
+      return res.status(400).json({ error: "Send a name, an active flag, or both" });
+    }
+
+    if (wantsName) {
+      const name = String(body.name ?? "").trim().slice(0, 120);
+      if (!name) return res.status(400).json({ error: "A display name is required" });
+      await getPool().query("UPDATE tokens SET name = ? WHERE slug = ?", [name, slug]);
+    }
+    if (wantsActive) {
+      // `active` is a MEMBER-VISIBILITY flag and nothing more (Rye, 2026-08-14).
+      // Balances, history and the double-entry ledger are untouched, so
+      // conservation still proves at boot and switching it back restores the
+      // surface exactly. It deliberately does NOT stop issuance: a token that
+      // pays a mint rule while hidden is a reporting problem, not a lost
+      // entry, and the reverse — silently freezing an economy from a display
+      // switch — is the one that cannot be undone.
+      await getPool().query("UPDATE tokens SET active = ? WHERE slug = ?", [body.active === true ? 1 : 0, slug]);
+    }
     await loadTokenRegistry(getPool());
     res.json({ success: true, token: tokenDef(slug) });
   });

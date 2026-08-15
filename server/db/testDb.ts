@@ -71,10 +71,26 @@ export function testDbConfigured(): boolean {
   return !!process.env.TEST_DATABASE_URL;
 }
 
+export interface ProvisionOptions {
+  /**
+   * Schema default collation. Omitted means `CHARACTER SET utf8mb4` with no
+   * COLLATE, which on MySQL 8 lands on utf8mb4_0900_ai_ci — the same default
+   * Railway uses, which is why the suite matched production so exactly that the
+   * collation split in `db/collation.ts` was invisible to all of it.
+   *
+   * Pass a DIFFERENT collation to reproduce a fork's database.
+   */
+  collation?: string;
+}
+
 /** Fresh scratch schema with every migration applied. */
-export async function provisionTestDb(): Promise<TestDb> {
+export async function provisionTestDb(opts: ProvisionOptions = {}): Promise<TestDb> {
   const base = process.env.TEST_DATABASE_URL;
   if (!base) throw new Error("TEST_DATABASE_URL is not set");
+  // Interpolated into DDL, which cannot take a placeholder.
+  if (opts.collation && !/^[a-z0-9_]+$/.test(opts.collation)) {
+    throw new Error(`refusing to build DDL from collation=${opts.collation}`);
+  }
   const schema = nextSchemaName();
   const u = new URL(base);
   // Connect without a database first so we can drop/create the scratch one.
@@ -87,7 +103,10 @@ export async function provisionTestDb(): Promise<TestDb> {
   });
   await sweepStaleSchemas(admin);
   await admin.query(`DROP DATABASE IF EXISTS \`${schema}\``);
-  await admin.query(`CREATE DATABASE \`${schema}\` CHARACTER SET utf8mb4`);
+  await admin.query(
+    `CREATE DATABASE \`${schema}\` CHARACTER SET utf8mb4` +
+      (opts.collation ? ` COLLATE ${opts.collation}` : ""),
+  );
   await admin.end();
 
   u.pathname = `/${schema}`;
@@ -98,6 +117,18 @@ export async function provisionTestDb(): Promise<TestDb> {
   await conn.query("SET time_zone = '+00:00'");
   const result = await applyPending(conn);
   if (result.failed) {
+    // Drop before throwing. This is the ONLY path that creates a schema and
+    // then abandons it, and it used to leave the half-migrated schema behind
+    // for the two-hour sweeper to find on some later run — which only happens
+    // if something provisions against that same server again. When
+    // TEST_DATABASE_URL moved from the Railway proxy to a local MySQL, every
+    // orphan already on Railway became unreachable by the sweeper, because
+    // nothing will ever provision there to trigger it.
+    try {
+      await conn.query(`DROP DATABASE IF EXISTS \`${schema}\``);
+    } catch {
+      // A failed migration is the interesting error; a failed cleanup is not.
+    }
     await conn.end();
     throw new Error(`test schema migration failed: ${result.failed}`);
   }
