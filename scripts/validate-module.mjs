@@ -134,8 +134,10 @@ const wanted = args.filter((a) => !a.startsWith("--"));
 
 const registry = await loadShared("modules");
 const launch = await loadShared("launchRequirements", ["modules"]);
+const poolLib = await loadShared("modulePool", ["modules"]);
 
-const { MODULES, moduleListingProblems, priceLine } = registry;
+const { MODULES, moduleListingProblems, priceLine, isPaid } = registry;
+const { poolStatus, modulePayoutProblems } = poolLib;
 const byId = new Map(MODULES.map((m) => [m.id, m]));
 
 for (const id of wanted) {
@@ -182,15 +184,6 @@ console.log("Registry shape (shared/modules.ts:moduleListingProblems)");
 const docs = readModuleDocs();
 const drivers = registeredDriverIds();
 
-// The pool rule is a property of the REGISTRY and not of one listing, so it is
-// reported once. Repeating "the field does not exist yet" per module would bury
-// the per-listing findings under eighteen copies of one sentence.
-if (!MODULES.some((m) => Object.prototype.hasOwnProperty.call(m, "pool"))) {
-  note(
-    "Pool eligibility is not a registry field yet, so the rule that a priced listing may not also " +
-      "draw from the builders' pool cannot bite. The field will be `pool`; this activates when it lands.",
-  );
-}
 
 if (docs === null) {
   bad("read MODULE_DOCS from server/lib/knowledge.ts: COULD NOT PARSE");
@@ -242,10 +235,27 @@ for (const m of targets) {
   // instead of declaring it. When `pool` lands in `ModuleDef`, this check
   // starts biting with no edit. Until then it is vacuous by construction, and
   // it says so below rather than reporting a pass it did not earn.
-  if (Object.prototype.hasOwnProperty.call(m, "pool")) {
-    m.pricing && m.pool
-      ? bad("a listing that declares pricing is not pool-eligible (contract clause 14)")
-      : ok("pricing and pool eligibility are not both declared (contract clause 14)");
+  {
+    const status = poolStatus(m);
+    console.log(`    pool: ${status.eligible ? "eligible" : "not eligible"} (${status.reason})`);
+
+    // Contract clause 14, as an implication rather than a description. It
+    // cannot fail today because `poolStatus` returns `paid` before it returns
+    // anything eligible, and that is the point: the assertion pins the
+    // relationship so a later reordering of those checks cannot quietly let a
+    // priced listing draw from the pool as well.
+    isPaid(m) && status.eligible
+      ? bad("a listing that charges is not pool-eligible (contract clause 14)")
+      : ok("charging and pool eligibility are mutually exclusive (contract clause 14)");
+
+    // The payout identity, from the same function the server uses.
+    const payout = modulePayoutProblems([m]);
+    if (payout.length) {
+      for (const p of payout) console.log(`    ${p}`);
+      bad(`payout identity is answerable: ${payout.length} problem(s)`);
+    } else if (m.builtByAccount !== undefined) {
+      ok("payout identity is a ReGen Civics handle that credits a named builder");
+    }
   }
 
   // 2c. dataClass sanity: member-pii means somebody outside can be asked to forget.

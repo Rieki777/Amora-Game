@@ -3258,6 +3258,23 @@ function GameRolesTab({ password }: { password: string }) {
  */
 const BUILDER_GUIDE_URL = "https://github.com/Rieki777/Amora-Game/blob/main/docs/modules/START_HERE.md"; // brand-ok: the upstream platform repository's own address, never a village's brand
 
+/**
+ * One sentence per pool reason, keyed on what `poolStatus` decided.
+ *
+ * The server sends `{ eligible, reason }` and the reason is the whole message:
+ * "not eligible" on its own invites the founder to guess, and the four ways a
+ * module can be out of the pool are not interchangeable. A key with no entry
+ * renders nothing rather than a blank label, so a reason added later is silent
+ * here instead of wrong.
+ */
+const POOL_REASON_COPY: Record<string, string> = {
+  "free-third-party": "In the $ReGen builders' pool",
+  paid: "Charges a price, so not in the pool",
+  "platform-built": "Built by the platform, so not in the pool",
+  core: "Core module, so not in the pool",
+  withdrawn: "No longer offered, so not in the pool",
+};
+
 const LIFECYCLES = ["off", "preview", "members", "public"] as const;
 const LIFECYCLE_HINT: Record<string, string> = {
   off: "Routes 404, no nav, no admin surface.",
@@ -3553,6 +3570,14 @@ function ModulesTab({ password }: { password: string }) {
               share, create your ReGen Civics account and link your Hypha account with a Base address
               in profile setup.
             </p>
+            {/* The explainer sits here once, beside the link that acts on it,
+                instead of repeating per card. Every module card carries its own
+                one-line reason; this is the sentence that makes those reasons
+                mean something, and a founder needs it once. */}
+            <p className="text-sm sm:text-xs text-gray-600 leading-relaxed mt-2">
+              ReGen Civics shares a pool of $ReGen every lunar cycle across the free modules that
+              villages are running. A module that charges a price is paid by the villages using it.
+            </p>
             <a
               href={BUILDER_GUIDE_URL}
               target="_blank"
@@ -3770,6 +3795,14 @@ function ModulesTab({ password }: { password: string }) {
                     <div className="flex flex-wrap gap-x-6 gap-y-1 text-gray-500">
                       <span>id: <code className="text-gray-700">{m.id}</code></span>
                       <span>data it holds: <span className="text-gray-700">{m.dataClass}</span></span>
+                      {m.pool && POOL_REASON_COPY[m.pool.reason] && (
+                        <span>
+                          pool:{" "}
+                          <span className={m.pool.eligible ? "text-emerald-700" : "text-gray-700"}>
+                            {POOL_REASON_COPY[m.pool.reason]}
+                          </span>
+                        </span>
+                      )}
                       {m.provides && <span>domain: <span className="text-gray-700">{m.provides}</span></span>}
                       <span>
                         contract doc:{" "}

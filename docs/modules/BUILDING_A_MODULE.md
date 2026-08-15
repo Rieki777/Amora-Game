@@ -250,10 +250,10 @@ To be paid, create your ReGen Civics account and link your Hypha account with a 
 profile setup. The pool pays an account and never a raw address written into a registry file,
 because a payout identity in a code file is one nobody can rotate or recover.
 
-Clause 14 of `docs/MODULE_LIBRARY_CONTRACT.md` is the binding text. Eligibility is not a registry
-field yet, so today the listing lint reports the rule as one it cannot check, and a reviewer applies
-it by reading. The contract's status appendix says the same, and both change together when the field
-lands.
+Clause 14 of `docs/MODULE_LIBRARY_CONTRACT.md` is the binding text. The listing lint now prints your
+module's pool status and the reason behind it, refuses a listing that charges while claiming the
+pool, and checks that the account you name is a ReGen Civics handle instead of an address. Run
+`node scripts/validate-module.mjs <your-module-id>` and it tells you where you stand.
 
 ### What you may not do on lapse
 
