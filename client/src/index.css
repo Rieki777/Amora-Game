@@ -603,6 +603,42 @@ button, a, [role="button"], input, textarea, select, summary {
   touch-action: manipulation;
 }
 
+/*
+ * The band the fixed mobile tab bar owns, as one number.
+ *
+ * MobileTabBar is a 4rem grid plus env(safe-area-inset-bottom) plus its 1px
+ * top border. Three places used to spell that out independently — the bar
+ * itself, the Layout clearance block, and the FAB's offset — so a change to
+ * the bar's height silently left the other two behind. Read this token
+ * instead. It is 0 from `md` up, where the bar does not render, so anything
+ * padded by it costs a desktop viewport nothing.
+ */
+:root {
+  --tabbar-h: calc(4rem + 1px + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 768px) {
+  :root { --tabbar-h: 0px; }
+}
+
+/* Reserve the bar's band at the end of the document, so no page's last
+   content sits under it. Applied by the shell (Layout) and by the two full
+   screen surfaces that render outside it. */
+.pb-tabbar {
+  padding-bottom: var(--tabbar-h);
+}
+
+/*
+ * Scroll chaining. Without this, a scroll gesture that reaches the end of a
+ * drawer, sheet or filter strip keeps going in the page behind it: the
+ * overlay stays open while the village scrolls underneath, and on iOS the
+ * same gesture can hand the whole page to Safari's rubber band. Contained on
+ * the overlay surfaces; the document itself is left alone deliberately, so
+ * pull-to-refresh still works (nothing in the app implements its own).
+ */
+[data-scroll-contain] {
+  overscroll-behavior: contain;
+}
+
 /* iOS Safari auto-zooms when a focused form control renders under 16px.
    Force a 16px floor on mobile for text-entry controls so no form zooms
    on focus; desktop keeps the compact size. Checkboxes, radios, ranges,

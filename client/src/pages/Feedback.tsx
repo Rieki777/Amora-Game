@@ -105,10 +105,14 @@ export default function Feedback() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                {/* htmlFor + id. The label text was already right; it just
+                    was not tied to the field, so both controls reached a
+                    screen reader unnamed. */}
+                <label htmlFor="feedback-title" className="block text-xs font-medium text-muted-foreground mb-1.5">
                   {kind === "bug" ? "What went wrong, in one line" : "The idea, in one line"}
                 </label>
                 <input
+                  id="feedback-title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   maxLength={200}
@@ -118,10 +122,11 @@ export default function Feedback() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                <label htmlFor="feedback-detail" className="block text-xs font-medium text-muted-foreground mb-1.5">
                   {kind === "bug" ? "What did you do, what did you expect, what happened instead?" : "How would it work, and who does it serve?"}
                 </label>
                 <textarea
+                  id="feedback-detail"
                   value={detail}
                   onChange={(e) => setDetail(e.target.value)}
                   rows={6}

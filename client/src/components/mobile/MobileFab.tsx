@@ -33,6 +33,7 @@ import { Link, useLocation } from "wouter";
 import { X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { FAB_ACTIONS, FabTriggerIcon, type FabAction } from "@/config/mobileNav";
+import { isBareRoute, normalisePath } from "./MobileTabBar";
 
 /** Tiny haptic tap where supported; silently ignored elsewhere. */
 function haptic(ms = 8) {
@@ -81,7 +82,7 @@ export default function MobileFab() {
   const [open, setOpen] = useState(false);
   const [location] = useLocation();
   const { user } = useAuth();
-  const currentPath = location.split("?")[0].replace(/\/$/, "") || "/";
+  const currentPath = normalisePath(location);
   const actions = resolve(FAB_ACTIONS, currentPath, !!user);
 
   const toggle = useCallback(() => {
@@ -106,6 +107,11 @@ export default function MobileFab() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
+
+  // The screens that render no tab bar render no FAB either: the trigger is a
+  // 56px circle in the bottom-right, and on /login it sat over the right end
+  // of the full-width sign-in button. Same list, same reason (mobileNav.ts).
+  if (isBareRoute(location)) return null;
 
   return (
     <>

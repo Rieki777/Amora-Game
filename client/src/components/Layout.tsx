@@ -1,4 +1,4 @@
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { TreePine, Menu, X, User, LogOut, ChevronDown } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
@@ -7,7 +7,7 @@ import { useModules } from "@/modules/ModuleProvider";
 import NotificationBell from "@/components/NotificationBell";
 import { useGameConfig } from "@/lib/gameApi";
 import { NAV, ACCOUNT_MENU, isGroup, type NavLink, type NavGroup } from "@/config/nav";
-import MobileTabBar from "./mobile/MobileTabBar";
+import MobileTabBar, { isBareRoute } from "./mobile/MobileTabBar";
 import MobileFab from "./mobile/MobileFab";
 
 interface LayoutProps {
@@ -20,6 +20,8 @@ export default function Layout({ children }: LayoutProps) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [openMobileGroup, setOpenMobileGroup] = useState<string | null>(null);
   const accountRef = useRef<HTMLDivElement>(null);
+  const [location] = useLocation();
+  const bare = isBareRoute(location);
   const { user, logout } = useAuth();
   // The shell's identity — logo, name, outside links, footer copy — comes
   // from the live config, never from literals: this is what makes a fork's
@@ -593,12 +595,13 @@ export default function Layout({ children }: LayoutProps) {
         </div>
       </footer>
 
-      {/* Clearance so the fixed tab bar never covers the end of the footer. */}
-      <div
-        aria-hidden="true"
-        className="md:hidden"
-        style={{ height: "calc(env(safe-area-inset-bottom, 0px) + 4rem)" }}
-      />
+      {/* Clearance so the fixed tab bar never covers the end of the footer.
+          Height comes from --tabbar-h (index.css), which is the bar's own
+          measurement and collapses to 0 from `md` up. It used to be spelled
+          out here a second time, one border-width short of the truth, and a
+          change to the bar's height would not have reached it. It is dropped
+          entirely on the routes that render no bar. */}
+      {!bare && <div aria-hidden="true" style={{ height: "var(--tabbar-h)" }} />}
 
       <MobileTabBar />
       <MobileFab />

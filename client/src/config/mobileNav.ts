@@ -54,6 +54,25 @@ export const TAB_SLOTS: TabSlot[] = [
   { event: "open-mobile-menu", label: "More", Icon: Menu },
 ];
 
+/**
+ * Routes that render no bottom bar and no FAB.
+ *
+ * A fixed bar owns the bottom 65px of the viewport at EVERY scroll position,
+ * including the first paint, and a tap that lands there goes to the bar. On a
+ * 390x664 Safari viewport (URL bar showing) the sign-in button sat at y579 to
+ * y627 and the bar started at 599: two thirds of the only control on the page
+ * navigated to Gratitude instead. Bottom padding cannot fix that — padding at
+ * the END of a 2000px document does not move anything at scrollY 0.
+ *
+ * So these four screens do not render it. Each is a single focused task with
+ * one primary control, reached before anyone is signed in, and none of them
+ * loses navigation: the header keeps its full menu on mobile. This is also
+ * what a native app does with a tab bar during sign-up.
+ *
+ * Matched as exact paths, query and trailing slash stripped.
+ */
+export const BARE_ROUTES: string[] = ["/login", "/register", "/set-password", "/forgot-password"];
+
 export type FabAction = {
   key: string;
   label: string;

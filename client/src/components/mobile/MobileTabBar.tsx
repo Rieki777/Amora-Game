@@ -17,11 +17,25 @@
  */
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "wouter";
-import { TAB_SLOTS } from "@/config/mobileNav";
+import { BARE_ROUTES, TAB_SLOTS } from "@/config/mobileNav";
+
+/** The current route with query and trailing slash removed. */
+export function normalisePath(location: string): string {
+  return location.split("?")[0].replace(/\/$/, "") || "/";
+}
+
+/** True where the bottom bar and the FAB are suppressed (config/mobileNav.ts). */
+export function isBareRoute(location: string): boolean {
+  return BARE_ROUTES.includes(normalisePath(location));
+}
 
 export default function MobileTabBar() {
   const [location] = useLocation();
-  const currentPath = location.split("?")[0].replace(/\/$/, "") || "/";
+  const currentPath = normalisePath(location);
+
+  // Sign-in and the other focused, signed-out screens render no bar at all.
+  // See BARE_ROUTES for why bottom padding could not close this.
+  if (isBareRoute(location)) return null;
 
   const bar = (
     <nav

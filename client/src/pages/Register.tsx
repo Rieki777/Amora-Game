@@ -107,11 +107,19 @@ export default function Register() {
 
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Name</label>
+                  {/* htmlFor + id on every field here. The labels were plain
+                      text sitting above unlinked inputs, so a screen reader
+                      announced four controls with no names, and iOS offered no
+                      Keychain suggestion on the one form where a saved
+                      password matters most. */}
+                  <label htmlFor="register-name" className="block text-sm font-semibold text-gray-700 mb-2">Name</label>
                   <div className="relative">
-                    <User className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
+                    <User className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" aria-hidden="true" />
                     <input
+                      id="register-name"
+                      name="name"
                       type="text"
+                      autoComplete="name"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       placeholder="Your name"
@@ -122,11 +130,14 @@ export default function Register() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
+                  <label htmlFor="register-email" className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
                   <div className="relative">
-                    <Mail className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
+                    <Mail className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" aria-hidden="true" />
                     <input
+                      id="register-email"
+                      name="email"
                       type="email"
+                      autoComplete="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="you@example.com"
@@ -137,11 +148,14 @@ export default function Register() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Password</label>
+                  <label htmlFor="register-password" className="block text-sm font-semibold text-gray-700 mb-2">Password</label>
                   <div className="relative">
-                    <Lock className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
+                    <Lock className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" aria-hidden="true" />
                     <input
+                      id="register-password"
+                      name="new-password"
                       type="password"
+                      autoComplete="new-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
@@ -152,13 +166,16 @@ export default function Register() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="register-confirm" className="block text-sm font-semibold text-gray-700 mb-2">
                     Confirm Password
                   </label>
                   <div className="relative">
-                    <Lock className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
+                    <Lock className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" aria-hidden="true" />
                     <input
+                      id="register-confirm"
+                      name="confirm-password"
                       type="password"
+                      autoComplete="new-password"
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="••••••••"
