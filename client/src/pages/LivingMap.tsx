@@ -40,6 +40,7 @@
  */
 import Layout from "@/components/Layout";
 import NotFound from "@/pages/NotFound";
+import { ArrowLeft } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -122,8 +123,14 @@ export default function LivingMap() {
    * A marker entry goes on the history stack when the map opens, so the
    * browser Back button pops it and lands here in `popstate`. The artifact's
    * own exit button posts `{type:'exit'}` and calls `history.back()`, which
-   * arrives at the SAME handler. One way out, two triggers, no chance of the
-   * button and the gesture disagreeing.
+   * arrives at the SAME handler, and so does the shell's own escape control
+   * below. One way out, three triggers, no chance of any of them disagreeing.
+   *
+   * Where it lands: popping the marker returns to the `/map` entry, and the
+   * `popstate` handler replaces that entry with `/`. So leaving the map always
+   * arrives at the village door rather than at whichever page the visitor came
+   * from, which is what the control's name promises. A direct deep link that
+   * never pushed a marker takes the second branch to the same place.
    *
    * The marker keeps the `/map` URL, so popping it does not navigate on its
    * own; this handler does that, replacing rather than pushing so a second
@@ -542,11 +549,59 @@ export default function LivingMap() {
    * until you scroll. `dvh` tracks the chrome as it comes and goes, which is
    * the whole difference between "fills the screen" and "nearly fills it".
    *
-   * Leaving is the artifact's `{type:'exit'}` and the browser Back button, and
-   * both run the same path (see the history effect above).
+   * Leaving is the artifact's `{type:'exit'}`, the browser Back button, and
+   * the shell's own escape control, and all three run the same path (see the
+   * history effect above). The shell draws one because the artifact's are laid
+   * out off-screen on a phone, which left app mode with no way out at all.
    */
   return (
     <div className="fixed inset-0 z-50 h-[100dvh] w-screen overflow-hidden bg-background">
+      {/*
+       * THE WAY OUT, drawn by the SHELL.
+       *
+       * App mode hands the whole viewport to a four-megabyte artifact this
+       * file does not own and may not edit. The artifact carries its own exit
+       * controls, but they are laid out for a desk: on a phone they render
+       * off-screen, so a visitor arriving from the top nav or the landing hero
+       * had no in-app way back at all. The browser gesture is not a substitute,
+       * because a pannable canvas can swallow the swipe (round-2 QA, V-H2).
+       *
+       * So the escape lives OUT here, above the frame, where no artifact
+       * layout can push it off-screen and no artifact rewrite can remove it.
+       * It runs `exitApp`, the same single path the browser Back button and
+       * the artifact's own `{type:'exit'}` message run, so the three cannot
+       * disagree about what leaving means.
+       *
+       * The offsets are measured, not guessed. The artifact's own top strip
+       * (`#vitals`) is 35px tall at 390 and at 1280, so 44px clears it at every
+       * viewport; `max()` against the safe-area inset means a notched phone
+       * pushes the control further down rather than tucking it under the
+       * notch. The floor is a literal rather than the inset alone because some
+       * iOS cases report the inset as 0 (the same trap MobileFab documents).
+       *
+       * `z-10` reads oddly next to the shell's `z-50` and is correct: the
+       * shell is a stacking context of its own, so this means "above the
+       * iframe", not a site-wide layer number.
+       *
+       * Not rendered in the `absent` branch, which already offers this exact
+       * way out inline and would otherwise carry two controls with one name.
+       */}
+      {presence !== "absent" && (
+        <button
+          type="button"
+          onClick={exitApp}
+          aria-label="Back to the village"
+          className="fixed z-10 inline-flex items-center gap-2 min-h-[44px] min-w-[44px] px-4 py-2 text-sm rounded-lg border border-border bg-background/95 text-foreground shadow-sm backdrop-blur-sm hover:bg-muted"
+          style={{
+            top: "max(env(safe-area-inset-top, 0px), 44px)",
+            left: "max(env(safe-area-inset-left, 0px), 12px)",
+          }}
+        >
+          <ArrowLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
+          Back to the village
+        </button>
+      )}
+
       {presence === "checking" && (
         <p className="text-center text-muted-foreground py-24">Opening the map...</p>
       )}
