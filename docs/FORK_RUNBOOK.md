@@ -183,6 +183,36 @@ two from the admin panel and almost never touches the first.
   no village's brand at all; the app shell, client pages, applied
   migrations and test fixtures are ratcheted — their counts may only fall.
   Forks extend the banned-terms list in that script with their own names.
+- **Images are WebP, and CI enforces it.**
+  `node scripts/check-image-budget.mjs` walks `client/public` and fails on any
+  raster that is not WebP or AVIF, on any single file over 400 KB, and on a
+  total above `scripts/image-budget-baseline.json`. That total is a RATCHET:
+  `--update-baseline` writes the new number only when it is lower, so the
+  figure falls and never climbs.
+  **What a fork needs to know.** Your own art goes in
+  `client/public/assets/images` as WebP —
+  `node scripts/compress-static-images.mjs --write` converts and right-sizes a
+  directory of PNGs in one pass. Two kinds of file are exempt and you never
+  edit the guard to say so: whatever `shared/gameConfig.ts` names as
+  `images.favicon`, and whatever `client/index.html` declares as an icon or a
+  social card. Those stay PNG because Safari's touch icon and link-preview
+  crawlers have no dependable WebP support, and because the PWA manifest
+  labels any non-SVG icon `image/png` regardless of what it really is.
+  **A renamed brand file keeps working.** `/assets/images/<name>.png` falls
+  back to `<name>.webp` when the PNG is gone (`server/index.ts`), so a path a
+  wizard typed into `brand.json` two years ago still resolves after the
+  conversion. No database migration is needed.
+  **Large art belongs in the uploads volume**, not in `client/public`. The
+  volume is content-addressed, cached correctly and swappable;
+  `client/public` is served one-year-immutable and cannot be replaced for a
+  year once a browser has it.
+- **Member uploads are shrunk in the browser** by
+  `client/src/lib/imagePrep.ts`: it draws to a canvas, encodes WebP and
+  returns the ORIGINAL file whenever it cannot do that safely (SVG, GIF, a
+  file already small, a browser whose canvas ignores the WebP mime and hands
+  back PNG). That turns an 8 MB phone photo into a few hundred KB before it
+  reaches the wire, which is minutes on the links this platform is built for.
+  The server still re-encodes what arrives, so the two are belt and braces.
 
 ## Token naming (Gate D)
 

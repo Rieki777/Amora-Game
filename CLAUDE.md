@@ -20,20 +20,34 @@ code carries no village's brand — that rule is enforced mechanically (see Gate
 `MODULES_MASTER_PLAN.md` Part 1 is known-stale; never trust it over code. The repo skill lives
 in `.claude/skills/`.
 
-## Gates — all five before calling anything done
+## Gates — all of these before calling anything done
 
 ```
-pnpm check                          # tsc --noEmit
-pnpm build                          # vite client + esbuild server -> dist/
-pnpm test                           # vitest run — see loop-test rules first
-node scripts/check-brand-refs.mjs   # brand ratchet (read $?, its last line is blank on failure)
-node scripts/check-voice.mjs        # house writing rules on shipped copy
-node scripts/check-auth-fetch.mjs   # a client call to a route that refuses strangers carries a token
-node scripts/check-doc-links.mjs    # every path the builder docs name resolves on disk
+pnpm check                             # tsc --noEmit
+pnpm build                             # vite client + esbuild server -> dist/
+pnpm test                              # vitest run — see loop-test rules first
+node scripts/check-brand-refs.mjs      # brand ratchet (read $?, its last line is blank on failure)
+node scripts/check-voice.mjs           # house writing rules on shipped copy
+node scripts/check-auth-fetch.mjs      # a client call to a route that refuses strangers carries a token
+node scripts/check-doc-links.mjs       # every path the builder docs name resolves on disk
+node scripts/check-artifact-budget.mjs # the living map's disk and wire size
+node scripts/check-image-budget.mjs    # shipped images: WebP, 400 KB each, falling total
 ```
 
 `node scripts/module-facts.mjs` prints the gate list above straight from `.github/workflows/ci.yml`,
 so it is right on the day you run it. Prefer it to this block when the two disagree.
+
+Two CI budgets are shell steps rather than scripts, so nothing local reproduces them: main JS
+700 KB and total `dist/public` 6 MB, both measured after `pnpm build`.
+
+Images are WebP. `scripts/check-image-budget.mjs` enforces it on `client/public`, and the
+exemptions are DERIVED, never typed: whatever `shared/gameConfig.ts` names as the favicon and
+whatever `client/index.html` declares as an icon or a social card, because those surfaces have
+no dependable WebP support. The total in `scripts/image-budget-baseline.json` is a ratchet and
+`--update-baseline` refuses to raise it. New art belongs in the uploads volume, which is
+hashed and swappable; `client/public` is cached one-year-immutable and cannot be replaced.
+Member uploads are shrunk in the browser first (`client/src/lib/imagePrep.ts`), which falls
+back to the original file whenever the browser cannot encode WebP.
 
 The build marker is stamped from the git SHA by `scripts/build-server.mjs` — never hand-edit
 it. Only `BUILD_LABEL` in `server/index.ts` is human-written; the SHA is appended at build
