@@ -6870,6 +6870,32 @@ function TokensTab({ password }: { password: string }) {
     } catch (e: any) { toast.error(e?.message || "Rename failed"); }
   };
 
+  /**
+   * Show or hide a token for members. VISIBILITY ONLY: balances, history and
+   * the ledger are untouched, so this is reversible and conservation still
+   * proves at boot. Deliberately not called "disable" anywhere a founder can
+   * read it — a word that sounds like it stops the economy, attached to a
+   * switch that does not, is how somebody hides a token believing they have
+   * frozen it.
+   */
+  const setActive = async (t: any, active: boolean) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/tokens/${t.slug}`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ active }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "failed");
+      toast.success(
+        active
+          ? `${t.name} is visible to members again`
+          : `${t.name} is hidden from members. Balances are untouched`,
+      );
+      load();
+    } catch (e: any) { toast.error(e?.message || "Could not change visibility"); }
+  };
+
   const doMint = async () => {
     try {
       const res = await fetch(`${API_BASE}/admin/tokens/${mint.slug}/mint`, {
@@ -6894,10 +6920,18 @@ function TokensTab({ password }: { password: string }) {
       <div className="mb-6">
         <h2 className="text-xl font-bold text-gray-900">Tokens</h2>
         <p className="text-sm text-gray-500 mt-1">
-          The registry every module draws from. Platform tokens are yours to name and
-          issue. Renaming one renames it everywhere it appears, wallet to public
-          pages. Hypha-governed tokens (equity, voice) live on Base and are read-only
-          mirrors here, and this platform can never mint them.
+          The registry every module draws from, and the one place a token is named.
+          Platform tokens are yours to name and issue. Renaming one renames it
+          everywhere it appears, wallet to public pages. Hypha-governed tokens
+          (equity, voice) live on Base and are read-only mirrors here, and this
+          platform can never mint them.
+          <br />
+          <span className="mt-1 inline-block">
+            <strong>Shown to members</strong> hides a token from member-facing pages and
+            nothing more. Balances, history and the ledger are untouched, so hiding one
+            is reversible and takes nothing away from anybody who holds it. It does not
+            stop a mint rule from paying — to stop issuance, pause the rule in the Mint.
+          </span>
         </p>
       </div>
       {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
@@ -6910,6 +6944,7 @@ function TokensTab({ password }: { password: string }) {
                   <th className="px-4 py-2.5">Kind</th>
                   <th className="px-4 py-2.5">Governance</th>
                   <th className="px-4 py-2.5">Peer transfers</th>
+                  <th className="px-4 py-2.5">Shown to members</th>
                   <th className="px-4 py-2.5">Issued to date</th>
                 </tr>
               </thead>
@@ -6957,6 +6992,28 @@ function TokensTab({ password }: { password: string }) {
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-gray-600">{t.transferable ? "yes" : "no"}</td>
+                    <td className="px-4 py-2.5">
+                      {t.governance === "platform" && !t.isExample ? (
+                        <button
+                          type="button"
+                          onClick={() => setActive(t, !t.active)}
+                          aria-pressed={t.active !== false}
+                          className={`min-h-9 text-xs rounded-full px-3 py-1.5 border ${
+                            t.active !== false
+                              ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-[#2D5A5A]/30"
+                              : "bg-gray-100 text-gray-600 border-gray-300"
+                          }`}
+                        >
+                          {t.active !== false ? "Shown" : "Hidden"}
+                        </button>
+                      ) : (
+                        // The same two refusals the rename control respects, and
+                        // said out loud rather than shown as a dead switch.
+                        <span className="text-xs text-gray-400">
+                          {t.isExample ? "example" : "read-only"}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-gray-600">
                       {Object.entries(t.issuedBy ?? {}).length === 0
                         ? <span className="text-gray-300">-</span>

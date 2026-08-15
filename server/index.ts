@@ -15728,7 +15728,15 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     const raw = await balancesFor(getPool(), memberAccount(user.id));
     const balances: Record<string, { name: string; balance: number }> = {};
     for (const [slug, balance] of Object.entries(raw)) {
-      balances[slug] = { name: tokenDef(slug)?.name ?? slug, balance };
+      // Hidden tokens stay out of the member's view, the same rule
+      // loadStanding applies to the profile chips. The BALANCE is untouched in
+      // the ledger and the entries below still carry its history — `active` is
+      // a visibility flag, so switching it back restores this row exactly.
+      // A token with no registry row at all is shown rather than swallowed:
+      // that is a drift worth seeing, not a token someone chose to hide.
+      const def = tokenDef(slug);
+      if (def && !def.active) continue;
+      balances[slug] = { name: def?.name ?? slug, balance };
     }
     res.json({
       // The column is a cache of the ledger. If these ever disagree the ledger
