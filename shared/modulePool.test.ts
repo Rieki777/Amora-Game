@@ -142,7 +142,7 @@ describe("the builder's ReGen Civics account", () => {
   it("accepts an ordinary handle", () => {
     expect(isBuilderHandle("ada")).toBe(true);
     expect(isBuilderHandle("ada-lovelace")).toBe(true);
-    expect(isBuilderHandle("ada_lovelace_1815")).toBe(true);
+    expect(isBuilderHandle("ada1815")).toBe(true);
   });
 
   it("refuses an at sign, a space, an uppercase letter, or a URL", () => {
@@ -150,8 +150,18 @@ describe("the builder's ReGen Civics account", () => {
     expect(isBuilderHandle("ada lovelace")).toBe(false);
     expect(isBuilderHandle("Ada")).toBe(false);
     expect(isBuilderHandle("https://example.com/ada")).toBe(false);
-    expect(isBuilderHandle("a")).toBe(false);
     expect(isBuilderHandle("")).toBe(false);
+  });
+
+  it("matches the hub's own handle rule, so an accepted handle is a storable one", () => {
+    /*
+     * Copied from regen-civics `server/db.ts` HANDLE_RE. Underscores are the
+     * trap: they read as handle-ish and the hub refuses them, so a registry
+     * that accepted one would name an account that can never exist.
+     */
+    const hub = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$/;
+    const cases = ["ada", "ada-lovelace", "a", "ada_lovelace", "-ada", "ada-", "ADA", "ada.lovelace"];
+    for (const c of cases) expect(isBuilderHandle(c)).toBe(hub.test(c));
   });
 
   it("names the wallet-address mistake specifically, and only once", () => {

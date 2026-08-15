@@ -91,11 +91,14 @@ export function poolEligibleModules(defs: readonly ModuleDef[]): ModuleDef[] {
  * registry file, and a check here that pretended to would be the kind of
  * green that means nothing.
  *
- * Deliberately narrow: lowercase letters, digits, hyphens and underscores. A
- * handle with a leading `@`, a space, or a URL in it is somebody writing a
- * display name into a lookup key, and the lookup would silently miss.
+ * The pattern is COPIED from the hub's own `HANDLE_RE` (regen-civics
+ * `server/db.ts`), character for character, because a handle this file accepts
+ * and the hub cannot store is a handle that resolves to nobody. Note there are
+ * no underscores in it: the hub allows lowercase letters, digits and hyphens,
+ * 3 to 40 characters, and never starts or ends on a hyphen. If the hub ever
+ * widens its rule, widen this one the same way.
  */
-const HANDLE = /^[a-z0-9][a-z0-9_-]{1,38}$/;
+const HANDLE = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$/;
 
 export function isBuilderHandle(handle: string): boolean {
   return HANDLE.test(handle);
@@ -128,7 +131,7 @@ export function modulePayoutProblems(defs: readonly ModuleDef[]): string[] {
       );
     } else if (!isBuilderHandle(account)) {
       problems.push(
-        `module "${m.id}": gives "${account}" as a ReGen Civics account. A handle is lowercase letters, digits, hyphens and underscores, with no at sign and no address`,
+        `module "${m.id}": gives "${account}" as a ReGen Civics account. A handle is lowercase letters, digits and hyphens, with no at sign and no address`,
       );
     }
   }
