@@ -208,8 +208,13 @@ export const GAME_CONFIG: GameConfig = {
     stewardHero: "https://amora.cr/wp-content/uploads/2025/11/Planting-Trees.jpg",
     prosperityHero: "https://amora.cr/wp-content/uploads/2026/02/Holistic-Wellbeing-1024x1024.jpg",
     masterPlanHero: "https://amora.cr/wp-content/uploads/2025/11/4.jpg",
-    logo: "/assets/images/Amora-2-Beige.png",
-    heartLogo: "/assets/images/Amora-Beige.png",
+    // WebP, and sized to what the markup actually draws: the header mark is
+    // 64px tall and the footer mark 90px, so 320px on the long edge covers a
+    // 3x screen with room over. The favicon stays PNG on purpose - it is also
+    // the apple-touch-icon and the sole PWA manifest icon, and neither of
+    // those has dependable WebP support.
+    logo: "/assets/images/Amora-2-Beige.webp",
+    heartLogo: "/assets/images/Amora-Beige.webp",
     favicon: "/assets/images/Amora-2-Green1.png",
   },
 

@@ -111,6 +111,23 @@ jobs:
         # resolving it here would make a correct document a red gate.
         run: node scripts/check-doc-links.mjs
 
+      - name: Image budget
+        # Format, per-file size, and a total that may only fall.
+        #
+        # The bundle budget below already caps a single image at 400 KB, and it
+        # is a CEILING with megabytes of slack: images could triple and stay
+        # green. Nothing checked the FORMAT at all, so WebP was a convention,
+        # which is to say it held until someone was in a hurry. This is the
+        # ratchet, against scripts/image-budget-baseline.json, and
+        # --update-baseline refuses to raise that number.
+        #
+        # Art that genuinely needs to grow goes in the uploads volume, which is
+        # hashed, cached correctly and swappable. client/public is served
+        # one-year-immutable and cannot be replaced for a year once cached.
+        #
+        # Before the build, same reason as the artifact budget above.
+        run: node scripts/check-image-budget.mjs
+
       - name: Build
         run: pnpm build
 

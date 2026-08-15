@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Image } from "@/components/Image";
+import { prepareImageForUpload } from "@/lib/imagePrep";
 
 /**
  * Admin → Make This Yours → Identity pack: the village's visual identity as
@@ -59,8 +60,14 @@ export default function IdentityPackPanel({ password }: { password: string }) {
     if (!file) return toast.error("Choose an image first");
     setUploading(true);
     try {
+      // Shrink before the wire, not after. The server re-encodes to WebP at
+      // 2000px anyway, so matching that here costs nothing in quality and
+      // turns an 8 MB phone photo into a few hundred KB of upload. On a
+      // 50 KB/s link that is minutes. When the browser cannot encode WebP the
+      // helper hands the original straight back, so the upload still happens.
+      const prepared = await prepareImageForUpload(file, { maxEdge: 2000, quality: 82 });
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", prepared.file);
       const res = await fetch("/api/admin/brand/image", {
         method: "POST",
         headers: { Authorization: `Bearer ${password}` },

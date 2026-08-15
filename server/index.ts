@@ -18585,7 +18585,41 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     res.json({ present: true, bytes: info.bytes, url: `/grounds/grounds-${info.hash}.html` });
   });
 
-  app.use("/assets", express.static(path.join(staticPath, "assets"), { maxAge: "1y", immutable: true }));
+  /*
+   * A BRAND MARK'S PATH OUTLIVES ITS FORMAT.
+   *
+   * The static brand marks are WebP now (scripts/compress-static-images.mjs),
+   * which took them from 192 KB to a fraction of that. The reason nobody had
+   * done it before is written in that script's old comment: the Setup Wizard
+   * lets an admin TYPE an image path, so a deployment's `brand` document can
+   * hold `/assets/images/<name>.png` as literal text that no code search can
+   * see. Change the extension and that village's own logo 404s in its own
+   * header, on every page, with no fallback in the markup to catch it.
+   *
+   * So the rename is made safe here instead of being refused. A request for a
+   * raster under /assets that is not on disk is retried as `.webp` before
+   * express.static ever looks. A path typed two years ago keeps resolving, the
+   * bytes exist once, and no migration has to reach into anyone's database.
+   *
+   * Only the extension is rewritten and only when the WebP is really there;
+   * anything else falls through to the 404 it earned. `path.resolve` plus the
+   * prefix check is what keeps `..` from walking out of the assets directory.
+   */
+  const ASSETS_DIR = path.join(staticPath, "assets");
+  app.use("/assets", (req, _res, next) => {
+    const rest = req.url.split("?")[0];
+    if (!/\.(png|jpe?g)$/i.test(rest)) return next();
+    let decoded: string;
+    try { decoded = decodeURIComponent(rest); } catch { return next(); }
+    const onDisk = path.resolve(ASSETS_DIR, "." + decoded);
+    if (!onDisk.startsWith(ASSETS_DIR + path.sep)) return next();
+    if (fs.existsSync(onDisk)) return next();
+    const webp = onDisk.replace(/\.(png|jpe?g)$/i, ".webp");
+    if (!fs.existsSync(webp)) return next();
+    req.url = rest.replace(/\.(png|jpe?g)$/i, ".webp") + req.url.slice(rest.length);
+    next();
+  });
+  app.use("/assets", express.static(ASSETS_DIR, { maxAge: "1y", immutable: true }));
   app.use(express.static(staticPath));
 
   /*
