@@ -668,11 +668,20 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
           Sign in with your admin account
         </p>
         <form onSubmit={submit} className="space-y-4">
+          {/*
+            * `username`, not `email`, even though the field takes an address:
+            * `username` is the token a password manager pairs with
+            * `current-password` to recognise a sign-in form, and this is the
+            * identifier half of exactly that pair. A placeholder is not a name,
+            * so both fields carry one an assistive technology can read.
+            */}
           <input
             type="email"
             value={email}
             onChange={(e) => { setEmail(e.target.value); setError(""); }}
             placeholder="Email"
+            aria-label="Email"
+            autoComplete="username"
             autoFocus
             className="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
           />
@@ -682,12 +691,21 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
               value={pw}
               onChange={(e) => { setPw(e.target.value); setError(""); }}
               placeholder="Password"
+              aria-label="Password"
+              autoComplete="current-password"
               className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
             />
+            {/*
+              * The eye stays a 16px icon and the thing a thumb hits becomes
+              * 44x44 around it, which is what the input's `pr-12` was already
+              * reserving. gray-600 rather than gray-400 because this is a
+              * control, and 2.6:1 was under the 3:1 a non-text control owes.
+              */}
             <button
               type="button"
               onClick={() => setShow(!show)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              aria-label={show ? "Hide password" : "Show password"}
+              className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center min-w-[44px] min-h-[44px] text-gray-600 hover:text-gray-900"
             >
               {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
@@ -3649,9 +3667,30 @@ function ModulesTab({ password }: { password: string }) {
 
           <div className="grid gap-4">
             {visible.map((m: any) => (
-              <div key={m.id} className="border border-gray-200 rounded-xl p-5">
+              /*
+               * `min-w-0 break-words` is what keeps eighteen cards inside a
+               * phone.
+               *
+               * One column, so every card is the same width, and a grid item's
+               * automatic minimum is its min-content: one long word anywhere in
+               * any listing sets the floor for the whole catalog and the page
+               * scrolls sideways. The word that did it is a game variable in
+               * the lifecycle hint. `feed.max_hearts_per_recipient_per_cycle`
+               * is thirty-nine characters and a dot is not a break opportunity,
+               * so it measured 256px against the 232px a 360px screen leaves,
+               * and every card went to 298.5.
+               *
+               * `min-w-0` stops any child setting that floor and `break-words`
+               * gives the word somewhere to break, which is why they ship as a
+               * pair: alone, the first would let the word spill out of the card
+               * and the second would not shrink min-content at all. Applied to
+               * the card rather than to the one paragraph, because `builtBy`, a
+               * vendor name, a licence key and a module id can all be one long
+               * token too, and `overflow-wrap` inherits.
+               */
+              <div key={m.id} className="border border-gray-200 rounded-xl p-5 min-w-0 break-words">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="max-w-xl">
+                  <div className="max-w-xl min-w-0">
                     <h3 className="font-semibold text-gray-900">
                       {m.name}
                       {/* gray-600 on the gray-100 chip: gray-500 measured
