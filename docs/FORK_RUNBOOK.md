@@ -306,6 +306,45 @@ operation) with the last success, the last failure and its status. With no
 recorded success, Admin → Integrations says "never confirmed working", which is
 the truthful answer and is not the same as broken.
 
+**A price is data, and the credential is the licence.** A listing may carry a
+price (amount, currency, period, a billing URL) and it renders in the catalog,
+on the listing detail and on that listing's Integrations card. **The developer
+bills you directly; this platform processes no payment and takes no cut.** What
+a paid listing's paid features actually validate against is a licence key you
+buy from the builder and hold in your own secrets store, where you see its
+source and last4 and can clear it unaided. That is deliberate: you own this
+repository and could delete any code gate in it, so a price can only honestly
+rest on a credential the other party holds. While the licence is blank the
+listing answers the same 503 as any other missing key and the rest of the
+village carries on. A listing may never disable a village surface, lock an
+admin screen, or touch your data when its licence lapses.
+
+**`builtBy` is a credit line and never a tier.** It renders wherever a listing
+does, at every tier including Included, so somebody who contributed a module
+without becoming its counterparty is still named.
+
+**A withdrawn listing is marked, never deleted.** Admin → Modules banners any
+withdrawn listing you are running and shows the date. Withdrawn blocks a NEW
+enable with a 409; it changes nothing already serving, so yours keeps running
+and you can still move it between preview, members and public, or switch it
+off. Switching it off is one way, because it cannot be turned back on. The
+registry entry stays, which is what stops your `module_settings` row becoming
+an orphan.
+
+**A `member-pii` listing owes you a deletion driver.** Any Connected or Managed
+listing whose data class is `member-pii` raises a **blocking** launch
+requirement until it registers a `forgetMember` and `exportMember` driver.
+Without one, erasing a member reaches only this village's own tables while an
+outside service keeps its copy. It fails visibly on the launch journey and in
+the admin banner, and it never blocks boot.
+
+**Linting a listing.** `node scripts/validate-module.mjs [module-id]` checks the
+registry shape, the vendor record, the pricing and licence slot, the member
+driver, the contract doc and its provenance marker, and the launch requirement.
+It then prints everything it cannot check, because a check that silently skips
+turns "unchecked" into "passed". `docs/modules/BUILDING_A_MODULE.md` is the
+guide for whoever is writing the module.
+
 ### The Living Map artifact (`/map`)
 
 `/map` serves `docs/prototypes/grounds-v0.html` straight from that path: the

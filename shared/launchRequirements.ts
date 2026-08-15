@@ -291,10 +291,46 @@ const PLATFORM_REQUIREMENTS: LaunchRequirement[] = [
  * the thing stops answering.
  */
 export function listingRequirements(
-  listings: ReadonlyArray<{ id: string; name: string; tier: string; vendor?: { legalName: string } }>,
+  listings: ReadonlyArray<{ id: string; name: string; tier: string; dataClass?: string; vendor?: { legalName: string } }>,
 ): LaunchRequirement[] {
   const out: LaunchRequirement[] = [];
   for (const m of listings) {
+    /*
+     * A listing that holds member personal data outside the village must be
+     * able to delete one person and say so.
+     *
+     * Three things become false the day an outside store holds member data with
+     * no driver behind it, and nothing anywhere goes red: `anonymizeMember`
+     * sweeps thirty tables and signals nothing outward, the profile export's
+     * own comment says everything has to mean everything, and a public page
+     * publishes that leaving well is guaranteed.
+     *
+     * Blocking severity, and visible rather than fatal. It gates marking the
+     * village launched and it persists in the admin banner and on the journey
+     * page. It deliberately does NOT assert at boot: driver registration
+     * happens during boot wiring, so a boot guard would read the registry
+     * before the wiring filled it and report a missing driver for every
+     * listing. The launch registry observes at request time, which is when the
+     * answer is true.
+     *
+     * `included` is excluded because it has no outside store. All eighteen
+     * platform modules are member-pii and none of them holds a copy anywhere
+     * else; the obligation belongs to a vendor, not to a data class.
+     */
+    if (m.tier !== "included" && m.dataClass === "member-pii") {
+      out.push({
+        id: `listing-member-driver-${m.id}`,
+        group: "integrations",
+        title: `Prove ${m.name} can forget a member`,
+        why: `${m.vendor?.legalName ?? "The service behind this module"} holds member personal data outside this village. Until it registers a deletion and export driver, a member who asks to be forgotten is told something the village cannot back up, and the export leaves out a store nobody named.`,
+        severity: "blocking",
+        checkKey: `listing-member-driver:${m.id}`,
+        fixAt: "/admin?tab=modules",
+        fixLabel: "Open Modules",
+        appliesWhenModule: m.id,
+        runbookAnchor: "module-library",
+      });
+    }
     if (m.tier === "connected") {
       out.push({
         id: `listing-credential-${m.id}`,

@@ -1447,6 +1447,10 @@ function IntegrationsTab({ password }: { password: string }) {
                     {c.title}
                     {c.tier === "connected" && <span className="ml-2 text-[10px] bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full">connected</span>}
                     {c.tier === "managed" && <span className="ml-2 text-[10px] bg-violet-50 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded-full">managed</span>}
+                    {/* The licence pill, on the one card whose field IS the
+                        entitlement. Every other key opens an account; this one
+                        is what the village bought. */}
+                    {c.isLicence && <span className="ml-2 text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-full">licence</span>}
                   </p>
                   {/* A managed listing has no key of the village's to report, so
                       it reports the entitlement instead. Everything else
@@ -1518,6 +1522,20 @@ function IntegrationsTab({ password }: { password: string }) {
                     {c.support.supportEmail ? ` · ${c.support.supportEmail}` : ""}
                   </p>
                 )}
+                {/* What it costs and who wrote it, on the card where a founder
+                    is holding the key it buys. */}
+                {c.priceLine && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    {c.priceLine}
+                    {c.billingUrl && (
+                      <>
+                        {" · "}
+                        <a href={c.billingUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Pricing ↗</a>
+                      </>
+                    )}
+                  </p>
+                )}
+                {c.builtBy && <p className="text-xs text-gray-400 mt-1">Built by {c.builtBy}</p>}
                 {c.getAt && <p className="text-xs text-gray-400 mt-2">Get it at: {c.getAt}</p>}
               </div>
             );
@@ -3213,6 +3231,15 @@ function ModulesTab({ password }: { password: string }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string>("");
+  // The catalog controls. Every filter defaults to "all", so a village that has
+  // never opened this page sees the same list it saw before.
+  const [query, setQuery] = useState("");
+  const [tierFilter, setTierFilter] = useState("all");
+  const [domainFilter, setDomainFilter] = useState("all");
+  const [dataFilter, setDataFilter] = useState("all");
+  const [priceFilter, setPriceFilter] = useState("all");
+  /** Which listing has its detail open. One at a time, so the page stays readable. */
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -3305,6 +3332,72 @@ function ModulesTab({ password }: { password: string }) {
   const demoted = (data?.modules ?? []).filter((m: any) => m.demotedBecause?.length);
   const showingExamples = (data?.modules ?? []).filter((m: any) => m.showingExamples);
 
+  // ── The catalog ────────────────────────────────────────────────────────────
+  const all: any[] = data?.modules ?? [];
+  /** A village running something that is no longer offered needs telling once, at the top. */
+  const withdrawnAndOn = all.filter((m: any) => m.withdrawn && m.lifecycle !== "off");
+
+  /*
+   * A filter appears only once the catalog holds more than one answer for it.
+   *
+   * Eighteen modules that are all `included`, all free and all member-pii would
+   * otherwise render three dropdowns that can only ever return everything, plus
+   * a price filter whose "paid" option matches nothing. The toolbar grows as
+   * the library does, which is the honest version of a store front.
+   */
+  const distinct = (pick: (m: any) => string | null | undefined): string[] =>
+    Array.from(new Set(all.map(pick).filter((v): v is string => !!v))).sort();
+  const tiers = distinct((m) => m.tier);
+  const domains = distinct((m) => m.provides);
+  const dataClasses = distinct((m) => m.dataClass);
+  const prices = distinct((m) => (m.pricing && m.pricing.amount > 0 ? "paid" : "free"));
+
+  const needle = query.trim().toLowerCase();
+  const visible = all.filter((m: any) => {
+    if (needle) {
+      const hay = [m.name, m.description, m.id, m.builtBy, m.vendor?.legalName, m.provides]
+        .filter(Boolean).join(" ").toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    if (tierFilter !== "all" && m.tier !== tierFilter) return false;
+    if (domainFilter !== "all" && (m.provides ?? "") !== domainFilter) return false;
+    if (dataFilter !== "all" && m.dataClass !== dataFilter) return false;
+    if (priceFilter !== "all" && (m.pricing && m.pricing.amount > 0 ? "paid" : "free") !== priceFilter) return false;
+    return true;
+  });
+  const filtered = needle !== "" || tierFilter !== "all" || domainFilter !== "all" || dataFilter !== "all" || priceFilter !== "all";
+  const clearFilters = () => {
+    setQuery(""); setTierFilter("all"); setDomainFilter("all"); setDataFilter("all"); setPriceFilter("all");
+  };
+
+  /**
+   * A successor named by its NAME. `replacedBy` carries a module id because an
+   * id is what the registry can validate against; showing that id to a founder
+   * would print something like "village-map replaces it" where the product
+   * everywhere else says Village Map. The server's 409 resolves it the same
+   * way, so the two read alike.
+   */
+  const successorName = (id: string | null | undefined): string | null =>
+    id ? (all.find((x: any) => x.id === id)?.name ?? id) : null;
+
+  /*
+   * Mobile first, because most of this audience is on mobile Safari.
+   *
+   * Two iOS rules drive every number here. A form control under 16px makes
+   * Safari ZOOM the whole page on focus, which on a filter row means the
+   * catalog jumps sideways the moment somebody taps it, so the base size is
+   * `text-base` and desktop shrinks to the existing `text-xs` at `sm:`. And a
+   * touch target under 44px is a target people miss, so controls carry
+   * `min-h-[44px]` on a phone and drop it on a pointer device.
+   *
+   * The filters are half-width on a phone so two sit per row within thumb
+   * reach, and full auto width from `sm:` up.
+   */
+  const SELECT =
+    "text-base min-h-[44px] flex-1 min-w-[45%] sm:text-xs sm:min-h-0 sm:flex-none sm:min-w-0 " +
+    "border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40";
+  const PILL = "ml-2 text-[10px] px-1.5 py-0.5 rounded-full";
+
   return (
     <div>
       <div className="mb-6">
@@ -3329,6 +3422,27 @@ function ModulesTab({ password }: { password: string }) {
               {(data.orphans ?? []).length > 0 && (
                 <p>Stored settings reference unknown module id(s): {data.orphans.join(", ")} (ignored).</p>
               )}
+            </div>
+          )}
+
+          {withdrawnAndOn.length > 0 && (
+            <div className="rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+              <p className="font-medium">
+                {withdrawnAndOn.length === 1 ? "One module you run is" : `${withdrawnAndOn.length} modules you run are`} no longer offered.
+              </p>
+              <p className="mt-1 text-xs leading-relaxed">
+                Withdrawn means withdrawn from the catalog. Yours keeps running exactly as it is, and
+                nothing about it changes today. What you cannot do is turn it back on once you switch
+                it off, so plan the move before you do.
+              </p>
+              <ul className="mt-2 text-xs space-y-1">
+                {withdrawnAndOn.map((m: any) => (
+                  <li key={m.id}>
+                    <strong>{m.name}</strong>, withdrawn {m.withdrawn.since}
+                    {m.withdrawn.replacedBy ? `. ${successorName(m.withdrawn.replacedBy)} replaces it` : ""}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
@@ -3380,8 +3494,59 @@ function ModulesTab({ password }: { password: string }) {
             )}
           </div>
 
+          {/* The catalog toolbar. Search always; each filter only once the
+              library holds more than one answer for it. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search the catalog"
+              className="w-full sm:flex-1 sm:w-auto sm:min-w-[200px] px-3 py-2 text-base min-h-[44px] sm:text-sm sm:min-h-0 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+            />
+            {tiers.length > 1 && (
+              <select value={tierFilter} onChange={(e) => setTierFilter(e.target.value)} className={SELECT} aria-label="Filter by tier">
+                <option value="all">Any tier</option>
+                {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            )}
+            {domains.length > 1 && (
+              <select value={domainFilter} onChange={(e) => setDomainFilter(e.target.value)} className={SELECT} aria-label="Filter by domain">
+                <option value="all">Any domain</option>
+                {domains.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            )}
+            {dataClasses.length > 1 && (
+              <select value={dataFilter} onChange={(e) => setDataFilter(e.target.value)} className={SELECT} aria-label="Filter by data class">
+                <option value="all">Any data</option>
+                {dataClasses.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            )}
+            {prices.length > 1 && (
+              <select value={priceFilter} onChange={(e) => setPriceFilter(e.target.value)} className={SELECT} aria-label="Filter by price">
+                <option value="all">Any price</option>
+                <option value="free">No extra charge</option>
+                <option value="paid">Paid</option>
+              </select>
+            )}
+            <span className="text-xs text-gray-400">
+              {visible.length} of {all.length}
+            </span>
+            {filtered && (
+              <button onClick={clearFilters} className="text-sm sm:text-xs font-medium text-[#2D5A5A] underline min-h-[44px] sm:min-h-0 px-2">
+                Clear
+              </button>
+            )}
+          </div>
+
+          {visible.length === 0 && (
+            <p className="text-sm text-gray-500 py-8 text-center">
+              Nothing in the catalog matches that. Clear the filters to see all {all.length}.
+            </p>
+          )}
+
           <div className="grid gap-4">
-            {data.modules.map((m: any) => (
+            {visible.map((m: any) => (
               <div key={m.id} className="border border-gray-200 rounded-xl p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="max-w-xl">
@@ -3392,10 +3557,22 @@ function ModulesTab({ password }: { password: string }) {
                       {/* The third pill. `included` deliberately shows nothing:
                           it is the absence of a badge, exactly the way
                           everything that is not core is silent here today. */}
-                      {m.tier === "connected" && <span className="ml-2 text-[10px] bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full">connected</span>}
-                      {m.tier === "managed" && <span className="ml-2 text-[10px] bg-violet-50 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded-full">managed</span>}
+                      {m.tier === "connected" && <span className={`${PILL} bg-sky-50 text-sky-700 border border-sky-200`}>connected</span>}
+                      {m.tier === "managed" && <span className={`${PILL} bg-violet-50 text-violet-700 border border-violet-200`}>managed</span>}
+                      {/* Withdrawn sits beside the tier because it changes what
+                          a founder can do, which is the same kind of fact. */}
+                      {m.withdrawn && <span className={`${PILL} bg-orange-50 text-orange-700 border border-orange-200`}>withdrawn</span>}
+                      {m.pricing && m.pricing.amount > 0 && (
+                        <span className={`${PILL} bg-emerald-50 text-emerald-700 border border-emerald-200`}>{m.priceLine}</span>
+                      )}
                     </h3>
                     <p className="text-sm text-gray-500 mt-0.5">{m.description}</p>
+                    {/* Who wrote it. A credit line, never a tier, which is why it
+                        renders for included modules too and sits apart from the
+                        pills above. */}
+                    {m.builtBy && (
+                      <p className="text-xs text-gray-400 mt-1.5">Built by {m.builtBy}</p>
+                    )}
                     {m.requires.length > 0 && (
                       <p className="text-xs text-gray-400 mt-1.5">requires: {m.requires.join(", ")}</p>
                     )}
@@ -3419,26 +3596,66 @@ function ModulesTab({ password }: { password: string }) {
                         {m.listing.acceptedAt ? ` on ${new Date(m.listing.acceptedAt).toLocaleDateString()}` : ""}
                       </p>
                     )}
+                    {/* A paid listing says where it stands on its licence, in
+                        both directions. `credentialPresent` is whether a key is
+                        SET, which is a different fact from a key that works, so
+                        this line never claims the second one. */}
+                    {m.pricing && m.pricing.amount > 0 && m.credentialPresent === false && (
+                      <p className="text-xs text-amber-700 mt-1.5">
+                        No licence key yet. This module answers 503 and says who to reach, and the
+                        rest of the village keeps working.
+                      </p>
+                    )}
+                    {m.pricing && m.pricing.amount > 0 && m.credentialPresent === true && (
+                      <p className="text-xs text-gray-400 mt-1.5">Licence key is set.</p>
+                    )}
+                    {m.withdrawn && (
+                      <p className="text-xs text-orange-700 mt-1.5">
+                        Withdrawn from the catalog on {m.withdrawn.since}.
+                        {m.withdrawn.replacedBy ? ` ${successorName(m.withdrawn.replacedBy)} replaces it.` : ""}
+                        {m.lifecycle === "off"
+                          ? " It cannot be turned on."
+                          : " Yours keeps running, and turning it off is one way."}
+                      </p>
+                    )}
+                    {/* Underlined at rest rather than on hover: a phone has no
+                        hover, so an affordance that only appears under a cursor
+                        is invisible to most of this audience. */}
+                    <button
+                      onClick={() => setOpenId(openId === m.id ? null : m.id)}
+                      aria-expanded={openId === m.id}
+                      className="text-sm sm:text-xs font-medium text-[#2D5A5A] underline mt-2 min-h-[44px] sm:min-h-0 pr-3"
+                    >
+                      {openId === m.id ? "Hide details" : "Details"}
+                    </button>
                   </div>
                   {m.core ? (
                     <span className="text-xs text-gray-400 italic pt-1">always on</span>
                   ) : (
                     <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-                      {LIFECYCLES.map((lc) => (
-                        <button
-                          key={lc}
-                          disabled={busy === m.id}
-                          onClick={() => setLifecycle(m, lc)}
-                          title={LIFECYCLE_HINT[lc]}
-                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                            m.lifecycle === lc
-                              ? "bg-[#2D5A5A] text-white"
-                              : "bg-white text-gray-600 hover:bg-gray-50"
-                          } ${lc !== "off" ? "border-l border-gray-200" : ""}`}
-                        >
-                          {lc}
-                        </button>
-                      ))}
+                      {LIFECYCLES.map((lc) => {
+                        /* A withdrawn listing that is already off can never come
+                           back, so the buttons that would try are dead rather
+                           than merely refused. The server refuses it anyway
+                           (409); this is so a founder is not invited to press
+                           something that cannot work. */
+                        const barred = !!m.withdrawn && m.lifecycle === "off" && lc !== "off";
+                        return (
+                          <button
+                            key={lc}
+                            disabled={busy === m.id || barred}
+                            onClick={() => setLifecycle(m, lc)}
+                            title={barred ? `Withdrawn on ${m.withdrawn.since}. It cannot be turned on.` : LIFECYCLE_HINT[lc]}
+                            className={`px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium transition-colors ${
+                              m.lifecycle === lc
+                                ? "bg-[#2D5A5A] text-white"
+                                : "bg-white text-gray-600 hover:bg-gray-50"
+                            } ${barred ? "opacity-40 cursor-not-allowed" : ""} ${lc !== "off" ? "border-l border-gray-200" : ""}`}
+                          >
+                            {lc}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -3447,6 +3664,91 @@ function ModulesTab({ password }: { password: string }) {
                     {LIFECYCLE_HINT[m.lifecycle]}
                     {m.variableKeys.length > 0 && ` Tunables now visible in Game Mechanics: ${m.variableKeys.join(", ")}.`}
                   </p>
+                )}
+
+                {/* The listing detail. Inline rather than a modal, so the list
+                    stays put and a founder never loses their place. */}
+                {openId === m.id && (
+                  <div className="mt-4 pt-4 border-t border-gray-100 grid gap-3 text-xs">
+                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-gray-500">
+                      <span>id: <code className="text-gray-700">{m.id}</code></span>
+                      <span>data it holds: <span className="text-gray-700">{m.dataClass}</span></span>
+                      {m.provides && <span>domain: <span className="text-gray-700">{m.provides}</span></span>}
+                      <span>
+                        contract doc:{" "}
+                        <span className={m.hasContractDoc ? "text-gray-700" : "text-amber-700"}>
+                          {m.hasContractDoc ? "on the shelf" : "none yet"}
+                        </span>
+                      </span>
+                    </div>
+
+                    {m.pricing && (
+                      <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2">
+                        <p className="font-medium text-emerald-900">{m.priceLine}</p>
+                        <p className="text-emerald-800 mt-1 leading-relaxed">
+                          {m.pricing.amount > 0
+                            ? "You buy this from the builder and they bill you directly. This platform takes no part in the payment."
+                            : "This listing adds no charge of its own."}
+                        </p>
+                        {m.pricing.billingUrl && (
+                          <a href={m.pricing.billingUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">
+                            Pricing and billing ↗
+                          </a>
+                        )}
+                        {m.pricing.licenceKey && (
+                          <p className="text-emerald-800 mt-1">
+                            The licence lives in your own secrets store, under{" "}
+                            <code>{m.pricing.licenceKey}</code>. You can see its last four characters
+                            and clear it from Integrations, without asking anybody.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {m.vendor && (
+                      <div className="grid gap-1">
+                        <p className="font-medium text-gray-700">{m.vendor.legalName}</p>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                          <a href={m.vendor.url} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Product ↗</a>
+                          <a href={m.vendor.termsUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Terms ↗</a>
+                          <a href={m.vendor.statusUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Status ↗</a>
+                          <a href={m.vendor.supportUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Support ↗</a>
+                          <span className="text-gray-500">{m.vendor.supportEmail}</span>
+                        </div>
+                        <p className="text-gray-500">
+                          {m.vendor.liveness?.mode === "window"
+                            ? `A successful call is expected inside ${m.vendor.liveness.withinHours} hours. Longer silence reads as stale.`
+                            : "Called on demand, so silence here is normal and is declared as such."}
+                        </p>
+                      </div>
+                    )}
+
+                    {(m.vendor?.setupSteps ?? []).length > 0 && (
+                      <div>
+                        <p className="font-medium text-gray-700 mb-1">Setup you do inside their product</p>
+                        <ul className="list-disc pl-4 space-y-1 text-gray-500">
+                          {m.vendor.setupSteps.map((s: string, i: number) => <li key={i}>{s}</li>)}
+                        </ul>
+                      </div>
+                    )}
+
+                    {(m.health ?? []).length > 0 && (
+                      <div>
+                        <p className="font-medium text-gray-700 mb-1">What its calls have actually done</p>
+                        {m.health.map((h: any) => (
+                          <p key={h.operation} className={h.reading?.verdict === "failing" || h.reading?.verdict === "stale" ? "text-red-600" : "text-gray-500"}>
+                            {h.operation}: {h.reading?.detail}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-gray-500">
+                      {m.recommends.length > 0 && <span>works better with: {m.recommends.join(", ")}</span>}
+                      {m.capabilities.length > 0 && <span>adds permissions: {m.capabilities.join(", ")}</span>}
+                      {m.variableKeys.length > 0 && <span>tunables: {m.variableKeys.length}</span>}
+                    </div>
+                  </div>
                 )}
               </div>
             ))}

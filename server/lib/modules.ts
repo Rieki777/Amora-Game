@@ -319,7 +319,7 @@ export function requireModule(id: string) {
 
 export type LifecycleResult =
   | { ok: true; lifecycle: ModuleLifecycle }
-  | { ok: false; status: number; error: string; missing?: string[]; dependents?: string[]; count?: number; description?: string };
+  | { ok: false; status: number; error: string; missing?: string[]; dependents?: string[]; count?: number; description?: string; withdrawnSince?: string };
 
 export interface LifecycleGuards {
   /** True while the deployment's only admin credential is a shared password —
@@ -341,6 +341,30 @@ export async function setModuleLifecycle(
 
   const current = storedLifecycle(id);
   if (next !== "off") {
+    /*
+     * A withdrawn listing refuses a NEW enable, and refuses nothing else.
+     *
+     * The condition is `current === "off"`, not `def.withdrawn` alone, and the
+     * difference is the entire clause. A village already running this keeps
+     * running it, can still move between preview, members and public, and can
+     * still switch it off. Only the transition OUT of off is refused, so
+     * withdrawn means withdrawn from the catalog rather than withdrawn from a
+     * village. The registry entry stays in `MODULES` either way, so the row
+     * never becomes an orphan, which is the promise this exists to keep.
+     */
+    if (def.withdrawn && current === "off") {
+      const successor = def.withdrawn.replacedBy
+        ? MODULES_BY_ID[def.withdrawn.replacedBy]?.name ?? def.withdrawn.replacedBy
+        : null;
+      return {
+        ok: false,
+        status: 409,
+        error:
+          `"${def.name}" was withdrawn from the module library on ${def.withdrawn.since} and cannot be turned on.` +
+          (successor ? ` ${successor} replaces it.` : ""),
+        withdrawnSince: def.withdrawn.since,
+      };
+    }
     // Enabling (or staying on): every hard dependency must itself be non-off.
     const missing = def.requires.filter(
       (dep) => (MODULES_BY_ID[dep]?.core ? "public" : storedLifecycle(dep)) === "off",

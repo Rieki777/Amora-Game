@@ -430,7 +430,7 @@ import {
   webhookSecretConfigured,
 } from "./lib/payments";
 import {
-  LIFECYCLE_RANK, MODULES, MODULES_BY_ID, supportRoute, vendorModules,
+  LIFECYCLE_RANK, MODULES, MODULES_BY_ID, priceLine, supportRoute, vendorModules,
   type ModuleLifecycle,
 } from "../shared/modules";
 import { resolveHyphaLinks } from "../shared/hypha";
@@ -5608,6 +5608,22 @@ async function startServer() {
               liveness: m.vendor.liveness,
             }
           : null,
+        // ── Lane M: the store surface ──────────────────────────────────────
+        // Credit, price and withdrawal, admin-only for the same reason the
+        // vendor record above is: a price is operating detail, like the terms
+        // page and the slot names, and `/api/modules` deliberately carries the
+        // tier word, the data class, the domain and who answers, and nothing
+        // else. `priceLine` is rendered HERE rather than in the client so the
+        // wording stays in `shared/`, where check-voice can see it, and the
+        // registry stays out of the client bundle.
+        builtBy: m.builtBy ?? null,
+        pricing: m.pricing ?? null,
+        priceLine: m.pricing ? priceLine(m.pricing) : null,
+        withdrawn: m.withdrawn ?? null,
+        // Whether this module ships a contract doc on the shelf at all. A
+        // listing without one is a listing a village cannot read about, which
+        // the store says out loud rather than leaving as a blank space.
+        hasContractDoc: modulesWithoutContracts([m.id]).length === 0,
         // The offer is the registry tier. THIS is the tier the village is on,
         // and the version it accepted, so a later change reads as a
         // re-acceptance instead of a silent rewrite.
@@ -8539,7 +8555,7 @@ async function startServer() {
       "assistant-own-key": () => (borrowingPlatformKey()
         ? {
             state: "missing" as const,
-            detail: "Running on the platform's key. Add your own before handoff so nobody else's rotation can switch her off",
+            detail: "Running on the platform's key. Add your own before handoff so nobody else's rotation can switch the guide off",
           }
         : { state: "ok" as const, detail: "The guide runs on this village's own key" }),
       "modules-decided": () => {
@@ -8602,6 +8618,32 @@ async function startServer() {
         ]),
       ),
       // ── End Lane C zone ──────────────────────────────────────────────────
+      // ── Lane M: the member-driver resolver, generated from the SAME filter
+      //    that generates its requirement in shared/launchRequirements.ts.
+      //    Building the pair from one predicate is what stops a listing
+      //    arriving with a requirement and no resolver, which renders on the
+      //    journey page as "no check wired, this is a platform bug".
+      ...Object.fromEntries(
+        vendorModules()
+          .filter((m) => m.dataClass === "member-pii")
+          .map((m) => [
+            `listing-member-driver:${m.id}`,
+            () => {
+              const registered = registeredMemberDrivers().includes(m.id);
+              return registered
+                ? {
+                    state: "ok" as const,
+                    detail: "A deletion and export driver is registered, so a member's erasure reaches this service and has to come back confirmed",
+                  }
+                : {
+                    state: "missing" as const,
+                    detail:
+                      "No deletion or export driver is registered. This listing holds member personal data and an erasure reaches nothing outside the village, so the village cannot finish on a member's behalf",
+                  };
+            },
+          ]),
+      ),
+      // ── End Lane M zone ──────────────────────────────────────────────────
     },
   };
 
@@ -12697,7 +12739,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
     { key: "stripe_secret_key", title: "Stripe secret key", unlocks: "Card checkout for stays, the exchange and paid products. Without it, card payments answer an honest 503 and the manual path carries.", getAt: "dashboard.stripe.com → Developers → API keys", placeholder: "sk_live_…" },
     { key: "stripe_webhook_secret", title: "Stripe webhook signing secret", unlocks: "Settlement. Cards charge but credits never arrive without it: the webhook's signature has nothing to verify against.", getAt: "Stripe → Developers → Webhooks → your endpoint → Signing secret", placeholder: "whsec_…" },
     { key: "resend_api_key", title: "Resend, email", unlocks: "Every email the village sends: welcomes, receipts, notification digests.", getAt: "resend.com → API Keys", placeholder: "re_…" },
-    { key: "assistant_api_key", title: "Anthropic, the AI guide", unlocks: "Maia: proposal intake, the launch guide, and call synthesis. Blank = every form still works, without her.", getAt: "console.anthropic.com", placeholder: "sk-ant-…" },
+    // Neutral on purpose: this array is a module-scope const, so reading the
+    // configured assistant name here would risk evaluating before the brand
+    // overlay loads and printing the platform default to a village that renamed
+    // its guide. Naming no one is correct at every fork.
+    { key: "assistant_api_key", title: "Anthropic, the AI guide", unlocks: "The AI guide: proposal intake, the launch journey, and call synthesis. Blank means every form still works, with no guide on them.", getAt: "console.anthropic.com", placeholder: "sk-ant-…" },
     { key: "riverside_webhook_secret", title: "Riverside recording deliveries", unlocks: "Call automation's inbound deliveries. It fails closed: with no secret set, every payload is discarded with an inert 200 and nobody is told why.", getAt: "Riverside → webhook settings → send this same value as the x-riverside-secret header", placeholder: "a long random string you choose" },
     { key: "governance_hub_secret", title: "Governance hub deliveries", unlocks: "How a Hypha vote's executed outcome comes home. Fails closed the same way. Until it is set, outcomes are reported by the proposer and applied by an admin.", getAt: "Issued when your fork is registered with the hub", placeholder: "the value the hub issued you" },
     { key: "basescan_api_key", title: "Basescan token lookup", unlocks: "Game Mechanics → Integrate DAO finds your token's contract address on Base by name. Without it that lookup answers 409 and addresses can still be pasted by hand.", getAt: "etherscan.io → API keys (one free key serves Base)", placeholder: "your Etherscan API key" },
@@ -12716,6 +12762,18 @@ Send an empty drafts array when you are still listening. A role payload is {name
     tier: string;
     support: ReturnType<typeof supportRoute> | null;
     setupSteps: string[];
+    // ── Lane M: what this costs, and who to credit for it ──────────────────
+    /** Rendered price, or null where the listing adds no charge of its own. */
+    priceLine?: string | null;
+    /** Where a village goes to buy it. The developer bills the fork directly. */
+    billingUrl?: string | null;
+    builtBy?: string | null;
+    /**
+     * True where this card's slot IS the licence a price buys, so the card can
+     * say what the field actually unlocks instead of calling every key the same
+     * thing.
+     */
+    isLicence?: boolean;
     /** Managed only: does the platform's own key exist for this deployment. */
     entitled?: boolean | null;
     health?: Array<{ operation: string } & ReturnType<typeof healthReading>>;
@@ -12731,6 +12789,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
         support,
         setupSteps: m.vendor?.setupSteps ?? [],
         health: allIntegrationHealth(m.id).map((h) => ({ operation: h.operation, ...healthReading(h, m.vendor!.liveness) })),
+        priceLine: m.pricing ? priceLine(m.pricing) : null,
+        billingUrl: m.pricing?.billingUrl ?? null,
+        builtBy: m.builtBy ?? null,
       };
       if (m.tier === "managed") {
         return [{
@@ -12744,16 +12805,26 @@ Send an empty drafts array when you are still listening. A role payload is {name
           entitled: vendorCredentialPresent(m),
         }];
       }
-      return (m.vendor?.secretKeys ?? []).map((key) => ({
-        ...base,
-        key,
-        credential: true,
-        title: `${m.vendor!.legalName}, for ${m.name}`,
-        unlocks: `Your own account with ${m.vendor!.legalName}. You hold this key and can rotate it without asking anybody. While it is blank, ${m.name} answers 503 and names who to reach.`,
-        getAt: m.vendor!.url,
-        placeholder: "",
-        entitled: null,
-      }));
+      return (m.vendor?.secretKeys ?? []).map((key) => {
+        // The slot a price names is the LICENCE, and saying so is the whole
+        // mechanism made visible: this is the field that a fork cannot forge
+        // its way past, so the card that holds it should not read like any
+        // other key.
+        const isLicence = !!m.pricing?.licenceKey && m.pricing.licenceKey === key;
+        return {
+          ...base,
+          key,
+          credential: true,
+          isLicence,
+          title: `${m.vendor!.legalName}, for ${m.name}`,
+          unlocks: isLicence
+            ? `Your licence for ${m.name}, bought from ${m.vendor!.legalName} and held here by your village. You can rotate or clear it without asking anybody. While it is blank, ${m.name} answers 503 and names who to reach, and the rest of the village carries on.`
+            : `Your own account with ${m.vendor!.legalName}. You hold this key and can rotate it without asking anybody. While it is blank, ${m.name} answers 503 and names who to reach.`,
+          getAt: m.vendor!.url,
+          placeholder: "",
+          entitled: null,
+        };
+      });
     });
     return [...platform, ...listings];
   }

@@ -3,12 +3,16 @@ import {
   MANAGED_LISTING_CAP,
   MODULES,
   MODULE_LIBRARY_CONTRACT_VERSION,
+  isPaid,
   moduleListingProblems,
+  offeredModules,
+  priceLine,
   registrySecretKeys,
   supportRoute,
   vendorModules,
   type ModuleDef,
 } from "./modules";
+import { listingRequirements } from "./launchRequirements";
 
 /**
  * The tier is defined by where the credential lives. These assertions are what
@@ -188,5 +192,225 @@ describe("the managed cap", () => {
 describe("the contract version", () => {
   it("is a value a listing can be stamped against", () => {
     expect(MODULE_LIBRARY_CONTRACT_VERSION).toMatch(/^\d+\.\d+$/);
+  });
+});
+
+// ── Lane M: price, credit, and withdrawal ────────────────────────────────────
+
+const paidVendor = { ...goodVendor, secretKeys: ["example_api_key", "example_licence_key"] };
+const paid = {
+  amount: 4900,
+  currency: "USD",
+  period: "month" as const,
+  billingUrl: "https://example.invalid/pricing",
+  licenceKey: "example_licence_key",
+};
+
+describe("what a price must carry", () => {
+  it("accepts a well-formed paid connected listing", () => {
+    expect(moduleListingProblems([base({ tier: "connected", vendor: paidVendor, pricing: paid })])).toEqual([]);
+  });
+
+  it("refuses a paid listing that names no licence slot", () => {
+    // THE rule the whole design rests on: a fork owns shared/modules.ts, so a
+    // price resting on a code gate is a price the buyer can delete.
+    const { licenceKey, ...noSlot } = paid;
+    const problems = moduleListingProblems([base({ tier: "connected", vendor: paidVendor, pricing: noSlot })]);
+    expect(problems.join(" ")).toContain("no credential behind it");
+  });
+
+  it("refuses a licence slot the listing does not own", () => {
+    const problems = moduleListingProblems([
+      base({ tier: "connected", vendor: paidVendor, pricing: { ...paid, licenceKey: "somebody_elses_key" } }),
+    ]);
+    expect(problems.join(" ")).toContain("must be one of this listing's own secret slots");
+  });
+
+  it("allows a free listing to name no licence slot", () => {
+    const { licenceKey, ...noSlot } = paid;
+    expect(
+      moduleListingProblems([base({ tier: "connected", vendor: paidVendor, pricing: { ...noSlot, amount: 0 } })]),
+    ).toEqual([]);
+  });
+
+  it("refuses a managed listing that names a licence slot", () => {
+    const problems = moduleListingProblems([
+      base({
+        tier: "managed",
+        vendor: { ...goodVendor, secretKeys: [], managedEnvKey: "EXAMPLE_PLATFORM_KEY" },
+        pricing: { ...paid, licenceKey: "example_licence_key" },
+      }),
+    ]);
+    expect(problems.join(" ")).toContain("platform-held");
+  });
+
+  it("refuses a price on an included module", () => {
+    const problems = moduleListingProblems([base({ tier: "included", pricing: { ...paid, licenceKey: undefined } })]);
+    expect(problems.join(" ")).toContain("inside the platform price already");
+  });
+
+  it("refuses a price that is not whole minor units", () => {
+    const problems = moduleListingProblems([base({ tier: "connected", vendor: paidVendor, pricing: { ...paid, amount: 49.5 } })]);
+    expect(problems.join(" ")).toContain("whole number of minor units");
+  });
+
+  it("refuses a currency that is not a three letter code", () => {
+    const problems = moduleListingProblems([base({ tier: "connected", vendor: paidVendor, pricing: { ...paid, currency: "dollars" } })]);
+    expect(problems.join(" ")).toContain("currency code");
+  });
+
+  it("refuses a billing address that is not https", () => {
+    const problems = moduleListingProblems([
+      base({ tier: "connected", vendor: paidVendor, pricing: { ...paid, billingUrl: "http://example.invalid/pricing" } }),
+    ]);
+    expect(problems.join(" ")).toContain("billingUrl");
+  });
+});
+
+describe("a price rendered as words", () => {
+  it("says free rather than a zero", () => {
+    expect(priceLine({ ...paid, amount: 0 })).toBe("Free");
+  });
+
+  it("reads minor units as money", () => {
+    expect(priceLine(paid)).toContain("49.00");
+    expect(priceLine(paid)).toContain("a month");
+    expect(priceLine({ ...paid, period: "year" })).toContain("a year");
+    expect(priceLine({ ...paid, period: "once" })).toContain("once");
+  });
+
+  it("uses the currency's own exponent rather than an assumed two", () => {
+    // Yen has no minor unit. Dividing by a hundred would have shown 49.00 for
+    // a price of 4900 yen, which is out by a factor of a hundred.
+    expect(priceLine({ ...paid, currency: "JPY" })).toContain("4,900");
+  });
+
+  it("formats an unrecognised but well-formed code rather than refusing it", () => {
+    // Intl accepts any three letter code and prefixes it, so the registry does
+    // not have to carry an enumeration of ISO 4217 that would go stale.
+    expect(priceLine({ ...paid, currency: "ZZZ" })).toContain("49.00");
+  });
+
+  it("survives a malformed currency instead of throwing inside a render", () => {
+    // moduleListingProblems refuses this shape and boot asserts on it, so this
+    // is the belt to that braces: priceLine runs inside a render, and a throw
+    // there would blank the admin page rather than show one wrong price.
+    expect(() => priceLine({ ...paid, currency: "dollars" })).not.toThrow();
+    expect(priceLine({ ...paid, currency: "dollars" })).toContain("4900");
+  });
+
+  it("reads paid and free apart", () => {
+    expect(isPaid(base({ tier: "connected", vendor: paidVendor, pricing: paid }))).toBe(true);
+    expect(isPaid(base({ tier: "connected", vendor: paidVendor, pricing: { ...paid, amount: 0 } }))).toBe(false);
+    expect(isPaid(base({}))).toBe(false);
+  });
+});
+
+describe("builtBy is a credit and never a tier", () => {
+  it("is allowed on an included module, where a vendor record is refused", () => {
+    expect(moduleListingProblems([base({ tier: "included", builtBy: "Somebody Who Helped" })])).toEqual([]);
+  });
+
+  it("refuses an empty credit", () => {
+    const problems = moduleListingProblems([base({ builtBy: "   " })]);
+    expect(problems.join(" ")).toContain("empty builtBy");
+  });
+
+  it("does not change who supports anything", () => {
+    const route = supportRoute(base({ tier: "included", builtBy: "Somebody Who Helped" }));
+    expect(route.party).toBe("platform");
+    expect(route.vendorName).toBeNull();
+  });
+});
+
+describe("withdrawal", () => {
+  const gone = { since: "2026-08-15" };
+
+  it("accepts a withdrawn listing", () => {
+    expect(moduleListingProblems([base({ tier: "connected", vendor: paidVendor, withdrawn: gone })])).toEqual([]);
+  });
+
+  it("refuses a withdrawal with no date", () => {
+    const problems = moduleListingProblems([base({ withdrawn: { since: "last spring" } })]);
+    expect(problems.join(" ")).toContain("YYYY-MM-DD");
+  });
+
+  it("refuses a replacement that is not in the registry", () => {
+    const problems = moduleListingProblems([base({ withdrawn: { ...gone, replacedBy: "nothing-here" } })]);
+    expect(problems.join(" ")).toContain("not a module in this registry");
+  });
+
+  it("refuses a listing that replaces itself", () => {
+    const problems = moduleListingProblems([base({ id: "self", withdrawn: { ...gone, replacedBy: "self" } })]);
+    expect(problems.join(" ")).toContain("its own replacement");
+  });
+
+  it("accepts a replacement that IS in the registry", () => {
+    const successor = base({ id: "successor" });
+    const old = base({ id: "old", withdrawn: { ...gone, replacedBy: "successor" } });
+    expect(moduleListingProblems([old, successor])).toEqual([]);
+  });
+
+  it("keeps a withdrawn listing IN the registry, which is the orphan promise", () => {
+    // The whole clause. A withdrawn entry still resolves by id, so a village's
+    // module_settings row resolves to the withdrawn listing and never to an
+    // orphan. Deleting the entry instead is what the contract forbids.
+    const old = base({ id: "old", withdrawn: gone });
+    const registry = [old, base({ id: "kept" })];
+    expect(registry.some((m) => m.id === "old")).toBe(true);
+    expect(offeredModules(registry).map((m) => m.id)).toEqual(["kept"]);
+  });
+});
+
+describe("a member-pii listing owes a member driver", () => {
+  const listing = (over: Partial<ModuleDef>) =>
+    ({ id: "fixture", name: "Fixture", tier: "connected", dataClass: "member-pii", vendor: { legalName: "Example Systems Ltd" }, ...over }) as any;
+
+  it("generates a blocking requirement for a member-pii listing", () => {
+    const reqs = listingRequirements([listing({})]);
+    const driver = reqs.find((r) => r.id === "listing-member-driver-fixture");
+    expect(driver).toBeDefined();
+    expect(driver!.severity).toBe("blocking");
+    expect(driver!.checkKey).toBe("listing-member-driver:fixture");
+    // appliesWhenModule is what withdraws the requirement while the module is
+    // off, so a village that never enabled this is never asked about it.
+    expect(driver!.appliesWhenModule).toBe("fixture");
+  });
+
+  it("asks nothing of a listing that touches no member data", () => {
+    const reqs = listingRequirements([listing({ dataClass: "village-content" })]);
+    expect(reqs.find((r) => r.id.startsWith("listing-member-driver"))).toBeUndefined();
+  });
+
+  it("asks nothing of an included module, which holds no copy outside", () => {
+    // All eighteen platform modules are member-pii and none of them hands a
+    // copy to anybody. The obligation belongs to a vendor, not to a data class.
+    const reqs = listingRequirements([listing({ tier: "included" })]);
+    expect(reqs.find((r) => r.id.startsWith("listing-member-driver"))).toBeUndefined();
+  });
+
+  it("asks it of a managed listing too, because deletion does not soften by tier", () => {
+    const reqs = listingRequirements([listing({ tier: "managed" })]);
+    expect(reqs.find((r) => r.id === "listing-member-driver-fixture")).toBeDefined();
+  });
+
+  it("adds nothing today, because the shipped registry holds no listings", () => {
+    expect(listingRequirements(MODULES)).toEqual([]);
+  });
+});
+
+describe("what the federated documents project", () => {
+  it("carries only id and lifecycle, whatever the registry grows", () => {
+    /*
+     * /api/platform/info and /.well-known/village.json both map MODULES to
+     * exactly { id, lifecycle }. Price, credit, withdrawal, tier and vendor are
+     * all invisible there and must stay so: nothing about a village's vendors
+     * is published. This asserts the projection rather than the payload, so it
+     * fails the moment somebody widens the map.
+     */
+    const projected = MODULES.map((m) => ({ id: m.id, lifecycle: m.core ? "public" : "off" }));
+    for (const row of projected) {
+      expect(Object.keys(row).sort()).toEqual(["id", "lifecycle"]);
+    }
   });
 });

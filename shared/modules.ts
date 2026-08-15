@@ -101,6 +101,75 @@ export type ModuleLiveness =
   | { mode: "window"; withinHours: number }
   | { mode: "on-demand" };
 
+/** How often a price recurs. `once` is a single charge and never a trial. */
+export type ModulePricePeriod = "month" | "year" | "once";
+
+/**
+ * What a listing costs a village, as DATA.
+ *
+ * Every field is a value rather than a sentence, for the same reason the vendor
+ * record is: `scripts/check-voice.mjs` parses `shared/` and reads string
+ * literals, so a price written as prose would be catalog copy held to the house
+ * writing rules AND would drift from the number beside it. The vendor supplies
+ * values; the platform writes the sentences. `priceLine` below is the one place
+ * a price becomes words.
+ *
+ * THE CREDENTIAL IS THE LICENCE, and `licenceKey` is what makes that mechanical
+ * instead of aspirational. A village forks this repository and owns this file,
+ * so any `if (licensed)` a developer writes here is one edit away from deleted,
+ * by somebody legally entitled to edit it who has the file open anyway. A code
+ * gate is not a weak form of enforcement in that setting, it is none. The only
+ * plane a fork cannot forge is a credential the developer holds the other end
+ * of, which is why a connected listing that charges anything MUST name the slot
+ * its licence lives in, and why a managed listing may not name one at all: that
+ * credential is platform-held and env-only (hub ADR-49) and is not the
+ * village's to hold.
+ *
+ * What a lapse may do is bounded, and the bound is not a style preference.
+ * Absence of the licence takes the listing's own routes to the already-built
+ * 503, which says who to reach, and touches nothing else. A listing may not
+ * disable a village surface, lock an admin screen, or alter village data when
+ * its licence lapses. Every open-source ecosystem that let a vendor reach
+ * deeper than "stop serving my own feature" litigated it in public and the
+ * vendor lost.
+ */
+export interface ModulePricing {
+  /** Minor units of `currency`, a whole number. Zero is a real answer, said out loud. */
+  amount: number;
+  /** ISO 4217, uppercase. */
+  currency: string;
+  period: ModulePricePeriod;
+  /** Where a village goes to buy it. In v1 the developer bills the fork directly. */
+  billingUrl: string;
+  /**
+   * The `vendor.secretKeys` slot holding the licence this price buys. Required
+   * once `amount` is above zero at connected, refused at managed.
+   */
+  licenceKey?: string;
+}
+
+/**
+ * A listing that is no longer offered.
+ *
+ * Withdrawn is a STATE and never a deletion, and that difference is the whole
+ * clause. Removing the registry entry instead would leave every village that
+ * enabled it holding a `module_settings` row pointing at nothing, which
+ * `loadModuleSettings` reports as an orphan: exactly the outcome the contract
+ * promises never happens. The entry stays, so the row always resolves.
+ *
+ * It blocks a NEW enable and changes nothing already serving. A village running
+ * it keeps running it, may still move between preview, members and public, and
+ * may still switch it off. Only the transition out of `off` is refused, so
+ * withdrawn means withdrawn from the catalog and never withdrawn from a
+ * village.
+ */
+export interface ModuleWithdrawal {
+  /** The day it stopped being offered, as YYYY-MM-DD. */
+  since: string;
+  /** The listing that replaces it, where there is one. Must be a real module id. */
+  replacedBy?: string;
+}
+
 /**
  * The named counterparty behind a listing. Every field here is DATA rather
  * than shipped prose: `scripts/check-voice.mjs` parses `shared/` and reads
@@ -165,6 +234,22 @@ export interface ModuleDef {
   dataClass: ModuleDataClass;
   /** The named counterparty. Required at connected and managed, absent at included. */
   vendor?: ModuleVendor;
+  /**
+   * Who wrote this module. A CREDIT LINE and never a tier.
+   *
+   * Tier answers who bills and who supports, which is what somebody asks at the
+   * moment they need an answer. Who BUILT something is a different fact and
+   * gets a different line. It lives on the module rather than on the vendor
+   * record on purpose, so it is available at every tier including `included`,
+   * where a vendor record is refused outright: that is the only way to credit
+   * somebody who contributed a module without making them its counterparty,
+   * and it is exactly the case a healthy library should make easy.
+   */
+  builtBy?: string;
+  /** What this listing costs. Absent means it adds no charge of its own. */
+  pricing?: ModulePricing;
+  /** Set once the listing stops being offered. Blocks new enables, serves as before. */
+  withdrawn?: ModuleWithdrawal;
   /**
    * The domain this listing claims.
    *
@@ -635,6 +720,46 @@ export function registrySecretKeys(defs: readonly ModuleDef[] = MODULES): string
   return Array.from(out).sort();
 }
 
+/**
+ * A price as one plain line, and the ONE place a price becomes words.
+ *
+ * The server renders this into its payloads so the client shows a string it was
+ * handed rather than formatting money itself. That keeps the wording in
+ * `shared/`, where `check-voice` can see it, and keeps the whole registry out
+ * of the client bundle for the sake of one formatter.
+ *
+ * Minor units in, because a price held as a float is a rounding bug waiting for
+ * a currency with three decimal places. The exponent comes from `Intl` rather
+ * than from an assumed two, since a listing priced in yen has none and dividing
+ * by a hundred would have quietly overcharged by a factor of a hundred.
+ */
+export function priceLine(p: ModulePricing): string {
+  if (p.amount === 0) return "Free";
+  let money: string;
+  try {
+    const fmt = new Intl.NumberFormat("en", { style: "currency", currency: p.currency });
+    const digits = fmt.resolvedOptions().maximumFractionDigits ?? 2;
+    money = fmt.format(p.amount / Math.pow(10, digits));
+  } catch {
+    // An unknown currency code is caught by moduleListingProblems, so this is
+    // the belt to that braces: show the honest raw values instead of throwing
+    // inside a render.
+    money = `${p.amount} ${p.currency}`;
+  }
+  if (p.period === "once") return `${money} once`;
+  return p.period === "year" ? `${money} a year` : `${money} a month`;
+}
+
+/** True where a village would be paying somebody for this listing. */
+export function isPaid(def: ModuleDef): boolean {
+  return !!def.pricing && def.pricing.amount > 0;
+}
+
+/** Listings a village may still turn on. A withdrawn one is listed, never offered. */
+export function offeredModules(defs: readonly ModuleDef[] = MODULES): ModuleDef[] {
+  return defs.filter((m) => !m.withdrawn);
+}
+
 export interface SupportRoute {
   /** Who answers. Keys on who SUPPORTS this listing, never on who built it. */
   party: "platform" | "vendor";
@@ -669,6 +794,9 @@ export function supportRoute(def: ModuleDef): SupportRoute {
 
 const HTTPS = /^https:\/\/[^\s]+$/;
 const EMAILISH = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const CURRENCY = /^[A-Z]{3}$/;
+const PRICE_PERIODS: readonly ModulePricePeriod[] = ["month", "year", "once"];
 
 /**
  * Registry-shape problems, as a list of sentences.
@@ -707,7 +835,47 @@ export function moduleListingProblems(defs: readonly ModuleDef[] = MODULES): str
     );
   }
 
+  const knownIds = new Set(defs.map((m) => m.id));
+
   for (const m of defs) {
+    /*
+     * Checks that apply at EVERY tier, so they sit above the `included`
+     * short-circuit rather than below it. Credit, price and withdrawal are all
+     * orthogonal to who bills: an included module can carry a credit line, and
+     * the platform's own module can be withdrawn the same way a listing can.
+     */
+    if (m.builtBy !== undefined && !m.builtBy.trim()) {
+      say(m.id, "carries an empty builtBy credit. Name somebody or leave the field out");
+    }
+    if (m.withdrawn) {
+      if (!ISO_DAY.test(String(m.withdrawn.since ?? ""))) {
+        say(m.id, "is withdrawn and gives no withdrawal date in YYYY-MM-DD form");
+      }
+      if (m.withdrawn.replacedBy === m.id) {
+        say(m.id, "is withdrawn and names itself as its own replacement");
+      } else if (m.withdrawn.replacedBy && !knownIds.has(m.withdrawn.replacedBy)) {
+        say(m.id, `is withdrawn and names "${m.withdrawn.replacedBy}" as its replacement, which is not a module in this registry`);
+      }
+    }
+    const price = m.pricing;
+    if (price) {
+      if (m.tier === "included") {
+        say(m.id, "is included and carries a price. Included means the platform bills it inside the platform price already");
+      }
+      if (!Number.isInteger(price.amount) || price.amount < 0) {
+        say(m.id, "must price itself as a whole number of minor units, zero or more");
+      }
+      if (!CURRENCY.test(String(price.currency ?? ""))) {
+        say(m.id, "needs a three letter uppercase currency code");
+      }
+      if (!PRICE_PERIODS.includes(price.period)) {
+        say(m.id, "must charge per month, per year, or once");
+      }
+      if (!HTTPS.test(String(price.billingUrl ?? ""))) {
+        say(m.id, "billingUrl must be an https address");
+      }
+    }
+
     if (m.tier === "included") {
       if (m.vendor) say(m.id, "is included and carries a vendor record. An included module is the platform's own");
       continue;
@@ -749,6 +917,32 @@ export function moduleListingProblems(defs: readonly ModuleDef[] = MODULES): str
     } else {
       if (!v.secretKeys.length) say(m.id, "is connected and lists no secret slot the village can hold and see");
       if (v.managedEnvKey) say(m.id, "is connected and names a platform-held credential. The village holds its own key at this tier");
+    }
+
+    /*
+     * The licence slot, which is where "the credential is the licence" stops
+     * being a sentence in a document and starts being a refusal.
+     *
+     * A fork owns this file, so a paid listing whose paid behaviour rests on a
+     * code gate here is selling something the buyer can switch on by deleting a
+     * line. Naming a slot means the paid path runs through `secretKeys`, which
+     * `vendorCredentialPresent` reads and `requireVendor` answers 503 for. That
+     * is the one plane a fork cannot forge, so it is the only place a price can
+     * honestly rest.
+     */
+    if (price) {
+      if (m.tier === "managed") {
+        if (price.licenceKey) {
+          say(m.id, "is managed and names a licence slot. A managed credential is platform-held and lives in env only");
+        }
+      } else {
+        if (price.amount > 0 && !price.licenceKey) {
+          say(m.id, "charges for itself and names no licence slot. A price with no credential behind it is a price any fork can delete");
+        }
+        if (price.licenceKey && !v.secretKeys.includes(price.licenceKey)) {
+          say(m.id, `names licence slot "${price.licenceKey}". A licence slot must be one of this listing's own secret slots`);
+        }
+      }
     }
   }
   return problems;
