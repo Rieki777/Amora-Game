@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MODULES, type ModuleDef } from "./modules";
 import {
-  isBasePayoutAddress,
+  isBuilderHandle,
   modulePayoutProblems,
   poolEligibleModules,
   poolStatus,
@@ -98,13 +98,10 @@ describe("who the pool pays", () => {
     expect(poolStatus(m).reason).toBe("core");
   });
 
-  it("never depends on a payout address, so a builder with no wallet still earns", () => {
-    const withAddress = base({
-      builtBy: "Ada Lovelace",
-      builtByPayout: { chain: "base", address: "0x4E617cd113364193d215d107AdD6fa50418AA2E4" },
-    });
+  it("never depends on an account, so a builder with no ReGen Civics login still earns", () => {
+    const withAccount = base({ builtBy: "Ada Lovelace", builtByAccount: "ada" });
     const without = base({ builtBy: "Ada Lovelace" });
-    expect(poolStatus(withAddress)).toEqual(poolStatus(without));
+    expect(poolStatus(withAccount)).toEqual(poolStatus(without));
   });
 
   it("filters a registry down to the eligible entries, in registry order", () => {
@@ -141,36 +138,51 @@ describe("the shipped registry", () => {
   });
 });
 
-describe("a payout address", () => {
-  it("accepts a Base address", () => {
-    expect(isBasePayoutAddress("0x4E617cd113364193d215d107AdD6fa50418AA2E4")).toBe(true);
+describe("the builder's ReGen Civics account", () => {
+  it("accepts an ordinary handle", () => {
+    expect(isBuilderHandle("ada")).toBe(true);
+    expect(isBuilderHandle("ada-lovelace")).toBe(true);
+    expect(isBuilderHandle("ada_lovelace_1815")).toBe(true);
   });
 
-  it("refuses one that is too short, too long, or not hex", () => {
-    expect(isBasePayoutAddress("0x4E617cd113364193d215d107AdD6fa50418AA2E")).toBe(false);
-    expect(isBasePayoutAddress("0x4E617cd113364193d215d107AdD6fa50418AA2E44")).toBe(false);
-    expect(isBasePayoutAddress("0xZZZ17cd113364193d215d107AdD6fa50418AA2E4")).toBe(false);
-    expect(isBasePayoutAddress("4E617cd113364193d215d107AdD6fa50418AA2E4")).toBe(false);
+  it("refuses an at sign, a space, an uppercase letter, or a URL", () => {
+    expect(isBuilderHandle("@ada")).toBe(false);
+    expect(isBuilderHandle("ada lovelace")).toBe(false);
+    expect(isBuilderHandle("Ada")).toBe(false);
+    expect(isBuilderHandle("https://example.com/ada")).toBe(false);
+    expect(isBuilderHandle("a")).toBe(false);
+    expect(isBuilderHandle("")).toBe(false);
   });
 
-  it("refuses a malformed address rather than aiming a transfer at nothing", () => {
-    const defs = [base({ builtBy: "Ada Lovelace", builtByPayout: { chain: "base", address: "0xnope" } })];
-    expect(modulePayoutProblems(defs)).toHaveLength(1);
-    expect(modulePayoutProblems(defs)[0]).toContain("not a Base address");
-  });
-
-  it("refuses an address with nobody credited behind it", () => {
-    const defs = [base({ builtByPayout: { chain: "base", address: "0x4E617cd113364193d215d107AdD6fa50418AA2E4" } })];
-    expect(modulePayoutProblems(defs)[0]).toContain("credits nobody");
-  });
-
-  it("accepts a well-formed payout", () => {
+  it("names the wallet-address mistake specifically, and only once", () => {
     const defs = [
       base({
         builtBy: "Ada Lovelace",
-        builtByPayout: { chain: "base", address: "0x4E617cd113364193d215d107AdD6fa50418AA2E4" },
+        builtByAccount: "0x4e617cd113364193d215d107add6fa50418aa2e4",
       }),
     ];
+    const problems = modulePayoutProblems(defs);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("links their own address in their own profile");
+  });
+
+  it("refuses a handle shaped like a display name", () => {
+    const defs = [base({ builtBy: "Ada Lovelace", builtByAccount: "@AdaLovelace" })];
+    expect(modulePayoutProblems(defs)).toHaveLength(1);
+    expect(modulePayoutProblems(defs)[0]).toContain("A handle is lowercase letters");
+  });
+
+  it("refuses an account with nobody credited behind it", () => {
+    const defs = [base({ builtByAccount: "ada" })];
+    expect(modulePayoutProblems(defs)[0]).toContain("credits nobody");
+  });
+
+  it("accepts a well-formed pairing", () => {
+    const defs = [base({ builtBy: "Ada Lovelace", builtByAccount: "ada" })];
     expect(modulePayoutProblems(defs)).toEqual([]);
+  });
+
+  it("says nothing about a module that names no account, because that is a real state", () => {
+    expect(modulePayoutProblems([base({ builtBy: "Ada Lovelace" })])).toEqual([]);
   });
 });

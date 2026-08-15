@@ -15,10 +15,12 @@
  * entry in front of it, and there is nothing to keep in sync.
  *
  * WHAT THIS FILE DELIBERATELY DOES NOT KNOW. Whether a village is RUNNING a
- * module is per-village state, and how much a builder is owed is hub
- * arithmetic over every village at once. Neither belongs to a registry entry.
- * This file answers one question: may this module be paid from the pool at
- * all. The hub asks it once per module and does the rest.
+ * module is per-village state; how much a builder is owed is hub arithmetic
+ * over every village at once; and WHERE the money goes is a Base address the
+ * builder links inside their own ReGen Civics profile, which the hub reads at
+ * statement time and this file never sees. None of the three belongs to a
+ * registry entry. This file answers one question: may this module be paid from
+ * the pool at all. The hub asks it once per module and does the rest.
  */
 import { isPaid, type ModuleDef } from "./modules";
 
@@ -79,40 +81,55 @@ export function poolEligibleModules(defs: readonly ModuleDef[]): ModuleDef[] {
 }
 
 /**
- * A Base address, checked for shape and nothing else.
+ * A ReGen Civics handle, checked for shape and nothing else.
  *
- * Shape is all any code here can honestly check. Whether the address is
- * controlled by the person named in `builtBy` is a human question, and the
- * hub's cycle statement is reviewed by a human before any value moves, which
- * is where that question is actually answered.
+ * Shape is all any code here can honestly check, and shape is all it needs to
+ * check. Whether the handle names a real account, whether that account has a
+ * Hypha account and a Base address linked, and whether the person holding it
+ * is the person credited above are all questions the HUB answers at statement
+ * time against its own member records. None of them can be answered from a
+ * registry file, and a check here that pretended to would be the kind of
+ * green that means nothing.
+ *
+ * Deliberately narrow: lowercase letters, digits, hyphens and underscores. A
+ * handle with a leading `@`, a space, or a URL in it is somebody writing a
+ * display name into a lookup key, and the lookup would silently miss.
  */
-const BASE_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const HANDLE = /^[a-z0-9][a-z0-9_-]{1,38}$/;
 
-export function isBasePayoutAddress(address: string): boolean {
-  return BASE_ADDRESS.test(address);
+export function isBuilderHandle(handle: string): boolean {
+  return HANDLE.test(handle);
 }
 
 /**
- * Payout-shape problems, as a list of sentences, in the house style of
+ * Payout-identity problems, as a list of sentences, in the house style of
  * `moduleListingProblems`.
  *
- * A malformed address is worse than a missing one. Missing means the share
- * accrues and the statement says so; malformed means a transfer aimed at
- * nothing, so it fails here instead.
+ * A malformed handle is worse than a missing one. Missing means the share
+ * accrues and the statement says so out loud; malformed means a lookup that
+ * finds nobody and reports the same "no account" as a builder who never opened
+ * one, so the two states would be indistinguishable at exactly the moment
+ * somebody is owed money. It fails here instead.
  */
 export function modulePayoutProblems(defs: readonly ModuleDef[]): string[] {
   const problems: string[] = [];
   for (const m of defs) {
-    const payout = m.builtByPayout;
-    if (!payout) continue;
+    const account = m.builtByAccount;
+    if (account === undefined) continue;
     if (!m.builtBy?.trim()) {
-      problems.push(`module "${m.id}": names a payout address and credits nobody. A payout needs a builder to pay`);
+      problems.push(`module "${m.id}": names a ReGen Civics account and credits nobody. A payment needs a builder to pay`);
     }
-    if (payout.chain !== "base") {
-      problems.push(`module "${m.id}": pays out on "${payout.chain}". $ReGen lives on Base and the pool pays there`);
-    }
-    if (!isBasePayoutAddress(String(payout.address ?? ""))) {
-      problems.push(`module "${m.id}": gives a payout address that is not a Base address, which is 0x and forty hex characters`);
+    if (/^0x/i.test(account)) {
+      // Checked before the shape, and exclusive of it, so the one mistake a
+      // person is actually likely to make gets the sentence that explains it
+      // instead of a generic "that is not a handle".
+      problems.push(
+        `module "${m.id}": puts what looks like a wallet address where the ReGen Civics handle goes. The builder links their own address in their own profile and the hub reads it there`,
+      );
+    } else if (!isBuilderHandle(account)) {
+      problems.push(
+        `module "${m.id}": gives "${account}" as a ReGen Civics account. A handle is lowercase letters, digits, hyphens and underscores, with no at sign and no address`,
+      );
     }
   }
   return problems;

@@ -5650,6 +5650,14 @@ async function startServer() {
         pricing: m.pricing ?? null,
         priceLine: m.pricing ? priceLine(m.pricing) : null,
         withdrawn: m.withdrawn ?? null,
+        // ── Lane P: the $ReGen builders' pool ──────────────────────────────
+        // The same derived verdict `/api/modules` carries, plus the builder's
+        // ReGen Civics handle, which is admin operating detail for the same
+        // reason the price is. The handle is all that travels: the Base
+        // address it resolves to lives in that builder's own hub profile and
+        // is never held here, never published here, and never editable here.
+        pool: poolStatus(m),
+        builtByAccount: m.builtByAccount ?? null,
         // Whether this module ships a contract doc on the shelf at all. A
         // listing without one is a listing a village cannot read about, which
         // the store says out loud rather than leaving as a blank space.

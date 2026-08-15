@@ -247,23 +247,29 @@ export interface ModuleDef {
    */
   builtBy?: string;
   /**
-   * Where the $ReGen builders' pool sends this module's share, when the
-   * builder wants one.
+   * The builder's ReGen Civics account, where the $ReGen builders' pool looks
+   * to find out who to pay.
+   *
+   * A HANDLE and never an address, which is Rye's ruling and is the whole
+   * safety of the thing. An address written here is asserted by whoever edits
+   * this file, in a public repository a fork can edit, for a payment somebody
+   * else receives. A handle is asserted by the builder themselves: they hold a
+   * ReGen Civics account, they link their Hypha account and Base address in
+   * their own profile setup, and the hub reads the address off the profile at
+   * the moment it writes a statement. The registry never learns the address
+   * and a pull request can never redirect a payment.
    *
    * A sibling of `builtBy` rather than a field inside it, because `builtBy` is
-   * a credit LINE: a name a person wrote for a reader, and a name is not a
-   * record with an address in it. Widening it into an object would rewrite
-   * every existing credit for the sake of a field almost none of them use.
+   * a credit LINE: a name a person wrote for a reader, and it stays readable
+   * whether or not the person holds an account anywhere.
    *
    * Optional on purpose, and absence is a real state rather than a gap. A
-   * module with no address still earns its share; the hub's cycle statement
-   * records the share as unpaid and names why, so a builder can add an address
-   * later and collect what accrued. Eligibility never depends on this field,
-   * only settlement does. `shared/modulePool.ts` checks the shape; nothing
-   * here can check that the address belongs to the person named above, which
-   * is one of the reasons a human signs the statement.
+   * module with no handle still earns its share; the hub's cycle statement
+   * records that share as unpaid and names what is missing, so a builder can
+   * open an account, link an address, and collect what accrued. Eligibility
+   * never depends on this field, only settlement does.
    */
-  builtByPayout?: { chain: "base"; address: string };
+  builtByAccount?: string;
   /** What this listing costs. Absent means it adds no charge of its own. */
   pricing?: ModulePricing;
   /** Set once the listing stops being offered. Blocks new enables, serves as before. */
