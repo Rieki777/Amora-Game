@@ -5007,6 +5007,11 @@ function playJourney(id){const j=jById(id);if(!j)return;
       setHash('');return}
     const x=stops[JWALK.i];const s=BY[x.st.at];
     travelTo(s.x,s.y,1.25,()=>{
+      /* The flight lands FRAMES after step() started it, and the walk can end
+         in between from jEnd(), Escape, or step() passing the last stop. Every
+         other entry point re-checks JWALK for exactly that reason; this one is
+         the only callback that fires late, so it is the only one that threw. */
+      if(!JWALK||JWALK.id!==id)return;
       /* Maia is the PRESENTER; the words stay village content, so `t` and the
          optional `body` are printed as they were written. */
       maiaSay(`<b>${x.st.stage?x.st.stage+': ':''}${x.st.t}</b> at ${s.name}`+
