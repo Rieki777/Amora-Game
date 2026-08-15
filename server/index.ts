@@ -3531,6 +3531,22 @@ async function assistantDailyCapReached(max: number): Promise<boolean> {
   return overLimit(`assistant-day:${today}`, max, 24 * 60 * 60 * 1000);
 }
 
+/**
+ * Check-only twin of the above, for callers that are not themselves a call.
+ *
+ * `overLimit` INSERTS a hit whenever it answers "not yet", which is exactly
+ * right for a request a person just made and exactly wrong for a timer. The
+ * batch job asks this question every five minutes, 288 times a day, and using
+ * the recording version would have spent nearly half the village's daily
+ * assistant budget on ticks that submitted nothing at all. The batch path
+ * records its hits per request it actually submits, one each, which is the
+ * same accounting the Synthesize button does per click.
+ */
+async function assistantDailyCapAtLimit(max: number): Promise<boolean> {
+  const today = new Date().toISOString().slice(0, 10);
+  return atLimit(`assistant-day:${today}`, max, 24 * 60 * 60 * 1000);
+}
+
 async function startServer() {
   /*
    * PY6: crashes get somewhere before anything else can crash.
@@ -4026,11 +4042,12 @@ async function startServer() {
     );
     if (Number(queue.n) >= maxQueue) {
       enqueued = `; ready queue full at ${queue.n}`;
-    } else if (await assistantDailyCapReached(600)) {
+    } else if (await assistantDailyCapAtLimit(600)) {
       enqueued = "; daily cap reached";
     } else {
       const room = Math.min(MAX_BATCH_SIZE, maxQueue - Number(queue.n));
       const inputs: BatchRecordingInput[] = [];
+      let capped = false;
       for (const p of await pendingSynthesisRecordings(getPool(), room)) {
         const transcript = await transcriptFor(getPool(), p.id);
         if (!transcript) continue;
@@ -4041,6 +4058,10 @@ async function startServer() {
           rolesRepo.all().map((r: any) => ({ kind: "role" as any, id: r.id, name: r.name ?? r.id, purpose: r.purpose ?? r.description ?? "" })),
         ).filter((c: any) => c.score > 0).slice(0, 8)
           .map((c: any) => ({ id: c.id, name: c.name, purpose: String(c.purpose ?? "").slice(0, 120) }));
+        // One hit per request that is actually going in, which is what the
+        // Synthesize button spends per click. Charged here rather than at the
+        // top of the tick so a tick that submits nothing costs nothing.
+        if (await assistantDailyCapReached(600)) { capped = true; break; }
         inputs.push({
           recordingId: p.id,
           title: p.title,
@@ -4052,6 +4073,7 @@ async function startServer() {
       const submitted = await enqueueSynthesis(getPool(), inputs, batchOpts);
       if (submitted.batchId) enqueued = `; enqueued ${submitted.requested} in ${submitted.batchId}`;
       else if (submitted.reason) enqueued = `; ${submitted.reason}`;
+      if (capped) enqueued += "; daily cap reached";
     }
     return `${polled.polled} open, ${polled.ended} ended, ${polled.written} written, ` +
       `${polled.unusable} unusable, ${polled.errored} errored, ${polled.expired} expired, ` +
