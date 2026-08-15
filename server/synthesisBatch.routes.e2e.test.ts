@@ -43,7 +43,12 @@ if (!DB_CONFIGURED) {
 }
 
 const DIST = path.resolve(process.cwd(), "dist/index.js");
-const PORT = 8300 + (process.pid % 400);
+// 8800-9199, above every other suite's ceiling. The five existing route tests
+// already overlap each other (examples 6100-7599, quest-share 6800-7699,
+// messaging 7700-7999, map promise 7900-8799) and get away with it because
+// worker pids differ, but sitting ENTIRELY inside another suite's range is a
+// collision waiting for two unlucky pids and a CI run nobody can reproduce.
+const PORT = 8800 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "synthesis-batch-admin";
 
