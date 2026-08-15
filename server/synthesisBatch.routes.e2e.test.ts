@@ -227,9 +227,12 @@ describe.skipIf(!DB_CONFIGURED)("call synthesis: the batch job and the route it 
     expect(recs[0].status).toBe("synthesized");
 
     // And the cost of that call was recorded, on the path a person waits on.
-    const [usage] = await pool.query<any[]>("SELECT mode, input_tokens FROM assistant_usage WHERE mode = 'synthesize'");
+    // `loop` and not `batch`: this one paid full price for an answer now, and
+    // the rollup must never hand it the batch discount.
+    const [usage] = await pool.query<any[]>("SELECT mode, input_tokens, path FROM assistant_usage WHERE mode = 'synthesize'");
     expect(usage.length).toBeGreaterThanOrEqual(1);
     expect(Number(usage[0].input_tokens)).toBe(2200);
+    expect(usage[0].path).toBe("loop");
   });
 
   it("registers synthesis-batch-poll and reads the switch when it runs, not when it is registered", async () => {

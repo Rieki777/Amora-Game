@@ -234,11 +234,15 @@ describe.skipIf(!configured)("call synthesis through the batch API", () => {
     // Both recordings moved on, and one usage row exists per result.
     const [recs] = await pool.query<any[]>("SELECT status FROM recordings ORDER BY id");
     expect(recs.map((r: any) => r.status)).toEqual(["synthesized", "synthesized"]);
-    const [usage] = await pool.query<any[]>("SELECT mode, model, input_tokens, output_tokens, user_id FROM assistant_usage");
+    const [usage] = await pool.query<any[]>("SELECT mode, model, input_tokens, output_tokens, user_id, path FROM assistant_usage");
     expect(usage).toHaveLength(2);
     expect(usage[0].mode).toBe("synthesize");
+    // REAL token counts, not halved. The discount is a billing fact and the
+    // `batch` flag is what lets the rollup apply it; halving here would put a
+    // price into a column that holds token facts.
     expect(Number(usage[0].input_tokens)).toBe(3100);
     expect(Number(usage[0].output_tokens)).toBe(420);
+    expect(usage.every((u: any) => u.path === "batch")).toBe(true);
     // A timer has no actor and does not borrow one.
     expect(usage[0].user_id).toBeNull();
   });

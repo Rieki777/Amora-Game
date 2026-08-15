@@ -369,13 +369,13 @@ async function handleResult(
   const message = entry?.result?.message ?? {};
   // The usage row is written before the parse, exactly as the synchronous path
   // does it: the tokens were spent whether or not the answer turns out to be
-  // usable JSON. Batch pricing is a BILLING fact and not a token fact, so what
-  // is recorded here is the real token counts.
+  // usable JSON.
   //
-  // FOLLOW-UP (K1): when the `path` column lands with migration 0081, this
-  // call gains `path: 'batch'` and the rollup applies the 50% batch rate. Until
-  // then the row is indistinguishable from a synchronous one, and the join that
-  // separates them is synthesis_batch_items.recording_id -> call_syntheses.
+  // `path: 'batch'` is what makes the saving countable. The token counts here
+  // are REAL and unhalved, because halving them would put a price into a column
+  // that holds token facts and quietly break every other question those numbers
+  // answer. The 50% is a billing fact, and the rollup applies it to the rows
+  // this flag marks.
   await recordAssistantUsage(pool, {
     villageId: opts.villageId,
     mode: "synthesize",
@@ -393,6 +393,7 @@ async function handleResult(
     },
     iterations: 1,
     stopReason: message?.stop_reason ?? null,
+    path: "batch",
   });
 
   const transcript = await transcriptFor(pool, recordingId);
