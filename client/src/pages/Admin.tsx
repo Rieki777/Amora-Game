@@ -483,7 +483,10 @@ function AdminNav({
           <div key={group.title}>
             {open ? (
               <div className="px-4 mt-5 mb-2">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">{group.title}</p>
+                {/* gray-600, not gray-400: at 12px on the rail's white these
+                    labels measured 2.60:1, and they are the only thing that
+                    tells thirty menu items apart. */}
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest">{group.title}</p>
               </div>
             ) : (
               // Collapsed, a group title has nowhere to go, but the grouping
@@ -3407,7 +3410,7 @@ function ModulesTab({ password }: { password: string }) {
           see it. Off modules contribute nothing: no routes, no nav, no settings.
         </p>
       </div>
-      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : !data ? (
+      {loading ? <div className="text-center py-12 text-gray-600">Loading...</div> : !data ? (
         <p className="text-sm text-red-600">Could not load modules.</p>
       ) : (
         <div className="space-y-5">
@@ -3473,7 +3476,7 @@ function ModulesTab({ password }: { password: string }) {
 
           <div className="border border-[#2D5A5A]/30 bg-[#2D5A5A]/5 rounded-xl p-5">
             <h3 className="font-semibold text-gray-900 mb-1">Hypha integration</h3>
-            <p className="text-xs text-gray-500 mb-3">
+            <p className="text-xs text-gray-600 mb-3">
               All governance, voting, and equity live on your Hypha DHO; modules link
               out and never rebuild it. Set the address in Game Mechanics → Hypha
               (hypha.org_url). Blank hides every Hypha button.
@@ -3502,6 +3505,11 @@ function ModulesTab({ password }: { password: string }) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search the catalog"
+              /* A placeholder is not a name: it disappears the moment somebody
+                 types, and a screen reader announcing "edit text, blank" beside
+                 four labelled selects leaves the one control that does the most
+                 work unnamed. */
+              aria-label="Search the catalog"
               className="w-full sm:flex-1 sm:w-auto sm:min-w-[200px] px-3 py-2 text-base min-h-[44px] sm:text-sm sm:min-h-0 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
             />
             {tiers.length > 1 && (
@@ -3529,7 +3537,10 @@ function ModulesTab({ password }: { password: string }) {
                 <option value="paid">Paid</option>
               </select>
             )}
-            <span className="text-xs text-gray-400">
+            {/* The count is the one number that says whether a filter is
+                hiding anything, so it reads at gray-600. At gray-400 it
+                measured 2.49:1 on the panel's own gray-50. */}
+            <span className="text-xs text-gray-600">
               {visible.length} of {all.length}
             </span>
             {filtered && (
@@ -3552,7 +3563,9 @@ function ModulesTab({ password }: { password: string }) {
                   <div className="max-w-xl">
                     <h3 className="font-semibold text-gray-900">
                       {m.name}
-                      {m.core && <span className="ml-2 text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Core</span>}
+                      {/* gray-600 on the gray-100 chip: gray-500 measured
+                          4.39:1 there, just under the line. */}
+                      {m.core && <span className="ml-2 text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Core</span>}
                       {m.legalReview && <span className="ml-2 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full">legal review</span>}
                       {/* The third pill. `included` deliberately shows nothing:
                           it is the absence of a badge, exactly the way
@@ -3571,27 +3584,27 @@ function ModulesTab({ password }: { password: string }) {
                         renders for included modules too and sits apart from the
                         pills above. */}
                     {m.builtBy && (
-                      <p className="text-xs text-gray-400 mt-1.5">Built by {m.builtBy}</p>
+                      <p className="text-xs text-gray-600 mt-1.5">Built by {m.builtBy}</p>
                     )}
                     {m.requires.length > 0 && (
-                      <p className="text-xs text-gray-400 mt-1.5">requires: {m.requires.join(", ")}</p>
+                      <p className="text-xs text-gray-600 mt-1.5">requires: {m.requires.join(", ")}</p>
                     )}
                     {/* The fourth line: who answers for this one. Only where
                         somebody outside is involved, so eighteen platform
                         modules gain no noise. */}
                     {m.support?.party === "vendor" && (
-                      <p className="text-xs text-gray-400 mt-1.5">
+                      <p className="text-xs text-gray-600 mt-1.5">
                         built and supported by {m.support.vendorName}, and you hold the account.{" "}
                         <a href={m.support.supportUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Support</a>
                       </p>
                     )}
                     {m.tier === "managed" && (
-                      <p className="text-xs text-gray-400 mt-1.5">
+                      <p className="text-xs text-gray-600 mt-1.5">
                         supported by whoever runs this deployment. One bill, one number to call.
                       </p>
                     )}
                     {m.listing && (
-                      <p className="text-xs text-gray-400 mt-1.5">
+                      <p className="text-xs text-gray-600 mt-1.5">
                         enabled as {m.listing.tier} under library contract {m.listing.contractVersion}
                         {m.listing.acceptedAt ? ` on ${new Date(m.listing.acceptedAt).toLocaleDateString()}` : ""}
                       </p>
@@ -3607,7 +3620,7 @@ function ModulesTab({ password }: { password: string }) {
                       </p>
                     )}
                     {m.pricing && m.pricing.amount > 0 && m.credentialPresent === true && (
-                      <p className="text-xs text-gray-400 mt-1.5">Licence key is set.</p>
+                      <p className="text-xs text-gray-600 mt-1.5">Licence key is set.</p>
                     )}
                     {m.withdrawn && (
                       <p className="text-xs text-orange-700 mt-1.5">
@@ -3630,9 +3643,27 @@ function ModulesTab({ password }: { password: string }) {
                     </button>
                   </div>
                   {m.core ? (
-                    <span className="text-xs text-gray-400 italic pt-1">always on</span>
+                    /* This pill is a core module's whole lifecycle answer, so
+                       it reads at the same weight as the buttons beside it.
+                       gray-400 measured 2.49:1 on the panel's gray-50. */
+                    <span className="text-xs text-gray-600 italic pt-1">always on</span>
                   ) : (
-                    <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                    /*
+                     * Two columns on a phone, one row from `sm:` up.
+                     *
+                     * As one nowrap row the four labels set a min-content floor
+                     * of 264px, which a 360px screen cannot pay for: 56px rail +
+                     * 32px page padding + 40px card padding leaves 230, and the
+                     * whole catalog scrolled sideways because of it. A grid
+                     * wraps instead of pushing, so the card fits whatever is
+                     * left, and each cell lands well over the 44px a thumb
+                     * needs (the `off` button was 40.6 wide as a flex item).
+                     *
+                     * The hairlines come from the container's own background
+                     * showing through a 1px gap. `border-l` per button drew a
+                     * stray line down the left edge of the second row.
+                     */
+                    <div className="grid grid-cols-2 gap-px w-full sm:flex sm:w-auto sm:gap-0 rounded-lg border border-gray-200 bg-gray-200 sm:bg-transparent overflow-hidden">
                       {LIFECYCLES.map((lc) => {
                         /* A withdrawn listing that is already off can never come
                            back, so the buttons that would try are dead rather
@@ -3646,11 +3677,11 @@ function ModulesTab({ password }: { password: string }) {
                             disabled={busy === m.id || barred}
                             onClick={() => setLifecycle(m, lc)}
                             title={barred ? `Withdrawn on ${m.withdrawn.since}. It cannot be turned on.` : LIFECYCLE_HINT[lc]}
-                            className={`px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium transition-colors ${
+                            className={`px-3 py-1.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 text-xs font-medium transition-colors ${
                               m.lifecycle === lc
                                 ? "bg-[#2D5A5A] text-white"
                                 : "bg-white text-gray-600 hover:bg-gray-50"
-                            } ${barred ? "opacity-40 cursor-not-allowed" : ""} ${lc !== "off" ? "border-l border-gray-200" : ""}`}
+                            } ${barred ? "opacity-40 cursor-not-allowed" : ""} ${lc !== "off" ? "sm:border-l sm:border-gray-200" : ""}`}
                           >
                             {lc}
                           </button>
@@ -3660,7 +3691,7 @@ function ModulesTab({ password }: { password: string }) {
                   )}
                 </div>
                 {!m.core && m.lifecycle !== "off" && (
-                  <p className="text-xs text-gray-400 mt-3">
+                  <p className="text-xs text-gray-600 mt-3">
                     {LIFECYCLE_HINT[m.lifecycle]}
                     {m.variableKeys.length > 0 && ` Tunables now visible in Game Mechanics: ${m.variableKeys.join(", ")}.`}
                   </p>
