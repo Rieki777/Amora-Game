@@ -78,6 +78,7 @@ import { buildMechanicsHandoff, extractMechanicsMarker } from "./lib/hypha-bridg
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
   allTokens,
+  tokenNameClash,
   RECOGNITION_FAUCET,
   balanceOf,
   balancesFor,
@@ -12202,6 +12203,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (tokenDef(cleanSlug)) {
       return res.status(409).json({ error: `"${cleanSlug}" already exists. Token history must never be silently re-denominated` });
     }
+    // The same rule the rename below enforces, and it has to be here too:
+    // guarding only the rename leaves CREATE as an unguarded door to the
+    // identical collision, reached by typing the name in the first time.
+    const createClash = tokenNameClash(String(name).trim(), cleanSlug);
+    if (createClash) return res.status(409).json({ error: createClash });
     await registerToken(getPool(), {
       slug: cleanSlug,
       name: String(name).trim().slice(0, 120),
@@ -12248,6 +12254,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (wantsName) {
       const name = String(body.name ?? "").trim().slice(0, 120);
       if (!name) return res.status(400).json({ error: "A display name is required" });
+      const clash = tokenNameClash(name, slug);
+      if (clash) return res.status(409).json({ error: clash });
       await getPool().query("UPDATE tokens SET name = ? WHERE slug = ?", [name, slug]);
     }
     if (wantsActive) {

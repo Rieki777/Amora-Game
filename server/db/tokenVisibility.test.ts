@@ -9,6 +9,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadStanding } from "../lib/profile";
 import { publicRules, publicSupply } from "../lib/economy";
+import { allTokens, loadTokenRegistry, tokenNameClash } from "../lib/ledger";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./testDb";
 
 const configured = testDbConfigured();
@@ -111,6 +112,59 @@ describe.skipIf(!configured)("token visibility", () => {
     await setActive(false);
     const supply = await publicSupply(db.conn as any);
     expect(JSON.stringify(supply.tokens)).not.toContain(SLUG);
+  });
+
+  describe("no two tokens may share a name", () => {
+    // Rye, 2026-08-15: the Hypha-governed names are the real source of truth,
+    // because a name that disagrees with Base is a member holding a balance
+    // they cannot identify. A fresh registry seeds `amora` and `voice` as
+    // hypha, and `gratitude` and `credits` as platform.
+    beforeAll(async () => {
+      await loadTokenRegistry(db.conn as any);
+    });
+
+    // Read the Hypha name out of the registry rather than writing it here. It
+    // keeps a village's brand out of platform code, which the brand guard
+    // enforces, and it makes the test say the true thing: colliding with
+    // WHATEVER the Base token is called is refused, whichever village this is.
+    const hyphaName = () => {
+      const t = allTokens().find((x) => x.governance !== "platform");
+      if (!t) throw new Error("expected a Hypha-governed token in a fresh registry");
+      return t.name;
+    };
+
+    it("refuses a platform name that collides with a Base token, and says why", () => {
+      const refusal = tokenNameClash(hyphaName(), "credits");
+      expect(refusal).toBeTruthy();
+      expect(refusal).toContain("Base is the source of truth");
+    });
+
+    it("ignores case and surrounding space, because a chip reads the same either way", () => {
+      expect(tokenNameClash(`  ${hyphaName().toUpperCase()} `, "credits")).toBeTruthy();
+    });
+
+    it("refuses a collision between two platform tokens too", () => {
+      const refusal = tokenNameClash("Gratitude", "credits");
+      expect(refusal).toBeTruthy();
+      expect(refusal).toContain("nobody can read");
+    });
+
+    it("ALLOWS a name that merely contains a token's name", () => {
+      // The guard that matters is exact collision. Blocking every name that
+      // contained the equity token's word would refuse most of what a village
+      // would naturally pick for its own credit, and a guard that blocks the
+      // ordinary case gets removed rather than obeyed.
+      expect(tokenNameClash(`${hyphaName()} Credits`, "credits")).toBeNull();
+    });
+
+    it("lets a token keep its own name", () => {
+      // Saving the rename form without changing the text must not refuse.
+      expect(tokenNameClash("Village Credits", "credits")).toBeNull();
+    });
+
+    it("allows an ordinary free name", () => {
+      expect(tokenNameClash("Harvest Tokens", "credits")).toBeNull();
+    });
   });
 
   it("puts it back the moment it is shown again", async () => {

@@ -108,6 +108,40 @@ export function allTokens(): TokenDef[] {
 }
 
 /**
+ * TWO TOKENS MAY NOT SHARE A DISPLAY NAME (Rye, 2026-08-15).
+ *
+ * Returns a refusal sentence, or null when the name is free. Shared by the
+ * create and rename routes, because guarding one leaves the other as an
+ * unguarded door to the identical collision.
+ *
+ * The registry already refuses to RENAME a Hypha mirror: its name is a fact
+ * about Base rather than a setting. That guarded one direction and left the
+ * other open, and the open one is what actually bites. A platform token renamed
+ * onto a Base token's name produces the same contradiction from the far end,
+ * and leaves a member unable to tell which thing a balance means.
+ *
+ * Compared case-insensitively on the trimmed string, because "amora" and
+ * "Amora " are the same word to whoever reads the chip.
+ *
+ * Deliberately an EXACT match and not a substring test. "Amora Credits" is not
+ * blocked and should not be: refusing every name that merely CONTAINS a token's
+ * name would refuse most of what a village would naturally choose, and a guard
+ * that blocks the ordinary case gets removed rather than obeyed. This prevents
+ * the collision, not the family resemblance.
+ */
+export function tokenNameClash(name: string, exceptSlug: string): string | null {
+  const wanted = name.trim().toLowerCase();
+  if (!wanted) return null;
+  const clash = allTokens().find(
+    (t) => t.slug !== exceptSlug && t.name.trim().toLowerCase() === wanted,
+  );
+  if (!clash) return null;
+  return clash.governance === "platform"
+    ? `"${clash.name}" is already the name of the ${clash.slug} token. Two tokens sharing a name is a balance nobody can read`
+    : `"${clash.name}" is what ${clash.slug} is called on Base, and Base is the source of truth for that name. Pick a name this village owns`;
+}
+
+/**
  * Create or update a token (S9 admin surface; module layer later). Writes the
  * table first, then refreshes the registry — the table is the truth.
  */
