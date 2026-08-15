@@ -54,7 +54,10 @@ const journeySteps = [
     id: "business-proposal",
     stage: "Applicant",
     title: "Submit Business Proposal",
-    description: "Present your vision and how it aligns with village needs and our regenerative mission. Maia, our guide, can help you shape it.",
+    // LANE Q: {name} is filled from the deployment's own assistant persona at
+    // render, the same token GuideChat.tsx already substitutes in its greeting.
+    // This step read "Maia" whatever the village had named its guide.
+    description: "Present your vision and how it aligns with village needs and our regenerative mission. {name}, our guide, can help you shape it.",
     icon: FileText,
     link: "/work-with-us",
     linkText: "Work With Us",
@@ -143,12 +146,18 @@ export default function ProsperityJourney() {
   const brand = useBrandImages();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("community-call");
+  // LANE Q: the guide's name is per-deployment config, never a constant.
+  const [assistantName, setAssistantName] = useState("Maia");
 
   useEffect(() => {
     const saved = localStorage.getItem("amora-prosperity-progress");
     if (saved) {
       setCompletedSteps(JSON.parse(saved));
     }
+    fetch("/api/work-with-us-config")
+      .then((r) => r.json())
+      .then((w) => { if (w?.assistantName) setAssistantName(w.assistantName); })
+      .catch(() => { /* the default stands */ });
   }, []);
 
   const toggleStep = (stepId: string) => {
@@ -398,7 +407,7 @@ export default function ProsperityJourney() {
                             </motion.div>
                           </div>
                           <p className="text-sm text-muted-foreground mt-1">
-                            {step.description}
+                            {step.description.replace(/\{name\}/g, assistantName)}
                           </p>
                         </div>
                       </div>

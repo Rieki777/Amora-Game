@@ -245,6 +245,30 @@ export interface AssistantRequest {
   runTool?(name: string): Promise<{ ok: true; key: string; data: unknown } | { ok: false; error: string }>;
 }
 
+/**
+ * What a REFUSED answer already cost (Lane Q).
+ *
+ * A tool loop that exhausts the day budget on its second iteration refuses
+ * with 503 and no text, which is the honest end of that turn. The first
+ * iteration still happened: real tokens were bought upstream and the reply is
+ * in the wire history. The usage writer used to be reachable only through the
+ * ok-guard at each call site, so that spend was recorded NOWHERE, and the only
+ * measurement anyone has of what the assistant costs quietly under-counted
+ * exactly the conversations that ran long enough to be expensive.
+ *
+ * Present only when at least one upstream call completed. A refusal before the
+ * first POST (unknown mode, burst limit, no key, budget already spent at i=0)
+ * carries nothing, because nothing was bought.
+ */
+export interface AssistantSpend {
+  /** Summed across the iterations that COMPLETED before the refusal. */
+  usage: AssistantUsage;
+  /** Upstream POSTs that completed. Always >= 1 when this is present. */
+  iterations: number;
+  keySource: KeySource;
+  stopReason: string | null;
+}
+
 export type AssistantResult =
   | {
       ok: true;
@@ -258,7 +282,7 @@ export type AssistantResult =
       /** Reader keys actually called, in order, for the transparency line. */
       toolsUsed: string[];
     }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; spent?: AssistantSpend };
 
 /**
  * The endpoint, honouring ANTHROPIC_BASE_URL.
@@ -321,6 +345,12 @@ export async function callAssistant(req: AssistantRequest): Promise<AssistantRes
 
   const doFetch = deps.fetchImpl ?? fetch;
 
+  // LANE Q: what a refusal from here on has already bought. Spreads to nothing
+  // before the first completed POST, so every existing refusal shape is byte
+  // for byte what it was.
+  const spent = (): { spent?: AssistantSpend } =>
+    iterations > 0 ? { spent: { usage, iterations, keySource: resolved.source, stopReason } } : {};
+
   for (let i = 0; i <= spec.toolCalls; i++) {
     const today = new Date().toISOString().slice(0, 10);
     if (await deps.rateLimited(`assistant-day:${req.mode}:${today}`, spec.dailyBudget, 24 * 60 * 60 * 1000)) {
@@ -329,14 +359,14 @@ export async function callAssistant(req: AssistantRequest): Promise<AssistantRes
       // Serving what we have would hand a caller their own fallback sentence
       // at HTTP 200 with nothing in the log.
       if (i > 0) console.warn(`[assistant:${req.mode}] day budget ran out mid-loop after ${iterations} call(s)`);
-      return { ok: false, status: 503, error: "assistant-unavailable" };
+      return { ok: false, status: 503, error: "assistant-unavailable", ...spent() };
     }
     // A borrowed key spends someone else's allowance, so it carries a second,
     // smaller ceiling on top of the mode's own.
     if (resolved.source === "platform") {
       const cap = platformDailyCap();
       if (cap === 0 || (await deps.rateLimited(`assistant-platform-day:${today}`, cap, 24 * 60 * 60 * 1000))) {
-        return { ok: false, status: 503, error: "assistant-unavailable" };
+        return { ok: false, status: 503, error: "assistant-unavailable", ...spent() };
       }
     }
 
@@ -370,12 +400,12 @@ export async function callAssistant(req: AssistantRequest): Promise<AssistantRes
       if (!r.ok) {
         // The key never reaches a log line, whoever it belongs to.
         console.error(`[assistant:${req.mode}] Anthropic error`, r.status, (await r.text()).slice(0, 300));
-        return { ok: false, status: 502, error: "assistant-error" };
+        return { ok: false, status: 502, error: "assistant-error", ...spent() };
       }
       data = await r.json();
     } catch (err) {
       console.error(`[assistant:${req.mode}]`, err);
-      return { ok: false, status: 502, error: "assistant-error" };
+      return { ok: false, status: 502, error: "assistant-error", ...spent() };
     }
 
     iterations += 1;

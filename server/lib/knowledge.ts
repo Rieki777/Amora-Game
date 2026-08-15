@@ -54,6 +54,10 @@
 import fs from "fs";
 import path from "path";
 import type { Pool, RowDataPacket } from "mysql2/promise";
+// LANE Q: the provenance half of the shelf. `moduleDocProvenance.ts` is the
+// mechanism (who wrote a document, declared in the document's own text); this
+// file is where a citation says it out loud.
+import { readProvenance, provenanceSuffix, type DocProvenance } from "./moduleDocProvenance";
 
 // ── Tokenizing and scoring ───────────────────────────────────────────────────
 
@@ -258,6 +262,12 @@ export interface ShelfSection {
   heading: string;
   body: string;
   tokens: number;
+  /**
+   * LANE Q: whose words these are, read from the document's own `Provenance:`
+   * line. Null for a document that declares nothing, which is the same as
+   * platform for citation purposes and is why the knowledge shelf is unchanged.
+   */
+  provenance?: DocProvenance | null;
 }
 
 /** Prompt budget for the shared brain, per turn. Tokens are authoritative. */
@@ -328,6 +338,9 @@ let docs: Array<Indexed<ShelfDoc>> = [];
 function loadOne(shelfId: ShelfId, dir: string, file: string, key: string): number {
   const body = fs.readFileSync(path.join(dir, file), "utf8");
   const title = body.split("\n")[0]?.replace(/^#\s*/, "").trim() || key;
+  // LANE Q: read once per document, carried on every section it produces, so a
+  // citation can say whose words it is quoting without a second file read.
+  const provenance = readProvenance(body);
   let n = 0;
   for (const s of splitSections(body)) {
     const section: ShelfSection = {
@@ -337,6 +350,7 @@ function loadOne(shelfId: ShelfId, dir: string, file: string, key: string): numb
       heading: s.heading,
       body: s.text,
       tokens: estimateTokens(s.text),
+      provenance,
     };
     // The key, title and heading are the section's IDENTITY, not just more of
     // its text: a question about legal structures should reach
@@ -464,9 +478,23 @@ export function relevantSections(query: string, opts: SectionQuery = {}): ShelfS
   return chosen;
 }
 
-/** How a section cites itself in a prompt and in the transparency panel. */
+/**
+ * How a section cites itself in a prompt and in the transparency panel.
+ *
+ * LANE Q wires the provenance half. Silence still means ours: a platform
+ * document (or one that declares nothing) appends an empty string, so every
+ * citation on today's shelf reads exactly as it did. The first time a
+ * listing's own contract joins the shelf, a reader sees whose words they are
+ * instead of receiving a vendor's description of a vendor's product in the
+ * same voice as the platform's own contract for quests.
+ *
+ * The suffix goes LAST, which is what `provenanceSuffix` documents itself as
+ * ("what a citation appends") and what its leading space is shaped for. The
+ * one-line sketch in `moduleDocProvenance.ts`'s header has the two operands
+ * the other way round, which would print the author before the title.
+ */
 export function sectionCitation(s: ShelfSection): string {
-  return s.heading ? `${s.docTitle} > ${s.heading}` : s.docTitle;
+  return (s.heading ? `${s.docTitle} > ${s.heading}` : s.docTitle) + provenanceSuffix(s.provenance ?? null);
 }
 
 // ── The village's own second brain ───────────────────────────────────────────

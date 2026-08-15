@@ -27,6 +27,11 @@ const EMPTY: QuestProposal = {
 export default function ProposeQuest() {
   const { user } = useAuth();
   const [projectName, setProjectName] = useState("Amora");
+  // LANE Q: the guide's name is a per-deployment persona set in the Setup
+  // Wizard, and this page hardcoded "Maia" in two places. A fork that renamed
+  // its guide had the button and the chat header calling her by the platform's
+  // first tenant's name. WorkWithUs.tsx already reads it from this document.
+  const [assistantName, setAssistantName] = useState("Maia");
   const [aiAvailable, setAiAvailable] = useState(false);
   const [mode, setMode] = useState<"ai" | "form">("form");
   const [form, setForm] = useState<QuestProposal>({
@@ -42,6 +47,10 @@ export default function ProposeQuest() {
   useEffect(() => {
     fetchConfigCached().then((c) => { if (c?.project?.name) setProjectName(c.project.name); });
     assistantAvailable().then((ok) => { setAiAvailable(ok); if (ok) setMode("ai"); });
+    fetch("/api/work-with-us-config")
+      .then((r) => r.json())
+      .then((w) => { if (w?.assistantName) setAssistantName(w.assistantName); })
+      .catch(() => { /* the default stands */ });
   }, []);
 
   // Prefill for a signed-in member, without clobbering anything they've typed.
@@ -162,7 +171,7 @@ export default function ProposeQuest() {
                 mode === "ai" ? "bg-teal-deep text-white" : "bg-card border border-border text-muted-foreground hover:bg-muted"
               }`}
             >
-              <MessageCircle className="w-4 h-4" /> Talk it through with Maia
+              <MessageCircle className="w-4 h-4" /> Talk it through with {assistantName}
             </button>
             <button
               onClick={() => setMode("form")}
@@ -182,7 +191,7 @@ export default function ProposeQuest() {
             <GuideChat
               kind="quest-proposal"
               projectName={projectName}
-              assistantName="Maia"
+              assistantName={assistantName}
               empty={EMPTY}
               onSubmitted={() => setSubmitted(true)}
               onFallback={() => { setAiAvailable(false); setMode("form"); }}

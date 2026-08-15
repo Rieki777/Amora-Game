@@ -172,7 +172,12 @@ const PLATFORM_REQUIREMENTS: LaunchRequirement[] = [
     id: "assistant-key",
     group: "integrations",
     title: "Connect the AI guide (Anthropic)",
-    why: "Maia welcomes proposals and guides this launch journey. Without a key she is simply absent. Every form still works by hand.",
+    // LANE Q: neutral wording. These are shared constants with no access to
+    // the world config, so they cannot read the deployment's assistant name
+    // the way a client page can. Naming the platform's first tenant's persona
+    // here was false for every fork that renamed its guide, and gendering it
+    // was false for every fork that did not choose a woman.
+    why: "Your guide welcomes proposals and walks a founder through this launch journey. Without a key the guide is simply absent. Every form still works by hand.",
     severity: "optional",
     checkKey: "assistant-key",
     fixAt: "/admin?tab=integrations",
@@ -182,7 +187,8 @@ const PLATFORM_REQUIREMENTS: LaunchRequirement[] = [
     id: "assistant-own-key",
     group: "integrations",
     title: "Move the AI guide onto your own key",
-    why: "This deployment is running the guide on a key the platform lends it. That key can be rotated at any time, and when it is, your guide stops answering. Your own key means nobody else's decision can switch her off.",
+    // LANE Q: same reason. "her" assumed a persona this deployment may not run.
+    why: "This deployment is running the guide on a key the platform lends it. That key can be rotated at any time, and when it is, your guide stops answering. Your own key means nobody else's decision can switch your guide off.",
     severity: "recommended",
     checkKey: "assistant-own-key",
     fixAt: "/admin?tab=integrations",

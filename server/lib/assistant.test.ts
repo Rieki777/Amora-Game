@@ -504,3 +504,110 @@ describe("what a call cost", () => {
     expect((r as any).usage.outputTokens).toBe(0);
   });
 });
+
+/*
+ * LANE Q: a refusal can still have cost money.
+ *
+ * The day budget moved INSIDE the loop so that a budget of 50 means 50 real
+ * upstream calls, which is right. The consequence nobody wired up is that a
+ * tool-using conversation can now be refused BETWEEN its calls: iteration one
+ * buys real tokens, iteration two finds the bucket empty, and the engine
+ * returns 503 with no text, correctly, because the last reply was a tool
+ * request and carries no answer.
+ *
+ * The usage writer at every call site sat behind that call site's ok-guard, so
+ * iteration one's spend was recorded NOWHERE. The only measurement anyone has
+ * of what the assistant costs was therefore under-counting exactly the
+ * conversations that ran long enough to be expensive, and the operator's log
+ * showed a free 503 where real money had been spent.
+ *
+ * The 503 semantics do not move. What is added is a `spent` field the caller
+ * may write down, present only when an upstream call actually completed.
+ */
+describe("what a REFUSED call already cost", () => {
+  it("carries the first iteration's tokens when the budget runs out mid-loop", async () => {
+    // organize declares toolCalls 2, so the loop wants a second call. The day
+    // bucket answers "full" only on the SECOND ask, which is the mid-flight
+    // exhaustion this is about.
+    let dayAsks = 0;
+    const h = harness({
+      villageKey: "k",
+      replies: [toolUse({ input_tokens: 100, output_tokens: 20 }), answer()],
+      limited: (bucket) => {
+        if (!bucket.startsWith("assistant-day:")) return false;
+        dayAsks += 1;
+        return dayAsks > 1;
+      },
+    });
+
+    const r = await callAssistant(req({ tools: TOOLS, runTool: okReader }));
+
+    // Every 503 semantic is byte for byte what it was.
+    expect(r.ok).toBe(false);
+    expect((r as any).status).toBe(503);
+    expect((r as any).error).toBe("assistant-unavailable");
+    // Exactly one upstream POST happened, and it was paid for.
+    expect(h.bodies).toHaveLength(1);
+
+    const spent = (r as any).spent;
+    expect(spent, "the completed iteration is recordable").toBeTruthy();
+    expect(spent.iterations).toBe(1);
+    expect(spent.keySource).toBe("village");
+    expect(spent.usage).toEqual({
+      inputTokens: 100, outputTokens: 20, cacheCreationInputTokens: 0, cacheReadInputTokens: 0,
+    });
+  });
+
+  it("carries nothing when the refusal happens before any upstream call", async () => {
+    // Nothing was bought, so there is nothing to write down, and a row here
+    // would be a fiction in the one table that is supposed to hold facts.
+    const r = await callAssistant(req());
+    expect(r.ok).toBe(false);
+    expect((r as any).status).toBe(503);
+    expect((r as any).spent).toBeUndefined();
+
+    // Same for a day budget already spent when the question arrives.
+    const h = harness({ villageKey: "k", limited: (b) => b.startsWith("assistant-day:") });
+    const spentAlready = await callAssistant(req());
+    expect(spentAlready.ok).toBe(false);
+    expect((spentAlready as any).status).toBe(503);
+    expect((spentAlready as any).spent).toBeUndefined();
+    expect(h.bodies).toHaveLength(0);
+
+    // And for the burst guard, which runs before the key is even resolved.
+    const burst = harness({ villageKey: "k", limited: (b) => b.startsWith("assist:") });
+    const throttled = await callAssistant(req());
+    expect((throttled as any).status).toBe(429);
+    expect((throttled as any).spent).toBeUndefined();
+    expect(burst.bodies).toHaveLength(0);
+  });
+
+  it("carries what an upstream failure had already bought", async () => {
+    // Not only the budget path: a 502 on the second call has the same shape.
+    // The first turn's tokens are gone whatever killed the second.
+    let calls = 0;
+    wireAssistant({
+      villageKey: () => "k",
+      rateLimited: async () => false,
+      fetchImpl: (async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => toolUse({ input_tokens: 55, output_tokens: 5 }),
+            text: async () => "",
+          } as any;
+        }
+        return { ok: false, status: 500, json: async () => ({}), text: async () => "upstream said no" } as any;
+      }) as any,
+    });
+
+    const r = await callAssistant(req({ tools: TOOLS, runTool: okReader }));
+    expect(r.ok).toBe(false);
+    expect((r as any).status).toBe(502);
+    expect((r as any).error).toBe("assistant-error");
+    expect((r as any).spent.iterations).toBe(1);
+    expect((r as any).spent.usage.inputTokens).toBe(55);
+  });
+});

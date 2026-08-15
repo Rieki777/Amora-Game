@@ -174,6 +174,57 @@ describe("relevantSections: the module shelf answers module questions", () => {
     expect(hits.length).toBeGreaterThan(0);
     expect(sectionCitation(hits[0])).toContain(">");
   });
+
+  /*
+   * LANE Q: a citation says WHOSE WORDS it is quoting.
+   *
+   * `moduleDocProvenance.ts` has been the mechanism since Lane C (a document
+   * declares its provenance in its own text, and one that declares nothing
+   * cannot join the module shelf), and the last line of the wiring lived in
+   * this file, which belonged to another lane at the time. Without it, every
+   * section cited as `Title > Heading`, which reads as "sourced and shipped
+   * with the platform". True of every document on the shelf today; false and
+   * SILENTLY false the first time a listing's own contract joins it, when a
+   * village would receive a vendor's description of a vendor's product in the
+   * same voice as the platform's own contract for quests.
+   */
+  it("appends nothing for the platform's own documents, so today's shelf is unchanged", () => {
+    const hits = relevantSections("how does the exchange price tokens", { shelves: ["modules"] });
+    expect(hits.length).toBeGreaterThan(0);
+    for (const h of hits) {
+      // Every shipped module contract declares `Provenance: platform`, and
+      // silence means ours: the citation is exactly what it always was.
+      expect(h.provenance).toEqual({ source: "platform" });
+      expect(sectionCitation(h)).toBe(h.heading ? `${h.docTitle} > ${h.heading}` : h.docTitle);
+      expect(sectionCitation(h)).not.toContain("written by");
+    }
+  });
+
+  it("names the author when a document is not the platform's own", () => {
+    // Built rather than read off disk: no vendor document ships yet, and the
+    // point of wiring this now is that the day one is added the citation is
+    // already honest. This is the shape `readProvenance` produces.
+    const vendorSection = {
+      shelfId: "modules" as const,
+      docKey: "signals",
+      docTitle: "Signals capture",
+      heading: "What it does",
+      body: "Reads a feed and writes a row.",
+      tokens: 8,
+      provenance: { source: "vendor" as const, author: "Example Systems Ltd" },
+    };
+    expect(sectionCitation(vendorSection)).toBe("Signals capture > What it does (written by Example Systems Ltd)");
+    // The heading-less preamble case carries it too.
+    expect(sectionCitation({ ...vendorSection, heading: "" })).toBe("Signals capture (written by Example Systems Ltd)");
+  });
+
+  it("stays quiet for a document that declares nothing", () => {
+    // The literature shelf carries no provenance markers and must be
+    // unaffected: a missing declaration reads the same as the platform's own.
+    const hits = relevantSections("what is nonviolent communication", { shelves: ["knowledge"] });
+    expect(hits.length).toBeGreaterThan(0);
+    expect(sectionCitation(hits[0])).not.toContain("written by");
+  });
 });
 
 describe("retrieval is two stage, and each stage earns its keep", () => {
