@@ -3255,6 +3255,18 @@ function ModulesTab({ password }: { password: string }) {
 
   useEffect(() => { load(); }, [load]);
 
+  /**
+   * A refusal, in English.
+   *
+   * Server refusal bodies are being unified to `{error, message}`, where
+   * `error` is the machine code and `message` is the sentence a person should
+   * read. A toast that prints the code shows a founder `auth_required` and
+   * calls it an explanation. Both shapes are in flight, so this prefers the
+   * sentence and falls back to the code, then to whatever the call site knows.
+   */
+  const refusal = (d: any, fallback: string): string =>
+    String(d?.message ?? d?.error ?? fallback);
+
   const setLifecycle = async (mod: any, lifecycle: string) => {
     if (mod.legalReview && mod.lifecycle === "off" && lifecycle !== "off") {
       const sure = window.confirm(
@@ -3272,9 +3284,14 @@ function ModulesTab({ password }: { password: string }) {
       });
       const d = await res.json();
       if (!res.ok) {
-        if (d.missing?.length) toast.error(`${d.error}. Enable ${d.missing.join(", ")} first.`);
-        else if (d.dependents?.length) toast.error(d.error);
-        else toast.error(d.error || "Change refused");
+        // A missing dependency is the one refusal the server cannot phrase
+        // alone, because the fix is a list of other modules. The trailing stop
+        // comes off before the sentence is extended, so a unified body that
+        // already ends in one does not print "..". Every other refusal,
+        // `dependents` included, now carries its own sentence and is printed
+        // as it stands.
+        if (d.missing?.length) toast.error(`${refusal(d, "Change refused").replace(/\.$/, "")}. Enable ${d.missing.join(", ")} first.`);
+        else toast.error(refusal(d, "Change refused"));
       } else {
         toast.success(`${mod.name} is now ${lifecycle}`);
       }
@@ -3313,7 +3330,7 @@ function ModulesTab({ password }: { password: string }) {
       });
       const d = await res.json();
       if (!res.ok) {
-        toast.error(d.error || "Could not clear the examples");
+        toast.error(refusal(d, "Could not clear the examples"));
       } else {
         toast.success(`${mod.name}: ${d.removed} example row(s) cleared`);
         // The member-facing banner reads its own endpoint and would otherwise
