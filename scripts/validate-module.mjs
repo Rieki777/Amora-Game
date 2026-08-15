@@ -39,6 +39,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import ts from "typescript";
+import { CODE_RULES, addedLineNumbers, scanFileLines } from "./contribution-scan.mjs";
 
 const ROOT = path.resolve(
   path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, "$1"),
@@ -133,8 +134,10 @@ const wanted = args.filter((a) => !a.startsWith("--"));
 
 const registry = await loadShared("modules");
 const launch = await loadShared("launchRequirements", ["modules"]);
+const poolLib = await loadShared("modulePool", ["modules"]);
 
-const { MODULES, moduleListingProblems, priceLine } = registry;
+const { MODULES, moduleListingProblems, priceLine, isPaid } = registry;
+const { poolStatus, modulePayoutProblems } = poolLib;
 const byId = new Map(MODULES.map((m) => [m.id, m]));
 
 for (const id of wanted) {
@@ -181,15 +184,6 @@ console.log("Registry shape (shared/modules.ts:moduleListingProblems)");
 const docs = readModuleDocs();
 const drivers = registeredDriverIds();
 
-// The pool rule is a property of the REGISTRY and not of one listing, so it is
-// reported once. Repeating "the field does not exist yet" per module would bury
-// the per-listing findings under eighteen copies of one sentence.
-if (!MODULES.some((m) => Object.prototype.hasOwnProperty.call(m, "pool"))) {
-  note(
-    "Pool eligibility is not a registry field yet, so the rule that a priced listing may not also " +
-      "draw from the builders' pool cannot bite. The field will be `pool`; this activates when it lands.",
-  );
-}
 
 if (docs === null) {
   bad("read MODULE_DOCS from server/lib/knowledge.ts: COULD NOT PARSE");
@@ -241,10 +235,27 @@ for (const m of targets) {
   // instead of declaring it. When `pool` lands in `ModuleDef`, this check
   // starts biting with no edit. Until then it is vacuous by construction, and
   // it says so below rather than reporting a pass it did not earn.
-  if (Object.prototype.hasOwnProperty.call(m, "pool")) {
-    m.pricing && m.pool
-      ? bad("a listing that declares pricing is not pool-eligible (contract clause 14)")
-      : ok("pricing and pool eligibility are not both declared (contract clause 14)");
+  {
+    const status = poolStatus(m);
+    console.log(`    pool: ${status.eligible ? "eligible" : "not eligible"} (${status.reason})`);
+
+    // Contract clause 14, as an implication rather than a description. It
+    // cannot fail today because `poolStatus` returns `paid` before it returns
+    // anything eligible, and that is the point: the assertion pins the
+    // relationship so a later reordering of those checks cannot quietly let a
+    // priced listing draw from the pool as well.
+    isPaid(m) && status.eligible
+      ? bad("a listing that charges is not pool-eligible (contract clause 14)")
+      : ok("charging and pool eligibility are mutually exclusive (contract clause 14)");
+
+    // The payout identity, from the same function the server uses.
+    const payout = modulePayoutProblems([m]);
+    if (payout.length) {
+      for (const p of payout) console.log(`    ${p}`);
+      bad(`payout identity is answerable: ${payout.length} problem(s)`);
+    } else if (m.builtByAccount !== undefined) {
+      ok("payout identity is a ReGen Civics handle that credits a named builder");
+    }
   }
 
   // 2c. dataClass sanity: member-pii means somebody outside can be asked to forget.
@@ -336,7 +347,6 @@ for (const m of targets) {
 // nobody has to learn a second convention. Waivers are counted and printed,
 // which is what keeps them honest.
 
-const WAIVER = /module-review-ok:/;
 
 /**
  * Files changed against the base: tracked modifications AND untracked new
@@ -376,50 +386,6 @@ function fileAtBase(base, relPath) {
   }
 }
 
-/**
- * The code-pattern rules. Each is scoped to where it is a real rule: a raw
- * `fetch` is a finding on the server and ordinary in the client, and raw SQL
- * is the entire job of `server/repos` and a finding anywhere else.
- */
-const CODE_RULES = [
-  {
-    id: "raw fetch outside guardedFetchJson",
-    scope: (f) => /^(server|shared)\//.test(f) && !/^server\/lib\/toolcheck\.ts$/.test(f),
-    pattern: /(?<![A-Za-z0-9_.])fetch\s*\(/,
-    exempt: (line) => /guardedFetchJson/.test(line),
-    why: "outbound calls carry a correlation id and land in the call record only when they go through the helper",
-  },
-  {
-    id: "raw SQL outside server/repos",
-    scope: (f) => /^(server|shared|client)\//.test(f) && !/^server\/(repos|db|seeds)\//.test(f),
-    pattern: /\b(?:pool|conn|connection|db|c)\s*\.\s*(?:query|execute)\s*\(|createPool\s*\(|createConnection\s*\(/,
-    exempt: () => false,
-    why: "queries live in a repo so the caches above them stay correct and a table's readers stay enumerable",
-  },
-  {
-    id: "eval or a non-literal dynamic import",
-    scope: (f) => /^(server|shared|client)\//.test(f),
-    pattern: /\beval\s*\(|new\s+Function\s*\(|\bimport\s*\(\s*(?!["'`])/,
-    exempt: () => false,
-    why: "remote or computed code defeats every review this process performs",
-  },
-  {
-    id: "a write to a protected table",
-    scope: (f) => /^(server|shared)\//.test(f),
-    pattern:
-      /(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+`?(?:token_ledger|token_balances|module_settings|module_events|badge_awards|user_capabilities)`?/i,
-    exempt: () => false,
-    why: "the ledger, the capability gate and module lifecycle are the platform's own; a module never writes them directly",
-  },
-  {
-    id: "a credential written into code",
-    scope: (f) => /^(server|shared|client|scripts)\//.test(f),
-    pattern:
-      /(?:api[_-]?key|secret|password|token)\s*[:=]\s*["'`](?!\s*$)[A-Za-z0-9_\-]{20,}["'`]|\bsk-[A-Za-z0-9]{20,}|\bAKIA[0-9A-Z]{16}\b/i,
-    exempt: () => false,
-    why: "credentials belong in the secrets store, where they are write-only and rotatable",
-  },
-];
 
 const wantDiff = args.some((a) => a === "--diff" || a.startsWith("--diff="));
 const diffBase = (args.find((a) => a.startsWith("--diff=")) ?? "--diff=origin/main").split("=")[1];
@@ -466,23 +432,30 @@ if (wantDiff) {
       ok("package.json unchanged, so no new dependencies");
     }
 
-    // 3b. The code patterns.
+    // 3b. The code patterns, over ADDED lines only.
+    //
+    // A file with a base version is scanned for hits and then those hits are
+    // attributed: a hit on a line this change added is the contributor's, and a
+    // hit anywhere else is pre-existing debt that happens to live in a file they
+    // opened. Only the first kind blocks. A file with no base version is new, so
+    // all of it is theirs.
     const findings = new Map(CODE_RULES.map((r) => [r.id, []]));
+    let preExisting = 0;
+    let newFiles = 0;
     for (const f of files) {
       const full = path.join(ROOT, ...f.split("/"));
       if (!/\.(ts|tsx|js|jsx|mjs)$/.test(f) || !fs.existsSync(full)) continue;
       let body = "";
       try { body = fs.readFileSync(full, "utf8"); } catch { continue; }
-      const lines = body.split(/\r?\n/);
-      for (const rule of CODE_RULES) {
-        if (!rule.scope(f)) continue;
-        lines.forEach((line, i) => {
-          const code = line.replace(/\/\/.*$/, "").replace(/\/\*.*?\*\//g, "");
-          if (!rule.pattern.test(code)) return;
-          if (WAIVER.test(line)) { waivers++; return; }
-          if (rule.exempt(line)) return;
-          findings.get(rule.id).push(`${f}:${i + 1}  ${line.trim().slice(0, 100)}`);
-        });
+
+      const addedSet = addedLineNumbers(diffBase, f, ROOT);
+      if (addedSet === null) newFiles += 1;
+
+      const scan = scanFileLines({ relPath: f, body, addedSet });
+      preExisting += scan.preExisting;
+      waivers += scan.waived;
+      for (const hit of scan.findings) {
+        findings.get(hit.ruleId).push(`${hit.relPath}:${hit.line}  ${hit.text}`);
       }
     }
     for (const rule of CODE_RULES) {
@@ -495,6 +468,15 @@ if (wantDiff) {
       }
     }
     if (waivers) console.log(`    ${waivers} waiver(s) in force on the lines above.`);
+    if (newFiles) console.log(`    ${newFiles} new file(s) scanned whole, having no base version to diff against.`);
+    if (preExisting) {
+      // Informational and deliberately not a violation. The debt is real and
+      // worth seeing; charging it to whoever opened the file next is what made
+      // this check refuse every server pull request.
+      console.log(
+        `    [pre-existing, not yours] ${preExisting} rule hit(s) on lines this change did not touch, in files it did touch.`,
+      );
+    }
   }
 
   note(
