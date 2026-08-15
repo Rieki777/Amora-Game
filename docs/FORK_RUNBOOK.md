@@ -679,3 +679,29 @@ draws its own seed, which is the correct state for a fresh fork.
 - Quest poster art: a quest's `imageUrl` must be a path under `/api/uploads/` (the API refuses anything else, the same rule the forum's image field follows), so posters are uploaded into the `data/uploads/` volume, never committed to `client/public`. That directory is served one-year-immutable and is not content-hashed, and CI caps `dist/public` at 6 MB total and 400 KB per image. A village with no poster files needs no action: each card paints a gradient scene from its circle, and a quest whose `imageUrl` points at a missing file falls back to the same scene rather than showing a broken image.
 - Quest crews (0067, `quest_crews` + `quest_crew_members`): a small named group walking one quest, formed by any signed-in member and joined by invite link. Nothing about a crew touches value: members claim, submit and are consented to individually, so the consent gate never learns crews exist. Every crew route requires a signed-in member INCLUDING the read, because quest pages are public and who walks with whom is not for crawlers. Crews carry no conversation yet; `crewsRepo.attachConversation` is ready for the messaging module (`kind` 'crew', `context_type` 'quest', `context_id` the quest id) when it lands.
 - Quest share cards: `/quests` and `/quests/:id` are rendered with per-request Open Graph tags (the static `client/index.html` stays brand-neutral, so the server splices identity in from its brand document and the request host). `GET /api/og/quest/:id` renders a 1200x630 JPEG from the quest's poster, or from its circle's gradient scene when there is no poster. No env var and no extra step.
+
+## What the assistant costs, and the village's own record (0078)
+
+**One new table**, `assistant_usage` (0078). Every call the assistant makes now
+writes what it cost: all four token fields, the model, whether the key was the
+village's own or the borrowed platform one, the member who asked, and the
+number of upstream calls behind one answer. Nothing before this recorded a
+token count, so "what does the assistant cost" was answered by guessing.
+`rate_hits` counts events in a bucket and knows nothing about their size.
+
+Nothing to provision: no env var, no seed file, no extra step. The table fills
+itself the first time anyone uses any assistant surface, and a village that
+never configures a key simply has no rows.
+
+**One new scheduled job**, `record-derive`, daily. It reads decided forum
+threads and files each one into `village_record` so members can be answered
+about decisions made before they arrived. It early-returns while the forum
+module is off. It is idempotent on `(source, source_ref)`, so re-running it
+changes nothing, and it walks the backlog oldest first. Its result line reads
+`N decided, N filed, N already there`; a trailing `N lost to a slug collision`
+means two decisions carried the same title on the same day and the second one
+could not be filed. That is a real loss and it is reported rather than hidden.
+Give one of them a distinct title and the next run files it.
+
+The record is fork-local. It is excluded by name from the feedback relay, the
+peer publish surface and the platform handshake, and a test enforces that.
