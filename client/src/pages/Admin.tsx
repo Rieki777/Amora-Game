@@ -6862,7 +6862,7 @@ function TokensTab({ password }: { password: string }) {
             <strong>Shown to members</strong> hides a token from member-facing pages and
             nothing more. Balances, history and the ledger are untouched, so hiding one
             is reversible and takes nothing away from anybody who holds it. It does not
-            stop a mint rule from paying — to stop issuance, pause the rule in the Mint.
+            stop a mint rule from paying. To stop issuance, pause the rule in the Mint.
           </span>
         </p>
       </div>
