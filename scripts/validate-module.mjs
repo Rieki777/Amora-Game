@@ -186,8 +186,8 @@ const drivers = registeredDriverIds();
 // the per-listing findings under eighteen copies of one sentence.
 if (!MODULES.some((m) => Object.prototype.hasOwnProperty.call(m, "pool"))) {
   note(
-    'Contract clause 14: pool eligibility is not a registry field yet, so "a listing that declares ' +
-      'pricing is not pool-eligible" cannot bite. The field will be `pool`; this check activates when it lands.',
+    "Pool eligibility is not a registry field yet, so the rule that a priced listing may not also " +
+      "draw from the builders' pool cannot bite. The field will be `pool`; this activates when it lands.",
   );
 }
 
@@ -521,7 +521,11 @@ const STANDING = [
   "Contract clause 12: the liveness probe does not exist, so a declared window is a promise nothing measures.",
   "Whether the support addresses are answered by a person who can act.",
 ];
-for (const line of [...STANDING, ...cannotCheck]) console.log(`  - ${line}`);
+// Every line here is marked, because these lines name contract clauses and a
+// reader matching on a clause name would read a standing gap as a failure. The
+// intake workflow did exactly that once and refused a clean repository. Machine
+// readers key on `<-- VIOLATION`; nothing below ever carries it.
+for (const line of [...STANDING, ...cannotCheck]) console.log(`  [not checked] ${line}`);
 
 console.log(
   violations === 0
