@@ -2788,10 +2788,17 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
     try {
       await api("PUT", "/api/admin/email-config", { assistant_api_key: "test-key" }, founderToken);
+      // LANE K1: this question used to be "what did we decide about quiet
+      // hours", which now takes a cheaper road: the router recognises the
+      // decisions reader and prefetches it, so the answer costs ONE upstream
+      // call and this test's whole subject stops existing. The subject is the
+      // two-POST tool loop, so the question is one the router deliberately
+      // refuses to be sure about, and the stub still answers with a tool
+      // request whatever was asked.
       const r = await api(
         "POST",
         "/api/admin/assistant/organize",
-        { messages: [{ role: "user", content: "what did we decide about quiet hours" }] },
+        { messages: [{ role: "user", content: "how do we handle disagreements" }] },
         founderToken,
       );
       expect(r.status, JSON.stringify(r.json)).toBe(200);
@@ -2847,6 +2854,71 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       await new Promise<void>((r) => llm.close(() => r()));
       await api("PUT", "/api/admin/email-config", { assistant_api_key: "" }, founderToken);
     }
+  });
+
+  it("S78: a structured lookup answers from the record, buying nothing", async () => {
+    /*
+     * Lane K1's acceptance criterion, over HTTP, against the built server.
+     *
+     * It runs HERE on purpose. The stub on 3783 was closed by the block above
+     * and `ANTHROPIC_BASE_URL` still points at it, so any question that
+     * reached the assistant engine comes back 502 or 503. A 200 with a real
+     * sentence in it therefore proves the answer never went upstream, which is
+     * the one thing a token count alone could not prove.
+     *
+     * That is also the user-visible consequence worth stating: a village whose
+     * daily budget is spent, or whose key is missing, can still ask what its
+     * own record holds.
+     */
+    const today = new Date().toISOString().slice(0, 10);
+    const bucket = `assistant-day:organize:${today}`;
+    const hits = async () => {
+      const [[row]] = await testDb.conn.query<any[]>(
+        "SELECT COUNT(*) AS n FROM rate_hits WHERE bucket = ?", [bucket],
+      );
+      return Number(row.n);
+    };
+    const before = await hits();
+
+    const r = await api(
+      "POST",
+      "/api/admin/assistant/organize",
+      { messages: [{ role: "user", content: "what decisions have we recorded" }] },
+      founderToken,
+    );
+
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect(r.json.path).toBe("deterministic");
+    // The row the loop read through two POSTs, read once and said plainly.
+    // The title and the template's own opening, NOT the count: another test
+    // adding a second decision is not a reason for this one to go red.
+    expect(String(r.json.reply)).toContain("The record holds");
+    expect(String(r.json.reply)).toContain("Quiet hours from 9pm");
+    // The citation line still names the shelf the answer came off.
+    expect(r.json.consulted.readers).toEqual(["record.decisions"]);
+    expect(Array.isArray(r.json.consulted.references)).toBe(true);
+
+    // Nothing was bought, so the day budget is exactly where it was.
+    expect(await hits()).toBe(before);
+
+    // And the row says so, rather than the saving being invisible.
+    //
+    // Selected by `path` and not by recency. `created_at` is a timestamp with
+    // second precision and the test above writes an organize row too, so two
+    // rows inside one second would make ORDER BY created_at pick either.
+    const [rows] = await testDb.conn.query<any[]>(
+      "SELECT mode, model, key_source, path, input_tokens, output_tokens, iterations " +
+        "FROM assistant_usage WHERE mode = 'organize' AND path = 'deterministic' " +
+        "ORDER BY created_at DESC LIMIT 1",
+    );
+    expect(rows.length, "the deterministic answer wrote no usage row").toBe(1);
+    const usage = rows[0];
+    expect(usage.path).toBe("deterministic");
+    expect(Number(usage.iterations)).toBe(0);
+    expect(Number(usage.input_tokens)).toBe(0);
+    expect(Number(usage.output_tokens)).toBe(0);
+    expect(usage.model).toBe("none");
+    expect(usage.key_source).toBe("none");
   });
 
   it("S56: the interop handshake — a deployment says what it is, from config", async () => {

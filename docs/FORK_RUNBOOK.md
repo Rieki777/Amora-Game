@@ -785,6 +785,25 @@ Nothing to provision: no env var, no seed file, no extra step. The table fills
 itself the first time anyone uses any assistant surface, and a village that
 never configures a key simply has no rows.
 
+**One added column**, `path` (0081), which says which road produced the answer.
+`loop` is the two-POST tool loop and the default, so every row written before
+0081 reads as one truthfully. `prefetch` read the reader first and made one
+call. `deterministic` answered straight from the village record with no model
+at all, and those rows carry zeros in all four token fields and 0 in
+`iterations`, because that is the honest count of upstream calls behind them.
+
+The number worth watching is the ratio, not the average:
+
+```sql
+SELECT path, COUNT(*) AS answers, SUM(input_tokens + output_tokens) AS tokens
+FROM assistant_usage WHERE created_at > NOW() - INTERVAL 30 DAY GROUP BY path;
+```
+
+A deterministic answer costs nothing and charges no daily budget, so a village
+whose budget is spent, or which has no key configured at all, can still ask
+what its own record holds. Questions the router is not sure about take the loop
+exactly as before.
+
 **One new scheduled job**, `record-derive`, daily. It reads decided forum
 threads and files each one into `village_record` so members can be answered
 about decisions made before they arrived. It early-returns while the forum

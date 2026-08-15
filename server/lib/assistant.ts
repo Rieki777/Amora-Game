@@ -243,6 +243,27 @@ export interface AssistantRequest {
   tools?: AssistantTool[];
   /** Runs one tool by its WIRE name and hands back the reader's own result. */
   runTool?(name: string): Promise<{ ok: true; key: string; data: unknown } | { ok: false; error: string }>;
+  /**
+   * Reader results the CALLER already read, for the question it already knows
+   * they answer (Lane K1).
+   *
+   * The tool loop costs two POSTs to use a reader: one that comes back asking
+   * for it, and one that reads the result. When the caller can tell which
+   * reader a question wants before asking, the first POST buys nothing except
+   * the model's agreement. Filling this skips it.
+   *
+   * Present and non-empty turns tools OFF for this request. That is the whole
+   * point and it is not a suggestion to the model: a request that both carries
+   * the data and offers the tools can still spend a round trip asking for what
+   * it was already given. One POST, and `iterations` says 1 honestly.
+   *
+   * The data is fenced with `fenceForPrompt`, the same fence the loop puts
+   * around a tool result, because it is the same member-written text arriving
+   * by a shorter road. Audience gating is NOT relaxed here and is not this
+   * file's job: the caller reads through `callReader`, which refuses a reader
+   * the viewer may not see, exactly as it does for the loop.
+   */
+  prefetch?: { key: string; data: unknown }[];
 }
 
 /**
@@ -304,6 +325,29 @@ function tokenCount(v: unknown): number {
 }
 
 /**
+ * The caller's system prompt with the reader results appended (Lane K1).
+ *
+ * The system prompt and not a message, for two reasons. The organize route
+ * already fences its call syntheses into the system prompt, so this is the
+ * road that exists. And the alternative breaks something: `sanitizeMessages`
+ * guarantees the conversation ends on the person's own turn, and slipping a
+ * data turn in before it either breaks that guarantee or edits words the
+ * person wrote.
+ *
+ * The instruction sentence matters. Without it a model handed data it did not
+ * ask for tends to acknowledge the data instead of answering from it.
+ */
+function withPrefetched(system: string, prefetched: { key: string; data: unknown }[]): string {
+  return [
+    system,
+    "",
+    "THE VILLAGE DATA FOR THIS QUESTION, read from the database before this message.",
+    "You did not have to ask for it and there is nothing further to request. Answer from it.",
+    ...prefetched.map((p) => fenceForPrompt(p.key, p.data)),
+  ].join("\n");
+}
+
+/**
  * Every guard, then the call, then as many tool turns as the mode allows.
  *
  * The per-IP burst limit runs first and ONCE, because it is a guard about a
@@ -333,12 +377,19 @@ export async function callAssistant(req: AssistantRequest): Promise<AssistantRes
   const resolved = resolveKey();
   if (!resolved) return { ok: false, status: 503, error: "assistant-unavailable" };
 
-  const useTools = Boolean(req.tools?.length) && spec.toolCalls > 0;
+  // LANE K1: prefetched data replaces the tools rather than joining them. A
+  // request carrying both can still spend a POST asking for what it holds.
+  const prefetched = req.prefetch ?? [];
+  const useTools = prefetched.length === 0 && Boolean(req.tools?.length) && spec.toolCalls > 0;
+  const system = prefetched.length > 0 ? withPrefetched(req.system, prefetched) : req.system;
   const wire: WireMessage[] = req.messages.map((m) => ({ role: m.role, content: m.content }));
   const usage: AssistantUsage = {
     inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0,
   };
-  const toolsUsed: string[] = [];
+  // The loop pushes a key when it CALLS a reader. A prefetched key was read
+  // before this function ran, so it is seeded here and the transparency line
+  // shows the same thing on both roads.
+  const toolsUsed: string[] = prefetched.map((p) => p.key);
   let iterations = 0;
   let stopReason: string | null = null;
   let text = "";
@@ -373,7 +424,7 @@ export async function callAssistant(req: AssistantRequest): Promise<AssistantRes
     const payload: Record<string, unknown> = {
       model: req.model,
       max_tokens: req.maxTokens ?? spec.maxTokens,
-      system: req.system,
+      system,
       messages: wire,
     };
     if (useTools) {
