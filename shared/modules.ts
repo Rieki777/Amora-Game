@@ -26,8 +26,22 @@ export const LIFECYCLE_RANK: Record<ModuleLifecycle, number> = {
 // the platform writes and maintains against somebody's API. No vendor code
 // runs inside a village's server and there is no plugin runtime.
 
-/** The contract version a listing is accepted under. Stamped at enable time. */
-export const MODULE_LIBRARY_CONTRACT_VERSION = "1.0";
+/**
+ * The contract version a listing is accepted under. Stamped at enable time.
+ *
+ * THIS CONSTANT IS THE ONE THAT BINDS. `docs/MODULE_LIBRARY_CONTRACT.md` is
+ * what a builder reads; this is what a village's `listingStamp` actually
+ * records, so a listing accepted while the two disagree is accepted under the
+ * NUMBER, whatever the document says. It went to 1.1 when the document did.
+ *
+ * Raising it is never retroactive. A stamp already written stays on the terms
+ * it was written under, which is the whole reason the stamp exists: a later
+ * version is a re-acceptance and never a silent rewrite.
+ *
+ * `node scripts/module-facts.mjs` compares the two and says so out loud. If it
+ * reports a disagreement, one of the two moved without the other.
+ */
+export const MODULE_LIBRARY_CONTRACT_VERSION = "1.1";
 
 /**
  * Concurrent managed listings, hard. Two, and the second is a transition slot.
@@ -246,6 +260,30 @@ export interface ModuleDef {
    * and it is exactly the case a healthy library should make easy.
    */
   builtBy?: string;
+  /**
+   * The builder's ReGen Civics account, where the $ReGen builders' pool looks
+   * to find out who to pay.
+   *
+   * A HANDLE and never an address, which is Rye's ruling and is the whole
+   * safety of the thing. An address written here is asserted by whoever edits
+   * this file, in a public repository a fork can edit, for a payment somebody
+   * else receives. A handle is asserted by the builder themselves: they hold a
+   * ReGen Civics account, they link their Hypha account and Base address in
+   * their own profile setup, and the hub reads the address off the profile at
+   * the moment it writes a statement. The registry never learns the address
+   * and a pull request can never redirect a payment.
+   *
+   * A sibling of `builtBy` rather than a field inside it, because `builtBy` is
+   * a credit LINE: a name a person wrote for a reader, and it stays readable
+   * whether or not the person holds an account anywhere.
+   *
+   * Optional on purpose, and absence is a real state rather than a gap. A
+   * module with no handle still earns its share; the hub's cycle statement
+   * records that share as unpaid and names what is missing, so a builder can
+   * open an account, link an address, and collect what accrued. Eligibility
+   * never depends on this field, only settlement does.
+   */
+  builtByAccount?: string;
   /** What this listing costs. Absent means it adds no charge of its own. */
   pricing?: ModulePricing;
   /** Set once the listing stops being offered. Blocks new enables, serves as before. */

@@ -437,6 +437,7 @@ import {
   LIFECYCLE_RANK, MODULES, MODULES_BY_ID, priceLine, supportRoute, vendorModules,
   type ModuleLifecycle,
 } from "../shared/modules";
+import { poolStatus } from "../shared/modulePool";
 import { resolveHyphaLinks } from "../shared/hypha";
 import { getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
@@ -5623,6 +5624,13 @@ async function startServer() {
       dataClass: m.dataClass,
       provides: m.provides ?? null,
       support: supportRoute(m),
+      // ── Lane P: the $ReGen builders' pool ─────────────────────────────────
+      // Derived from the registry entry on every request, never stored, so it
+      // cannot drift from `pricing`, `builtBy` or `withdrawn`. It rides beside
+      // `tier` for the same reason `tier` travels at all: a member reading a
+      // module's card is entitled to know whether the person who wrote it is
+      // paid by ReGen Civics or by this village's invoice.
+      pool: poolStatus(m),
     }));
     res.json({
       platform: {
@@ -5711,6 +5719,14 @@ async function startServer() {
         pricing: m.pricing ?? null,
         priceLine: m.pricing ? priceLine(m.pricing) : null,
         withdrawn: m.withdrawn ?? null,
+        // ── Lane P: the $ReGen builders' pool ──────────────────────────────
+        // The same derived verdict `/api/modules` carries, plus the builder's
+        // ReGen Civics handle, which is admin operating detail for the same
+        // reason the price is. The handle is all that travels: the Base
+        // address it resolves to lives in that builder's own hub profile and
+        // is never held here, never published here, and never editable here.
+        pool: poolStatus(m),
+        builtByAccount: m.builtByAccount ?? null,
         // Whether this module ships a contract doc on the shelf at all. A
         // listing without one is a listing a village cannot read about, which
         // the store says out loud rather than leaving as a blank space.
