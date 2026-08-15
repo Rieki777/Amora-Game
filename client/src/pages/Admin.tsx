@@ -25,6 +25,32 @@ const FORM_TYPES = ["work-with-us", "quest-proposal", "visit-inquiry", "membersh
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
   return { Authorization: `Bearer ${password}`, ...extra };
 }
+
+/**
+ * A refusal, in English.
+ *
+ * Server refusal bodies are being unified to `{error, message}`, where `error`
+ * is the machine code and `message` is the sentence a person should read. A
+ * toast that prints the code hands a founder `auth_required` and calls it an
+ * explanation. Both shapes are in flight, so this prefers the sentence, falls
+ * back to the code, then to whatever the call site already knew to say.
+ *
+ * Every admin surface reads refusals through this one function. It was four
+ * call sites in the module store first; the other twenty-four were the same
+ * `d.error ||` by hand, and one of them dropping back to `d.error` later is
+ * exactly the kind of thing nobody notices from a toast.
+ */
+function refusal(d: any, fallback: string): string {
+  // Falsy-skipping, not nullish-coalescing: every call site this replaced was
+  // `d.error || "..."`, so a body carrying an empty string fell through to the
+  // words the call site chose. `??` would have shown a founder a blank toast
+  // and called that an improvement.
+  for (const value of [d?.message, d?.error]) {
+    const text = value == null ? "" : String(value).trim();
+    if (text) return text;
+  }
+  return fallback;
+}
 const CONTENT_SECTIONS = [
   { key: "investor", label: "Investor Journey", icon: TrendingUp },
   { key: "steward", label: "Steward Journey", icon: Users },
@@ -1378,7 +1404,7 @@ function IntegrationsTab({ password }: { password: string }) {
         body: JSON.stringify({ value }),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "failed");
+      if (!res.ok) throw new Error(refusal(d, "failed"));
       toast.success(value.trim() ? "Key saved" : "Key cleared");
       setDrafts((p) => ({ ...p, [key]: "" }));
       load();
@@ -3009,7 +3035,7 @@ function PlayersTab({ password }: { password: string }) {
         body: JSON.stringify({ role }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "failed");
+      if (!res.ok) throw new Error(refusal(data, "failed"));
       toast.success(`${name} is now ${role}`);
       load();
     } catch (e: any) { toast.error(e?.message || "Role change failed"); }
@@ -3131,7 +3157,7 @@ function GameRolesTab({ password }: { password: string }) {
         body: JSON.stringify({ userId, action }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "failed");
+      if (!res.ok) throw new Error(refusal(data, "failed"));
       toast.success(action === "add" ? "Appointed" : "Removed");
       setPicking((prev) => ({ ...prev, [roleId]: "" }));
       load();
@@ -3254,18 +3280,6 @@ function ModulesTab({ password }: { password: string }) {
   }, [password]);
 
   useEffect(() => { load(); }, [load]);
-
-  /**
-   * A refusal, in English.
-   *
-   * Server refusal bodies are being unified to `{error, message}`, where
-   * `error` is the machine code and `message` is the sentence a person should
-   * read. A toast that prints the code shows a founder `auth_required` and
-   * calls it an explanation. Both shapes are in flight, so this prefers the
-   * sentence and falls back to the code, then to whatever the call site knows.
-   */
-  const refusal = (d: any, fallback: string): string =>
-    String(d?.message ?? d?.error ?? fallback);
 
   const setLifecycle = async (mod: any, lifecycle: string) => {
     if (mod.legalReview && mod.lifecycle === "off" && lifecycle !== "off") {
@@ -4701,7 +4715,7 @@ function CirclesMapTab({ password }: { password: string }) {
       body: JSON.stringify(newCircle),
     });
     const d = await res.json();
-    if (!res.ok) return toast.error(d.error || "Create failed");
+    if (!res.ok) return toast.error(refusal(d, "Create failed"));
     toast.success("Circle created");
     setNewCircle({ name: "", purpose: "" });
     // The village's first real circle retires the map's examples server-side.
@@ -4718,7 +4732,7 @@ function CirclesMapTab({ password }: { password: string }) {
       body: JSON.stringify({ aliases: [...(circle.aliases ?? []), alias] }),
     });
     const d = await res.json();
-    if (!res.ok) return toast.error(d.error || "Alias refused");
+    if (!res.ok) return toast.error(refusal(d, "Alias refused"));
     toast.success(`"${alias}" now resolves to ${circle.name}`);
     setAliasDrafts((p) => ({ ...p, [circle.id]: "" }));
     load();
@@ -4897,7 +4911,7 @@ function ToolsAdminTab({ password }: { password: string }) {
         body: JSON.stringify(form),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "failed");
+      if (!res.ok) throw new Error(refusal(d, "failed"));
       // Publishing the first real one retires that module's examples server
       // side; drop the banner's cached answer so the admin does not walk to
       // the page and read "nobody here made them" over their own work.
@@ -4934,7 +4948,7 @@ function ToolsAdminTab({ password }: { password: string }) {
     try {
       const res = await fetch(`${API_BASE}/admin/tools/check-links`, { method: "POST", headers: authHeaders(password) });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "failed");
+      if (!res.ok) throw new Error(refusal(d, "failed"));
       toast.success(`Checked ${d.checked} link(s)`);
       load();
     } catch (e: any) { toast.error(e?.message || "Check failed"); }
@@ -5128,7 +5142,7 @@ function StaysAdminTab({ password }: { password: string }) {
         body: body ? JSON.stringify(body) : undefined,
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "failed");
+      if (!res.ok) throw new Error(refusal(d, "failed"));
       return d;
     } catch (e: any) {
       toast.error(e?.message || "Request failed");
@@ -5494,7 +5508,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
         body: body ? JSON.stringify(body) : undefined,
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "failed");
+      if (!res.ok) throw new Error(refusal(d, "failed"));
       return d;
     } catch (e: any) { toast.error(e?.message || "Request failed"); return null; }
   };
@@ -5975,7 +5989,7 @@ function BadgesAdminTab({ password }: { password: string }) {
         body: body ? JSON.stringify(body) : undefined,
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "failed");
+      if (!res.ok) throw new Error(refusal(d, "failed"));
       return d;
     } catch (e: any) { toast.error(e?.message || "Request failed"); return null; }
   };
@@ -6253,7 +6267,7 @@ function LibraryAdminTab({ password }: { password: string }) {
         body: body ? JSON.stringify(body) : undefined,
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "failed");
+      if (!res.ok) throw new Error(refusal(d, "failed"));
       return d;
     } catch (e: any) { toast.error(e?.message || "Request failed"); return null; }
   };
@@ -6474,7 +6488,7 @@ function HealthAdminTab({ password }: { password: string }) {
         body: JSON.stringify({ metricKey: form.metricKey, value: Number(form.value), unit: form.unit || undefined, note: form.note }),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "failed");
+      if (!res.ok) throw new Error(refusal(d, "failed"));
       toast.success("Recorded on the land's ledger");
       setForm({ ...form, value: "", note: "" });
       forgetExamplesCache("health");
@@ -6640,7 +6654,7 @@ function ExitsAdminTab({ password }: { password: string }) {
       const d = await res.json();
       if (!res.ok) {
         const detail = Array.isArray(d.blocking) ? `: ${d.blocking.map((b: any) => `${b.domain}: ${b.count}`).join(", ")}` : "";
-        throw new Error((d.error || "failed") + detail);
+        throw new Error(refusal(d, "failed") + detail);
       }
       return d;
     } catch (e: any) { toast.error(e?.message || "Request failed"); return null; }
@@ -6844,7 +6858,7 @@ function CallsAdminTab({ password }: { password: string }) {
         body: body ? JSON.stringify(body) : undefined,
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "failed");
+      if (!res.ok) throw new Error(refusal(d, "failed"));
       return d;
     } catch (e: any) { toast.error(e?.message || "Request failed"); return null; }
   };
@@ -7195,7 +7209,7 @@ function TokensTab({ password }: { password: string }) {
         body: JSON.stringify(form),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "failed");
+      if (!res.ok) throw new Error(refusal(data, "failed"));
       toast.success(`Token "${data.token?.name}" created`);
       setForm({ slug: "", name: "", kind: "credit", transferable: false });
       // The village minting its own token is what retires the example market.
@@ -7213,7 +7227,7 @@ function TokensTab({ password }: { password: string }) {
         body: JSON.stringify({ name: renaming.name.trim() }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "failed");
+      if (!res.ok) throw new Error(refusal(data, "failed"));
       toast.success(`Renamed to "${data.token?.name}". Every page follows`);
       setRenaming(null);
       load();
@@ -7236,7 +7250,7 @@ function TokensTab({ password }: { password: string }) {
         body: JSON.stringify({ active }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "failed");
+      if (!res.ok) throw new Error(refusal(data, "failed"));
       toast.success(
         active
           ? `${t.name} is visible to members again`
@@ -7254,7 +7268,7 @@ function TokensTab({ password }: { password: string }) {
         body: JSON.stringify({ toUserId: mint.toUserId, amount: Number(mint.amount), reason: mint.reason }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "failed");
+      if (!res.ok) throw new Error(refusal(data, "failed"));
       toast.success(`Minted: ${data.remaining} left under this cycle's cap`);
       setMint({ slug: "", toUserId: "", amount: "", reason: "" });
       load();
@@ -7578,10 +7592,10 @@ function IntegrateDaoPanel({ password, onAssigned }: { password: string; onAssig
         body: JSON.stringify({ tokenName: tokenName.trim() }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Lookup failed");
+      if (!res.ok) throw new Error(refusal(data, "Lookup failed"));
       setResult(data);
       if (data.found) toast.success(`Found ${data.token.tokenName} (${data.token.tokenSymbol})`);
-      else toast.error(data.error || "Not found");
+      else toast.error(refusal(data, "Not found"));
     } catch (e: any) {
       toast.error(e?.message || "Lookup failed");
     }
@@ -7596,7 +7610,7 @@ function IntegrateDaoPanel({ password, onAssigned }: { password: string; onAssig
         body: JSON.stringify({ value: address }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Assign failed");
+      if (!res.ok) throw new Error(refusal(data, "Assign failed"));
       toast.success(`Saved as ${variableKey}`);
       onAssigned();
     } catch (e: any) {
@@ -7700,7 +7714,7 @@ function VariablesTab({ password }: { password: string }) {
         body: JSON.stringify({ value }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Invalid value");
+      if (!res.ok) throw new Error(refusal(data, "Invalid value"));
       toast.success("Saved. The rule is live");
       setDrafts((d) => { const n = { ...d }; delete n[key]; return n; });
       load();
@@ -8059,7 +8073,7 @@ function BrandImageField({
         method: "POST", headers: authHeaders(password), body: fd,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
+      if (!res.ok) throw new Error(refusal(data, "Upload failed"));
       onChange(data.url);
       const saved = data.originalBytes && data.bytes
         ? `, ${Math.round(data.originalBytes / 1024)}KB down to ${Math.round(data.bytes / 1024)}KB`
@@ -8621,7 +8635,7 @@ function ProductsAdminTab({ password }: { password: string }) {
       method, headers: authHeaders(password, { "Content-Type": "application/json" }), body: JSON.stringify(body),
     });
     const d = await res.json();
-    if (!res.ok) { toast.error(d.error || "failed"); return null; }
+    if (!res.ok) { toast.error(refusal(d, "failed")); return null; }
     return d;
   };
 
