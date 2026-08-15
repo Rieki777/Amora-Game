@@ -26,8 +26,22 @@ export const LIFECYCLE_RANK: Record<ModuleLifecycle, number> = {
 // the platform writes and maintains against somebody's API. No vendor code
 // runs inside a village's server and there is no plugin runtime.
 
-/** The contract version a listing is accepted under. Stamped at enable time. */
-export const MODULE_LIBRARY_CONTRACT_VERSION = "1.0";
+/**
+ * The contract version a listing is accepted under. Stamped at enable time.
+ *
+ * THIS CONSTANT IS THE ONE THAT BINDS. `docs/MODULE_LIBRARY_CONTRACT.md` is
+ * what a builder reads; this is what a village's `listingStamp` actually
+ * records, so a listing accepted while the two disagree is accepted under the
+ * NUMBER, whatever the document says. It went to 1.1 when the document did.
+ *
+ * Raising it is never retroactive. A stamp already written stays on the terms
+ * it was written under, which is the whole reason the stamp exists: a later
+ * version is a re-acceptance and never a silent rewrite.
+ *
+ * `node scripts/module-facts.mjs` compares the two and says so out loud. If it
+ * reports a disagreement, one of the two moved without the other.
+ */
+export const MODULE_LIBRARY_CONTRACT_VERSION = "1.1";
 
 /**
  * Concurrent managed listings, hard. Two, and the second is a transition slot.
