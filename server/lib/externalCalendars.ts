@@ -118,10 +118,13 @@ export type AddOutcome = { ok: true; calendar: ExternalCalendarView } | { ok: fa
 export async function addExternalCalendar(pool: Pool, input: AddExternalCalendarInput): Promise<AddOutcome> {
   const name = String(input.name ?? "").trim().slice(0, 120);
   if (!name) return { ok: false, error: "Give the calendar a name" };
-  const raw = String(input.url ?? "").trim();
+  // webcal:// is what Apple hands out; it is https underneath. The prefix is
+  // rewritten as a string because WHATWG ignores a scheme change from a
+  // non-special scheme on a parsed URL.
+  const raw = String(input.url ?? "").trim().replace(/^webcal:\/\//i, "https://");
+  if (/[\u0000-\u001f\u007f\s]/.test(raw)) return { ok: false, error: "The address must be a full URL" };
   let url: URL;
   try { url = new URL(raw); } catch { return { ok: false, error: "The address must be a full URL" }; }
-  if (url.protocol === "webcal:") url.protocol = "https:";
   if (url.protocol !== "https:") return { ok: false, error: "Calendar addresses are https only" };
   if (raw.length > 2000) return { ok: false, error: "That address is too long" };
   const guard = await guardOutboundUrl(url.toString());
@@ -176,9 +179,20 @@ const clip = (v: unknown, n: number): string | null => {
 export function parseIcs(text: string, from: Date, to: Date, cap = 2000): ImportedEvent[] {
   const jcal = ICAL.parse(text);
   const comp = new ICAL.Component(jcal);
+  // The feed's own VTIMEZONEs are registered for THIS parse and forgotten
+  // after it: ical.js's service is process-global, and a hostile feed must
+  // not be able to redefine America/New_York for the next subscription.
   for (const vt of comp.getAllSubcomponents("vtimezone")) {
     try { ICAL.TimezoneService.register(new ICAL.Timezone(vt)); } catch { /* a broken VTIMEZONE falls back to floating */ }
   }
+  try {
+    return parseRegistered(comp, from, to, cap);
+  } finally {
+    try { ICAL.TimezoneService.reset(); } catch { /* nothing to reset */ }
+  }
+}
+
+function parseRegistered(comp: InstanceType<typeof ICAL.Component>, from: Date, to: Date, cap: number): ImportedEvent[] {
   const out: ImportedEvent[] = [];
   const vevents = comp.getAllSubcomponents("vevent");
   // Overrides (RECURRENCE-ID) attach to their master through ical.js.
@@ -204,7 +218,7 @@ export function parseIcs(text: string, from: Date, to: Date, cap = 2000): Import
       endsAt: endsAt && endsAt.getTime() > startsAt.getTime() ? endsAt : null,
       allDay: Boolean(start.isDate),
       cancelled,
-      url: (() => { const u = clip(ev.component.getFirstPropertyValue("url"), 500); return u && /^https:\/\//.test(u) ? u : null; })(),
+      url: (() => { const u = clip(ev.component.getFirstPropertyValue("url"), 500); return u && /^https:\/\/\S+$/.test(u) && !/[\u0000-\u001f\u007f]/.test(u) ? u : null; })(),
     });
   };
   for (const master of masters) {

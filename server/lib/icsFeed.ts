@@ -44,8 +44,25 @@ const CRLF = "\r\n";
 
 /** RFC 5545 §3.3.11 TEXT escaping. */
 export function icsEscape(v: string): string {
-  return String(v).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+  return String(v)
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\r\n?|\n/g, "\\n")
+    // Any other control character has no place in a TEXT value and could
+    // only be there to break the line grammar.
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
 }
+
+/** A URL value: one that could end the line or start another is dropped whole. */
+const hasControlOrSpace = (t: string): boolean =>
+  Array.from(t).some((ch) => { const c = ch.charCodeAt(0); return c < 32 || c === 127 || /\s/.test(ch); });
+
+const icsUrl = (v: string): string | null => {
+  const t = String(v);
+  if (!t || hasControlOrSpace(t)) return null;
+  return /^https:\/\//.test(t) || t.startsWith("/") ? t : null;
+};
 
 /** RFC 5545 §3.1: lines fold at 75 octets, continuation lines begin with a space. */
 export function icsFold(line: string): string {
@@ -206,7 +223,8 @@ function vevent(e: EventLines, opts: IcsOptions, stamp: string): string[] {
   lines.push(`SUMMARY:${icsEscape(e.summary)}`);
   if (e.description) lines.push(`DESCRIPTION:${icsEscape(e.description)}`);
   if (e.location) lines.push(`LOCATION:${icsEscape(e.location)}`);
-  if (e.url) lines.push(`URL:${e.url}`);
+  const url = e.url ? icsUrl(e.url) : null;
+  if (url) lines.push(`URL:${url}`);
   lines.push(`STATUS:${e.status}`, `CATEGORIES:${icsEscape(e.category)}`);
   if (e.colour) lines.push(`COLOR:${icsEscape(e.colour)}`);
   lines.push("END:VEVENT");

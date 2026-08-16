@@ -542,7 +542,31 @@ export async function getCalendarRow(pool: Pool, id: string): Promise<CalendarRo
   return rows.length ? rowToCalendarRow(rows[0]) : null;
 }
 
-/** The base row as an item (occurrenceKey ""), with the viewer's counts. */
+/**
+ * The same rule listCalendarRows applies in SQL, for one row in hand: by
+ * layer, or by ownership; a removed row only for an admin. The by-id route
+ * runs every read through this so a guessable id (mirrored ids are hashes of
+ * their source) is never a way around the layer model.
+ */
+export function canViewRow(row: Pick<CalendarRow, "layer" | "ownerUserId" | "removedAt" | "status">, viewer: CalendarViewer, opts: { includeDrafts?: boolean } = {}): boolean {
+  if (row.removedAt && !viewer.isAdmin) return false;
+  if (row.status === "draft" && !opts.includeDrafts) return false;
+  if (viewer.userId && row.ownerUserId && row.ownerUserId === viewer.userId) return true;
+  return visibleLayersFor(viewer).includes(row.layer);
+}
+
+/** One row as an item, or null when absent OR when this viewer may not see it. */
+export async function getCalendarItemFor(pool: Pool, id: string, viewer: CalendarViewer, opts: { includeDrafts?: boolean } = {}, now = new Date()): Promise<CalendarItem | null> {
+  const row = await getCalendarRow(pool, id);
+  if (!row || !canViewRow(row, viewer, opts)) return null;
+  const counts = await rsvpCounts(pool, [row.id], viewer.userId);
+  return toItem(
+    { row, occurrenceKey: "", startsAt: row.startsAt, endsAt: row.endsAt, title: row.title, cancelled: false },
+    counts, now, viewer,
+  );
+}
+
+/** The base row as an item (occurrenceKey ""), with the viewer's counts. No visibility check: admin surfaces. */
 export async function getCalendarItem(pool: Pool, id: string, viewer: CalendarViewer, now = new Date()): Promise<CalendarItem | null> {
   const row = await getCalendarRow(pool, id);
   if (!row) return null;

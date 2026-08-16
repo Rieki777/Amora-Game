@@ -16,13 +16,15 @@ import {
   calendarRemoveMissing,
   calendarSourceIds,
   calendarUpsert,
+  canViewRow,
   cleanRecurrence,
   expandOccurrences,
+  getCalendarItemFor,
   listCalendarItems,
   visibleLayersFor,
   type CalendarRow,
 } from "./calendar";
-import { listGatherings, rsvp, withdrawRsvp } from "./gatherings";
+import { listGatherings, rsvp, upcomingByStructure, withdrawRsvp } from "./gatherings";
 
 const TZ = "America/Costa_Rica";
 
@@ -171,6 +173,27 @@ describe("visibleLayersFor", () => {
   });
 });
 
+describe("canViewRow", () => {
+  it("applies the list's rule to one row: layer, ownership, removal, drafts", () => {
+    const anon = { userId: null, isAdmin: false };
+    const member = { userId: "u1", isAdmin: false };
+    const admin = { userId: "a1", isAdmin: true };
+    const r = (over: Partial<CalendarRow>) => ({ layer: "village" as const, ownerUserId: null, removedAt: null, status: "scheduled" as const, ...over });
+    expect(canViewRow(r({}), anon)).toBe(true);
+    expect(canViewRow(r({ layer: "circle" }), anon)).toBe(false);
+    expect(canViewRow(r({ layer: "circle" }), member)).toBe(true);
+    expect(canViewRow(r({ layer: "private", ownerUserId: "u1" }), member)).toBe(true);
+    expect(canViewRow(r({ layer: "private", ownerUserId: "u1" }), admin)).toBe(false);
+    expect(canViewRow(r({ layer: "admin", ownerUserId: "u1" }), member)).toBe(true);
+    expect(canViewRow(r({ layer: "admin" }), member)).toBe(false);
+    expect(canViewRow(r({ layer: "admin" }), admin)).toBe(true);
+    expect(canViewRow(r({ removedAt: new Date() }), member)).toBe(false);
+    expect(canViewRow(r({ removedAt: new Date() }), admin)).toBe(true);
+    expect(canViewRow(r({ status: "draft" }), admin)).toBe(false);
+    expect(canViewRow(r({ status: "draft" }), admin, { includeDrafts: true })).toBe(true);
+  });
+});
+
 describe("calendarIdFor", () => {
   it("is stable, short and shaped like an event id", () => {
     const a = calendarIdFor({ sourceModule: "quests", sourceId: "q-1" });
@@ -260,6 +283,29 @@ describe.skipIf(!configured)("the one calendar, against a real schema", () => {
     expect(await titles(member, { kinds: ["loan-due", "notice-end"] })).toEqual(["Ladder due", "Notice ends"]);
     // The private row never reaches an admin who does not own it.
     expect(await titles(admin, { layers: ["private"] })).toEqual([]);
+  });
+
+  it("hides a hidden row by id too, and keeps the map's lanterns to public layers", async () => {
+    const soon = new Date(Date.now() + 2 * 86_400_000).toISOString();
+    const loanId = await calendarUpsert(pool, { kind: "loan-due", sourceModule: "t", sourceId: "loan-u1", title: "Ladder due", startsAt: soon, layer: "private", ownerUserId: "u1" });
+    const circleId = await calendarUpsert(pool, { kind: "gathering", sourceModule: "t", sourceId: "circle", title: "Land circle", startsAt: soon, layer: "circle" });
+    await pool.query("UPDATE events SET structure_keys = ? WHERE id = ?", [JSON.stringify(["barn"]), circleId]);
+    const openId = await calendarUpsert(pool, { kind: "gathering", sourceModule: "t", sourceId: "open", title: "Open day", startsAt: soon, layer: "public" });
+    await pool.query("UPDATE events SET structure_keys = ? WHERE id = ?", [JSON.stringify(["commons"]), openId]);
+    // The mirrored id is a hash of its source: anyone can compute it. By id it still 404s.
+    expect(await getCalendarItemFor(pool, loanId, anon)).toBeNull();
+    expect(await getCalendarItemFor(pool, loanId, admin)).toBeNull();
+    expect((await getCalendarItemFor(pool, loanId, member))!.title).toBe("Ladder due");
+    expect(await getCalendarItemFor(pool, circleId, anon)).toBeNull();
+    expect((await getCalendarItemFor(pool, circleId, member))!.title).toBe("Land circle");
+    expect((await getCalendarItemFor(pool, openId, anon))!.title).toBe("Open day");
+    // A removed row: gone for a member, visible to an admin.
+    await calendarRemove(pool, { sourceModule: "t", sourceId: "open" });
+    expect(await getCalendarItemFor(pool, openId, member)).toBeNull();
+    expect((await getCalendarItemFor(pool, openId, admin))!.removed).toBe(true);
+    // The map's per-structure read is anonymous: only public and village layers reach it.
+    const lanterns = await upcomingByStructure(pool, 30);
+    expect(lanterns.barn).toBeUndefined();
   });
 
   it("materialises recurrence and counts RSVPs per occurrence", async () => {

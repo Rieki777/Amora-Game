@@ -76,6 +76,16 @@ describe("the pieces", () => {
     expect(icsFold(accents).replace(/\r\n /g, "")).toContain("é".repeat(120));
   });
 
+  it("lets no control character through a TEXT value or a URL", () => {
+    expect(icsEscape("a\rb\r\nc\nd\u0000e\u001bf")).toBe("a\\nb\\nc\\ndef");
+    const rows = [row({ id: "inj", title: "ok", link: "/x\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nEND:VALARM" })];
+    const ics = buildIcs(rows, opts);
+    expect(ics).not.toContain("VALARM");
+    expect(ics.split("\r\n").filter((l) => l.startsWith("URL:"))).toEqual([]);
+    const fine = buildIcs([row({ id: "ok", title: "ok", link: "https://village.test/events" })], opts);
+    expect(fine).toContain("URL:https://village.test/events");
+  });
+
   it("writes an RRULE for weekly and monthly, none for lunar and solar", () => {
     expect(rruleFor(row({ recurrence: { freq: "weekly", byWeekday: [2, 4], interval: 2, until: "2026-12-31T00:00:00Z" } }))).toBe("FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH;UNTIL=20261231T000000Z");
     expect(rruleFor(row({ recurrence: { freq: "monthly", byMonthDay: 15 } }))).toBe("FREQ=MONTHLY;BYMONTHDAY=15");

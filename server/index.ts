@@ -55,7 +55,6 @@ import {
   createGathering,
   deleteGathering,
   eventsOpenState,
-  getGathering,
   listGatherings,
   listRsvps,
   rsvp,
@@ -63,7 +62,7 @@ import {
   upcomingByStructure,
   withdrawRsvp,
 } from "./lib/gatherings";
-import { cleanRecurrence, isAuthoredKind, listCalendarItems, listCalendarRows } from "./lib/calendar";
+import { cleanRecurrence, getCalendarItemFor, isAuthoredKind, listCalendarItems, listCalendarRows } from "./lib/calendar";
 import { ensureSky, mirrorCalendarSources } from "./lib/calendarProviders";
 import { listMonthNames, lunarSummaryFor, namesForHemisphere, setMonthName } from "./lib/lunarTable";
 import { buildIcs, feedTokenStatus, looksLikeFeedToken, mintFeedToken, resolveFeedToken, revokeFeedTokens } from "./lib/icsFeed";
@@ -8073,6 +8072,7 @@ async function startServer() {
     }
     if (body.link) {
       const l = String(body.link);
+      if (/[\u0000-\u001f\u007f\s]/.test(l)) return "The link must not contain spaces or line breaks";
       if (!(l.startsWith("/") && !l.startsWith("//"))) {
         let url: URL;
         try { url = new URL(l); } catch { return "The link must be a valid URL or a site path"; }
@@ -8163,8 +8163,14 @@ async function startServer() {
       }
       const userId = await resolveFeedToken(getPool(), raw);
       if (!userId) return res.status(404).type("text/plain").send("Not found");
+      // A key outlives nothing: an account that is gone or anonymized reads
+      // as a visitor would, and its key is retired on the way out.
       const user = await members.byId(userId);
-      viewer = { userId, isAdmin: Boolean(user && (user.role === "admin" || user.role === "founder")) };
+      if (!user || String(user.email ?? "").endsWith("@anonymized.invalid")) {
+        await revokeFeedTokens(getPool(), userId);
+        return res.status(404).type("text/plain").send("Not found");
+      }
+      viewer = { userId, isAdmin: user.role === "admin" || user.role === "founder" };
     }
     const timezone = villageTimezone();
     const now = new Date();
@@ -8255,12 +8261,14 @@ async function startServer() {
    * module that is off.
    */
   app.get("/api/events/:id", async (req, res) => {
-    const user = await authedUser(req);
-    const g = await getGathering(getPool(), req.params.id, user?.id ?? null);
+    // The layer model applies to a single row as it does to the list (0085):
+    // mirrored ids are hashes of their source and therefore guessable, so an
+    // anonymous read of a private or admin row by id must 404 exactly as an
+    // absent one does. Whoever may manage events sees drafts and every layer.
+    const viewer = await calendarViewer(req);
+    const manages = viewer.isAdmin || (await mayManageEvents(req));
+    const g = await getCalendarItemFor(getPool(), req.params.id, { ...viewer, isAdmin: manages }, { includeDrafts: manages });
     if (!g) return res.status(404).json({ error: "Not found" });
-    if (g.status === "draft" && !(await mayManageEvents(req))) {
-      return res.status(404).json({ error: "Not found" });
-    }
     res.json({
       event: g,
       schemaOrg: toSchemaOrg(g, { siteUrl: mergedConfig().project.siteUrl }),

@@ -147,10 +147,16 @@ function cleanKind(v: unknown): CalendarKind {
 function cleanLayer(v: unknown): CalendarLayer {
   return CALENDAR_LAYERS.includes(v as CalendarLayer) ? (v as CalendarLayer) : "village";
 }
-/** An https link or a site-relative path; anything else is dropped. */
+/**
+ * An https link or a site-relative path; anything else is dropped. Control
+ * characters are refused outright: `new URL()` strips CR and LF before it
+ * parses, so a link that "validates" could still carry a line break into the
+ * .ics feed, where a line break is a new property.
+ */
 const cleanUrl = (v: unknown): string | null => {
   if (typeof v !== "string" || !v.trim()) return null;
   const t = v.trim().slice(0, 500);
+  if (/[\u0000-\u001f\u007f\s]/.test(t)) return null;
   if (t.startsWith("/") && !t.startsWith("//")) return t;
   try { return new URL(t).protocol === "https:" ? t : null; } catch { return null; }
 };
@@ -410,6 +416,7 @@ export async function upcomingByStructure(
       WHERE status = 'scheduled'
         AND removed_at IS NULL
         AND kind IN ('gathering','festival')
+        AND layer IN ('public','village')
         AND starts_at >= UTC_TIMESTAMP()
         AND starts_at <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? DAY)
       ORDER BY starts_at ASC`,

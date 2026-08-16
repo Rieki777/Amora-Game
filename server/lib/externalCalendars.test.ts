@@ -109,6 +109,17 @@ describe("parseIcs", () => {
   it("refuses text that is not a calendar", () => {
     expect(() => parseIcs("hello", from, to)).toThrow();
   });
+
+  it("forgets a feed's VTIMEZONEs after the parse, so one subscription cannot redefine a zone for the next", async () => {
+    const ICAL = (await import("ical.js")).default;
+    parseIcs(FIXTURE, from, to);
+    expect(ICAL.TimezoneService.has("America/Los_Angeles")).toBe(false);
+    // A hostile feed that redefines a zone with a wrong offset does not leak past its own parse.
+    const hostile = FIXTURE.replace("TZOFFSETTO:-0700", "TZOFFSETTO:+0500").replace("TZOFFSETTO:-0800", "TZOFFSETTO:+0500");
+    parseIcs(hostile, from, to);
+    const again = parseIcs(FIXTURE, from, to);
+    expect(again.find((e) => e.uid === "weekly@upstream:2026-10-23T20:00:00")!.startsAt.toISOString()).toBe("2026-10-24T03:00:00.000Z");
+  });
 });
 
 describe("scrub", () => {
@@ -157,7 +168,12 @@ describe.skipIf(!configured)("subscriptions against a real schema", () => {
     expect((await addExternalCalendar(pool, { name: "x", url: "http://8.8.8.8/cal.ics", createdBy: "a1" })).ok).toBe(false);
     expect((await addExternalCalendar(pool, { name: "x", url: "not a url", createdBy: "a1" })).ok).toBe(false);
     expect((await addExternalCalendar(pool, { name: "", url: "https://8.8.8.8/cal.ics", createdBy: "a1" })).ok).toBe(false);
+    expect((await addExternalCalendar(pool, { name: "x", url: "https://8.8.8.8/cal.ics\r\nX: y", createdBy: "a1" })).ok).toBe(false);
     expect(await listExternalCalendars(pool)).toEqual([]);
+    // webcal:// is Apple's https.
+    const web = await addExternalCalendar(pool, { name: "Apple", url: "webcal://8.8.8.8/pub.ics", createdBy: "a1" });
+    expect(web.ok).toBe(true);
+    if (web.ok) { expect(web.calendar.urlHost).toBe("8.8.8.8"); await removeExternalCalendar(pool, web.calendar.id, "a1"); }
   });
 
   it("stores the address as a secret, keeps host and last4, mirrors by UID, updates, retires, and never shows the URL (harm metric 5)", async () => {
