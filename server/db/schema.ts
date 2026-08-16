@@ -23,6 +23,7 @@
  */
 import {
   boolean,
+  datetime,
   int,
   json,
   mysqlEnum,
@@ -146,6 +147,13 @@ export const quests = mysqlTable("quests", {
   sortOrder: int("sort_order").default(0).notNull(),
   /** Standing-example row (0046). */
   isExample: boolean("is_example").default(false).notNull(),
+  /** A window and a deadline (0085). All optional: a quest with none of them
+   *  stays off the village calendar; one with any of them becomes a
+   *  `quest-window` row there through the repo's own save path. datetime,
+   *  not timestamp, for the same reason 0059 gave the events table. */
+  startsAt: datetime("starts_at"),
+  endsAt: datetime("ends_at"),
+  dueAt: datetime("due_at"),
 });
 
 export const questClaims = mysqlTable("quest_claims", {

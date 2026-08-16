@@ -277,3 +277,68 @@ export async function guardOutboundUrl(rawUrl: string): Promise<{ ok: boolean; r
   }
   return { ok: true };
 }
+
+/**
+ * The guarded TEXT fetch (0085, external calendars): the same pinned dialer
+ * and per-hop re-validation as guardedFetchJson, returning the body as text
+ * under a byte cap. Exists so the calendar poller cannot grow a second,
+ * unguarded fetch path to an admin-entered URL that may carry a secret
+ * token. Never logs the URL; a failure is an Error with a short reason.
+ */
+export async function guardedFetchText(
+  rawUrl: string,
+  timeoutMs = 15_000,
+  maxBytes = 1_000_000,
+): Promise<string> {
+  const guard = await guardOutboundUrl(rawUrl);
+  if (!guard.ok) throw new Error(guard.refused ?? "refused");
+  return dialPinnedText(rawUrl, timeoutMs, maxBytes, 0);
+}
+
+async function dialPinnedText(rawUrl: string, timeoutMs: number, maxBytes: number, hops: number): Promise<string> {
+  if (hops > 5) throw new Error("too many redirects");
+  const url = new URL(rawUrl);
+  if (url.protocol !== "https:") throw new Error("https only");
+  const host = url.hostname;
+  const addrs = net.isIP(host)
+    ? [{ address: host, family: net.isIPv6(host) ? 6 : 4 }]
+    : await dns.lookup(host, { all: true });
+  if (!addrs.length || addrs.some((a) => ipIsPrivate(a.address))) throw new Error("resolves to a private address");
+  const vetted = addrs[0];
+
+  const res = await new Promise<{ status: number; location: string | null; body: string }>((resolve, reject) => {
+    const req = https.request(
+      {
+        protocol: "https:", hostname: host, port: url.port || 443,
+        path: url.pathname + url.search, method: "GET", timeout: timeoutMs, servername: host,
+        headers: { Accept: "text/calendar, text/plain;q=0.9, */*;q=0.1", "User-Agent": "village-calendar/0085" },
+        lookup: (_h: string, _o: any, cb: (e: Error | null, a: string | LookupAddress[], f?: number) => void) => {
+          cb(null, vetted.address, (vetted as any).family === 6 ? 6 : 4);
+        },
+      },
+      (r) => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        r.on("data", (c: Buffer) => {
+          size += c.length;
+          if (size > maxBytes) { req.destroy(new Error("response too large")); return; }
+          chunks.push(c);
+        });
+        r.on("end", () => resolve({
+          status: r.statusCode ?? 0,
+          location: typeof r.headers.location === "string" ? r.headers.location : null,
+          body: Buffer.concat(chunks).toString("utf8"),
+        }));
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", reject);
+    req.end();
+  });
+
+  if (res.status >= 300 && res.status < 400 && res.location) {
+    return dialPinnedText(new URL(res.location, url).toString(), timeoutMs, maxBytes, hops + 1);
+  }
+  if (res.status < 200 || res.status >= 300) throw new Error(`upstream answered ${res.status}`);
+  return res.body;
+}

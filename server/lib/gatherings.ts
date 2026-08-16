@@ -1,5 +1,6 @@
 /**
- * The Events module's data access: the village's calendar (0059).
+ * The Events module's data access: the village's calendar (0059), now the
+ * write side people type into and a thin list over the one calendar read.
  *
  * NAMED `gatherings` DELIBERATELY. `server/lib/events.ts` is the platform's
  * event SPINE (recordEvent, the one way into health_events). The module id is
@@ -7,25 +8,42 @@
  * where those live, but an import called `events` already means something
  * else in this codebase and would be wrong exactly when somebody is tired.
  *
- * Every read returns the same `Gathering` shape from shared/gatherings.ts, so
- * the client, the map and the JSON-LD emitter all agree on what a gathering
- * is. `daysUntil` is computed there and never in SQL: the map needs it too,
- * and one implementation cannot drift from itself.
+ * Since 0085 the `events` table is the village's ONE calendar (see
+ * server/lib/calendar.ts): quest windows, the sky, cycle marks and imported
+ * calendars live beside the gatherings. This file keeps what a person does
+ * with a gathering (create, edit, delete, RSVP, check who is coming) and
+ * `listGatherings` is a thin call over `listCalendarItems`, so the flat list,
+ * the map and the wheel can never disagree about what is on.
+ *
+ * Every read returns the same `CalendarItem` shape from shared/gatherings.ts
+ * (a superset of `Gathering`), so the client, the map and the JSON-LD emitter
+ * all agree on what a gathering is. `daysUntil` is computed there and never in
+ * SQL: the map needs it too, and one implementation cannot drift from itself.
  */
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import {
   ATTENDANCE_MODES,
+  AUTHORED_KINDS,
+  CALENDAR_LAYERS,
   EVENT_STATUSES,
-  PUBLIC_STATUSES,
   RSVP_STATUSES,
   daysUntil,
   isFull,
-  spotsLeft,
   type AttendanceMode,
+  type CalendarItem,
+  type CalendarKind,
+  type CalendarLayer,
   type EventStatus,
-  type Gathering,
+  type Recurrence,
   type RsvpStatus,
 } from "../../shared/gatherings";
+import {
+  cleanRecurrence,
+  getCalendarItem,
+  iso,
+  listCalendarItems,
+  type CalendarViewer,
+} from "./calendar";
 
 const newId = () => `ev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -41,139 +59,68 @@ export interface GatheringInput {
   status?: EventStatus;
   attendanceMode?: AttendanceMode;
   onlineUrl?: string | null;
+  /** 0085: `gathering` or `festival`; anything else belongs to a module. */
+  kind?: CalendarKind;
+  layer?: CalendarLayer;
+  allDay?: boolean;
+  recurrence?: Recurrence | null;
+  link?: string | null;
+  colour?: string | null;
 }
-
-/**
- * MySQL hands back `structure_keys` already parsed on a json column, and a
- * string on some driver/version combinations. Accept both; a malformed value
- * reads as "no structures" instead of throwing a list page into a 500.
- */
-function parseKeys(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.filter((k): k is string => typeof k === "string");
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === "string") : [];
-    } catch { return []; }
-  }
-  return [];
-}
-
-/** datetime columns come back as Date; ISO is what every reader wants. */
-const iso = (v: unknown): string =>
-  v instanceof Date ? v.toISOString() : String(v ?? "");
-
-function rowToGathering(r: RowDataPacket, now: Date): Gathering {
-  const capacity = r.capacity === null || r.capacity === undefined ? null : Number(r.capacity);
-  const goingCount = Number(r.going_count ?? 0);
-  return {
-    id: String(r.id),
-    title: String(r.title),
-    description: r.description ?? null,
-    startsAt: iso(r.starts_at),
-    endsAt: r.ends_at ? iso(r.ends_at) : null,
-    locationText: r.location_text ?? null,
-    structureKeys: parseKeys(r.structure_keys),
-    visitTypeId: r.visit_type_id ?? null,
-    capacity,
-    status: String(r.status) as EventStatus,
-    attendanceMode: String(r.attendance_mode) as AttendanceMode,
-    onlineUrl: r.online_url ?? null,
-    goingCount,
-    spotsLeft: spotsLeft(capacity, goingCount),
-    daysUntil: daysUntil(iso(r.starts_at), now),
-    isExample: Boolean(r.is_example),
-    ...(r.my_rsvp !== undefined ? { myRsvp: (r.my_rsvp ?? null) as RsvpStatus | null } : {}),
-  };
-}
-
-/**
- * The one SELECT. Attendance is counted by a correlated subquery rather than
- * a GROUP BY join, so a gathering nobody has answered yet still returns a row
- * with 0 instead of disappearing.
- */
-const SELECT_BASE = `
-  SELECT e.*,
-    (SELECT COUNT(*) FROM event_rsvps r WHERE r.event_id = e.id AND r.status = 'going') AS going_count
-    {{MINE}}
-  FROM events e`;
-
-const mineColumn = (userId: string | null) =>
-  userId
-    ? ", (SELECT r2.status FROM event_rsvps r2 WHERE r2.event_id = e.id AND r2.user_id = ?) AS my_rsvp"
-    : "";
 
 export interface ListOptions {
   /** Signed-in viewer, for their own RSVP. */
   userId?: string | null;
   /** Include `draft`. Admin surfaces only. */
   includeDrafts?: boolean;
+  /** The viewer is an admin: the admin layer opens. Defaults to includeDrafts. */
+  isAdmin?: boolean;
   /** How far ahead to look. */
   upcomingDays: number;
   /** How long a finished gathering stays listed. */
   pastVisibleDays: number;
   /** Only gatherings touching this map structure. */
   structureKey?: string | null;
+  /** The village's zone, for occurrence keys. UTC when the caller has none. */
+  timezone?: string;
+  /** Which kinds. Defaults to the authored kinds: gathering and festival. */
+  kinds?: CalendarKind[];
   limit?: number;
 }
 
 /**
- * The calendar, newest-first within the visible window.
+ * The calendar, soonest-first within the visible window.
  *
  * The window is two-sided on purpose. An events page that drops a gathering
  * the moment it starts tells someone standing outside the greenhouse that
  * nothing is happening, so `pastVisibleDays` keeps it listed after the fact.
+ *
+ * A thin call over listCalendarItems (0085): the same read the wheel, the
+ * .ics feed and the assistant use, narrowed to the kinds asked for.
  */
-export async function listGatherings(pool: Pool, opts: ListOptions): Promise<Gathering[]> {
+export async function listGatherings(pool: Pool, opts: ListOptions): Promise<CalendarItem[]> {
   const now = new Date();
-  const params: any[] = [];
-  if (opts.userId) params.push(opts.userId);
-
-  const statuses = opts.includeDrafts ? EVENT_STATUSES : PUBLIC_STATUSES;
-  const where: string[] = [`e.status IN (${statuses.map(() => "?").join(",")})`];
-  params.push(...statuses);
-
-  where.push("e.starts_at <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? DAY)");
-  params.push(opts.upcomingDays);
-  where.push("COALESCE(e.ends_at, e.starts_at) >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)");
-  params.push(opts.pastVisibleDays);
-
-  if (opts.structureKey) {
-    // JSON_CONTAINS over the array, so a gathering in the greenhouse AND the
-    // commons is found by either key. JSON_QUOTE escapes the needle, which is
-    // what keeps a structure key from being SQL at all.
-    where.push("JSON_CONTAINS(e.structure_keys, JSON_QUOTE(?))");
-    params.push(opts.structureKey);
-  }
-
-  /*
-   * The one value that reaches the SQL text instead of a placeholder, because
-   * MySQL will not take LIMIT as a bound parameter in a prepared statement.
-   * It is therefore forced to an integer here and nowhere else: Number("abc")
-   * is NaN, and NaN survives both Math.max and Math.min to arrive as the
-   * literal `LIMIT NaN`. Not injectable, and a 500 on a list page all the same.
-   */
-  const asked = Math.floor(Number(opts.limit));
-  const limit = Number.isFinite(asked) ? Math.min(Math.max(asked, 1), 500) : 200;
-  const sql =
-    SELECT_BASE.replace("{{MINE}}", mineColumn(opts.userId ?? null)) +
-    ` WHERE ${where.join(" AND ")} ORDER BY e.starts_at ASC LIMIT ${limit}`;
-
-  const [rows] = await pool.query<RowDataPacket[]>(sql, params);
-  return rows.map((r) => rowToGathering(r, now));
+  const day = 86_400_000;
+  return listCalendarItems(pool, {
+    from: new Date(now.getTime() - Math.max(0, opts.pastVisibleDays) * day),
+    to: new Date(now.getTime() + Math.max(0, opts.upcomingDays) * day),
+    viewer: { userId: opts.userId ?? null, isAdmin: opts.isAdmin ?? Boolean(opts.includeDrafts) },
+    timezone: opts.timezone ?? "UTC",
+    kinds: opts.kinds ?? AUTHORED_KINDS,
+    includeDrafts: Boolean(opts.includeDrafts),
+    structureKey: opts.structureKey ?? null,
+    limit: opts.limit,
+    now,
+  });
 }
 
 export async function getGathering(
   pool: Pool,
   id: string,
   userId?: string | null,
-): Promise<Gathering | null> {
-  const params: any[] = [];
-  if (userId) params.push(userId);
-  params.push(id);
-  const sql = SELECT_BASE.replace("{{MINE}}", mineColumn(userId ?? null)) + " WHERE e.id = ? LIMIT 1";
-  const [rows] = await pool.query<RowDataPacket[]>(sql, params);
-  return rows.length ? rowToGathering(rows[0], new Date()) : null;
+): Promise<CalendarItem | null> {
+  const viewer: CalendarViewer = { userId: userId ?? null, isAdmin: false };
+  return getCalendarItem(pool, id, viewer);
 }
 
 /** Reject anything the enum columns would silently coerce. */
@@ -193,18 +140,42 @@ function cleanCapacity(v: unknown): number | null {
   const n = Number(v);
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : null;
 }
+/** A person may author a gathering or a festival; every other kind is a module's. */
+function cleanKind(v: unknown): CalendarKind {
+  return AUTHORED_KINDS.includes(v as CalendarKind) ? (v as CalendarKind) : "gathering";
+}
+function cleanLayer(v: unknown): CalendarLayer {
+  return CALENDAR_LAYERS.includes(v as CalendarLayer) ? (v as CalendarLayer) : "village";
+}
+/**
+ * An https link or a site-relative path; anything else is dropped. Control
+ * characters are refused outright: `new URL()` strips CR and LF before it
+ * parses, so a link that "validates" could still carry a line break into the
+ * .ics feed, where a line break is a new property.
+ */
+const cleanUrl = (v: unknown): string | null => {
+  if (typeof v !== "string" || !v.trim()) return null;
+  const t = v.trim().slice(0, 500);
+  if (/[\u0000-\u001f\u007f\s]/.test(t)) return null;
+  if (t.startsWith("/") && !t.startsWith("//")) return t;
+  try { return new URL(t).protocol === "https:" ? t : null; } catch { return null; }
+};
+const cleanColour = (v: unknown): string | null =>
+  typeof v === "string" && /^#[0-9a-fA-F]{3,8}$/.test(v.trim()) ? v.trim() : null;
 
 export async function createGathering(
   pool: Pool,
   input: GatheringInput,
   createdBy: string | null,
-): Promise<Gathering> {
+): Promise<CalendarItem> {
   const id = newId();
+  const recurrence = input.recurrence ? cleanRecurrence(input.recurrence) : null;
   await pool.query(
     `INSERT INTO events
       (id, title, description, starts_at, ends_at, location_text, structure_keys,
-       visit_type_id, capacity, status, attendance_mode, online_url, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       visit_type_id, capacity, status, attendance_mode, online_url, created_by,
+       kind, layer, all_day, recurrence, link, colour)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       input.title,
@@ -221,6 +192,12 @@ export async function createGathering(
       cleanMode(input.attendanceMode),
       input.onlineUrl ?? null,
       createdBy,
+      cleanKind(input.kind),
+      cleanLayer(input.layer),
+      input.allDay ? 1 : 0,
+      recurrence ? JSON.stringify(recurrence) : null,
+      cleanUrl(input.link),
+      cleanColour(input.colour),
     ],
   );
   return (await getGathering(pool, id))!;
@@ -234,7 +211,7 @@ export async function updateGathering(
   pool: Pool,
   id: string,
   patch: Partial<GatheringInput>,
-): Promise<Gathering | null> {
+): Promise<CalendarItem | null> {
   const sets: string[] = [];
   const params: any[] = [];
   const put = (col: string, value: any) => { sets.push(`${col} = ?`); params.push(value); };
@@ -250,6 +227,15 @@ export async function updateGathering(
   if (patch.status !== undefined) put("status", cleanStatus(patch.status, "draft"));
   if (patch.attendanceMode !== undefined) put("attendance_mode", cleanMode(patch.attendanceMode));
   if (patch.onlineUrl !== undefined) put("online_url", patch.onlineUrl ?? null);
+  if (patch.kind !== undefined) put("kind", cleanKind(patch.kind));
+  if (patch.layer !== undefined) put("layer", cleanLayer(patch.layer));
+  if (patch.allDay !== undefined) put("all_day", patch.allDay ? 1 : 0);
+  if (patch.recurrence !== undefined) {
+    const rec = patch.recurrence ? cleanRecurrence(patch.recurrence) : null;
+    put("recurrence", rec ? JSON.stringify(rec) : null);
+  }
+  if (patch.link !== undefined) put("link", cleanUrl(patch.link));
+  if (patch.colour !== undefined) put("colour", cleanColour(patch.colour));
 
   if (!sets.length) return getGathering(pool, id);
   params.push(id);
@@ -289,6 +275,11 @@ export async function rsvp(
   userId: string,
   status: RsvpStatus,
   idempotencyKey?: string,
+  /**
+   * Which evening of a recurring gathering (village-time YYYY-MM-DD). Ignored,
+   * and stored as "", for a one-off: one gathering, one answer (0085, §8 27).
+   */
+  occurrenceKey?: string,
 ): Promise<RsvpOutcome> {
   const wanted: RsvpStatus = RSVP_STATUSES.includes(status) ? status : "going";
   const conn: PoolConnection = await pool.getConnection();
@@ -296,24 +287,31 @@ export async function rsvp(
     await conn.beginTransaction();
 
     const [[event]] = await conn.query<any[]>(
-      "SELECT id, capacity, status FROM events WHERE id = ? FOR UPDATE",
+      "SELECT id, capacity, status, recurrence, removed_at FROM events WHERE id = ? FOR UPDATE",
       [eventId],
     );
-    if (!event) { await conn.rollback(); return { ok: false, reason: "not_found" }; }
+    if (!event || event.removed_at) { await conn.rollback(); return { ok: false, reason: "not_found" }; }
     // A cancelled gathering stays visible so people learn it is off; it stops
     // taking answers. A draft is not public, so it cannot be answered either.
     if (event.status !== "scheduled" && event.status !== "postponed") {
       await conn.rollback();
       return { ok: false, reason: "not_open" };
     }
+    // The occurrence identity. A recurring row needs a well-formed key so two
+    // evenings never share one answer; a one-off has exactly one evening.
+    const recurring = Boolean(cleanRecurrence(event.recurrence));
+    const occ = recurring && typeof occurrenceKey === "string" && /^\d{4}-\d{2}-\d{2}$/.test(occurrenceKey)
+      ? occurrenceKey
+      : "";
+    if (recurring && !occ) { await conn.rollback(); return { ok: false, reason: "not_found" }; }
 
     const [[prior]] = await conn.query<any[]>(
-      "SELECT id, status FROM event_rsvps WHERE event_id = ? AND user_id = ?",
-      [eventId, userId],
+      "SELECT id, status FROM event_rsvps WHERE event_id = ? AND user_id = ? AND occurrence_key = ?",
+      [eventId, userId, occ],
     );
     const [[counts]] = await conn.query<any[]>(
-      "SELECT COUNT(*) AS going FROM event_rsvps WHERE event_id = ? AND status = 'going'",
-      [eventId],
+      "SELECT COUNT(*) AS going FROM event_rsvps WHERE event_id = ? AND status = 'going' AND occurrence_key = ?",
+      [eventId, occ],
     );
     const going = Number(counts.going ?? 0);
     const capacity = event.capacity === null ? null : Number(event.capacity);
@@ -326,7 +324,7 @@ export async function rsvp(
       return { ok: false, reason: "full" };
     }
 
-    const key = idempotencyKey || `rsvp:${eventId}:${userId}`;
+    const key = idempotencyKey || `rsvp:${eventId}:${userId}${occ ? `:${occ}` : ""}`;
     if (prior) {
       await conn.query(
         "UPDATE event_rsvps SET status = ?, idempotency_key = ? WHERE id = ?",
@@ -334,8 +332,8 @@ export async function rsvp(
       );
     } else {
       await conn.query(
-        "INSERT INTO event_rsvps (id, event_id, user_id, status, idempotency_key) VALUES (?,?,?,?,?)",
-        [`rs-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, eventId, userId, wanted, key],
+        "INSERT INTO event_rsvps (id, event_id, user_id, status, idempotency_key, occurrence_key) VALUES (?,?,?,?,?,?)",
+        [`rs-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, eventId, userId, wanted, key, occ],
       );
     }
 
@@ -355,6 +353,8 @@ export interface RsvpRow {
   name: string | null;
   status: RsvpStatus;
   at: string;
+  /** Which evening, for a recurring gathering; "" for a one-off. */
+  occurrenceKey: string;
 }
 
 /**
@@ -369,27 +369,31 @@ export interface RsvpRow {
  * a downloadable address list is a different feature with its own consent
  * question.
  */
-export async function listRsvps(pool: Pool, eventId: string): Promise<RsvpRow[]> {
+export async function listRsvps(pool: Pool, eventId: string, occurrenceKey?: string): Promise<RsvpRow[]> {
+  const params: any[] = [eventId];
+  let occ = "";
+  if (occurrenceKey !== undefined) { occ = " AND r.occurrence_key = ?"; params.push(occurrenceKey); }
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT r.user_id, r.status, r.created_at, u.name
+    `SELECT r.user_id, r.status, r.created_at, r.occurrence_key, u.name
        FROM event_rsvps r
        LEFT JOIN users u ON u.id = r.user_id
-      WHERE r.event_id = ?
-      ORDER BY FIELD(r.status,'going','maybe','declined'), u.name IS NULL, u.name`,
-    [eventId],
+      WHERE r.event_id = ?${occ}
+      ORDER BY r.occurrence_key, FIELD(r.status,'going','maybe','declined'), u.name IS NULL, u.name`,
+    params,
   );
   return rows.map((r) => ({
     userId: String(r.user_id),
     name: r.name ?? null,
     status: String(r.status) as RsvpStatus,
     at: iso(r.created_at),
+    occurrenceKey: String(r.occurrence_key ?? ""),
   }));
 }
 
-export async function withdrawRsvp(pool: Pool, eventId: string, userId: string): Promise<boolean> {
+export async function withdrawRsvp(pool: Pool, eventId: string, userId: string, occurrenceKey = ""): Promise<boolean> {
   const [res] = await pool.query<any>(
-    "DELETE FROM event_rsvps WHERE event_id = ? AND user_id = ?",
-    [eventId, userId],
+    "DELETE FROM event_rsvps WHERE event_id = ? AND user_id = ? AND occurrence_key = ?",
+    [eventId, userId, occurrenceKey],
   );
   return Number(res?.affectedRows ?? 0) > 0;
 }
@@ -410,6 +414,9 @@ export async function upcomingByStructure(
     `SELECT id, title, starts_at, structure_keys
        FROM events
       WHERE status = 'scheduled'
+        AND removed_at IS NULL
+        AND kind IN ('gathering','festival')
+        AND layer IN ('public','village')
         AND starts_at >= UTC_TIMESTAMP()
         AND starts_at <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? DAY)
       ORDER BY starts_at ASC`,
@@ -417,6 +424,13 @@ export async function upcomingByStructure(
   );
   const now = new Date();
   const out: Record<string, { eventId: string; title: string; startsAt: string; daysUntil: number }> = {};
+  const parseKeys = (raw: unknown): string[] => {
+    if (Array.isArray(raw)) return raw.filter((k): k is string => typeof k === "string");
+    if (typeof raw === "string") {
+      try { const p = JSON.parse(raw); return Array.isArray(p) ? p.filter((k): k is string => typeof k === "string") : []; } catch { return []; }
+    }
+    return [];
+  };
   for (const r of rows) {
     for (const key of parseKeys(r.structure_keys)) {
       // Ascending start order means the first write per key is the soonest.
@@ -441,7 +455,7 @@ export async function upcomingByStructure(
  */
 export async function eventsOpenState(pool: Pool): Promise<{ count: number; description: string }> {
   const [[row]] = await pool.query<any[]>(
-    "SELECT COUNT(*) AS n FROM events WHERE status = 'scheduled' AND starts_at >= UTC_TIMESTAMP()",
+    "SELECT COUNT(*) AS n FROM events WHERE status = 'scheduled' AND removed_at IS NULL AND kind IN ('gathering','festival') AND starts_at >= UTC_TIMESTAMP()",
   );
   const count = Number(row?.n ?? 0);
   return {

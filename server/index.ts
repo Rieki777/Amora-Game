@@ -49,13 +49,12 @@ import {
   restoreRevision,
   saveDraft,
 } from "./lib/mapScene";
-import { toSchemaOrg } from "../shared/gatherings";
+import { CALENDAR_KINDS, CALENDAR_LAYERS, toSchemaOrg } from "../shared/gatherings";
 import { recordWalkRows, walkReport } from "./lib/walkLog";
 import {
   createGathering,
   deleteGathering,
   eventsOpenState,
-  getGathering,
   listGatherings,
   listRsvps,
   rsvp,
@@ -63,6 +62,12 @@ import {
   upcomingByStructure,
   withdrawRsvp,
 } from "./lib/gatherings";
+import { cleanRecurrence, getCalendarItemFor, isAuthoredKind, listCalendarItems, listCalendarRows } from "./lib/calendar";
+import { ensureSky, mirrorCalendarSources } from "./lib/calendarProviders";
+import { listMonthNames, lunarSummaryFor, namesForHemisphere, setMonthName } from "./lib/lunarTable";
+import { buildIcs, feedTokenStatus, looksLikeFeedToken, mintFeedToken, resolveFeedToken, revokeFeedTokens } from "./lib/icsFeed";
+import { addExternalCalendar, listExternalCalendars, pollAllExternalCalendars, pollExternalCalendar, removeExternalCalendar } from "./lib/externalCalendars";
+import type { YearAnchor } from "../shared/lunar";
 import {
   backerCounts,
   displayChangeValue,
@@ -8618,6 +8623,59 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     pastVisibleDays: numberVar("events.past_visible_days"),
   });
 
+  // ── 0085: the one calendar's providers, registered here in the events
+  // block (round 4 rule: each lane registers its jobs inside its own block).
+  // Neither job closes a cycle or rolls a season; both write marks only.
+  const calendarSkyOptions = () => ({
+    anchor: stringVar("calendar.year_anchor") as YearAnchor,
+    hemisphere: (stringVar("calendar.hemisphere") === "south" ? "south" : "north") as "north" | "south",
+    crossQuarters: boolVar("calendar.cross_quarters"),
+  });
+  /** Village time: SeasonConfig.timezone is the zone every viewer reads in. */
+  const villageTimezone = () => getSeasonConfig().timezone || "UTC";
+  /** The viewer as the calendar read sees them. */
+  async function calendarViewer(req: any): Promise<{ userId: string | null; isAdmin: boolean }> {
+    const user = await authedUser(req);
+    return { userId: user?.id ?? null, isAdmin: await isAdmin(req) };
+  }
+  /** `?kinds=a,b` and `?layers=a,b`, cleaned; undefined when absent. */
+  const listParam = <T extends string>(raw: unknown, allowed: readonly T[]): T[] | undefined => {
+    if (typeof raw !== "string" || !raw.trim()) return undefined;
+    const picked = raw.split(",").map((k) => k.trim()).filter((k): k is T => (allowed as readonly string[]).includes(k));
+    return picked.length ? picked : undefined;
+  };
+  /** The sky as rows: last year through two years out, idempotent, daily. */
+  registerJob("calendar-sky", 24 * 60 * 60 * 1000, async () => {
+    const y = new Date().getUTCFullYear();
+    const r = await ensureSky(getPool(), { ...calendarSkyOptions(), years: [y - 1, y, y + 1, y + 2] });
+    return `${r.written} sky row(s), ${r.retired} retired`;
+  });
+  /** Facts saved outside this zone, mirrored in with the source named, hourly. */
+  registerJob("calendar-mirror", 60 * 60 * 1000, async () => {
+    const cfg = getSeasonConfig();
+    const r = await mirrorCalendarSources(getPool(), {
+      timezone: cfg.timezone,
+      seasons: cfg.seasons,
+      moduleOn: (id) => effectiveLifecycle(id) !== "off",
+    });
+    const written = Object.values(r.written).reduce((a, b) => a + b, 0);
+    const retired = Object.values(r.retired).reduce((a, b) => a + b, 0);
+    return `${written} mirrored, ${retired} retired`;
+  });
+  /**
+   * External calendars (§9.3): every subscription fetched through the SSRF
+   * guard every three hours, imported by UID. The summary names ids and
+   * counts, never an address.
+   */
+  registerJob("calendar-external-poll", 3 * 60 * 60 * 1000, async () => {
+    const results = await pollAllExternalCalendars(getPool(), { timezone: villageTimezone() });
+    if (!results.length) return "no subscriptions";
+    const ok = results.filter((r) => r.ok);
+    const failed = results.filter((r) => !r.ok);
+    return `${ok.length} ok (${ok.reduce((a, r) => a + r.imported, 0)} imported, ${ok.reduce((a, r) => a + r.retired, 0)} retired)` +
+      (failed.length ? `, ${failed.length} failed: ${failed.map((r) => r.id).join(", ")}` : "");
+  });
+
   /** Putting something on the village calendar: admin OR `event.manage`. */
   async function mayManageEvents(req: any): Promise<boolean> {
     if (await isAdmin(req)) return true;
@@ -8672,6 +8730,29 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       try { url = new URL(String(body.onlineUrl)); } catch { return "The online link must be a valid URL"; }
       if (url.protocol !== "https:") return "Online links are https-only";
     }
+    // 0085: the calendar fields a person may set by hand.
+    if (body.kind !== undefined && body.kind !== null && !isAuthoredKind(body.kind)) {
+      return "Kind must be gathering or festival; other kinds come from their own module";
+    }
+    if (body.layer !== undefined && body.layer !== null && !CALENDAR_LAYERS.includes(body.layer)) {
+      return `Layer must be one of: ${CALENDAR_LAYERS.join(", ")}`;
+    }
+    if (body.recurrence !== undefined && body.recurrence !== null && body.recurrence !== "") {
+      if (typeof body.recurrence !== "object") return "Recurrence must be an object";
+      if (!cleanRecurrence(body.recurrence)) return "Recurrence needs a freq of weekly, monthly, lunar or solar with its days or its sky event";
+    }
+    if (body.link) {
+      const l = String(body.link);
+      if (/[\u0000-\u001f\u007f\s]/.test(l)) return "The link must not contain spaces or line breaks";
+      if (!(l.startsWith("/") && !l.startsWith("//"))) {
+        let url: URL;
+        try { url = new URL(l); } catch { return "The link must be a valid URL or a site path"; }
+        if (url.protocol !== "https:") return "Links are https-only";
+      }
+    }
+    if (body.colour !== undefined && body.colour !== null && body.colour !== "" && !/^#[0-9a-fA-F]{3,8}$/.test(String(body.colour))) {
+      return "Colour must be a hex value like #2D5A5A";
+    }
     return null;
   }
 
@@ -8683,14 +8764,152 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * it. `?structure=` is how the map asks what is happening in one building.
    */
   app.get("/api/events", async (req, res) => {
-    const user = await authedUser(req);
-    const list = await listGatherings(getPool(), {
-      userId: user?.id ?? null,
+    const viewer = await calendarViewer(req);
+    const timezone = villageTimezone();
+    const now = new Date();
+    const day = 86_400_000;
+    const win = eventWindow();
+    // 0085: a caller may ask for its own window (the week and month views do,
+    // and the year wheel asks for a lunar year); the default is the two
+    // wired variables, as it always was. A window wider than two years is
+    // clipped rather than refused.
+    const asked = {
+      from: typeof req.query.from === "string" ? new Date(req.query.from) : null,
+      to: typeof req.query.to === "string" ? new Date(req.query.to) : null,
+    };
+    let from = asked.from && !Number.isNaN(asked.from.getTime()) ? asked.from : new Date(now.getTime() - win.pastVisibleDays * day);
+    let to = asked.to && !Number.isNaN(asked.to.getTime()) ? asked.to : new Date(now.getTime() + win.upcomingDays * day);
+    if (to.getTime() <= from.getTime()) to = new Date(from.getTime() + day);
+    if (to.getTime() - from.getTime() > 2 * 366 * day) to = new Date(from.getTime() + 2 * 366 * day);
+    const kinds = listParam(req.query.kinds, CALENDAR_KINDS);
+    const layers = listParam(req.query.layers, CALENDAR_LAYERS);
+    const list = await listCalendarItems(getPool(), {
+      from, to, viewer, timezone, kinds, layers,
       includeDrafts: false,
       structureKey: typeof req.query.structure === "string" ? req.query.structure : null,
-      ...eventWindow(),
+      limit: 1000,
+      now,
     });
-    res.json({ events: list, rsvpEnabled: boolVar("events.rsvp_enabled") });
+    const settings = calendarSkyOptions();
+    const names = namesForHemisphere(await listMonthNames(getPool()), settings.hemisphere);
+    res.json({
+      events: list,
+      rsvpEnabled: boolVar("events.rsvp_enabled"),
+      timezone,
+      window: { from: from.toISOString(), to: to.toISOString() },
+      lunar: lunarSummaryFor(now, { anchor: settings.anchor, timezone, hemisphere: settings.hemisphere, names }),
+      anchor: settings.anchor,
+      hemisphere: settings.hemisphere,
+      monthNames: names,
+    });
+  });
+
+  /**
+   * The .ics feed (0085, §5 item 10). Registered ABOVE `/api/events/:id`, the
+   * by-structure pattern, so "calendar.ics" is never read as an id.
+   *
+   * Without a token: what a visitor sees (public and village layers). With
+   * `?token=`: the member's own feed, adding the layers they may see. The
+   * token is 32 random bytes shown once on the Events page; only its sha256
+   * is stored, and it is never written to a log line or a response. Rate
+   * limited per address so a guessed token costs its guesser the hour.
+   */
+  const feedOrigin = (req: any): string => {
+    const configured = String(mergedConfig().project.siteUrl ?? "").replace(/\/$/, "");
+    if (configured) return configured;
+    const proto = String(req.headers["x-forwarded-proto"] ?? req.protocol ?? "https").split(",")[0].trim();
+    return `${proto}://${req.get("host")}`;
+  };
+
+  app.get("/api/events/calendar.ics", async (req, res) => {
+    if (await overLimit(`ics:${clientIp(req)}`, 60, 60 * 60 * 1000)) {
+      return res.status(429).type("text/plain").send("Too many requests. Try again in an hour.");
+    }
+    let viewer = { userId: null as string | null, isAdmin: false };
+    if (req.query.token !== undefined) {
+      const raw = req.query.token;
+      if (!looksLikeFeedToken(raw)) return res.status(404).type("text/plain").send("Not found");
+      if (await overLimit(`ics-token:${clientIp(req)}`, 30, 60 * 60 * 1000)) {
+        return res.status(429).type("text/plain").send("Too many requests. Try again in an hour.");
+      }
+      const userId = await resolveFeedToken(getPool(), raw);
+      if (!userId) return res.status(404).type("text/plain").send("Not found");
+      // A key outlives nothing: an account that is gone or anonymized reads
+      // as a visitor would, and its key is retired on the way out.
+      const user = await members.byId(userId);
+      if (!user || String(user.email ?? "").endsWith("@anonymized.invalid")) {
+        await revokeFeedTokens(getPool(), userId);
+        return res.status(404).type("text/plain").send("Not found");
+      }
+      viewer = { userId, isAdmin: user.role === "admin" || user.role === "founder" };
+    }
+    const timezone = villageTimezone();
+    const now = new Date();
+    const day = 86_400_000;
+    const from = new Date(now.getTime() - 60 * day);
+    const to = new Date(now.getTime() + 400 * day);
+    const kinds = listParam(req.query.kinds, CALENDAR_KINDS);
+    const rows = await listCalendarRows(getPool(), { from, to, viewer, timezone, kinds, includeDrafts: false, now });
+    const settings = calendarSkyOptions();
+    const names = namesForHemisphere(await listMonthNames(getPool()), settings.hemisphere);
+    const origin = feedOrigin(req);
+    const body = buildIcs(rows, {
+      calendarName: `${mergedConfig().project.name} calendar`,
+      timezone,
+      anchor: settings.anchor,
+      hemisphere: settings.hemisphere,
+      names,
+      host: (() => { try { return new URL(origin).host; } catch { return "village"; } })(),
+      siteUrl: origin,
+      from, to, now,
+    });
+    res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+    res.setHeader("Content-Disposition", 'inline; filename="calendar.ics"');
+    res.setHeader("Cache-Control", viewer.userId ? "private, max-age=300" : "public, max-age=300");
+    res.send(body);
+  });
+
+  /** Where the feeds live, and whether this member holds a live key. Never the key. */
+  app.get("/api/events/feed", async (req, res) => {
+    const user = await authedUser(req);
+    const status = user ? await feedTokenStatus(getPool(), user.id) : { hasToken: false, createdAt: null };
+    res.json({ publicUrl: `${feedOrigin(req)}/api/events/calendar.ics`, ...status });
+  });
+
+  /** Mint a private feed address. Shown once, in this response, and nowhere else. */
+  app.post("/api/events/feed/token", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    if (await overLimit(`feed-token:${user.id}`, 10, 24 * 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "You have made enough addresses today. Try again tomorrow." });
+    }
+    const raw = await mintFeedToken(getPool(), user.id);
+    await recordEvent(getPool(), {
+      kind: "calendar_feed_minted",
+      text: "made a private calendar feed address",
+      actorUserId: user.id,
+      entityType: "calendar",
+      entityRef: "feed",
+      audience: "admin",
+    });
+    res.json({ success: true, url: `${feedOrigin(req)}/api/events/calendar.ics?token=${raw}` });
+  });
+
+  app.delete("/api/events/feed/token", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    const revoked = await revokeFeedTokens(getPool(), user.id);
+    if (revoked) {
+      await recordEvent(getPool(), {
+        kind: "calendar_feed_revoked",
+        text: "revoked their private calendar feed address",
+        actorUserId: user.id,
+        entityType: "calendar",
+        entityRef: "feed",
+        audience: "admin",
+      });
+    }
+    res.json({ success: true, revoked });
   });
 
   /**
@@ -8713,12 +8932,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * module that is off.
    */
   app.get("/api/events/:id", async (req, res) => {
-    const user = await authedUser(req);
-    const g = await getGathering(getPool(), req.params.id, user?.id ?? null);
+    // The layer model applies to a single row as it does to the list (0085):
+    // mirrored ids are hashes of their source and therefore guessable, so an
+    // anonymous read of a private or admin row by id must 404 exactly as an
+    // absent one does. Whoever may manage events sees drafts and every layer.
+    const viewer = await calendarViewer(req);
+    const manages = viewer.isAdmin || (await mayManageEvents(req));
+    const g = await getCalendarItemFor(getPool(), req.params.id, { ...viewer, isAdmin: manages }, { includeDrafts: manages });
     if (!g) return res.status(404).json({ error: "Not found" });
-    if (g.status === "draft" && !(await mayManageEvents(req))) {
-      return res.status(404).json({ error: "Not found" });
-    }
     res.json({
       event: g,
       schemaOrg: toSchemaOrg(g, { siteUrl: mergedConfig().project.siteUrl }),
@@ -8749,6 +8970,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       user.id,
       req.body?.status ?? "going",
       typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : undefined,
+      // Which evening of a recurring gathering (0085). Ignored for a one-off.
+      typeof req.body?.occurrenceKey === "string" ? req.body.occurrenceKey : undefined,
     );
     if (!outcome.ok) {
       const code = outcome.reason === "not_found" ? 404 : 409;
@@ -8784,7 +9007,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   app.delete("/api/events/:id/rsvp", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
-    const removed = await withdrawRsvp(getPool(), req.params.id, user.id);
+    const occ = typeof req.query.occurrence === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.occurrence)
+      ? req.query.occurrence
+      : "";
+    const removed = await withdrawRsvp(getPool(), req.params.id, user.id, occ);
     res.json({ success: true, removed });
   });
 
@@ -8836,19 +9062,118 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
     const list = await listGatherings(getPool(), {
       includeDrafts: true,
+      timezone: villageTimezone(),
       // Admins manage the whole calendar, so the member-facing windows do not
       // apply: a gathering being planned for next year has to be findable by
       // the person planning it.
       upcomingDays: 3650,
       pastVisibleDays: 3650,
     });
-    res.json({ events: list });
+    res.json({ events: list, timezone: villageTimezone() });
+  });
+
+  /**
+   * External calendars (0085, §9.3, R28): subscribe by iCal address. Admin
+   * only, because the address may be a credential (Google's secret address
+   * reads the whole calendar). Stored in the secrets store; every response is
+   * a projection with host and last4 and never the address. Registered above
+   * the `:id` routes so "calendars" is never read as an id.
+   */
+  app.get("/api/admin/events/calendars", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    res.json({ calendars: await listExternalCalendars(getPool()) });
+  });
+
+  app.post("/api/admin/events/calendars", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const actor = adminActor(req);
+    if (await overLimit(`ext-cal-add:${actor?.id ?? clientIp(req)}`, 20, 24 * 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Enough calendars for one day. Try again tomorrow." });
+    }
+    const outcome = await addExternalCalendar(getPool(), {
+      name: String(req.body?.name ?? ""),
+      url: String(req.body?.url ?? ""),
+      layer: req.body?.layer,
+      colour: req.body?.colour ?? null,
+      createdBy: actor?.id ?? "admin",
+    });
+    if (!outcome.ok) return res.status(400).json({ error: outcome.error });
+    await recordEvent(getPool(), {
+      kind: "calendar_subscribed",
+      text: `attached the calendar "${outcome.calendar.name}" (${outcome.calendar.urlHost})`,
+      actorUserId: actor?.id ?? null,
+      entityType: "calendar",
+      entityRef: outcome.calendar.id,
+      audience: "admin",
+    });
+    // The first poll runs now, so the founder sees whether the address works
+    // before leaving the page; the scheduler takes it from here.
+    const poll = await pollExternalCalendar(getPool(), outcome.calendar.id, { timezone: villageTimezone() });
+    const calendars = await listExternalCalendars(getPool());
+    res.json({ success: true, calendar: calendars.find((c) => c.id === outcome.calendar.id) ?? outcome.calendar, poll: { ok: poll.ok, imported: poll.imported, error: poll.error } });
+  });
+
+  app.post("/api/admin/events/calendars/:id/poll", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (await overLimit(`ext-cal-poll:${req.params.id}`, 12, 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "That calendar was fetched enough this hour. The scheduler polls it every three hours." });
+    }
+    const poll = await pollExternalCalendar(getPool(), req.params.id, { timezone: villageTimezone() });
+    if (poll.error === "no such calendar") return res.status(404).json({ error: "Not found" });
+    const calendars = await listExternalCalendars(getPool());
+    res.json({ success: poll.ok, calendar: calendars.find((c) => c.id === req.params.id) ?? null, poll: { ok: poll.ok, imported: poll.imported, retired: poll.retired, error: poll.error } });
+  });
+
+  app.delete("/api/admin/events/calendars/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const actor = adminActor(req);
+    const gone = await removeExternalCalendar(getPool(), req.params.id, actor?.id ?? "admin");
+    if (!gone) return res.status(404).json({ error: "Not found" });
+    await recordEvent(getPool(), {
+      kind: "calendar_unsubscribed",
+      text: "detached an external calendar",
+      actorUserId: actor?.id ?? null,
+      entityType: "calendar",
+      entityRef: req.params.id,
+      audience: "admin",
+    });
+    res.json({ success: true });
+  });
+
+  /**
+   * The thirteen month names (0085): number plus the village's own word.
+   * Registered above the `:id` routes so "month-names" is never read as an id.
+   */
+  app.get("/api/admin/events/month-names", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    const settings = calendarSkyOptions();
+    res.json({ monthNames: await listMonthNames(getPool()), hemisphere: settings.hemisphere, anchor: settings.anchor });
+  });
+
+  app.put("/api/admin/events/month-names/:index", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    const index = Number(req.params.index);
+    const name = typeof req.body?.name === "string" ? req.body.name : "";
+    if (name.length > 80) return res.status(400).json({ error: "A month name is 80 characters at most" });
+    const saved = await setMonthName(getPool(), index, name);
+    if (!saved) return res.status(400).json({ error: "Month index must be 1 to 13" });
+    const actor = await authedUser(req);
+    await recordEvent(getPool(), {
+      kind: "calendar_month_named",
+      text: saved.isExample ? `restored the example name of moon ${index}` : `named moon ${index} "${saved.name}"`,
+      actorUserId: actor?.id ?? null,
+      entityType: "calendar",
+      entityRef: `month:${index}`,
+      audience: "admin",
+    });
+    res.json({ success: true, monthName: saved });
   });
 
   /** Who is coming, for whoever is catering. Names only, never emails. */
   app.get("/api/admin/events/:id/rsvps", async (req, res) => {
     if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
-    res.json({ rsvps: await listRsvps(getPool(), req.params.id) });
+    const occ = typeof req.query.occurrence === "string" ? req.query.occurrence : undefined;
+    res.json({ rsvps: await listRsvps(getPool(), req.params.id, occ) });
   });
 
   app.post("/api/admin/events", async (req, res) => {
