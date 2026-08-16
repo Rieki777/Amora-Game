@@ -15,9 +15,11 @@
  * exist, with the same sentence the key store uses.
  *
  * Signature: `X-Village-Signature: t=<sentAt>,v1=<hex hmac>` over
- * `${sentAt}.${rawBody}`, and the same value inside the body as `signature`
- * for receivers that cannot read headers. The body is the raw JSON string
- * this process sent, so a receiver verifies over the bytes it received.
+ * `${sentAt}.${signedBody}`, where signedBody is the JSON of the four fields
+ * id, kind, sentAt, data in that order, exactly as this process serialised
+ * them; the wire body is that object plus a `signature` field carrying the
+ * same value, for receivers that cannot read headers. A receiver rebuilds the
+ * four-field JSON (or strips `signature` and re-serialises) and compares.
  *
  * Payloads never carry another member's hidden fields: the kinds this module
  * ships are built from the member's own view (`weekAhead` for the member) or
@@ -175,7 +177,10 @@ export async function setInbox(pool: Pool, userId: string, rawUrl: unknown, env:
   const url = String(rawUrl ?? "").trim();
   if (!url || url.length > 2048) return { ok: false, status: 400, error: "Give the URL your agent listens on" };
   const guard = await guardOutboundUrl(url);
-  if (!guard.ok) return { ok: false, status: 400, error: `That URL was refused: ${guard.refused ?? "not allowed"}` };
+  // Generic on purpose: the guard's own sentence names the address a host
+  // resolved to, and a member-reachable route must not be an oracle for what
+  // an internal name points at.
+  if (!guard.ok) return { ok: false, status: 400, error: "That URL is not reachable from here. It must be a public https host" };
   // Replacing the URL retires the old inbox whole: its id, its derived
   // secret and anything still queued for it. A fresh id means a fresh secret.
   const prior = await getInbox(pool, userId);
@@ -313,7 +318,10 @@ export async function drainDeliveries(pool: Pool, deps: DrainDeps, batch = 50): 
       try {
         await deps.post(String(r.inbox_url), wire.body, { [SIGNATURE_HEADER]: wire.header });
       } catch (e: any) {
-        error = String(e?.message ?? e).slice(0, 200);
+        // Status codes and timeouts as they are; a range-guard refusal is
+        // shortened so the panel never shows what a name resolved to.
+        const msg = String(e?.message ?? e);
+        error = (/private address|DNS resolution/.test(msg) ? "refused by the outbound guard" : msg).slice(0, 200);
       }
     }
     if (!error) {

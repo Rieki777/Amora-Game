@@ -5,6 +5,7 @@
  * refusal and none of them writes. Harm metric 3's "the token value is never
  * in a row" is proven against a fake pool that records every INSERT.
  */
+import { createHmac } from "crypto";
 import { describe, expect, it } from "vitest";
 import {
   AGENT_SCOPES,
@@ -161,6 +162,14 @@ describe("the confirm token (harm metric 2, pure half)", () => {
     for (const reason of ["missing", "malformed", "bad_signature", "expired", "wrong_action", "wrong_holder", "echo_mismatch"] as const) {
       expect(CONFIRM_REASON_SENTENCE[reason]).toContain("Nothing was written");
     }
+  });
+
+  it("refuses a token minted for another purpose under the same secret", () => {
+    // A session token and a set-password token share the signing secret and
+    // the <b64>.<hmac> shape; the purpose claim is what keeps them apart.
+    const payload = Buffer.from(JSON.stringify({ a: "rsvp", u: "u-1", h: echoHash(echo), exp: Date.now() + 60_000 })).toString("base64url");
+    const sig = createHmac("sha256", secret).update(payload).digest("base64url");
+    expect(verifyConfirmToken(secret, `${payload}.${sig}`, claims)).toEqual({ ok: false, reason: "malformed" });
   });
 
   it("cannot be forged by editing the payload", () => {

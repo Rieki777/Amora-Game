@@ -24,6 +24,7 @@
  */
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import type { Pool, RowDataPacket } from "mysql2/promise";
+import { guardOutboundUrl } from "./toolcheck";
 
 export const MEMBER_SECRETS_ENV = "MEMBER_SECRETS_KEY";
 
@@ -101,7 +102,12 @@ export function open(sealed: Sealed, env: NodeJS.ProcessEnv = process.env): stri
 
 // ── Storage ──────────────────────────────────────────────────────────────────
 
-/** Only https, and only a host. A member typing http://localhost is told no. */
+/**
+ * Shape only: https, no credentials, trailing slash dropped. The reachability
+ * check (public address ranges, DNS) is `guardOutboundUrl` in `storeMemberKey`
+ * and again in the dialer at call time; this function stays sync so the shape
+ * rules are testable without a resolver.
+ */
 export function cleanBaseUrl(raw: unknown): { ok: true; url: string | null } | { ok: false; error: string } {
   const s = String(raw ?? "").trim();
   if (!s) return { ok: true, url: null };
@@ -146,6 +152,13 @@ export async function storeMemberKey(
   }
   if (input.provider === "openai_compatible" && !model) {
     return { ok: false, error: "An OpenAI-compatible provider needs a model name" };
+  }
+  if (input.provider === "openai_compatible" && base.url) {
+    // The same guard every member- or admin-typed host meets: public ranges
+    // only. The refusal is generic on purpose, so this route is not an oracle
+    // for what an internal name resolves to.
+    const guard = await guardOutboundUrl(base.url);
+    if (!guard.ok) return { ok: false, error: "That base URL is not reachable from here. It must be a public https host" };
   }
   const sealed = seal(key, env);
   const last4 = key.slice(-4);

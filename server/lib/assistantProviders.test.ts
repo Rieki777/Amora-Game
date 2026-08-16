@@ -19,16 +19,23 @@ const OLD_ENV = { ...process.env };
 
 function harness(opts: { villageKey?: string; limited?: (b: string) => boolean; replies?: any[] } = {}) {
   const buckets: string[] = [];
-  const posts: { url: string; headers: any; body: any }[] = [];
+  const posts: { url: string; headers: any; body: any; via: "fetch" | "guarded" }[] = [];
   const queue = [...(opts.replies ?? [])];
   wireAssistant({
     villageKey: () => opts.villageKey ?? "",
     rateLimited: async (bucket) => { buckets.push(bucket); return opts.limited?.(bucket) ?? false; },
     fetchImpl: (async (url: string, init: any) => {
-      posts.push({ url, headers: init.headers, body: JSON.parse(init.body) });
+      posts.push({ url, headers: init.headers, body: JSON.parse(init.body), via: "fetch" });
       const next = queue.length ? queue.shift() : { content: [{ type: "text", text: '{"reply":"hi"}' }], stop_reason: "end_turn", usage: { input_tokens: 5, output_tokens: 2 } };
       return { ok: true, status: 200, json: async () => next, text: async () => "" };
     }) as unknown as typeof fetch,
+    // The member-typed endpoint goes through the guarded dialer, injected here
+    // so the test proves WHICH road a provider takes without a network.
+    guardedPostJson: async (url, body, headers) => {
+      posts.push({ url, headers, body, via: "guarded" });
+      const next = queue.length ? queue.shift() : { choices: [{ message: { role: "assistant", content: '{"reply":"hi"}' }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 2 } };
+      return next;
+    },
   });
   return { buckets, posts };
 }
@@ -167,6 +174,15 @@ describe("a member key through the engine (harm metric 4, engine half)", () => {
     expect(h.posts[0].url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(h.posts[0].headers.authorization).toBe("Bearer sk-or-x");
     expect(h.posts[0].body.model).toBe("meta/llama");
+    // Through the SSRF-guarded dialer, never bare fetch (security review, finding 1).
+    expect(h.posts[0].via).toBe("guarded");
+  });
+
+  it("dials the village's Anthropic key with plain fetch, as before", async () => {
+    const h = harness({ villageKey: "village-key" });
+    const r = await callAssistant(req({ mode: "organize" }));
+    expect(r.ok).toBe(true);
+    expect(h.posts[0].via).toBe("fetch");
   });
 });
 

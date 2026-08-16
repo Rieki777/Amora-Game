@@ -5155,8 +5155,15 @@ async function startServer() {
       // for GET; anything else that is not in the map is a 404 below.
       const entry = READ_MAP.map((e) => ({ e, m: rest.match(e.re) })).find((x) => x.m);
       if (!entry) return next();
-      const resolved = await resolveAgent(req, res, entry.e.scope, "read");
-      if (!resolved) return;
+      // An unwrapped `app.use` is outside the boot-time rejection wrapper (it
+      // patches the verb methods only), so a thrown lookup would hang the
+      // request instead of answering. Caught here, handed to Express.
+      try {
+        const resolved = await resolveAgent(req, res, entry.e.scope, "read");
+        if (!resolved) return;
+      } catch (e) {
+        return next(e);
+      }
       const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
       req.url = entry.e.to(entry.m!) + q;
       if (entry.e.filterMine) {
@@ -5179,10 +5186,13 @@ async function startServer() {
      *
      * Call one: `{status, idempotencyKey?}` answers 202 with an echo of exactly
      * what will be written and a confirm token that binds it. Call two: the
-     * same body plus `{confirm: true, confirmToken, echo}`. The server checks
-     * the token (holder, action, ten minutes, echo hash) and then runs the same
-     * checks in the same order as `app.post("/api/events/:id/rsvp")`. Any
-     * missing piece is a 409 with the reason and nothing writes.
+     * same body plus `{confirm: true, confirmToken, echo}`. The web route's
+     * checks run first, in the web route's order (`events.rsvp_enabled`, the
+     * holder, `event.rsvp`), on BOTH calls, so an agent is never handed an
+     * echo for a write the holder could not make; then the confirm token
+     * (holder, action, ten minutes, echo hash); then `rsvp()` with the
+     * idempotency key and the audit row. Any missing piece is a 409 with the
+     * reason and nothing writes.
      */
     app.post(`${AGENT_V1}/events/:id/rsvp`, async (req, res, next) => {
       const resolved = await resolveAgent(req, res, "rsvp.write", "write");
@@ -5190,8 +5200,11 @@ async function startServer() {
       // The events module's own gate, exactly as the web route inherits it.
       return requireModule("events")(req, res, next);
     }, async (req, res) => {
+      // The web route's checks, in the web route's order, before anything else.
+      if (!boolVar("events.rsvp_enabled")) return res.status(403).json({ error: "RSVPs are closed for this village" });
       const user = await authedUser(req);
       if (!user) return res.status(401).json({ error: "auth_required" });
+      if (!hasCapability("event.rsvp", await capabilityCtx(user))) return res.status(403).json({ error: "You cannot RSVP yet" });
       const eventId = String(req.params.id);
       const wanted = String(req.body?.status ?? "going");
       if (!(RSVP_STATUSES as readonly string[]).includes(wanted)) {
@@ -5222,9 +5235,6 @@ async function startServer() {
         return res.status(409).json({ error: "echo_mismatch", message: CONFIRM_REASON_SENTENCE.echo_mismatch });
       }
 
-      // The web route's checks, in the web route's order.
-      if (!boolVar("events.rsvp_enabled")) return res.status(403).json({ error: "RSVPs are closed for this village" });
-      if (!hasCapability("event.rsvp", await capabilityCtx(user))) return res.status(403).json({ error: "You cannot RSVP yet" });
       const outcome = await rsvp(getPool(), eventId, user.id, wanted as RsvpStatus, idempotencyKey ?? undefined);
       if (!outcome.ok) {
         const code = outcome.reason === "not_found" ? 404 : 409;
@@ -5347,8 +5357,9 @@ async function startServer() {
         data: { message: "Hello from your village. If you can read this, the inbox works", sentBy: "profile" },
       });
       if (!queued.ok) return res.status(409).json({ error: queued.reason === "no_inbox" ? "Set an inbox URL first" : "That inbox is switched off" });
-      // Send it now instead of waiting for the tick, so the member sees the
-      // answer while they are still looking at the panel.
+      // Drain what is due now (up to five rows, this member's test among
+      // them) instead of waiting for the tick, so the member sees the answer
+      // while they are still looking at the panel.
       const summary = await drainDeliveries(getPool(), agentDrainDeps(), 5);
       res.json({ queued: queued.id, ...summary });
     });
@@ -5611,9 +5622,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       const s = await drainDeliveries(getPool(), agentDrainDeps());
       return `sent ${s.sent}, failed ${s.failed}, dropped ${s.dropped}, disabled ${s.disabled}`;
     });
-    // Sunday evening's week-ahead to every listening inbox, from the member's
-    // own view of the calendar (item 8's reader through the same adapter), so
-    // a payload never carries a row the member could not see themselves.
+    // Once a day, the week ahead to every listening inbox, from the member's
+    // own view of the calendar (the events.week reader's adapter), so a
+    // payload never carries a row the member could not see themselves.
     registerJob("agent-week-ahead", 24 * 60 * 60 * 1000, async () => {
       if (effectiveLifecycle("events") === "off") return "events off";
       const [inboxes] = await getPool().query<any[]>("SELECT user_id FROM agent_inboxes WHERE enabled = 1");

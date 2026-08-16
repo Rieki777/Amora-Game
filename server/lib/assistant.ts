@@ -30,6 +30,7 @@
 
 import { fenceForPrompt, toolNameToKey } from "./villageReaders";
 import { providerFor, type ProviderId, type ToolResult, type WireMessage } from "./assistantProviders";
+import { guardedFetchJson } from "./toolcheck";
 
 export type AssistantMode =
   | "proposal"
@@ -120,8 +121,16 @@ export interface AssistantDeps {
   villageKey(): string;
   /** True when this bucket has already had `max` hits inside the window. */
   rateLimited(bucket: string, max: number, windowMs: number): Promise<boolean>;
-  /** Injected for tests. Defaults to the real Anthropic endpoint. */
+  /** Injected for tests. Defaults to global fetch against the Anthropic endpoint. */
   fetchImpl?: typeof fetch;
+  /**
+   * The SSRF-guarded POST for a MEMBER-typed endpoint (round 4, lane L6). An
+   * OpenAI-compatible base URL is a URL a member typed, so it is dialled the
+   * way every other admin- or member-entered host is: range-checked, pinned
+   * to the vetted address, redirects re-checked per hop, body capped. Defaults
+   * to `guardedFetchJson`; injected for tests, which run no network.
+   */
+  guardedPostJson?(url: string, body: unknown, headers: Record<string, string>): Promise<any>;
 }
 
 let deps: AssistantDeps = {
@@ -468,19 +477,30 @@ export async function callAssistant(req: AssistantRequest): Promise<AssistantRes
 
     let data: any;
     try {
-      const r = await doFetch(request.url, {
-        method: "POST",
-        headers: request.headers,
-        body: JSON.stringify(request.body),
-      });
-      if (!r.ok) {
-        // The key never reaches a log line, whoever it belongs to.
-        console.error(`[assistant:${req.mode}] ${provider.id} error`, r.status, (await r.text()).slice(0, 300));
-        return { ok: false, status: 502, error: "assistant-error", ...spent() };
+      if (providerId === "openai_compatible") {
+        // A member-typed host goes through the pinned, range-checked dialer,
+        // never bare fetch: bare fetch follows redirects into private ranges.
+        const post = deps.guardedPostJson
+          ?? ((url: string, body: unknown, headers: Record<string, string>) =>
+            guardedFetchJson(url, 60_000, { method: "POST", body, headers }));
+        data = await post(request.url, request.body, request.headers);
+      } else {
+        const r = await doFetch(request.url, {
+          method: "POST",
+          headers: request.headers,
+          body: JSON.stringify(request.body),
+        });
+        if (!r.ok) {
+          // The key never reaches a log line, whoever it belongs to.
+          console.error(`[assistant:${req.mode}] ${provider.id} error`, r.status, (await r.text()).slice(0, 300));
+          return { ok: false, status: 502, error: "assistant-error", ...spent() };
+        }
+        data = await r.json();
       }
-      data = await r.json();
     } catch (err) {
-      console.error(`[assistant:${req.mode}]`, err);
+      // The guarded dialer throws its refusal or the upstream status as the
+      // message; neither carries the key or the body.
+      console.error(`[assistant:${req.mode}] ${provider.id}`, String((err as any)?.message ?? err).slice(0, 200));
       return { ok: false, status: 502, error: "assistant-error", ...spent() };
     }
 

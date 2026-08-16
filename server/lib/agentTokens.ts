@@ -251,7 +251,10 @@ function sign(secret: string, payload: string): string {
 export function mintConfirmToken(secret: string, claims: ConfirmClaims, now = Date.now(), ttlMs = CONFIRM_TTL_MS): { token: string; expiresAt: string } {
   const exp = now + ttlMs;
   const payload = Buffer.from(
-    JSON.stringify({ a: claims.action, u: claims.userId, h: echoHash(claims.echo), exp, n: randomBytes(6).toString("base64url") }),
+    // `p` is the purpose discriminator: session tokens and set-password tokens
+    // share the signing secret and the <b64>.<hmac> shape, and a field name
+    // is a weaker wall than a stated purpose.
+    JSON.stringify({ p: "confirm", a: claims.action, u: claims.userId, h: echoHash(claims.echo), exp, n: randomBytes(6).toString("base64url") }),
   ).toString("base64url");
   return { token: `${payload}.${sign(secret, payload)}`, expiresAt: new Date(exp).toISOString() };
 }
@@ -278,6 +281,7 @@ export function verifyConfirmToken(secret: string, token: unknown, claims: Confi
   } catch {
     return { ok: false, reason: "malformed" };
   }
+  if (decoded?.p !== "confirm") return { ok: false, reason: "malformed" };
   if (typeof decoded?.exp !== "number" || decoded.exp <= now) return { ok: false, reason: "expired" };
   if (decoded.a !== claims.action) return { ok: false, reason: "wrong_action" };
   if (decoded.u !== claims.userId) return { ok: false, reason: "wrong_holder" };
