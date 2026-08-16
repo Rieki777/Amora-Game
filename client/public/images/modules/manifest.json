@@ -1,0 +1,29 @@
+{
+  "assets": {
+    "events": {
+      "at": "2026-08-16T17:05:58+00:00",
+      "bytes": 25096,
+      "file": "events.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "43f2b657ff75265d",
+      "quality": 56
+    },
+    "library": {
+      "at": "2026-08-16T17:05:57+00:00",
+      "bytes": 25238,
+      "file": "library.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "874b88ae329ee024",
+      "quality": 52
+    },
+    "map": {
+      "at": "2026-08-16T17:05:56+00:00",
+      "bytes": 25172,
+      "file": "map.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "ca6d4e154fb0eb09",
+      "quality": 62
+    }
+  },
+  "updatedAt": "2026-08-16T17:05:58+00:00"
+}
