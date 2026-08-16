@@ -222,12 +222,29 @@ describe.skipIf(!DB_CONFIGURED)("your agent over HTTP", () => {
       ["/api/agent/v1/directory", "/api/org"],
       ["/api/agent/v1/me", "/api/me/profile"],
     ];
+    // The calendar route stamps a per-request clock into the body (0085):
+    // `window.from/to` are `now` plus the wired days to the millisecond, and
+    // `lunar.phase` is a float of the same `now`. Measured by field on the
+    // built server: two requests a few ms apart differ in exactly those two
+    // and nowhere else. Everything but the clock must be byte-identical.
+    const stripClock = (text: string): string => {
+      try {
+        const o = JSON.parse(text);
+        if (o && typeof o === "object") {
+          if (o.window) delete o.window;
+          if (o.lunar && typeof o.lunar === "object") delete o.lunar.phase;
+        }
+        return JSON.stringify(o);
+      } catch {
+        return text;
+      }
+    };
     for (const [who, session] of [["founder", founderToken], ["ana", ana.token], ["cara", cara.token]] as const) {
       for (const [agentPath, webPath] of pairs) {
         const viaAgent = await call("GET", agentPath, undefined, vat[who]);
         const viaWeb = await call("GET", webPath, undefined, session);
         expect(viaAgent.status, `${who} ${agentPath}`).toBe(200);
-        expect(viaAgent.text, `${who}: ${agentPath} must equal ${webPath}`).toBe(viaWeb.text);
+        expect(stripClock(viaAgent.text), `${who}: ${agentPath} must equal ${webPath}`).toBe(stripClock(viaWeb.text));
       }
     }
     // The org chart names a holder only for those who may see people. Make a

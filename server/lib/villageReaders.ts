@@ -28,7 +28,7 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import type { Capability } from "../../shared/capabilities";
-import { listGatherings } from "./gatherings";
+import { listCalendarItems } from "./calendar";
 
 export type ReaderAudience = "public" | "member" | "admin";
 
@@ -332,37 +332,41 @@ export interface WeekItem {
   endsAt: string | null;
   location: string | null;
   status: string;
+  /** The calendar's kind (gathering, festival, sky, ...), for the sentence and the RSVP draft. */
+  kind: string;
+  /** For a recurring row, which occurrence this is. */
+  occurrenceKey: string | null;
   myRsvp: string | null;
 }
 
 /**
- * THE ADAPTER. L5a's calendar lane is landing `listCalendarItems` over one
- * calendar table; until it is on main this reads the same seven days through
- * `listGatherings`, and the swap is this one function. Nothing else in the
- * reader, the template or the router knows which one is underneath.
- *
- * TODO(L5a): when `listCalendarItems(pool, {from, to, userId})` exists, call it
- * here and map its rows to WeekItem; keep the is_example filter.
+ * THE ADAPTER over the one calendar (L5a's `listCalendarItems`, the table
+ * every dated fact lives in). The next `days` days for this viewer, in the
+ * village's zone, occurrences expanded, drafts and removed rows out, layer
+ * visibility by who the viewer is. Nothing else in the reader, the template,
+ * the router, the week-ahead job or the draft check knows which function is
+ * underneath, so a calendar change is a change here.
  */
-export async function weekAhead(pool: Pool, userId: string | null, days = 7): Promise<WeekItem[]> {
-  const list = await listGatherings(pool, {
-    userId,
+export async function weekAhead(
+  pool: Pool,
+  viewer: { userId: string | null; isAdmin: boolean } | string | null,
+  days = 7,
+): Promise<WeekItem[]> {
+  // The older call shape (a bare userId) still works: a member's own view.
+  const v = typeof viewer === "string" || viewer === null ? { userId: viewer, isAdmin: false } : viewer;
+  const now = new Date();
+  const list = await listCalendarItems(pool, {
+    from: now,
+    to: new Date(now.getTime() + days * 24 * 60 * 60 * 1000),
+    viewer: v,
+    timezone: villageTimezone(),
     includeDrafts: false,
-    upcomingDays: days,
-    // The window is the next seven days and nothing that already ended.
-    pastVisibleDays: 0,
-    limit: 60,
+    limit: 120,
+    now,
   });
-  const now = Date.now();
-  const horizon = now + days * 24 * 60 * 60 * 1000;
   return list
     // Fixtures never read as facts, whatever the calendar page shows.
     .filter((g) => !g.isExample)
-    .filter((g) => {
-      const start = new Date(g.startsAt).getTime();
-      const end = g.endsAt ? new Date(g.endsAt).getTime() : start;
-      return end >= now && start <= horizon;
-    })
     .map((g) => ({
       id: g.id,
       title: g.title,
@@ -370,7 +374,9 @@ export async function weekAhead(pool: Pool, userId: string | null, days = 7): Pr
       endsAt: g.endsAt,
       location: g.locationText,
       status: g.status,
-      myRsvp: (g as { myRsvp?: string | null }).myRsvp ?? null,
+      kind: String(g.kind),
+      occurrenceKey: g.occurrenceKey ?? null,
+      myRsvp: g.myRsvp ?? null,
     }));
 }
 
@@ -380,7 +386,7 @@ READERS.push({
   module: "events",
   audience: "member",
   maxTokens: 500,
-  read: async ({ pool, viewer }) => weekAhead(pool, viewer.id),
+  read: async ({ pool, viewer }) => weekAhead(pool, { userId: viewer.id, isAdmin: viewer.isAdmin }),
 });
 
 export const READER_KEYS = READERS.map((r) => r.key);

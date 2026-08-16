@@ -5216,9 +5216,15 @@ async function startServer() {
         return res.status(400).json({ error: `status must be one of ${RSVP_STATUSES.join(", ")}` });
       }
       const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey.slice(0, 64) : null;
-      const g = await getGathering(getPool(), eventId, user.id);
-      if (!g || (g.status === "draft" && !(await mayManageEvents(req)))) return res.status(404).json({ error: "Not found" });
-      const echo = { eventId: g.id, title: g.title, startsAt: g.startsAt, status: wanted, idempotencyKey };
+      // Which evening of a recurring gathering (0085). Part of the echo, so
+      // the yes is for one evening and the confirm token binds it.
+      const occurrenceKey = typeof req.body?.occurrenceKey === "string" ? req.body.occurrenceKey.slice(0, 64) : null;
+      // The same read the web route makes: layers by who the holder is,
+      // drafts only for whoever may manage events.
+      const manages = await mayManageEvents(req);
+      const g = await getCalendarItemFor(getPool(), eventId, { userId: user.id, isAdmin: manages }, { includeDrafts: manages });
+      if (!g) return res.status(404).json({ error: "Not found" });
+      const echo = { eventId: g.id, title: g.title, startsAt: g.startsAt, status: wanted, idempotencyKey, occurrenceKey };
 
       if (req.body?.confirm !== true) {
         const { token, expiresAt } = mintConfirmToken(AUTH_TOKEN_SECRET, { action: "rsvp", userId: user.id, echo });
@@ -5236,11 +5242,14 @@ async function startServer() {
       // also be the echo THIS request would write, or a token minted for one
       // gathering could be replayed against a body naming another.
       const sentBack = req.body?.echo ?? {};
-      if (sentBack.eventId !== echo.eventId || sentBack.status !== echo.status || (sentBack.idempotencyKey ?? null) !== idempotencyKey) {
+      if (
+        sentBack.eventId !== echo.eventId || sentBack.status !== echo.status
+        || (sentBack.idempotencyKey ?? null) !== idempotencyKey || (sentBack.occurrenceKey ?? null) !== occurrenceKey
+      ) {
         return res.status(409).json({ error: "echo_mismatch", message: CONFIRM_REASON_SENTENCE.echo_mismatch });
       }
 
-      const outcome = await rsvp(getPool(), eventId, user.id, wanted as RsvpStatus, idempotencyKey ?? undefined);
+      const outcome = await rsvp(getPool(), eventId, user.id, wanted as RsvpStatus, idempotencyKey ?? undefined, occurrenceKey ?? undefined);
       if (!outcome.ok) {
         const code = outcome.reason === "not_found" ? 404 : 409;
         const message =
@@ -5449,7 +5458,7 @@ async function startServer() {
       // Each draft carries the gathering's title and start so the panel can
       // show the exact write, not an id.
       const withEvents = await Promise.all(drafts.map(async (d) => {
-        const g = d.kind === "event_rsvp" ? await getGathering(getPool(), String(d.payload.eventId), user.id) : null;
+        const g = d.kind === "event_rsvp" ? await getCalendarItemFor(getPool(), String(d.payload.eventId), { userId: user.id, isAdmin: false }) : null;
         return { ...d, event: g ? { id: g.id, title: g.title, startsAt: g.startsAt, status: g.status } : null };
       }));
       res.json({ drafts: withEvents });
@@ -5472,7 +5481,8 @@ async function startServer() {
       if (!hasCapability("event.rsvp", await capabilityCtx(user))) return res.status(403).json({ error: "You cannot RSVP yet" });
       const eventId = String(draft.payload.eventId);
       const status = String(draft.payload.status) as RsvpStatus;
-      const outcome = await rsvp(getPool(), eventId, user.id, status, `member-draft:${draft.id}`);
+      const occurrenceKey = typeof draft.payload.occurrenceKey === "string" ? draft.payload.occurrenceKey : undefined;
+      const outcome = await rsvp(getPool(), eventId, user.id, status, `member-draft:${draft.id}`, occurrenceKey);
       if (!outcome.ok) {
         const code = outcome.reason === "not_found" ? 404 : 409;
         return res.status(code).json({ error: outcome.reason === "not_found" ? "Not found" : outcome.reason === "full" ? "This gathering is full" : "This gathering is not taking answers", reason: outcome.reason });
@@ -5584,8 +5594,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       // reader the member could call is asked whether the id exists.
       let draft: any = null;
       if (parsed?.draft && typeof parsed.draft === "object") {
-        const candidate = { eventId: String(parsed.draft.eventId ?? ""), status: String(parsed.draft.status ?? "") };
-        const known = (await weekAhead(getPool(), String(user.id), 30)).some((e) => e.id === candidate.eventId);
+        const rows = await weekAhead(getPool(), { userId: String(user.id), isAdmin: viewer.isAdmin }, 30);
+        const wantedKey = typeof parsed.draft.occurrenceKey === "string" ? parsed.draft.occurrenceKey : null;
+        const hit = rows.find((e) => e.id === String(parsed.draft.eventId ?? "") && (!wantedKey || e.occurrenceKey === wantedKey));
+        const candidate: Record<string, unknown> = { eventId: String(parsed.draft.eventId ?? ""), status: String(parsed.draft.status ?? "") };
+        if (hit?.occurrenceKey) candidate.occurrenceKey = hit.occurrenceKey;
+        const known = Boolean(hit);
         if (known) {
           const proposed = await proposeMemberDraft(getPool(), String(user.id), "event_rsvp", candidate, "assistant");
           if (proposed.ok) draft = proposed.draft;
@@ -5635,7 +5649,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       const [inboxes] = await getPool().query<any[]>("SELECT user_id FROM agent_inboxes WHERE enabled = 1");
       let queued = 0;
       for (const r of inboxes) {
-        const items = await weekAhead(getPool(), String(r.user_id));
+        const items = await weekAhead(getPool(), { userId: String(r.user_id), isAdmin: false });
         const q = await enqueueAgentDelivery(getPool(), String(r.user_id), { kind: "week_ahead", data: { timezone: getSeasonConfig().timezone, items } });
         if (q.ok) queued += 1;
       }

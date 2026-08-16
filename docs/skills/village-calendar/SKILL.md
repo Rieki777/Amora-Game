@@ -33,7 +33,7 @@ The token works under `/api/agent/v1/` only. Anywhere else it is a 401.
 ## Read
 
 `GET /api/agent/v1/calendar` (scope `calendar.read`)
-The next weeks of gatherings, the same list the member sees on the calendar page. Each item has `id`, `title`, `startsAt` (ISO, UTC), `endsAt`, `locationText`, `capacity`, `goingCount`, `spotsLeft`, `status` (`scheduled`, `cancelled`, `postponed`) and `myRsvp` (`going`, `maybe`, `declined`, or null). `rsvpEnabled` says whether the village takes answers at all.
+The village's one calendar for the window the member sees on the calendar page (`?from=&to=` ISO instants narrow it). Each item has `id`, `title`, `startsAt` (ISO, UTC), `endsAt`, `locationText`, `capacity`, `goingCount`, `spotsLeft`, `status` (`scheduled`, `cancelled`, `postponed`), `kind` (gathering, festival, sky, cycle-mark and the other kinds), `occurrenceKey` (which evening of a recurring row; empty for a one-off) and `myRsvp` (`going`, `maybe`, `declined`, or null). `rsvpEnabled` says whether the village takes answers at all; `timezone` is the village's zone.
 
 `GET /api/agent/v1/calendar/{id}` (scope `calendar.read`)
 One gathering, with its `schemaOrg` markup.
@@ -49,13 +49,13 @@ Call one. Send what the member wants and read back the echo:
 
 ```
 POST /api/agent/v1/events/{id}/rsvp
-{"status": "going", "idempotencyKey": "<optional, your own key>"}
+{"status": "going", "idempotencyKey": "<optional, your own key>", "occurrenceKey": "<the item's occurrenceKey, required for a recurring gathering>"}
 ```
 
 Answer `202`:
 
 ```
-{"confirmRequired": true, "confirmToken": "...", "echo": {"eventId": "...", "title": "...", "startsAt": "...", "status": "going", "idempotencyKey": null}, "expiresAt": "..."}
+{"confirmRequired": true, "confirmToken": "...", "echo": {"eventId": "...", "title": "...", "startsAt": "...", "status": "going", "idempotencyKey": null, "occurrenceKey": null}, "expiresAt": "..."}
 ```
 
 Now stop. Show the member the echo in plain words: "I am about to say you are GOING to Kitchen crew on Tue 18:00. Yes?" Wait for their yes. Nothing has been written.

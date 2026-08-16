@@ -27,18 +27,21 @@
           "attendanceMode": { "type": "string", "enum": ["offline", "online", "mixed"] },
           "onlineUrl": { "type": ["string", "null"] },
           "daysUntil": { "type": "integer" },
-          "myRsvp": { "type": ["string", "null"], "enum": ["going", "maybe", "declined", null] }
+          "myRsvp": { "type": ["string", "null"], "enum": ["going", "maybe", "declined", null] },
+          "kind": { "type": "string", "description": "gathering, festival, sky, cycle-mark, ... (the one calendar's kinds)" },
+          "occurrenceKey": { "type": "string", "description": "Which occurrence of a recurring row; empty for a one-off. Send it back on the RSVP." }
         }
       },
       "RsvpEcho": {
         "type": "object",
-        "required": ["eventId", "title", "startsAt", "status", "idempotencyKey"],
+        "required": ["eventId", "title", "startsAt", "status", "idempotencyKey", "occurrenceKey"],
         "properties": {
           "eventId": { "type": "string" },
           "title": { "type": "string" },
           "startsAt": { "type": "string", "format": "date-time" },
           "status": { "type": "string", "enum": ["going", "maybe", "declined"] },
-          "idempotencyKey": { "type": ["string", "null"] }
+          "idempotencyKey": { "type": ["string", "null"] },
+          "occurrenceKey": { "type": ["string", "null"], "description": "For a recurring gathering, which evening (village-time YYYY-MM-DD, from the calendar item). Null for a one-off." }
         }
       },
       "ConfirmRequired": {
@@ -120,6 +123,7 @@
           "content": { "application/json": { "schema": { "type": "object", "required": ["status"], "properties": {
             "status": { "type": "string", "enum": ["going", "maybe", "declined"] },
             "idempotencyKey": { "type": "string", "maxLength": 64 },
+            "occurrenceKey": { "type": "string", "maxLength": 64, "description": "Required for a recurring gathering: the item's occurrenceKey from the calendar read." },
             "confirm": { "type": "boolean", "const": true },
             "confirmToken": { "type": "string" },
             "echo": { "$ref": "#/components/schemas/RsvpEcho" }
