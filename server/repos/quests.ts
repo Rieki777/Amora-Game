@@ -14,6 +14,8 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { parseRewardRange } from "../../shared/questRewards";
+import { calendarRemove, calendarUpsert } from "../lib/calendar";
+import { questCalendarInput } from "../lib/calendarProviders";
 
 const toIso = (v: unknown): string | null =>
   v == null ? null : v instanceof Date ? v.toISOString() : new Date(String(v)).toISOString();
@@ -65,6 +67,11 @@ export interface QuestRecord {
   order: number;
   /** A standing example: renders on the board, refuses every claim. */
   isExample?: boolean;
+  /** A window and a deadline (0085), ISO instants. Any one of them puts the
+   *  quest on the village calendar through this repo's own save path. */
+  startsAt?: string | null;
+  endsAt?: string | null;
+  dueAt?: string | null;
 }
 
 export interface QuestsRepo {
@@ -79,7 +86,7 @@ const QUEST_SELECT =
   // is_example is selected so consumers can filter. Without it no downstream
   // code could tell an example quest from a real one â€” the work-exchange
   // suggester was offering seeded quests to real guests as paid work.
-  "SELECT id, title, subtitle, description, impact, story, first_step, steps, deliverable, tips, image_url, gratitude, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order, is_example FROM quests";
+  "SELECT id, title, subtitle, description, impact, story, first_step, steps, deliverable, tips, image_url, gratitude, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order, is_example, starts_at, ends_at, due_at FROM quests";
 
 /** JSON column â†’ string array, tolerant of junk: an empty list renders fine. */
 function toList(v: unknown): string[] {
@@ -118,6 +125,9 @@ function rowToQuest(r: RowDataPacket): QuestRecord {
     tags,
     order: Number(r.sort_order ?? 0),
     isExample: Number(r.is_example ?? 0) === 1,
+    startsAt: toIso(r.starts_at),
+    endsAt: toIso(r.ends_at),
+    dueAt: toIso(r.due_at),
   };
 }
 
@@ -160,11 +170,33 @@ function questParams(q: QuestRecord): any[] {
     q.deliverable ?? null,
     jsonListOrNull(q.tips),
     q.imageUrl ?? null,
+    // The calendar dates (0085), appended for the same reason as the story
+    // layer: the historical column order above stays byte-identical.
+    toDb(q.startsAt),
+    toDb(q.endsAt),
+    toDb(q.dueAt),
   ];
 }
 
 const QUEST_COLS =
-  "(id, title, description, impact, gratitude, gratitude_min, gratitude_max, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order, subtitle, story, first_step, steps, deliverable, tips, image_url)";
+  "(id, title, description, impact, gratitude, gratitude_min, gratitude_max, duration, difficulty, circle, status, icon, role_required, min_stage, requires_role, stay_credit_reward, tags, sort_order, subtitle, story, first_step, steps, deliverable, tips, image_url, starts_at, ends_at, due_at)";
+
+/**
+ * The quest's calendar row (0085): written on the quest's own save path, so a
+ * planting day is stored once, on the calendar, and the quest keeps only its
+ * dates. A quest with no date has no row; one that loses its dates loses its
+ * row (marked, never deleted). A calendar failure is logged and never fails
+ * the quest save; the hourly calendar-mirror job reconciles the difference.
+ */
+async function syncQuestCalendar(pool: Pool, q: QuestRecord): Promise<void> {
+  try {
+    const input = questCalendarInput(q);
+    if (input) await calendarUpsert(pool, { ...input, sourceModule: "quests" });
+    else await calendarRemove(pool, { sourceModule: "quests", sourceId: `quest:${q.id}` });
+  } catch (err) {
+    console.error("[quests] calendar sync failed (quest saved)", err);
+  }
+}
 
 export function questsRepo(pool: Pool): QuestsRepo {
   return {
@@ -180,9 +212,10 @@ export function questsRepo(pool: Pool): QuestsRepo {
 
     async add(q) {
       await pool.query(
-        `INSERT INTO quests ${QUEST_COLS} VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO quests ${QUEST_COLS} VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         questParams(q),
       );
+      await syncQuestCalendar(pool, q);
       return q;
     },
 
@@ -201,10 +234,11 @@ export function questsRepo(pool: Pool): QuestsRepo {
         await conn.query(
           "UPDATE quests SET title=?, description=?, impact=?, gratitude=?, gratitude_min=?, gratitude_max=?, " +
             "duration=?, difficulty=?, circle=?, status=?, icon=?, role_required=?, min_stage=?, requires_role=?, stay_credit_reward=?, tags=?, sort_order=?, " +
-            "subtitle=?, story=?, first_step=?, steps=?, deliverable=?, tips=?, image_url=? WHERE id=?",
+            "subtitle=?, story=?, first_step=?, steps=?, deliverable=?, tips=?, image_url=?, starts_at=?, ends_at=?, due_at=? WHERE id=?",
           [...p.slice(1), id],
         );
         await conn.commit();
+        await syncQuestCalendar(pool, { ...quest, id });
         return { ...quest, id };
       } catch (e) {
         await conn.rollback();

@@ -64,6 +64,8 @@ import {
   withdrawRsvp,
 } from "./lib/gatherings";
 import { cleanRecurrence, isAuthoredKind, listCalendarItems } from "./lib/calendar";
+import { ensureSky, mirrorCalendarSources } from "./lib/calendarProviders";
+import type { YearAnchor } from "../shared/lunar";
 import {
   backerCounts,
   displayChangeValue,
@@ -7946,6 +7948,33 @@ async function startServer() {
   const eventWindow = () => ({
     upcomingDays: numberVar("events.upcoming_days"),
     pastVisibleDays: numberVar("events.past_visible_days"),
+  });
+
+  // ── 0085: the one calendar's providers, registered here in the events
+  // block (round 4 rule: each lane registers its jobs inside its own block).
+  // Neither job closes a cycle or rolls a season; both write marks only.
+  const calendarSkyOptions = () => ({
+    anchor: stringVar("calendar.year_anchor") as YearAnchor,
+    hemisphere: (stringVar("calendar.hemisphere") === "south" ? "south" : "north") as "north" | "south",
+    crossQuarters: boolVar("calendar.cross_quarters"),
+  });
+  /** The sky as rows: last year through two years out, idempotent, daily. */
+  registerJob("calendar-sky", 24 * 60 * 60 * 1000, async () => {
+    const y = new Date().getUTCFullYear();
+    const r = await ensureSky(getPool(), { ...calendarSkyOptions(), years: [y - 1, y, y + 1, y + 2] });
+    return `${r.written} sky row(s), ${r.retired} retired`;
+  });
+  /** Facts saved outside this zone, mirrored in with the source named, hourly. */
+  registerJob("calendar-mirror", 60 * 60 * 1000, async () => {
+    const cfg = getSeasonConfig();
+    const r = await mirrorCalendarSources(getPool(), {
+      timezone: cfg.timezone,
+      seasons: cfg.seasons,
+      moduleOn: (id) => effectiveLifecycle(id) !== "off",
+    });
+    const written = Object.values(r.written).reduce((a, b) => a + b, 0);
+    const retired = Object.values(r.retired).reduce((a, b) => a + b, 0);
+    return `${written} mirrored, ${retired} retired`;
   });
 
   /** Putting something on the village calendar: admin OR `event.manage`. */

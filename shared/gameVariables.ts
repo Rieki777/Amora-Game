@@ -1318,6 +1318,49 @@ export const VARIABLES: VariableDef[] = [
     max: 1000000,
     unit: "USD",
   },
+
+  // ── Calendar (0085; the village's one calendar, twelve months and thirteen moons) ──
+  //
+  // Three knobs, all three READ: the sky rows and the Moons view take the
+  // year anchor and the hemisphere, and the sky job writes cross-quarters
+  // only when asked. A white-label platform cannot hard-code the north.
+  {
+    key: "calendar.year_anchor",
+    category: "Calendar",
+    label: "The solar event that opens the village year",
+    description:
+      "Moon 1 begins at the first new moon after this event. Twelve or thirteen moons follow, as the sky gives them, until the first new moon after the next one. Villages in the south often choose the June solstice.",
+    type: "choice",
+    default: "december_solstice",
+    choices: [
+      { value: "december_solstice", label: "December solstice" },
+      { value: "march_equinox", label: "March equinox" },
+      { value: "june_solstice", label: "June solstice" },
+      { value: "september_equinox", label: "September equinox" },
+    ],
+  },
+  {
+    key: "calendar.hemisphere",
+    category: "Calendar",
+    label: "Hemisphere",
+    description:
+      "Which way the seasons turn. Sets which solstice is the longest day and which the shortest, and rotates the example moon names by six months for a village south of the equator.",
+    type: "choice",
+    default: "north",
+    choices: [
+      { value: "north", label: "Northern" },
+      { value: "south", label: "Southern" },
+    ],
+  },
+  {
+    key: "calendar.cross_quarters",
+    category: "Calendar",
+    label: "Mark the cross-quarter days",
+    description:
+      "Also put the four midpoints between the solstices and equinoxes on the calendar. Off by default; the quarter days themselves are always shown.",
+    type: "boolean",
+    default: "false",
+  },
 ];
 
 // ── Progression: the ladder's economics and thresholds, GENERATED per stage ──
