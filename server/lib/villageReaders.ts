@@ -28,6 +28,7 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import type { Capability } from "../../shared/capabilities";
+import { listCalendarItems } from "./calendar";
 
 export type ReaderAudience = "public" | "member" | "admin";
 
@@ -62,12 +63,27 @@ export interface VillageReader {
 export interface ReaderDeps {
   moduleIsOn(id: string): boolean;
   boolVar(key: string): boolean;
+  /**
+   * The village's IANA timezone (round 4, lane L6), for the one reader that
+   * says a time out loud. Optional so every existing caller and test is
+   * unchanged; absent reads as UTC, which is what the database stores.
+   */
+  timezone?(): string;
 }
 
 let deps: ReaderDeps = {
   moduleIsOn: () => false,
   boolVar: () => false,
 };
+
+/** The village's timezone, or UTC when nothing was wired. */
+export function villageTimezone(): string {
+  try {
+    return deps.timezone?.() || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
 
 export function wireReaders(d: ReaderDeps): void {
   deps = d;
@@ -305,6 +321,73 @@ export const READERS: VillageReader[] = [
       })),
   },
 ];
+
+// ── The week ahead (round 4, lane L6) ────────────────────────────────────────
+
+/** One row of the week-ahead reader. Times are ISO in UTC; the renderer localises. */
+export interface WeekItem {
+  id: string;
+  title: string;
+  startsAt: string;
+  endsAt: string | null;
+  location: string | null;
+  status: string;
+  /** The calendar's kind (gathering, festival, sky, ...), for the sentence and the RSVP draft. */
+  kind: string;
+  /** For a recurring row, which occurrence this is. */
+  occurrenceKey: string | null;
+  myRsvp: string | null;
+}
+
+/**
+ * THE ADAPTER over the one calendar (L5a's `listCalendarItems`, the table
+ * every dated fact lives in). The next `days` days for this viewer, in the
+ * village's zone, occurrences expanded, drafts and removed rows out, layer
+ * visibility by who the viewer is. Nothing else in the reader, the template,
+ * the router, the week-ahead job or the draft check knows which function is
+ * underneath, so a calendar change is a change here.
+ */
+export async function weekAhead(
+  pool: Pool,
+  viewer: { userId: string | null; isAdmin: boolean } | string | null,
+  days = 7,
+): Promise<WeekItem[]> {
+  // The older call shape (a bare userId) still works: a member's own view.
+  const v = typeof viewer === "string" || viewer === null ? { userId: viewer, isAdmin: false } : viewer;
+  const now = new Date();
+  const list = await listCalendarItems(pool, {
+    from: now,
+    to: new Date(now.getTime() + days * 24 * 60 * 60 * 1000),
+    viewer: v,
+    timezone: villageTimezone(),
+    includeDrafts: false,
+    limit: 120,
+    now,
+  });
+  return list
+    // Fixtures never read as facts, whatever the calendar page shows.
+    .filter((g) => !g.isExample)
+    .map((g) => ({
+      id: g.id,
+      title: g.title,
+      startsAt: g.startsAt,
+      endsAt: g.endsAt,
+      location: g.locationText,
+      status: g.status,
+      kind: String(g.kind),
+      occurrenceKey: g.occurrenceKey ?? null,
+      myRsvp: g.myRsvp ?? null,
+    }));
+}
+
+READERS.push({
+  key: "events.week",
+  describe: "The village calendar for the next seven days: what is on, when, and where. Times in village time.",
+  module: "events",
+  audience: "member",
+  maxTokens: 500,
+  read: async ({ pool, viewer }) => weekAhead(pool, { userId: viewer.id, isAdmin: viewer.isAdmin }),
+});
 
 export const READER_KEYS = READERS.map((r) => r.key);
 

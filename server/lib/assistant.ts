@@ -29,6 +29,8 @@
  */
 
 import { fenceForPrompt, toolNameToKey } from "./villageReaders";
+import { providerFor, type ProviderId, type ToolResult, type WireMessage } from "./assistantProviders";
+import { guardedFetchJson } from "./toolcheck";
 
 export type AssistantMode =
   | "proposal"
@@ -105,14 +107,12 @@ export interface AssistantTool {
 }
 
 /**
- * The wire's message shape, which is NOT `ChatMessage`.
- *
- * A tool turn carries content blocks, and `sanitizeMessages` filters on
- * `typeof m.content === "string"`, so feeding these back through the validator
- * would silently drop every one of them. Internal on purpose: the loop builds
- * this from sanitized ChatMessages and nothing outside constructs one.
+ * The wire's message shape (`WireMessage`, in assistantProviders.ts) is NOT
+ * `ChatMessage`. A tool turn carries content blocks, and `sanitizeMessages`
+ * filters on `typeof m.content === "string"`, so feeding these back through the
+ * validator would silently drop every one of them. Internal on purpose: the
+ * loop builds it from sanitized ChatMessages and nothing outside constructs one.
  */
-type WireMessage = { role: "user" | "assistant"; content: string | any[] };
 
 // ── Injected deps, so this file needs none of the server's globals ───────────
 
@@ -121,8 +121,16 @@ export interface AssistantDeps {
   villageKey(): string;
   /** True when this bucket has already had `max` hits inside the window. */
   rateLimited(bucket: string, max: number, windowMs: number): Promise<boolean>;
-  /** Injected for tests. Defaults to the real Anthropic endpoint. */
+  /** Injected for tests. Defaults to global fetch against the Anthropic endpoint. */
   fetchImpl?: typeof fetch;
+  /**
+   * The SSRF-guarded POST for a MEMBER-typed endpoint (round 4, lane L6). An
+   * OpenAI-compatible base URL is a URL a member typed, so it is dialled the
+   * way every other admin- or member-entered host is: range-checked, pinned
+   * to the vetted address, redirects re-checked per hop, body capped. Defaults
+   * to `guardedFetchJson`; injected for tests, which run no network.
+   */
+  guardedPostJson?(url: string, body: unknown, headers: Record<string, string>): Promise<any>;
 }
 
 let deps: AssistantDeps = {
@@ -136,12 +144,30 @@ export function wireAssistant(d: AssistantDeps): void {
 
 // ── The key ──────────────────────────────────────────────────────────────────
 
-export type KeySource = "village" | "platform";
+/**
+ * `member` (round 4, lane L6): the person asking brought their own key. It is
+ * resolved per request from `AssistantRequest.memberKey`, never from the deps,
+ * because it belongs to one member and a module-level dep would make one
+ * member's key everybody's.
+ */
+export type KeySource = "village" | "platform" | "member";
 
 export interface ResolvedKey {
   key: string;
   source: KeySource;
 }
+
+/** A member's own key, already decrypted by memberSecrets on its way here. */
+export interface MemberKey {
+  provider: ProviderId;
+  key: string;
+  baseUrl?: string | null;
+  /** The member's own model name for an OpenAI-compatible endpoint. */
+  model?: string | null;
+}
+
+/** How many calls a day one member's own key may make through this server. */
+export const MEMBER_KEY_DAILY_CAP = 200;
 
 /**
  * The village's own key always wins, with no admin action and no restart: the
@@ -152,7 +178,10 @@ export interface ResolvedKey {
  * since it is not the village's secret to see), and never present in /health,
  * the platform handshake, or the launch checklist.
  */
-export function resolveKey(env: NodeJS.ProcessEnv = process.env): ResolvedKey | null {
+export function resolveKey(env: NodeJS.ProcessEnv = process.env, memberKey?: MemberKey | null): ResolvedKey | null {
+  // A member's own key wins over both. It is their money and their provider.
+  const mine = (memberKey?.key ?? "").trim();
+  if (mine) return { key: mine, source: "member" };
   const own = (deps.villageKey() ?? "").trim();
   if (own) return { key: own, source: "village" };
   const platform = (env.PLATFORM_ASSISTANT_KEY ?? "").trim();
@@ -264,6 +293,13 @@ export interface AssistantRequest {
    * the viewer may not see, exactly as it does for the loop.
    */
   prefetch?: { key: string; data: unknown }[];
+  /**
+   * The asker's own key (round 4, lane L6). Wins over the village and platform
+   * keys, skips the mode's day bucket and the platform cap, and pays its own
+   * `assistant-member-day:${userId}` allowance instead. The per-IP burst guard
+   * still runs first: it is about a caller, not about whose money is spent.
+   */
+  memberKey?: MemberKey | null;
 }
 
 /**
@@ -306,23 +342,10 @@ export type AssistantResult =
   | { ok: false; status: number; error: string; spent?: AssistantSpend };
 
 /**
- * The endpoint, honouring ANTHROPIC_BASE_URL.
- *
- * That variable is load-bearing and predates this file: the loop test points it
- * at a local stub so the acceptance run never spends real tokens, and a
- * deployment behind a gateway needs it too. Hardcoding the real URL here would
- * have silently escaped both.
+ * The endpoint and the reply shape live in `assistantProviders.ts` now (round
+ * 4, lane L6): `anthropicUrl` still honours ANTHROPIC_BASE_URL exactly as it
+ * did here, and the OpenAI-compatible adapter sits beside it.
  */
-function anthropicUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const base = (env.ANTHROPIC_BASE_URL ?? "").trim().replace(/\/+$/, "");
-  return `${base || "https://api.anthropic.com"}/v1/messages`;
-}
-
-/** Whole non-negative counts. A reply with no `usage` object must land as 0, never NaN. */
-function tokenCount(v: unknown): number {
-  const n = Math.round(Number(v ?? 0));
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
 
 /**
  * The caller's system prompt with the reader results appended (Lane K1).
@@ -374,8 +397,18 @@ export async function callAssistant(req: AssistantRequest): Promise<AssistantRes
     return { ok: false, status: 429, error: "Slow down a moment, then keep going." };
   }
 
-  const resolved = resolveKey();
+  const resolved = resolveKey(process.env, req.memberKey);
   if (!resolved) return { ok: false, status: 503, error: "assistant-unavailable" };
+  // Which wire to speak. Only a member's key can name a provider; the village
+  // and platform keys are Anthropic keys and always were.
+  const providerId: ProviderId = resolved.source === "member" ? (req.memberKey?.provider ?? "anthropic") : "anthropic";
+  const provider = providerFor(providerId);
+  const baseUrl = resolved.source === "member" ? req.memberKey?.baseUrl ?? null : null;
+  // A member's own OpenAI-compatible endpoint needs the member's own model
+  // name; the platform's Anthropic model id means nothing to it.
+  const model = resolved.source === "member" && providerId === "openai_compatible"
+    ? String(req.memberKey?.model ?? "").trim() || req.model
+    : req.model;
 
   // LANE K1: prefetched data replaces the tools rather than joining them. A
   // request carrying both can still spend a POST asking for what it holds.
@@ -404,97 +437,107 @@ export async function callAssistant(req: AssistantRequest): Promise<AssistantRes
 
   for (let i = 0; i <= spec.toolCalls; i++) {
     const today = new Date().toISOString().slice(0, 10);
-    if (await deps.rateLimited(`assistant-day:${req.mode}:${today}`, spec.dailyBudget, 24 * 60 * 60 * 1000)) {
-      // Mid-loop this is not a partial answer, it is no answer: the last reply
-      // was a tool request and carries no text. Refusing is the honest end.
-      // Serving what we have would hand a caller their own fallback sentence
-      // at HTTP 200 with nothing in the log.
-      if (i > 0) console.warn(`[assistant:${req.mode}] day budget ran out mid-loop after ${iterations} call(s)`);
-      return { ok: false, status: 503, error: "assistant-unavailable", ...spent() };
-    }
-    // A borrowed key spends someone else's allowance, so it carries a second,
-    // smaller ceiling on top of the mode's own.
-    if (resolved.source === "platform") {
-      const cap = platformDailyCap();
-      if (cap === 0 || (await deps.rateLimited(`assistant-platform-day:${today}`, cap, 24 * 60 * 60 * 1000))) {
+    if (resolved.source === "member") {
+      // LANE L6: a member's own key spends the member's own money, so it
+      // neither charges the mode's day bucket nor meets the platform cap. It
+      // has its own allowance because this server is still the one making
+      // the calls, and a runaway loop is a runaway loop whoever is billed.
+      if (await deps.rateLimited(`assistant-member-day:${req.userId ?? "anon"}:${today}`, MEMBER_KEY_DAILY_CAP, 24 * 60 * 60 * 1000)) {
         return { ok: false, status: 503, error: "assistant-unavailable", ...spent() };
+      }
+    } else {
+      if (await deps.rateLimited(`assistant-day:${req.mode}:${today}`, spec.dailyBudget, 24 * 60 * 60 * 1000)) {
+        // Mid-loop this is not a partial answer, it is no answer: the last reply
+        // was a tool request and carries no text. Refusing is the honest end.
+        // Serving what we have would hand a caller their own fallback sentence
+        // at HTTP 200 with nothing in the log.
+        if (i > 0) console.warn(`[assistant:${req.mode}] day budget ran out mid-loop after ${iterations} call(s)`);
+        return { ok: false, status: 503, error: "assistant-unavailable", ...spent() };
+      }
+      // A borrowed key spends someone else's allowance, so it carries a second,
+      // smaller ceiling on top of the mode's own.
+      if (resolved.source === "platform") {
+        const cap = platformDailyCap();
+        if (cap === 0 || (await deps.rateLimited(`assistant-platform-day:${today}`, cap, 24 * 60 * 60 * 1000))) {
+          return { ok: false, status: 503, error: "assistant-unavailable", ...spent() };
+        }
       }
     }
 
-    const payload: Record<string, unknown> = {
-      model: req.model,
-      max_tokens: req.maxTokens ?? spec.maxTokens,
+    const request = provider.request({
+      key: resolved.key,
+      baseUrl,
+      model,
+      maxTokens: req.maxTokens ?? spec.maxTokens,
       system,
       messages: wire,
-    };
-    if (useTools) {
-      payload.tools = req.tools;
-      // The final turn still SHOWS the tools, so the model can read back the
-      // results it already has, and is told it may not call another. Without
-      // this the last reply can be one more tool request with no text in it.
-      payload.tool_choice = i === spec.toolCalls
-        ? { type: "none" }
-        : { type: "auto", disable_parallel_tool_use: true };
-    }
+      tools: useTools ? req.tools : undefined,
+      toolChoice: useTools ? (i === spec.toolCalls ? "none" : "auto") : undefined,
+    });
 
     let data: any;
     try {
-      const r = await doFetch(anthropicUrl(), {
-        method: "POST",
-        headers: {
-          "x-api-key": resolved.key,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!r.ok) {
-        // The key never reaches a log line, whoever it belongs to.
-        console.error(`[assistant:${req.mode}] Anthropic error`, r.status, (await r.text()).slice(0, 300));
-        return { ok: false, status: 502, error: "assistant-error", ...spent() };
+      if (providerId === "openai_compatible") {
+        // A member-typed host goes through the pinned, range-checked dialer,
+        // never bare fetch: bare fetch follows redirects into private ranges.
+        const post = deps.guardedPostJson
+          ?? ((url: string, body: unknown, headers: Record<string, string>) =>
+            guardedFetchJson(url, 60_000, { method: "POST", body, headers }));
+        data = await post(request.url, request.body, request.headers);
+      } else {
+        const r = await doFetch(request.url, {
+          method: "POST",
+          headers: request.headers,
+          body: JSON.stringify(request.body),
+        });
+        if (!r.ok) {
+          // The key never reaches a log line, whoever it belongs to.
+          console.error(`[assistant:${req.mode}] ${provider.id} error`, r.status, (await r.text()).slice(0, 300));
+          return { ok: false, status: 502, error: "assistant-error", ...spent() };
+        }
+        data = await r.json();
       }
-      data = await r.json();
     } catch (err) {
-      console.error(`[assistant:${req.mode}]`, err);
+      // The guarded dialer throws its refusal or the upstream status as the
+      // message; neither carries the key or the body.
+      console.error(`[assistant:${req.mode}] ${provider.id}`, String((err as any)?.message ?? err).slice(0, 200));
       return { ok: false, status: 502, error: "assistant-error", ...spent() };
     }
 
     iterations += 1;
-    const u = data?.usage ?? {};
-    usage.inputTokens += tokenCount(u?.input_tokens);
-    usage.outputTokens += tokenCount(u?.output_tokens);
-    usage.cacheCreationInputTokens += tokenCount(u?.cache_creation_input_tokens);
-    usage.cacheReadInputTokens += tokenCount(u?.cache_read_input_tokens);
-    stopReason = data?.stop_reason ?? null;
-    const blocks: any[] = Array.isArray(data?.content) ? data.content : [];
-    text = blocks.filter((b: any) => b?.type === "text").map((b: any) => b.text).join("").trim();
+    const reply = provider.parse(data);
+    usage.inputTokens += reply.usage.inputTokens;
+    usage.outputTokens += reply.usage.outputTokens;
+    usage.cacheCreationInputTokens += reply.usage.cacheCreationInputTokens;
+    usage.cacheReadInputTokens += reply.usage.cacheReadInputTokens;
+    stopReason = reply.stopReason;
+    text = reply.text;
 
     if (stopReason !== "tool_use" || !useTools || !req.runTool) break;
-    const calls = blocks.filter((b: any) => b?.type === "tool_use");
-    if (calls.length === 0) break;
+    if (reply.calls.length === 0) break;
 
-    // The assistant turn goes back RAW. Joining it to text loses the tool_use
-    // ids, and the next request 400s on results that answer nothing.
-    wire.push({ role: "assistant", content: blocks });
-    const results: any[] = [];
-    for (const b of calls) {
-      const name = String(b?.name ?? "");
-      const key = toolNameToKey(name);
+    // The assistant turn goes back RAW, in the provider's own shape, so the
+    // tool ids survive and the next request does not 400 on results that
+    // answer nothing.
+    wire.push(reply.assistantTurn);
+    const results: ToolResult[] = [];
+    for (const call of reply.calls) {
+      const key = toolNameToKey(call.name);
       toolsUsed.push(key);
       try {
-        const out = await req.runTool(name);
+        const out = await req.runTool(call.name);
         // `callReader` applies capTokens and NOT the fence, so fencing here is
         // the loop's job. Every reader result is member-written text heading
         // into a prompt, which is the widest injection surface there is.
         results.push(out.ok
-          ? { type: "tool_result", tool_use_id: b.id, content: fenceForPrompt(out.key, out.data) }
-          : { type: "tool_result", tool_use_id: b.id, content: out.error, is_error: true });
+          ? { id: call.id, content: fenceForPrompt(out.key, out.data) }
+          : { id: call.id, content: out.error, isError: true });
       } catch (err) {
         console.error(`[assistant:${req.mode}] reader ${key} threw`, err);
-        results.push({ type: "tool_result", tool_use_id: b.id, content: `${key} could not be read`, is_error: true });
+        results.push({ id: call.id, content: `${key} could not be read`, isError: true });
       }
     }
-    wire.push({ role: "user", content: results });
+    wire.push(...provider.toolResults(results));
   }
 
   if (stopReason === "tool_use") {
