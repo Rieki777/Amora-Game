@@ -64,7 +64,7 @@ const vat: Record<string, string> = {};
 const bodiesSeen: string[] = [];
 
 async function call(method: string, route: string, body?: unknown, token = founderToken): Promise<{ status: number; json: any; text: string }> {
-  const res = await fetch(BASE + route, {
+  const res = await fetch(BASE + route, { // module-review-ok: the test client dialling the built server on localhost, as every e2e suite does
     method,
     headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -116,7 +116,7 @@ beforeAll(async () => {
       DATA_DIR: dataDir,
       DATABASE_URL: testDb.url,
       ADMIN_PASSWORD: ADMIN,
-      AUTH_TOKEN_SECRET: "agent-routes-token-secret",
+      AUTH_TOKEN_SECRET: "agent-routes-token-secret", // module-review-ok: a fixture signing secret for a throwaway server on a scratch schema, same as every e2e suite
       MEMBER_SECRETS_KEY,
       ANTHROPIC_BASE_URL: `http://127.0.0.1:${STUB_PORT}`,
       RESEND_API_KEY: "",
@@ -131,7 +131,7 @@ beforeAll(async () => {
   const deadline = Date.now() + E2E_BOOT_DEADLINE_MS;
   for (;;) {
     if (Date.now() > deadline) throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s. Output:\n${logs.join("")}`);
-    try { const res = await fetch(`${BASE}/health`); if (res.ok) break; } catch { /* not up */ }
+    try { const res = await fetch(`${BASE}/health`); if (res.ok) break; } catch { /* not up */ } // module-review-ok: the boot poll against the local test server
     await new Promise((r) => setTimeout(r, 400));
   }
 
