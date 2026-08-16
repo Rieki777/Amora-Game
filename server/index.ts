@@ -49,7 +49,7 @@ import {
   restoreRevision,
   saveDraft,
 } from "./lib/mapScene";
-import { CALENDAR_LAYERS, toSchemaOrg } from "../shared/gatherings";
+import { CALENDAR_KINDS, CALENDAR_LAYERS, toSchemaOrg } from "../shared/gatherings";
 import { recordWalkRows, walkReport } from "./lib/walkLog";
 import {
   createGathering,
@@ -65,6 +65,7 @@ import {
 } from "./lib/gatherings";
 import { cleanRecurrence, isAuthoredKind, listCalendarItems } from "./lib/calendar";
 import { ensureSky, mirrorCalendarSources } from "./lib/calendarProviders";
+import { listMonthNames, lunarSummaryFor, namesForHemisphere, setMonthName } from "./lib/lunarTable";
 import type { YearAnchor } from "../shared/lunar";
 import {
   backerCounts,
@@ -7958,6 +7959,19 @@ async function startServer() {
     hemisphere: (stringVar("calendar.hemisphere") === "south" ? "south" : "north") as "north" | "south",
     crossQuarters: boolVar("calendar.cross_quarters"),
   });
+  /** Village time: SeasonConfig.timezone is the zone every viewer reads in. */
+  const villageTimezone = () => getSeasonConfig().timezone || "UTC";
+  /** The viewer as the calendar read sees them. */
+  async function calendarViewer(req: any): Promise<{ userId: string | null; isAdmin: boolean }> {
+    const user = await authedUser(req);
+    return { userId: user?.id ?? null, isAdmin: await isAdmin(req) };
+  }
+  /** `?kinds=a,b` and `?layers=a,b`, cleaned; undefined when absent. */
+  const listParam = <T extends string>(raw: unknown, allowed: readonly T[]): T[] | undefined => {
+    if (typeof raw !== "string" || !raw.trim()) return undefined;
+    const picked = raw.split(",").map((k) => k.trim()).filter((k): k is T => (allowed as readonly string[]).includes(k));
+    return picked.length ? picked : undefined;
+  };
   /** The sky as rows: last year through two years out, idempotent, daily. */
   registerJob("calendar-sky", 24 * 60 * 60 * 1000, async () => {
     const y = new Date().getUTCFullYear();
@@ -8064,14 +8078,44 @@ async function startServer() {
    * it. `?structure=` is how the map asks what is happening in one building.
    */
   app.get("/api/events", async (req, res) => {
-    const user = await authedUser(req);
-    const list = await listGatherings(getPool(), {
-      userId: user?.id ?? null,
+    const viewer = await calendarViewer(req);
+    const timezone = villageTimezone();
+    const now = new Date();
+    const day = 86_400_000;
+    const win = eventWindow();
+    // 0085: a caller may ask for its own window (the week and month views do,
+    // and the year wheel asks for a lunar year); the default is the two
+    // wired variables, as it always was. A window wider than two years is
+    // clipped rather than refused.
+    const asked = {
+      from: typeof req.query.from === "string" ? new Date(req.query.from) : null,
+      to: typeof req.query.to === "string" ? new Date(req.query.to) : null,
+    };
+    let from = asked.from && !Number.isNaN(asked.from.getTime()) ? asked.from : new Date(now.getTime() - win.pastVisibleDays * day);
+    let to = asked.to && !Number.isNaN(asked.to.getTime()) ? asked.to : new Date(now.getTime() + win.upcomingDays * day);
+    if (to.getTime() <= from.getTime()) to = new Date(from.getTime() + day);
+    if (to.getTime() - from.getTime() > 2 * 366 * day) to = new Date(from.getTime() + 2 * 366 * day);
+    const kinds = listParam(req.query.kinds, CALENDAR_KINDS);
+    const layers = listParam(req.query.layers, CALENDAR_LAYERS);
+    const list = await listCalendarItems(getPool(), {
+      from, to, viewer, timezone, kinds, layers,
       includeDrafts: false,
       structureKey: typeof req.query.structure === "string" ? req.query.structure : null,
-      ...eventWindow(),
+      limit: 1000,
+      now,
     });
-    res.json({ events: list, rsvpEnabled: boolVar("events.rsvp_enabled") });
+    const settings = calendarSkyOptions();
+    const names = namesForHemisphere(await listMonthNames(getPool()), settings.hemisphere);
+    res.json({
+      events: list,
+      rsvpEnabled: boolVar("events.rsvp_enabled"),
+      timezone,
+      window: { from: from.toISOString(), to: to.toISOString() },
+      lunar: lunarSummaryFor(now, { anchor: settings.anchor, timezone, hemisphere: settings.hemisphere, names }),
+      anchor: settings.anchor,
+      hemisphere: settings.hemisphere,
+      monthNames: names,
+    });
   });
 
   /**
@@ -8222,19 +8266,50 @@ async function startServer() {
     if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
     const list = await listGatherings(getPool(), {
       includeDrafts: true,
+      timezone: villageTimezone(),
       // Admins manage the whole calendar, so the member-facing windows do not
       // apply: a gathering being planned for next year has to be findable by
       // the person planning it.
       upcomingDays: 3650,
       pastVisibleDays: 3650,
     });
-    res.json({ events: list });
+    res.json({ events: list, timezone: villageTimezone() });
+  });
+
+  /**
+   * The thirteen month names (0085): number plus the village's own word.
+   * Registered above the `:id` routes so "month-names" is never read as an id.
+   */
+  app.get("/api/admin/events/month-names", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    const settings = calendarSkyOptions();
+    res.json({ monthNames: await listMonthNames(getPool()), hemisphere: settings.hemisphere, anchor: settings.anchor });
+  });
+
+  app.put("/api/admin/events/month-names/:index", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    const index = Number(req.params.index);
+    const name = typeof req.body?.name === "string" ? req.body.name : "";
+    if (name.length > 80) return res.status(400).json({ error: "A month name is 80 characters at most" });
+    const saved = await setMonthName(getPool(), index, name);
+    if (!saved) return res.status(400).json({ error: "Month index must be 1 to 13" });
+    const actor = await authedUser(req);
+    await recordEvent(getPool(), {
+      kind: "calendar_month_named",
+      text: saved.isExample ? `restored the example name of moon ${index}` : `named moon ${index} "${saved.name}"`,
+      actorUserId: actor?.id ?? null,
+      entityType: "calendar",
+      entityRef: `month:${index}`,
+      audience: "admin",
+    });
+    res.json({ success: true, monthName: saved });
   });
 
   /** Who is coming, for whoever is catering. Names only, never emails. */
   app.get("/api/admin/events/:id/rsvps", async (req, res) => {
     if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
-    res.json({ rsvps: await listRsvps(getPool(), req.params.id) });
+    const occ = typeof req.query.occurrence === "string" ? req.query.occurrence : undefined;
+    res.json({ rsvps: await listRsvps(getPool(), req.params.id, occ) });
   });
 
   app.post("/api/admin/events", async (req, res) => {
