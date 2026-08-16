@@ -3341,8 +3341,9 @@ function syncBanners(){
     if(!hideP){const q=SPT[s.key],sx=q.x,sy=q.y; // converted once at the top of the frame
       const iso=!painted&&useIso&&s.state!=='blueprint';
       const sc=((typeof FAM_SCALE!=='undefined'&&FAM_SCALE[fam])||1)*(s.scale||1)*(window.GSCALE||1);
-      s._crownOff=(painted?k*1.35*sc*54:(iso?k*1.35*sc*34:k*30*(window.GSCALE||1)))+6;
-      p.style.transform=`translate(${sx}px,${sy}px) scale(${(iso||painted)?k*1.35*sc:k*(window.GSCALE||1)})`;
+      const psc=(s.scale||1)*(window.GSCALE||1); // the founder's own size dial. The flat arm below used to drop it.
+      s._crownOff=(painted?k*1.35*sc*54:(iso?k*1.35*sc*34:k*30*psc))+6;
+      p.style.transform=`translate(${sx}px,${sy}px) scale(${(iso||painted)?k*1.35*sc:k*psc})`;
       p.style.zIndex=1000+Math.round(s.y);
       p.classList.toggle('m-iso',iso);p.classList.toggle('m-painted',painted);
       p.classList.toggle('st-blueprint',s.state==='blueprint');
