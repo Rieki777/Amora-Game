@@ -26,6 +26,55 @@ export type RsvpStatus = (typeof RSVP_STATUSES)[number];
 /** States a visitor may see. `draft` never leaves the admin surface. */
 export const PUBLIC_STATUSES: EventStatus[] = ["scheduled", "cancelled", "postponed"];
 
+// ── One calendar (0085): every dated thing, one table, one read ─────────────
+
+/**
+ * What sort of dated thing a row is. Append-only, in this order: the column
+ * is a MySQL enum and enums are ordinal. `gathering` and `festival` are the
+ * two a person types in here; the rest are written by their own module and
+ * mirrored into the calendar with the source named.
+ */
+export const CALENDAR_KINDS = [
+  "gathering", "quest-window", "festival", "season", "sky", "cycle-mark", "seat-term",
+  "call", "loan-due", "notice-end", "milestone", "external", "meet-me",
+] as const;
+export type CalendarKind = (typeof CALENDAR_KINDS)[number];
+
+/** Kinds a person creates by hand on the calendar. Everything else is mirrored. */
+export const AUTHORED_KINDS: CalendarKind[] = ["gathering", "festival"];
+
+/**
+ * Who may see a row. `village` and `public` are the calendar everyone reads;
+ * `circle` and `household` are the layer work L5b builds on; `private` is one
+ * person's own (a loan due, a notice end) and reaches only its owner; `admin`
+ * is the founders' desk.
+ */
+export const CALENDAR_LAYERS = ["village", "circle", "household", "private", "admin", "public"] as const;
+export type CalendarLayer = (typeof CALENDAR_LAYERS)[number];
+
+/** A single occurrence of a recurring item, changed or cancelled on its own. */
+export interface OccurrenceOverride {
+  cancelled?: boolean;
+  startsAt?: string;
+  endsAt?: string | null;
+  title?: string;
+}
+
+/**
+ * Recurring rhythms as first-class objects. Occurrences are materialised on
+ * read for the window asked, never stored as rows. Weekday numbers are
+ * 0 = Sunday through 6 = Saturday, in village time. `until` is an ISO instant
+ * after which nothing recurs; `exceptions` are occurrence keys (village-time
+ * YYYY-MM-DD) that are skipped; `overrides` move or cancel one occurrence.
+ */
+export type Recurrence =
+  | { freq: "weekly"; byWeekday: number[]; interval?: number; until?: string | null; exceptions?: string[]; overrides?: Record<string, OccurrenceOverride> }
+  | { freq: "monthly"; byMonthDay: number; interval?: number; until?: string | null; exceptions?: string[]; overrides?: Record<string, OccurrenceOverride> }
+  | { freq: "lunar"; on: "new_moon" | "full_moon" | "cycle_close"; until?: string | null; exceptions?: string[]; overrides?: Record<string, OccurrenceOverride> }
+  | { freq: "solar"; on: "solstice" | "equinox" | "either"; until?: string | null; exceptions?: string[]; overrides?: Record<string, OccurrenceOverride> };
+
+export const RECURRENCE_FREQS = ["weekly", "monthly", "lunar", "solar"] as const;
+
 export interface Gathering {
   id: string;
   title: string;
@@ -52,6 +101,48 @@ export interface Gathering {
 }
 
 /**
+ * A row of the one calendar, or one occurrence of a recurring row. Every
+ * field a Gathering has, plus what the calendar added in 0085. `occurrenceKey`
+ * is the village-time date of this occurrence and the empty string for a
+ * one-off; RSVPs are keyed by it.
+ */
+export interface CalendarItem extends Gathering {
+  kind: CalendarKind;
+  layer: CalendarLayer;
+  allDay: boolean;
+  /** Which module owns the fact this row mirrors, and its id there. Null for a hand-made row. */
+  sourceModule: string | null;
+  sourceId: string | null;
+  /** Where the item points when tapped. */
+  link: string | null;
+  colour: string | null;
+  recurrence: Recurrence | null;
+  occurrenceKey: string;
+  /** Set on an imported row: which subscription, which upstream UID. */
+  external: { sourceId: string; uid: string } | null;
+  /** True once the source no longer has this fact. Admin surfaces only. */
+  removed?: boolean;
+}
+
+/** The lunar position `/api/events` prints beside its window. */
+export interface LunarSummary {
+  /** 1-based month in the village's lunar year; 13 is the intercalary moon. */
+  monthIndex: number;
+  /** Twelve or thirteen: how many moons this lunar year holds. */
+  monthCount: number;
+  name: string;
+  isExampleName: boolean;
+  /** 1-based day of the lunar month in village time. */
+  day: number;
+  /** Civil days the month spans in village time (29 or 30). */
+  length: number;
+  monthStartsAt: string;
+  monthEndsAt: string;
+  phase: number;
+  phaseName: string;
+}
+
+/**
  * Whole days from `now` until `startsAt`, floored toward the past.
  *
  * Calendar days, not 24-hour blocks: something at 9pm tonight and something
@@ -67,6 +158,23 @@ export function daysUntil(startsAt: string | Date, now: Date = new Date()): numb
   const startDay = Math.floor(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()) / day);
   const nowDay = Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / day);
   return startDay - nowDay;
+}
+
+/**
+ * The same count in a named zone: whole civil days from `now` to `startsAt`
+ * where the village lives. `daysUntil` above stays UTC because the map's
+ * lanterns depend on it; the calendar page prints this one, so "tomorrow" is
+ * tomorrow in the village and not tomorrow in Greenwich.
+ */
+export function daysUntilInZone(startsAt: string | Date, timeZone: string, now: Date = new Date()): number {
+  const start = startsAt instanceof Date ? startsAt : new Date(startsAt);
+  if (Number.isNaN(start.getTime())) return 0;
+  const parts = (d: Date) => {
+    const f = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(d);
+    const n = (t: string) => Number(f.find((p) => p.type === t)?.value ?? 0);
+    return Date.UTC(n("year"), n("month") - 1, n("day"));
+  };
+  return Math.round((parts(start) - parts(now)) / 86_400_000);
 }
 
 /** Uncapped stays uncapped; a full gathering reports 0, never a negative. */

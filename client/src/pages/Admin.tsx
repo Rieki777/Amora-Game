@@ -289,7 +289,7 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         { key: "circles-map", label: "Circles & Map", icon: Circle },
         // Next to the map on purpose: a gathering's structure keys are what
         // light the map's buildings, so the two are edited in the same visit.
-        { key: "events-admin", label: "Gatherings", icon: Calendar },
+        { key: "events-admin", label: "Calendar", icon: Calendar },
         { key: "tools-admin", label: "Tools", icon: Handshake },
         { key: "stays-admin", label: "Stays & Payments", icon: Home },
         { key: "exchange-admin", label: "Exchange", icon: TrendingUp },
