@@ -1,0 +1,155 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Village agent surface",
+    "version": "1.0.0",
+    "description": "The routes a member's own agent may call with a personal access token (Bearer vat_...). Reads return exactly what the member sees on the web; the two writes are confirmed in two calls and nothing is written before the member says yes."
+  },
+  "servers": [{ "url": "/" }],
+  "components": {
+    "securitySchemes": {
+      "agentToken": { "type": "http", "scheme": "bearer", "description": "A vat_ token minted in the member's profile under Your agent. Honoured under /api/agent/v1 only." }
+    },
+    "schemas": {
+      "Gathering": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": ["string", "null"] },
+          "startsAt": { "type": "string", "format": "date-time" },
+          "endsAt": { "type": ["string", "null"], "format": "date-time" },
+          "locationText": { "type": ["string", "null"] },
+          "capacity": { "type": ["integer", "null"] },
+          "goingCount": { "type": "integer" },
+          "spotsLeft": { "type": ["integer", "null"] },
+          "status": { "type": "string", "enum": ["scheduled", "cancelled", "postponed"] },
+          "attendanceMode": { "type": "string", "enum": ["offline", "online", "mixed"] },
+          "onlineUrl": { "type": ["string", "null"] },
+          "daysUntil": { "type": "integer" },
+          "myRsvp": { "type": ["string", "null"], "enum": ["going", "maybe", "declined", null] }
+        }
+      },
+      "RsvpEcho": {
+        "type": "object",
+        "required": ["eventId", "title", "startsAt", "status", "idempotencyKey"],
+        "properties": {
+          "eventId": { "type": "string" },
+          "title": { "type": "string" },
+          "startsAt": { "type": "string", "format": "date-time" },
+          "status": { "type": "string", "enum": ["going", "maybe", "declined"] },
+          "idempotencyKey": { "type": ["string", "null"] }
+        }
+      },
+      "ConfirmRequired": {
+        "type": "object",
+        "properties": {
+          "confirmRequired": { "type": "boolean", "const": true },
+          "confirmToken": { "type": "string" },
+          "echo": { "$ref": "#/components/schemas/RsvpEcho" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "message": { "type": "string" }
+        }
+      },
+      "Refused": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string", "description": "missing | malformed | bad_signature | expired | wrong_action | wrong_holder | echo_mismatch, or a plain sentence" },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/agent/v1/skills": {
+      "get": { "summary": "The skills this village ships, by name and URL. Public.", "responses": { "200": { "description": "skills and the openapi URL" } } }
+    },
+    "/api/agent/v1/skills/{name}/SKILL.md": {
+      "get": { "summary": "One skill, as markdown. Public.", "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string", "enum": ["village-calendar", "village-directory", "village-intents"] } }], "responses": { "200": { "description": "text/markdown" } } }
+    },
+    "/api/agent/v1/openapi.json": {
+      "get": { "summary": "This document. Public.", "responses": { "200": { "description": "application/json" } } }
+    },
+    "/api/agent/v1/calendar": {
+      "get": {
+        "summary": "The calendar the member sees. Scope calendar.read.",
+        "security": [{ "agentToken": [] }],
+        "parameters": [{ "name": "structure", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Only gatherings at one map structure." }],
+        "responses": {
+          "200": { "description": "{events: Gathering[], rsvpEnabled: boolean}", "content": { "application/json": { "schema": { "type": "object", "properties": { "events": { "type": "array", "items": { "$ref": "#/components/schemas/Gathering" } }, "rsvpEnabled": { "type": "boolean" } } } } } },
+          "401": { "description": "no or invalid token" }, "403": { "description": "scope missing" }, "404": { "description": "the events module is off" }, "429": { "description": "120 reads an hour" }
+        }
+      }
+    },
+    "/api/agent/v1/calendar/{id}": {
+      "get": {
+        "summary": "One gathering with its schema.org markup. Scope calendar.read.",
+        "security": [{ "agentToken": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "{event: Gathering, schemaOrg, rsvpEnabled}" }, "404": { "description": "not found" } }
+      }
+    },
+    "/api/agent/v1/directory": {
+      "get": {
+        "summary": "Circles and seats, and who holds them at the tier the member may see. Scope directory.read.",
+        "security": [{ "agentToken": [] }],
+        "responses": { "200": { "description": "{circles, roles}. roles[].holders is empty when the member may not see people: that is a hidden field." } }
+      }
+    },
+    "/api/agent/v1/directory/search": {
+      "get": {
+        "summary": "Up to ten members by first name or handle. Scope directory.read.",
+        "security": [{ "agentToken": [] }],
+        "parameters": [{ "name": "q", "in": "query", "required": true, "schema": { "type": "string", "minLength": 2 } }],
+        "responses": { "200": { "description": "[{userId, name, handle}]" }, "404": { "description": "the messaging module is off" } }
+      }
+    },
+    "/api/agent/v1/me": {
+      "get": { "summary": "The member's own profile sheet. Scope me.read.", "security": [{ "agentToken": [] }], "responses": { "200": { "description": "the sheet" } } }
+    },
+    "/api/agent/v1/me/rsvps": {
+      "get": { "summary": "The calendar cut to gatherings the member has answered. Scope me.read.", "security": [{ "agentToken": [] }], "responses": { "200": { "description": "{events: Gathering[] with myRsvp set, rsvpEnabled}" } } }
+    },
+    "/api/agent/v1/events/{id}/rsvp": {
+      "post": {
+        "summary": "Answer a gathering. Two calls: the first answers 202 with an echo and a confirmToken; the second, with confirm: true, the token and the unchanged echo, writes. Scope rsvp.write.",
+        "security": [{ "agentToken": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["status"], "properties": {
+            "status": { "type": "string", "enum": ["going", "maybe", "declined"] },
+            "idempotencyKey": { "type": "string", "maxLength": 64 },
+            "confirm": { "type": "boolean", "const": true },
+            "confirmToken": { "type": "string" },
+            "echo": { "$ref": "#/components/schemas/RsvpEcho" }
+          } } } }
+        },
+        "responses": {
+          "202": { "description": "Confirm required. Show the echo, get a yes, send it back.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConfirmRequired" } } } },
+          "200": { "description": "{success: true, status, goingCount}" },
+          "400": { "description": "bad status" },
+          "403": { "description": "RSVPs closed, the member cannot RSVP yet, or scope missing" },
+          "404": { "description": "not found, or the events module is off" },
+          "409": { "description": "Refused: missing, expired, echo_mismatch, wrong_holder, wrong_action; or full / not_open. Nothing was written.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Refused" } } } },
+          "429": { "description": "20 writes an hour" }
+        }
+      }
+    },
+    "/api/agent/v1/intents": {
+      "post": {
+        "summary": "Post an intent, same two-call shape. Scope intents.write. 404 until the village opens introductions to agents.",
+        "security": [{ "agentToken": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["kind", "text", "tier"], "properties": {
+          "kind": { "type": "string", "enum": ["seek", "offer"] },
+          "text": { "type": "string", "maxLength": 280 },
+          "tier": { "type": "string", "enum": ["public", "members", "incognito", "private"] },
+          "confirm": { "type": "boolean", "const": true },
+          "confirmToken": { "type": "string" },
+          "echo": { "type": "object" }
+        } } } } },
+        "responses": { "202": { "description": "confirm required" }, "200": { "description": "posted" }, "404": { "description": "not open on this deployment" }, "409": { "description": "refused; nothing was written" } }
+      }
+    }
+  }
+}
