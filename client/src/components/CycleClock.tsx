@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { daysRemainingInCycle, moonPhase, moonPhaseName } from "@shared/lunar";
+import { SYNODIC_MONTH_DAYS, daysRemainingInCycle, moonPhase, moonPhaseName } from "@shared/lunar";
 import { quarterMarks, wheelState, type Hemisphere } from "@shared/wheel";
 
 /**
@@ -36,7 +36,10 @@ export default function CycleClock({ hemisphere = "north" }: { hemisphere?: Hemi
 
   const now = new Date();
   const phase = moonPhase(now);
-  const state = wheelState(now, phase, hemisphere);
+  // wheelState wants the moon's AGE IN DAYS and divides by 29.53 itself.
+  // This passed the 0..1 phase straight in, so the ring never filled past
+  // 3% (round 4 measured it); the age is the phase times the month.
+  const state = wheelState(now, phase * SYNODIC_MONTH_DAYS, hemisphere);
   const daysLeft = daysRemainingInCycle(now);
   const [tx, ty] = pt(state.yearAngle, 86);
   const lunarSweep = state.lunationFraction;

@@ -16,7 +16,7 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import type { LunarSummary } from "../../shared/gatherings";
-import { lunarPositionFor, moonPhase, moonPhaseName, type YearAnchor } from "../../shared/lunar";
+import { civilDate, lunarPositionFor, moonPhase, moonPhaseName, zonedTimeToUtc, type YearAnchor } from "../../shared/lunar";
 
 /** The seed 0085 wrote, kept here so a blanked name falls back to it. */
 export const EXAMPLE_MONTH_NAMES: readonly string[] = [
@@ -77,9 +77,16 @@ export interface LunarSettings {
   names: MonthName[];
 }
 
-/** Where `date` sits in the village's lunar year, with its name. Null outside the table. */
+/**
+ * Where `date` sits in the village's lunar year, with its name. Null outside
+ * the table. The lookup is made at the last minute of the village day, the
+ * same instant the client's grid uses, so the day a new moon falls on is day
+ * 1 from its first hour and the summary never disagrees with the cell.
+ */
 export function lunarSummaryFor(date: Date, s: LunarSettings): LunarSummary | null {
-  const p = lunarPositionFor(date, s.anchor, s.timezone);
+  const c = civilDate(date, s.timezone);
+  const endOfDay = zonedTimeToUtc(c.year, c.month, c.day, 23, 59, s.timezone);
+  const p = lunarPositionFor(endOfDay, s.anchor, s.timezone);
   if (!p) return null;
   const names = namesForHemisphere(s.names, s.hemisphere);
   const named = names.find((n) => n.index === p.month.index);

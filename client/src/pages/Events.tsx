@@ -1,197 +1,461 @@
 /**
- * The village calendar at `/events` (0059).
+ * The village calendar at `/events` (0059, grown in 0085).
  *
- * Reads `GET /api/events`, which already applies the two window variables and
- * hides drafts in the query. This page does no filtering of its own: a client
- * that receives a draft and is trusted to hide it is one bug away from
- * showing it.
+ * One table, one read: `GET /api/events` answers with every dated thing the
+ * viewer may see, in the window asked, plus the village's zone, the moon of
+ * the day and the month names. This page draws it four ways: the two-ring
+ * year wheel, the month grid (Months or Moons, remembered), the week, and
+ * the flat list it always had. Every date prints in village time with the
+ * zone named; the viewer's own clock is a second line only when it differs.
+ *
+ * This page does no filtering of its own beyond hiding the sky's rows from
+ * the flat list: a client that receives a draft and is trusted to hide it is
+ * one bug away from showing it, and the server never sends one.
  *
  * The module ships off, so an absent module renders NotFound exactly as every
  * other module page does. Existence is hidden, not merely unlinked.
  */
 import Layout from "@/components/Layout";
 import NotFound from "@/pages/NotFound";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
-import { CalendarDays, MapPin, Users, Video } from "lucide-react";
-import type { Gathering, RsvpStatus } from "@shared/gatherings";
+import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, MapPin, Users, Video } from "lucide-react";
+import type { CalendarItem, RsvpStatus } from "@shared/gatherings";
+import { civilDate, lunarYearOf, type YearAnchor } from "@shared/lunar";
+import YearWheel from "@/components/calendar/YearWheel";
+import MonthView, { type GridMode } from "@/components/calendar/MonthView";
+import WeekView from "@/components/calendar/WeekView";
+import MoonGlyph from "@/components/calendar/MoonGlyph";
+import CalendarFeedCard from "@/components/calendar/CalendarFeedCard";
+import {
+  DEFAULT_ANCHOR,
+  addDays,
+  civilDayFor,
+  itemsByDay,
+  kindColour,
+  kindLabel,
+  localSecondLine,
+  lunarDayInfo,
+  moonLabel,
+  todayIn,
+  villageClock,
+  villageDateLine,
+  zoneNote,
+  type CivilDay,
+  type EventsPayload,
+} from "@/components/calendar/calendarTime";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
 
+type Tab = "wheel" | "month" | "week" | "list";
+const TABS: Array<{ id: Tab; label: string }> = [
+  { id: "wheel", label: "Year" },
+  { id: "month", label: "Month" },
+  { id: "week", label: "Week" },
+  { id: "list", label: "List" },
+];
+const MODE_KEY = "calendar.gridMode";
+const TAB_KEY = "calendar.tab";
+
+const remembered = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
+  try {
+    const v = window.localStorage.getItem(key);
+    return allowed.includes(v as T) ? (v as T) : fallback;
+  } catch { return fallback; }
+};
+const remember = (key: string, value: string) => { try { window.localStorage.setItem(key, value); } catch { /* private mode */ } };
+
 /** "Today", "Tomorrow", "in 4 days", "3 days ago". */
-function whenLabel(g: Gathering): string {
-  if (g.daysUntil === 0) return "Today";
-  if (g.daysUntil === 1) return "Tomorrow";
-  if (g.daysUntil > 1) return `in ${g.daysUntil} days`;
-  if (g.daysUntil === -1) return "Yesterday";
-  return `${Math.abs(g.daysUntil)} days ago`;
+function whenLabel(days: number): string {
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  if (days > 1) return `in ${days} days`;
+  if (days === -1) return "Yesterday";
+  return `${Math.abs(days)} days ago`;
 }
 
-const dateLine = (g: Gathering): string => {
-  const start = new Date(g.startsAt);
-  const date = start.toLocaleDateString(undefined, {
-    weekday: "long", day: "numeric", month: "long",
-  });
-  const time = start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  return `${date}, ${time}`;
-};
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 export default function Events() {
   const modules = useModules();
   const eventsModule = useModule("events");
-  const [events, setEvents] = useState<Gathering[] | null>(null);
-  const [rsvpEnabled, setRsvpEnabled] = useState(true);
+  const [payload, setPayload] = useState<EventsPayload | null>(null);
+  const [span, setSpan] = useState<CalendarItem[]>([]);
+  const [spanYear, setSpanYear] = useState<number | null>(null);
+  const [tab, setTab] = useState<Tab>(() => remembered(TAB_KEY, TABS.map((t) => t.id), "month"));
+  const [mode, setMode] = useState<GridMode>(() => remembered(MODE_KEY, ["months", "moons"] as const, "months"));
+  const [cursor, setCursor] = useState<CivilDay | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+
+  const timezone = payload?.timezone ?? "UTC";
+  const anchor = payload?.anchor ?? DEFAULT_ANCHOR;
+  const hemisphere = payload?.hemisphere ?? "north";
+  const monthNames = payload?.monthNames ?? [];
+  const today = useMemo(() => todayIn(timezone), [timezone]);
 
   const load = useCallback(() => {
     fetch("/api/events", { headers: headers() })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((d) => { setEvents(d.events ?? []); setRsvpEnabled(d.rsvpEnabled !== false); })
-      .catch(() => setEvents([]));
+      .then((d: EventsPayload) => setPayload({ ...d, events: d.events ?? [] }))
+      .catch(() => setPayload((p) => p ?? { events: [], rsvpEnabled: true, timezone: "UTC", window: { from: "", to: "" }, lunar: null, anchor: DEFAULT_ANCHOR, hemisphere: "north", monthNames: [] }));
+  }, []);
+
+  /** The wheel, month and week read a whole year around the cursor. */
+  const loadSpan = useCallback((year: number, tz: string) => {
+    const from = civilDayFor(year - 1, 12, 1, tz).startsAt.toISOString();
+    const to = civilDayFor(year + 1, 2, 1, tz).startsAt.toISOString();
+    fetch(`/api/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { headers: headers() })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d: EventsPayload) => { setSpan(d.events ?? []); setSpanYear(year); })
+      .catch(() => { setSpan([]); setSpanYear(year); });
   }, []);
 
   useEffect(() => { if (eventsModule) load(); }, [eventsModule?.id, load]);
+  useEffect(() => {
+    if (!payload) return;
+    if (!cursor) { const t = todayIn(payload.timezone); setCursor(t); setSelectedKey(t.key); }
+  }, [payload, cursor]);
+  useEffect(() => {
+    if (!payload || !cursor) return;
+    if (spanYear !== cursor.year) loadSpan(cursor.year, payload.timezone);
+  }, [payload, cursor, spanYear, loadSpan]);
 
-  const answer = async (id: string, status: RsvpStatus) => {
-    setBusy(id);
+  const reload = () => { load(); if (cursor) loadSpan(cursor.year, timezone); };
+
+  const answer = async (item: CalendarItem, status: RsvpStatus) => {
+    const key = `${item.id}:${item.occurrenceKey}`;
+    setBusy(key);
     setProblem(null);
     try {
-      const res = await fetch(`/api/events/${id}/rsvp`, {
+      const res = await fetch(`/api/events/${item.id}/rsvp`, {
         method: "POST",
         headers: { ...headers(), "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, occurrenceKey: item.occurrenceKey || undefined }),
       });
       const body = await res.json().catch(() => ({}));
       // The server owns capacity, so its refusal is the truth. Showing the
       // reason beats a button that silently does nothing.
       if (!res.ok) setProblem(body?.error ?? "That did not work");
-      else load();
+      else reload();
     } catch { setProblem("That did not work"); }
     setBusy(null);
   };
 
+  const pickTab = (t: Tab) => { setTab(t); remember(TAB_KEY, t); };
+  const pickMode = (m: GridMode) => { setMode(m); remember(MODE_KEY, m); };
+
+  const step = (dir: -1 | 1) => {
+    if (!cursor) return;
+    if (tab === "week") { const n = addDays(cursor, 7 * dir, timezone); setCursor(n); setSelectedKey(n.key); return; }
+    if (tab === "wheel") { setCursor(civilDayFor(cursor.year + dir, 1, 1, timezone)); return; }
+    if (mode === "moons") {
+      const info = lunarDayInfo(cursor, anchor, timezone);
+      if (!info) return;
+      // Day 1 of the next moon, or a day inside the previous one.
+      const n = dir > 0 ? addDays(cursor, info.length - info.day + 1, timezone) : addDays(cursor, -info.day, timezone);
+      const first = addDays(n, -((lunarDayInfo(n, anchor, timezone)?.day ?? 1) - 1), timezone);
+      setCursor(first); setSelectedKey(first.key);
+      return;
+    }
+    const m = cursor.month + dir;
+    const y = cursor.year + (m < 1 ? -1 : m > 12 ? 1 : 0);
+    const mm = ((m - 1 + 12) % 12) + 1;
+    const n = civilDayFor(y, mm, 1, timezone);
+    setCursor(n); setSelectedKey(n.key);
+  };
+  const goToday = () => { const t = todayIn(timezone); setCursor(t); setSelectedKey(t.key); };
+
+  const selectDay = (d: CivilDay) => { setSelectedKey(d.key); setCursor(d); };
+
+  const byDay = useMemo(() => itemsByDay(span, timezone), [span, timezone]);
+  const selectedItems = selectedKey ? byDay.get(selectedKey) ?? [] : [];
+  const listItems = (payload?.events ?? []).filter((i) => i.kind !== "sky");
+
   if (modules.loaded && !eventsModule) return <NotFound />;
+
+  const rsvpEnabled = payload?.rsvpEnabled !== false;
+  const lunar = payload?.lunar ?? null;
+
+  const rsvpButtons = (g: CalendarItem) => {
+    if (!rsvpEnabled) return null;
+    if (!(g.kind === "gathering" || g.kind === "festival" || g.kind === "external")) return null;
+    if (!(g.status === "scheduled" || g.status === "postponed")) return null;
+    const key = `${g.id}:${g.occurrenceKey}`;
+    return (
+      <div className="flex items-center gap-2 mt-3 flex-wrap">
+        {(["going", "maybe", "declined"] as RsvpStatus[]).map((s) => {
+          const mine = g.myRsvp === s;
+          // A full gathering still accepts maybe and declined: only a new
+          // "going" needs a seat.
+          const blocked = s === "going" && g.spotsLeft === 0 && !mine;
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => answer(g, s)}
+              disabled={busy === key || blocked}
+              aria-pressed={mine}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-40 ${
+                mine ? "bg-teal-deep text-white border-teal-deep" : "bg-background text-foreground border-border hover:bg-muted"
+              }`}
+            >
+              {s === "going" ? "I'm coming" : s === "maybe" ? "Maybe" : "Can't make it"}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const itemCard = (g: CalendarItem, showWhen: boolean) => {
+    const second = localSecondLine(g, timezone);
+    const key = `${g.id}:${g.occurrenceKey}`;
+    return (
+      <li key={key} className="border border-border rounded-xl p-4 sm:p-5 bg-card">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
+            <h3 className="font-semibold text-lg text-foreground flex items-center gap-2 flex-wrap">
+              <span className="inline-block h-2.5 w-2.5 rounded-full shrink-0" style={{ background: kindColour(g) }} aria-hidden="true" />
+              <span className={g.status === "cancelled" ? "line-through opacity-70" : ""}>{g.title}</span>
+              {g.kind !== "gathering" && (
+                <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                  {kindLabel(g.kind)}
+                </span>
+              )}
+              {g.status === "cancelled" && (
+                <span className="text-xs font-medium text-red-700 bg-red-50 border border-red-100 rounded px-1.5 py-0.5">Cancelled</span>
+              )}
+              {g.status === "postponed" && (
+                <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5">Postponed</span>
+              )}
+              {g.isExample && (
+                <span className="text-[10px] font-medium uppercase tracking-wide text-amber-800 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5">example</span>
+              )}
+            </h3>
+            <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span>{villageDateLine(g, timezone)}</span>
+              {showWhen && <span className="text-foreground/60">({whenLabel(g.daysUntil)})</span>}
+            </p>
+            {second && <p className="text-xs text-muted-foreground/80 mt-0.5 ml-5">{second}</p>}
+            {g.locationText && (
+              <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {g.locationText}
+              </p>
+            )}
+            {g.onlineUrl && g.attendanceMode !== "offline" && (
+              <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                <Video className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <a href={g.onlineUrl} className="underline underline-offset-2 hover:text-foreground" target="_blank" rel="noopener noreferrer">Join online</a>
+              </p>
+            )}
+            {g.link && (
+              <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <a href={g.link} className="underline underline-offset-2 hover:text-foreground">Open</a>
+              </p>
+            )}
+          </div>
+          {(g.kind === "gathering" || g.kind === "festival" || g.kind === "external") && (
+            <div className="text-right shrink-0">
+              <p className="text-sm text-muted-foreground flex items-center gap-1.5 justify-end">
+                <Users className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {/* The real number, always. A capacity of 0 is a real answer
+                    and must not read as "no limit". */}
+                {g.capacity === null ? `${g.goingCount} going` : `${g.goingCount} of ${g.capacity} going`}
+              </p>
+              {g.spotsLeft === 0 && <p className="text-xs text-amber-700 mt-0.5">Full</p>}
+            </div>
+          )}
+        </div>
+        {g.description && <p className="text-sm text-muted-foreground mt-3 whitespace-pre-line">{g.description}</p>}
+        {rsvpButtons(g)}
+      </li>
+    );
+  };
+
+  const selectedDay = cursor && selectedKey ? (selectedKey === cursor.key ? cursor : (() => {
+    const [y, m, d] = selectedKey.split("-").map(Number);
+    return civilDayFor(y, m, d, timezone);
+  })()) : null;
+  const selectedLunar = selectedDay ? lunarDayInfo(selectedDay, anchor, timezone) : null;
+  const selectedMoonName = selectedLunar ? moonLabel(selectedLunar.monthIndex, monthNames) : null;
+  const skyToday = selectedItems.filter((i) => i.kind === "sky");
+  const dayItems = selectedItems.filter((i) => i.kind !== "sky");
 
   return (
     <Layout>
-      <section className="py-12 bg-gradient-to-b from-teal-deep/5 to-background">
+      <section className="py-10 bg-gradient-to-b from-teal-deep/5 to-background">
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">What is on</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            The village's gatherings: when they are, where they are, and who is coming.
+            The village's calendar: twelve months and the moons of the year, side by side, and everything dated in one place.
           </p>
+          {lunar && (
+            <p className="mt-3 inline-flex items-center gap-2 text-sm text-foreground bg-card border border-border rounded-full px-3 py-1.5">
+              <MoonGlyph phase={lunar.phase} size={16} hemisphere={hemisphere} title={lunar.phaseName} />
+              <span>
+                Today is day {lunar.day} of {lunar.length} in Moon {lunar.monthIndex}
+                {lunar.name ? `, ${lunar.name}` : ""}
+                {lunar.isExampleName ? " (example name)" : ""}
+              </span>
+            </p>
+          )}
+          {payload && <p className="mt-2 text-xs text-muted-foreground">{zoneNote(timezone)}</p>}
         </div>
       </section>
 
-      <section className="py-8 bg-background">
-        <div className="container max-w-3xl">
+      <section className="py-6 bg-background">
+        <div className="container max-w-4xl">
           {problem && (
-            <p className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-              {problem}
-            </p>
+            <p className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{problem}</p>
           )}
 
-          {events === null && <p className="text-center text-muted-foreground py-16">Loading...</p>}
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-4">
+            <div role="tablist" aria-label="Calendar views" className="inline-flex rounded-lg border border-border bg-card p-0.5">
+              {TABS.map((t) => (
+                <button key={t.id} role="tab" type="button" aria-selected={tab === t.id} onClick={() => pickTab(t.id)}
+                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${tab === t.id ? "bg-teal-deep text-white" : "text-foreground hover:bg-muted"}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {tab === "month" && (
+              <div role="radiogroup" aria-label="Grid by months or by moons" className="inline-flex rounded-lg border border-border bg-card p-0.5">
+                {(["months", "moons"] as GridMode[]).map((m) => (
+                  <button key={m} role="radio" type="button" aria-checked={mode === m} onClick={() => pickMode(m)}
+                    className={`px-3 py-1.5 text-sm rounded-md transition-colors ${mode === m ? "bg-teal-deep text-white" : "text-foreground hover:bg-muted"}`}>
+                    {m === "months" ? "Months" : "Moons"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {tab !== "list" && (
+              <div className="inline-flex items-center gap-1">
+                <button type="button" onClick={() => step(-1)} aria-label="Earlier" className="p-1.5 rounded-lg border border-border bg-card hover:bg-muted">
+                  <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button type="button" onClick={goToday} className="px-3 py-1.5 text-sm rounded-lg border border-border bg-card hover:bg-muted">Today</button>
+                <button type="button" onClick={() => step(1)} aria-label="Later" className="p-1.5 rounded-lg border border-border bg-card hover:bg-muted">
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            )}
+          </div>
 
-          {events?.length === 0 && (
-            <p className="text-center text-muted-foreground py-16">
-              Nothing is on the calendar yet.
-            </p>
+          {payload === null && <p className="text-center text-muted-foreground py-16">Loading...</p>}
+
+          {payload && cursor && tab === "wheel" && (
+            <div>
+              <YearWheel
+                year={cursor.year}
+                timezone={timezone}
+                anchor={anchor}
+                hemisphere={hemisphere}
+                monthNames={monthNames}
+                items={span}
+                onPickMonth={(y, m) => { const d = civilDayFor(y, m, 1, timezone); setCursor(d); setSelectedKey(d.key); pickMode("months"); pickTab("month"); }}
+                onPickMoon={(startsAt) => {
+                  const c = civilDate(startsAt, timezone);
+                  const d = civilDayFor(c.year, c.month, c.day, timezone);
+                  setCursor(d); setSelectedKey(d.key); pickMode("moons"); pickTab("month");
+                }}
+              />
+              <p className="text-center text-xs text-muted-foreground mt-2">
+                Tap a month on the outer ring or a moon on the inner ring to open it.
+              </p>
+              <MoonRoll year={cursor.year} anchor={anchor} timezone={timezone} monthNames={monthNames} onPick={(d) => { setCursor(d); setSelectedKey(d.key); pickMode("moons"); pickTab("month"); }} />
+            </div>
           )}
 
-          <ul className="space-y-4">
-            {(events ?? []).map((g) => (
-              <li key={g.id} className="border border-border rounded-xl p-5 bg-card">
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="min-w-0">
-                    <h2 className="font-semibold text-lg text-foreground">
-                      {g.title}
-                      {g.status === "cancelled" && (
-                        <span className="ml-2 text-xs font-medium text-red-700 bg-red-50 border border-red-100 rounded px-1.5 py-0.5 align-middle">
-                          Cancelled
-                        </span>
-                      )}
-                      {g.status === "postponed" && (
-                        <span className="ml-2 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 align-middle">
-                          Postponed
-                        </span>
-                      )}
-                    </h2>
-                    <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
-                      <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                      <span>{dateLine(g)}</span>
-                      <span className="text-foreground/60">({whenLabel(g)})</span>
-                    </p>
-                    {g.locationText && (
-                      <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                        <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        {g.locationText}
-                      </p>
-                    )}
-                    {g.onlineUrl && g.attendanceMode !== "offline" && (
-                      <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                        <Video className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        <a href={g.onlineUrl} className="underline underline-offset-2 hover:text-foreground"
-                          target="_blank" rel="noopener noreferrer">Join online</a>
-                      </p>
-                    )}
-                  </div>
+          {payload && cursor && tab === "month" && (
+            <MonthView mode={mode} cursor={cursor} today={today} selectedKey={selectedKey} timezone={timezone}
+              anchor={anchor} hemisphere={hemisphere} monthNames={monthNames} items={span} onSelectDay={selectDay} />
+          )}
 
-                  <div className="text-right shrink-0">
-                    <p className="text-sm text-muted-foreground flex items-center gap-1.5 justify-end">
-                      <Users className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                      {/* The real number, always. A capacity of 0 is a real
-                          answer and must not read as "no limit". */}
-                      {g.capacity === null
-                        ? `${g.goingCount} going`
-                        : `${g.goingCount} of ${g.capacity} going`}
-                    </p>
-                    {g.spotsLeft === 0 && (
-                      <p className="text-xs text-amber-700 mt-0.5">Full</p>
-                    )}
-                  </div>
-                </div>
+          {payload && cursor && tab === "week" && (
+            <WeekView cursor={cursor} today={today} selectedKey={selectedKey} timezone={timezone}
+              anchor={anchor} hemisphere={hemisphere} monthNames={monthNames} items={span} onSelectDay={selectDay} />
+          )}
 
-                {g.description && (
-                  <p className="text-sm text-muted-foreground mt-3 whitespace-pre-line">{g.description}</p>
+          {payload && (tab === "month" || tab === "week") && selectedDay && (
+            <div className="mt-5">
+              <h2 className="font-display text-xl font-semibold text-foreground flex items-center gap-2 flex-wrap">
+                <span>{villageDateLine({ startsAt: selectedDay.noon.toISOString(), endsAt: null, allDay: true }, timezone)}</span>
+                {selectedLunar && selectedMoonName && (
+                  <span className="text-sm font-normal text-muted-foreground inline-flex items-center gap-1.5">
+                    <MoonGlyph phase={selectedLunar.phase} size={14} hemisphere={hemisphere} />
+                    {selectedMoonName.title}{selectedMoonName.name ? `, ${selectedMoonName.name}` : ""}, day {selectedLunar.day} of {selectedLunar.length}
+                  </span>
                 )}
+              </h2>
+              {skyToday.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {skyToday.map((s) => `${s.title} at ${villageClock(new Date(s.startsAt), timezone)}`).join(", ")}
+                </p>
+              )}
+              {dayItems.length === 0 && <p className="text-sm text-muted-foreground mt-3">Nothing on this day.</p>}
+              <ul className="space-y-3 mt-3">{dayItems.map((g) => itemCard(g, false))}</ul>
+            </div>
+          )}
 
-                {rsvpEnabled && (g.status === "scheduled" || g.status === "postponed") && (
-                  <div className="flex items-center gap-2 mt-4 flex-wrap">
-                    {(["going", "maybe", "declined"] as RsvpStatus[]).map((s) => {
-                      const mine = g.myRsvp === s;
-                      // A full gathering still accepts maybe and declined:
-                      // only a new "going" needs a seat.
-                      const blocked = s === "going" && g.spotsLeft === 0 && !mine;
-                      return (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => answer(g.id, s)}
-                          disabled={busy === g.id || blocked}
-                          aria-pressed={mine}
-                          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-40 ${
-                            mine
-                              ? "bg-teal-deep text-white border-teal-deep"
-                              : "bg-background text-foreground border-border hover:bg-muted"
-                          }`}
-                        >
-                          {s === "going" ? "I'm coming" : s === "maybe" ? "Maybe" : "Can't make it"}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+          {payload && tab === "list" && (
+            <div>
+              {listItems.length === 0 && (
+                <p className="text-center text-muted-foreground py-16">Nothing is on the calendar yet.</p>
+              )}
+              <ul className="space-y-4">{listItems.map((g) => itemCard(g, true))}</ul>
+            </div>
+          )}
+
+          {payload && <CalendarFeedCard signedIn={Boolean(authToken())} />}
         </div>
       </section>
     </Layout>
+  );
+}
+
+/** The moons of the year as a list under the wheel: number, name, dates, count said out loud. */
+function MoonRoll({ year, anchor, timezone, monthNames, onPick }: { year: number; anchor: YearAnchor; timezone: string; monthNames: EventsPayload["monthNames"]; onPick: (d: CivilDay) => void }) {
+  const rows: Array<{ key: string; index: number; count: number; startsAt: Date; endsAt: Date }> = [];
+  // Every moon that begins in this Gregorian year, from whichever lunar year it belongs to.
+  for (const anchorYear of [year - 2, year - 1, year]) {
+    const ly = lunarYearOf(anchorYear, anchor);
+    if (!ly) continue;
+    for (const m of ly.months) {
+      if (civilDate(m.startsAt, timezone).year !== year) continue;
+      rows.push({ key: `${anchorYear}-${m.index}`, index: m.index, count: ly.months.length, startsAt: m.startsAt, endsAt: m.endsAt });
+    }
+  }
+  rows.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+  if (!rows.length) return null;
+  const fmt = (d: Date) => { const c = civilDate(d, timezone); return `${c.day} ${MONTHS[c.month - 1].slice(0, 3)}`; };
+  return (
+    <ul className="mt-5 grid sm:grid-cols-2 gap-1.5 text-sm">
+      {rows.map((r) => {
+        const label = moonLabel(r.index, monthNames);
+        return (
+          <li key={r.key}>
+            <button type="button" onClick={() => { const c = civilDate(r.startsAt, timezone); onPick(civilDayFor(c.year, c.month, c.day, timezone)); }}
+              className="w-full text-left flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-1.5 hover:bg-muted">
+              <span className="min-w-0 truncate">
+                <span className="font-semibold">Moon {r.index}</span>
+                <span className="text-muted-foreground"> of {r.count}</span>
+                {label.name && <span className="text-muted-foreground">, {label.name}</span>}
+                {label.isExample && <span className="ml-1 text-[10px] uppercase tracking-wide text-amber-800">example</span>}
+              </span>
+              <span className="text-xs text-muted-foreground shrink-0">{fmt(r.startsAt)} to {fmt(new Date(r.endsAt.getTime() - 60_000))}</span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
