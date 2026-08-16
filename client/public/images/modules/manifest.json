@@ -1,29 +1,185 @@
 {
   "assets": {
+    "automation": {
+      "at": "2026-08-16T17:22:56+00:00",
+      "bytes": 25200,
+      "file": "automation.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "90ebb2771bf81580",
+      "place": "the bell tower",
+      "preblur": 0,
+      "quality": 52
+    },
+    "badges": {
+      "at": "2026-08-16T17:23:00+00:00",
+      "bytes": 25292,
+      "file": "badges.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "018895420c673051",
+      "place": "school porch wall of woven badges",
+      "preblur": 0.6,
+      "quality": 68
+    },
+    "commerce": {
+      "at": "2026-08-16T17:23:03+00:00",
+      "bytes": 25586,
+      "file": "commerce.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "f6bde1e1623da553",
+      "place": "market stall with a donation bowl",
+      "preblur": 0.6,
+      "quality": 70
+    },
     "events": {
-      "at": "2026-08-16T17:05:58+00:00",
+      "at": "2026-08-16T17:23:11+00:00",
       "bytes": 25096,
       "file": "events.webp",
       "model": "nano-banana-pro-preview",
       "promptHash": "43f2b657ff75265d",
+      "place": "the commons at dusk with lanterns",
+      "preblur": 0,
       "quality": 56
     },
+    "exchange": {
+      "at": "2026-08-16T17:23:01+00:00",
+      "bytes": 25364,
+      "file": "exchange.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "ffc39357a7dbc55a",
+      "place": "store counter with token jars",
+      "preblur": 0,
+      "quality": 52
+    },
+    "feed": {
+      "at": "2026-08-16T17:22:49+00:00",
+      "bytes": 25218,
+      "file": "feed.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "80d2c5cff892b1f7",
+      "place": "the village square at morning",
+      "preblur": 0.6,
+      "quality": 70
+    },
+    "forum": {
+      "at": "2026-08-16T17:22:48+00:00",
+      "bytes": 25386,
+      "file": "forum.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "468a8ce6063ca350",
+      "place": "round table under a roof",
+      "preblur": 0.6,
+      "quality": 62
+    },
+    "gratitude": {
+      "at": "2026-08-16T17:22:39+00:00",
+      "bytes": 25464,
+      "file": "gratitude.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "2c46bc4633c3159a",
+      "place": "gift table under a shelter",
+      "preblur": 0,
+      "quality": 64
+    },
+    "health": {
+      "at": "2026-08-16T17:22:56+00:00",
+      "bytes": 25132,
+      "file": "health.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "668b099f739f5fa0",
+      "place": "the ridge weather station",
+      "preblur": 0,
+      "quality": 66
+    },
     "library": {
-      "at": "2026-08-16T17:05:57+00:00",
+      "at": "2026-08-16T17:22:58+00:00",
       "bytes": 25238,
       "file": "library.webp",
       "model": "nano-banana-pro-preview",
       "promptHash": "874b88ae329ee024",
+      "place": "the tool shed",
+      "preblur": 0,
       "quality": 52
     },
     "map": {
-      "at": "2026-08-16T17:05:56+00:00",
+      "at": "2026-08-16T17:22:45+00:00",
       "bytes": 25172,
       "file": "map.webp",
       "model": "nano-banana-pro-preview",
       "promptHash": "ca6d4e154fb0eb09",
+      "place": "the council fire",
+      "preblur": 0,
       "quality": 62
+    },
+    "messaging": {
+      "at": "2026-08-16T17:22:53+00:00",
+      "bytes": 25474,
+      "file": "messaging.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "7c83e4bfe02ae53f",
+      "place": "a bench pair with a letter box",
+      "preblur": 0.6,
+      "quality": 52
+    },
+    "network": {
+      "at": "2026-08-16T17:23:07+00:00",
+      "bytes": 25590,
+      "file": "network.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "4d713767a4687090",
+      "place": "the gate with blank signposts",
+      "preblur": 0.6,
+      "quality": 58
+    },
+    "profiles": {
+      "at": "2026-08-16T17:22:44+00:00",
+      "bytes": 25506,
+      "file": "profiles.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "3178f3ee8b5f1f3b",
+      "place": "cabin doorway with a blank name plate",
+      "preblur": 0,
+      "quality": 54
+    },
+    "progression": {
+      "at": "2026-08-16T17:22:42+00:00",
+      "bytes": 24816,
+      "file": "progression.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "1d38942587e24e21",
+      "place": "trail with waymarker stones",
+      "preblur": 0.6,
+      "quality": 58
+    },
+    "quests": {
+      "at": "2026-08-16T17:22:38+00:00",
+      "bytes": 25272,
+      "file": "quests.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "eaa708c4ab4dea8c",
+      "place": "notice board at the commons",
+      "preblur": 0,
+      "quality": 70
+    },
+    "stays": {
+      "at": "2026-08-16T17:22:54+00:00",
+      "bytes": 24956,
+      "file": "stays.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "abd6b46a272f6429",
+      "place": "the guest cabin",
+      "preblur": 0,
+      "quality": 56
+    },
+    "tools": {
+      "at": "2026-08-16T17:23:09+00:00",
+      "bytes": 25374,
+      "file": "tools.webp",
+      "model": "nano-banana-pro-preview",
+      "promptHash": "72083c020d400bfb",
+      "place": "the lab workbench",
+      "preblur": 0.6,
+      "quality": 70
     }
   },
-  "updatedAt": "2026-08-16T17:05:58+00:00"
+  "updatedAt": "2026-08-16T17:23:11+00:00"
 }
