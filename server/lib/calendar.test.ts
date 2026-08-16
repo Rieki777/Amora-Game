@@ -343,7 +343,8 @@ describe.skipIf(!configured)("the one calendar, against a real schema", () => {
     await pool.query("INSERT INTO events (id, title, starts_at, status, capacity) VALUES ('one','Supper', '2026-09-01 00:00:00', 'scheduled', 1)");
     // A key sent for a one-off is ignored, so the same person cannot take two seats.
     expect((await rsvp(pool, "one", "u1", "going", undefined, "2026-09-01")).ok).toBe(true);
-    expect((await rsvp(pool, "one", "u1", "going")).duplicate).toBe(true);
+    const again = await rsvp(pool, "one", "u1", "going");
+    expect(again.ok && again.duplicate).toBe(true);
     const [rows] = await pool.query<any[]>("SELECT occurrence_key FROM event_rsvps WHERE event_id = 'one'");
     expect(rows.map((r) => r.occurrence_key)).toEqual([""]);
     expect((await rsvp(pool, "one", "u2", "going")).ok).toBe(false);
