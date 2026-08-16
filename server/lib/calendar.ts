@@ -152,6 +152,8 @@ export interface CalendarRow {
   externalSourceId: string | null;
   externalUid: string | null;
   removedAt: Date | null;
+  /** When the row last changed; the .ics feed's SEQUENCE comes from it. */
+  updatedAt: Date;
 }
 
 export function rowToCalendarRow(r: RowDataPacket): CalendarRow {
@@ -181,6 +183,7 @@ export function rowToCalendarRow(r: RowDataPacket): CalendarRow {
     externalSourceId: r.external_source_id ?? null,
     externalUid: r.external_uid ?? null,
     removedAt: r.removed_at ? (r.removed_at instanceof Date ? r.removed_at : new Date(r.removed_at)) : null,
+    updatedAt: r.updated_at instanceof Date ? r.updated_at : new Date(r.updated_at ?? Date.now()),
   };
 }
 
@@ -390,6 +393,27 @@ export interface CalendarQuery {
  */
 export async function listCalendarItems(pool: Pool, q: CalendarQuery): Promise<CalendarItem[]> {
   const now = q.now ?? new Date();
+  const rows = await listCalendarRows(pool, q);
+  const occurrences: Occurrence[] = [];
+  for (const row of rows) {
+    for (const occ of expandOccurrences(row, q.from, q.to, q.timezone)) occurrences.push(occ);
+  }
+  occurrences.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime() || a.row.id.localeCompare(b.row.id));
+
+  const asked = Math.floor(Number(q.limit));
+  const limit = Number.isFinite(asked) ? Math.min(Math.max(asked, 1), 2000) : 500;
+  const kept = occurrences.slice(0, limit);
+
+  const counts = await rsvpCounts(pool, kept.map((o) => o.row.id), q.viewer.userId);
+  return kept.map((o) => toItem(o, counts, now, q.viewer));
+}
+
+/**
+ * The visible BASE rows of a query, before occurrence expansion: what the
+ * .ics feed reads so a weekly rhythm can leave as one RRULE. Same
+ * visibility, same window rule as listCalendarItems.
+ */
+export async function listCalendarRows(pool: Pool, q: CalendarQuery): Promise<CalendarRow[]> {
   const params: any[] = [];
   const where: string[] = [];
 
@@ -448,20 +472,7 @@ export async function listCalendarItems(pool: Pool, q: CalendarQuery): Promise<C
     `SELECT ${CALENDAR_COLS} FROM events e WHERE ${where.join(" AND ")} ORDER BY e.starts_at ASC, e.id ASC LIMIT 2000`,
     params,
   );
-
-  const occurrences: Occurrence[] = [];
-  for (const r of rows) {
-    const row = rowToCalendarRow(r);
-    for (const occ of expandOccurrences(row, q.from, q.to, q.timezone)) occurrences.push(occ);
-  }
-  occurrences.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime() || a.row.id.localeCompare(b.row.id));
-
-  const asked = Math.floor(Number(q.limit));
-  const limit = Number.isFinite(asked) ? Math.min(Math.max(asked, 1), 2000) : 500;
-  const kept = occurrences.slice(0, limit);
-
-  const counts = await rsvpCounts(pool, kept.map((o) => o.row.id), q.viewer.userId);
-  return kept.map((o) => toItem(o, counts, now, q.viewer));
+  return rows.map(rowToCalendarRow);
 }
 
 interface RsvpCount { going: number; mine: RsvpStatus | null }

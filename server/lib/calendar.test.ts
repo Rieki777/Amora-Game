@@ -52,6 +52,7 @@ const baseRow = (over: Partial<CalendarRow> = {}): CalendarRow => ({
   externalSourceId: null,
   externalUid: null,
   removedAt: null,
+  updatedAt: new Date("2026-08-01T00:00:00Z"),
   ...over,
 });
 

@@ -63,9 +63,10 @@ import {
   upcomingByStructure,
   withdrawRsvp,
 } from "./lib/gatherings";
-import { cleanRecurrence, isAuthoredKind, listCalendarItems } from "./lib/calendar";
+import { cleanRecurrence, isAuthoredKind, listCalendarItems, listCalendarRows } from "./lib/calendar";
 import { ensureSky, mirrorCalendarSources } from "./lib/calendarProviders";
 import { listMonthNames, lunarSummaryFor, namesForHemisphere, setMonthName } from "./lib/lunarTable";
+import { buildIcs, feedTokenStatus, looksLikeFeedToken, mintFeedToken, resolveFeedToken, revokeFeedTokens } from "./lib/icsFeed";
 import type { YearAnchor } from "../shared/lunar";
 import {
   backerCounts,
@@ -8116,6 +8117,108 @@ async function startServer() {
       hemisphere: settings.hemisphere,
       monthNames: names,
     });
+  });
+
+  /**
+   * The .ics feed (0085, §5 item 10). Registered ABOVE `/api/events/:id`, the
+   * by-structure pattern, so "calendar.ics" is never read as an id.
+   *
+   * Without a token: what a visitor sees (public and village layers). With
+   * `?token=`: the member's own feed, adding the layers they may see. The
+   * token is 32 random bytes shown once on the Events page; only its sha256
+   * is stored, and it is never written to a log line or a response. Rate
+   * limited per address so a guessed token costs its guesser the hour.
+   */
+  const feedOrigin = (req: any): string => {
+    const configured = String(mergedConfig().project.siteUrl ?? "").replace(/\/$/, "");
+    if (configured) return configured;
+    const proto = String(req.headers["x-forwarded-proto"] ?? req.protocol ?? "https").split(",")[0].trim();
+    return `${proto}://${req.get("host")}`;
+  };
+
+  app.get("/api/events/calendar.ics", async (req, res) => {
+    if (await overLimit(`ics:${clientIp(req)}`, 60, 60 * 60 * 1000)) {
+      return res.status(429).type("text/plain").send("Too many requests. Try again in an hour.");
+    }
+    let viewer = { userId: null as string | null, isAdmin: false };
+    if (req.query.token !== undefined) {
+      const raw = req.query.token;
+      if (!looksLikeFeedToken(raw)) return res.status(404).type("text/plain").send("Not found");
+      if (await overLimit(`ics-token:${clientIp(req)}`, 30, 60 * 60 * 1000)) {
+        return res.status(429).type("text/plain").send("Too many requests. Try again in an hour.");
+      }
+      const userId = await resolveFeedToken(getPool(), raw);
+      if (!userId) return res.status(404).type("text/plain").send("Not found");
+      const user = await members.byId(userId);
+      viewer = { userId, isAdmin: Boolean(user && (user.role === "admin" || user.role === "founder")) };
+    }
+    const timezone = villageTimezone();
+    const now = new Date();
+    const day = 86_400_000;
+    const from = new Date(now.getTime() - 60 * day);
+    const to = new Date(now.getTime() + 400 * day);
+    const kinds = listParam(req.query.kinds, CALENDAR_KINDS);
+    const rows = await listCalendarRows(getPool(), { from, to, viewer, timezone, kinds, includeDrafts: false, now });
+    const settings = calendarSkyOptions();
+    const names = namesForHemisphere(await listMonthNames(getPool()), settings.hemisphere);
+    const origin = feedOrigin(req);
+    const body = buildIcs(rows, {
+      calendarName: `${mergedConfig().project.name} calendar`,
+      timezone,
+      anchor: settings.anchor,
+      hemisphere: settings.hemisphere,
+      names,
+      host: (() => { try { return new URL(origin).host; } catch { return "village"; } })(),
+      siteUrl: origin,
+      from, to, now,
+    });
+    res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+    res.setHeader("Content-Disposition", 'inline; filename="calendar.ics"');
+    res.setHeader("Cache-Control", viewer.userId ? "private, max-age=300" : "public, max-age=300");
+    res.send(body);
+  });
+
+  /** Where the feeds live, and whether this member holds a live key. Never the key. */
+  app.get("/api/events/feed", async (req, res) => {
+    const user = await authedUser(req);
+    const status = user ? await feedTokenStatus(getPool(), user.id) : { hasToken: false, createdAt: null };
+    res.json({ publicUrl: `${feedOrigin(req)}/api/events/calendar.ics`, ...status });
+  });
+
+  /** Mint a private feed address. Shown once, in this response, and nowhere else. */
+  app.post("/api/events/feed/token", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    if (await overLimit(`feed-token:${user.id}`, 10, 24 * 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "You have made enough addresses today. Try again tomorrow." });
+    }
+    const raw = await mintFeedToken(getPool(), user.id);
+    await recordEvent(getPool(), {
+      kind: "calendar_feed_minted",
+      text: "made a private calendar feed address",
+      actorUserId: user.id,
+      entityType: "calendar",
+      entityRef: "feed",
+      audience: "admin",
+    });
+    res.json({ success: true, url: `${feedOrigin(req)}/api/events/calendar.ics?token=${raw}` });
+  });
+
+  app.delete("/api/events/feed/token", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    const revoked = await revokeFeedTokens(getPool(), user.id);
+    if (revoked) {
+      await recordEvent(getPool(), {
+        kind: "calendar_feed_revoked",
+        text: "revoked their private calendar feed address",
+        actorUserId: user.id,
+        entityType: "calendar",
+        entityRef: "feed",
+        audience: "admin",
+      });
+    }
+    res.json({ success: true, revoked });
   });
 
   /**
