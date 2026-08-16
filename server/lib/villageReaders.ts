@@ -28,6 +28,7 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import type { Capability } from "../../shared/capabilities";
+import { listGatherings } from "./gatherings";
 
 export type ReaderAudience = "public" | "member" | "admin";
 
@@ -62,12 +63,27 @@ export interface VillageReader {
 export interface ReaderDeps {
   moduleIsOn(id: string): boolean;
   boolVar(key: string): boolean;
+  /**
+   * The village's IANA timezone (round 4, lane L6), for the one reader that
+   * says a time out loud. Optional so every existing caller and test is
+   * unchanged; absent reads as UTC, which is what the database stores.
+   */
+  timezone?(): string;
 }
 
 let deps: ReaderDeps = {
   moduleIsOn: () => false,
   boolVar: () => false,
 };
+
+/** The village's timezone, or UTC when nothing was wired. */
+export function villageTimezone(): string {
+  try {
+    return deps.timezone?.() || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
 
 export function wireReaders(d: ReaderDeps): void {
   deps = d;
@@ -305,6 +321,67 @@ export const READERS: VillageReader[] = [
       })),
   },
 ];
+
+// ── The week ahead (round 4, lane L6) ────────────────────────────────────────
+
+/** One row of the week-ahead reader. Times are ISO in UTC; the renderer localises. */
+export interface WeekItem {
+  id: string;
+  title: string;
+  startsAt: string;
+  endsAt: string | null;
+  location: string | null;
+  status: string;
+  myRsvp: string | null;
+}
+
+/**
+ * THE ADAPTER. L5a's calendar lane is landing `listCalendarItems` over one
+ * calendar table; until it is on main this reads the same seven days through
+ * `listGatherings`, and the swap is this one function. Nothing else in the
+ * reader, the template or the router knows which one is underneath.
+ *
+ * TODO(L5a): when `listCalendarItems(pool, {from, to, userId})` exists, call it
+ * here and map its rows to WeekItem; keep the is_example filter.
+ */
+export async function weekAhead(pool: Pool, userId: string | null, days = 7): Promise<WeekItem[]> {
+  const list = await listGatherings(pool, {
+    userId,
+    includeDrafts: false,
+    upcomingDays: days,
+    // The window is the next seven days and nothing that already ended.
+    pastVisibleDays: 0,
+    limit: 60,
+  });
+  const now = Date.now();
+  const horizon = now + days * 24 * 60 * 60 * 1000;
+  return list
+    // Fixtures never read as facts, whatever the calendar page shows.
+    .filter((g) => !g.isExample)
+    .filter((g) => {
+      const start = new Date(g.startsAt).getTime();
+      const end = g.endsAt ? new Date(g.endsAt).getTime() : start;
+      return end >= now && start <= horizon;
+    })
+    .map((g) => ({
+      id: g.id,
+      title: g.title,
+      startsAt: g.startsAt,
+      endsAt: g.endsAt,
+      location: g.locationText,
+      status: g.status,
+      myRsvp: (g as { myRsvp?: string | null }).myRsvp ?? null,
+    }));
+}
+
+READERS.push({
+  key: "events.week",
+  describe: "The village calendar for the next seven days: what is on, when, and where. Times in village time.",
+  module: "events",
+  audience: "member",
+  maxTokens: 500,
+  read: async ({ pool, viewer }) => weekAhead(pool, viewer.id),
+});
 
 export const READER_KEYS = READERS.map((r) => r.key);
 

@@ -105,11 +105,15 @@ export async function guardedFetchJson(
   // A second, simpler helper for "just send this JSON somewhere" is how the
   // SSRF that toolcheck exists to close comes back: the outbound calls that
   // most need pinning are the ones to an address an admin typed in.
-  opts?: { method?: "GET" | "POST"; body?: unknown },
+  // `headers` (round 4, lane L6): extra request headers, merged over the
+  // defaults, so a signed webhook delivery can carry its signature the way
+  // receivers expect. Additive: absent means the request is byte for byte
+  // what it was.
+  opts?: { method?: "GET" | "POST"; body?: unknown; headers?: Record<string, string> },
 ): Promise<any> {
   const guard = await guardOutboundUrl(rawUrl);
   if (!guard.ok) throw new Error(guard.refused ?? "refused");
-  return dialPinnedJson(rawUrl, timeoutMs, 0, opts?.method ?? "GET", opts?.body);
+  return dialPinnedJson(rawUrl, timeoutMs, 0, opts?.method ?? "GET", opts?.body, opts?.headers);
 }
 
 /**
@@ -136,6 +140,7 @@ async function dialPinnedJson(
   hops = 0,
   method: "GET" | "POST" = "GET",
   body?: unknown,
+  extraHeaders?: Record<string, string>,
 ): Promise<any> {
   if (hops > 5) throw new Error("too many redirects");
   const url = new URL(rawUrl);
@@ -158,6 +163,7 @@ async function dialPinnedJson(
           ...(payload
             ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
             : {}),
+          ...(extraHeaders ?? {}),
         },
         lookup: (_h: string, _o: any, cb: (e: Error | null, a: string | LookupAddress[], f?: number) => void) => {
           cb(null, vetted.address, (vetted as any).family === 6 ? 6 : 4);
@@ -185,7 +191,7 @@ async function dialPinnedJson(
   });
 
   if (res.status >= 300 && res.status < 400 && res.location) {
-    return dialPinnedJson(new URL(res.location, url).toString(), timeoutMs, hops + 1, method, body);
+    return dialPinnedJson(new URL(res.location, url).toString(), timeoutMs, hops + 1, method, body, extraHeaders);
   }
   if (res.status < 200 || res.status >= 300) throw new Error(String(res.status));
   // A webhook that answers 200 with an empty body (Slack says "ok") is a

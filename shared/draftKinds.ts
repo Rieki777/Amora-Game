@@ -19,6 +19,20 @@ import { ALL_CAPABILITIES, type Capability } from "./capabilities";
 export const DRAFT_KINDS = ["role", "circle"] as const;
 export type DraftKind = (typeof DRAFT_KINDS)[number];
 
+/**
+ * What a MEMBER confirms for themselves (round 4, lane L6), as opposed to what
+ * an admin accepts for the village. Kept out of DRAFT_KINDS on purpose: that
+ * list is what `checkDraft` admits into `assistant_drafts` and what the admin
+ * accept route creates from, and an `event_rsvp` in that queue would be
+ * treated as a circle. A member draft lives in `member_drafts` and is
+ * confirmed by the member it belongs to, through its own route.
+ */
+export const MEMBER_DRAFT_KINDS = ["event_rsvp"] as const;
+export type MemberDraftKind = (typeof MEMBER_DRAFT_KINDS)[number];
+
+/** Every kind `validateDraftPayload` knows, admin and member together. */
+export const ALL_DRAFT_KINDS: readonly string[] = [...DRAFT_KINDS, ...MEMBER_DRAFT_KINDS];
+
 export interface RolePayload {
   name: string;
   description: string;
@@ -34,14 +48,23 @@ export interface CirclePayload {
   status?: "active" | "forming" | "dormant";
 }
 
-export type DraftPayload = RolePayload | CirclePayload;
+/** An RSVP the assistant proposed and the member has not yet confirmed. */
+export interface EventRsvpPayload {
+  eventId: string;
+  status: "going" | "maybe" | "declined";
+  /** For a recurring gathering, which occurrence. Absent until the calendar carries them. */
+  occurrenceKey?: string | null;
+}
 
-const ALLOWED_KEYS: Record<DraftKind, string[]> = {
+export type DraftPayload = RolePayload | CirclePayload | EventRsvpPayload;
+
+const ALLOWED_KEYS: Record<DraftKind | MemberDraftKind, string[]> = {
   role: ["name", "description", "capabilities", "minStage", "sortOrder"],
   circle: ["name", "purpose", "parentCircleId", "status"],
+  event_rsvp: ["eventId", "status", "occurrenceKey"],
 };
 
-function shapeErrors(kind: DraftKind, payload: unknown): string | null {
+function shapeErrors(kind: DraftKind | MemberDraftKind, payload: unknown): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "payload must be an object";
   // Unknown keys are refused, so a model that invents a field gets told, and a
   // future column cannot be written by a payload that predates the review UI.
@@ -58,11 +81,20 @@ function text(value: unknown, field: string, min: number, max: number): string |
 
 /** Validate a payload for its kind. Returns a human sentence, or null. */
 export function validateDraftPayload(kind: string, payload: unknown): string | null {
-  if (!(DRAFT_KINDS as readonly string[]).includes(kind)) return `unknown draft kind: ${String(kind)}`;
-  const k = kind as DraftKind;
+  if (!ALL_DRAFT_KINDS.includes(kind)) return `unknown draft kind: ${String(kind)}`;
+  const k = kind as DraftKind | MemberDraftKind;
   const shape = shapeErrors(k, payload);
   if (shape) return shape;
   const p = payload as Record<string, unknown>;
+
+  if (k === "event_rsvp") {
+    if (typeof p.eventId !== "string" || !p.eventId.trim() || p.eventId.length > 64) return "eventId must be a gathering id";
+    if (!["going", "maybe", "declined"].includes(String(p.status))) return "status must be going, maybe, or declined";
+    if (p.occurrenceKey !== undefined && p.occurrenceKey !== null && (typeof p.occurrenceKey !== "string" || p.occurrenceKey.length > 64)) {
+      return "occurrenceKey must be a string or null";
+    }
+    return null;
+  }
 
   if (k === "role") {
     const nameErr = text(p.name, "name", 2, 120);

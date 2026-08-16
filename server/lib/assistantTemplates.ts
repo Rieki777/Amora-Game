@@ -26,6 +26,8 @@
  * `scripts/check-voice.mjs`, which reads string literals in this directory.
  */
 
+import { villageTimezone } from "./villageReaders";
+
 /** The organize route's response shape, so the client renders it unchanged. */
 export interface Rendered {
   reply: string;
@@ -81,7 +83,49 @@ function named(values: string[], dropped: number): string {
   return hidden > 0 ? `${list}, and ${hidden} more` : list;
 }
 
+/**
+ * "Tue 18:00" in the village's own zone (round 4, lane L6). Falls back to UTC
+ * when the zone name is bad, because a template that throws takes the answer
+ * with it and a wrong-zone time is at least a time.
+ */
+export function clockIn(iso: string, timeZone: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const fmt = (tz: string) =>
+    new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
+  try {
+    return fmt(timeZone).replace(",", "");
+  } catch {
+    return fmt("UTC").replace(",", "");
+  }
+}
+
+/** The one renderer that reads a clock. Kept out of the table so it can be given the zone. */
+export function renderWeek(data: unknown, timeZone: string): Rendered | null {
+  const r = asRows(data);
+  if (!r) return null;
+  const total = r.rows.length + r.more;
+  if (total === 0) return out("events.week", "Nothing is on the calendar for the next seven days.");
+  const named = r.rows
+    .map((x) => {
+      const title = String(x.title ?? "").trim();
+      const when = clockIn(String(x.startsAt ?? ""), timeZone);
+      if (!title || !when) return "";
+      return `${title} (${when})`;
+    })
+    .filter((s) => s.length > 0);
+  if (named.length === 0) return null;
+  const shown = named.slice(0, MAX_NAMED);
+  const hidden = r.more + (named.length - shown.length);
+  const list = hidden > 0 ? `${shown.join(", ")}, and ${hidden} more` : shown.join(", ");
+  return out("events.week", `This week: ${total} ${plural(total, "gathering", "gatherings")}: ${list}.`);
+}
+
 export const RENDERERS: Record<string, Renderer> = {
+  // Reads `villageTimezone()` at render time, so the table stays a table of
+  // (data) => Rendered and the route needs no special case for this key.
+  "events.week": (data) => renderWeek(data, villageTimezone()),
+
   "roles.all": (data) => {
     const r = asRows(data);
     if (!r) return null;
