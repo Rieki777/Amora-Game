@@ -67,6 +67,7 @@ import { cleanRecurrence, isAuthoredKind, listCalendarItems, listCalendarRows } 
 import { ensureSky, mirrorCalendarSources } from "./lib/calendarProviders";
 import { listMonthNames, lunarSummaryFor, namesForHemisphere, setMonthName } from "./lib/lunarTable";
 import { buildIcs, feedTokenStatus, looksLikeFeedToken, mintFeedToken, resolveFeedToken, revokeFeedTokens } from "./lib/icsFeed";
+import { addExternalCalendar, listExternalCalendars, pollAllExternalCalendars, pollExternalCalendar, removeExternalCalendar } from "./lib/externalCalendars";
 import type { YearAnchor } from "../shared/lunar";
 import {
   backerCounts,
@@ -7991,6 +7992,19 @@ async function startServer() {
     const retired = Object.values(r.retired).reduce((a, b) => a + b, 0);
     return `${written} mirrored, ${retired} retired`;
   });
+  /**
+   * External calendars (§9.3): every subscription fetched through the SSRF
+   * guard every three hours, imported by UID. The summary names ids and
+   * counts, never an address.
+   */
+  registerJob("calendar-external-poll", 3 * 60 * 60 * 1000, async () => {
+    const results = await pollAllExternalCalendars(getPool(), { timezone: villageTimezone() });
+    if (!results.length) return "no subscriptions";
+    const ok = results.filter((r) => r.ok);
+    const failed = results.filter((r) => !r.ok);
+    return `${ok.length} ok (${ok.reduce((a, r) => a + r.imported, 0)} imported, ${ok.reduce((a, r) => a + r.retired, 0)} retired)` +
+      (failed.length ? `, ${failed.length} failed: ${failed.map((r) => r.id).join(", ")}` : "");
+  });
 
   /** Putting something on the village calendar: admin OR `event.manage`. */
   async function mayManageEvents(req: any): Promise<boolean> {
@@ -8377,6 +8391,74 @@ async function startServer() {
       pastVisibleDays: 3650,
     });
     res.json({ events: list, timezone: villageTimezone() });
+  });
+
+  /**
+   * External calendars (0085, §9.3, R28): subscribe by iCal address. Admin
+   * only, because the address may be a credential (Google's secret address
+   * reads the whole calendar). Stored in the secrets store; every response is
+   * a projection with host and last4 and never the address. Registered above
+   * the `:id` routes so "calendars" is never read as an id.
+   */
+  app.get("/api/admin/events/calendars", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    res.json({ calendars: await listExternalCalendars(getPool()) });
+  });
+
+  app.post("/api/admin/events/calendars", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const actor = adminActor(req);
+    if (await overLimit(`ext-cal-add:${actor?.id ?? clientIp(req)}`, 20, 24 * 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Enough calendars for one day. Try again tomorrow." });
+    }
+    const outcome = await addExternalCalendar(getPool(), {
+      name: String(req.body?.name ?? ""),
+      url: String(req.body?.url ?? ""),
+      layer: req.body?.layer,
+      colour: req.body?.colour ?? null,
+      createdBy: actor?.id ?? "admin",
+    });
+    if (!outcome.ok) return res.status(400).json({ error: outcome.error });
+    await recordEvent(getPool(), {
+      kind: "calendar_subscribed",
+      text: `attached the calendar "${outcome.calendar.name}" (${outcome.calendar.urlHost})`,
+      actorUserId: actor?.id ?? null,
+      entityType: "calendar",
+      entityRef: outcome.calendar.id,
+      audience: "admin",
+    });
+    // The first poll runs now, so the founder sees whether the address works
+    // before leaving the page; the scheduler takes it from here.
+    const poll = await pollExternalCalendar(getPool(), outcome.calendar.id, { timezone: villageTimezone() });
+    const calendars = await listExternalCalendars(getPool());
+    res.json({ success: true, calendar: calendars.find((c) => c.id === outcome.calendar.id) ?? outcome.calendar, poll: { ok: poll.ok, imported: poll.imported, error: poll.error } });
+  });
+
+  app.post("/api/admin/events/calendars/:id/poll", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (await overLimit(`ext-cal-poll:${req.params.id}`, 12, 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "That calendar was fetched enough this hour. The scheduler polls it every three hours." });
+    }
+    const poll = await pollExternalCalendar(getPool(), req.params.id, { timezone: villageTimezone() });
+    if (poll.error === "no such calendar") return res.status(404).json({ error: "Not found" });
+    const calendars = await listExternalCalendars(getPool());
+    res.json({ success: poll.ok, calendar: calendars.find((c) => c.id === req.params.id) ?? null, poll: { ok: poll.ok, imported: poll.imported, retired: poll.retired, error: poll.error } });
+  });
+
+  app.delete("/api/admin/events/calendars/:id", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const actor = adminActor(req);
+    const gone = await removeExternalCalendar(getPool(), req.params.id, actor?.id ?? "admin");
+    if (!gone) return res.status(404).json({ error: "Not found" });
+    await recordEvent(getPool(), {
+      kind: "calendar_unsubscribed",
+      text: "detached an external calendar",
+      actorUserId: actor?.id ?? null,
+      entityType: "calendar",
+      entityRef: req.params.id,
+      audience: "admin",
+    });
+    res.json({ success: true });
   });
 
   /**

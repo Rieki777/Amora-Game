@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ATTENDANCE_MODES, EVENT_STATUSES, type Gathering } from "@shared/gatherings";
+import { ATTENDANCE_MODES, CALENDAR_LAYERS, EVENT_STATUSES, type CalendarItem, type Recurrence } from "@shared/gatherings";
 
 /**
- * Admin, The Game, Gatherings: the village calendar's own surface.
+ * Admin, The Game, Calendar: the village calendar's own surface (0059,
+ * grown in 0085).
  *
  * The module shipped API-only, which by this repo's own standard is half
  * built: a founder needed curl to put a harvest festival on the calendar.
- * This is the surface that makes it a feature.
+ * This is the surface that makes it a feature. Since 0085 it also names the
+ * thirteen moons and attaches external calendars by address.
  *
  * Self-contained like MapSkinPanel and LookPanel, for the same reason:
  * Admin.tsx is a large file other workstreams edit, so the mount is one line.
@@ -29,8 +31,42 @@ const EMPTY = {
   status: "draft",
   attendanceMode: "offline",
   onlineUrl: "",
+  kind: "gathering",
+  layer: "village",
+  allDay: false,
+  repeat: "none",
+  link: "",
 };
 type Form = typeof EMPTY;
+
+/** The rhythms a founder can pick from a list; anything finer is the API's. */
+const REPEATS: Array<{ value: string; label: string }> = [
+  { value: "none", label: "Does not repeat" },
+  { value: "weekly", label: "Every week, on the start's weekday" },
+  { value: "monthly", label: "Every month, on the start's day" },
+  { value: "lunar:new_moon", label: "Every new moon" },
+  { value: "lunar:full_moon", label: "Every full moon" },
+  { value: "lunar:cycle_close", label: "Every cycle close" },
+  { value: "solar:either", label: "Every solstice and equinox" },
+];
+
+function repeatToRecurrence(repeat: string, startsAtLocal: string): Recurrence | null {
+  if (repeat === "none" || !repeat) return null;
+  const start = new Date(startsAtLocal);
+  if (repeat === "weekly") return { freq: "weekly", byWeekday: [Number.isNaN(start.getTime()) ? 1 : start.getDay()] };
+  if (repeat === "monthly") return { freq: "monthly", byMonthDay: Number.isNaN(start.getTime()) ? 1 : start.getDate() };
+  const [freq, on] = repeat.split(":");
+  if (freq === "lunar" && (on === "new_moon" || on === "full_moon" || on === "cycle_close")) return { freq: "lunar", on };
+  if (freq === "solar" && (on === "solstice" || on === "equinox" || on === "either")) return { freq: "solar", on };
+  return null;
+}
+
+function recurrenceToRepeat(r: Recurrence | null | undefined): string {
+  if (!r) return "none";
+  if (r.freq === "weekly") return "weekly";
+  if (r.freq === "monthly") return "monthly";
+  return `${r.freq}:${r.on}`;
+}
 
 /** `datetime-local` wants `YYYY-MM-DDTHH:mm` in LOCAL time, not an ISO Z. */
 function toLocalInput(iso: string | null): string {
@@ -41,14 +77,26 @@ function toLocalInput(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+interface MonthName { index: number; name: string; isExample: boolean }
+interface ExternalCalendar {
+  id: string; name: string; layer: string; colour: string | null; urlHost: string; urlLast4: string;
+  lastPolledAt: string | null; lastStatus: string; lastError: string | null; importedCount: number;
+}
+
 export default function EventsAdminPanel({ password }: { password: string }) {
-  const [events, setEvents] = useState<Gathering[] | null>(null);
+  const [events, setEvents] = useState<CalendarItem[] | null>(null);
+  const [timezone, setTimezone] = useState<string>("");
   const [moduleOff, setModuleOff] = useState(false);
   const [form, setForm] = useState<Form>(EMPTY);
   const [editing, setEditing] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [openRsvps, setOpenRsvps] = useState<string | null>(null);
   const [rsvps, setRsvps] = useState<Record<string, any[]>>({});
+  const [monthNames, setMonthNames] = useState<MonthName[] | null>(null);
+  const [nameDrafts, setNameDrafts] = useState<Record<number, string>>({});
+  const [calendars, setCalendars] = useState<ExternalCalendar[] | null>(null);
+  const [calForm, setCalForm] = useState({ name: "", url: "", layer: "village", colour: "" });
+  const [calBusy, setCalBusy] = useState<string | null>(null);
 
   const auth = { Authorization: `Bearer ${password}` };
 
@@ -61,10 +109,29 @@ export default function EventsAdminPanel({ password }: { password: string }) {
       const data = await res.json();
       setModuleOff(false);
       setEvents(data.events ?? []);
+      setTimezone(data.timezone ?? "");
     } catch { toast.error("Could not load the calendar"); setEvents([]); }
   }, [password]);
 
-  useEffect(() => { load(); }, [load]);
+  const loadNames = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/events/month-names", { headers: auth });
+      if (!res.ok) return;
+      const d = await res.json();
+      setMonthNames(d.monthNames ?? []);
+    } catch { /* the section stays hidden */ }
+  }, [password]);
+
+  const loadCalendars = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/events/calendars", { headers: auth });
+      if (!res.ok) return;
+      const d = await res.json();
+      setCalendars(d.calendars ?? []);
+    } catch { /* the section stays hidden */ }
+  }, [password]);
+
+  useEffect(() => { load(); loadNames(); loadCalendars(); }, [load, loadNames, loadCalendars]);
 
   const body = () => {
     const keys = form.structureKeys.split(",").map((s) => s.trim()).filter(Boolean);
@@ -83,6 +150,11 @@ export default function EventsAdminPanel({ password }: { password: string }) {
       status: form.status,
       attendanceMode: form.attendanceMode,
       onlineUrl: form.onlineUrl.trim() || null,
+      kind: form.kind,
+      layer: form.layer,
+      allDay: form.allDay,
+      recurrence: repeatToRecurrence(form.repeat, form.startsAt),
+      link: form.link.trim() || null,
     };
   };
 
@@ -107,7 +179,7 @@ export default function EventsAdminPanel({ password }: { password: string }) {
     setSaving(false);
   };
 
-  const edit = (g: Gathering) => {
+  const edit = (g: CalendarItem) => {
     setEditing(g.id);
     setForm({
       title: g.title,
@@ -120,10 +192,15 @@ export default function EventsAdminPanel({ password }: { password: string }) {
       status: g.status,
       attendanceMode: g.attendanceMode,
       onlineUrl: g.onlineUrl ?? "",
+      kind: g.kind === "festival" ? "festival" : "gathering",
+      layer: g.layer ?? "village",
+      allDay: Boolean(g.allDay),
+      repeat: recurrenceToRepeat(g.recurrence),
+      link: g.link ?? "",
     });
   };
 
-  const setStatus = async (g: Gathering, status: string) => {
+  const setStatus = async (g: CalendarItem, status: string) => {
     const res = await fetch(`/api/admin/events/${g.id}`, {
       method: "PUT", headers: { ...auth, "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
@@ -131,13 +208,13 @@ export default function EventsAdminPanel({ password }: { password: string }) {
     if (res.ok) { toast.success(`Marked ${status}`); load(); } else toast.error("That did not work");
   };
 
-  const remove = async (g: Gathering) => {
+  const remove = async (g: CalendarItem) => {
     if (!window.confirm(`Delete "${g.title}"? Answers to it go too.`)) return;
     const res = await fetch(`/api/admin/events/${g.id}`, { method: "DELETE", headers: auth });
     if (res.ok) { toast.success("Deleted"); load(); } else toast.error("That did not work");
   };
 
-  const toggleRsvps = async (g: Gathering) => {
+  const toggleRsvps = async (g: CalendarItem) => {
     if (openRsvps === g.id) { setOpenRsvps(null); return; }
     setOpenRsvps(g.id);
     if (rsvps[g.id]) return;
@@ -145,23 +222,75 @@ export default function EventsAdminPanel({ password }: { password: string }) {
     if (res.ok) { const d = await res.json(); setRsvps((p) => ({ ...p, [g.id]: d.rsvps ?? [] })); }
   };
 
+  const saveName = async (index: number) => {
+    const name = nameDrafts[index] ?? "";
+    const res = await fetch(`/api/admin/events/month-names/${index}`, {
+      method: "PUT", headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(d?.error ?? "That did not work"); return; }
+    toast.success(d.monthName?.isExample ? `Moon ${index} is back to its example name` : `Moon ${index} named`);
+    setNameDrafts((p) => { const n = { ...p }; delete n[index]; return n; });
+    loadNames();
+  };
+
+  const addCalendar = async () => {
+    setCalBusy("add");
+    try {
+      const res = await fetch("/api/admin/events/calendars", {
+        method: "POST", headers: { ...auth, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: calForm.name.trim(), url: calForm.url.trim(), layer: calForm.layer, colour: calForm.colour.trim() || null }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d?.error ?? "That did not work"); }
+      else {
+        toast.success(d.poll?.ok ? `Attached, ${d.poll.imported} item(s) imported` : `Attached, first fetch failed: ${d.poll?.error ?? "unknown"}`);
+        setCalForm({ name: "", url: "", layer: "village", colour: "" });
+        loadCalendars(); load();
+      }
+    } catch { toast.error("That did not work"); }
+    setCalBusy(null);
+  };
+
+  const pollCalendar = async (c: ExternalCalendar) => {
+    setCalBusy(c.id);
+    try {
+      const res = await fetch(`/api/admin/events/calendars/${c.id}/poll`, { method: "POST", headers: auth });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) toast.error(d?.error ?? "That did not work");
+      else toast[d.poll?.ok ? "success" : "error"](d.poll?.ok ? `${d.poll.imported} item(s), ${d.poll.retired} retired` : d.poll?.error ?? "Fetch failed");
+      loadCalendars(); load();
+    } catch { toast.error("That did not work"); }
+    setCalBusy(null);
+  };
+
+  const removeCalendar = async (c: ExternalCalendar) => {
+    if (!window.confirm(`Detach "${c.name}"? Its imported items leave the calendar.`)) return;
+    const res = await fetch(`/api/admin/events/calendars/${c.id}`, { method: "DELETE", headers: auth });
+    if (res.ok) { toast.success("Detached"); loadCalendars(); load(); } else toast.error("That did not work");
+  };
+
   const input = "w-full text-sm border border-gray-200 rounded-lg px-2.5 py-2";
   const field = (label: string, key: keyof Form, type = "text", placeholder = "") => (
     <div>
       <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor={`ev-${key}`}>{label}</label>
-      <input id={`ev-${key}`} type={type} value={form[key]} placeholder={placeholder}
+      <input id={`ev-${key}`} type={type} value={String(form[key])} placeholder={placeholder}
         onChange={(e) => setForm({ ...form, [key]: e.target.value })} className={input} />
     </div>
   );
 
   if (events === null) return <div className="text-center py-12 text-gray-400">Loading...</div>;
 
+  const authored = events.filter((g) => g.kind === "gathering" || g.kind === "festival");
+
   return (
     <div>
-      <h2 className="text-xl font-bold text-gray-900 mb-1">Gatherings</h2>
+      <h2 className="text-xl font-bold text-gray-900 mb-1">Calendar</h2>
       <p className="text-sm text-gray-500 mb-5">
-        The village calendar. Everything starts as a draft, so nothing reaches the
-        calendar until you publish it.
+        The village calendar: gatherings you write here, the thirteen moons by name, and calendars you attach
+        from elsewhere. Everything starts as a draft, so nothing reaches the calendar until you publish it.
+        {timezone ? ` Times are village time, ${timezone.replace(/_/g, " ")}.` : ""}
       </p>
 
       {moduleOff && (
@@ -218,6 +347,39 @@ export default function EventsAdminPanel({ password }: { password: string }) {
             </select>
           </div>
           {form.attendanceMode !== "offline" && field("Online link", "onlineUrl", "text", "https://")}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor="ev-kind">Kind</label>
+            <select id="ev-kind" value={form.kind}
+              onChange={(e) => setForm({ ...form, kind: e.target.value })}
+              className={`${input} bg-white`}>
+              <option value="gathering">gathering</option>
+              <option value="festival">festival</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor="ev-layer">Who sees it</label>
+            <select id="ev-layer" value={form.layer}
+              onChange={(e) => setForm({ ...form, layer: e.target.value })}
+              className={`${input} bg-white`}>
+              {CALENDAR_LAYERS.map((l) => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <p className="text-[11px] text-gray-400 mt-0.5">village and public: anyone past the module gate. circle, household: members. admin: founders.</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor="ev-repeat">Repeats</label>
+            <select id="ev-repeat" value={form.repeat}
+              onChange={(e) => setForm({ ...form, repeat: e.target.value })}
+              className={`${input} bg-white`}>
+              {REPEATS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+            <p className="text-[11px] text-gray-400 mt-0.5">A moon or sun rhythm lands on the village date of the sky event, at the start's time of day.</p>
+          </div>
+          {field("Link (optional)", "link", "text", "https:// or /quests/...")}
+          <div className="flex items-center gap-2 pt-5">
+            <input id="ev-allday" type="checkbox" checked={form.allDay}
+              onChange={(e) => setForm({ ...form, allDay: e.target.checked })} />
+            <label className="text-sm text-gray-700" htmlFor="ev-allday">All day</label>
+          </div>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor="ev-desc">Description</label>
@@ -236,13 +398,13 @@ export default function EventsAdminPanel({ password }: { password: string }) {
         </div>
       </div>
 
-      {events.length === 0 && !moduleOff && (
+      {authored.length === 0 && !moduleOff && (
         <p className="text-sm text-gray-400 py-6 text-center">Nothing on the calendar yet.</p>
       )}
 
       <div className="space-y-3">
-        {events.map((g) => (
-          <div key={g.id} className="border border-gray-200 rounded-xl p-4">
+        {authored.map((g) => (
+          <div key={`${g.id}:${g.occurrenceKey}`} className="border border-gray-200 rounded-xl p-4">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="min-w-0">
                 <div className="font-medium text-gray-900">
@@ -251,9 +413,17 @@ export default function EventsAdminPanel({ password }: { password: string }) {
                     g.status === "scheduled" ? "text-emerald-700 bg-emerald-50 border-emerald-100"
                     : g.status === "draft" ? "text-gray-600 bg-gray-50 border-gray-200"
                     : "text-amber-700 bg-amber-50 border-amber-100"}`}>{g.status}</span>
+                  {g.recurrence && (
+                    <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded border align-middle text-gray-600 bg-gray-50 border-gray-200">
+                      repeats{g.occurrenceKey ? `, ${g.occurrenceKey}` : ""}
+                    </span>
+                  )}
+                  {g.layer !== "village" && (
+                    <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded border align-middle text-gray-600 bg-gray-50 border-gray-200">{g.layer}</span>
+                  )}
                 </div>
                 <div className="text-xs text-gray-500 mt-0.5">
-                  {new Date(g.startsAt).toLocaleString()}
+                  {timezone ? new Date(g.startsAt).toLocaleString(undefined, { timeZone: timezone }) : new Date(g.startsAt).toLocaleString()}
                   {g.locationText ? ` · ${g.locationText}` : ""}
                   {g.structureKeys.length ? ` · ${g.structureKeys.join(", ")}` : ""}
                 </div>
@@ -291,10 +461,10 @@ export default function EventsAdminPanel({ password }: { password: string }) {
                 )}
                 <ul className="text-xs text-gray-600 space-y-1">
                   {(rsvps[g.id] ?? []).map((r) => (
-                    <li key={r.userId} className="flex items-center justify-between gap-3">
+                    <li key={`${r.userId}:${r.occurrenceKey ?? ""}`} className="flex items-center justify-between gap-3">
                       {/* A deleted member's answer still counts toward the room,
                           so it stays listed with the tombstone spelled out. */}
-                      <span>{r.name ?? "a member who has since left"}</span>
+                      <span>{r.name ?? "a member who has since left"}{r.occurrenceKey ? <span className="text-gray-400"> ({r.occurrenceKey})</span> : null}</span>
                       <span className="text-gray-400">{r.status}</span>
                     </li>
                   ))}
@@ -304,6 +474,105 @@ export default function EventsAdminPanel({ password }: { password: string }) {
           </div>
         ))}
       </div>
+
+      {monthNames && (
+        <div className="border border-gray-200 rounded-xl p-5 mt-8">
+          <h3 className="font-semibold text-gray-900 mb-1">The thirteen moons, by name</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Moon 1 begins at the first new moon after the year anchor (Game Variables, Calendar). The names ship as
+            almanac examples, which describe someone else's land: write the village's own word for each moon. Blank
+            restores the example. The thirteenth is the extra moon some years hold.
+          </p>
+          <ul className="grid md:grid-cols-2 gap-2">
+            {monthNames.map((m) => (
+              <li key={m.index} className="flex items-center gap-2">
+                <span className="w-16 text-xs text-gray-500 shrink-0">Moon {m.index}</span>
+                <input
+                  aria-label={`Name of moon ${m.index}`}
+                  value={nameDrafts[m.index] ?? m.name}
+                  onChange={(e) => setNameDrafts((p) => ({ ...p, [m.index]: e.target.value }))}
+                  className={`${input} ${m.isExample && nameDrafts[m.index] === undefined ? "text-gray-500 italic" : ""}`}
+                  maxLength={80}
+                />
+                {m.isExample && nameDrafts[m.index] === undefined && (
+                  <span className="text-[10px] uppercase tracking-wide text-amber-800 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 shrink-0">example</span>
+                )}
+                {nameDrafts[m.index] !== undefined && (
+                  <button onClick={() => saveName(m.index)}
+                    className="px-2.5 py-1 text-xs bg-[#2D5A5A] text-white rounded-lg shrink-0">Save</button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {calendars && (
+        <div className="border border-gray-200 rounded-xl p-5 mt-8">
+          <h3 className="font-semibold text-gray-900 mb-1">Calendars from elsewhere</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Paste a calendar's iCal address (Google Calendar's "secret address in iCal format", an Apple or Outlook
+            published calendar, Luma, Meetup, any .ics) and its events join the village calendar as read-only items,
+            refreshed every three hours. The address is kept in the secrets store and shown to nobody, this page
+            included: only its host and last four characters appear here.
+          </p>
+          <div className="grid md:grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor="xc-name">Name</label>
+              <input id="xc-name" value={calForm.name} onChange={(e) => setCalForm({ ...calForm, name: e.target.value })} className={input} placeholder="Farm Google Calendar" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor="xc-url">iCal address (https)</label>
+              <input id="xc-url" value={calForm.url} onChange={(e) => setCalForm({ ...calForm, url: e.target.value })} className={input} placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" type="password" autoComplete="off" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor="xc-layer">Who sees it</label>
+              <select id="xc-layer" value={calForm.layer} onChange={(e) => setCalForm({ ...calForm, layer: e.target.value })} className={`${input} bg-white`}>
+                {CALENDAR_LAYERS.map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor="xc-colour">Colour (optional)</label>
+              <input id="xc-colour" value={calForm.colour} onChange={(e) => setCalForm({ ...calForm, colour: e.target.value })} className={input} placeholder="#0369a1" />
+            </div>
+          </div>
+          <button onClick={addCalendar} disabled={calBusy === "add" || !calForm.name.trim() || !calForm.url.trim()}
+            className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+            {calBusy === "add" ? "Attaching..." : "Attach calendar"}
+          </button>
+
+          {calendars.length > 0 && (
+            <ul className="mt-5 space-y-2">
+              {calendars.map((c) => (
+                <li key={c.id} className="border border-gray-200 rounded-lg p-3 flex items-start justify-between gap-3 flex-wrap">
+                  <div className="min-w-0 text-sm">
+                    <div className="font-medium text-gray-900">
+                      {c.name}
+                      <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded border align-middle text-gray-600 bg-gray-50 border-gray-200">{c.layer}</span>
+                      {c.colour && <span className="ml-2 inline-block h-3 w-3 rounded-full align-middle" style={{ background: c.colour }} aria-hidden="true" />}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      {c.urlHost} (ends {c.urlLast4}) · {c.importedCount} item(s)
+                      {c.lastPolledAt ? ` · fetched ${new Date(c.lastPolledAt).toLocaleString()}` : " · never fetched"}
+                    </div>
+                    <div className={`text-xs mt-0.5 ${c.lastStatus === "failed" ? "text-red-700" : "text-gray-500"}`}>
+                      {c.lastStatus === "failed" ? `Last fetch failed: ${c.lastError ?? "unknown"}` : c.lastStatus === "ok" ? "Last fetch ok" : "Waiting for the first fetch"}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button onClick={() => pollCalendar(c)} disabled={calBusy === c.id}
+                      className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                      {calBusy === c.id ? "Fetching..." : "Fetch now"}
+                    </button>
+                    <button onClick={() => removeCalendar(c)}
+                      className="px-2.5 py-1 text-xs border border-red-200 text-red-700 rounded-lg">Detach</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
