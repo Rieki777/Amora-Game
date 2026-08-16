@@ -265,6 +265,9 @@ const EDIT_VERBS: Record<string, string> = {
   skin: "restyled the map",
   vocab: "renamed the village's words",
   undo: "undid a change",
+  "housing-total": "set the homes at",
+  "housing-taken": "set the homes taken at",
+  "housing-label": "named the hamlet at",
 };
 
 export interface SceneChange {

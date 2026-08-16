@@ -678,15 +678,59 @@
   #inspBody{flex:1;overflow-y:auto;padding:6px 16px 20px;font-size:12.5px;scrollbar-width:thin}
   #inspBody h5{font-variant:small-caps;letter-spacing:.2em;font-size:10px;color:var(--gold);padding:13px 0 5px;font-weight:normal;
     border-bottom:1px dashed rgba(201,162,94,.25);margin-bottom:7px}
-  #inspect input[type=text],#inspect textarea,#inspect select{flex:1;background:rgba(0,0,0,.35);border:1px solid rgba(201,162,94,.4);
+  #inspect input[type=text],#inspect input[type=number],#inspect textarea,#inspect select{flex:1;background:rgba(0,0,0,.35);border:1px solid rgba(201,162,94,.4);
     border-radius:6px;color:#fff;font-family:inherit;font-size:12.5px;padding:5px 8px;outline:none;
     -webkit-user-select:text;user-select:text;min-width:0}
   #inspect textarea{resize:vertical;line-height:1.4}
   #inspect select{background:#1d150b}
   #inspect input[type=range]{flex:1;accent-color:var(--gold)}
   #inspect input:focus,#inspect textarea:focus,#inspect select:focus{border-color:var(--gold-b)}
+  #inspect input[type=number]{max-width:82px}
+  #inspect input[type=number]::-webkit-inner-spin-button{opacity:.45}
+  /* ---------- house listbox (L3) ----------
+     The native <select> stays in the DOM and stays the source of truth. It is
+     hidden with opacity 0 and pointer-events none, keeping a real bounding box,
+     because Playwright's selectOption() (qa/secD.js:32-92) passes that and
+     times out on display:none and on visibility:hidden. Measured, both ways. */
+  #inspect .insp-lb{position:relative;display:flex;align-items:stretch;flex:1;min-width:0}
+  #inspect .insp-lb>select{position:absolute;left:0;top:0;width:100%;height:100%;
+    opacity:0;pointer-events:none;border:0;padding:0;margin:0;min-width:0;background:none}
+  /* No z-index here on purpose: the button is the last child of .insp-lb and
+     the select it covers is position:absolute, so DOM order already paints it
+     on top. A z value here would be one this lane was never allocated. */
+  #inspect .insp-lb-btn{flex:1;min-width:0;position:relative;display:flex;align-items:center;gap:6px;
+    background:#1d150b;border:1px solid rgba(201,162,94,.4);border-radius:6px;color:#fff;
+    font-family:inherit;font-size:12.5px;line-height:1.25;padding:5px 8px;text-align:left;cursor:pointer;outline:none}
+  #inspect .insp-lb-btn:hover{border-color:rgba(236,208,138,.7)}
+  #inspect .insp-lb-btn:focus-visible,#inspect .insp-lb-btn[aria-expanded=true]{border-color:var(--gold-b)}
+  #inspect .insp-lb-val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inspect .insp-lb-caret{flex:none;font-size:8px;color:var(--gold);line-height:1}
+  /* z 64 is this lane's allocation: above #seatDrop/#module/#pbar 60, below
+     #toasts 65 and #tip 70. Fixed and parented to <body> on open, because
+     #inspBody is overflow-y:auto and clips absolute children in both axes. */
+  .insp-lb-list{position:fixed;z-index:64;display:none;overflow-y:auto;overscroll-behavior:contain;
+    scrollbar-width:thin;background:linear-gradient(180deg,rgba(30,22,13,.99),rgba(20,14,8,.99));
+    border:1px solid #6b5430;border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.55);padding:3px 0;outline:none}
+  .insp-lb-list.open{display:block}
+  .insp-lb-grp{font-size:9.5px;letter-spacing:.12em;font-variant:small-caps;color:#8f855f;padding:6px 9px 2px}
+  .insp-lb-opt{padding:5px 9px;font-size:11.5px;color:var(--parch);cursor:pointer;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .insp-lb-opt[aria-selected=true]{color:#fff}
+  .insp-lb-opt[aria-selected=true]::after{content:' ·';color:var(--gold)}
+  .insp-lb-opt.insp-lb-cur{background:rgba(236,208,138,.18);color:#fff}
   .irow{display:flex;gap:6px;align-items:center;margin-bottom:6px}
   .ilbl{width:64px;flex:none;font-size:10.5px;color:#b9af8f;font-variant:small-caps;letter-spacing:.08em}
+  /* One explanation line under the control it explains. The panel already wrote
+     five of these inline; this is the same look with one name. On touch the
+     #tip mechanism (:5013-5015 pointerover + focusin) cannot fire without also
+     activating the control, so the line is the primary channel here and the
+     tip is the secondary one. The second class on each line names the control
+     it explains and is what this script's guard reads. */
+  .insp-help{font-size:10px;color:#b9af8f;line-height:1.5;margin:-1px 0 7px}
+  .insp-help b{font-weight:normal;color:#dcd0ac;font-variant:small-caps;letter-spacing:.08em}
+  .insp-help .insp-warn{color:#e0a34e}
+  #inspect .insp-tipwrap{display:flex;gap:6px;align-items:center}
+  #seatDrop .insp-none{padding:3px 9px 8px;font-size:11px;color:#b9af8f;line-height:1.45}
   .xbtn{flex:none;width:20px;height:20px;border-radius:50%;border:1px solid #6b5430;background:#2a1d10;color:#d8b97e;
     cursor:pointer;font-size:10px;line-height:16px;padding:0}
   .xbtn:hover{border-color:#a33d2a;color:#fff}
@@ -3844,6 +3888,7 @@ function buildExportJSON(){
        and the site owns what they actually DO. */
     my_rsvps:Object.keys(window.EV_RSVP||{}),
     my_claims:Object.keys(window.QUEST_CLAIM||{}),
+    housing:housingExport(),
     stays_occupancy:{lots:window.LOTS||null,rooms:window.ROOMS||null,note:'sample until the Stays module feeds it — one source, every surface reads it'},
     concierge_queries:(window.CONCIERGE_LOG||[]).map(c=>({...c})),
     vital_overrides:window.VITAL_OVR||{},
@@ -4300,7 +4345,136 @@ function nearestDistrict(x,y){let best='heart',bd=1e12;for(const d of SCENE.dist
 function goTo(k){const s=BY[k];if(!s)return toast('That place is no longer on the map.');travelTo(s.x,s.y,1.3)}
 function nameOf(k){return (k&&BY[k])?BY[k].name:'—'}
 function anchorOf(k){const s=k&&BY[k];return s?[s.x,s.y]:null}
-function closeInspect(){$('inspect').classList.remove('open');inspKey=null;
+/* ---------- house listbox (L3): the popup stops being native ----------
+   A native <select> popup renders in the OS top layer, OUTSIDE the document.
+   No z-index reaches it, no stylesheet touches it and no probe screenshots it,
+   which is why the activity dropdown lands across the sliders and the doors row
+   with nothing in this file able to say otherwise.
+   The <select> element is KEPT. Every handler in bindInspect is a DOM0
+   `sel.onchange=` assignment, so this writes back through select.value plus a
+   bubbling change event and those handlers never learn about it. Option values
+   are read off the live option elements, so #iAct still emits steady/high/low
+   and never its steady/thriving/quiet labels. */
+let inspLbSeq=0,inspLbOpen=null;
+function inspLbClose(){if(!inspLbOpen)return;const o=inspLbOpen;inspLbOpen=null;
+  o.btn.setAttribute('aria-expanded','false');o.list.classList.remove('open');
+  if(o.list.parentNode)o.list.parentNode.removeChild(o.list)}
+function inspLbCleanup(){inspLbOpen=null;
+  document.querySelectorAll('.insp-lb-list').forEach(el=>{if(el.parentNode===document.body)el.remove()})}
+function inspUpgradeSelects(root){if(!root)return 0;let n=0;
+  root.querySelectorAll('select').forEach(sel=>{if(!sel.closest('.insp-lb')){inspListbox(sel);n++}});return n}
+function inspListbox(sel){
+  const D=document,wrap=D.createElement('div');wrap.className='insp-lb';
+  /* the inline width/flex the template gave the select is layout, so it moves
+     to the wrapper; the select itself is absolutely positioned inside it */
+  const st=sel.getAttribute('style');if(st)wrap.setAttribute('style',st);
+  sel.parentNode.insertBefore(wrap,sel);wrap.appendChild(sel);
+  sel.setAttribute('tabindex','-1');sel.setAttribute('aria-hidden','true');
+  const id='insplb'+(++inspLbSeq);
+  const btn=D.createElement('button');btn.type='button';btn.className='insp-lb-btn';
+  btn.setAttribute('role','combobox');btn.setAttribute('aria-haspopup','listbox');
+  btn.setAttribute('aria-expanded','false');btn.setAttribute('aria-controls',id);
+  const tip=sel.getAttribute('data-tip')||sel.getAttribute('title');
+  if(tip){btn.setAttribute('data-tip',tip);sel.removeAttribute('title')}
+  btn.innerHTML='<span class="insp-lb-val"></span><span class="insp-lb-caret">▼</span>';
+  wrap.appendChild(btn);
+  const list=D.createElement('div');list.className='insp-lb-list';list.id=id;
+  list.setAttribute('role','listbox');list.tabIndex=-1;
+  let rows=[],cur=-1,ta='',taT=0;
+  const label=()=>{const o=sel.options[sel.selectedIndex];
+    btn.querySelector('.insp-lb-val').textContent=o?o.textContent:''};
+  const build=()=>{let h='';
+    const opt=o=>`<div class="insp-lb-opt" role="option" data-v="${escq(o.value)}" aria-selected="${o.value===sel.value?'true':'false'}">${escq(o.textContent)}</div>`;
+    Array.from(sel.children).forEach(k=>{
+      if(k.tagName==='OPTGROUP')h+=`<div class="insp-lb-grp">${escq(k.label)}</div>`+Array.from(k.children).map(opt).join('');
+      else if(k.tagName==='OPTION')h+=opt(k)});
+    list.innerHTML=h;rows=Array.from(list.querySelectorAll('.insp-lb-opt'));
+    cur=rows.findIndex(r=>r.getAttribute('aria-selected')==='true');if(cur<0)cur=0;
+    rows.forEach((r,i)=>{r.onpointerdown=e=>{e.preventDefault();e.stopPropagation();choose(r.dataset.v)};
+      r.onmouseenter=()=>mark(i,false)})};
+  /* scrollTop maths rather than scrollIntoView(): that walks every scrollable
+     ancestor, and the ancestor here is #inspBody, whose scroll event is what
+     used to shut the list a frame after it opened. */
+  const mark=(i,scroll)=>{if(!rows.length)return;cur=Math.max(0,Math.min(rows.length-1,i));
+    rows.forEach((r,j)=>r.classList.toggle('insp-lb-cur',j===cur));
+    if(!rows[cur].id)rows[cur].id=id+'o'+cur;
+    list.setAttribute('aria-activedescendant',rows[cur].id);
+    if(scroll){const e2=rows[cur],t=e2.offsetTop,h2=e2.offsetHeight;
+      if(t<list.scrollTop)list.scrollTop=t;
+      else if(t+h2>list.scrollTop+list.clientHeight)list.scrollTop=t+h2-list.clientHeight}};
+  const place=()=>{const r=btn.getBoundingClientRect();
+    list.style.maxHeight='none';list.style.minWidth=Math.max(r.width,110)+'px';
+    list.style.maxWidth=Math.min(320,innerWidth-16)+'px';
+    const want=list.offsetHeight,below=innerHeight-r.bottom-10,above=r.top-10;
+    const down=want<=below||below>=above;
+    const cap=Math.max(90,Math.min(268,down?below:above));
+    list.style.maxHeight=cap+'px';
+    const h=Math.min(list.offsetHeight,cap);let x=r.left;const w=list.offsetWidth;
+    if(x+w>innerWidth-8)x=Math.max(8,innerWidth-8-w);
+    list.style.left=Math.round(x)+'px';
+    list.style.top=Math.round(down?r.bottom+4:r.top-4-h)+'px'};
+  /* An ancestor scroll re-aims the list instead of shutting it. Closing on
+     scroll was tried first and measured wrong: focusing the button scrolls
+     #inspBody, that scroll event is delivered asynchronously about 19ms later,
+     by which time the list is open, so the list shut itself one frame after
+     every click. It only closes when the control it belongs to has actually
+     left the panel's visible box. */
+  const reflow=()=>{const r=btn.getBoundingClientRect(),bd=D.getElementById('inspBody');
+    const br=bd?bd.getBoundingClientRect():{top:0,bottom:innerHeight};
+    if(r.bottom<br.top+2||r.top>br.bottom-2){shut(false);return}
+    place()};
+  const open=()=>{if(inspLbOpen&&inspLbOpen.btn===btn)return;
+    inspLbClose();build();D.body.appendChild(list);list.classList.add('open');
+    btn.setAttribute('aria-expanded','true');inspLbOpen={btn,list,reflow};
+    place();mark(cur,true);list.focus({preventScroll:true})};
+  const shut=refocus=>{inspLbClose();if(refocus&&D.body.contains(btn))btn.focus()};
+  /* renderInspect() runs inside most of these change handlers and replaces
+     #inspBody, so the list comes down BEFORE the event goes out and nothing
+     touches btn afterwards without checking it is still in the document. */
+  const choose=v=>{const changed=sel.value!==v;sel.value=v;shut(true);
+    if(changed){sel.dispatchEvent(new Event('input',{bubbles:true}));
+      sel.dispatchEvent(new Event('change',{bubbles:true}))}
+    if(D.body.contains(btn))label()};
+  const typeahead=ch=>{const now=Date.now();ta=(now-taT<900?ta+ch:ch);taT=now;
+    const i=rows.findIndex(r=>r.textContent.toLowerCase().startsWith(ta));if(i>=0)mark(i,true)};
+  /* The global keydown at :3310 only steps aside for INPUT/TEXTAREA/SELECT, so
+     an unguarded key on this button pans the camera, flips to the Vision on v,
+     opens the wall on w and starts the tour on t. Every key is stopped here.
+     The one exception: Escape while the list is CLOSED is let through, because
+     #inspect's handler at :4189 uses it to close the panel and a founder on a
+     collapsed control expects that. */
+  const keys=e=>{const k=e.key,up=!!inspLbOpen&&inspLbOpen.btn===btn;
+    if(k==='Escape'&&!up)return;
+    e.stopPropagation();
+    if(!up){
+      if(k==='Enter'||k===' '||k==='ArrowDown'||k==='ArrowUp'||k==='Home'||k==='End'){
+        e.preventDefault();open();
+        if(k==='Home')mark(0,true);else if(k==='End')mark(rows.length-1,true);return}
+      if(k.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();open();typeahead(k.toLowerCase())}
+      return}
+    if(k==='Escape'){e.preventDefault();shut(true);return}
+    if(k==='Enter'||k===' '){e.preventDefault();if(rows[cur])choose(rows[cur].dataset.v);return}
+    if(k==='Tab'){shut(false);return}
+    if(k==='ArrowDown'){e.preventDefault();mark(cur+1,true);return}
+    if(k==='ArrowUp'){e.preventDefault();mark(cur-1,true);return}
+    if(k==='Home'){e.preventDefault();mark(0,true);return}
+    if(k==='End'){e.preventDefault();mark(rows.length-1,true);return}
+    if(k.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();typeahead(k.toLowerCase())}};
+  btn.addEventListener('keydown',keys);list.addEventListener('keydown',keys);
+  btn.onclick=e=>{e.preventDefault();e.stopPropagation();
+    if(inspLbOpen&&inspLbOpen.btn===btn)shut(true);else open()};
+  list.addEventListener('focusout',()=>setTimeout(()=>{
+    if(inspLbOpen&&inspLbOpen.btn===btn&&!list.contains(D.activeElement)&&D.activeElement!==btn)shut(false)},0));
+  /* anything else that moves the select, page.selectOption() included, still
+     repaints the closed control */
+  sel.addEventListener('change',()=>{if(D.body.contains(btn))label()});
+  label()}
+/* One document-level set for every control, not one set per control. */
+document.addEventListener('pointerdown',e=>{if(!inspLbOpen)return;
+  if(inspLbOpen.list.contains(e.target)||inspLbOpen.btn.contains(e.target))return;inspLbClose()},true);
+addEventListener('scroll',e=>{if(!inspLbOpen||e.target===inspLbOpen.list)return;inspLbOpen.reflow()},true);
+addEventListener('resize',()=>inspLbClose());
+function closeInspect(){inspLbClose();$('inspect').classList.remove('open');inspKey=null;
   if(document.activeElement&&document.activeElement.blur)document.activeElement.blur()}
 function openInspect(key){const s=BY[key];if(!s)return;inspKey=key;$('panel').classList.remove('open');panelKey=null;hideHover();
   $('inspect').classList.add('open'); // same reason: the flight aims at what stays visible beside the card
@@ -4326,6 +4500,195 @@ function flowRowH(f,dir){const fi=SCENE.flows.indexOf(f);
   const routes=SCENE.features.filter(x=>x.geom==='line');
   const viaSel=(f.from&&f.to)?`<select data-fvia="${fi}" title="route along a drawn line" style="flex:none;width:74px"><option value="">bow</option>${routes.map(x=>`<option value="${x.id}"${f.via===x.id?' selected':''}>${escq((x.name||x.subtype).slice(0,16))}</option>`).join('')}</select>`:'';
   return `<div class="irow"><span style="flex:none;width:9px;height:9px;border-radius:50%;background:${mediaColor(f.medium)}"></span>${medSel}${dir==='in'?oSel+'<span style="flex:none;color:#b9af8f;font-size:10px">→ here</span>':'<span style="flex:none;color:#b9af8f;font-size:10px">here →</span>'+oSel}${viaSel}<button class="xbtn" data-fdel="${fi}">✕</button></div>`}
+/* ---------- homes per hamlet (L3, HOUSING_AVAILABILITY_CONTRACT.md) ----------
+   SCENE.housing[structureKey] = {total, storedTaken, label, takenSource}, and
+   null is unset on total and storedTaken INDEPENDENTLY. Never a sentinel: -1
+   survives total - taken as a plausible wrong integer instead of failing.
+   `open` is DERIVED here and in the export and is never a field.
+
+   STORED vs EFFECTIVE. storedTaken is the founder's TYPED number and is the
+   only thing a founder surface ever writes. taken is the EFFECTIVE number a
+   surface displays, and takenSource names which one is authoritative: while it
+   says 'founder' the two agree, and when the reservation system lands taken
+   becomes a live count while storedTaken stays exactly what the founder typed.
+   Collapsing them is how a count overwrites a founder's number. */
+function housingRows(){SCENE.housing=SCENE.housing||{};return SCENE.housing}
+function housingGet(k){return housingRows()[k]||null}
+function housingRow(k,make){const H=housingRows();
+  if(!H[k]&&make)H[k]={total:null,storedTaken:null,label:null,takenSource:'founder'};
+  return H[k]||null}
+/* The EFFECTIVE taken, for display only. No reservation source exists in this
+   artifact, so it reads the founder's number; the two names stay apart because
+   the write side must never send this one. */
+function housingTaken(k){const h=housingGet(k);return h?h.storedTaken:null}
+/* "Fully set" is a NUMBER test, not a not-null test, and it is asked here and
+   nowhere else. A string is !=null, so the old predicate let a poisoned row
+   render its own help line, mirror itself into window.LOTS and publish itself
+   into entries with open serialising to JSON null. */
+function housingSet(k){const h=housingGet(k);
+  return !!(h&&typeof h.total==='number'&&typeof h.storedTaken==='number')}
+function housingOpen(k){const h=housingGet(k);
+  /* the clamp is fail-closed for a row written before the validation existed:
+     it must never render negative and never read as unlimited */
+  return housingSet(k)?Math.max(0,h.total-housingTaken(k)):null}
+/* whole number, 0..10000. '' is unset and returns null; undefined means refuse,
+   which is the 400 the contract asks for rather than a silent clamp. */
+function housingNum(v){const t=String(v==null?'':v).trim();
+  if(!t)return null;
+  if(!/^\d{1,7}$/.test(t))return undefined;
+  const n=+t;return (n>=0&&n<=10000)?n:undefined}
+/* The READ side of that same domain, and the half that was missing. housingNum
+   guards what a founder TYPES; nothing guarded what a scene BRINGS, so a stored
+   row could carry a string, an object or an array through housingImport and
+   straight into a value="" attribute, into the help line, into window.LOTS
+   (three player surfaces render it) and back out through the export with
+   configured:true. The clamp in housingOpen defends the ARITHMETIC of a row
+   written before this validation existed and says nothing about its TYPE.
+
+   Same predicate as the write path, deliberately: housing rows have exactly one
+   producer in the world, housingExport, and it can only carry what housingNum
+   already accepted, so reusing it refuses everything hostile and deletes nothing
+   legitimate. undefined means refuse, and a refusal on import is unset, because
+   there is no founder standing there to refuse to: the row then reports itself
+   NOT set, drops out of entries, stops mirroring into LOTS, and every surface
+   falls back to its example numbers. `bad` carries the count out so the refusal
+   is said once out loud rather than swallowed. */
+function housingReadNum(v,bad){const n=housingNum(v);
+  if(n===undefined){if(bad)bad.n++;return null}
+  return n}
+/* Everything a number input cannot parse arrives at `change` looking exactly
+   like a field a founder emptied on purpose, which is how a good total of 8
+   became null with nothing said. Measured on this Chromium, typing into a
+   control holding 8:
+
+     abc     value ''      badInput false   valid TRUE    <- the hard one
+     8e      value ''      badInput true    valid false
+     1.2.3   value '1.23'  badInput false   valid false
+     4.5     value '4.5'   badInput false   valid false
+     (clear) value ''      badInput false   valid true
+
+   So validity answers three of the four and is deliberately read BEFORE the
+   value. It cannot answer `abc`: Chromium THROWS THE LETTERS AWAY, and by the
+   time change fires the control is byte for byte a cleared field.
+
+   The difference survives one event earlier, and the rule is INTENT vs RESULT:
+   beforeinput carries `data` for an INSERTION and null for a deletion, so an
+   insertion that leaves the field empty is an insertion the control ate. That
+   is the whole test. Measured, and two cheaper rules were measured wrong first:
+
+     * "beforeinput with no input after it" fails on the FIRST character, which
+       does fire input because it wipes the selection: 8 selected, `a` typed,
+       input fires with value ''.
+     * "check dataTransfer for a paste" is answering a question the browser
+       does not ask. Pasting `abc` over a selected 8 arrives as
+       beforeinput{inputType:'insertFromPaste', data:'abc', dataTransfer:null}
+       followed by input with value '' — the SAME shape as typing it, which is
+       why one rule covers both and the dataTransfer branch covered nothing.
+
+   The refusal is narrowed to an insertion that left the field EMPTY. Typing 5a
+   leaves 5 showing and writes 5, because what the field shows is what a person
+   means; it is an empty field after an insertion that never landed which must
+   never be read as "clear this". A deletion carries data null and still
+   clears. */
+function housingWatch(el){if(!el||el._hWatch)return;el._hWatch=1;
+  el.addEventListener('beforeinput',e=>{if(e.data)el._hIns=1});
+  el.addEventListener('input',()=>{if(String(el.value).trim())el._hIns=0})}
+function housingReadEl(el){if(!el)return null;
+  if(el.validity&&el.validity.badInput)return undefined;
+  if(el._hIns&&!String(el.value).trim())return undefined;
+  return housingNum(el.value)}
+function housingClean(k){const H=housingRows(),h=H[k];
+  if(h&&h.total==null&&h.storedTaken==null&&!h.label)delete H[k];
+  housingSync(k)}
+/* The three player surfaces read window.LOTS ({sold,total}, seeded at the
+   sample assignment further down this file). A founder's numbers have to reach
+   them or this panel writes to nothing anybody can see. The seed is snapshotted
+   on first write and restored when a row is cleared, so the example numbers the
+   labelling lanes need are shadowed and never destroyed. */
+function housingSync(k){if(!window.LOTS)return;
+  window.LOTS_SAMPLE=window.LOTS_SAMPLE||JSON.parse(JSON.stringify(window.LOTS));
+  const h=housingGet(k);
+  if(housingSet(k))window.LOTS[k]={sold:housingTaken(k),total:h.total};
+  else if(window.LOTS_SAMPLE[k])window.LOTS[k]={...window.LOTS_SAMPLE[k]};
+  else delete window.LOTS[k]}
+/* LOTS itself is in the sweep, not just the sample and the rows: a restore can
+   retire a key that is currently mirrored into LOTS and present in neither of
+   the other two, and iterating two of the three left that one standing. */
+function housingSyncAll(){if(!window.LOTS)return;
+  Object.keys({...(window.LOTS_SAMPLE||{}),...(window.LOTS||{}),...housingRows()}).forEach(housingSync)}
+window.housingSyncAll=housingSyncAll;
+/* The restore, called by the one granted line in restoreScene. SCENE.housing is
+   REPLACED, never merged, which is what SCENE.flows and SCENE.features already
+   do: this session's numbers left sitting on top of an incoming file is the
+   silent wrong answer. It reads `rows`, the gated view, so a half-typed row
+   survives the round trip. */
+function housingImport(J){SCENE.housing={};
+  /* Array.isArray, not `||[]`: restoreScene runs inside one try/catch, so a
+     `rows` that arrives as an object from a shell push would throw here and
+     take the WHOLE scene restore down with it. This one block failing closed
+     to "no housing" is the right blast radius. */
+  const rows=(J&&J.housing&&Array.isArray(J.housing.rows))?J.housing.rows:[];
+  /* NOTHING ARRIVING HERE IS TRUSTED. Every field below leaves this line as a
+     number, a null, or a bounded string. structureKey has to BE a string or the
+     row is dropped: an object key stringifies to '[object Object]' and mints a
+     phantom hamlet. label is capped at the 190 its own input carries, so a
+     restore cannot smuggle a megabyte through it. takenSource reaches three
+     lanes through entries and is a string or it is 'founder'. */
+  const bad={n:0};
+  rows.forEach(r=>{if(!r||typeof r.structureKey!=='string'||!r.structureKey)return;
+    /* legacy: a row exported before stored and effective were split carries
+       only `taken`, and reading that as the founder's typed number is only safe
+       while the row itself says the founder is the authority. */
+    const auth=(typeof r.takenSource==='string'&&r.takenSource)?r.takenSource.slice(0,40):'founder';
+    const st=(r.storedTaken!=null)?r.storedTaken:((auth==='founder'&&r.taken!=null)?r.taken:null);
+    SCENE.housing[r.structureKey]={total:housingReadNum(r.total,bad),
+      storedTaken:housingReadNum(st,bad),
+      label:(r.label==null?null:(String(r.label).slice(0,190)||null)),takenSource:auth}});
+  /* Said once, not per row: a bent file is a fact about the file. */
+  if(bad.n)console.warn('housing: '+bad.n+' imported number'+(bad.n===1?'':'s')+' refused and left unset. A hamlet takes a whole number from 0 to 10000.');
+  housingSyncAll()}
+window.housingImport=housingImport;
+/* entries is the public /api/map/config block: fully set rows only, no identity
+   fields, filtered ONCE here so three surfaces cannot disagree about what
+   "example" means, and its `taken` is the EFFECTIVE number with `open` derived
+   from it. rows is the WRITE view and the gated read: the typed number under
+   its own name, nulls included, and no `taken` at all, because sending the
+   effective number back is how a live count gets written in as though a
+   founder had typed it. Without rows a half-typed row would not survive an
+   export. */
+function housingExport(){const H=housingRows();
+  const rows=Object.keys(H).sort().map(k=>{const h=H[k]||{};
+    return {structureKey:k,total:(h.total==null?null:h.total),
+      storedTaken:(h.storedTaken==null?null:h.storedTaken),
+      takenSource:h.takenSource||'founder',label:h.label||null}});
+  /* the same NUMBER test housingSet asks, asked here because this is the block
+     three lanes read: a row holding a string would otherwise publish itself as
+     configured with open serialising to JSON null, which this contract reads as
+     unset on a row that reports itself fully set. */
+  const entries=rows.filter(r=>typeof r.total==='number'&&typeof r.storedTaken==='number').map(r=>({structureKey:r.structureKey,
+    total:r.total,taken:housingTaken(r.structureKey),
+    open:Math.max(0,r.total-housingTaken(r.structureKey)),
+    takenSource:r.takenSource,label:r.label}));
+  return {entries,configured:entries.length>0,rows,
+    note:'entries is the public block: fully set hamlets only, absence from it is the whole example predicate, and its taken is the effective number. rows is the write view and the gated read: storedTaken is the number the founder typed, nulls included, and no effective count is ever written back.'}}
+/* Which structures get the fields. REG's third column is the category the
+   archetype picker groups by, so 'Living' is the founder's own answer to what a
+   hamlet is; 'homes' is the legacy archetype the seed structures carry and is
+   not a REG key. Anything already carrying numbers keeps them reachable. */
+function housingApplies(s){if(!s)return false;
+  const r=(typeof REG!=='undefined')&&REG.find(x=>x[0]===s.archetype);
+  return !!(r&&r[2]==='Living')||s.archetype==='homes'
+    ||!!housingGet(s.key)||!!(window.LOTS&&window.LOTS[s.key])}
+function housingRowsH(s){if(!housingApplies(s))return '';
+  const h=housingGet(s.key)||{},set=housingSet(s.key),op=housingOpen(s.key);
+  /* No local stringifier any more: every value below leaves through escq, the
+     way the rest of this panel already does it. escq(null) is '' by its own
+     contract, so nothing else was formatting. */
+  return `<h5>homes here</h5>
+   <div class="irow"><span class="ilbl">homes</span><input type="number" id="iHomesTotal" min="0" max="10000" step="1" inputmode="numeric" placeholder="not set" value="${escq(h.total)}" data-tip="How many homes this hamlet has to offer. Leave it empty and every surface keeps showing its example numbers.">
+     <span class="ilbl" style="width:auto">taken</span><input type="number" id="iHomesTaken" min="0" max="10000" step="1" inputmode="numeric" placeholder="not set" value="${escq(h.storedTaken)}" data-tip="How many are already spoken for, including anyone who spoke for one before the platform existed. Open is worked out from these two and is never typed."></div>
+   <div class="irow"><span class="ilbl">hamlet name</span><input type="text" id="iHomesLabel" maxlength="190" value="${escq(h.label||'')}" placeholder="${escq(s.name)}"></div>
+   <div class="insp-help insp-h-homes">${set?`<b>${escq(op)}</b> open · ${escq(housingTaken(s.key))} of ${escq(h.total)} spoken for. Reservations read these numbers.`:`Both numbers are empty, so this hamlet counts as unset and every surface keeps showing example numbers.`}</div>`}
 function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
   $('inspHead').innerHTML=`<div class="ttl">⚒ inspect · the founder's hand</div>
     <input type="text" id="iName" value="${escq(s.name)}" style="font-size:16px;font-variant:small-caps;letter-spacing:.08em">
@@ -4346,34 +4709,37 @@ function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
    <div class="irow"><span class="ilbl">origin</span><textarea id="iOrigin" rows="2" placeholder="How this place came to be. Its memory.">${escq(s.origin)}</textarea></div>
    <h5>circle · the steward</h5>
    <div class="irow">${circleSel}</div>
-   <div style="font-size:10.5px;color:#b9af8f;margin-bottom:2px">${s.circle?`Emblem ring and banner wear the ${s.circle} circle's color.`:`Unowned: neutral ring, listed on the Wall as “needs a steward.”`}</div>
+   <div class="insp-help insp-h-circle">${s.circle?`Emblem ring and banner wear the ${s.circle} circle's color.`:`Unowned: neutral ring, listed on the Wall as “needs a steward.”`}</div>
    <h5>phase &amp; pool</h5>
    <div class="irow"><span class="ilbl">phase</span>
-     ${[1,2,3].map(ph=>`<label style="display:flex;gap:4px;align-items:center;font-size:12px;cursor:pointer"><input type="radio" name="iPhase" value="${ph}"${s.phase===ph?' checked':''} style="accent-color:var(--gold)">${phaseName(ph)}</label>`).join('')}
+     <span class="insp-tipwrap" data-tip="Phase says when this place happens. Planned fades the emblem, and with a full pool a Planned place reads as Blueprint, which visitors only see in the Vision.">${[1,2,3].map(ph=>`<label style="display:flex;gap:4px;align-items:center;font-size:12px;cursor:pointer"><input type="radio" name="iPhase" value="${ph}"${s.phase===ph?' checked':''} style="accent-color:var(--gold)">${phaseName(ph)}</label>`).join('')}</span>
      <span style="flex:1"></span><span class="ilbl" style="width:auto">activity</span>
-     <select id="iAct" style="flex:none;width:92px">${[['steady','steady'],['high','thriving'],['low','quiet']].map(([v,l])=>`<option value="${v}"${(s.act||'steady')===v?' selected':''}>${l}</option>`).join('')}</select></div>
-   <div class="irow"><span class="ilbl">pool</span><input type="range" id="iFund" min="0" max="100" value="${Math.round((s.fund!=null?s.fund:1)*100)}"><b id="iFundV" style="width:38px;text-align:right;font-size:12px;font-weight:normal">${Math.round((s.fund!=null?s.fund:1)*100)}%</b></div>
-   <div class="irow"><span class="ilbl">size</span><input type="range" id="iScale" min="50" max="200" value="${Math.round((s.scale||1)*100)}"><b id="iScaleV" style="width:38px;text-align:right;font-size:12px;font-weight:normal">${Math.round((s.scale||1)*100)}%</b></div>
-   <div style="font-size:10px;color:#b9af8f">the pool % is the gold ring on the emblem; a full pool comes alive</div>
+     <select id="iAct" style="flex:none;width:92px" data-tip="Activity says how busy this place is once the pool is full. steady lights its windows, thriving adds a pulsing ring and people on the ground, quiet takes both away.">${[['steady','steady'],['high','thriving'],['low','quiet']].map(([v,l])=>`<option value="${v}"${(s.act||'steady')===v?' selected':''}>${l}</option>`).join('')}</select></div>
+   <div class="insp-help insp-h-phase"><b>phase</b> says when this place happens. Planned fades the emblem, and with a full pool it hides from Now.<br><b>activity</b> says how busy it looks once the pool is full. quiet darkens the windows, thriving adds a ring and figures.</div>
+   <div class="irow"><span class="ilbl">pool</span><input type="range" id="iFund" data-tip="Pool is how much of the money for this place is already gathered. Under 100% it wears a gold ring showing the percent and reads as gathering under half, under construction above. At 100% the ring goes and activity takes over." min="0" max="100" value="${Math.round((s.fund!=null?s.fund:1)*100)}"><b id="iFundV" style="width:38px;text-align:right;font-size:12px;font-weight:normal">${Math.round((s.fund!=null?s.fund:1)*100)}%</b></div>
+   <div class="insp-help insp-h-pool"><b>pool</b> says how much of its money is gathered. Under 100% it wears a gold ring and counts as unbuilt.${(s.fund!=null&&s.fund<=0&&s.phase>=3)?` <span class="insp-warn">At 0% on a Planned phase this reads as Blueprint.</span>`:''}</div>
+   <div class="irow"><span class="ilbl">size</span><input type="range" id="iScale" data-tip="Size only changes how large this building's emblem stands on the map, from half to double. Its state, its doors and its quests stay as they are." min="50" max="200" value="${Math.round((s.scale||1)*100)}"><b id="iScaleV" style="width:38px;text-align:right;font-size:12px;font-weight:normal">${Math.round((s.scale||1)*100)}%</b></div>
+   <div class="insp-help insp-h-size"><b>size</b> only changes how large the emblem stands on the map. State, doors and quests stay as they are.</div>
    <div class="irow"><span class="ilbl">doors</span><span style="display:flex;gap:5px;flex-wrap:wrap">${['stay','housing','library','wallet'].map(k=>{const dst=(s.doors||{})[k];return `<button class="chip dchip${dst?' on':''}${dst==='future'?' fut':''}" data-dk="${k}" data-tip="A door on this card. Click cycles: off → open → when built.">${DOOR_DEFS[k].icon} ${k}${dst==='future'?' · when built':''}</button>`}).join('')}</span></div>
-   <div style="font-size:10px;color:#b9af8f">doors put a button on this place's card. Click cycles: off, open, when built</div>
+   <div class="insp-help insp-h-doors">doors put a button on this place's card. Click cycles: off, open, when built</div>
+   ${housingRowsH(s)}
    <h5>roles here · the residents</h5>
    <div>${seatsHere.map(x=>seatRowH(x,true)).join('')||'<div style="color:#b9af8f;font-size:11.5px;padding:2px 0">No roles live here yet.</div>'}
    ${otherSeats.length?`<details style="margin:5px 0"><summary style="font-size:10.5px;color:#b9af8f;cursor:pointer">bring a role from elsewhere (${otherSeats.length})</summary><div style="padding-top:5px">${otherSeats.map(x=>seatRowH(x,false)).join('')}</div></details>`:''}</div>
-   <div class="irow" style="margin-top:4px;position:relative"><input type="text" id="iSeatName" autocomplete="off" placeholder="add a role here"><div id="seatDrop"></div><input type="text" id="iSeatNote" placeholder="note" style="max-width:104px"><button class="xbtn" id="iSeatAdd" style="color:#8fd06a">＋</button></div>
+   <div class="irow" style="margin-top:4px;position:relative"><input type="text" id="iSeatName" autocomplete="off" data-tip="Name a role. Every role that could move here is listed below: pick one to move it, or press + to create a new one here." placeholder="type to create or select below"><div id="seatDrop"></div><input type="text" id="iSeatNote" placeholder="note" style="max-width:104px"><button class="xbtn" id="iSeatAdd" style="color:#8fd06a">＋</button></div>
    <h5>quests here · the visitors</h5>
    <div>${qHere.map(q=>questRowH(q)).join('')||'<div style="color:#b9af8f;font-size:11.5px;padding:2px 0">No quests addressed here.</div>'}</div>
    <div class="irow" style="margin-top:4px"><input type="text" id="iQTitle" placeholder="add a quest here"></div>
    <div class="irow"><input type="text" id="iQReward" placeholder="reward · 25 ♥" style="max-width:110px"><input type="text" id="iQNeed" placeholder="need · 3 hands, Saturday"><button class="xbtn" id="iQAdd" style="color:#8fd06a">＋</button></div>
    <h5>badges · what this place shows</h5>
-   <div style="font-size:10px;color:#b9af8f;margin-bottom:5px">every kind shows unless you turn it off here. Nothing is hidden from the lists, only from the land.</div>
+   <div class="insp-help insp-h-badges" style="margin-bottom:5px">every kind shows unless you turn it off here. Nothing is hidden from the lists, only from the land.</div>
    <div class="irow" style="flex-wrap:wrap;gap:4px">${['quest','seat','event','talk'].map(k=>
      `<button class="chip${badgeOn(s,k)?' on':''}" data-bkt="${k}">${({quest:'quests',seat:'seats',event:'events',talk:'conversations'})[k]}</button>`).join('')}</div>
    <h5>doors · what this place opens</h5>
    <div>${(s.modules||[]).map((m,i)=>doorRowH(m,i)).join('')||'<div style="color:#b9af8f;font-size:11.5px;padding:2px 0">No doors yet. This building opens nothing so far.</div>'}</div>
    <div class="irow" style="margin-top:4px"><input type="text" id="iDLabel" placeholder="door label"><input type="text" id="iDRoute" placeholder="/route" style="max-width:96px"><button class="xbtn" id="iDAdd" style="color:#8fd06a">＋</button></div>
    <h5>flows · the metabolism${loop!=null?` <span style="float:right;color:${loop>=60?'#8fd06a':'#e0a34e'};letter-spacing:.05em">${loop}% of inputs on-land</span>`:''}</h5>
-   <div style="font-size:10px;color:#b9af8f;margin-bottom:5px">declared inputs → this place → outputs · drawn live on the Flows lens · imported edges are quests waiting to be written</div>
+   <div class="insp-help insp-h-flows" style="margin-bottom:5px">declared inputs → this place → outputs · drawn live on the Flows lens · imported edges are quests waiting to be written</div>
    <div>${flowsIn.map(f=>flowRowH(f,'in')).join('')||'<div style="color:#b9af8f;font-size:11.5px">No declared inputs yet.</div>'}</div>
    <div class="irow" style="margin:4px 0"><button class="chip" id="iFInAdd">＋ input</button><span style="flex:1"></span><button class="chip" id="iFOutAdd">＋ output</button></div>
    <div>${flowsOut.map(f=>flowRowH(f,'out')).join('')||'<div style="color:#b9af8f;font-size:11.5px">No declared outputs yet.</div>'}</div>
@@ -4426,7 +4792,13 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
       const hit=x=>!q||String(x.s).toLowerCase().includes(q);
       const unplaced=SCENE.seats.filter(x=>!x.at&&hit(x));
       const elsewhere=SCENE.seats.filter(x=>x.at&&x.at!==s.key&&hit(x));
-      if(!unplaced.length&&!elsewhere.length){dd.classList.remove('show');return}
+      if(!unplaced.length&&!elsewhere.length){
+        /* The placeholder promises a list below. Bailing here made that promise
+           false in exactly the case a founder is in while creating a role, and
+           left the previous rows sitting in innerHTML while hidden. */
+        dd.innerHTML=`<div class="sgrp">${q?'no role here answers to that name yet':'every role already lives here'}</div>`
+          +`<div class="insp-none">＋ adds ${q?'“'+escq(inp.value.trim())+'”':'a new role'} at ${escq(s.name)}.</div>`;
+        dd.classList.add('show');return}
       const row=(x,i)=>`<div class="sopt" data-seat-i="${SCENE.seats.indexOf(x)}">${escq(x.s)}<small>${escq(x.c||'no circle')}${x.at?' · at '+escq((BY[x.at]||{}).name||x.at):''}</small></div>`;
       dd.innerHTML=(unplaced.length?`<div class="sgrp">unplaced · picking one homes it here</div>`+unplaced.map(row).join(''):'')
         +(elsewhere.length?`<div class="sgrp">open elsewhere · picking one moves it here</div>`+elsewhere.map(row).join(''):'');
@@ -4444,6 +4816,33 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
     inp.onkeydown=ev=>{if(ev.key==='Escape'){dd.classList.remove('show');ev.stopPropagation()}
       if(ev.key==='Enter'){dd.classList.remove('show');B.querySelector('#iSeatAdd').click()}};
   })();
+  /* Loud on write, per the contract: whole numbers, 0..10000, taken above
+     total refused rather than clamped, because a clamp would silently rewrite a
+     founder's number into one they did not type, and an unparseable read
+     refused rather than read as a deliberate clear. */
+  const homesRead=el=>{const v=housingReadEl(el);
+    if(v===undefined){toast('Homes take a whole number from 0 to 10000.');renderInspect()}
+    return v};
+  /* The founder types into storedTaken. taken is the effective number and is
+     never what a founder surface writes. */
+  const homesPut=(field,v)=>{const row=housingRow(s.key,true),prev=row[field];row[field]=v;
+    if(row.total!=null&&row.storedTaken!=null&&row.storedTaken>row.total){row[field]=prev;
+      toast('Homes taken cannot pass homes total.');renderInspect();return false}
+    row.takenSource=row.takenSource||'founder';return true};
+  (()=>{const el=B.querySelector('#iHomesTotal');if(!el)return;housingWatch(el);
+    el.onchange=()=>{const v=homesRead(el);if(v===undefined)return;
+      if(!homesPut('total',v))return;
+      logEdit('housing-total','structure:'+s.key,{to:v});
+      housingClean(s.key);renderInspect()}})();
+  (()=>{const el=B.querySelector('#iHomesTaken');if(!el)return;housingWatch(el);
+    el.onchange=()=>{const v=homesRead(el);if(v===undefined)return;
+      if(!homesPut('storedTaken',v))return;
+      logEdit('housing-taken','structure:'+s.key,{to:v});
+      housingClean(s.key);renderInspect()}})();
+  (()=>{const el=B.querySelector('#iHomesLabel');if(!el)return;
+    el.onchange=()=>{const t=el.value.trim(),row=housingRow(s.key,!!t);
+      if(row){row.label=t||null;logEdit('housing-label','structure:'+s.key,{to:row.label})}
+      housingClean(s.key);renderInspect()}})();
   B.querySelector('#iSeatAdd').onclick=()=>{const n=B.querySelector('#iSeatName').value.trim();if(!n)return;
     SCENE.seats.push({s:n,at:s.key,c:s.circle||'Community',note:B.querySelector('#iSeatNote').value.trim()||'a new seat, waiting for its steward'});
     logEdit('seat-add','seat:'+n,{at:s.key});refreshWork();renderInspect()};
@@ -4489,7 +4888,12 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
   B.querySelectorAll('[data-fvia]').forEach(sel=>sel.onchange=()=>{const f=SCENE.flows[+sel.dataset.fvia];if(!f)return;
     f.via=sel.value||undefined;logEdit('flow-via','flow',{via:f.via||null});renderInspect()});
   B.querySelector('#iDup').onclick=()=>duplicateStructure(s.key);
-  B.querySelector('#iRemove').onclick=()=>removeStructure(s)}
+  B.querySelector('#iRemove').onclick=()=>removeStructure(s);
+  /* LAST, so every DOM0 onchange above is already bound. Count-independent by
+     construction: 3 selects on a bare structure, 29 on a structure with three
+     quests and seven flows, both measured. Whatever is in the panel gets
+     upgraded, so nothing here enumerates a set that moves. */
+  inspLbCleanup();inspUpgradeSelects(B)}
 /* A copy of everything that is ABOUT this place: the building, the work
    addressed to it, the seats that sit in it. Not the flows, because an edge
    between two places is a statement about both of them, and not the drawn
@@ -4565,6 +4969,7 @@ function restoreScene(J){try{
   const vb=J.map_scene&&J.map_scene.vision_bound;
   SCENE.vision_bound=(Array.isArray(vb)&&vb.length>2)?vb.map(p=>[p[0],p[1]]):null;
   if(J.vital_overrides)window.VITAL_OVR=J.vital_overrides;
+  housingImport(J); /* L3, by coordinator ruling: the one line that restores SCENE.housing */
   SCENE.flows=(J.map_flows||[]).map(r=>({from:r.from_key,to:r.to_key,medium:mediaKey(r.medium),note:r.note,
     phase:r.phase,via:r.via_feature||undefined}));
   SCENE.features=(J.map_zones||[]).filter(r=>r.id).map(r=>({id:r.id,kind:r.kind,geom:r.geom,
@@ -5587,7 +5992,11 @@ window.bandBox=function(which){const b=BAND_BOX[which];return b?{top:b.top,botto
     pubBtn:'Roads and rivers beyond the boundary stay locked as the real world. Unlock to adjust.',
     undoBtn:'Take back the last change. The story is kept either way.',
     exportBtn:'The whole scene in one file. Your hand becomes the seed the real build grows from.',
-    iScale:'How large this place stands on the land. Emphasis, not survey.',
+    /* Dead entry: the loop below runs once at boot and #iScale is built by
+       renderInspect(), so this has never been applied to anything. The live tip
+       is set in the template. Kept in agreement so that fixing that loop later
+       cannot resurrect an older wording. */
+    iScale:'Size only changes how large this place stands on the map, from half to double.',
     gScale:'Everything larger or smaller together. Icons and their names move as one.',
     skGS:'Everything larger or smaller together. Icons and their names move as one.',
     pBrush:'How much paint sits over the satellite. Zero is the bare land.',
@@ -5835,7 +6244,10 @@ function closePublish(){$('pubWrap').classList.remove('show')}
    site side. Two lists that must agree is a known way to lose things, so the
    verbs live in ONE place per side and qa/verify_publish.js checks that every
    action this map can log has a word on the site's list. */
-const EDIT_VERBS={place:'placed',move:'moved',remove:'removed',rename:'renamed',duplicate:'duplicated',
+const EDIT_VERBS={
+  'housing-total':'set the homes at','housing-taken':'set the homes taken at',
+  'housing-label':'named the hamlet at',
+  place:'placed',move:'moved',remove:'removed',rename:'renamed',duplicate:'duplicated',
   scale:'resized',archetype:'changed the kind of',phase:'changed the phase of',circle:'changed the circle of',
   blurb:'rewrote the description of',origin:'rewrote the origin story of',activity:'changed the activity of',
   fund:'changed the funding of',badges:'changed the marks on',door:'changed a door on',
