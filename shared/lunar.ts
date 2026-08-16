@@ -292,6 +292,50 @@ export function civilDateKey(date: Date, timeZone: string): string {
   return `${c.year}-${pad(c.month)}-${pad(c.day)}`;
 }
 
+/** Civil date and clock parts of an instant in a zone. */
+export function civilParts(date: Date, timeZone: string): { year: number; month: number; day: number; hour: number; minute: number; weekday: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    weekday: "short",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return {
+    year: Number(get("year")),
+    month: Number(get("month")),
+    day: Number(get("day")),
+    hour: Number(get("hour")) % 24,
+    minute: Number(get("minute")),
+    weekday: Math.max(0, weekdays.indexOf(get("weekday"))),
+  };
+}
+
+/**
+ * The instant at which a zone's clock reads the given civil date and time.
+ * Two passes over the zone's offset so a date on the far side of a daylight
+ * change still lands on the wall-clock time asked for; inside a skipped hour
+ * it lands on the nearest real minute after it.
+ */
+export function zonedTimeToUtc(
+  year: number, month: number, day: number, hour: number, minute: number, timeZone: string,
+): Date {
+  const asUtc = Date.UTC(year, month - 1, day, hour, minute);
+  const offsetAt = (ms: number) => {
+    const c = civilParts(new Date(ms), timeZone);
+    return Date.UTC(c.year, c.month - 1, c.day, c.hour, c.minute) - ms;
+  };
+  let guess = asUtc - offsetAt(asUtc);
+  const second = asUtc - offsetAt(guess);
+  if (second !== guess) guess = second;
+  return new Date(guess);
+}
+
 /** Whole civil days from a to b in a zone (b's date minus a's date). */
 export function civilDaysBetween(a: Date, b: Date, timeZone: string): number {
   const ca = civilDate(a, timeZone);

@@ -49,7 +49,7 @@ import {
   restoreRevision,
   saveDraft,
 } from "./lib/mapScene";
-import { toSchemaOrg } from "../shared/gatherings";
+import { CALENDAR_LAYERS, toSchemaOrg } from "../shared/gatherings";
 import { recordWalkRows, walkReport } from "./lib/walkLog";
 import {
   createGathering,
@@ -63,6 +63,7 @@ import {
   upcomingByStructure,
   withdrawRsvp,
 } from "./lib/gatherings";
+import { cleanRecurrence, isAuthoredKind, listCalendarItems } from "./lib/calendar";
 import {
   backerCounts,
   displayChangeValue,
@@ -8001,6 +8002,28 @@ async function startServer() {
       try { url = new URL(String(body.onlineUrl)); } catch { return "The online link must be a valid URL"; }
       if (url.protocol !== "https:") return "Online links are https-only";
     }
+    // 0085: the calendar fields a person may set by hand.
+    if (body.kind !== undefined && body.kind !== null && !isAuthoredKind(body.kind)) {
+      return "Kind must be gathering or festival; other kinds come from their own module";
+    }
+    if (body.layer !== undefined && body.layer !== null && !CALENDAR_LAYERS.includes(body.layer)) {
+      return `Layer must be one of: ${CALENDAR_LAYERS.join(", ")}`;
+    }
+    if (body.recurrence !== undefined && body.recurrence !== null && body.recurrence !== "") {
+      if (typeof body.recurrence !== "object") return "Recurrence must be an object";
+      if (!cleanRecurrence(body.recurrence)) return "Recurrence needs a freq of weekly, monthly, lunar or solar with its days or its sky event";
+    }
+    if (body.link) {
+      const l = String(body.link);
+      if (!(l.startsWith("/") && !l.startsWith("//"))) {
+        let url: URL;
+        try { url = new URL(l); } catch { return "The link must be a valid URL or a site path"; }
+        if (url.protocol !== "https:") return "Links are https-only";
+      }
+    }
+    if (body.colour !== undefined && body.colour !== null && body.colour !== "" && !/^#[0-9a-fA-F]{3,8}$/.test(String(body.colour))) {
+      return "Colour must be a hex value like #2D5A5A";
+    }
     return null;
   }
 
@@ -8078,6 +8101,8 @@ async function startServer() {
       user.id,
       req.body?.status ?? "going",
       typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : undefined,
+      // Which evening of a recurring gathering (0085). Ignored for a one-off.
+      typeof req.body?.occurrenceKey === "string" ? req.body.occurrenceKey : undefined,
     );
     if (!outcome.ok) {
       const code = outcome.reason === "not_found" ? 404 : 409;
@@ -8113,7 +8138,10 @@ async function startServer() {
   app.delete("/api/events/:id/rsvp", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
-    const removed = await withdrawRsvp(getPool(), req.params.id, user.id);
+    const occ = typeof req.query.occurrence === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.occurrence)
+      ? req.query.occurrence
+      : "";
+    const removed = await withdrawRsvp(getPool(), req.params.id, user.id, occ);
     res.json({ success: true, removed });
   });
 
