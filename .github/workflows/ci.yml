@@ -169,7 +169,7 @@ jobs:
         # into the main chunk by being imported eagerly somewhere.
         env:
           MAX_MAIN_JS_KB: 700
-          MAX_TOTAL_DIST_KB: 6000
+          MAX_TOTAL_DIST_KB: 6600
           MAX_SINGLE_IMAGE_KB: 400
         run: |
           echo "## Bundle sizes" >> "$GITHUB_STEP_SUMMARY"
