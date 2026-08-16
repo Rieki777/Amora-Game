@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import GameDashboard from "@/components/GameDashboard";
 import ProfileJourney from "@/components/ProfileJourney";
 import NotifyPrefsPanel from "@/components/NotifyPrefsPanel";
+import YourAgentPanel from "@/components/YourAgentPanel";
 import ProfileSheet from "@/components/ProfileSheet";
 import ProfileHero from "@/components/ProfileHero";
 import OnchainCard from "@/components/OnchainCard";
@@ -149,6 +150,9 @@ export default function Profile() {
             <div className="mb-8">
               <NotifyPrefsPanel onDeleted={logout} />
             </div>
+
+            {/* Round 4: your agent, the harness in every profile */}
+            <div className="mb-8" id="your-agent"><YourAgentPanel /></div>
 
             <div className="grid lg:grid-cols-3 gap-8">
               {/* Main Content */}
