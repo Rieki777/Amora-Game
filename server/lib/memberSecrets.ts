@@ -19,7 +19,7 @@
  * the panel would keep saying "set". Refusing to store, with a sentence naming
  * the operator, is the honest failure.
  *
- * Nothing in this file logs, returns or persists a plaintext. `decrypt` is
+ * Nothing in this file logs, returns or persists a plaintext. `open` is
  * called on the way to the provider and nowhere else.
  */
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
@@ -39,6 +39,7 @@ export interface MemberKeyView {
   provider: MemberKeyProvider;
   last4: string;
   baseUrl: string | null;
+  model: string | null;
   setAt: string;
 }
 
@@ -119,6 +120,7 @@ export interface StoreInput {
   provider: MemberKeyProvider;
   key: string;
   baseUrl?: string | null;
+  model?: string | null;
 }
 
 /**
@@ -138,17 +140,22 @@ export async function storeMemberKey(
   if (key.length < 8 || key.length > 512) return { ok: false, error: "That does not look like an API key" };
   const base = cleanBaseUrl(input.baseUrl);
   if (!base.ok) return base;
+  const model = String(input.model ?? "").trim().slice(0, 128) || null;
   if (input.provider === "openai_compatible" && !base.url) {
     return { ok: false, error: "An OpenAI-compatible provider needs a base URL" };
   }
+  if (input.provider === "openai_compatible" && !model) {
+    return { ok: false, error: "An OpenAI-compatible provider needs a model name" };
+  }
   const sealed = seal(key, env);
   const last4 = key.slice(-4);
+  const compat = input.provider === "openai_compatible";
   await pool.query(
-    "INSERT INTO member_llm_keys (user_id, provider, base_url, ciphertext, iv, tag, last4, set_at) " +
-      "VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP) " +
-      "ON DUPLICATE KEY UPDATE provider = VALUES(provider), base_url = VALUES(base_url), " +
+    "INSERT INTO member_llm_keys (user_id, provider, base_url, model, ciphertext, iv, tag, last4, set_at) " +
+      "VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP) " +
+      "ON DUPLICATE KEY UPDATE provider = VALUES(provider), base_url = VALUES(base_url), model = VALUES(model), " +
       "ciphertext = VALUES(ciphertext), iv = VALUES(iv), tag = VALUES(tag), last4 = VALUES(last4), set_at = CURRENT_TIMESTAMP",
-    [userId, input.provider, input.provider === "openai_compatible" ? base.url : null, sealed.ciphertext, sealed.iv, sealed.tag, last4],
+    [userId, input.provider, compat ? base.url : null, compat ? model : null, sealed.ciphertext, sealed.iv, sealed.tag, last4],
   );
   const view = await memberKeyView(pool, userId);
   return view ? { ok: true, view } : { ok: false, error: "The key did not save" };
@@ -157,7 +164,7 @@ export async function storeMemberKey(
 /** The panel's read. Never the value. */
 export async function memberKeyView(pool: Pool, userId: string): Promise<MemberKeyView | null> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT provider, base_url, last4, set_at FROM member_llm_keys WHERE user_id = ? LIMIT 1",
+    "SELECT provider, base_url, model, last4, set_at FROM member_llm_keys WHERE user_id = ? LIMIT 1",
     [userId],
   );
   const r = rows[0];
@@ -166,6 +173,7 @@ export async function memberKeyView(pool: Pool, userId: string): Promise<MemberK
     provider: String(r.provider) as MemberKeyProvider,
     last4: String(r.last4),
     baseUrl: r.base_url ? String(r.base_url) : null,
+    model: r.model ? String(r.model) : null,
     setAt: r.set_at instanceof Date ? r.set_at.toISOString() : String(r.set_at),
   };
 }
@@ -180,6 +188,7 @@ export interface ResolvedMemberKey {
   provider: MemberKeyProvider;
   key: string;
   baseUrl: string | null;
+  model: string | null;
 }
 
 export async function resolveMemberKey(
@@ -189,7 +198,7 @@ export async function resolveMemberKey(
 ): Promise<ResolvedMemberKey | null> {
   if (!memberSecretsConfigured(env)) return null;
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT provider, base_url, ciphertext, iv, tag FROM member_llm_keys WHERE user_id = ? LIMIT 1",
+    "SELECT provider, base_url, model, ciphertext, iv, tag FROM member_llm_keys WHERE user_id = ? LIMIT 1",
     [userId],
   );
   const r = rows[0];
@@ -200,5 +209,6 @@ export async function resolveMemberKey(
     provider: String(r.provider) as MemberKeyProvider,
     key,
     baseUrl: r.base_url ? String(r.base_url) : null,
+    model: r.model ? String(r.model) : null,
   };
 }

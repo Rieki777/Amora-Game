@@ -83,8 +83,12 @@ CREATE TABLE IF NOT EXISTS `member_llm_keys` (
   -- One key per member; replacing it overwrites the row.
   `user_id` varchar(64) NOT NULL,
   `provider` enum('anthropic','openai_compatible') NOT NULL,
-  -- Only the openai_compatible provider reads this. Https, guarded at write.
+  -- Only the openai_compatible provider reads these. Https, guarded at write.
   `base_url` varchar(512) NULL,
+  -- The member's own model name for that endpoint (OpenRouter and Ollama
+  -- name models differently and this platform's Anthropic id means nothing
+  -- to either). Null for anthropic, which uses the platform's model.
+  `model` varchar(128) NULL,
   -- AES-256-GCM: ciphertext, 12-byte iv and 16-byte tag, all base64.
   `ciphertext` text NOT NULL,
   `iv` varchar(32) NOT NULL,
