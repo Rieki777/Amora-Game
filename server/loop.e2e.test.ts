@@ -81,6 +81,33 @@ async function api(
   return { status: res.status, json };
 }
 
+/**
+ * How many admin audit rows carry exactly this action text, waiting for at
+ * least one to land before answering.
+ *
+ * recordEvent() is fire-and-forget BY DESIGN (server/lib/events.ts: a trace
+ * must never fail the mutation it traces), so a route answers before its
+ * audit row has committed, and a read a few milliseconds behind the answer
+ * can arrive first. On 2026-08-15 CI ran S9's mint, refused overflow, ledger
+ * read and audit read inside 49ms and the audit read won: every assertion
+ * about the mint itself passed and only the trail looked empty. So this asks
+ * the table directly, an unbounded targeted count with no 200-row window to
+ * fall out of, and polls until the row is there or the wait runs out; a row
+ * that never lands still fails, with the count it found.
+ */
+async function auditRowCount(text: string, waitMs = 10_000): Promise<number> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const [[row]] = await testDb.conn.query<any[]>(
+      "SELECT COUNT(*) AS n FROM health_events WHERE audience = 'admin' AND text = ?",
+      [text],
+    );
+    const n = Number(row.n);
+    if (n > 0 || Date.now() >= deadline) return n;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 beforeAll(async () => {
   if (!DB_CONFIGURED) return;
   if (!fs.existsSync(DIST)) {
@@ -1010,7 +1037,14 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const ledger = await api("GET", "/api/game/ledger", undefined, peerToken);
     expect(ledger.json.balances["stay-credits"]?.balance).toBe(9000);
 
-    // And the audit trail names the mint.
+    // And the audit trail names the mint: exactly one row for the 9000 that
+    // landed, none for the 1001 that was refused (the cap answers before any
+    // ledger row or trace is written). Counted in the table, waited for,
+    // because the trace is written after the answer goes out (see
+    // auditRowCount); reading the admin view first raced it and lost in CI.
+    expect(await auditRowCount("mint:9000:stay-credits")).toBe(1);
+    expect(await auditRowCount("mint:1001:stay-credits", 0)).toBe(0);
+    // With the row known to be committed, the admin view surfaces it too.
     const audit = await api("GET", "/api/admin/audit", undefined, founderToken);
     expect(audit.json.some((r: any) => String(r.action) === "mint:9000:stay-credits")).toBe(true);
   });
