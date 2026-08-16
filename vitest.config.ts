@@ -71,7 +71,7 @@ export default defineConfig({
      * If that is within ~40% of this number, raise it. Do not lower the boot
      * deadline instead.
      */
-    hookTimeout: 600_000,
+    hookTimeout: 240_000,
     // One server process per file, no parallel port fights.
     fileParallelism: false,
   },

@@ -164,5 +164,25 @@ export async function provisionTestDb(opts: ProvisionOptions = {}): Promise<Test
  * server genuinely will not start, THIS deadline prints the server's own log
  * and says what it was doing; the hook timeout says "Hook timed out" and
  * throws that log away. The informative error has to be the one that fires.
+ *
+ * 180s -> 120s on 2026-08-14, when the reason for 180 stopped existing.
+ * TEST_DATABASE_URL pointed at a Railway MySQL through the public proxy, 47ms
+ * round trip and 408-836ms per connect, so every one of these numbers was sized
+ * by the wire rather than by the tests. A local MariaDB on :3307 now serves the
+ * same migrations:
+ *
+ *     provisioning, all migrations, one pooled connection   46.8s -> 6.1s
+ *     boot to /health, measured solo                                 25.9s
+ *     server/ledger.test.ts, 21 tests, identical pass      165.5s -> 13.5s
+ *
+ * 60s was tried first, from that 25.9s solo boot, AND IT FAILED: four e2e
+ * suites running together while five agent lanes worked the same machine could
+ * not boot in 60s. A solo measurement is the wrong basis for a number that only
+ * ever fires under contention, which is by definition when the machine is
+ * busiest. 120s passed the identical four-suite run under identical load, 68
+ * tests, 0 failures. SIZE THIS AGAINST CONTENTION, NOT AGAINST A QUIET BOX.
+ *
+ * If TEST_DATABASE_URL ever points at a remote host again, put 180s back. Each
+ * worktree keeps its previous value beside it as `.env.remote-backup`.
  */
-export const E2E_BOOT_DEADLINE_MS = 180_000;
+export const E2E_BOOT_DEADLINE_MS = 120_000;

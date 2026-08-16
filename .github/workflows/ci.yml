@@ -75,6 +75,18 @@ jobs:
         # A genuine false positive takes an inline `voice-ok: <reason>`.
         run: node scripts/check-voice.mjs
 
+      - name: Dash guard
+        # A hyphen standing in for a dash. check-voice structurally cannot see
+        # this: it bans em-dashes and en-dashes, so the failure it creates is a
+        # lone hyphen doing a dash's job, which reads as ordinary punctuation to
+        # every rule it has. The script has existed since the round that found
+        # fourteen glued compounds on public pages and was never wired in, which
+        # converted UNCHECKED into PASSED for everything that landed since.
+        # Watched RED before wiring: a probe carrying three glued compounds exits
+        # 1 and names all three, while well-being and decision-making stay clean
+        # and the thank-you allowlist holds. Clean at this ref.
+        run: node scripts/check-hyphen-dash.mjs
+
       - name: Auth guard
         # A client call to a route that refuses strangers carries a token.
         # This deployment authenticates by `Authorization: Bearer` alone, with
