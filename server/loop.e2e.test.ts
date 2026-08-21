@@ -1218,6 +1218,16 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(forumCfg.imageUrl).toBe("/api/uploads/forum-card.webp");
     expect(Array.isArray(forumCfg.categories)).toBe(true);
     expect(forumCfg.categories.length).toBeGreaterThan(0);
+    // An OFF module's village art never reaches the anonymous catalog (it
+    // would whisper what the village is staging); an admin still sees it.
+    expect(
+      (await api("GET", "/api/modules/catalog")).json.modules.find((m: any) => m.id === "forum").imageUrl,
+    ).toBeNull();
+    expect(
+      (await api("GET", "/api/modules/catalog", undefined, founderToken)).json.modules.find(
+        (m: any) => m.id === "forum",
+      ).imageUrl,
+    ).toBe("/api/uploads/forum-card.webp");
     expect((await api("PUT", "/api/admin/modules/tools/image", { imageUrl: null }, founderToken)).status).toBe(200);
     expect((await api("GET", "/api/modules/catalog")).json.modules.find((m: any) => m.id === "tools").imageUrl).toBeNull();
     expect((await api("PUT", "/api/admin/modules/forum/image", { imageUrl: null }, founderToken)).status).toBe(200);

@@ -6503,8 +6503,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         const cfg = moduleConfig<any>(m.id);
         // Validated on the way OUT as well as in: a hand-edited config row
         // must not be able to point the public catalog at an offsite image.
+        // And a village's own art only shows once the module serves members
+        // or wider (admins always see it): custom art on an off module would
+        // whisper what a village is trying out, the exact thing preview's
+        // byte-identity exists to keep quiet.
         const imageUrl =
-          typeof cfg?.imageUrl === "string" && cfg.imageUrl.startsWith("/api/uploads/")
+          typeof cfg?.imageUrl === "string" &&
+          cfg.imageUrl.startsWith("/api/uploads/") &&
+          (admin || !!m.core || LIFECYCLE_RANK[lc] >= LIFECYCLE_RANK.members)
             ? cfg.imageUrl
             : null;
         return {

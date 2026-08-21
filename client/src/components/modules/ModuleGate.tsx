@@ -20,9 +20,11 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModules } from "@/modules/ModuleProvider";
 
-/** Internal paths only: anything else falls back to home. */
+/** Internal paths only: anything else falls back to home. The backslash
+ *  variant is refused too, so this stays safe even in front of a consumer
+ *  that normalises "/\" the way location.href would. */
 function safeNext(path: string): string {
-  return path.startsWith("/") && !path.startsWith("//") ? path : "/";
+  return path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\") ? path : "/";
 }
 
 /**
