@@ -85,6 +85,7 @@ export const NAV: readonly NavEntry[] = [
       { href: "/feed", label: "Feed", module: "feed" },
       { href: "/forum", label: "Forum", module: "forum" },
       { href: "/messages", label: "Messages", module: "messaging" },
+      { href: "/introductions", label: "Introductions", module: "introductions" },
       { href: "/circles", label: "Circles" },
       { href: "/roles", label: "Roles" },
       { href: "/gratitude", label: "Gratitude" },
