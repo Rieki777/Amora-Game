@@ -95,6 +95,9 @@ describe("the module shelf is an allowlist, not a glob", () => {
     expect(uncovered).toContain("commerce");
     expect(uncovered).toContain("forum");
     expect(uncovered).not.toContain("exchange");
+    // Lane L3 shipped its contract with the module, so resources is covered
+    // from the day it exists.
+    expect(uncovered).not.toContain("resources");
     // Every module is either covered or named. Nothing falls between.
     expect(uncovered.length + Object.keys(MODULE_DOCS).length).toBe(MODULES.length);
   });
