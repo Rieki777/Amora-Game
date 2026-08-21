@@ -344,10 +344,15 @@ async function main() {
     }));
     check("I2 preview renders the 404 page to the signed-out, never the card", previewVerdict.notFound && !previewVerdict.card);
 
-    // Main JS budget evidence.
+    // Main JS budget evidence. The baseline is L1's dispatch measurement at
+    // def4b18 (515134); after another lane's merge moves the shared shell,
+    // pass L1_MAIN_JS_BASELINE with that lane's growth folded in, so this
+    // keeps measuring THIS lane's delta and never re-litigates someone
+    // else's bytes.
+    const baseline = Number(process.env.L1_MAIN_JS_BASELINE ?? 515134);
     const assets = fs.readdirSync(path.join(ROOT, "dist", "public", "assets")).filter((f) => /^index-.*\.js$/.test(f));
     const mainBytes = Math.max(...assets.map((f) => fs.statSync(path.join(ROOT, "dist", "public", "assets", f)).size));
-    check("J1 main JS within 1 KB of the 515134-byte baseline", Math.abs(mainBytes - 515134) <= 1024, `${mainBytes} bytes`);
+    check(`J1 main JS within 1 KB of the ${baseline}-byte baseline`, Math.abs(mainBytes - baseline) <= 1024, `${mainBytes} bytes`);
   } finally {
     for (const fn of cleanup.reverse()) { try { await fn(); } catch { /* closing */ } }
     child.kill();
