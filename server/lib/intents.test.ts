@@ -327,7 +327,8 @@ describe("acceptance columns have one writer (harm metric b)", () => {
       }
     };
     walk(root);
-    expect(offenders.sort()).toEqual(["lib/intents.test.ts", "lib/intents.ts"]);
+    // The two test files ASSERT on the columns; the library is the one writer.
+    expect(offenders.sort()).toEqual(["intents.routes.e2e.test.ts", "lib/intents.test.ts", "lib/intents.ts"]);
     // And inside intents.ts itself: no SQL assigns either column by name
     // anywhere, and the one parametrised writer (the acting member's own
     // column, COALESCEd so a second tap changes nothing) appears exactly
