@@ -43,13 +43,17 @@ ALTER TABLE `org_drafts`
   ADD COLUMN `vision` json NULL;
 
 -- ── The escalation relation (P5) ────────────────────────────────────────────
--- "If I disagree, where do I go" becomes a drawable line. INSERT IGNORE, and
--- this file runs once per deployment, so a village that later deletes the
--- type has deleted it for good: same one-way rule as every starter type.
--- Fresh installs get it from STARTER_TYPES (orgRelations.ts), which only
--- seeds an empty table; this row is for deployments that seeded before 0083.
+-- "If I disagree, where do I go" becomes a drawable line. This row is ONLY
+-- for deployments whose vocabulary was seeded before 0083, which is why it
+-- guards on the table being non-empty: on a fresh install the migrations run
+-- before first boot, and an unconditional insert here would leave one row in
+-- the table, so seedStarterTypes (which only fills an EMPTY table, exactly so
+-- a village's deletions stay deleted) would skip the other five starter
+-- types. Fresh installs get escalation from STARTER_TYPES instead; either
+-- door, deleted once is gone for good.
 INSERT IGNORE INTO `org_relation_types` (`id`, `label`, `inverse_label`, `symmetric`, `is_cover`, `sort_order`)
-VALUES ('escalation', 'escalates objections to', 'hears objections from', 0, 0, 6);
+SELECT 'escalation', 'escalates objections to', 'hears objections from', 0, 0, 6
+  FROM (SELECT 1 FROM `org_relation_types` LIMIT 1) AS `already_seeded`;
 
 -- ── Daily exchange rates, for display only (P8, N4) ─────────────────────────
 -- Base EUR because the source is the ECB's daily reference list. One row per
