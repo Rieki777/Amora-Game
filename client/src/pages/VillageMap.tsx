@@ -31,6 +31,9 @@ import SearchBar, { type SearchHit } from "@/components/power/SearchBar";
 import FilterChips from "@/components/power/FilterChips";
 import HolderCard from "@/components/power/HolderCard";
 import ShapePicker from "@/components/power/ShapePicker";
+import CurrencyPicker from "@/components/power/CurrencyPicker";
+import DecideLens, { DecideKey } from "@/components/power/DecideLens";
+import { useVision, VisionGhosts, VisionPanel } from "@/components/power/VisionLayer";
 import {
   NO_FILTERS,
   seatPassesFilters,
@@ -77,7 +80,12 @@ export default function VillageMap() {
   const [pulseSeatId, setPulseSeatId] = useState<string | null>(null);
   const [listMode, setListMode] = useState(false);
   const [shapePreview, setShapePreview] = useState<string | null>(null);
+  const [lensOn, setLensOn] = useState(false);
+  const [lensDomain, setLensDomain] = useState<string | null>(null);
+  const [mode, setMode] = useState<"now" | "vision">("now");
+  const [viewerIsAdmin, setViewerIsAdmin] = useState(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const vision = useVision(mode === "vision");
 
   useEffect(() => {
     if (!mapModule) return;
@@ -91,7 +99,10 @@ export default function VillageMap() {
     if (t) {
       fetch("/api/profile", { headers: headers() })
         .then((r) => (r.ok ? r.json() : null))
-        .then((u) => setViewerUserId(u?.id ?? null))
+        .then((u) => {
+          setViewerUserId(u?.id ?? null);
+          setViewerIsAdmin(u?.role === "admin" || u?.role === "founder");
+        })
         .catch(() => {});
     }
   }, [mapModule?.id]);
@@ -166,6 +177,16 @@ export default function VillageMap() {
     : null;
 
   const mayDeclareVillage = !!data?.viewer.mayDeclare?.includes("village");
+
+  // Both canvases draw the same lens nodes through PowerMap's `lenses`
+  // seam, exactly the seam L3's resources ring uses without editing here.
+  const lensNodes =
+    data && layout ? (
+      <>
+        {lensOn && <DecideLens layout={layout} circles={data.circles} power={data.power} domain={lensDomain} />}
+        {mode === "vision" && <VisionGhosts layout={layout} drafts={vision.drafts} />}
+      </>
+    ) : null;
 
   const exportSvg = () => {
     const el = svgRef.current;
@@ -256,7 +277,35 @@ export default function VillageMap() {
                     setPersonName(null);
                   }}
                 />
-                <div className="flex items-center gap-1.5" data-power-actions>
+                <div className="flex items-center gap-1.5 flex-wrap" data-power-actions>
+                  <div role="group" aria-label="Now or Vision" className="inline-flex rounded-full border border-border overflow-hidden">
+                    <button
+                      type="button"
+                      aria-pressed={mode === "now"}
+                      onClick={() => setMode("now")}
+                      className={`text-xs px-2.5 py-1 ${mode === "now" ? "bg-teal-deep text-white" : "bg-card text-muted-foreground"}`}
+                    >
+                      Now
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={mode === "vision"}
+                      onClick={() => setMode("vision")}
+                      className={`text-xs px-2.5 py-1 ${mode === "vision" ? "bg-teal-deep text-white" : "bg-card text-muted-foreground"}`}
+                    >
+                      Vision
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    aria-pressed={lensOn}
+                    onClick={() => setLensOn((v) => !v)}
+                    className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border ${
+                      lensOn ? "bg-teal-deep text-white border-teal-deep" : "bg-card text-muted-foreground border-border"
+                    }`}
+                  >
+                    How we decide
+                  </button>
                   <button
                     type="button"
                     aria-pressed={linesOn}
@@ -297,7 +346,7 @@ export default function VillageMap() {
                 </div>
               </div>
 
-              <div className="mb-3" data-power-filters-row>
+              <div className="mb-3 space-y-2" data-power-filters-row>
                 <FilterChips
                   filters={filters}
                   onChange={setFilters}
@@ -305,7 +354,39 @@ export default function VillageMap() {
                   signedIn={!!viewerUserId}
                   personName={personName}
                 />
+                {lensOn && (
+                  <div className="flex items-center gap-2 flex-wrap" data-power-lens-row>
+                    <div role="group" aria-label="Which domain" className="flex items-center gap-1">
+                      {[null, ...data.power.glossary.domains.map((d) => d.id)].map((d) => {
+                        const def = d ? data.power.glossary.domains.find((x) => x.id === d) : null;
+                        return (
+                          <button
+                            key={d ?? "overall"}
+                            type="button"
+                            aria-pressed={lensDomain === d}
+                            title={def?.gloss}
+                            onClick={() => setLensDomain(d)}
+                            className={`text-xs px-2 py-1 rounded-full border ${
+                              lensDomain === d
+                                ? "bg-teal-deep text-white border-teal-deep"
+                                : "bg-card text-muted-foreground border-border"
+                            }`}
+                          >
+                            {def?.label ?? "Overall"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <DecideKey circles={data.circles} power={data.power} domain={lensDomain} />
+                  </div>
+                )}
               </div>
+
+              {mode === "vision" && (
+                <div className="mb-4 max-w-2xl">
+                  <VisionPanel drafts={vision.drafts} isAdmin={viewerIsAdmin} />
+                </div>
+              )}
 
               {/* Desktop and tablet: the canvas, the legend riding its corner,
                   the card standing beside it. Below sm (spec 12's 480): the
@@ -325,10 +406,11 @@ export default function VillageMap() {
                       viewerUserId={viewerUserId}
                       linesOn={linesOn}
                       pulseSeatId={pulseSeatId}
+                      lenses={lensNodes}
                       svgRef={svgRef}
                     />
                     <div className="absolute left-2 bottom-2 z-10">
-                      <Legend seats={data.roles} power={data.power} />
+                      <Legend seats={data.roles} power={data.power} footer={<CurrencyPicker />} />
                     </div>
                   </div>
                   <aside data-scroll-contain className="w-80 shrink-0 bg-card border border-border rounded-2xl p-5 sticky top-24 max-h-[80vh] overflow-y-auto hidden md:block">
@@ -370,11 +452,12 @@ export default function VillageMap() {
                       viewerUserId={viewerUserId}
                       linesOn={linesOn}
                       pulseSeatId={pulseSeatId}
+                      lenses={lensNodes}
                     />
                   </div>
                 )}
                 <div className="sm:max-w-xl">
-                  <Legend seats={data.roles} power={data.power} />
+                  <Legend seats={data.roles} power={data.power} footer={<CurrencyPicker />} />
                 </div>
                 <CircleAccordion data={data} filters={filters} viewerUserId={viewerUserId} onSelect={setSelected} />
               </div>

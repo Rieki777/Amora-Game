@@ -325,6 +325,8 @@ import {
   visionProgress,
 } from "./lib/orgDrafts";
 import { DECIDES_BY, DOMAINS, HOW_CHOSEN, SHAPES } from "../shared/power";
+import { displayCurrencyProblem } from "../shared/money";
+import { latestRates, refreshDailyRates } from "./lib/fxRates";
 import {
   coveredSeatIds,
   createRelation,
@@ -763,7 +765,7 @@ const DEFAULT_INVESTOR_SUMMARY = SITE_CONTENT.investorSummary;
 // values until they change them. This is what makes a new project live-editable
 // from the browser without a code deploy. Merged over GAME_CONFIG on read.
 const DEFAULT_BRAND = {
-  project: { name: "", tagline: "", memberName: "", location: "", siteUrl: "", eventsUrl: "", footerBlurb: "" },
+  project: { name: "", tagline: "", memberName: "", location: "", country: "", fiatCurrency: "", siteUrl: "", eventsUrl: "", footerBlurb: "" },
   currency: { name: "", nameLower: "" },
   images: { hero: "", investorHero: "", residentHero: "", stewardHero: "", prosperityHero: "", masterPlanHero: "", logo: "", heartLogo: "", favicon: "" },
   // Setup Wizard progress — projects tick these off as they make the site theirs.
@@ -2347,6 +2349,10 @@ function mergedConfig() {
       tagline: pick(brand.project.tagline, p.tagline),
       memberName: pick(brand.project.memberName, p.memberName),
       location: pick(brand.project.location, p.location),
+      // 0083 (P8): where the project lives and what it counts in. Display
+      // only, like every overlay field; blank inherits the platform default.
+      country: pick((brand.project as any).country, p.country),
+      fiatCurrency: pick((brand.project as any).fiatCurrency, p.fiatCurrency),
       adminPath: p.adminPath,
       // Blank INHERITS the platform default, like every overlay field. A fork
       // that wants NO outside links clears the gameConfig default too — the
@@ -3995,6 +4001,17 @@ async function startServer() {
     }
     if (told > 0) console.log(`[org] ${told} holder(s) told their term is ending or has ended`);
   });
+
+  /**
+   * The day's exchange rates, for DISPLAY (0083, P8). Through the guarded
+   * fetch like every outbound call; the quote list is literals in
+   * fxRates.ts, so nothing stored can steer the URL. Failures land in the
+   * scheduler's ledger and rates simply age out: after 14 days without a
+   * fetch, amounts show in their own currency again instead of converting
+   * through stale numbers. No path from here to settlement, the ledger, or
+   * publishDraft; visionNeverApplies.test.ts pins it.
+   */
+  registerJob("fx-rates-daily", 24 * 60 * 60 * 1000, async () => refreshDailyRates(getPool()));
 
   // S67: peer sync — refresh what other villages share, every 6 hours,
   // only while the network module is on. One dark peer never blocks the rest.
@@ -14451,12 +14468,28 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
     const incoming = req.body?.notify ?? {};
+    // 0083 (P8): the display currency, three letters or "" to fall back to
+    // the project default. Validated before anything is written, so junk
+    // never lands in prefs and the picker cannot store a sentence.
+    const wantsCurrency = req.body?.displayCurrency !== undefined;
+    if (wantsCurrency) {
+      const bad = displayCurrencyProblem(req.body.displayCurrency);
+      if (bad) return res.status(400).json({ error: bad });
+    }
     const updated = await members.update(user.id, (u: any) => {
       u.prefs = { ...(u.prefs ?? {}), notify: { ...(u.prefs?.notify ?? {}), ...incoming } };
+      if (wantsCurrency) {
+        const code = String(req.body.displayCurrency ?? "").trim().toUpperCase();
+        if (code) u.prefs.displayCurrency = code;
+        else delete u.prefs.displayCurrency;
+      }
     });
     if (!updated) return res.status(404).json({ error: "User not found" });
     // Echo back the VALIDATED view, so a junk write reads back as defaults.
-    res.json({ notify: resolveNotifyPrefs(updated.prefs) });
+    res.json({
+      notify: resolveNotifyPrefs(updated.prefs),
+      displayCurrency: updated.prefs?.displayCurrency ?? null,
+    });
   });
 
   // Auth: Get Profile
@@ -15622,6 +15655,18 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
       season: seasonState(),
     });
+  });
+
+  /**
+   * The day's display rates (0083, P8): base EUR, newest row per quote,
+   * manual rows included, nothing older than 14 days. Public and cacheable
+   * for an hour, because a rate table is the same for every viewer and a
+   * display conversion an hour stale is still a display conversion. What
+   * Stripe charges never reads this.
+   */
+  app.get("/api/fx/rates", async (_req, res) => {
+    res.header("Cache-Control", "public, max-age=3600");
+    res.json(await latestRates(getPool()));
   });
 
   // Brand overlay: the Setup Wizard reads/writes this to white-label the site live.

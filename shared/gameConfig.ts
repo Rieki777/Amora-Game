@@ -85,6 +85,12 @@ export interface GameConfig {
     /** What a committed member is called (e.g. Amora Family member, Citizen, Villager). */
     memberName: string;
     location: string;
+    /** ISO 3166 alpha-2 country the project lives in (0083, P8). Blank means
+     *  unsaid, and money display falls back to the universal CHF default. */
+    country: string;
+    /** ISO 4217 currency the project counts in (Amora: CRC). DISPLAY only:
+     *  Stripe settlement and the ledger never read this. */
+    fiatCurrency: string;
     adminPath: string;
     /** The project's OUTSIDE website. Blank hides every "Main Site" link —
      *  a fork with no external site shows no link rather than a dead one. */
@@ -184,6 +190,8 @@ export const GAME_CONFIG: GameConfig = {
     tagline: "Co-Become the Most Beautiful Village",
     memberName: "Amora Family member",
     location: "Dominicalito, Costa Rica",
+    country: "CR",
+    fiatCurrency: "CRC",
     adminPath: "/admin",
     siteUrl: "https://amora.cr",
     eventsUrl: "https://amora.cr/events/",
