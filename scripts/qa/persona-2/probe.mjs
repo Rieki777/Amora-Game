@@ -427,9 +427,12 @@ async function run() {
     await ctx.route("**/*", (route) => {
       const req = route.request();
       const m = req.method();
-      const sameSite = req.url().startsWith(BASE);
       if (m === "GET" || m === "HEAD" || m === "OPTIONS") {
-        if (sameSite) {
+        // The bearer rides only top-level document loads. Rewriting headers on
+        // fetch/XHR GETs made WebKit fail them with "access control checks"
+        // (proven by an A/B against --noguard), and the app already sends its
+        // own bearer from storage on every API call.
+        if (req.resourceType() === "document" && req.url().startsWith(BASE)) {
           return route.continue({ headers: { ...req.headers(), authorization: `Bearer ${TOKEN}` } });
         }
         return route.continue();
@@ -627,7 +630,7 @@ async function run() {
     rec.backTests.push({ what: "?brief= then Back", ok: !url.includes("brief=") && wf.textLen > 60, msToContent: wf.extraMs, to: url.slice(-40) });
   };
 
-  const ROUTES = [
+  let ROUTES = [
     "/", "/profile", "/profile/characters",
     "/events", briefRoute,
     "/messages", "/introductions",
@@ -636,6 +639,11 @@ async function run() {
     "/circles", "/roles",
     "/x-missing-page-probe",
   ];
+  const routesArg = ARGS[ARGS.indexOf("--routes") + 1];
+  if (ARGS.includes("--routes") && routesArg) {
+    const want = routesArg.split(",");
+    ROUTES = ROUTES.filter((r) => want.some((w) => r === w || r.startsWith(w + "?")));
+  }
 
   const page = await ctx.newPage();
   const consoleErrs = [];
@@ -891,9 +899,10 @@ function assemble() {
         verdictRows.e404.count += 1;
         findings.push({ id: fid(), severity: "HIGH", category: "routing", route: r.route, viewport: vp, buildMarker: run.buildStart, elementChain: "(page)", repro: `open ${r.route}`, screenshot: r.shot, personaLine: "It told me the page does not exist." });
       }
-      if (r.late && r.late.textLen <= 60) {
+      const iframePage = (r.notes ?? []).some((n) => /map iframe/.test(n));
+      if (r.late && r.late.textLen <= 60 && !iframePage) {
         findings.push({ id: fid(), severity: "HIGH", category: "routing", route: r.route, viewport: vp, buildMarker: run.buildStart, elementChain: "(page shell)", repro: `open ${r.route} at ${vp}; wait twelve seconds`, screenshot: r.shot, personaLine: "The page never showed anything at all.", detail: r.late });
-      } else if (r.late?.cameLate && r.late.extraMs > 1500) {
+      } else if (r.late?.cameLate && r.late.extraMs > 1500 && !iframePage) {
         findings.push({ id: fid(), severity: r.late.extraMs > 4500 ? "HIGH" : "MED", category: "polish", route: r.route, viewport: vp, buildMarker: run.buildStart, elementChain: "(page shell)", repro: `open ${r.route} at ${vp}; watch after the header paints`, screenshot: r.shot, personaLine: "The screen sat empty before anything appeared.", detail: { msPastBaseline: r.late.extraMs, textAt3500: r.late.textAt3500 } });
       }
     }
