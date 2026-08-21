@@ -12,6 +12,28 @@ import type { Capability } from "./capabilities";
 
 export type ModuleLifecycle = "off" | "preview" | "members" | "public";
 
+/**
+ * The Module Library's five shelves. Labels, order and glosses live in
+ * `shared/moduleCatalog.ts`; this is the id a registry entry points at.
+ */
+export type ModuleGroup =
+  | "coordinate"
+  | "recognise"
+  | "host-and-earn"
+  | "know-and-decide"
+  | "connect";
+
+/**
+ * What standing a module up looks like, declared instead of guessed at.
+ *
+ *   none      works the moment it is on. The Go-live card offers itself right
+ *             after Turn on.
+ *   optional  better with content, honest without it.
+ *   required  needs real content before going live (a room and a price, a
+ *             stocked treasury), and the Go-live card waits for readiness.
+ */
+export type ModuleSetup = "none" | "optional" | "required";
+
 /** Rank order for posture comparisons: off < preview < members < public. */
 export const LIFECYCLE_RANK: Record<ModuleLifecycle, number> = {
   off: 0,
@@ -246,6 +268,21 @@ export interface ModuleDef {
   tier: ModuleTier;
   /** Module library: the widest class of data this module's domain holds. */
   dataClass: ModuleDataClass;
+  /**
+   * Which of the five Module Library shelves this sits on. Optional in the
+   * TYPE so test fixtures stay small; every real entry sets it, and
+   * `shared/moduleCatalog.test.ts` fails the build when one does not.
+   */
+  group?: ModuleGroup;
+  /** What standing this module up looks like. Same optionality rule as `group`. */
+  setup?: ModuleSetup;
+  /**
+   * Is there enough real content here to go live, and if not, what first?
+   * Server-attached at boot like `openStateCheck`, so the shared registry
+   * stays import-clean for the client bundle. Default reader: real rows in
+   * the module's own tables (`server/lib/modules.ts`).
+   */
+  readiness?: () => Promise<{ ready: boolean; hint: string }>;
   /** The named counterparty. Required at connected and managed, absent at included. */
   vendor?: ModuleVendor;
   /**
@@ -338,6 +375,8 @@ export const MODULES: ModuleDef[] = [
     id: "quests",
     tier: "included",
     dataClass: "member-pii",
+    group: "coordinate",
+    setup: "none",
     name: "Quests",
     description: "The contribution board: post work, claim it, submit it, consent to release recognition.",
     core: true,
@@ -351,6 +390,8 @@ export const MODULES: ModuleDef[] = [
     id: "gratitude",
     tier: "included",
     dataClass: "member-pii",
+    group: "recognise",
+    setup: "none",
     name: "Gratitude",
     description: "Recognition sends, lunar cycles, and the value pool distributed at each close.",
     core: true,
@@ -370,6 +411,8 @@ export const MODULES: ModuleDef[] = [
     id: "progression",
     tier: "included",
     dataClass: "member-pii",
+    group: "recognise",
+    setup: "none",
     name: "Stages & Roles",
     description: "The path from guest to co-creator: stages, capabilities, and appointed roles.",
     core: true,
@@ -383,6 +426,8 @@ export const MODULES: ModuleDef[] = [
     id: "profiles",
     tier: "included",
     dataClass: "member-pii",
+    group: "connect",
+    setup: "none",
     name: "Profiles",
     description: "Member identity: handles, journeys, balances, and each member's own ledger.",
     core: true,
@@ -399,7 +444,13 @@ export const MODULES: ModuleDef[] = [
     id: "map",
     tier: "included",
     dataClass: "member-pii",
-    name: "Village Map",
+    group: "know-and-decide",
+    setup: "optional",
+    // Renamed from "Village Map" (proposal §8 item 14, R28): the card is about
+    // how power is held, and its copy carries the gloss "includes the Living
+    // Map of the land". The id stays `map`; the land/power split is a queued
+    // ADR, not this round.
+    name: "How Power Is Held",
     description:
       "The living org chart: circles, the roles that orbit them, who holds each seat, which seats are open calls, plus a concierge that routes 'I want to help with X' to the right person.",
     requires: [],
@@ -420,6 +471,8 @@ export const MODULES: ModuleDef[] = [
     id: "forum",
     tier: "included",
     dataClass: "member-pii",
+    group: "know-and-decide",
+    setup: "none",
     name: "Forum & Decisions",
     description:
       "Village conversations: threads by circle-of-life category, @mentions, thread follows, community moderation, and the decision primitive, where proposals are opened and outcomes recorded.",
@@ -455,6 +508,8 @@ export const MODULES: ModuleDef[] = [
     id: "feed",
     tier: "included",
     dataClass: "member-pii",
+    group: "connect",
+    setup: "none",
     name: "Village Feed",
     description:
       "The everyday stream: microposts, events and announcements from one forum category, woven with the village's own milestones, where a tap of appreciation is a real gift from your cycle budget.",
@@ -469,6 +524,8 @@ export const MODULES: ModuleDef[] = [
     id: "messaging",
     tier: "included",
     dataClass: "member-pii",
+    group: "connect",
+    setup: "none",
     name: "Messages",
     description:
       "Private conversations between members: one to one, or a named group carrying its own membership and read state. A direct message is the two-party case of the same thread, so every conversation in the village has one home, one report path, and one place to moderate.",
@@ -488,6 +545,8 @@ export const MODULES: ModuleDef[] = [
     id: "stays",
     tier: "included",
     dataClass: "member-pii",
+    group: "host-and-earn",
+    setup: "required",
     name: "Stays",
     description:
       "Accommodation on stay credits: rooms post credit (and optional USD) prices per audience, credits are bought or earned through work-exchange quests, and one credit hosts one night. Funds-bearing: read the legal card before enabling.",
@@ -520,6 +579,8 @@ export const MODULES: ModuleDef[] = [
     id: "automation",
     tier: "included",
     dataClass: "member-pii",
+    group: "coordinate",
+    setup: "optional",
     name: "Call Automation",
     description:
       "The weekly call becomes assigned work, not content distribution: recordings in, transcripts kept, an AI synthesis whose every task suggestion carries a verbatim quote and timestamp (or is dropped), published to the forum by a human, with suggestions routed to the roles they name. Nothing publishes or applies itself.",
@@ -541,6 +602,8 @@ export const MODULES: ModuleDef[] = [
     id: "health",
     tier: "included",
     dataClass: "village-content",
+    group: "know-and-decide",
+    setup: "optional",
     name: "Village Health",
     description:
       "The village's vital signs: per-lunation snapshots frozen at each cycle close, the land's own regeneration ledger (trees, water, hectares: absolute counts, never leaderboards), and season goals. Snapshot COLLECTION runs from the day this ships; turn the dashboard on once a few lunations of history exist.",
@@ -558,6 +621,8 @@ export const MODULES: ModuleDef[] = [
     id: "library",
     tier: "included",
     dataClass: "member-pii",
+    group: "host-and-earn",
+    setup: "required",
     name: "Material Library",
     description:
       "The village's shared tools and goods: donate an item and earn library credits (appraised, capped, dual-signed above a threshold), then borrow against an escrowed deposit. Credits are backed by the shelves; they never swap, and selling them for fiat is a separate caution-card opt-in (L9).",
@@ -599,6 +664,8 @@ export const MODULES: ModuleDef[] = [
     id: "badges",
     tier: "included",
     dataClass: "member-pii",
+    group: "recognise",
+    setup: "optional",
     name: "Badges & Skills",
     description:
       "Recognition of who people are and what they can do: self-declared skills, badges earned from settled contribution, granted honors, and warning badges that suspend specific capabilities until resolved. Earned badges never ride applause metrics into permissions.",
@@ -614,6 +681,8 @@ export const MODULES: ModuleDef[] = [
     id: "exchange",
     tier: "included",
     dataClass: "member-pii",
+    group: "host-and-earn",
+    setup: "required",
     name: "Exchange",
     description:
       "Buy the village's own platform tokens for fiat, out of a stocked treasury, buy-only in v1. Recognition and Hypha-governed tokens can never be listed; a token another module sells can't be listed twice. Funds-bearing: read the legal card before enabling.",
@@ -653,6 +722,8 @@ export const MODULES: ModuleDef[] = [
     id: "commerce",
     tier: "included",
     dataClass: "member-pii",
+    group: "host-and-earn",
+    setup: "required",
     name: "Payments & Donations",
     description:
       "Every payment your project issues or receives, as products you define: application fees, donations, deposits and down payments, waitlist seats, recurring memberships, and token packs granted from treasury stock. Rides the same verified Stripe spine as stays and the exchange; Zeffy and manual payment paths for fee-free giving. Money flows IN only, always.",
@@ -669,6 +740,8 @@ export const MODULES: ModuleDef[] = [
     id: "network",
     tier: "included",
     dataClass: "village-content",
+    group: "connect",
+    setup: "none",
     name: "Village Network",
     description:
       "Federation with other villages running this platform: publish your needs and offers to the network, and read what peer villages share. Foundations for co-hiring, shared events and resource pooling. You choose exactly which villages to listen to; publishing an item is an explicit act, and nothing about individual members is ever shared.",
@@ -682,6 +755,8 @@ export const MODULES: ModuleDef[] = [
     id: "tools",
     tier: "included",
     dataClass: "member-pii",
+    group: "coordinate",
+    setup: "optional",
     name: "Tools Hub",
     description:
       "An audience-aware registry of the village's tools: one place to find the chat, the documents, the governance space, with a pinned card that deep-links to your Hypha DHO.",
@@ -718,7 +793,12 @@ export const MODULES: ModuleDef[] = [
     id: "events",
     tier: "included",
     dataClass: "member-pii",
-    name: "Events",
+    group: "coordinate",
+    setup: "none",
+    // "Village Calendar", by L5a's request: the module carries the one
+    // calendar, village time and the lunar wheel now, and "Events" undersold
+    // it. The id stays `events`.
+    name: "Village Calendar",
     description:
       "The village's calendar: gatherings with a time, a place, a capacity and an RSVP. Other surfaces read it, so the map can light the building something is happening in.",
     // Nothing hard-required. A gathering is a time and a place, and neither
@@ -728,7 +808,18 @@ export const MODULES: ModuleDef[] = [
     requires: [],
     recommends: ["map"],
     capabilities: ["event.rsvp", "event.manage"],
-    variableKeys: ["events.rsvp_enabled", "events.upcoming_days", "events.past_visible_days"],
+    // The calendar.* knobs are L5a's (0085): the year anchor, the hemisphere
+    // and the cross-quarter days all shape what this module's calendar draws,
+    // so Game Mechanics shows them with the module and hides them while it is
+    // off, like every other module-scoped variable.
+    variableKeys: [
+      "events.rsvp_enabled",
+      "events.upcoming_days",
+      "events.past_visible_days",
+      "calendar.year_anchor",
+      "calendar.hemisphere",
+      "calendar.cross_quarters",
+    ],
     apiPrefixes: ["/api/events", "/api/admin/events"],
   },
 ];

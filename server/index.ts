@@ -410,12 +410,14 @@ import {
 import { confirmManual, launchStatus, markLaunched, type LaunchDeps } from "./lib/launch";
 import {
   assertModuleGraph,
+  attachModuleReadiness,
   decidedModuleIds,
   effectiveLifecycle,
   loadModuleSettings,
   moduleActivity,
   moduleConfig,
   moduleDemotions,
+  moduleMaxLifecycle,
   moduleOrphans,
   listingStamp,
   requireModule,
@@ -518,6 +520,7 @@ import {
   type ModuleLifecycle,
 } from "../shared/modules";
 import { poolStatus } from "../shared/modulePool";
+import { BUILD_A_MODULE_URL, BUILDERS_POOL_URL, MODULE_CATALOG, MODULE_GROUPS } from "../shared/moduleCatalog";
 import { resolveHyphaLinks } from "../shared/hypha";
 import { getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
@@ -6516,16 +6519,103 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         build: BUILD_MARKER,
       },
       modules: visible,
+      // ── R36: the sign-in prompt's one fact ─────────────────────────────────
+      // Ids a signed-out visitor could see by signing in: SERVED lifecycle
+      // `members`, exactly. Never preview (the catalog of what a village is
+      // trying out never leaks; preview stays byte-identical to off out here)
+      // and never off. village.json already publishes ids at members+, so this
+      // reveals nothing new; it only lets the client offer "sign in" where it
+      // used to render a 404. The `modules` array above is deliberately
+      // untouched: anonymous nav must not move.
+      ...(authed
+        ? {}
+        : {
+            signInToSee: MODULES.filter(
+              (m) => !m.core && effectiveLifecycle(m.id) === "members",
+            ).map((m) => m.id),
+          }),
       hypha: resolveHyphaLinks(stringVar),
     });
   });
+
+  /**
+   * The Module Library, public and read-only (L1; proposal §8 item 6). The
+   * platform's own "what a village can be" page: every module with its
+   * platform copy, rendered server-side from shared/moduleCatalog.ts the same
+   * way `priceLine` is, so the registry and the copy stay out of the client
+   * bundle and check-voice keeps holding every sentence.
+   *
+   * State rides the exact `/api/modules` viewer filter: signed-in members get
+   * `on` (true at members or public), admins also get `lifecycle`, and an
+   * anonymous reader gets no state key at all, so what a village is trying
+   * out never leaks. Express matches `app.get("/api/modules")` exactly, so
+   * this sub-path is safely its own route (proved in the S13 tests).
+   */
+  app.get("/api/modules/catalog", async (req, res) => {
+    const admin = await isAdmin(req);
+    const authed = admin || !!(await authedUser(req));
+    res.json({
+      platform: {
+        name: mergedConfig().project.name,
+        build: BUILD_MARKER,
+      },
+      groups: MODULE_GROUPS,
+      // The last card on the shelf: build one, get paid in $ReGen (R20).
+      builder: { guideUrl: BUILD_A_MODULE_URL, poolUrl: BUILDERS_POOL_URL },
+      modules: MODULES.map((m) => {
+        const lc = effectiveLifecycle(m.id);
+        const cfg = moduleConfig<any>(m.id);
+        // Validated on the way OUT as well as in: a hand-edited config row
+        // must not be able to point the public catalog at an offsite image.
+        // And a village's own art only shows once the module serves members
+        // or wider (admins always see it): custom art on an off module would
+        // whisper what a village is trying out, the exact thing preview's
+        // byte-identity exists to keep quiet.
+        const imageUrl =
+          typeof cfg?.imageUrl === "string" &&
+          cfg.imageUrl.startsWith("/api/uploads/") &&
+          (admin || !!m.core || LIFECYCLE_RANK[lc] >= LIFECYCLE_RANK.members)
+            ? cfg.imageUrl
+            : null;
+        return {
+          id: m.id,
+          name: m.name,
+          description: m.description,
+          core: !!m.core,
+          tier: m.tier,
+          dataClass: m.dataClass,
+          provides: m.provides ?? null,
+          support: supportRoute(m),
+          pool: poolStatus(m),
+          group: m.group ?? null,
+          setup: m.setup ?? "none",
+          requires: m.requires,
+          recommends: m.recommends,
+          legalReview: !!m.legalReview,
+          withdrawn: m.withdrawn ?? null,
+          priceLine: m.pricing ? priceLine(m.pricing) : null,
+          card: MODULE_CATALOG[m.id] ?? null,
+          imageUrl,
+          ...(authed ? { on: m.core || lc === "members" || lc === "public" } : {}),
+          ...(admin ? { lifecycle: m.core ? "public" : lc } : {}),
+        };
+      }),
+    });
+  });
+
+  // Readiness readers attach at route-registration time, which runs once at
+  // boot: the openStateCheck pattern, without touching the boot block.
+  attachModuleReadiness(getPool);
 
   /** The full truth for the admin panel: every module, dependency status, orphans. */
   app.get("/api/admin/modules", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const demotions = new Map(moduleDemotions().map((d) => [d.id, d.missing]));
+    // Read once per request: examplesAvailable below asks whether the seed
+    // file carries a block for each module.
+    const exampleSeed = loadExampleSeed(SEEDS_DIR);
     res.json({
-      modules: MODULES.map((m) => ({
+      modules: await Promise.all(MODULES.map(async (m) => ({
         id: m.id,
         name: m.name,
         description: m.description,
@@ -6617,7 +6707,17 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         health: m.vendor
           ? allIntegrationHealth(m.id).map((h) => ({ ...h, reading: healthReading(h, m.vendor!.liveness) }))
           : [],
-      })),
+        // ── Lane L1: the library flow's four admin facts ───────────────────
+        // Which shelf, what setup means here, whether there is enough real
+        // content to go live (null where setup declares none), whether Turn
+        // on could offer example content, and the widest lifecycle the hard
+        // dependencies allow. The Go-live card reads all five.
+        group: m.group ?? null,
+        setup: m.setup ?? "none",
+        ready: m.readiness ? await m.readiness() : null,
+        examplesAvailable: !!exampleSeed?.[m.id] && !isSeeded(m.id) && !isRetired(m.id),
+        maxLifecycle: moduleMaxLifecycle(m.id),
+      }))),
       orphans: moduleOrphans(),
       hypha: resolveHyphaLinks(stringVar),
     });
@@ -6641,7 +6741,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
 
   app.put("/api/admin/modules/:id/lifecycle", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    const { lifecycle } = req.body ?? {};
+    // `examples: false` skips the seed-on-enable below for THIS request only
+    // (the library's Turn on offers "start with example content" as a choice).
+    // Absent keeps today's behaviour exactly.
+    const { lifecycle, examples } = req.body ?? {};
     // Funds-bearing modules refuse to enable while no per-admin identity with
     // a real credential exists (invariants #11-#12).
     const adminsWithPasswords = (await members.all()).filter(
@@ -6661,7 +6764,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // the founder meets a worked module rather than "No items yet." A no-op if
     // the module has ever been seeded, has ever been retired, or already holds
     // real content — a village never gets examples layered over its own work.
-    if (result.lifecycle !== "off") {
+    if (result.lifecycle !== "off" && examples !== false) {
       try {
         const seed = loadExampleSeed(SEEDS_DIR);
         if (seed) {
@@ -6676,6 +6779,48 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       }
     }
     res.json({ success: true, lifecycle: result.lifecycle, served: effectiveLifecycle(req.params.id) });
+  });
+
+  /**
+   * The village's own art for a module's library card (L1; R19 N6). The image
+   * itself arrives through the existing brand upload (client-side WebP prep,
+   * server re-encode, uploads volume); this stores the address it came back
+   * with, or null to fall back to the platform art.
+   *
+   * Only this village's own uploads are accepted, the forum's rule: an
+   * offsite URL in a public catalog would let one admin point every visitor's
+   * browser at an arbitrary host.
+   *
+   * The write merges over defaultConfig exactly as `stampListing` does,
+   * because one key written into an empty config silently drops
+   * `defaultConfig` at six read sites (a freshly enabled forum would lose its
+   * categories). And it goes through `setModuleConfig`, so validators run and
+   * the `module_events` row lands.
+   */
+  app.put("/api/admin/modules/:id/image", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const def = MODULES_BY_ID[req.params.id];
+    if (!def) return res.status(404).json({ error: "No such module" });
+    const imageUrl = req.body?.imageUrl ?? null;
+    if (imageUrl !== null && (typeof imageUrl !== "string" || !imageUrl.startsWith("/api/uploads/"))) {
+      return res.status(400).json({
+        error: "Card images come from this village's own uploads. Upload the picture first, then set the address it came back with.",
+      });
+    }
+    const existing = moduleConfig<any>(req.params.id);
+    const config: Record<string, any> = {
+      ...(def.defaultConfig ?? {}),
+      ...(existing && typeof existing === "object" ? existing : {}),
+    };
+    if (imageUrl === null) delete config.imageUrl;
+    else config.imageUrl = imageUrl;
+    const outcome = await setModuleConfig(
+      req.params.id,
+      config,
+      adminActor(req)?.id ?? (await authedUser(req))?.id ?? null,
+    );
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json({ success: true, imageUrl });
   });
 
   /**

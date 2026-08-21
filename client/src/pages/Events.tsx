@@ -16,7 +16,7 @@
  * other module page does. Existence is hidden, not merely unlinked.
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
@@ -177,7 +177,7 @@ export default function Events() {
   const selectedItems = selectedKey ? byDay.get(selectedKey) ?? [] : [];
   const listItems = (payload?.events ?? []).filter((i) => i.kind !== "sky");
 
-  if (modules.loaded && !eventsModule) return <NotFound />;
+  if (modules.loaded && !eventsModule) return <ModuleGate moduleId="events" name="Village Calendar" />;
 
   const rsvpEnabled = payload?.rsvpEnabled !== false;
   const lunar = payload?.lunar ?? null;

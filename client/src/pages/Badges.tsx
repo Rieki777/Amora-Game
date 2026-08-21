@@ -5,7 +5,7 @@
  * resolved — shown honestly, not hidden).
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
@@ -42,7 +42,7 @@ export default function Badges() {
   };
   useEffect(() => { if (badgesModule) load(); }, [badgesModule?.id]);
 
-  if (modules.loaded && !badgesModule) return <NotFound />;
+  if (modules.loaded && !badgesModule) return <ModuleGate moduleId="badges" name="Badges & Skills" />;
 
   const call = (path: string, method: string, body?: any) => {
     setError("");

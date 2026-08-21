@@ -15,7 +15,7 @@
  * URL, state, and which furniture shows at which width.
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { layoutForShape, type NestedInput } from "@shared/mapLayout";
@@ -234,7 +234,10 @@ export default function VillageMap() {
     img.src = url;
   };
 
-  if (modules.loaded && !mapModule) return <NotFound />;
+  // The framework decides existence. ModuleGate keeps the ordinary 404 for
+  // off and preview, and offers sign-in when the module is members-only and
+  // the visitor simply is not signed in yet (R36).
+  if (modules.loaded && !mapModule) return <ModuleGate moduleId="map" name="How Power Is Held" />;
 
   return (
     <Layout>

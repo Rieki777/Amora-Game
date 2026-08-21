@@ -5,7 +5,7 @@
  * consent gate as every other reward.
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -54,7 +54,7 @@ export default function Stay() {
     if (q === "cancelled") setNotice("Checkout cancelled. Nothing was charged.");
   }, [staysModule?.id]);
 
-  if (modules.loaded && !staysModule) return <NotFound />;
+  if (modules.loaded && !staysModule) return <ModuleGate moduleId="stays" name="Stays" />;
 
   const request = (accommodationId: string) => {
     setError(""); setRefusedRoom(null);

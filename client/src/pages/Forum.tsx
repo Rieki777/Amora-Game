@@ -5,7 +5,7 @@
  */
 import Layout from "@/components/Layout";
 import BylineChips from "@/components/badges/BylineChips";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useRoute } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -31,7 +31,7 @@ export default function Forum() {
   const [, params] = useRoute("/forum/:id");
   const modules = useModules();
   const forumModule = useModule("forum");
-  if (modules.loaded && !forumModule) return <NotFound />;
+  if (modules.loaded && !forumModule) return <ModuleGate moduleId="forum" name="Forum & Decisions" />;
   return params?.id ? <ThreadView id={params.id} /> : <ThreadList />;
 }
 

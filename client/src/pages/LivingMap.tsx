@@ -39,7 +39,7 @@
  *     cannot. Losing the shim costs a reload, never a broken door.
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { ArrowLeft } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -533,7 +533,7 @@ export default function LivingMap() {
     }
   };
 
-  if (modules.loaded && !mapModule) return <NotFound />;
+  if (modules.loaded && !mapModule) return <ModuleGate moduleId="map" name="How Power Is Held" />;
 
   /*
    * APP MODE. No Layout, no header, no bottom nav, and no page scroll.

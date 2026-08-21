@@ -7,7 +7,7 @@
  * zero would be shown as a WARNING, not a win.
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
@@ -49,7 +49,7 @@ export default function VillageHealth() {
       .catch(() => {});
   }, [healthModule?.id]);
 
-  if (modules.loaded && !healthModule) return <NotFound />;
+  if (modules.loaded && !healthModule) return <ModuleGate moduleId="health" name="Village Health" />;
 
   const latestOf = (key: string) => {
     const points = data?.series?.[key] ?? [];

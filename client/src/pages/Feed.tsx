@@ -5,7 +5,7 @@
  * as every written acknowledgment.
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -81,7 +81,7 @@ export default function Feed() {
   };
   useEffect(() => { if (feedModule) load(); }, [feedModule?.id, kind, tag]);
 
-  if (modules.loaded && !feedModule) return <NotFound />;
+  if (modules.loaded && !feedModule) return <ModuleGate moduleId="feed" name="Village Feed" />;
 
   const post = () => {
     setError("");

@@ -4,7 +4,7 @@
  * in escrow while something is out and comes back at return, minus wear.
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
@@ -46,7 +46,7 @@ export default function Library() {
   };
   useEffect(() => { if (libraryModule) load(); }, [libraryModule?.id]);
 
-  if (modules.loaded && !libraryModule) return <NotFound />;
+  if (modules.loaded && !libraryModule) return <ModuleGate moduleId="library" name="Material Library" />;
 
   const call = (path: string, body?: any, itemId?: string) => {
     setError(""); setNotice(""); setRefusedItem(null);

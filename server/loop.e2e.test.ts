@@ -1120,6 +1120,135 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(adminView.json.orphans).toEqual([]);
   });
 
+  it("S13 library: public catalog, viewer state, readiness, the image PUT, the publish bound, signInToSee", async () => {
+    // The catalog is public and read-only: every module with its platform
+    // copy and five shelves, and NO state key for an anonymous reader. A 200
+    // with `groups` also proves Express kept `/api/modules` an exact match,
+    // so the sub-path is its own route.
+    const anonCat = await api("GET", "/api/modules/catalog");
+    expect(anonCat.status).toBe(200);
+    expect(anonCat.json.groups.length).toBe(5);
+    expect(anonCat.json.modules.length).toBeGreaterThanOrEqual(18);
+    for (const m of anonCat.json.modules) {
+      expect(m.card, `catalog copy missing for ${m.id}`).toBeTruthy();
+      expect(m).not.toHaveProperty("on");
+      expect(m).not.toHaveProperty("lifecycle");
+    }
+    expect(anonCat.json.builder.guideUrl.endsWith("BUILDING_A_MODULE.md")).toBe(true);
+    const tools0 = anonCat.json.modules.find((m: any) => m.id === "tools");
+    expect(tools0.group).toBe("coordinate");
+    expect(tools0.setup).toBe("optional");
+
+    // Snapshot the anonymous manifest while everything optional is off.
+    const anonManifest0 = await api("GET", "/api/modules");
+
+    // tools -> preview (no examples): the surface stays byte-identical to off
+    // for anonymous AND member readers.
+    const offBody = await api("GET", "/api/tools");
+    expect(offBody.status).toBe(404);
+    await api("PUT", "/api/admin/modules/tools/lifecycle", { lifecycle: "preview", examples: false }, founderToken);
+    const previewAnon = await api("GET", "/api/tools");
+    expect(previewAnon.status).toBe(404);
+    expect(previewAnon.json).toEqual(offBody.json);
+    const previewMember = await api("GET", "/api/tools", undefined, doerToken);
+    expect(previewMember.status).toBe(404);
+    expect(previewMember.json).toEqual(offBody.json);
+
+    // R36 invariant: a preview module moves NOTHING for the signed-out. The
+    // manifest's modules array is byte-identical and signInToSee never names
+    // a preview module.
+    const anonManifest1 = await api("GET", "/api/modules");
+    expect(JSON.stringify(anonManifest1.json.modules)).toBe(JSON.stringify(anonManifest0.json.modules));
+    expect(anonManifest1.json.signInToSee ?? []).not.toContain("tools");
+
+    // Catalog state by viewer: a member sees on:false at preview (for them it
+    // IS off), an admin sees on plus the true lifecycle.
+    const memberCat = await api("GET", "/api/modules/catalog", undefined, doerToken);
+    const memberTools = memberCat.json.modules.find((m: any) => m.id === "tools");
+    expect(memberTools.on).toBe(false);
+    expect(memberTools).not.toHaveProperty("lifecycle");
+    const adminCat = await api("GET", "/api/modules/catalog", undefined, founderToken);
+    const adminTools = adminCat.json.modules.find((m: any) => m.id === "tools");
+    expect(adminTools.on).toBe(false);
+    expect(adminTools.lifecycle).toBe("preview");
+
+    // The admin payload's library facts.
+    const adminView = await api("GET", "/api/admin/modules", undefined, founderToken);
+    const t = adminView.json.modules.find((m: any) => m.id === "tools");
+    expect(t.group).toBe("coordinate");
+    expect(t.setup).toBe("optional");
+    expect(t.ready).toEqual({ ready: false, hint: "Add one tool card first" });
+    expect(t.maxLifecycle).toBe("public");
+    expect(adminView.json.modules.find((m: any) => m.id === "events").ready).toBeNull();
+    expect(adminView.json.modules.find((m: any) => m.id === "feed").maxLifecycle).toBe("off");
+
+    // preview -> public writes the module_events lifecycle row (the Go-live
+    // card's Everyone is this exact transition).
+    await api("PUT", "/api/admin/modules/tools/lifecycle", { lifecycle: "public", examples: false }, founderToken);
+    const [mev] = await testDb.conn.query<any[]>(
+      "SELECT COUNT(*) AS n FROM module_events WHERE module_id = 'tools' AND kind = 'lifecycle' AND from_value = 'preview' AND to_value = 'public'",
+    );
+    expect(Number(mev[0].n)).toBeGreaterThanOrEqual(1);
+
+    // R36: a module SERVING members is named to signed-out visitors in
+    // signInToSee, the modules array still does not move, and a signed-in
+    // reader gets the module itself and no signInToSee key.
+    await api("PUT", "/api/admin/modules/messaging/lifecycle", { lifecycle: "members", examples: false }, founderToken);
+    const anonManifest2 = await api("GET", "/api/modules");
+    expect(anonManifest2.json.signInToSee).toContain("messaging");
+    expect(anonManifest2.json.modules.map((m: any) => m.id)).not.toContain("messaging");
+    const memberManifest = await api("GET", "/api/modules", undefined, doerToken);
+    expect(memberManifest.json).not.toHaveProperty("signInToSee");
+    expect(memberManifest.json.modules.map((m: any) => m.id)).toContain("messaging");
+
+    // The image PUT: offsite refused, own uploads accepted, the public
+    // catalog serves it, null clears it, and the merge keeps defaultConfig
+    // alive (the forum's categories survive an image write onto an empty
+    // config, the six-read-sites defect this route exists to avoid).
+    const badImg = await api("PUT", "/api/admin/modules/tools/image", { imageUrl: "https://example.org/x.png" }, founderToken);
+    expect(badImg.status).toBe(400);
+    expect((await api("PUT", "/api/admin/modules/tools/image", { imageUrl: "/api/uploads/test-card.webp" }, founderToken)).status).toBe(200);
+    expect(
+      (await api("GET", "/api/modules/catalog")).json.modules.find((m: any) => m.id === "tools").imageUrl,
+    ).toBe("/api/uploads/test-card.webp");
+    expect((await api("PUT", "/api/admin/modules/forum/image", { imageUrl: "/api/uploads/forum-card.webp" }, founderToken)).status).toBe(200);
+    const forumCfg = (await api("GET", "/api/admin/modules", undefined, founderToken)).json.modules.find(
+      (m: any) => m.id === "forum",
+    ).config;
+    expect(forumCfg.imageUrl).toBe("/api/uploads/forum-card.webp");
+    expect(Array.isArray(forumCfg.categories)).toBe(true);
+    expect(forumCfg.categories.length).toBeGreaterThan(0);
+    // An OFF module's village art never reaches the anonymous catalog (it
+    // would whisper what the village is staging); an admin still sees it.
+    expect(
+      (await api("GET", "/api/modules/catalog")).json.modules.find((m: any) => m.id === "forum").imageUrl,
+    ).toBeNull();
+    expect(
+      (await api("GET", "/api/modules/catalog", undefined, founderToken)).json.modules.find(
+        (m: any) => m.id === "forum",
+      ).imageUrl,
+    ).toBe("/api/uploads/forum-card.webp");
+    expect((await api("PUT", "/api/admin/modules/tools/image", { imageUrl: null }, founderToken)).status).toBe(200);
+    expect((await api("GET", "/api/modules/catalog")).json.modules.find((m: any) => m.id === "tools").imageUrl).toBeNull();
+    expect((await api("PUT", "/api/admin/modules/forum/image", { imageUrl: null }, founderToken)).status).toBe(200);
+
+    // The publish bound: feed may never stand wider than forum serves.
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "preview", examples: false }, founderToken);
+    await api("PUT", "/api/admin/modules/feed/lifecycle", { lifecycle: "preview", examples: false }, founderToken);
+    const tooWide = await api("PUT", "/api/admin/modules/feed/lifecycle", { lifecycle: "public" }, founderToken);
+    expect(tooWide.status).toBe(409);
+    expect(tooWide.json.error).toContain("Forum & Decisions");
+    expect(tooWide.json.limitedBy).toContain("forum");
+    expect(tooWide.json.maxLifecycle).toBe("preview");
+
+    // Everything back off, the state S13 hands to S15.
+    await api("PUT", "/api/admin/modules/feed/lifecycle", { lifecycle: "off" }, founderToken);
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
+    await api("PUT", "/api/admin/modules/messaging/lifecycle", { lifecycle: "off" }, founderToken);
+    const finalOff = await api("PUT", "/api/admin/modules/tools/lifecycle", { lifecycle: "off" }, founderToken);
+    expect(finalOff.status).toBe(200);
+  });
+
   it("S15: the tools hub rides the framework — lifecycle posture end to end", async () => {
     // OFF: the whole surface — member AND admin routes — is the same 404.
     const offMember = await api("GET", "/api/tools");

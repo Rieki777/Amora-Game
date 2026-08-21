@@ -7,6 +7,11 @@ import { ALL_CAPABILITIES } from "@shared/capabilities";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { holdCancelled, swipeIntent } from "@/lib/gestures";
+import { Link } from "wouter";
+import { BUILDER_GUIDE_URL, MODULE_GROUPS, POOL_REASON_COPY } from "@shared/moduleCatalog";
+import { filterNavByModules, TAB_MODULE, type TabBadge } from "@/lib/adminNav";
+import { AdminGoLive } from "@/components/modules/GoLiveCard";
+import type { ModuleLifecycle } from "@shared/modules";
 
 const API_BASE = "/api";
 import TypographyPanel from "@/components/TypographyPanel";
@@ -232,7 +237,7 @@ function ForumModerationTab({ password }: { password: string }) {
  * `setup` moves: a front door while the village is still being set up, an
  * ordinary settings row once it is done.
  */
-type NavItem = { key: string; label: string; icon: LucideIcon };
+type NavItem = { key: string; label: string; icon: LucideIcon; badge?: TabBadge };
 type NavGroup = { title: string; items: NavItem[] };
 
 function navGroups(setupComplete: boolean): NavGroup[] {
@@ -276,7 +281,10 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         // First in the group on purpose: this is the master switch for what
         // the village runs, and it used to hide mid-list under the same
         // label as the training-content tab above — nobody could find it.
-        { key: "modules", label: "Modules On/Off", icon: ToggleLeft },
+        // "Module Library" now (L1): the same page a founder browses at
+        // /modules, with the lifecycle controls only admins get. The key
+        // stays `modules` so every deep link survives.
+        { key: "modules", label: "Module Library", icon: ToggleLeft },
         { key: "quests-admin", label: "Quests", icon: Sparkles },
         { key: "quest-claims", label: "Quest Claims", icon: Sparkles },
         { key: "players", label: "Players", icon: Users },
@@ -524,7 +532,7 @@ function AdminNav({
               // rule instead of disappearing.
               <div className="mx-3 my-2 border-t border-gray-100" />
             )}
-            {group.items.map(({ key, label, icon: Icon }) => {
+            {group.items.map(({ key, label, icon: Icon, badge }) => {
               const active = activeTab === key;
               return (
                 <button
@@ -550,6 +558,13 @@ function AdminNav({
                 >
                   <Icon className={open ? "w-4 h-4 flex-shrink-0" : "w-5 h-5"} />
                   {open && <span className="truncate">{label}</span>}
+                  {/* The lifecycle badge (L1): where this tab's module stands,
+                      so a founder never opens the library just to check. */}
+                  {open && badge && (
+                    <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 uppercase tracking-wide flex-shrink-0">
+                      {badge}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -3269,33 +3284,10 @@ function GameRolesTab({ password }: { password: string }) {
 }
 
 // ── Modules (S13): the catalog, lifecycles, and the Hypha integration card ───
-
-/**
- * The builder guide, on the UPSTREAM repository.
- *
- * Every fork inherits this exact link, and that is deliberate. Modules ship by
- * pull request to upstream and by no other route, so a link pointing at this
- * fork's own origin would send a builder somewhere their work cannot be
- * reviewed or shipped from. The one URL is correct in every village.
- */
-const BUILDER_GUIDE_URL = "https://github.com/Rieki777/Amora-Game/blob/main/docs/modules/START_HERE.md"; // brand-ok: the upstream platform repository's own address, never a village's brand
-
-/**
- * One sentence per pool reason, keyed on what `poolStatus` decided.
- *
- * The server sends `{ eligible, reason }` and the reason is the whole message:
- * "not eligible" on its own invites the founder to guess, and the four ways a
- * module can be out of the pool are not interchangeable. A key with no entry
- * renders nothing rather than a blank label, so a reason added later is silent
- * here instead of wrong.
- */
-const POOL_REASON_COPY: Record<string, string> = {
-  "free-third-party": "In the $ReGen builders' pool",
-  paid: "Charges a price, so not in the pool",
-  "platform-built": "Built by the platform, so not in the pool",
-  core: "Core module, so not in the pool",
-  withdrawn: "No longer offered, so not in the pool",
-};
+//
+// BUILDER_GUIDE_URL and POOL_REASON_COPY moved to shared/moduleCatalog.ts
+// (L1): the public library renders the same words, and shared/ is where
+// check-voice holds them.
 
 const LIFECYCLES = ["off", "preview", "members", "public"] as const;
 const LIFECYCLE_HINT: Record<string, string> = {
@@ -3357,6 +3349,9 @@ function ModulesTab({ password }: { password: string }) {
         else toast.error(refusal(d, "Change refused"));
       } else {
         toast.success(`${mod.name} is now ${lifecycle}`);
+        // The nav rail and the Go-live card share one reader; tell it the
+        // world moved so a turned-on module's tab appears without a reload.
+        window.dispatchEvent(new Event("modules:changed"));
       }
       load();
     } catch { toast.error("Change failed"); }
@@ -3462,6 +3457,22 @@ function ModulesTab({ password }: { password: string }) {
    */
   const successorName = (id: string | null | undefined): string | null =>
     id ? (all.find((x: any) => x.id === id)?.name ?? id) : null;
+
+  /**
+   * The five shelves (L1): the same grouping the public library renders,
+   * filters and search applying within them. A module whose group the
+   * shelves do not claim stays visible on the last shelf instead of
+   * vanishing; the catalog test upstream makes that a cannot-happen.
+   */
+  const shelves = MODULE_GROUPS.map((group, gi) => ({
+    group,
+    items: [
+      ...visible.filter((m: any) => m.group === group.id),
+      ...(gi === MODULE_GROUPS.length - 1
+        ? visible.filter((m: any) => !MODULE_GROUPS.some((g) => g.id === m.group))
+        : []),
+    ],
+  })).filter((s) => s.items.length > 0);
 
   /*
    * Mobile first, because most of this audience is on mobile Safari.
@@ -3669,8 +3680,12 @@ function ModulesTab({ password }: { password: string }) {
             </p>
           )}
 
+          {shelves.map(({ group, items }) => (
+          <section key={group.id}>
+            <h3 className="font-semibold text-gray-900">{group.label}</h3>
+            <p className="text-xs text-gray-500 mt-0.5 mb-3">{group.gloss}</p>
           <div className="grid gap-4">
-            {visible.map((m: any) => (
+            {items.map((m: any) => (
               /*
                * `min-w-0 break-words` is what keeps eighteen cards inside a
                * phone.
@@ -3775,6 +3790,14 @@ function ModulesTab({ password }: { password: string }) {
                     >
                       {openId === m.id ? "Hide details" : "Details"}
                     </button>
+                    {/* The public card for this module: art, promise, the
+                        whole pitch. Same page members browse (L1). */}
+                    <Link
+                      href={`/modules/${m.id}`}
+                      className="text-sm sm:text-xs font-medium text-[#2D5A5A] underline mt-2 min-h-[44px] sm:min-h-0 pr-3 inline-flex items-center"
+                    >
+                      Library page
+                    </Link>
                   </div>
                   {m.core ? (
                     /* This pill is a core module's whole lifecycle answer, so
@@ -3926,6 +3949,8 @@ function ModulesTab({ password }: { password: string }) {
               </div>
             ))}
           </div>
+          </section>
+          ))}
         </div>
       )}
     </div>
@@ -4866,7 +4891,7 @@ function CirclesMapTab({ password }: { password: string }) {
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Circles &amp; Map</h2>
-        <p className="text-sm text-gray-500">The Village Map module is off. Enable it in Modules On/Off (top of The Game menu) first.</p>
+        <p className="text-sm text-gray-500">The How Power Is Held module is off. Turn it on in the Module Library (top of The Game menu) first.</p>
       </div>
     );
   }
@@ -5312,7 +5337,7 @@ function StaysAdminTab({ password }: { password: string }) {
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Stays & Payments</h2>
         <p className="text-sm text-gray-500">
-          The Stays module is off. Enable it in Modules On/Off (top of The Game menu, it is
+          The Stays module is off. Turn it on in the Module Library (top of The Game menu, it is
           funds-bearing, and the legal card will walk you through the posture),
           then come back here to post rooms and rates.
         </p>
@@ -5632,7 +5657,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Exchange</h2>
         <p className="text-sm text-gray-500">
-          The Exchange module is off. Enable it in Modules On/Off (top of The Game
+          The Exchange module is off. Turn it on in the Module Library (top of The Game
           menu; it is funds-bearing, so the legal card applies), then list tokens and post prices here.
         </p>
       </div>
@@ -6129,7 +6154,7 @@ function BadgesAdminTab({ password }: { password: string }) {
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Badges</h2>
-        <p className="text-sm text-gray-500">The Badges module is off. Enable it in Modules On/Off (top of The Game menu) first.</p>
+        <p className="text-sm text-gray-500">The Badges module is off. Turn it on in the Module Library (top of The Game menu) first.</p>
       </div>
     );
   }
@@ -6389,7 +6414,7 @@ function LibraryAdminTab({ password }: { password: string }) {
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Material Library</h2>
-        <p className="text-sm text-gray-500">The Library module is off. Enable it in Modules On/Off (top of The Game menu) first.</p>
+        <p className="text-sm text-gray-500">The Material Library module is off. Turn it on in the Module Library (top of The Game menu) first.</p>
       </div>
     );
   }
@@ -7002,7 +7027,7 @@ function CallsAdminTab({ password }: { password: string }) {
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Call Automation</h2>
-        <p className="text-sm text-gray-500">The Call Automation module is off. Enable it in Modules On/Off (top of The Game menu) first.</p>
+        <p className="text-sm text-gray-500">The Call Automation module is off. Turn it on in the Module Library (top of The Game menu) first.</p>
       </div>
     );
   }
@@ -9026,6 +9051,12 @@ export default function Admin() {
   // door while you're still setting up, ordinary settings once you're done.
   const [setupComplete, setSetupComplete] = useState(false);
 
+  // The honest nav (L1): which module tabs render follows which modules are
+  // on. AdminGoLive below owns the one /api/admin/modules read and hands the
+  // lifecycle map up here; until it arrives this stays null and the filter
+  // passes everything through, so a slow link never flashes an empty rail.
+  const [moduleLifecycles, setModuleLifecycles] = useState<Record<string, ModuleLifecycle> | null>(null);
+
   // The nav rail's width, remembered. Phones and small tablets start
   // collapsed — 224px of menu on a 390px screen left the settings themselves
   // in a column too narrow to read — and anything laptop-sized starts open,
@@ -9081,7 +9112,7 @@ export default function Admin() {
 
       <div className="flex">
         <AdminNav
-          groups={navGroups(setupComplete)}
+          groups={filterNavByModules(navGroups(setupComplete), moduleLifecycles)}
           activeTab={activeTab}
           onSelect={setActiveTab}
           open={navOpen}
@@ -9093,6 +9124,14 @@ export default function Admin() {
             padding steps down on small screens, where 32px a side was a
             tenth of the width. */}
         <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 max-w-4xl">
+          {/* The Go-live card (L1): mounts once, above whichever panel is
+              open, keyed by the open tab's module. It also feeds the nav
+              filter, so the rail and the card ride one fetch. */}
+          <AdminGoLive
+            token={password}
+            moduleId={TAB_MODULE[activeTab] ?? null}
+            onLifecycles={(m) => setModuleLifecycles(m as Record<string, ModuleLifecycle>)}
+          />
           {activeTab === "setup" && <SetupWizard password={password} onOpenTab={setActiveTab} />}
           {activeTab === "events-admin" && <EventsAdminPanel password={password} />}
           {activeTab === "submissions" && <SubmissionsTab password={password} />}

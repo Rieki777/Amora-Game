@@ -138,6 +138,9 @@ export const NAV: readonly NavEntry[] = [
       { href: "/resident-rights", label: "Resident Rights" },
       { href: "/steward-rights", label: "Steward Rights" },
       { href: "/exit-policy", label: "Leaving Well" },
+      // Ungated on purpose (L1): the library is public and read-only, the
+      // platform's own "what a village can be" page.
+      { href: "/modules", label: "Module Library" },
     ],
   },
   {

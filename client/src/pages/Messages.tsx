@@ -11,6 +11,7 @@
  */
 import Layout from "@/components/Layout";
 import NotFound from "@/pages/NotFound";
+import ModuleGate, { SignInToSee } from "@/components/modules/ModuleGate";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useRoute } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -58,8 +59,10 @@ export default function Messages() {
   const [, params] = useRoute("/messages/:id");
   const modules = useModules();
   const messagingModule = useModule("messaging");
-  // The framework decides existence: invisible module = the ordinary 404.
-  if (modules.loaded && !messagingModule) return <NotFound />;
+  // The framework decides existence. ModuleGate keeps the ordinary 404 for
+  // off and preview, and offers sign-in when the module is members-only and
+  // the visitor simply is not signed in yet (R36).
+  if (modules.loaded && !messagingModule) return <ModuleGate moduleId="messaging" name="Messages" />;
   return params?.id ? <ThreadView id={params.id} /> : <Inbox />;
 }
 
@@ -85,19 +88,9 @@ function Inbox() {
   const total = useMemo(() => inboxUnreadTotal(conversations), [conversations]);
   const now = new Date();
 
-  if (!user) {
-    return (
-      <Layout>
-        <div className="container py-16 text-center">
-          <h1 className="font-display text-3xl font-bold mb-3">Messages</h1>
-          <p className="text-muted-foreground mb-6">Sign in to read and write to the people here.</p>
-          <Link href="/login" className={`inline-flex items-center ${TAP} px-5 rounded-lg bg-teal-deep text-white font-semibold`}>
-            Sign in
-          </Link>
-        </div>
-      </Layout>
-    );
-  }
+  // The card this component used to carry inline is the shared one now
+  // (ModuleGate renders it too, for visitors who cannot even see the module).
+  if (!user) return <SignInToSee name="Messages" next="/messages" />;
 
   return (
     <Layout>
