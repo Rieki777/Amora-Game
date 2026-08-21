@@ -55,6 +55,21 @@ export interface OrgRole {
   order: number;
   isExample: boolean;
   /**
+   * This seat SPEAKS FOR ITS CIRCLE (0083, P10). A live, non-example holder
+   * of a seat with this flag may declare how that one circle decides, and
+   * nothing else. The one narrow bridge from the seat plane to a permission,
+   * recorded in docs/ADR_2026-08_REPRESENTS_CIRCLE_DECLARES.md; admin only to
+   * grant, through the existing PUT /api/admin/org/roles/:id.
+   */
+  representsCircle: boolean;
+  /**
+   * How the next holder is chosen (0083, P6): an id from shared/power.ts
+   * HOW_CHOSEN, with the village's own line in the gloss when it is `other`.
+   * Shown on the seat card; never in the public export.
+   */
+  howChosen: string | null;
+  howChosenGloss: string | null;
+  /**
    * THE RECRUITMENT PACK. Six columns 0049 created and `WRITABLE` has always
    * accepted, and which nothing ever read back: `ROLE_COLS` omitted every one,
    * so an admin could type a seat's pay reality into the API and watch it
@@ -104,7 +119,10 @@ const ROLE_COLS =
   "id, circle_id, name, aim, domain, accountabilities, why_it_matters, seats, criticality, active, recruiting, expires_each_season, status_override, status_override_expires_at, icon, color, sort_order, is_example, " +
   // The recruitment pack. Written since 0049, selected by nobody until now, so
   // every one of them was a column the API accepted and then swallowed.
-  "authority, first_year_outcomes, first_90_day_outcomes, location_expectations, compensation_reality, evidence_required";
+  "authority, first_year_outcomes, first_90_day_outcomes, location_expectations, compensation_reality, evidence_required, " +
+  // 0083: representation and succession. Selected from day one, because the
+  // recruitment pack above is the cautionary tale about columns nobody reads.
+  "represents_circle, how_chosen, how_chosen_gloss";
 
 const ASSIGN_COLS =
   // `is_example` rides along so the flag travels through every SELECT. It was
@@ -148,6 +166,9 @@ function rowToRole(r: any): OrgRole {
     color: r.color ?? null,
     order: Number(r.sort_order ?? 0),
     isExample: !!r.is_example,
+    representsCircle: !!r.represents_circle,
+    howChosen: r.how_chosen ?? null,
+    howChosenGloss: r.how_chosen_gloss ?? null,
     authority: r.authority ?? null,
     firstYearOutcomes: r.first_year_outcomes ?? null,
     first90DayOutcomes: r.first_90_day_outcomes ?? null,
@@ -532,6 +553,13 @@ export function describeOrgChange(before: OrgRole | null, after: Partial<OrgRole
   if (after.expiresEachSeason !== undefined) {
     say("expires each season", before.expiresEachSeason, after.expiresEachSeason);
   }
+  // 0083: representation is a POWER change, so the journal must say it. A
+  // seat quietly gaining "speaks for its circle" is the drift the ADR warns
+  // about, and the journal line is half of how it stays visible.
+  if (after.representsCircle !== undefined) {
+    say("speaks for its circle", before.representsCircle, after.representsCircle);
+  }
+  if (after.howChosen !== undefined) say("how the next holder is chosen", before.howChosen, after.howChosen);
   return lines;
 }
 
@@ -552,6 +580,9 @@ const WRITABLE: Record<string, string> = {
   locationExpectations: "location_expectations",
   compensationReality: "compensation_reality",
   evidenceRequired: "evidence_required",
+  representsCircle: "represents_circle",
+  howChosen: "how_chosen",
+  howChosenGloss: "how_chosen_gloss",
   icon: "icon",
   color: "color",
   order: "sort_order",
@@ -614,7 +645,7 @@ export async function updateOrgRole(pool: Pool, id: string, body: any): Promise<
     sets.push(`\`${col}\` = ?`);
     if (js === "seats") args.push(Math.max(1, Number(body[js] ?? 1)));
     else if (js === "order") args.push(Number(body[js] ?? 0));
-    else if (js === "active" || js === "recruiting") args.push(body[js] ? 1 : 0);
+    else if (js === "active" || js === "recruiting" || js === "representsCircle") args.push(body[js] ? 1 : 0);
     else if (js === "expiresEachSeason") args.push(body[js] === null ? null : body[js] ? 1 : 0);
     else args.push(body[js] === "" ? null : body[js]);
   }

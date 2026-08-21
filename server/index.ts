@@ -1060,6 +1060,13 @@ const circlesRepo = dbCollection(getPool(), {
     { js: "status", db: "status" },
     { js: "order", db: "sort_order", kind: "int" },
     { js: "isExample", db: "is_example", kind: "bool" },
+    // 0083: how this circle decides. In the spec for the same reason
+    // grownFromOrgRoleId is: replaceAll re-INSERTs exactly these columns, so
+    // leaving them out would reset every circle's declared method on the next
+    // admin circle edit.
+    { js: "decidesBy", db: "decides_by" },
+    { js: "decidesByGloss", db: "decides_by_gloss" },
+    { js: "decidesByDomains", db: "decides_by_domains", kind: "json" },
     /*
      * `replaceAll` is DELETE-all plus a re-INSERT of exactly the columns in
      * this spec, so a column left out is not preserved: it is re-defaulted.
