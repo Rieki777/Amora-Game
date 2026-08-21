@@ -16,7 +16,8 @@ import { useMemo } from "react";
 import type { CalendarItem } from "@shared/gatherings";
 import type { YearAnchor } from "@shared/lunar";
 import { gregorianMonthArcs, instantYearAngle, lunarMonthArcs, solarSpokes, type Hemisphere } from "@shared/wheel";
-import { kindColour, moonLabel, type EventsPayload } from "./calendarTime";
+import PrintButton from "./PrintButton";
+import { kindColour, moonLabel, zoneNote, type EventsPayload } from "./calendarTime";
 
 const T = {
   brand: "var(--tone-brand, #157f7d)",
@@ -76,7 +77,15 @@ export default function YearWheel({ year, timezone, anchor, hemisphere, monthNam
   const moonYears = Array.from(new Set(moons.map((m) => `${m.anchorYear}:${m.monthCount}`)));
 
   return (
-    <figure className="mx-auto max-w-[520px]" aria-label={`Year wheel for ${year}: twelve months on the outer ring, ${moons.length} moons on the inner ring`}>
+    <figure className="calendar-print mx-auto max-w-[520px]" aria-label={`Year wheel for ${year}: twelve months on the outer ring, ${moons.length} moons on the inner ring`}>
+      {/* 0088: the wheel is the year's print poster. */}
+      <div className="print-header">
+        The wheel of {year}
+        <span className="print-header-sub">{zoneNote(timezone)}</span>
+      </div>
+      <div className="flex justify-end mb-1">
+        <PrintButton label="Print the wheel" />
+      </div>
       <svg viewBox="0 0 400 400" role="img" aria-hidden="true" style={{ display: "block", width: "100%", height: "auto" }}>
         {/* the outer ring: twelve months */}
         {months.map((m, i) => {

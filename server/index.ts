@@ -9498,6 +9498,44 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     res.json({ calendars: await listExternalCalendars(getPool()) });
   });
 
+  /**
+   * The weekly brief's admin preview (L5b): rendered as an admin viewer,
+   * sending NOTHING. A named admin gets their own layers; the shared admin
+   * password gets the admin tier without a personal layer, which is the
+   * honest most it can be. Registered above the `:id` routes.
+   */
+  app.get("/api/admin/events/brief", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const tz = villageTimezone();
+    const week = typeof req.query.week === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.week)
+      ? req.query.week
+      : villageDateKey(tz);
+    const user = await authedUser(req);
+    const data = await gatherWeeklyBrief(getPool(), {
+      userId: user?.id ?? "admin-preview",
+      isAdmin: true,
+      withNames: true,
+      timezone: tz,
+      weekKey: week,
+      projectName: mergedConfig().project.name,
+    });
+    const rendered = renderWeeklyBrief(data);
+    if (!rendered) return res.status(500).json({ error: "The brief could not be put together" });
+    const cfg = (moduleConfig<any>("events")?.brief ?? {}) as { enabled?: unknown; day?: unknown; hour?: unknown };
+    res.json({
+      week,
+      timezone: tz,
+      config: {
+        enabled: cfg.enabled !== false,
+        day: Number.isInteger(cfg.day) && Number(cfg.day) >= 0 && Number(cfg.day) <= 6 ? Number(cfg.day) : 0,
+        hour: Number.isInteger(cfg.hour) && Number(cfg.hour) >= 0 && Number(cfg.hour) <= 23 ? Number(cfg.hour) : 18,
+      },
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
+    });
+  });
+
   app.post("/api/admin/events/calendars", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = adminActor(req);

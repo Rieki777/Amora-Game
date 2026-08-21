@@ -7,7 +7,9 @@
  */
 import type { CalendarItem } from "@shared/gatherings";
 import type { YearAnchor } from "@shared/lunar";
+import { LayerChips, layerPillLabel, useLayerFilter } from "./LayerChips";
 import MoonGlyph from "./MoonGlyph";
+import PrintButton from "./PrintButton";
 import {
   gregorianWeeks,
   itemsByDay,
@@ -15,6 +17,7 @@ import {
   lunarDayInfo,
   lunarWeeks,
   moonLabel,
+  zoneNote,
   type CivilDay,
   type EventsPayload,
 } from "./calendarTime";
@@ -63,9 +66,14 @@ function CellItems({ list }: { list: CalendarItem[] }) {
   return (
     <ul className="mt-0.5 space-y-0.5 overflow-hidden">
       {shown.map((i) => (
-        <li key={`${i.id}:${i.occurrenceKey}`} className="flex items-center gap-1 min-w-0" title={i.title}>
+        <li key={`${i.id}:${i.occurrenceKey}`} className="flex items-center gap-1 min-w-0" title={`${i.title}${layerPillLabel(i.layer) ? ` (${layerPillLabel(i.layer)})` : ""}`}>
           <span className="inline-block h-1.5 w-1.5 rounded-full shrink-0" style={{ background: kindColour(i) }} aria-hidden="true" />
           <span className={`truncate text-[10px] leading-tight hidden sm:inline ${i.status === "cancelled" ? "line-through opacity-60" : ""}`}>{i.title}</span>
+          {layerPillLabel(i.layer) && (
+            <span className="hidden sm:inline text-[9px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 shrink-0">
+              {layerPillLabel(i.layer)}
+            </span>
+          )}
         </li>
       ))}
       {more > 0 && <li className="text-[10px] text-muted-foreground">+{more}</li>}
@@ -74,8 +82,19 @@ function CellItems({ list }: { list: CalendarItem[] }) {
 }
 
 export default function MonthView(p: MonthViewProps) {
-  const byDay = itemsByDay(p.items, p.timezone);
+  // 0088: chips are a screen filter only; visibility was the server's call.
+  const { filtered, present, off, toggle } = useLayerFilter(p.items);
+  const byDay = itemsByDay(filtered, p.timezone);
   const cursorLunar = lunarDayInfo(p.cursor, p.anchor, p.timezone);
+  const cursorLabel = cursorLunar ? moonLabel(cursorLunar.monthIndex, p.monthNames) : null;
+  // The paper's own header (print.css shows it): zone and both month names.
+  const printHeader = (
+    <div className="print-header">
+      {MONTHS[p.cursor.month - 1]} {p.cursor.year}
+      {cursorLunar && cursorLabel ? `, ${cursorLabel.title}${cursorLabel.name ? `, ${cursorLabel.name}` : ""}` : ""}
+      <span className="print-header-sub">{zoneNote(p.timezone)}</span>
+    </div>
+  );
 
   const cell = (day: CivilDay, primary: string, secondary: string, dim: boolean, key: string) => {
     const info = lunarDayInfo(day, p.anchor, p.timezone);
@@ -118,12 +137,17 @@ export default function MonthView(p: MonthViewProps) {
       ? `${first.day} to ${last.day} ${MONTHS[first.month - 1]} ${first.year}`
       : `${first.day} ${MONTHS[first.month - 1]} to ${last.day} ${MONTHS[last.month - 1]} ${last.year}`;
     return (
-      <div>
+      <div className="calendar-print">
+        {printHeader}
         <StackedHeaders
           top={`${label.title} of ${lw.info.monthCount}${label.name ? `, ${label.name}` : ""}`}
           bottom={span}
           pill={label.isExample ? "example name" : null}
         />
+        <div className="flex items-start justify-between gap-2">
+          <LayerChips present={present} off={off} toggle={toggle} />
+          <span className="ml-auto mb-2"><PrintButton label="Print this moon" /></span>
+        </div>
         <p className="text-[10px] text-muted-foreground mb-1 text-center">Laid out by lunar day: the new moon is day 1, the full moon near day 15.</p>
         <div className="grid grid-cols-7 border-r border-b border-border rounded-lg overflow-hidden bg-card">
           {lw.days.flatMap((week) => week.map(({ day, lunarDay }) => cell(day, String(lunarDay), `${WEEKDAYS[day.weekday]} ${day.day} ${MONTHS[day.month - 1].slice(0, 3)}`, false, day.key)))}
@@ -137,7 +161,8 @@ export default function MonthView(p: MonthViewProps) {
   const weeks = gregorianWeeks(p.cursor.year, p.cursor.month, p.timezone);
   const label = cursorLunar ? moonLabel(cursorLunar.monthIndex, p.monthNames) : null;
   return (
-    <div>
+    <div className="calendar-print">
+      {printHeader}
       <StackedHeaders
         top={`${MONTHS[p.cursor.month - 1]} ${p.cursor.year}`}
         bottom={cursorLunar && label
@@ -145,6 +170,10 @@ export default function MonthView(p: MonthViewProps) {
           : "Outside the lunar table"}
         pill={label?.isExample ? "example name" : null}
       />
+      <div className="flex items-start justify-between gap-2">
+        <LayerChips present={present} off={off} toggle={toggle} />
+        <span className="ml-auto mb-2"><PrintButton label="Print this month" /></span>
+      </div>
       <div className="grid grid-cols-7 text-[10px] text-muted-foreground mb-1">
         {WEEKDAYS.map((w) => <div key={w} className="text-center">{w}</div>)}
       </div>
