@@ -58,30 +58,49 @@ if (!DB_CONFIGURED) {
 const DIST = path.resolve(process.cwd(), "dist/index.js");
 
 /**
- * PROVABLY clear of every other suite that boots a server, by construction
- * rather than by arithmetic on a process id. Surveyed 2026-08-16:
+ * A window PROVABLY clear of every other suite that boots a server, by
+ * construction rather than by arithmetic on a process id.
  *
- *     loop.e2e             3781 + pid % 2000   ->  3781-5780
- *     examples.routes      6100 + pid % 1500   ->  6100-7599
- *     quest-share          6800 + pid %  900   ->  6800-7699
- *     messaging.routes     7700 + pid %  300   ->  7700-7999
- *     mapPromise.routes    7900 + pid %  900   ->  7900-8799
- *     synthesisBatch       8800 + pid %  400   ->  8800-9199
- *     hygiene.routes       8900 + pid %  900   ->  8900-9799
+ * RE-GREP THIS BEFORE TRUSTING IT. `grep -rn "process.pid %" server/` is the
+ * survey; the list below is only its result on the date named, and the date
+ * matters because the ceiling has already moved once under this file:
  *
- * The highest port any of them can reach is 9799, so a window starting at
- * 9800 cannot collide with any of them for ANY process id. That matters: the
- * three overlaps already in that list (quest-share into examples.routes,
- * mapPromise into messaging, hygiene into synthesisBatch) only bite for the
- * process ids where the two moduli happen to agree, which is the shape that
- * produced the 7% flake messaging.routes records — an overlap that presents
- * as an unrelated boot timeout a few runs later. Picking a base above every
- * other range's ceiling needs no such reasoning to stay true.
+ *   Surveyed 2026-08-16, this file took base 9800 because 9799 was the
+ *   highest port any suite could reach. Lane L6 then merged
+ *   agent.routes.e2e.test.ts, which took THE SAME BASE 9800 with a wider
+ *   modulus, and the comment here went on asserting a clearance that had
+ *   stopped being true. Both derive from the same process.pid, so two files
+ *   sharing a vitest worker land on the SAME PORT whenever
+ *   pid % 400 == pid % 500 -- 13,199 of 65,535 pids, 20.1%, three times the
+ *   7% flake messaging.routes already records. It presents as an unrelated
+ *   boot timeout in whichever suite starts second.
  *
- * 400 wide, ending at 10199, well below the ephemeral range Windows hands
+ * Re-surveyed 2026-08-21:
+ *
+ *     loop.e2e             3781 + pid % 2000   ->   3781-5780
+ *     examples.routes      6100 + pid % 1500   ->   6100-7599
+ *     quest-share          6800 + pid %  900   ->   6800-7699
+ *     messaging.routes     7700 + pid %  300   ->   7700-7999
+ *     mapPromise.routes    7900 + pid %  900   ->   7900-8799
+ *     synthesisBatch       8800 + pid %  400   ->   8800-9199
+ *     hygiene.routes       8900 + pid %  900   ->   8900-9799
+ *     agent.routes         9800 + pid %  500   ->   9800-10299
+ *
+ * The highest port any of them can reach is now 10299, so a window starting
+ * at 10300 cannot collide with any of them for ANY process id. That is the
+ * property worth having: the four overlaps in that list (quest-share into
+ * examples.routes, mapPromise into messaging, hygiene into synthesisBatch,
+ * and agent.routes over what this file used to claim) each bite only for the
+ * pids where two moduli agree, which is why they surface as intermittent
+ * boot timeouts rather than as a collision anybody can reproduce. A base
+ * above every other range's ceiling needs no such reasoning to stay true --
+ * but it only stays true while the ceiling is what this comment says, so the
+ * next suite to take a port re-runs the grep rather than reading this table.
+ *
+ * 400 wide, ending at 10699, well below the ephemeral range Windows hands
  * out (49152+).
  */
-const PORT = 9800 + (process.pid % 400);
+const PORT = 10300 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "housing-routes-admin";
 
