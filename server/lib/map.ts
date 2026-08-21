@@ -105,7 +105,7 @@ export async function insertContactRequest(
     questId?: string | null;
     queryId?: string | null;
     message: string;
-    source: "map" | "concierge";
+    source: "map" | "concierge" | "introduction";
   },
 ): Promise<{ id: string; duplicate: boolean }> {
   const id = `ctr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
