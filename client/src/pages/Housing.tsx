@@ -12,8 +12,13 @@ import {
   Sun
 } from "lucide-react";
 
+// `key` is the home type the reservation form and the server both use (0077).
+// It travels as ?type= so a card click lands on the form with that home
+// already chosen. The keys are the contract, so renaming a title is safe and
+// renaming a key is not.
 const housingTypes = [
   {
+    key: "tiny-home",
     title: "Tiny Home",
     size: "200-400 sq ft",
     price: "$80,000 - $150,000",
@@ -21,6 +26,7 @@ const housingTypes = [
     features: ["Off-grid capable", "Eco-friendly materials", "Community garden access"],
   },
   {
+    key: "casita",
     title: "Casita",
     size: "400-800 sq ft",
     price: "$150,000 - $250,000",
@@ -28,6 +34,7 @@ const housingTypes = [
     features: ["Private outdoor space", "Full kitchen", "Covered patio"],
   },
   {
+    key: "family-home",
     title: "Family Home",
     size: "800-1,500 sq ft",
     price: "$250,000 - $450,000",
@@ -35,6 +42,7 @@ const housingTypes = [
     features: ["Multiple bedrooms", "Large kitchen", "Private garden"],
   },
   {
+    key: "villa",
     title: "Luxury Villa",
     size: "1,500+ sq ft",
     price: "$1,000,000+",
@@ -67,6 +75,29 @@ const landFeatures = [
 ];
 
 export default function Housing() {
+  /*
+   * FORWARD the hamlet, if this page was handed one (0077). A card click
+   * would otherwise drop it and the person would have to say where they want
+   * to live a second time. Read at render; the query string does not change
+   * under this page.
+   *
+   * This page MINTS NOTHING. Measured 2026-08-14, no link anywhere in the
+   * repo sends `?hamlet=` to it, so today this always produces `/reserve`
+   * with a type and no hamlet. The producer is a link out of a structure on
+   * the map carrying that structure's own key, and it is the map lane's to
+   * add; this reader is here so it works the day it lands.
+   */
+  const reserveHref = (typeKey: string) => {
+    const here = new URLSearchParams(window.location.search);
+    const out = new URLSearchParams({ type: typeKey });
+    const hamlet = here.get("hamlet") ?? "";
+    if (/^[A-Za-z0-9_-]{1,64}$/.test(hamlet)) {
+      out.set("hamlet", hamlet);
+      out.set("from", here.get("from") === "map" ? "map" : "site");
+    }
+    return `/reserve?${out.toString()}`;
+  };
+
   return (
     <Layout>
       {/* Hero */}
@@ -140,30 +171,39 @@ export default function Housing() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: index * 0.1 }}
-                className="bg-card p-8 rounded-2xl shadow-sm"
+                className="bg-card rounded-2xl shadow-sm"
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h3 className="font-display text-2xl font-bold text-foreground">
-                      {type.title}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">{type.size}</p>
+                <Link
+                  href={reserveHref(type.key)}
+                  className="block p-8 rounded-2xl hover:shadow-md transition-shadow"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="font-display text-2xl font-bold text-foreground">
+                        {type.title}
+                      </h3>
+                      <p className="text-sm text-muted-foreground">{type.size}</p>
+                    </div>
+                    <span className="px-3 py-1 bg-teal/10 text-teal text-sm font-medium rounded-lg">
+                      {type.price}
+                    </span>
                   </div>
-                  <span className="px-3 py-1 bg-teal/10 text-teal text-sm font-medium rounded-lg">
-                    {type.price}
+                  <p className="text-muted-foreground mb-4">
+                    {type.description}
+                  </p>
+                  <ul className="space-y-2 mb-5">
+                    {type.features.map((feature) => (
+                      <li key={feature} className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <div className="w-1.5 h-1.5 rounded-full bg-teal" />
+                        {feature}
+                      </li>
+                    ))}
+                  </ul>
+                  <span className="inline-flex items-center gap-2 text-teal font-medium">
+                    Reserve this home
+                    <ArrowRight className="w-4 h-4" />
                   </span>
-                </div>
-                <p className="text-muted-foreground mb-4">
-                  {type.description}
-                </p>
-                <ul className="space-y-2">
-                  {type.features.map((feature) => (
-                    <li key={feature} className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <div className="w-1.5 h-1.5 rounded-full bg-teal" />
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
+                </Link>
               </motion.div>
             ))}
           </div>

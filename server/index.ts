@@ -49,6 +49,18 @@ import {
   restoreRevision,
   saveDraft,
 } from "./lib/mapScene";
+import {
+  allRows as housingRows,
+  createReservation,
+  exceedsTotal,
+  isHomeType,
+  isReservationStatus,
+  listReservations,
+  publicEntries as housingPublicEntries,
+  readAvailabilityPatch,
+  setAvailability as setHousingAvailability,
+  setReservationStatus,
+} from "./lib/housing";
 import { CALENDAR_KINDS, CALENDAR_LAYERS, toSchemaOrg } from "../shared/gatherings";
 import { recordWalkRows, walkReport } from "./lib/walkLog";
 import {
@@ -15107,6 +15119,22 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
      * that has customised nothing is served nothing to apply.
      */
     const live = await publishedScene(getPool());
+    /*
+     * How many homes each hamlet has open (0077), riding the same one call for
+     * the same reason as the walk and the vocabulary.
+     *
+     * COUNTS ONLY. This route is fetched uncredentialed, so no `updated_by`,
+     * no `updated_at`, no member id and no reserver identity is loaded here at
+     * all — see `publicEntries`, which does not select those columns rather
+     * than selecting and deleting them.
+     *
+     * `entries` lists only hamlets whose numbers are BOTH set. That filter is
+     * the whole example rule: a surface labels its numbers as an example
+     * whenever the structure key it renders is absent from this list, so the
+     * three surfaces that show housing never each re-derive what "unset"
+     * means.
+     */
+    const housingEntries = await housingPublicEntries(getPool());
     res.json({
       skin: getBrand().skin,
       walk: steps && steps.length ? steps : null,
@@ -15115,8 +15143,321 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       // gets back. The shell parses it once, on its way into the frame.
       scene: live?.scene ?? null,
       sceneVersion: live?.version ?? 0,
+      housing: { entries: housingEntries, configured: housingEntries.length > 0 },
       lang,
     });
+  });
+
+  /**
+   * ── HOUSING AVAILABILITY (0077) ────────────────────────────────────────
+   *
+   * Rye: the founder sets, per hamlet, how many homes are open for
+   * reservation and how many are taken, in TWO places (builder mode on the
+   * map, Admin on the main site) writing ONE table, "so the reservation
+   * system has the same source of truth".
+   *
+   * These routes live at `/api/housing` and NOT under `/api/map`, which is
+   * deliberate and load-bearing: `app.use("/api/map", requireModule("map"))`
+   * would make switching the map off take the reservation form down with it,
+   * and a village that never turns the map on could not sell a home. The map
+   * still gets its counts on `/api/map/config`; both transports call the same
+   * `publicEntries`, so the filter that decides what "set" means exists once.
+   */
+
+  /**
+   * The public counts, for site surfaces that are not the map.
+   *
+   * Same body as the `housing` block on `/api/map/config` and the same
+   * identity-free guarantee. A surface labels its numbers an example whenever
+   * its structure key is absent from `entries`.
+   */
+  app.get("/api/housing/public", async (_req, res) => {
+    const entries = await housingPublicEntries(getPool());
+    res.json({ entries, configured: entries.length > 0 });
+  });
+
+  /**
+   * Every hamlet including the unset ones, for the two founder surfaces.
+   *
+   * Behind the capability gate because it carries `updatedBy`, which names a
+   * person. The public route above carries no identity and therefore needs no
+   * gate; splitting them is what lets the public one stay uncredentialed.
+   */
+  app.get("/api/housing/availability", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to see housing numbers" });
+    if (!hasCapability("map.publish", await capabilityCtx(user))) {
+      return res.status(403).json({ error: "Setting housing numbers is an appointment" });
+    }
+    res.json({ rows: await housingRows(getPool()) });
+  });
+
+  /**
+   * Set (or clear) one hamlet's numbers. BOTH founder surfaces land here.
+   *
+   * Gated by `hasCapability("map.publish")` through the one gate in
+   * shared/capabilities.ts and nowhere else. That key is already
+   * appointment-only, deliberately absent from STAGE_UNLOCKS so nobody
+   * reaches it by climbing, and it already means "this becomes true for every
+   * visitor", which is exactly what a housing count is. Admins pass at step 1
+   * of the gate, which is what covers the Admin surface.
+   *
+   * ── THE BODY IS A PATCH: SEND ONLY WHAT YOU ARE CHANGING ───────────────
+   * All four writable fields read the same way, and this is the whole
+   * contract for anyone building the second surface:
+   *
+   *   field absent   the row keeps what it has. Nothing is written.
+   *   field null     CLEARED. A count goes back to unset, a label goes back
+   *                  to letting the map's own name win.
+   *   a value        set to that value.
+   *
+   * `{}` is legal and creates an unset row for a structure key that has none,
+   * which is what "add a hamlet" sends. On a key that already exists it
+   * changes nothing, so pressing add twice cannot cost a founder their
+   * counts.
+   *
+   * Absent used to mean three different things here, and one of them was
+   * destruction: a missing count was a 400, a missing `takenSource` was left
+   * alone, and a missing `label` was written as NULL, so a caller sending
+   * only the number it meant to change wiped the founder's hamlet name
+   * without a word. The uniform rule is also what stops a stale surface
+   * clobbering: a control that sends one field cannot revert the three it
+   * never mentioned.
+   *
+   * `null` for a count is not the same as 0: zero homes is a real answer and
+   * is never treated as an example.
+   *
+   * `taken` in the body is the founder's TYPED number, which is `storedTaken`
+   * on the read. Sending back the `taken` a founder surface displays writes a
+   * live reservation count into the column that has to survive the flip, and
+   * the typed number is then gone with nothing able to say it ever existed.
+   */
+  app.put("/api/housing/availability/:structureKey", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to set housing numbers" });
+    if (!hasCapability("map.publish", await capabilityCtx(user))) {
+      return res.status(403).json({ error: "Setting housing numbers is an appointment" });
+    }
+    const structureKey = String(req.params.structureKey ?? "");
+    // The map mints these keys and the site stores them verbatim, so the only
+    // question here is whether it could be one, never what it should become.
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(structureKey)) {
+      return res.status(400).json({ error: "That is not a structure key" });
+    }
+    /*
+     * Reading the body and the taken-against-total rule both live in
+     * server/lib/housing.ts, where housing.test.ts can reach them. A decision
+     * that exists only inside this file is a decision no test has ever run:
+     * that is how three different meanings for an absent field, one of them
+     * destructive, went unnoticed here in the first place.
+     */
+    const read = readAvailabilityPatch(req.body);
+    if (!read.ok) return res.status(400).json({ error: read.error });
+    const before = (await housingRows(getPool())).find((r) => r.structureKey === structureKey) ?? null;
+    // Loud on write. The read side clamps `open` to zero as well, which
+    // defends rows written before this rule existed; it does not replace it.
+    if (exceedsTotal(read.patch, before)) {
+      return res.status(400).json({ error: "Homes taken cannot be more than the total" });
+    }
+    // Spread, so a field the caller left out stays left out all the way to
+    // the column list of the upsert.
+    await setHousingAvailability(getPool(), {
+      structureKey, ...read.patch, updatedBy: user.id,
+    });
+    const rows = await housingRows(getPool());
+    res.json({ ok: true, row: rows.find((r) => r.structureKey === structureKey) ?? null });
+  });
+
+  /**
+   * Slice 1 of the reservation flow: a person says which home they want and
+   * where. NO MONEY MOVES HERE. The deposit is a later step and it reuses
+   * server/lib/payments.ts rather than growing a second payment path.
+   *
+   * Deliberately answers strangers. This form is reached from the public
+   * housing pages and from the map, and the person filling it in has usually
+   * not signed in yet; that is the point of the step. A signed-in member's id
+   * is attached when the header happens to be there, so the intent can be
+   * joined to the account later without asking them to log in first.
+   *
+   * ── THE HOUSE PATTERN FOR ANONYMOUS PUBLIC INTAKE ────────────────────────
+   * `POST /api/forms/submit` is the same shape as this route, a stranger
+   * writing a row with no token, and it carries a honeypot and a per-IP cap.
+   * This one shipped with neither, which made it an unauthenticated unbounded
+   * insert: name, email, phone and 2000 characters of notes, as fast as
+   * anyone can post them. Both guards below are copied from that route rather
+   * than invented here, including the cap, so there is one answer in this
+   * codebase to "how hard can a stranger hit a public form".
+   *
+   * ── AND SO IS THE TELLING-SOMEBODY HALF ──────────────────────────────────
+   * The guards were copied and the delivery was not, which left a form that
+   * wrote a row and told nobody. The success screen says someone from the
+   * founding team will be in touch, and the only place that intent existed
+   * was an Admin tab a founder had no reason to open. A lead that reaches a
+   * table and no person is a lost lead wearing a receipt.
+   *
+   * So the same three things `POST /api/forms/submit` does: the pathway inbox
+   * gets an email with the whole request in it, the person gets an
+   * acknowledgement so they know it landed, and `recordEvent` puts it in the
+   * village's own history. The emails are fire-and-forget and never fail the
+   * request, because the row is already saved and a Resend outage must not
+   * tell a person their reservation did not go through.
+   */
+  app.post("/api/housing/reservations", async (req, res) => {
+    const b = req.body ?? {};
+    // Honeypot: a hidden field only bots fill. Answer success, store nothing.
+    if (b.hp) return res.json({ ok: true });
+    // Rate limit: modest cap per IP to blunt spam floods. Fails open on a
+    // database outage, like every other call site, because a guard that takes
+    // the form down during an outage costs the village real leads.
+    if (await overLimit(`housing-reserve:${clientIp(req)}`, 6, 10 * 60 * 1000)) {
+      return res.status(429).json({ error: "Too many requests. Please try again shortly." });
+    }
+    const homeType = String(b.homeType ?? "");
+    if (!isHomeType(homeType)) {
+      return res.status(400).json({ error: "Choose one of the home types" });
+    }
+    const name = String(b.name ?? "").trim().slice(0, 190);
+    const email = String(b.email ?? "").trim().slice(0, 190);
+    if (!name) return res.status(400).json({ error: "A name is required" });
+    // Deliberately permissive: the delivery attempt is the real test of an
+    // address, and a strict pattern here refuses valid addresses for nothing.
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return res.status(400).json({ error: "That email address does not look right" });
+    }
+    const rawKey = b.structureKey == null ? "" : String(b.structureKey);
+    /*
+     * An unrecognised hamlet is dropped to null rather than refused. The key
+     * arrives from a query string a person can edit, and losing a real lead
+     * over a mangled URL is worse than recording an intent with no hamlet,
+     * which is already a legitimate state for someone who arrived from the
+     * housing page with no place in mind.
+     */
+    const structureKey = /^[A-Za-z0-9_-]{1,64}$/.test(rawKey) ? rawKey : null;
+    const user = await authedUser(req).catch(() => null);
+    const phone = b.phone == null ? null : String(b.phone).trim().slice(0, 64) || null;
+    const notes = b.notes == null ? null : String(b.notes).trim().slice(0, 2000) || null;
+    const arrivedFrom = b.arrivedFrom === "map" ? "map" : "site";
+    const { id } = await createReservation(getPool(), {
+      structureKey,
+      homeType,
+      name,
+      email,
+      phone,
+      notes,
+      arrivedFrom,
+      userId: user?.id ?? null,
+    });
+
+    /*
+     * The village's own history. Audience 'admin', because the text carries a
+     * person's name and the public Pulse is read by everyone. Never awaited:
+     * recordEvent swallows its own failures by contract, and an intent that
+     * is already saved must not fail on its trace.
+     */
+    void recordEvent(getPool(), {
+      kind: "housing_reservation",
+      text: `${name} asked for a ${homeType}${structureKey ? ` in ${structureKey}` : ""}`,
+      actorUserId: user?.id ?? null,
+      entityType: "housing_reservation",
+      entityRef: id,
+      audience: "admin",
+    });
+
+    const origin = notifyDeps.origin();
+    void (async () => {
+      /*
+       * The hamlet's own name if the founder has set one, because a founder
+       * reading this email at a phone screen knows "Ridge Hamlet North" and
+       * has no reason to recognise "ridgeA". Falls back to the key, then to
+       * saying there was no hamlet at all.
+       */
+      let hamlet: string | null = null;
+      if (structureKey) {
+        const row = (await housingRows(getPool()).catch(() => []))
+          .find((r) => r.structureKey === structureKey);
+        hamlet = row?.label || structureKey;
+      }
+      const line = (k: string, v: string) =>
+        `<p style="margin:4px 0"><strong>${escapeHtml(k)}:</strong> ${escapeHtml(v)}</p>`;
+      // The resident pathway inbox: this is a person asking to live here, and
+      // recipientsForType falls back to every configured inbox when that one
+      // is empty, so a village that set up only one address still hears it.
+      const recipients = recipientsForType("resident");
+      if (recipients.length) {
+        await sendResendEmail({
+          to: recipients,
+          // The person who asked, so a founder can hit reply and be talking
+          // to them. Same move the contact relay makes.
+          replyTo: email,
+          subject: `[${notifyDeps.projectName()}] Home reservation request from ${name}`,
+          html:
+            `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;background:#f9fafb;padding:24px;color:#1f2937">` +
+            `<div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">` +
+            `<div style="background:#2D5A5A;color:#fff;padding:22px 24px"><div style="font-size:20px;font-weight:700">Someone wants a home</div></div>` +
+            `<div style="padding:22px 24px;line-height:1.6">` +
+            line("Name", name) +
+            line("Email", email) +
+            (phone ? line("Phone", phone) : "") +
+            line("Home type", homeType) +
+            line("Hamlet", hamlet ?? "none chosen") +
+            line("Came from", arrivedFrom === "map" ? "the living map" : "the site") +
+            (notes ? `<p style="margin:14px 0 4px"><strong>What they told us</strong></p><p style="margin:0;white-space:pre-wrap">${escapeHtml(notes)}</p>` : "") +
+            `<p style="margin-top:20px"><a href="${origin}/admin" style="color:#2D5A5A">Open it in Admin</a></p>` +
+            `</div></div></body></html>`,
+        });
+      }
+      // The person who asked. No deposit link and no promise of a date: this
+      // step records an intent, and the next move is a human one.
+      await sendResendEmail({
+        to: [email],
+        subject: "We have your reservation request",
+        html:
+          `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;background:#f9fafb;padding:24px;color:#1f2937">` +
+          `<div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">` +
+          `<div style="background:#2D5A5A;color:#fff;padding:22px 24px"><div style="font-size:20px;font-weight:700">Your reservation request is in</div></div>` +
+          `<div style="padding:22px 24px;line-height:1.6">` +
+          `<p>Hi ${escapeHtml(name)},</p>` +
+          `<p>We have your request for a ${escapeHtml(homeType)}${hamlet ? ` in ${escapeHtml(hamlet)}` : ""}. Someone from the founding team will read it and get in touch about the deposit and what happens next.</p>` +
+          `<p>No payment has been taken, and nothing is held against your name yet.</p>` +
+          `<p style="color:#6b7280;font-size:13px;margin-top:20px">The team</p>` +
+          `</div></div></body></html>`,
+      });
+    })().catch((err) => console.error("[housing] reservation notification failed", err));
+
+    res.json({ ok: true, id });
+  });
+
+  /**
+   * The intents, for the founder. Same capability as the numbers, because
+   * these rows carry a name, an email and a phone number.
+   */
+  app.get("/api/housing/reservations", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to see reservations" });
+    if (!hasCapability("map.publish", await capabilityCtx(user))) {
+      return res.status(403).json({ error: "Reading reservations is an appointment" });
+    }
+    res.json({ rows: await listReservations(getPool()) });
+  });
+
+  /**
+   * Move an intent along. Only `reserved` ever consumes a home, and only for
+   * hamlets whose `takenSource` is `reservations`, so an unanswered enquiry
+   * never silently takes a home off the map.
+   */
+  app.put("/api/housing/reservations/:id/status", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to update reservations" });
+    if (!hasCapability("map.publish", await capabilityCtx(user))) {
+      return res.status(403).json({ error: "Updating reservations is an appointment" });
+    }
+    const status = String(req.body?.status ?? "");
+    if (!isReservationStatus(status)) {
+      return res.status(400).json({ error: "Unknown status" });
+    }
+    const moved = await setReservationStatus(getPool(), String(req.params.id), status);
+    if (!moved) return res.status(404).json({ error: "No such reservation" });
+    res.json({ ok: true });
   });
 
   /**
