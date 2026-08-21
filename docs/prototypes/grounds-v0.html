@@ -1147,67 +1147,67 @@ const SCENE={
   pacificEdge:[[980,1590],[1350,1500],[1725,1380],[2080,1290],[2340,1230]], // south-east public road
   structures:[
     {key:"gate",name:"The Gate",archetype:"gate",district:"arrival",x:1060,y:200,phase:1,state:"active",
-      circle:"Outreach",modules:[["Welcome & Stays","/stays"],["Profiles","/profile"]],
+      circle:"Outreach",modules:[["stay","/stay"],["Profiles","/profile"]],
       blurb:"Where Poza Azul Road meets the land. Every story here walked in through this gate."},
     {key:"welcome",name:"Welcome Lodge",archetype:"hall",district:"arrival",x:660,y:320,phase:1,state:"active",
-      circle:"Community",modules:[["Stays","/stays"],["Welcome Aboard quests","/quests"]],
+      circle:"Community",modules:[["stay","/stay"],["quests","/quests"]],
       blurb:"First nights, first meals, first questions. The Welcome Aboard arc begins here."},
     {key:"market",name:"Market Pavilion",archetype:"market",district:"arrival",x:790,y:275,phase:2,state:"funding",fund:.35,
-      circle:"Finance",modules:[["Exchange","/exchange"],["Payments & Donations","/products"]],
+      circle:"Finance",modules:[["wallet","/wallet"],["Payments & Donations","/contribute"]],
       blurb:"Farm stand and maker's market at the road. Amora's face to the neighbors."},
     {key:"pondhomes",name:"Pond Hamlet",archetype:"homes",district:"ponds",x:1135,y:400,phase:1,state:"active",
       circle:"Community",modules:[["Member profiles","/team"]],
       blurb:"Tiny homes ringed around the ponds. Frogsong is the neighborhood anthem."},
     {key:"ponds",name:"The Ponds",archetype:"pond",district:"ponds",x:1095,y:462,phase:1,state:"thriving",
-      circle:"Land",modules:[["Village Health","/health"]],
+      circle:"Land",modules:[["health","/village-health"]],
       blurb:"Rain caught and kept. Tilapia below, herons above, irrigation for the beds beyond."},
     {key:"greenhouse",name:"Greenhouse & Gardens",archetype:"greenhouse",district:"heart",x:950,y:610,phase:1,state:"active",
-      circle:"Land",modules:[["Harvest log","/health"]],
+      circle:"Land",modules:[["health","/village-health"]],
       blurb:"Seed to seedling to supper. The engine room of food sovereignty at Amora."},
     {key:"community",name:"Community Center",archetype:"bighall",district:"heart",x:805,y:645,phase:1,state:"thriving",
-      circle:"Coordination",modules:[["Forum & Decisions","/forum"],["Village Feed","/feed"],["Tools Hub","/tools"]],
+      circle:"Coordination",modules:[["forum","/forum"],["Village Feed","/feed"],["Tools Hub","/tools"]],
       blurb:"The big roof everything else huddles around. Meetings, meals, music, mending."},
     {key:"kitchen",name:"Kitchen & Hearth",archetype:"kitchen",district:"heart",x:710,y:700,phase:1,state:"active",event:"Full-moon feast · tonight",
-      circle:"Gathering",modules:[["Gratitude","/gratitude"],["Events","/feed"]],
+      circle:"Gathering",modules:[["Gratitude","/gratitude"],["events","/events"]],
       blurb:"Woodsmoke and cardamom. Gratitude is settled here, plate by plate."},
     {key:"library",name:"Library & Workshop",archetype:"library",district:"heart",x:890,y:688,phase:1,state:"building",fund:.6,
-      circle:"Learning",modules:[["Material Library","/library"],["Badges & Skills","/badges"]],
+      circle:"Learning",modules:[["library","/library"],["Badges & Skills","/badges"]],
       blurb:"Tools, books, looms, lathes. The village's shared hands and memory, mid-raise."},
     {key:"council",name:"Council Fire",archetype:"fire",district:"heart",x:790,y:762,phase:1,state:"active",
-      circle:"Wisdom",modules:[["Stages & Roles","/roles"],["Governance","/tools"]],
+      circle:"Wisdom",modules:[["Stages & Roles","/roles"],["Governance","/governance"]],
       blurb:"Consent by firelight. The circle of circles meets where the sparks rise."},
     {key:"foodforest",name:"Food Forest",archetype:"orchard",district:"heart",x:1035,y:705,phase:2,state:"building",fund:.8,
-      circle:"Land",modules:[["Quests here","/quests"]],
+      circle:"Land",modules:[["quests","/quests"]],
       blurb:"Seven layers going in on the east slope. Swales first, canopy last, decades deep."},
     {key:"tank",name:"Water Tank",archetype:"tank",district:"heart",x:430,y:570,phase:1,state:"active",
-      circle:"Building",modules:[["Village Health","/health"]],
+      circle:"Building",modules:[["health","/village-health"]],
       blurb:"Gravity does the night shift. Spring-fed, village-sized, checked each lunation."},
     {key:"spring3",name:"Spring Three",archetype:"spring",district:"ponds",x:1410,y:430,phase:1,state:"thriving",
-      circle:"Land",modules:[["Water stewardship","/health"]],
+      circle:"Land",modules:[["health","/village-health"]],
       blurb:"A protection zone holds the forest close here. The water remembers everything."},
     {key:"spring2",name:"Spring Two",archetype:"spring",district:"ponds",x:1555,y:545,phase:1,state:"active",
-      circle:"Land",modules:[["Water stewardship","/health"]],
+      circle:"Land",modules:[["health","/village-health"]],
       blurb:"Second of four springs. Its ring of old-growth is the quietest place on the land."},
     {key:"spring4",name:"Spring Four",archetype:"spring",district:"ponds",x:1480,y:500,phase:1,state:"active",
-      circle:"Land",modules:[["Water stewardship","/health"]],
+      circle:"Land",modules:[["health","/village-health"]],
       blurb:"Fourth spring, found late, loved fast. The protection ring went in the same week."},
     {key:"possiblespring",name:"A Possible Spring",archetype:"spring",district:"ridge",x:1480,y:740,phase:2,state:"funding",fund:0,
-      circle:"Land",modules:[["Water stewardship","/health"]],
+      circle:"Land",modules:[["health","/village-health"]],
       blurb:"The surveyors marked it 'possible.' The masterplan's own note: springs need a professional to confirm, or to find new ones. A mystery with coordinates."},
     {key:"ridgeA",name:"Ridge Hamlet North",archetype:"homes",district:"ridge",x:1080,y:878,phase:2,state:"building",fund:.72,
-      circle:"Building",modules:[["Crowdpool","/products"],["Build quests","/quests"]],
+      circle:"Building",modules:[["Crowdpool","/contribute"],["quests","/quests"]],
       blurb:"First walls rising on the ridge road. The crowdpool is 72% of the way to a roof."},
     {key:"ridgeB",name:"Ridge Hamlet South",archetype:"homes",district:"ridge",x:1195,y:978,phase:2,state:"funding",fund:.35,
-      circle:"Building",modules:[["Crowdpool","/products"]],
+      circle:"Building",modules:[["Crowdpool","/contribute"]],
       blurb:"Staked and dreamed. Pooled resources gather; the forest holds the site till then."},
     {key:"sanctuary",name:"The Sanctuary",archetype:"dome",district:"sanctuary",x:1270,y:1108,phase:2,state:"funding",fund:.18,
-      circle:"Healing",modules:[["Design circle","/forum"],["Crowdpool","/products"]],
+      circle:"Healing",modules:[["forum","/forum"],["Crowdpool","/contribute"]],
       blurb:"Hot pools, cold plunge, a dome for stillness. The healing heart, still gathering."},
     {key:"guest",name:"Guest Lodge",archetype:"hall",district:"grove",x:1560,y:1120,phase:3,state:"blueprint",
-      circle:"Community",modules:[["Stays","/stays"]],
+      circle:"Community",modules:[["stay","/stay"]],
       blurb:"For the friends of the far future. Sited, sketched, waiting for its season."},
     {key:"healing",name:"Healing Garden",archetype:"orchard",district:"grove",x:1665,y:1165,phase:3,state:"blueprint",
-      circle:"Healing",modules:[["Village Health","/health"]],
+      circle:"Healing",modules:[["health","/village-health"]],
       blurb:"Medicinals under managed shade, an apothecary in waiting."},
     {key:"trailhead",name:"Pacific Trailhead",archetype:"gate",district:"grove",x:1725,y:1365,phase:3,state:"blueprint",
       circle:"Outreach",modules:[["Village Network","/network"]],
@@ -2448,10 +2448,10 @@ function refreshBadges(){
         const cls=['bseal','b-'+m.kind,m.rim,m.braid?'r-braid':'',m.claimed?'claimed':'',m.extra||''].filter(Boolean).join(' ');
         const tint=m.tint?` style="--btint:${m.tint}"`:'';
         const tick=m.claimed?'<path class="tick" d="M7.6 12.4l2.9 2.9 6-6.2"/>':'';
-        return `<span class="${cls}" data-bk="${s.key}" data-bkind="${m.kind}"${tint}>`+
+        return `<span class="${cls}" data-bk="${escq(s.key)}" data-bkind="${m.kind}"${tint}>`+
                badgeSvg(m.kind,(m.pips?badgePips(m.pips):'')+tick)+`</span>`;
       }).join('')+
-      `<span class="bseal b-more" data-bk="${s.key}" data-bkind="more"><svg viewBox="0 0 24 24">`+
+      `<span class="bseal b-more" data-bk="${escq(s.key)}" data-bkind="more"><svg viewBox="0 0 24 24">`+
       BADGE_FACE+`<text class="cnum" x="12" y="15.6">${total>9?'9+':total}</text></svg><span class="bhit"></span></span>`;
       g.dataset.sig=sig;
     }
@@ -2468,11 +2468,11 @@ function refreshBadges(){
       const a=g.querySelector('.aseal'),h=g.querySelector('.hchip');
       if(a)a.remove();if(h)h.remove();
       if(open)g.insertAdjacentHTML('beforeend',
-        `<span class="aseal${soon<=2?' soon':''}" data-bk="${s.key}"><svg viewBox="0 0 24 24">`+
+        `<span class="aseal${soon<=2?' soon':''}" data-bk="${escq(s.key)}"><svg viewBox="0 0 24 24">`+
         `<circle class="aface" cx="12" cy="12" r="11"/><circle class="arim" cx="12" cy="12" r="11"/>`+
         `<text class="anum" x="12" y="16.4">${open>9?'9+':open}</text></svg><span class="bhit"></span></span>`);
       if(lot||room)g.insertAdjacentHTML('beforeend',
-        `<span class="hchip" data-bk="${s.key}"><svg viewBox="0 0 24 24">`+
+        `<span class="hchip" data-bk="${escq(s.key)}"><svg viewBox="0 0 24 24">`+
         `<circle class="aface" cx="12" cy="12" r="11"/><circle class="arim" cx="12" cy="12" r="11"/>`+
         `<path class="hink" d="M6.8 12.2L12 7.6l5.2 4.6"/><path class="hink" d="M8.4 11.6v4.8h7.2v-4.8"/>`+
         `</svg><span class="bhit"></span></span>`);
@@ -2595,7 +2595,18 @@ window.itemAddr=itemAddr;
 let ITEM_TMR=null;
 function focusItem(addr){
   if(!addr)return false;
-  const el=$('panelBody')&&$('panelBody').querySelector(`[data-item="${addr}"]`);
+  /* MATCHED, NOT INTERPOLATED (g6.05), and the same answer :4524 got.
+     `addr` is itemAddr(): 'quest:'+questKey(q) and 'talk:'+t.id, both founder
+     identifiers straight off a stored scene. Concatenated into a selector, one
+     double quote in a quest key threw a SyntaxError out of the delegated seal
+     listener at :2643 — the panel opened, the row never lit, and the page
+     collected an uncaught error per tap. Every candidate carries the same
+     address in its own dataset, so compare the strings: nothing to escape,
+     nothing to keep in step with escq and escj, and the identifier stays
+     byte-exact on both sides, which is the whole reason it is an identifier. */
+  const host=$('panelBody');
+  let el=null;
+  if(host)host.querySelectorAll('[data-item]').forEach(n=>{if(!el&&n.dataset.item===addr)el=n});
   if(!el)return false;
   document.querySelectorAll('.itemfocus').forEach(e=>e.classList.remove('itemfocus'));
   el.classList.add('itemfocus');
@@ -2648,7 +2659,7 @@ $('badges').addEventListener('click',e=>{
 function inviteHere(key){
   const s=BY[key];if(!s)return;
   if(document.body.classList.contains('pocket')){
-    $('moduleCard').innerHTML=`<h2>⚑ ${s.name}</h2>
+    $('moduleCard').innerHTML=`<h2>⚑ ${escq(s.name)}</h2>
       <div class="route">This place has room for work.</div>
       <p>Nothing is asked for here yet. If you can see what wants doing, write it and the village will meet you at it.</p>
       <div class="acts">
@@ -3059,13 +3070,13 @@ function homeSheet(key){
      same door either way, and only the route behind it changes. */
   const route=room?'/stay':'/request-a-house?structure='+encodeURIComponent(key);
   setHash('#/place/'+key);
-  $('moduleCard').innerHTML=`<h2>⌂ Request a home at ${s.name}</h2>
+  $('moduleCard').innerHTML=`<h2>⌂ Request a home at ${escq(s.name)}</h2>
     <div class="route">${line}</div>
     ${(lot&&housingNote(key))?`<p style="margin:4px 0 0;font-size:11.5px;color:#a3703d">${housingNote(key)}</p>`:''}
     <p>Tell us who is coming and when, and a steward answers. Nothing is held until you hear back.</p>
     <div class="acts">
-      <a class="btn" href="${siteHref(route)}" target="_blank" rel="noopener" onclick="return siteNav(event,'${route}')">Begin your request</a>
-      <button class="btn ghostbtn" onclick="askAboutLiving('${key}')">Ask Maia about living here</button>
+      <a class="btn" href="${escq(siteHref(route))}" target="_blank" rel="noopener" onclick="return siteNav(event,'${escj(route)}')">Begin your request</a>
+      <button class="btn ghostbtn" onclick="askAboutLiving('${escj(key)}')">Ask Maia about living here</button>
       <button class="btn ghostbtn" onclick="closeDoor()">Back to the land</button>
     </div>`;
   $('module').classList.add('show');
@@ -3098,8 +3109,8 @@ function rebuildVitals(){const w=$('vitals');
   const D=(typeof vitalsData==='function')?vitalsData():null;
   w.innerHTML=`<div id="villageName">Amora<small>the living map</small></div>`+SCENE.vitals.map(v=>{
     const d=(D&&D[v.k])||{v:v.v,sub:v.sub,src:v.src,how:v.sub};
-    return `<div class="vital" data-k="${v.k}" data-tip="${d.how} · ${d.src}"><svg viewBox="0 0 24 24" fill="none" stroke="#e8c877" stroke-width="1.7"><path d="${VICON[v.k]}"/></svg><span><b>${d.v}</b><small>${v.label}</small></span></div>`}).join('')
-   +`<div class="vital" data-k="moon" data-tip="${SCENE.moonName}"><span id="moon">${SCENE.moon}</span></div>`;
+    return `<div class="vital" data-k="${escq(v.k)}" data-tip="${escq(d.how)} · ${escq(d.src)}"><svg viewBox="0 0 24 24" fill="none" stroke="#e8c877" stroke-width="1.7"><path d="${VICON[v.k]}"/></svg><span><b>${escq(d.v)}</b><small>${escq(v.label)}</small></span></div>`}).join('')
+   +`<div class="vital" data-k="moon" data-tip="${escq(SCENE.moonName)}"><span id="moon">${escq(SCENE.moon)}</span></div>`;
   w.querySelectorAll('.vital').forEach(el=>el.onclick=e=>{e.stopPropagation();window.openVitalDrop&&openVitalDrop(el.dataset.k,el)})}
 window.rebuildVitals=rebuildVitals;rebuildVitals();
 
@@ -3110,7 +3121,7 @@ for(const d of SCENE.districts){const el=document.createElement('div');el.classN
 const GEO=[{t:'Pacific Ocean',x:200,y:840,cls:' ocean'},{t:'Dominicalito',x:610,y:430,cls:''},{t:'Poza Azul falls',x:1160,y:168,cls:''},{t:'Costanera Sur',x:560,y:1120,cls:''}];
 GEO.forEach((g,i)=>{const el=document.createElement('div');el.className='banner geo'+g.cls;el.textContent=g.t;
   bWrap.appendChild(el);bEls['g_'+i]=el});
-function bannerHTML(s){return `<span class="dot" style="background:${s.circle?(CIRCLE_COL[s.circle]||'#9aa08f'):'#9aa08f'}"></span>${s.name}<span class="cnt"></span>`}
+function bannerHTML(s){return `<span class="dot" style="background:${s.circle?(CIRCLE_COL[s.circle]||'#9aa08f'):'#9aa08f'}"></span>${escq(s.name)}<span class="cnt"></span>`}
 function refreshBanner(s){const el=bEls[s.key];if(el)el.innerHTML=bannerHTML(s)}
 function makeBanner(s){const el=document.createElement('div');el.className='banner';
   el.innerHTML=bannerHTML(s);
@@ -3397,11 +3408,11 @@ function syncBanners(){
 /* hover card */
 const hc=$('hovercard');let hoverPin=null;
 function showHover(s,anchor){const q=questsAt(s.key).length,st=seatsAt(s.key).length;
-  hc.innerHTML=`<h3>${s.name}</h3><div class="circ">${s.circle?s.circle+' circle':'needs a steward'} · ${s.district==='heart'?'Village Heart':(SCENE.districts.find(d=>d.id===s.district)||{name:'the land'}).name}</div>
+  hc.innerHTML=`<h3>${escq(s.name)}</h3><div class="circ">${s.circle?escq(s.circle)+' circle':'needs a steward'} · ${escq(s.district==='heart'?'Village Heart':(SCENE.districts.find(d=>d.id===s.district)||{name:'the land'}).name)}</div>
   <div class="state">${STATE_LABEL[s.state]}${s.fund?` · pool ${Math.round(s.fund*100)}%`:''}</div>
   <div class="row"><span>⚑ <b>${q}</b> quest${q===1?'':'s'}</span><span>⛨ <b>${st}</b> seat${st===1?'':'s'} open</span></div>
-  ${s.event?`<div class="row"><span>✦ ${s.event}</span></div>`:''}
-  ${(window.eventsAt&&eventsAt(s.key).length)?`<div class="row"><span>✦ ${eventsAt(s.key)[0].when}: ${eventsAt(s.key)[0].title}</span></div>`:''}
+  ${s.event?`<div class="row"><span>✦ ${escq(s.event)}</span></div>`:''}
+  ${(window.eventsAt&&eventsAt(s.key).length)?`<div class="row"><span>✦ ${escq(eventsAt(s.key)[0].when)}: ${escq(eventsAt(s.key)[0].title)}</span></div>`:''}
   ${(window.LOTS&&LOTS[s.key])?`<div class="row"><span>⌂ ${LOTS[s.key].sold} of ${LOTS[s.key].total} spoken for · ${LOTS[s.key].total-LOTS[s.key].sold} open</span></div>${housingTag(s.key)?`<div class="row"><span style="color:#a3703d">${housingTag(s.key)}</span></div>`:''}`:''}
   <div class="hint">click to open the door</div>`;
   const r=anchor.getBoundingClientRect();hc.style.display='block';
@@ -3419,8 +3430,8 @@ function openPanel(key,tab,item){const s=BY[key];if(!s){toast('That place is no 
   $('panel').classList.add('open'); // opened before the flight so travelTo can measure the strip that stays visible
   travelTo(s.x,s.y,Math.max(cam.z,1.25));
   if(item)setHash('#/place/'+key+'?item='+item); // the badge you tapped, in the address bar
-  $('panelHead').innerHTML=`<h2>${s.name}</h2><div class="sub">${s.circle?s.circle+' circle':'needs a steward'} · ${STATE_LABEL[s.state]}${s.fund?` · pool ${Math.round(s.fund*100)}%`:''}</div>
-    <span class="statepill">${s.event?('✦ '+s.event):phaseName(s.phase)}</span>`;
+  $('panelHead').innerHTML=`<h2>${escq(s.name)}</h2><div class="sub">${s.circle?escq(s.circle)+' circle':'needs a steward'} · ${STATE_LABEL[s.state]}${s.fund?` · pool ${Math.round(s.fund*100)}%`:''}</div>
+    <span class="statepill">${s.event?('✦ '+escq(s.event)):escq(phaseName(s.phase))}</span>`;
   const tabs=['Overview','Quests here','Seats here','Enter →'];
   $('tabs').innerHTML=tabs.map((t,i)=>`<button data-i="${i}">${t}</button>`).join('');
   [...$('tabs').children].forEach(b=>b.onclick=()=>renderTab(+b.dataset.i));
@@ -3433,18 +3444,18 @@ function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].
     const facts=(window.FACTS||[]).filter(f=>f.at===s.key);
     const dn=s.district==='heart'?'Village Heart':(SCENE.districts.find(d=>d.id===s.district)||{name:'the land'}).name;
     const fchip=(f,dir)=>{const o=dir==='in'?(f.from?BY[f.from]:null):(f.to?BY[f.to]:null);
-      return `<span style="display:inline-flex;align-items:center;gap:5px;margin:0 5px 5px 0;padding:2px 9px;border:1px solid #c8ab6f;border-radius:11px;font-size:11px;background:#fdf6e0"><i style="width:8px;height:8px;border-radius:50%;background:${mediaColor(f.medium)};display:inline-block"></i>${o?o.name:(dir==='in'?'imported ⚠':'off-land')}</span>`};
-    const vchip=f2=>`<span style="display:inline-block;margin:0 5px 5px 0;padding:2px 9px;border:1px solid #c8ab6f;border-radius:11px;font-size:11px;background:#fdf6e0">${f2.payload.label}: <b>${f2.payload.value}</b></span>`;
+      return `<span style="display:inline-flex;align-items:center;gap:5px;margin:0 5px 5px 0;padding:2px 9px;border:1px solid #c8ab6f;border-radius:11px;font-size:11px;background:#fdf6e0"><i style="width:8px;height:8px;border-radius:50%;background:${escq(mediaColor(f.medium))};display:inline-block"></i>${o?escq(o.name):(dir==='in'?'imported ⚠':'off-land')}</span>`};
+    const vchip=f2=>`<span style="display:inline-block;margin:0 5px 5px 0;padding:2px 9px;border:1px solid #c8ab6f;border-radius:11px;font-size:11px;background:#fdf6e0">${escq(f2.payload.label)}: <b>${escq(f2.payload.value)}</b></span>`;
     const head=t2=>`<div style="font-variant:small-caps;letter-spacing:.14em;font-size:10px;color:#8a7347;margin-bottom:4px">${t2}</div>`;
-    body.innerHTML=`<p>${s.blurb}</p>
-    <p style="margin-top:9px;font-style:italic;color:#4a3a26">${s.role||'A new organ, still finding its function in the body of the village.'}</p>
-    <div style="font-size:10.5px;color:#8a7347;margin-top:3px">${dn} · ${phaseName(s.phase)} · AMORA MASTER PLAN V7</div>
+    body.innerHTML=`<p>${escq(s.blurb)}</p>
+    <p style="margin-top:9px;font-style:italic;color:#4a3a26">${escq(s.role||'A new organ, still finding its function in the body of the village.')}</p>
+    <div style="font-size:10.5px;color:#8a7347;margin-top:3px">${escq(dn)} · ${escq(phaseName(s.phase))} · AMORA MASTER PLAN V7</div>
     ${(window.LOTS&&LOTS[s.key])?`<p style="margin-top:6px;font-size:12px;color:#6b4d1e">⌂ <b>${LOTS[s.key].sold} of ${LOTS[s.key].total}</b> lots spoken for · ${LOTS[s.key].total-LOTS[s.key].sold} open${housingSet(s.key)?' · reserve through the door below':''}</p>${housingSet(s.key)?'':`<p style="margin:3px 0 0;font-size:11.5px;color:#a3703d">${housingNote(s.key)}</p>`}`:''}
     ${window.eventCard?eventCard(s):''}
     ${doorBtns(s)}
-    <p style="margin-top:8px;font-size:12px;color:#6b4d1e">⚑ ${q.length} quests · ⛨ ${st.length} open seats · 💬 ${threadsAt(s.key).length} conversation${threadsAt(s.key).length===1?'':'s'}${s.event?' · ✦ '+s.event:''}</p>
+    <p style="margin-top:8px;font-size:12px;color:#6b4d1e">⚑ ${q.length} quests · ⛨ ${st.length} open seats · 💬 ${threadsAt(s.key).length} conversation${threadsAt(s.key).length===1?'':'s'}${s.event?' · ✦ '+escq(s.event):''}</p>
     ${threadsAt(s.key).length?`<div style="margin-top:8px">${head('what people are saying here')}
-      ${threadsAt(s.key).map(t=>`<div class="cvrow" data-item="${itemAddr('talk',t)}" onclick="openDoor('forum',{at:'${s.key}'})"><span>💬</span><span><b>${t.title}</b><small>${t.author} · ${t.replies} replies · ${t.last} ago</small></span></div>`).join('')}
+      ${threadsAt(s.key).map(t=>`<div class="cvrow" data-item="${escq(itemAddr('talk',t))}" onclick="openDoor('forum',{at:'${escj(s.key)}'})"><span>💬</span><span><b>${escq(t.title)}</b><small>${escq(t.author)} · ${escq(t.replies)} replies · ${escq(t.last)} ago</small></span></div>`).join('')}
       </div>`:''}
     <div style="margin-top:11px;border-top:1px dashed #c8ab6f;padding-top:8px">
       ${head('vitals at this address'+(facts.length?' · <span style="color:#a3703d">sample data</span>':''))}
@@ -3459,18 +3470,18 @@ function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].
          <div style="font-size:10px;color:#8a7347;margin-top:3px">drawn live on the <b>Flows</b> lens, top right</div>`
         :`<div style="font-size:11.5px;color:#8a7347">No flows declared yet. In build mode you can say what comes in and what goes out.</div>`}
     </div>
-    <div style="margin-top:12px">${s.modules.map(m=>`<button class="btn" style="margin:0 6px 6px 0" onclick="openModule('${m[0]}','${m[1]}')">${m[0]} ➤</button>`).join('')}</div>
+    <div style="margin-top:12px">${(s.modules||[]).map((m,mi)=>`<button class="btn" style="margin:0 6px 6px 0" onclick="openDoorHere(${mi})">${escq(doorLabel(m))} ➤</button>`).join('')}</div>
     ${s.state==='blueprint'?`<p style="margin-top:10px;font-size:12.5px">This one lives in the <b>Vision</b>. Toggle the Vision layer to see the full masterplan build-out, and what it would take to make it real.</p>`:''}
     <div class="lastv">last verified 2 days ago · Amora stewards</div>`}
-  if(i===1)body.innerHTML=q.length?q.map(x=>`<div class="qcard" data-item="${itemAddr('quest',x)}"><h4>⚑ ${x.q}</h4><div class="meta">${x.r} · ${x.need}</div>
-    <div class="claim"><button class="btn" onclick="claimQuest('${x.q.replace(/'/g,"\\'")}','${s.name.replace(/'/g,"\\'")}')">${claimed(x)?'✔ Yours · tap to release':'Claim this quest'}</button></div>
+  if(i===1)body.innerHTML=q.length?q.map(x=>`<div class="qcard" data-item="${escq(itemAddr('quest',x))}"><h4>⚑ ${escq(x.q)}</h4><div class="meta">${escq(x.r)} · ${escq(x.need)}</div>
+    <div class="claim"><button class="btn" onclick="claimQuest('${escj(x.q)}','${escj(s.name)}')">${claimed(x)?'✔ Yours · tap to release':'Claim this quest'}</button></div>
     ${claimed(x)&&x.how_to?`<div class="firststep"><b>Your first step</b>${escq(x.how_to)}</div>`:''}
     <div class="promise">${PROMISE_CLAIM}</div></div>`).join('')
     :`<p>No open quests here right now. The greenhouse and the food forest are calling, though.</p>`;
-  if(i===2)body.innerHTML=st.length?st.map(x=>`<div class="seatrow" data-item="${itemAddr('seat',x)}"><div class="nm"><b>${x.s}</b><span>${x.c} circle · ${x.note}</span></div>
-    <button class="btn" onclick="toast('Intro drafted. The ${x.c} circle will hear from you. (Prototype; the real form lives at /roles.)')">Raise a hand</button></div>`).join('')
+  if(i===2)body.innerHTML=st.length?st.map(x=>`<div class="seatrow" data-item="${escq(itemAddr('seat',x))}"><div class="nm"><b>${escq(x.s)}</b><span>${escq(x.c)} circle · ${escq(x.note)}</span></div>
+    <button class="btn" onclick="toast('Intro drafted. The ${escj(x.c)} circle will hear from you. (Prototype; the real form lives at /roles.)')">Raise a hand</button></div>`).join('')
     :`<p>All seats filled here. Beautiful problem.</p>`;
-  if(i===3)body.innerHTML=((s.modules&&s.modules.length)?s.modules.map(m=>`<button class="doorbtn" onclick="openModule('${m[0]}','${m[1]}')"><span><b>${m[0]}</b><br><span>${m[1]}</span></span><span class="arr">➤</span></button>`).join(''):`<p>No doors here yet. The founder opens them in build mode.</p>`)+
+  if(i===3)body.innerHTML=((s.modules&&s.modules.length)?s.modules.map((m,mi)=>`<button class="doorbtn" onclick="openDoorHere(${mi})"><span><b>${escq(doorLabel(m))}</b><br><span>${escq(doorRoute(m))}</span></span><span class="arr">➤</span></button>`).join(''):`<p>No doors here yet. The founder opens them in build mode.</p>`)+
     `<div class="lastv">Every door is also a page. The same room, reachable from the menu or from the land.</div>`}
 $('panelClose').onclick=()=>{$('panel').classList.remove('open');panelKey=null;setHash('')};
 function claimQuest(q,at){
@@ -3486,11 +3497,11 @@ function claimQuest(q,at){
     if(typeof panelKey!=='undefined'&&panelKey)renderTab(1)});
   window.hap&&hap(on?[12,50,12,50,12]:8);
   if(on){toast(`⚑ Claimed: “${q}” at ${at}. See you out there.`);
-    maiaSay(`Claimed. <b>${q}</b> is yours, and it lives at the ${at}. That's the whole point of this map: now go make it true, and I'll light the building up when you do.`)}
+    maiaSay(`Claimed. <b>${escq(q)}</b> is yours, and it lives at the ${escq(at)}. That's the whole point of this map: now go make it true, and I'll light the building up when you do.`)}
   else toast('Quest released. It stays open for other hands.');
   if(typeof refreshBadges==='function')refreshBadges();
   if(typeof panelKey!=='undefined'&&panelKey)renderTab(1)}
-function openModule(a,b){return openDoor(a,b)} // legacy (label,route) doors and the new (moduleKey,ctx) both land on openDoor
+function openModule(a,b){return openDoor(a,b)} // legacy (label,route) only: openDoor reads a string second argument as a route. Nothing in this file calls it now; openDoorAt(key,i) is the way in, and it keeps the place with the door. Kept because a scene published before g1 can still name it.
 
 /* toasts */
 /* Three alive at once, oldest out first. Each one lives 6.2 seconds, so a
@@ -3543,13 +3554,13 @@ function buildWall(){
   const unowned=SCENE.structures.filter(s=>!s.circle);
   $('wallList').innerHTML=
   (stranded.length?`<div class="wallhead" style="color:#e08a7a">stranded outside the line</div>`+
-    stranded.map(s=>`<div class="wallrow" onclick="wallGo('${s.key}',0)"><b>⚠ ${s.name}</b><span>outside the property line. Move it or redraw the line; nothing is removed for you</span></div>`).join(''):'')+
+    stranded.map(s=>`<div class="wallrow" onclick="wallGo('${escj(s.key)}',0)"><b>⚠ ${escq(s.name)}</b><span>outside the property line. Move it or redraw the line; nothing is removed for you</span></div>`).join(''):'')+
   (unowned.length?`<div class="wallhead">needs a steward</div>`+
-    unowned.map(s=>`<div class="wallrow" onclick="wallGo('${s.key}',0)"><b>⌂ ${s.name}</b><span>no circle holds this place yet</span></div>`).join(''):'')+
+    unowned.map(s=>`<div class="wallrow" onclick="wallGo('${escj(s.key)}',0)"><b>⌂ ${escq(s.name)}</b><span>no circle holds this place yet</span></div>`).join(''):'')+
   `<div class="wallhead">open seats</div>`+
-  SCENE.seats.map(x=>`<div class="wallrow" onclick="wallGo('${x.at}',2)"><b>⛨ ${x.s}</b><span>${BY[x.at]?BY[x.at].name:'?'} · ${x.c} circle</span></div>`).join('')+
+  SCENE.seats.map(x=>`<div class="wallrow" onclick="wallGo('${escj(x.at)}',2)"><b>⛨ ${escq(x.s)}</b><span>${escq(BY[x.at]?BY[x.at].name:'?')} · ${escq(x.c)} circle</span></div>`).join('')+
   `<div class="wallhead">open quests</div>`+
-  SCENE.quests.map(x=>`<div class="wallrow" ${x.at&&BY[x.at]?`onclick="wallGo('${x.at}',1)"`:''}><b>⚑ ${x.q}</b><span>${x.at&&BY[x.at]?BY[x.at].name+' · ':'Quest Board · not yet placed · '}${x.r}</span></div>`).join('')}
+  SCENE.quests.map(x=>`<div class="wallrow" ${x.at&&BY[x.at]?`onclick="wallGo('${escj(x.at)}',1)"`:''}><b>⚑ ${escq(x.q)}</b><span>${x.at&&BY[x.at]?escq(BY[x.at].name)+' · ':'Quest Board · not yet placed · '}${escq(x.r)}</span></div>`).join('')}
 
 /* theme panel */
 (function(){const list=$('themeList');
@@ -3589,13 +3600,13 @@ function refreshWork(){$('attnBadge').textContent=attnItems().length;
 $('attnBtn').onclick=()=>{const items=attnItems();if(!items.length)return toast('Nothing needs hands right now. A beautiful problem.');
   const it=items[attnIdx++%items.length];const s=it.at?BY[it.at]:null;
   if(!s){ // board-bound work has no address to fly to — the card opens the Wall instead
-    $('attnCard').innerHTML=`<h4>${it.h}</h4><p>${it.p}</p><p style="margin-top:4px;color:#6b4d1e;font-size:11.5px">at the Quest Board, waiting for a home</p>
+    $('attnCard').innerHTML=`<h4>${escq(it.h)}</h4><p>${escq(it.p)}</p><p style="margin-top:4px;color:#6b4d1e;font-size:11.5px">at the Quest Board, waiting for a home</p>
       <div class="go"><button class="btn" onclick="$('wall').classList.add('show');buildWall();$('attnCard').classList.remove('show')">Open the Wall</button>
       <button class="btn ghostbtn" onclick="$('attnCard').classList.remove('show')">Later</button></div>`;
     $('attnCard').classList.add('show');return}
   travelTo(s.x,s.y,1.3);
-  $('attnCard').innerHTML=`<h4>${it.h}</h4><p>${it.p}</p><p style="margin-top:4px;color:#6b4d1e;font-size:11.5px">at the ${s.name}</p>
-    <div class="go"><button class="btn" onclick="openPanel('${it.at}',${it.tab});$('attnCard').classList.remove('show')">Open the door</button>
+  $('attnCard').innerHTML=`<h4>${escq(it.h)}</h4><p>${escq(it.p)}</p><p style="margin-top:4px;color:#6b4d1e;font-size:11.5px">at the ${escq(s.name)}</p>
+    <div class="go"><button class="btn" onclick="openPanel('${escj(it.at)}',${it.tab});$('attnCard').classList.remove('show')">Open the door</button>
     <button class="btn ghostbtn" onclick="$('attnCard').classList.remove('show')">Later</button></div>`;
   $('attnCard').classList.add('show')};
 
@@ -3615,8 +3626,8 @@ function maiaSay(html,from){const d=document.createElement('div');d.className='m
   while(mlog.children.length>40)mlog.firstChild.remove()}
 function maiaContext(s){const q=questsAt(s.key),st=seatsAt(s.key);
   const bits=[];if(q.length)bits.push(`<b>${q.length}</b> quest${q.length>1?'s':''}`);if(st.length)bits.push(`<b>${st.length}</b> open seat${st.length>1?'s':''}`);
-  if(s.event)bits.push(`<b>${s.event}</b>`);
-  maiaSay(`${s.name}: ${s.blurb.split('.')[0].toLowerCase()}. ${bits.length?('Right now: '+bits.join(' · ')+'.'):''} ${s.state==='funding'?`The pool is at <b>${Math.round(s.fund*100)}%</b>, and every pledge raises real walls.`:''}`)}
+  if(s.event)bits.push(`<b>${escq(s.event)}</b>`);
+  maiaSay(`${escq(s.name)}: ${escq(s.blurb.split('.')[0].toLowerCase())}. ${bits.length?('Right now: '+bits.join(' · ')+'.'):''} ${s.state==='funding'?`The pool is at <b>${Math.round(s.fund*100)}%</b>, and every pledge raises real walls.`:''}`)}
 
 /* deterministic concierge (zero-token first, per platform doctrine) */
 const LEX=[
@@ -3647,15 +3658,15 @@ function conciergeMatch(txt){const t=txt.toLowerCase();
       if(sc>bs){bs=sc;best=q}}
     return{best,bs}};
   const sayQuest=({best,bs})=>{done('quest',best.q);const nm=best.at?nameOf(best.at):'the Board';if(best.at)openPanel(best.at);
-    return maiaSay(`That sounds like <b>${best.q}</b>: ${best.r||'hearts'}, and it lives at <b>${nm}</b>. <a onclick="claimQuest('${escq(best.q)}','${escq(nm)}')">Claim it</a> and the land will remember your name.`)};
+    return maiaSay(`That sounds like <b>${escq(best.q)}</b>: ${escq(best.r||'hearts')}, and it lives at <b>${escq(nm)}</b>. <a onclick="claimQuest('${escj(best.q)}','${escj(nm)}')">Claim it</a> and the land will remember your name.`)};
   const helping=/help|work\b|volunteer|contribute|hands|assist|do something/.test(t);
   if(helping){const qb=questBest();if(qb.best&&qb.bs>=2)return sayQuest(qb)}
   for(const s of SCENE.structures){const words=[s.key,...s.name.toLowerCase().split(/[^a-z]+/)].filter(w=>w.length>3);
-    for(const w of words)if(t.includes(w)){openPanel(s.key);done('structure',s.key);return maiaSay(`Walking you to the <b>${s.name}</b> now.`)}}
+    for(const w of words)if(t.includes(w)){openPanel(s.key);done('structure',s.key);return maiaSay(`Walking you to the <b>${escq(s.name)}</b> now.`)}}
   {const qb=questBest();if(qb.best&&qb.bs>=2)return sayQuest(qb)}
   const seat=SCENE.seats.find(x=>{const first=x.s.toLowerCase().split(' ')[0];return first.length>4&&t.includes(first)});
   if(seat&&seat.at){done('role',seat.s);openPanel(seat.at,1);
-    return maiaSay(`The <b>${seat.s}</b> seat is open, and it sits at the <b>${nameOf(seat.at)}</b>. Raise a hand from its card.`)}
+    return maiaSay(`The <b>${escq(seat.s)}</b> seat is open, and it sits at the <b>${escq(nameOf(seat.at))}</b>. Raise a hand from its card.`)}
   for(const l of LEX)if(l.re.test(txt)){done('lex',null);return l.fn()}
   done('none',null);
   maiaSay(`Nothing on the land matches that yet. That's a signal, not a dead end: unmatched asks teach the village which role or place is missing, so yours is saved. Meanwhile: <a onclick="startTour()">the tour</a>, or name any building.`)}
@@ -3883,7 +3894,7 @@ function buildExportJSON(){
         address_source:addrSrc({at:st.at,addr:st.addr})}))})),
     forum_threads:SCENE.threads.map(t=>({id:t.id,title:t.title,structure_keys:t.structures||[],
       address_source:(t.structures&&t.structures.length)?(t.addr||'creator'):(t.addr||'pool'),
-      author:t.author,audience:t.aud||'member',replies:t.replies||0,last_activity:t.last||'',
+      author:t.author,audience:t.aud||'member',replies:Number(t.replies)||0,last_activity:t.last||'',
       excerpt:t.ex||'',src:t.src||'sample'})),
     events:(window.EVENTS||[]).map(e=>({id:e.id,title:e.title,structure_keys:e.at,days_until:e.days,when:e.when,rsvp_count:e.rsvp,src:'sample'})),
     /* Per-browser promises. They ride the export so a session can be carried,
@@ -4066,9 +4077,9 @@ function renderDrawPanel(){
   kr.innerHTML=[['road','⌒ road'],['water','～ water'],['zone','▱ zone'],['structure-area','⌂ footprint']]
     .map(([k,l])=>`<button class="chip${drawKind===k?' on':''}" data-dk="${k}">${l}</button>`).join('');
   kr.querySelectorAll('[data-dk]').forEach(b=>b.onclick=()=>{drawKind=b.dataset.dk;renderDrawPanel()});
-  $('dSub').innerHTML=SUBTYPES[drawKind].map(s2=>`<option value="${s2}">${s2}</option>`).join('');
+  $('dSub').innerHTML=SUBTYPES[drawKind].map(s2=>`<option value="${escq(s2)}">${escq(s2)}</option>`).join('');
   $('dOwnRow').style.display=drawKind==='structure-area'?'flex':'none';
-  if(drawKind==='structure-area')$('dOwner').innerHTML=SCENE.structures.map(s2=>`<option value="${s2.key}">${escq(s2.name)}</option>`).join('');
+  if(drawKind==='structure-area')$('dOwner').innerHTML=SCENE.structures.map(s2=>`<option value="${escq(s2.key)}">${escq(s2.name)}</option>`).join('');
   $('dLive').textContent=drafting?
     (drafting.points.length?(drafting.geom==='area'
       ?((polyArea(drafting.points)*M_PER_UNIT*M_PER_UNIT)/10000).toFixed(2)+' ha so far · '+drafting.points.length+' pts'
@@ -4077,7 +4088,7 @@ function renderDrawPanel(){
   const sel=featSel&&featureById(featSel);
   $('dSel').style.display=sel?'block':'none';
   if(sel){$('dName').value=sel.name||'';
-    $('dSelSub').innerHTML=(SUBTYPES[sel.kind]||[sel.subtype]).map(s2=>`<option value="${s2}"${s2===sel.subtype?' selected':''}>${s2}</option>`).join('');
+    $('dSelSub').innerHTML=(SUBTYPES[sel.kind]||[sel.subtype]).map(s2=>`<option value="${escq(s2)}"${s2===sel.subtype?' selected':''}>${escq(s2)}</option>`).join('');
     document.querySelectorAll('[name=dSelPhase]').forEach(r=>r.checked=+r.value===sel.phase);
     const[la,lo]=worldToLatLon(sel.points[0][0],sel.points[0][1]);
     $('dMeas').textContent=(sel.geom==='area'
@@ -4264,11 +4275,11 @@ function renderResolver(){
   if(home){r.key=home;r.guessed=false;
     r.steps=r.steps.concat([{rule:'your hand',detail:`you opened this from ${BY[home].name}, so that is where it lands`,hit:true}])}
   const addr=r.key?BY[r.key].name:'the Quest Board pool';
-  $('rqSteps').innerHTML=r.steps.map((st,i)=>`<div class="rstep ${st.hit?'hit':'miss'}"><span class="no">${st.hit?'✓':i+1}</span><span><b style="font-weight:normal;letter-spacing:.06em">${st.rule}</b> · ${st.detail}</span></div>`).join('')+
-   `<div class="raddr">⚑ This quest lives at <b>${addr}</b>${r.guessed?' <span style="color:#e0a34e;font-size:10px">· a guess</span>':''}
+  $('rqSteps').innerHTML=r.steps.map((st,i)=>`<div class="rstep ${st.hit?'hit':'miss'}"><span class="no">${st.hit?'✓':i+1}</span><span><b style="font-weight:normal;letter-spacing:.06em">${escq(st.rule)}</b> · ${escq(st.detail)}</span></div>`).join('')+
+   `<div class="raddr">⚑ This quest lives at <b>${escq(addr)}</b>${r.guessed?' <span style="color:#e0a34e;font-size:10px">· a guess</span>':''}
     <div style="display:flex;gap:6px;margin-top:7px">
      ${q.text.trim()?`<button class="btn" style="font-size:11px;padding:4px 10px" onclick="resolverCreate()">Create it there</button>`:''}
-     ${r.key?`<button class="btn ghostbtn" style="font-size:11px;padding:4px 10px" onclick="goTo('${r.key}')">Show me</button>`:''}
+     ${r.key?`<button class="btn ghostbtn" style="font-size:11px;padding:4px 10px" onclick="goTo('${escj(r.key)}')">Show me</button>`:''}
     </div></div>`;
   window._rq={q,r}}
 function resolverCreate(){const{q,r}=window._rq||{};if(!q||!q.text.trim())return;
@@ -4322,18 +4333,49 @@ window.rebuildMedia=rebuildMedia;const MEDIA=rebuildMedia();
    to the caller, because a scene import rebuilds it wholesale anyway and
    re-entering renderInspect() halfway through one reads a half-built SCENE. */
 const VOCAB_KEYS=['road','water','zone','media','phases'];
+/* ---------- A COLOUR IS A COLOUR, AND A WORD IS A WORD (g6.03) ----------
+   Escaping six readers of a value leaves the seventh reader for the next lane
+   to add. These two are the shape the vocabulary has, enforced where it
+   arrives, so the readers below them are defence and not the whole defence.
+
+   VOCAB_HEX is the same rule shared/mapSkin.ts holds `accent` and `parchment`
+   to, for the reason written there: a colour picker has no legitimate reason
+   to emit anything else, and an allowlist cannot be talked around the way an
+   escaping rule can. A colour that is not one falls back to the default this
+   line always carried rather than dropping the medium, because dropping it
+   would delete the founder's WORD over a bad colour and mediaOf() would
+   re-invent the key with this very default on the next read.
+
+   vocabWord is not a safety rule and is not asked to be one; it is the
+   normalisation the zone editor already did inline (trim, lower case), lifted
+   out so the panel a founder types into and the bridge the shell pushes
+   through agree byte for byte. No length cap on purpose: the panel has none,
+   and a cap here would truncate the escaping gate's payload mid-tag and read
+   as a clean surface for the wrong reason. The escaping at the readers is
+   what makes the word safe; this only makes it the same word. */
+const VOCAB_HEX=/^#[0-9a-f]{6}$/i;
+const MEDIA_COLOR='#e8c877';
+function vocabColor(c){const v=String(c==null?'':c).trim();return VOCAB_HEX.test(v)?v:MEDIA_COLOR}
+function vocabWord(w){return String(w==null?'':w).trim().toLowerCase()}
+window.vocabColor=vocabColor;window.vocabWord=vocabWord;
 function applyVocabulary(voc){
   if(!voc||typeof voc!=='object')return[];
   const took=[];
   ['road','water','zone'].forEach(k=>{
-    if(Array.isArray(voc[k])&&voc[k].length){SUBTYPES[k]=voc[k].slice();took.push(k)}});
+    if(!Array.isArray(voc[k])||!voc[k].length)return;
+    /* Dropped: empties and duplicates. NOT dropped: the list itself when it
+       normalises to nothing — an empty SUBTYPES[k] is a draw panel with no
+       types in it, which is a worse answer than the words already there. */
+    const w=[];voc[k].forEach(x=>{const v=vocabWord(x);if(v&&w.indexOf(v)<0)w.push(v)});
+    if(!w.length)return;
+    SUBTYPES[k]=w;took.push(k)});
   /* Merged, not replaced: a village that names only phase 2 keeps Built and
      Planned. Keys arrive as numbers or strings depending on the JSON trip;
      phaseName() already reads both. */
   if(voc.phases&&typeof voc.phases==='object'&&!Array.isArray(voc.phases)&&Object.keys(voc.phases).length){
     SCENE.vocabulary.phases={...SCENE.vocabulary.phases,...voc.phases};took.push('phases')}
   if(Array.isArray(voc.media)&&voc.media.length){
-    SCENE.vocabulary.media=voc.media.map(m=>({key:m.key,name:m.name||m.key,color:m.color||'#e8c877',glyph:m.glyph||'seed'}));
+    SCENE.vocabulary.media=voc.media.map(m=>({key:m.key,name:m.name||m.key,color:vocabColor(m.color),glyph:m.glyph||'seed'}));
     rebuildMedia();flowSpriteReset();took.push('media')}
   return took}
 window.applyVocabulary=applyVocabulary;window.VOCAB_KEYS=VOCAB_KEYS;
@@ -4481,8 +4523,23 @@ function closeInspect(){inspLbClose();$('inspect').classList.remove('open');insp
 function openInspect(key){const s=BY[key];if(!s)return;inspKey=key;$('panel').classList.remove('open');panelKey=null;hideHover();
   $('inspect').classList.add('open'); // same reason: the flight aims at what stays visible beside the card
   travelTo(s.x,s.y,Math.max(cam.z,1.15));renderInspect()}
-function escq(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
-function structOpts(sel,excl){return SCENE.structures.filter(s=>s.key!==excl).map(s=>`<option value="${s.key}"${s.key===sel?' selected':''}>${escq(s.name)}</option>`).join('')}
+function escq(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+/* THREE CONTEXTS, THREE ESCAPES, and escq covers two of them.
+   escq is right for  value="${escq(x)}"  and for  <h2>${escq(x)}</h2>.
+   It is WRONG for    onclick="f('${escq(x)}')"  because the HTML parser turns
+   &quot; and &#39; back into characters BEFORE the handler is compiled, so the
+   apostrophe closes the JS string exactly as it would have raw. openDoor says
+   the same thing in its own comment, and openDoorHere answers it the stronger
+   way, by not putting the value in the attribute at all. Where a value must
+   travel through a handler, this is the escape it travels under.
+   THE BACKSLASH GOES FIRST. This file shipped .replace(/'/g,"\\'") by hand,
+   which escapes the quote and not the backslash: a value ending in a backslash
+   collapses the pair and the quote after it still closes the string. */
+function escj(t){return escq(String(t==null?'':t)
+  .replace(/\\/g,'\\\\').replace(/'/g,"\\'")
+  .replace(/\r/g,'\\r').replace(/\n/g,'\\n')
+  .replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029'))}
+function structOpts(sel,excl){return SCENE.structures.filter(s=>s.key!==excl).map(s=>`<option value="${escq(s.key)}"${s.key===sel?' selected':''}>${escq(s.name)}</option>`).join('')}
 function seatRowH(x,here){const si=SCENE.seats.indexOf(x);
   return `<label class="checkrow"><input type="checkbox" data-seat="${si}"${here?' checked':''}><span style="flex:1"><b style="font-weight:normal;color:#fff">⛨ ${escq(x.s)}</b><span style="display:block;font-size:10px;color:#b9cf9a">${escq(x.c)} circle · ${escq(x.note)}${here?'':' · at '+escq(BY[x.at]?BY[x.at].name:'?')}</span></span></label>`}
 function questRowH(q){const qi=SCENE.quests.indexOf(q);
@@ -4492,16 +4549,20 @@ function questRowH(q){const qi=SCENE.quests.indexOf(q);
    <select data-qaddr="${qi}"><option value="">Quest Board · not yet placed</option>${structOpts(q.at,null)}</select></div>
    <div class="irow" style="margin-top:3px"><span class="ilbl" style="width:52px">ask</span>
    <select data-qw="${qi}"><option value=""${q.weight?'':' selected'}>read from the words (${badgeWeight(q)})</option>${[1,2,3].map(w=>`<option value="${w}"${q.weight===w?' selected':''}>${({1:'1 · an hour',2:'2 · a session',3:'3 · a full day'})[w]}</option>`).join('')}</select></div></div>`}
-function doorRowH(m,i){return `<div class="irow"><input type="text" data-dlab="${i}" value="${escq(m[0])}"><input type="text" data-drt="${i}" value="${escq(m[1])}" style="max-width:96px"><button class="xbtn" data-ddel="${i}">✕</button></div>`}
+/* The box shows the ROOM'S NAME and the room's real route, never the
+   internal key: after the data fixes above, 19 of these 32 boxes would
+   otherwise have read `stay`, `quests`, `health`. What is shown is what
+   the visitor gets, and the handler binds it back on change. */
+function doorRowH(m,i){return `<div class="irow"><input type="text" data-dlab="${i}" value="${escq(doorLabel(m))}"><input type="text" data-drt="${i}" value="${escq(doorRoute(m))}" style="max-width:96px"><button class="xbtn" data-ddel="${i}">✕</button></div>`}
 function flowRowH(f,dir){const fi=SCENE.flows.indexOf(f);
-  const medSel=`<select data-fmed="${fi}" style="flex:none;width:132px">${SCENE.vocabulary.media.map(m=>`<option value="${m.key}"${mediaKey(f.medium)===m.key?' selected':''}>${escq(m.name)}</option>`).join('')}</select>`;
+  const medSel=`<select data-fmed="${fi}" style="flex:none;width:132px">${SCENE.vocabulary.media.map(m=>`<option value="${escq(m.key)}"${mediaKey(f.medium)===m.key?' selected':''}>${escq(m.name)}</option>`).join('')}</select>`;
   const other=dir==='in'?f.from:f.to;
   const nullOpt=dir==='in'?`<option value=""${!f.from?' selected':''}>imported · off-land</option>`
                           :`<option value=""${!f.to?' selected':''}>exported · off-land</option>`;
   const oSel=`<select data-foth="${fi}" data-dir="${dir}">${nullOpt}${structOpts(other,inspKey)}</select>`;
   const routes=SCENE.features.filter(x=>x.geom==='line');
-  const viaSel=(f.from&&f.to)?`<select data-fvia="${fi}" title="route along a drawn line" style="flex:none;width:74px"><option value="">bow</option>${routes.map(x=>`<option value="${x.id}"${f.via===x.id?' selected':''}>${escq((x.name||x.subtype).slice(0,16))}</option>`).join('')}</select>`:'';
-  return `<div class="irow"><span style="flex:none;width:9px;height:9px;border-radius:50%;background:${mediaColor(f.medium)}"></span>${medSel}${dir==='in'?oSel+'<span style="flex:none;color:#b9af8f;font-size:10px">→ here</span>':'<span style="flex:none;color:#b9af8f;font-size:10px">here →</span>'+oSel}${viaSel}<button class="xbtn" data-fdel="${fi}">✕</button></div>`}
+  const viaSel=(f.from&&f.to)?`<select data-fvia="${fi}" title="route along a drawn line" style="flex:none;width:74px"><option value="">bow</option>${routes.map(x=>`<option value="${escq(x.id)}"${f.via===x.id?' selected':''}>${escq((x.name||x.subtype).slice(0,16))}</option>`).join('')}</select>`:'';
+  return `<div class="irow"><span style="flex:none;width:9px;height:9px;border-radius:50%;background:${escq(mediaColor(f.medium))}"></span>${medSel}${dir==='in'?oSel+'<span style="flex:none;color:#b9af8f;font-size:10px">→ here</span>':'<span style="flex:none;color:#b9af8f;font-size:10px">here →</span>'+oSel}${viaSel}<button class="xbtn" data-fdel="${fi}">✕</button></div>`}
 /* ---------- homes per hamlet (L3, HOUSING_AVAILABILITY_CONTRACT.md) ----------
    SCENE.housing[structureKey] = {total, storedTaken, label, takenSource}, and
    null is unset on total and storedTaken INDEPENDENTLY. Never a sentinel: -1
@@ -4699,7 +4760,7 @@ function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
       <span style="font-size:10px;color:#b9af8f">state is derived, never stored</span></div>`;
   const cats={};REG.forEach(r=>{(cats[r[2]]=cats[r[2]]||[]).push(r)});
   const archSel=`<select id="iArch">`+Object.entries(cats).map(([cat,arr])=>`<optgroup label="${cat}">`+arr.map(r=>`<option value="${r[0]}"${r[0]===s.archetype?' selected':''}>${r[1]}</option>`).join('')+`</optgroup>`).join('')+`</select>`;
-  const circleSel=`<select id="iCircle"><option value="">unowned · needs a steward</option>`+Object.keys(CIRCLE_COL).map(c=>`<option value="${c}"${s.circle===c?' selected':''}>${c} circle</option>`).join('')+`</select>`;
+  const circleSel=`<select id="iCircle"><option value="">unowned · needs a steward</option>`+Object.keys(CIRCLE_COL).map(c=>`<option value="${escq(c)}"${s.circle===c?' selected':''}>${escq(c)} circle</option>`).join('')+`</select>`;
   const seatsHere=SCENE.seats.filter(x=>x.at===s.key),otherSeats=SCENE.seats.filter(x=>x.at!==s.key);
   const qHere=SCENE.quests.filter(q=>q.at===s.key);
   const flowsIn=SCENE.flows.filter(f=>f.to===s.key),flowsOut=SCENE.flows.filter(f=>f.from===s.key);
@@ -4711,10 +4772,10 @@ function renderInspect(){const s=BY[inspKey];if(!s){closeInspect();return}
    <div class="irow"><span class="ilbl">origin</span><textarea id="iOrigin" rows="2" placeholder="How this place came to be. Its memory.">${escq(s.origin)}</textarea></div>
    <h5>circle · the steward</h5>
    <div class="irow">${circleSel}</div>
-   <div class="insp-help insp-h-circle">${s.circle?`Emblem ring and banner wear the ${s.circle} circle's color.`:`Unowned: neutral ring, listed on the Wall as “needs a steward.”`}</div>
+   <div class="insp-help insp-h-circle">${s.circle?`Emblem ring and banner wear the ${escq(s.circle)} circle's color.`:`Unowned: neutral ring, listed on the Wall as “needs a steward.”`}</div>
    <h5>phase &amp; pool</h5>
    <div class="irow"><span class="ilbl">phase</span>
-     <span class="insp-tipwrap" data-tip="Phase says when this place happens. Planned fades the emblem, and with a full pool a Planned place reads as Blueprint, which visitors only see in the Vision.">${[1,2,3].map(ph=>`<label style="display:flex;gap:4px;align-items:center;font-size:12px;cursor:pointer"><input type="radio" name="iPhase" value="${ph}"${s.phase===ph?' checked':''} style="accent-color:var(--gold)">${phaseName(ph)}</label>`).join('')}</span>
+     <span class="insp-tipwrap" data-tip="Phase says when this place happens. Planned fades the emblem, and with a full pool a Planned place reads as Blueprint, which visitors only see in the Vision.">${[1,2,3].map(ph=>`<label style="display:flex;gap:4px;align-items:center;font-size:12px;cursor:pointer"><input type="radio" name="iPhase" value="${ph}"${s.phase===ph?' checked':''} style="accent-color:var(--gold)">${escq(phaseName(ph))}</label>`).join('')}</span>
      <span style="flex:1"></span><span class="ilbl" style="width:auto">activity</span>
      <select id="iAct" style="flex:none;width:92px" data-tip="Activity says how busy this place is once the pool is full. steady lights its windows, thriving adds a pulsing ring and people on the ground, quiet takes both away.">${[['steady','steady'],['high','thriving'],['low','quiet']].map(([v,l])=>`<option value="${v}"${(s.act||'steady')===v?' selected':''}>${l}</option>`).join('')}</select></div>
    <div class="insp-help insp-h-phase"><b>phase</b> says when this place happens. Planned fades the emblem, and with a full pool it hides from Now.<br><b>activity</b> says how busy it looks once the pool is full. quiet darkens the windows, thriving adds a ring and figures.</div>
@@ -4855,10 +4916,31 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
   B.querySelector('#iQAdd').onclick=()=>{const t=B.querySelector('#iQTitle').value.trim();if(!t)return;
     SCENE.quests.push({q:t,at:s.key,r:B.querySelector('#iQReward').value.trim()||'20 ♥',need:B.querySelector('#iQNeed').value.trim()||'hands welcome'});
     logEdit('quest-add','quest:'+t,{at:s.key});refreshWork();renderInspect()};
-  B.querySelectorAll('[data-dlab]').forEach(inp=>{inp.oninput=()=>{s.modules[+inp.dataset.dlab][0]=inp.value};
-    inp.onchange=()=>logEdit('door','structure:'+s.key,{doors:s.modules.map(m=>m[0])})});
-  B.querySelectorAll('[data-drt]').forEach(inp=>{inp.oninput=()=>{s.modules[+inp.dataset.drt][1]=inp.value};
-    inp.onchange=()=>logEdit('door','structure:'+s.key,{doors:s.modules.map(m=>m[0])})});
+  /* A RENAME CANNOT UNBIND A DOOR. Both of these used to write the typed text
+     straight into s.modules[i] with no bindDoor, which is the hole #iDAdd had:
+     a founder who improved `stay` to `Guest rooms` was left with a door that
+     opened nothing, and the census re-rotted on the first friendly word.
+     Typing itself is left alone, because rebinding on every keystroke fights
+     the typist. The row resolves on CHANGE through the same bindDoor call the
+     add box makes, and an edit that resolves to nothing is put back rather
+     than kept. `was` is the pair as the row was drawn, which is the last
+     value known to open something. */
+  B.querySelectorAll('[data-dlab],[data-drt]').forEach(inp=>{
+    const lab=inp.dataset.dlab!==undefined,i=+(lab?inp.dataset.dlab:inp.dataset.drt);
+    const was=(s.modules[i]||[]).slice();
+    inp.oninput=()=>{const m=s.modules[i];if(m)m[lab?0:1]=inp.value};
+    inp.onchange=()=>{const m=s.modules[i];if(!m)return;
+      const d=bindDoor(m[0],m[1]);
+      /* A door bound to a room wears the room's name, so a founder's own word
+         for it has nowhere to live: slot 0 IS the key. Say so rather than
+         letting the box quietly snap back. */
+      const D=d&&moduleAt(d[0]);const kept=!!D&&String(m[0]).trim().toLowerCase()!==D.name.toLowerCase();
+      s.modules[i]=d||was.slice();
+      const row=inp.parentElement,L=row&&row.querySelector('[data-dlab]'),R=row&&row.querySelector('[data-drt]');
+      if(L)L.value=doorLabel(s.modules[i]);if(R)R.value=doorRoute(s.modules[i]);
+      if(!d)return toast('That door would open nothing, so it is back as it was. Name a room ('+Object.keys(MODULES).join(', ')+') or a page the site serves, like /gratitude.');
+      logEdit('door','structure:'+s.key,{doors:s.modules.map(m2=>doorLabel(m2))});
+      if(kept)toast('That door opens the '+D.name+' room, so it keeps the name of the room.')}});
   B.querySelectorAll('[data-ddel]').forEach(b=>b.onclick=()=>{const d=s.modules.splice(+b.dataset.ddel,1)[0];
     logEdit('door-remove','structure:'+s.key,{label:d&&d[0]});renderInspect()});
   B.querySelectorAll('[data-qw]').forEach(sel=>sel.onchange=()=>{const q=SCENE.quests[+sel.dataset.qw];if(!q)return;
@@ -4873,8 +4955,13 @@ function bindInspect(s){const B=$('inspBody'),H=$('inspHead');
     logEdit('badges','structure:'+s.key,{show:BADGE_KINDS.filter(x=>badgeOn(s,x)).join(',')||'none'});
     refreshBadges();renderInspect()});
   B.querySelector('#iDAdd').onclick=()=>{const l=B.querySelector('#iDLabel').value.trim();if(!l)return;
-    (s.modules=s.modules||[]).push([l,B.querySelector('#iDRoute').value.trim()||'/forum']);
-    logEdit('door-add','structure:'+s.key,{label:l});renderInspect()};
+    /* Born bound, or not born. This used to push free text with '/forum' as a
+       silent default, so every door a founder added joined the 32 that opened
+       nothing, and the census re-rotted the first time anyone used it. */
+    const d=bindDoor(l,B.querySelector('#iDRoute').value.trim());
+    if(!d){toast('No door added. Name a room ('+Object.keys(MODULES).join(', ')+') or a page the site serves, like /gratitude.');return}
+    (s.modules=s.modules||[]).push(d);
+    logEdit('door-add','structure:'+s.key,{label:d[0],route:d[1]});renderInspect()};
   B.querySelector('#iFInAdd').onclick=()=>{SCENE.flows.push({from:null,to:s.key,medium:'water',note:'',phase:s.phase});
     logEdit('flow-add','flow→'+s.key,{});renderInspect()};
   B.querySelector('#iFOutAdd').onclick=()=>{const other=SCENE.structures.find(x=>x.key!==s.key);
@@ -4960,7 +5047,7 @@ function restoreScene(J){try{
   SCENE.quests.forEach(q=>questKey(q)); // an import from before keys existed gets them now
   if(Array.isArray(J.forum_threads))SCENE.threads=J.forum_threads.map(t=>({id:t.id,title:t.title,
     structures:(t.structure_keys||[]).filter(k=>BY[k]),author:t.author,aud:t.audience||'member',
-    replies:t.replies||0,last:t.last_activity||'',ex:t.excerpt||'',src:t.src||'sample',
+    replies:Number(t.replies)||0,last:t.last_activity||'',ex:t.excerpt||'',src:t.src||'sample',
     addr:(t.address_source&&t.address_source!=='pool')?t.address_source:((t.structure_keys||[]).length?'creator':null)}));
   if(Array.isArray(J.journeys))SCENE.journeys=J.journeys.map(j=>({id:j.id,name:j.name,src:j.src||'site',blurb:j.blurb||'',
     steps:(j.steps||[]).map(st=>({t:st.title,stage:st.stage||undefined,
@@ -4975,7 +5062,7 @@ function restoreScene(J){try{
   SCENE.flows=(J.map_flows||[]).map(r=>({from:r.from_key,to:r.to_key,medium:mediaKey(r.medium),note:r.note,
     phase:r.phase,via:r.via_feature||undefined}));
   SCENE.features=(J.map_zones||[]).filter(r=>r.id).map(r=>({id:r.id,kind:r.kind,geom:r.geom,
-    points:(r.polygon||r.path).map(pt=>[pt[0],pt[1]]),subtype:r.subtype,phase:r.phase,
+    points:(r.polygon||r.path).map(pt=>[pt[0],pt[1]]),subtype:r.subtype?vocabWord(r.subtype):r.subtype,phase:r.phase,
     owner:r.owner_structure_key||null,name:r.name||'',note:'',sort:0,public:r.public||undefined}));
   FEAT_SEQ=Math.max(FEAT_SEQ,...SCENE.features.map(f=>+String(f.id).replace(/\D/g,'')||0),0);
   if(J.boundary&&J.boundary.scene_units){SCENE.bound.length=0;
@@ -5073,13 +5160,13 @@ function renderLoom(){
   $('loomLeft').innerHTML=`<div class="lrow pool" data-k="__pool"><span class="lart">⚑</span><span class="lname">The Quest Board<small>the unplaced pool. Drop here to unplace</small></span></div>`+
    SCENE.structures.map(s=>{const fam=famOf(s);
     const art=(window.SPRITES&&SPRITES[fam])?`<img src="${SPRITES[fam]}" alt="">`:`<svg viewBox="0 0 64 64"><g stroke="#e8d9a8" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">${ICONS[fam]||ICONS.hall}</g></svg>`;
-    return `<div class="lrow" data-k="${s.key}"><span class="lart">${art}</span>
-     <span class="lname">${s.name}<small>${s.circle?s.circle+' circle':(s.district||'—')}</small></span>
+    return `<div class="lrow" data-k="${escq(s.key)}"><span class="lart">${art}</span>
+     <span class="lname">${escq(s.name)}<small>${s.circle?escq(s.circle)+' circle':escq(s.district||'—')}</small></span>
      ${s.circle?`<span class="ldot" style="background:${CIRCLE_COL[s.circle]||'#9aa08f'}"></span>`:''}
      ${cnt[s.key]?`<span class="lcnt">${cnt[s.key]}</span>`:''}</div>`}).join('');
   const F=LOOMF;
   const toLabel=cs=>{const st=LOOM_STAGED.has(cs);const to=st?LOOM_STAGED.get(cs):connTarget(cs);
-    return`→ ${atName(to)}${st?' <i class="stag">staged</i>':''}`};
+    return`→ ${escq(atName(to))}${st?' <i class="stag">staged</i>':''}`};
   const provChip=p=>p==='creator'?'<span class="lprov c">creator</span>':p==='resolver'?'<span class="lprov r">guess</span>':'<span class="lprov p">pool</span>';
   let html='';
   if(F.kind.quest){const rows=SCENE.quests.map((q,i)=>({q,i,p:classify(q)}))
@@ -5088,39 +5175,39 @@ function renderLoom(){
    html+=`<section class="lsec" data-sec="quest"><h4>⚑ Quests<small>${rows.length} of ${SCENE.quests.length} · unplaced first</small></h4>`+
     rows.map(({q,i,p})=>`<div class="lcard pv-${p}">
      <span class="lgrip" data-conn="quest:${i}" title="drag onto a place">◉</span>
-     <div class="lmain"><b>${q.q}</b><small>${q.r||''}${q.need?' · '+q.need:''}${q.src==='site'?' · from the live site':''}</small>
+     <div class="lmain"><b>${escq(q.q)}</b><small>${escq(q.r||'')}${q.need?' · '+escq(q.need):''}${q.src==='site'?' · from the live site':''}</small>
       <span class="lto">${toLabel('quest:'+i)}</span>
-      ${(q._why&&p!=='creator')?`<span class="lwhy">${q._why}</span>`:''}</div>${provChip(p)}</div>`).join('')+`</section>`}
+      ${(q._why&&p!=='creator')?`<span class="lwhy">${escq(q._why)}</span>`:''}</div>${provChip(p)}</div>`).join('')+`</section>`}
   if(F.kind.seat){const rows=SCENE.seats.map((x,i)=>({x,i,p:classify(x)}))
     .filter(r=>(LOOM_STAGED.has('seat:'+r.i)||F.prov[r.p])&&(!F.circle||r.x.c===F.circle))
     .sort((a,b)=>provRank[a.p]-provRank[b.p]);
    html+=`<section class="lsec" data-sec="seat"><h4>⛨ Roles & seats<small>${rows.length} of ${SCENE.seats.length}</small></h4>`+
     rows.map(({x,i,p})=>`<div class="lcard pv-${p}">
      <span class="lgrip" data-conn="seat:${i}" title="drag onto a place">◉</span>
-     <div class="lmain"><b>${x.s}</b><small>${x.c?x.c+' circle':''}${x.note?' · '+x.note:''}${x.src==='site'?' · from the live site':''}</small>
+     <div class="lmain"><b>${escq(x.s)}</b><small>${x.c?escq(x.c)+' circle':''}${x.note?' · '+escq(x.note):''}${x.src==='site'?' · from the live site':''}</small>
       <span class="lto">${toLabel('seat:'+i)}</span>
-      ${(x._why&&p!=='creator')?`<span class="lwhy">${x._why}</span>`:''}</div>${provChip(p)}</div>`).join('')+`</section>`}
+      ${(x._why&&p!=='creator')?`<span class="lwhy">${escq(x._why)}</span>`:''}</div>${provChip(p)}</div>`).join('')+`</section>`}
   if(F.kind.thread){const rows=SCENE.threads.map(t=>({t,p:threadProv(t)}))
     .filter(r=>F.prov[r.p]||[...LOOM_STAGED.keys()].some(k=>k.indexOf('thread:'+r.t.id+':')===0))
     .sort((a,b)=>provRank[a.p]-provRank[b.p]);
    html+=`<section class="lsec" data-sec="thread"><h4>💬 Conversations<small>${rows.length} of ${SCENE.threads.length} · a thread pins to as many places as its creator picks</small></h4>`+
     rows.map(({t,p})=>{
      const chips=(t.structures||[]).map((k,ai)=>{const cs=`thread:${t.id}:${ai}`;const st=LOOM_STAGED.has(cs);
-       return`<span class="lgrip achip${st?' staged':''}" data-conn="${cs}">◉ ${atName(st?LOOM_STAGED.get(cs):k)}</span>`}).join('');
+       return`<span class="lgrip achip${st?' staged':''}" data-conn="${escq(cs)}">◉ ${escq(atName(st?LOOM_STAGED.get(cs):k))}</span>`}).join('');
      const gcs=`thread:${t.id}:g`;const gst=LOOM_STAGED.has(gcs);
      const guess=(!(t.structures&&t.structures.length))?(t._res?
-       `<span class="lgrip achip guess${gst?' staged':''}" data-conn="${gcs}">◉ ${gst?atName(LOOM_STAGED.get(gcs)):atName(t._res.key)+' · a guess'}</span>`:
-       `<span class="lgrip achip poolc${gst?' staged':''}" data-conn="${gcs}">◉ ${gst?atName(LOOM_STAGED.get(gcs)):'the Board'}</span>`):'';
+       `<span class="lgrip achip guess${gst?' staged':''}" data-conn="${escq(gcs)}">◉ ${gst?escq(atName(LOOM_STAGED.get(gcs))):escq(atName(t._res.key))+' · a guess'}</span>`:
+       `<span class="lgrip achip poolc${gst?' staged':''}" data-conn="${escq(gcs)}">◉ ${gst?escq(atName(LOOM_STAGED.get(gcs))):'the Board'}</span>`):'';
      const acs=`thread:${t.id}:+`;const ast=LOOM_STAGED.has(acs);
-     return`<div class="lcard pv-${p}"><div class="lmain"><b>${t.title}</b>
-      <small>${t.author} · ${t.replies} replies · ${t.last} ago · ${t.aud==='public'?'public':'members'}${t.src==='sample'?' · sample':''}</small>
-      <div class="laddrs">${chips}${guess}<span class="lgrip achip add${ast?' staged':''}" data-conn="${acs}">${ast?'◉ '+atName(LOOM_STAGED.get(acs)):'+ place'}</span></div>
-      ${(t._res&&!(t.structures&&t.structures.length))?`<span class="lwhy">${t._res.why}</span>`:''}</div>${provChip(p)}</div>`}).join('')+`</section>`}
+     return`<div class="lcard pv-${p}"><div class="lmain"><b>${escq(t.title)}</b>
+      <small>${escq(t.author)} · ${escq(t.replies)} replies · ${escq(t.last)} ago · ${t.aud==='public'?'public':'members'}${t.src==='sample'?' · sample':''}</small>
+      <div class="laddrs">${chips}${guess}<span class="lgrip achip add${ast?' staged':''}" data-conn="${escq(acs)}">${ast?'◉ '+escq(atName(LOOM_STAGED.get(acs))):'+ place'}</span></div>
+      ${(t._res&&!(t.structures&&t.structures.length))?`<span class="lwhy">${escq(t._res.why)}</span>`:''}</div>${provChip(p)}</div>`}).join('')+`</section>`}
   if(F.kind.journey){html+=`<section class="lsec" data-sec="journey"><h4><svg viewBox='0 0 24 24' style='width:12px;height:12px;vertical-align:-1px'><g stroke='currentColor' stroke-width='2.4' fill='none' stroke-linecap='round'><path d='M5 19c6-1 2-6 8-7s3-5 6-7M15.5 5H19v3.5'/></g></svg> Journeys<small>each a numbered route. Drag any step</small></h4>`+
-   SCENE.journeys.map(j=>`<div class="ljcard"><div class="ljhead"><b>${j.name}</b><small>${j.blurb||''}${j.src==='site'?' · from the live site':''}</small><button class="lchip" onclick="playJourney('${j.id}')">➹ walk it</button></div>
+   SCENE.journeys.map(j=>`<div class="ljcard"><div class="ljhead"><b>${escq(j.name)}</b><small>${escq(j.blurb||'')}${j.src==='site'?' · from the live site':''}</small><button class="lchip" onclick="playJourney('${escj(j.id)}')">➹ walk it</button></div>
     <div class="lsteps">${j.steps.map((st,si)=>{const cs=`step:${j.id}:${si}`;const p=classify(st);
       const dim=!(F.prov[p]||LOOM_STAGED.has(cs));
-      return`<span class="lgrip lstep pv-${p}${dim?' provoff':''}" data-conn="${cs}"><i>${si+1}</i>${st.stage?`<em>${st.stage}</em>`:''}<span>${st.t}</span><u>${toLabel(cs)}</u></span>`}).join('')}</div></div>`).join('')+`</section>`}
+      return`<span class="lgrip lstep pv-${p}${dim?' provoff':''}" data-conn="${escq(cs)}"><i>${si+1}</i>${st.stage?`<em>${escq(st.stage)}</em>`:''}<span>${escq(st.t)}</span><u>${toLabel(cs)}</u></span>`}).join('')}</div></div>`).join('')+`</section>`}
   $('loomRight').innerHTML=html;
   const T=loomTable();const n={creator:0,resolver:0,pool:0};T.forEach(r=>n[r.prov]=(n[r.prov]||0)+1);
   $('loomStats').innerHTML=`${T.length} threads on the loom · <b class="c">${n.creator} creator picks</b> · <b class="r">${n.resolver} suggested</b> · <b class="p">${n.pool} in the pool</b>${LOOM_STAGED.size?` · <b style="color:#9fd08a">${LOOM_STAGED.size} staged</b>`:''}`;
@@ -5146,7 +5233,7 @@ function drawLoomWires(){const svg=$('loomWires');const body=$('loomBody');if(!d
     const x2=hr.left-br.left,y2=gr.top-br.top+gr.height/2;
     const dx=Math.max(46,Math.min(170,Math.abs(x2-x1)/2));
     const cls=LOOM_STAGED.has(cs)?'staged':prov;
-    out+=`<path class="lw ${cls}" data-conn="${cs}" d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1+dx).toFixed(1)} ${y1.toFixed(1)}, ${(x2-dx).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}"/>`});
+    out+=`<path class="lw ${cls}" data-conn="${escq(cs)}" d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1+dx).toFixed(1)} ${y1.toFixed(1)}, ${(x2-dx).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}"/>`});
   svg.innerHTML=out+'<path id="loomDragPath" d=""/>'}
 let LDRAG=null,lastDragT=0;
 $('loomBody').addEventListener('pointerdown',e=>{const g=e.target.closest('.lgrip');if(!g)return;
@@ -5185,8 +5272,17 @@ $('loomBody').addEventListener('click',e=>{
   if(row&&row.dataset.k!=='__pool'&&BY[row.dataset.k]){closeLoom();goTo(row.dataset.k)}});
 $('loomBody').addEventListener('pointerover',e=>{const g=e.target.closest('[data-conn]');if(!g)return;
   document.querySelectorAll('#loomWires .lw.hi').forEach(x=>x.classList.remove('hi'));
-  const sel=`#loomWires .lw[data-conn="${g.dataset.conn}"]`;
-  const p=document.querySelector(sel);if(p)p.classList.add('hi')});
+  /* MATCHED, NOT INTERPOLATED (g6.04). `g.dataset.conn` carries the founder's
+     forum thread id or journey id, and this line used to concatenate it into a
+     CSS selector: one double quote in an id and querySelector throws a
+     SyntaxError out of a listener nobody catches, so hovering the Loom on a
+     stored scene killed the highlight and put an uncaught error on the page
+     every time. The wires carry the same id in their own dataset, so compare
+     the strings. Nothing to escape, nothing to keep in step, and the id stays
+     byte-exact on both sides. */
+  const cs=g.dataset.conn;let p=null;
+  document.querySelectorAll('#loomWires .lw').forEach(x=>{if(!p&&x.dataset.conn===cs)p=x});
+  if(p)p.classList.add('hi')});
 $('loomBody').addEventListener('pointerout',e=>{if(e.target.closest&&e.target.closest('[data-conn]'))
   document.querySelectorAll('#loomWires .lw.hi').forEach(x=>x.classList.remove('hi'))});
 function applyRewire(cs,to){const c=parseConn(cs);
@@ -5286,21 +5382,24 @@ window.refreshEventBadges=refreshEventBadges;
 try{refreshBadges()}catch(_){}
 setInterval(()=>{try{refreshBadges()}catch(_){}} ,3000);
 function eventCard(s){const evs=eventsAt(s.key);if(!evs.length)return'';
-  return `<div style="margin-top:9px">`+evs.map(e=>`<div class="mrow" data-item="${itemAddr('event',e)}" style="margin:4px 0"><span><b>✦ ${e.title}</b><small>${e.when} · ${e.rsvp} going · sample</small></span>
-   <button class="btn" data-ev="${e.id}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${e.id}')">${EV_RSVP[e.id]?'✔ Going · tap to change':'RSVP'}</button></div>
+  return `<div style="margin-top:9px">`+evs.map(e=>`<div class="mrow" data-item="${escq(itemAddr('event',e))}" style="margin:4px 0"><span><b>✦ ${e.title}</b><small>${e.when} · ${e.rsvp} going · sample</small></span>
+   <button class="btn" data-ev="${escq(e.id)}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${escj(e.id)}')">${EV_RSVP[e.id]?'✔ Going · tap to change':'RSVP'}</button></div>
    <div class="promise">${PROMISE_RSVP}</div>`).join('')+`</div>`}
 window.eventCard=eventCard;
 function evRSVP(id){const e=EVENTS.find(x=>x.id===id);if(!e)return;
   const on=!EV_RSVP[id];
   if(on){e.rsvp++;EV_RSVP[id]=1}else{e.rsvp=Math.max(0,e.rsvp-1);delete EV_RSVP[id]}
   e._me=on?1:0;promiseSave('amora-rsvp',EV_RSVP);
-  document.querySelectorAll(`[data-ev="${id}"]`).forEach(b=>{b.textContent=on?'✔ Going · tap to change':'RSVP';b.disabled=false});
+  /* the third selector built by concatenation (g6.05). An event id is baked
+     into EVENTS at :5357 today, but :5375 already writes it through escq AND
+     escj, which is this file treating it as untrusted. Matched instead. */
+  document.querySelectorAll('[data-ev]').forEach(b=>{if(b.dataset.ev!==id)return;b.textContent=on?'✔ Going · tap to change':'RSVP';b.disabled=false});
   const nonce=promiseNonce();
   bridgePost({type:'rsvp',id,title:e.title,on,nonce});
   promiseWatch('rsvp',id,nonce,()=>{ // put it back exactly, without posting again
     if(on){e.rsvp=Math.max(0,e.rsvp-1);delete EV_RSVP[id];e._me=0}else{e.rsvp++;EV_RSVP[id]=1;e._me=1}
     promiseSave('amora-rsvp',EV_RSVP);
-    document.querySelectorAll(`[data-ev="${id}"]`).forEach(b=>{b.textContent=on?'RSVP':'✔ Going · tap to change'});
+    document.querySelectorAll('[data-ev]').forEach(b=>{if(b.dataset.ev!==id)return;b.textContent=on?'RSVP':'✔ Going · tap to change'});
     if(typeof refreshBadges==='function')refreshBadges()});
   window.hap&&hap(on?[12,50,12]:8);
   toast(on?('✔ You are going. '+e.rsvp+' going.'):'RSVP withdrawn. The door stays open.');
@@ -5330,9 +5429,9 @@ const MODULES={
   stay:{name:'Stays',icon:MICON.stay,route:'/stay',
     blurb:'Book a room and pay in stay credits or money. Two posted prices, no exchange rate. Low on nights? Work-exchange quests are the way to earn your stay.',
     sample:ctx=>{const s=ctx&&ctx.at&&BY[ctx.at];
-      if(s&&s.doors&&s.doors.stay==='future')return `<div class="mrow"><span><b>${s.name}</b><small>bookable when it's built. The door is already on the map; the building will catch up.</small></span></div>
+      if(s&&s.doors&&s.doors.stay==='future')return `<div class="mrow"><span><b>${escq(s.name)}</b><small>bookable when it's built. The door is already on the map; the building will catch up.</small></span></div>
         <div class="lastv">any named housing building can open a booking door. Founders flip it in build mode</div>`;
-      return `${s?`<div class="lastv" style="margin:0 0 6px">booking at <b>${s.name}</b></div>`:''}
+      return `${s?`<div class="lastv" style="margin:0 0 6px">booking at <b>${escq(s.name)}</b></div>`:''}
       <div class="mrow"><span><b>Rooms tonight</b><small>${ROOMS.guest.total-ROOMS.guest.taken} of ${ROOMS.guest.total} open</small></span></div>
       <div class="mrow"><span><b>Jungle Casita</b><small>sleeps 2 · creek side</small></span><span><b>155 credits</b><small>or $80 / night</small></span></div>
       <div class="mrow"><span><b>Ridge Room</b><small>sleeps 1 · sunrise wall</small></span><span><b>120 credits</b><small>or $65 / night</small></span></div>
@@ -5340,9 +5439,9 @@ const MODULES={
   housing:{name:'Housing',icon:MICON.housing,route:'/housing',
     blurb:'Reserve a home in a neighbourhood. Land share agreements, the waitlist, and the Resident Journey all meet here.',
     sample:ctx=>{const s=ctx&&ctx.at&&BY[ctx.at];
-      return `${s?`<div class="lastv" style="margin:0 0 6px">reserving in <b>${s.name}</b></div>`:''}
+      return `${s?`<div class="lastv" style="margin:0 0 6px">reserving in <b>${escq(s.name)}</b></div>`:''}
       ${[['ridgeA','walls rising'],['ridgeB','staked &amp; pooled'],['pondhomes','by the water']].map(([k,note])=>{const L=LOTS[k];const nm=BY[k]?BY[k].name:k;
-        return `<div class="mrow"><span><b>${nm}</b><small>${note}</small></span><span><b>${L.sold} of ${L.total}</b><small>lots spoken for · ${L.total-L.sold} open${housingTag(k)?' · '+housingTag(k):''}</small></span></div>`}).join('')}
+        return `<div class="mrow"><span><b>${escq(nm)}</b><small>${note}</small></span><span><b>${L.sold} of ${L.total}</b><small>lots spoken for · ${L.total-L.sold} open${housingTag(k)?' · '+housingTag(k):''}</small></span></div>`}).join('')}
       <div class="lastv">the same numbers the banners wear${(()=>{const u=['ridgeA','ridgeB','pondhomes'].filter(k=>!housingSet(k));return u.length?' · Example numbers. The founder has not set '+(u.length===1?'this hamlet':'these hamlets')+' yet.':''})()}</div>`}},
   library:{name:'Material Library',icon:MICON.library,route:'/library',
     blurb:'The lending commons. Add your tools to earn credits, borrow with a deposit, wear quoted up front. Every item carries its own story.',
@@ -5352,24 +5451,24 @@ const MODULES={
   forum:{name:'Forum',icon:'💬',route:'/forum',
     blurb:'The village conversation. Every thread pins to the places it talks about, and the map shows it where it lives.',
     sample:ctx=>{const at=ctx&&ctx.at;const th=at?threadsAt(at):SCENE.threads.slice(0,4);
-      return th.map(t=>`<div class="mrow"><span><b>${t.title}</b><small>${t.author} · ${t.replies} replies · ${t.last} ago</small></span></div>`).join('')||'<div class="lastv">no conversations pinned here yet</div>'}},
+      return th.map(t=>`<div class="mrow"><span><b>${escq(t.title)}</b><small>${escq(t.author)} · ${escq(t.replies)} replies · ${escq(t.last)} ago</small></span></div>`).join('')||'<div class="lastv">no conversations pinned here yet</div>'}},
   quests:{name:'Quests',icon:'⚑',route:'/quests',
     blurb:'Find somewhere to help. Hearts for the work, claimed with consent.',
     sample:ctx=>{const open=SCENE.quests.slice(0,3);
-      return open.map(q=>`<div class="mrow"><span><b>${q.q}</b><small>${q.need||''}</small></span><span><b>${q.r||''}</b><small>${q.at&&BY[q.at]?BY[q.at].name:'the Board'}</small></span></div>`).join('')+
+      return open.map(q=>`<div class="mrow"><span><b>${escq(q.q)}</b><small>${escq(q.need||'')}</small></span><span><b>${escq(q.r||'')}</b><small>${escq(q.at&&BY[q.at]?BY[q.at].name:'the Board')}</small></span></div>`).join('')+
       `<div class="lastv">${SCENE.quests.length} quests on the land · propose your own at /propose-quest</div>`}},
   journeys:{name:'Journeys',icon:MICON.journeys,route:'/first-walk',
     blurb:'Walk a path. Every journey is a route on the land; steps without a place yet wait on the Loom.',
     sample:ctx=>SCENE.journeys.map(j=>{const placed=j.steps.filter(st=>st.at&&BY[st.at]).length;
-      return `<div class="mrow"><span><b>${j.name}</b><small>${placed} of ${j.steps.length} steps placed</small></span>
-       <span style="display:flex;gap:6px"><button class="btn" style="font-size:10.5px;padding:3px 10px" onclick="playJourney('${j.id}')">➹ walk it</button></span></div>`}).join('')},
+      return `<div class="mrow"><span><b>${escq(j.name)}</b><small>${placed} of ${j.steps.length} steps placed</small></span>
+       <span style="display:flex;gap:6px"><button class="btn" style="font-size:10.5px;padding:3px 10px" onclick="playJourney('${escj(j.id)}')">➹ walk it</button></span></div>`}).join('')},
   health:{name:'Village Health',icon:'☀',route:'/village-health',
     blurb:'The numbers behind the map. The same truth the crown banner reads.',
-    sample:ctx=>SCENE.vitals.map(v=>`<div class="mrow"><span><b>${v.label}</b><small>${v.sub}</small></span><span><b>${v.v}</b></span></div>`).join('')},
+    sample:ctx=>SCENE.vitals.map(v=>`<div class="mrow"><span><b>${escq(v.label)}</b><small>${escq(v.sub)}</small></span><span><b>${escq(v.v)}</b></span></div>`).join('')},
   events:{name:'Events',icon:MICON.events,route:'/events',
     blurb:'Feasts, build days, ceremonies. Every event is a place and a time on the land, and its lantern burns brighter as the day comes near.',
-    sample:ctx=>EVENTS.map(e=>`<div class="mrow"><span><b>✦ ${e.title}</b><small>${e.when} · at ${e.at.map(k=>BY[k]?BY[k].name:k).join(' + ')} · sample</small></span>
-      <button class="btn" data-ev="${e.id}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${e.id}')">${EV_RSVP[e.id]?'✔ Going · tap to change':'RSVP'}</button></div>
+    sample:ctx=>EVENTS.map(e=>`<div class="mrow"><span><b>✦ ${e.title}</b><small>${e.when} · at ${escq(e.at.map(k=>BY[k]?BY[k].name:k).join(' + '))} · sample</small></span>
+      <button class="btn" data-ev="${escq(e.id)}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${escj(e.id)}')">${EV_RSVP[e.id]?'✔ Going · tap to change':'RSVP'}</button></div>
       <div class="promise">${PROMISE_RSVP}</div>`).join('')
       +`<div class="lastv">the Events module keeps these, with the RSVPs and the capacity. Two doors, one room</div>`},
   admin:{name:'Village Settings · Make This Yours',icon:MICON.admin,route:'/admin?tab=setup',
@@ -5379,30 +5478,179 @@ const MODULES={
       <div class="lastv">style it once and both the site and the land follow</div>`}};
 window.MODULES=MODULES;
 function siteHref(route){return (window.SITE_BASE||'')+route}
+/* ---------- doors: a room on this map, or a page on the site, never neither ----------
+   A door's first slot is a MODULES key when the room exists here, and the
+   founder's own label when the door leads only to a page on the site. Both
+   open something. The third case, a route the site does not serve, is what
+   this map used to do 16 times over and it now says so in plain words.
+
+   SITE_PAGES is derived from client/src/App.tsx by scripts/qa/routes.mjs and
+   written here by patch_g1_01_doors.py, which aborts if the two have drifted.
+   qa/verify_door_routes.js re-derives it and fails when this list rots.
+   NOT `SITE_ROUTES`: that name is taken at :4504 by the journey map, and a
+   second const of the same name kills this whole script block in silence. */
+const SITE_PAGES=['/','/admin','/admin/mint','/badges','/circles','/co-creators-guide','/contribute','/events','/exit-policy','/feed','/feedback','/first-walk','/forgot-password','/forum','/game-mechanics','/good-neighbor','/governance','/gratitude','/housing','/how-we-create','/investor','/journey-to-launch','/library','/login','/love-letter','/map','/map/circles','/master-plan','/messages','/modules','/network','/opportunities','/profile','/profile/characters','/project-history','/propose-quest','/prosperity','/quests','/register','/reserve','/resident','/resident-rights','/roles','/seasonal-festivals','/set-password','/stay','/steward','/steward-rights','/team','/tokens','/tools','/training','/village-health','/visit','/wallet','/work-with-us'];
+window.SITE_PAGES=SITE_PAGES;
+/* WHAT COMES BACK IS THE CANONICAL PATH, and that is a security property, not
+   a convenience. The membership test strips ? and # FIRST, so `/gratitude`
+   followed by a fragment passes it while the caller's raw string still carries
+   whatever was in that fragment. The door card is the first place in this file
+   where a founder-controlled route reaches an href and an onclick, so handing
+   the raw string back would let an APPROVED door carry a payload. This returns
+   the matching SITE_PAGES element instead: an approved route is one of the
+   literals written above and carries nothing anyone typed.
+   '' means the site serves no page there, so `if(!realRoute(r))` and
+   `${real?...}` read exactly as they did when this returned a boolean. */
+function realRoute(r){const p=String(r||'').trim().split('?')[0].split('#')[0];
+  const i=p?SITE_PAGES.indexOf(p):-1;return i<0?'':SITE_PAGES[i]}
+window.realRoute=realRoute;
+/* The four paths this map shipped that the router has never served, and the
+   page each one meant. They live in the artifact rather than only in the seed
+   data below because restoreScene rebuilds SCENE.structures wholesale from the
+   published payload: a village that published before round g gets all 32 of
+   its old doors back verbatim, and /health is worse than a 404 because the
+   server answers it with the ops probe in raw JSON.
+   Each rewrite only fires when the site does NOT serve the original, so the
+   day /health becomes a real page this table goes inert on its own. Every
+   target is checked against client/src/App.tsx at patch time. */
+const LEGACY_ROUTES={'/stays':'/stay','/health':'/village-health','/products':'/contribute','/exchange':'/wallet'};
+window.LEGACY_ROUTES=LEGACY_ROUTES;
+/* OWN KEYS ONLY. Every table in this door block is a plain object literal,
+   so every name on Object.prototype used to answer a lookup in it, and all
+   FOUR of them are indexed with a string from a published scene:
+     MODULES['constructor']     handed back the Object function, doorLabel
+                                called it a module and printed "Object",
+                                openDoor drew "undefined Objectundefined",
+                                and #/module/__proto__ reached the same
+                                branch from the address bar.
+     LEGACY_ROUTES['constructor'] handed back a FUNCTION to a line that
+                                calls .split on it. THIS was the throw, and
+                                renderTab calls it once per door, so one
+                                door took down the whole structure panel.
+     DOOR_DEFS['constructor']   made doorClick open a door whose module is
+                                undefined.
+   THREE ACCESSORS AND ONE PREDICATE, because the review note on the last
+   pass was that the identical hole one field over had been left open. A
+   published scene names its own keys and the address bar is typed by
+   anyone, so none of this needs the founder's keyboard to be reached. */
+function ownAt(o,k){return (o&&typeof k==='string'&&Object.prototype.hasOwnProperty.call(o,k))?o[k]:null}
+function moduleAt(k){return ownAt(MODULES,k)}
+function doorDefAt(k){return ownAt(DOOR_DEFS,k)}
+window.ownAt=ownAt;window.moduleAt=moduleAt;window.doorDefAt=doorDefAt;
+/* A door a founder adds is born bound, or it is not born. Typing a module key,
+   a module's name or a module's route all reach the module; anything else has
+   to name a page the site actually serves. */
+function bindDoor(label,route){
+  const l=String(label||'').trim();let r=String(route||'').trim();
+  const M=moduleAt(l);
+  if(M)return[l,M.route];
+  const byName=Object.keys(MODULES).find(k=>MODULES[k].name.toLowerCase()===l.toLowerCase());
+  if(byName)return[byName,MODULES[byName].route];
+  const bare=r.split('?')[0].split('#')[0];
+  const alias=ownAt(LEGACY_ROUTES,bare);
+  if(!realRoute(r)&&alias)r=alias;
+  const byRoute=r&&Object.keys(MODULES).find(k=>MODULES[k].route.split('?')[0]===r.split('?')[0]);
+  if(byRoute)return[byRoute,MODULES[byRoute].route];
+  const rr=realRoute(r);
+  if(!rr)return null;
+  return[l,rr]}
+window.bindDoor=bindDoor;
+/* ONE resolver, and every read of a door goes through it. The 17 data fixes
+   further down live in the seed literal, and restoreScene replaces
+   SCENE.structures wholesale, so they never reach a village that already
+   published: measured, an export taken from the pre-g artifact and restored
+   here came back 0 bound, 32 dead ends, 16 unserved. Resolving through
+   bindDoor at READ time heals that scene as it is DRAWN, with nothing written
+   back to it and no line in restoreScene, which is another lane's file.
+   A pair bindDoor cannot resolve is handed back untouched, so this invents
+   nothing and the card still says the route leads nowhere. */
+function doorSlot(m){const a=String((m&&m[0])||''),r=String((m&&m[1])||'');
+  return bindDoor(a,r)||[a,r]}
+window.doorSlot=doorSlot;
+function doorLabel(m){const d=doorSlot(m),M=moduleAt(d[0]);return M?M.name:d[0]}
+function doorRoute(m){const d=doorSlot(m),M=moduleAt(d[0]);return M?M.route:d[1]}
+window.doorLabel=doorLabel;window.doorRoute=doorRoute;
+/* Open a door by WHERE IT IS, not by pasting its label into an onclick. The
+   panel used to write onclick="openModule('${m[0]}','${m[1]}')", so a founder
+   label carrying an apostrophe wrote broken JS into the button, and the route
+   string arrived where openDoor expects a context object, which is why a door
+   never knew which building it stood on. The key handed to openDoor is the
+   RESOLVED one, so a stale slot opens its room instead of the "no room yet"
+   card it used to get. */
+function openDoorAt(key,i){const s=BY[key];const m=s&&s.modules&&s.modules[i];if(!m)return;
+  return openDoor(doorSlot(m)[0],{at:key,route:doorRoute(m),label:doorLabel(m)})}
+window.openDoorAt=openDoorAt;
+/* THE PANEL'S BUTTON CARRIES AN INDEX AND NOTHING ELSE. Those two lines
+   used to write onclick="openDoorAt('${s.key}',${mi})", and a structure
+   key is not the viewer's own text: restoreScene rebuilds
+   SCENE.structures from the published payload, keys included. Measured, a
+   key of  x');window.__pwn=1;//  produced
+   onclick="openDoorAt('x');window.__pwn=1;//',0)" and the smuggled
+   statement ran on the first click.
+   ESCAPING IS NOT THE FIX FOR THIS SINK. The HTML parser turns &#39; back
+   into an apostrophe before the handler is compiled, which is the same
+   reason openDoor below puts only the canonical path in its onclick. So
+   the key stops travelling through the attribute: the panel is open at
+   exactly one place, renderTab already read the structure from panelKey,
+   and this reads the same place. The only thing interpolated into either
+   button is a loop index. */
+function openDoorHere(i){return openDoorAt(panelKey,i)}
+window.openDoorHere=openDoorHere;
 function doorBtns(s){if(!s.doors)return'';
-  const btns=Object.keys(s.doors).map(k=>{const D=DOOR_DEFS[k];if(!D)return'';const fut=s.doors[k]==='future';
-    return `<button class="btn doorcta${fut?' fut':''}" onclick="doorClick('${s.key}','${k}')">${D.icon} ${D.cta}${fut?' · when built':''}</button>`}).join('');
+  const btns=Object.keys(s.doors).map(k=>{const D=doorDefAt(k);if(!D)return'';const fut=s.doors[k]==='future';
+    return `<button class="btn doorcta${fut?' fut':''}" onclick="doorClickHere('${escj(k)}')">${D.icon} ${D.cta}${fut?' · when built':''}</button>`}).join('');
   return btns?`<div style="margin-top:9px;display:flex;flex-wrap:wrap;gap:7px">${btns}</div>`:''}
 window.doorBtns=doorBtns;
-function doorClick(key,k){const s=BY[key];if(!s)return;const D=DOOR_DEFS[k];if(!D)return;
+function doorClick(key,k){const s=BY[key];if(!s)return;const D=doorDefAt(k);if(!D)return;
   if((s.doors||{})[k]==='future'){openDoor(D.module,{at:key});return}
   openDoor(D.module,{at:key})}
 window.doorClick=doorClick;
+/* The panel's other door button, same reason as openDoorHere above: the
+   key stops travelling through the attribute rather than being escaped
+   into it. doorBtns is drawn from renderTab tab 0 and nowhere else, so the
+   place it is drawn for is always the place the panel is open at. */
+function doorClickHere(k){return doorClick(panelKey,k)}
+window.doorClickHere=doorClickHere;
 function openDoor(a,ctx){
-  const key=MODULES[a]?a:null;
-  if(!key){ // a founder-bound door with no registered module yet
-    const name=a,route=ctx;
-    $('moduleCard').innerHTML=`<h2>${name}</h2><div class="route">${route} · bound by the founder</div>
-      <p><b>${name}</b>: this door is bound, but its room isn't on the map yet. The site still carries the page; bind it to a room in build mode and it opens here too.</p>
-      <div class="acts"><button class="btn" onclick="closeDoor()">Back to the land</button></div>`;
+  const key=moduleAt(a)?a:null;
+  if(!key){ /* A door that names a PAGE rather than a room on this map.
+      This was a true dead end: the route was printed as inert text and the
+      only button said "Back to the land". A page the site serves now opens.
+      `ctx` arrives two ways and both are honoured, because openModule's
+      legacy (label,route) signature is still reachable from a scene published
+      before this patch: an object {at,route,label} from openDoorAt, or a bare
+      route string from openModule. Reading `ctx` as a route unconditionally is
+      what printed [object Object] the moment a caller passed a place. */
+    const c=(ctx&&typeof ctx==='object')?ctx:{};
+    const name=c.label||a;
+    const route=String((typeof ctx==='string'?ctx:c.route)||'').trim();
+    const at=c.at&&BY[c.at]?BY[c.at]:null;
+    /* TWO ATTRIBUTE SINKS AND ONE FOUNDER STRING, so this needs both locks.
+       `real` is the CANONICAL path realRoute recognised, which is one of the
+       SITE_PAGES literals in this file, so the href, the onclick and the
+       button's own words carry nothing anybody typed. That is the lock that
+       counts: HTML-escaping alone CANNOT protect the JS string inside
+       onclick="...", because the parser turns &#39; back into an apostrophe
+       before the handler is compiled. The raw `route` is shown as text and
+       never as an attribute.
+       escq is the second lock, on the label as much as the route: the panel's
+       old onclick broke on an apostrophe in a founder label, and the same
+       string reaching innerHTML unescaped is the same bug wearing a hat. */
+    const real=realRoute(route);
+    $('moduleCard').innerHTML=`<h2>${escq(name)}</h2><div class="route">${escq(route)||'no page named'}${at?` · through the door of ${escq(at.name)}`:''} · bound by the founder</div>
+      <p>${real?`<b>${escq(name)}</b> is a page on the site, and it has no room on this map yet. Open it on the site; bind it to a room in build mode and it opens here too.`:`<b>${escq(name)}</b> points at <b>${escq(route)||'nothing'}</b>, and the site serves no page there. Give it a route the site carries, in build mode, and this door opens.`}</p>
+      <div class="acts">
+        ${real?`<a class="btn" href="${escq(siteHref(real))}" target="_blank" rel="noopener" onclick="return siteNav(event,'${escj(real)}')">Open ${escq(real)} on the site ↗</a>`:''}
+        <button class="btn${real?' ghostbtn':''}" onclick="closeDoor()">Back to the land</button>
+      </div>`;
     $('module').classList.add('show');return}
-  const M=MODULES[key];const at=ctx&&ctx.at&&BY[ctx.at]?BY[ctx.at]:null;
+  const M=moduleAt(key);const at=ctx&&ctx.at&&BY[ctx.at]?BY[ctx.at]:null;
   setHash('#/module/'+key);
-  $('moduleCard').innerHTML=`<h2>${M.icon} ${M.name}</h2><div class="route">${M.route}${at?` · through the door of ${at.name}`:' · from the dock'}</div>
+  $('moduleCard').innerHTML=`<h2>${M.icon} ${M.name}</h2><div class="route">${M.route}${at?` · through the door of ${escq(at.name)}`:' · from the dock'}</div>
     <p>${M.blurb}</p>
     ${M.sample?M.sample(ctx||{}):''}
     <div class="acts">
-      <a class="btn" href="${siteHref(M.route)}" target="_blank" rel="noopener" onclick="return siteNav(event,'${M.route}')">Open ${M.route} on the site ↗</a>
+      <a class="btn" href="${siteHref(M.route)}" target="_blank" rel="noopener" onclick="return siteNav(event,'${escj(M.route)}')">Open ${M.route} on the site ↗</a>
       <button class="btn ghostbtn" onclick="closeDoor()">Back to the land</button>
     </div>
     <div class="lastv">two doors, one room. The site menu and this map open the same place; come in either way.</div>`;
@@ -5425,10 +5673,10 @@ function playJourney(id){const j=jById(id);if(!j)return;
   if(!stops.length){toast('No steps of this journey have a place yet. The Loom awaits.');return}
   const skipped=j.steps.length-stops.length;
   JWALK={id,i:0};setHash('#/journey/'+id);
-  maiaSay(`<b>${j.name}</b>. Walking ${stops.length} of ${j.steps.length} steps${skipped?` (${skipped} not yet placed; drag them on the Loom)`:''}. <b>Esc</b> ends the walk.`);
+  maiaSay(`<b>${escq(j.name)}</b>. Walking ${stops.length} of ${j.steps.length} steps${skipped?` (${skipped} not yet placed; drag them on the Loom)`:''}. <b>Esc</b> ends the walk.`);
   const step=()=>{if(!JWALK||JWALK.id!==id)return;
     if(JWALK.i>=stops.length){JWALK=null;
-      maiaSay(`The walk ends here. The full <b>${j.name}</b> lives at <a href="${siteHref(SITE_ROUTES[id]||'/')}" target="_blank" rel="noopener">${SITE_ROUTES[id]||'/'}</a>. Two doors, one journey.`);
+      maiaSay(`The walk ends here. The full <b>${escq(j.name)}</b> lives at <a href="${siteHref(SITE_ROUTES[id]||'/')}" target="_blank" rel="noopener">${SITE_ROUTES[id]||'/'}</a>. Two doors, one journey.`);
       setHash('');return}
     const x=stops[JWALK.i];const s=BY[x.st.at];
     travelTo(s.x,s.y,1.25,()=>{
@@ -5439,7 +5687,7 @@ function playJourney(id){const j=jById(id);if(!j)return;
       if(!JWALK||JWALK.id!==id)return;
       /* Maia is the PRESENTER; the words stay village content, so `t` and the
          optional `body` are printed as they were written. */
-      maiaSay(`<b>${x.st.stage?x.st.stage+': ':''}${x.st.t}</b> at ${s.name}`+
+      maiaSay(`<b>${x.st.stage?escq(x.st.stage)+': ':''}${escq(x.st.t)}</b> at ${escq(s.name)}`+
         (x.st.body?`<div style="margin-top:3px">${x.st.body}</div>`:'')+
         `<div class="jrow"><button class="btn" onclick="jNext()">▸ next</button>`+
         `<button class="btn ghostbtn" onclick="jEnd()">✕ end the walk</button>`+
@@ -5550,7 +5798,7 @@ function routeHash(){if(HASHMUTE)return;const h=location.hash||'';
       if(document.body.classList.contains('circles'))setMapType('living',true);
       openPanel(m[2],m[3]?ITAB[m[3].split(':')[0]]||0:0,m[3]||null)}
     else{toast('That place is no longer on the map.');setHash('')}}
-  else if(m[1]==='module'&&MODULES[m[2]])openDoor(m[2],{});
+  else if(m[1]==='module'&&moduleAt(m[2]))openDoor(m[2],{});
   else if(m[1]==='journey')setTimeout(()=>playJourney(m[2]),500)}
 addEventListener('hashchange',routeHash);
 if(location.hash&&location.hash.length>2)setTimeout(routeHash,400);
@@ -5584,29 +5832,29 @@ function buildOrgMap(){
     orbits+=`<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
       ${seats.length?`<circle r="46" fill="none" stroke="${col}" stroke-opacity=".16" stroke-dasharray="2 6"/>`:''}
       ${quests.length?`<circle r="70" fill="none" stroke="#e8c877" stroke-opacity=".13" stroke-dasharray="2 7"/>`:''}</g>`;
-    nodes+=`<g class="onode" data-go="${home||''}" data-kind="circle" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+    nodes+=`<g class="onode" data-go="${escq(home||'')}" data-kind="circle" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
       <circle r="${R.toFixed(1)}" fill="${col}" fill-opacity=".18" stroke="${col}" stroke-width="2.4"/>
-      <text y="3" text-anchor="middle" font-size="11.5" fill="#f2e7c6">${c}</text>
-      <text y="${(R+12).toFixed(0)}" text-anchor="middle" font-size="8.2" fill="#b9af8f">⌂ ${home&&BY[home]?BY[home].name:'no home yet'}</text></g>`;
+      <text y="3" text-anchor="middle" font-size="11.5" fill="#f2e7c6">${escq(c)}</text>
+      <text y="${(R+12).toFixed(0)}" text-anchor="middle" font-size="8.2" fill="#b9af8f">⌂ ${escq(home&&BY[home]?BY[home].name:'no home yet')}</text></g>`;
     seats.forEach((s2,k)=>{ // roles: outward-facing arc — vacancy is DERIVED (all prototype seats are open calls)
       const spread=Math.min(2.6,0.62*Math.max(1,seats.length-1));
       const b=a+(seats.length===1?0:(k/(seats.length-1)-0.5)*spread);
       const rx2=x+46*Math.cos(b),ry2=y+46*Math.sin(b);
       const nm=s2.s.length>19?s2.s.slice(0,18)+'…':s2.s;
-      nodes+=`<g class="onode orole" data-go="${s2.at||''}" data-kind="role" transform="translate(${rx2.toFixed(1)},${ry2.toFixed(1)})">
+      nodes+=`<g class="onode orole" data-go="${escq(s2.at||'')}" data-kind="role" transform="translate(${rx2.toFixed(1)},${ry2.toFixed(1)})">
         <circle class="ovac" r="6" fill="#1c140b" stroke="#ecd08a" stroke-width="1.6" stroke-dasharray="3 2"/>
-        <text y="15" text-anchor="middle" font-size="7.4" fill="#e8d9a8">${nm}</text></g>`});
+        <text y="15" text-anchor="middle" font-size="7.4" fill="#e8d9a8">${escq(nm)}</text></g>`});
     const qs=quests.slice(0,6);
     qs.forEach((q2,k)=>{const spread=Math.min(2.2,0.5*Math.max(1,qs.length-1));
       const b=a+(qs.length===1?0:(k/(qs.length-1)-0.5)*spread);
       const qx=x+70*Math.cos(b),qy=y+70*Math.sin(b);
-      nodes+=`<g class="onode oquest" data-go="${q2.at||''}" data-kind="quest" transform="translate(${qx.toFixed(1)},${qy.toFixed(1)})">
-        <circle r="4.2" fill="#e8c877" fill-opacity=".85"/><title>⚑ ${q2.q}</title></g>`});
+      nodes+=`<g class="onode oquest" data-go="${escq(q2.at||'')}" data-kind="quest" transform="translate(${qx.toFixed(1)},${qy.toFixed(1)})">
+        <circle r="4.2" fill="#e8c877" fill-opacity=".85"/><title>⚑ ${escq(q2.q)}</title></g>`});
     if(quests.length>6){const qx=x+70*Math.cos(a+1.35),qy=y+70*Math.sin(a+1.35);
       nodes+=`<g transform="translate(${qx.toFixed(1)},${qy.toFixed(1)})"><text text-anchor="middle" font-size="8" fill="#e8c877">+${quests.length-6}</text></g>`}});
   nodes+=`<g class="onode" data-go="community" data-kind="village" transform="translate(${CX},${CY})">
     <circle r="34" fill="rgba(201,162,94,.14)" stroke="#ecd08a" stroke-width="2.6"/>
-    <text y="-1" text-anchor="middle" font-size="13" fill="#f2e7c6">${SCENE.name||'Amora'}</text>
+    <text y="-1" text-anchor="middle" font-size="13" fill="#f2e7c6">${escq(SCENE.name||'Amora')}</text>
     <text y="13" text-anchor="middle" font-size="8" fill="#b9af8f">the village</text></g>`;
   $('orgSvg').innerHTML=`<g id="orgRoot">${edges}${orbits}${nodes}</g>`;
   orgApplyVB()}
@@ -5667,20 +5915,20 @@ function openVitalDrop(k,anchor){
   dp.style.left=Math.max(8,Math.min(innerWidth-300,r.left+r.width/2-144))+'px';
   const findQ=kws=>SCENE.quests.find(q=>kws.some(w=>(q.q+' '+(q.desc||'')).toLowerCase().includes(w)));
   const claimBtn=(kws,createLabel,home)=>{const q2=findQ(kws);
-    return q2?`<button class="btn" onclick="claimQuest('${escq(q2.q)}','${escq(q2.at?nameOf(q2.at):'the Board')}');$('vdrop').classList.remove('show')">⚑ Claim: ${q2.q}</button>`
-      :`<button class="btn" onclick="vitalQuest('${createLabel}','${home}')">⚑ Begin: ${createLabel}</button>`};
+    return q2?`<button class="btn" onclick="claimQuest('${escj(q2.q)}','${escj(q2.at?nameOf(q2.at):'the Board')}');$('vdrop').classList.remove('show')">⚑ Claim: ${escq(q2.q)}</button>`
+      :`<button class="btn" onclick="vitalQuest('${escj(createLabel)}','${escj(home)}')">⚑ Begin: ${escq(createLabel)}</button>`};
   const body={
-    people:()=>`<div class="vfact"><b>${D.people.v}</b> members · ${D.people.sub}</div><div class="vhow">${D.people.how}</div>
+    people:()=>`<div class="vfact"><b>${escq(D.people.v)}</b> members · ${escq(D.people.sub)}</div><div class="vhow">${escq(D.people.how)}</div>
       <button class="btn" onclick="openDoor('journeys',{});$('vdrop').classList.remove('show')">➹ Begin a journey</button>`,
-    food:()=>`<div class="vfact"><b>${D.food.v}</b> · ${D.food.sub}</div><div class="vhow">${D.food.how}</div>
+    food:()=>`<div class="vfact"><b>${escq(D.food.v)}</b> · ${escq(D.food.sub)}</div><div class="vhow">${escq(D.food.how)}</div>
       ${claimBtn(['harvest','garden','seed','plant'],'Feed the village','greenhouse')}`,
-    water:()=>`<div class="vfact"><b>${D.water.v}</b> · ${D.water.sub}</div><div class="vhow">${D.water.how}</div>
+    water:()=>`<div class="vfact"><b>${escq(D.water.v)}</b> · ${escq(D.water.sub)}</div><div class="vhow">${escq(D.water.how)}</div>
       ${claimBtn(['water','creek','swale','drip','trail'],'Tend the waters','tank')}`,
-    canopy:()=>`<div class="vfact"><b>${D.canopy.v}</b> · ${D.canopy.sub}</div><div class="vfact">${D._pathKm.toFixed(1)} km of drawn paths thread the land</div><div class="vhow">${D.canopy.how}</div>
+    canopy:()=>`<div class="vfact"><b>${escq(D.canopy.v)}</b> · ${escq(D.canopy.sub)}</div><div class="vfact">${D._pathKm.toFixed(1)} km of drawn paths thread the land</div><div class="vhow">${escq(D.canopy.how)}</div>
       ${claimBtn(['tree','plant','mulch','forest'],'Plant toward the canopy','foodforest')}`,
-    hearts:()=>`<div class="vfact"><b>${D.hearts.v} ♥</b> · ${D.hearts.sub}</div><div class="vhow">${D.hearts.how}</div>
+    hearts:()=>`<div class="vfact"><b>${escq(D.hearts.v)} ♥</b> · ${escq(D.hearts.sub)}</div><div class="vhow">${escq(D.hearts.how)}</div>
       <a class="btn" style="text-align:center" href="${siteHref('/gratitude')}" target="_blank" rel="noopener" onclick="return siteNav(event,'/gratitude')">♥ Send gratitude ↗</a>`,
-    moon:()=>`<div class="vfact">${SCENE.moonName}</div><div class="vhow">the lunar cycle closes the books: gratitude settles, stewards are thanked, the pulse resets</div>
+    moon:()=>`<div class="vfact">${escq(SCENE.moonName)}</div><div class="vhow">the lunar cycle closes the books: gratitude settles, stewards are thanked, the pulse resets</div>
       <button class="btn" onclick="openDoor('health',{});$('vdrop').classList.remove('show')">☀ Village Health</button>`};
   const name={people:'People',food:'Food',water:'Water',canopy:'Canopy',hearts:'Hearts',moon:'The Moon'}[k]||k;
   /* Where this number comes from, said before anything is asked of you.
@@ -5693,16 +5941,16 @@ function openVitalDrop(k,anchor){
     `<div style="margin-top:8px;border-top:1px dashed #6b5430;padding-top:7px">
        <div style="font-size:10px;letter-spacing:.06em;color:${held?'var(--gold-b)':'#b9af8f'}">${prov}</div>
        ${held
-         ? `<div style="font-size:11.5px;margin-top:4px">Held by your word · <a href="#" onclick="vitalClear('${k}');return false" style="color:var(--gold-b)">release</a></div>`
+         ? `<div style="font-size:11.5px;margin-top:4px">Held by your word · <a href="#" onclick="vitalClear('${escj(k)}');return false" style="color:var(--gold-b)">release</a></div>`
          : `<div style="font-size:11px;color:#cfc7a8;margin-top:4px">Know the real number? Set it here and the map holds your word until you release it.</div>
             <div style="display:flex;gap:6px;align-items:center;margin-top:5px">
               <input id="vOvr" type="text" placeholder="the true number" style="flex:1;background:rgba(44,33,20,.8);border:1px solid #6b5430;border-radius:6px;color:var(--parch);font-family:inherit;font-size:11px;padding:4px 8px">
-              ${unit?`<span style="font-size:11px;color:#b9af8f">${unit}</span>`:''}
-              <button class="btn" style="font-size:10.5px;padding:3px 9px" onclick="vitalSet('${k}')">Hold this number</button>
+              ${unit?`<span style="font-size:11px;color:#b9af8f">${escq(unit)}</span>`:''}
+              <button class="btn" style="font-size:10.5px;padding:3px 9px" onclick="vitalSet('${escj(k)}')">Hold this number</button>
             </div>`}
      </div>`:'';
-  dp.innerHTML=`<h5>${name}</h5>${(body[k]||(()=>''))()}${ovr}
-    <div class="vhow" style="opacity:.8">source: ${k==='moon'?'the lunar calendar':(D[k]?D[k].src:'—')} · live feeds from the bioregion can plug in here</div>`;
+  dp.innerHTML=`<h5>${escq(name)}</h5>${(body[k]||(()=>''))()}${ovr}
+    <div class="vhow" style="opacity:.8">source: ${escq(k==='moon'?'the lunar calendar':(D[k]?D[k].src:'—'))} · live feeds from the bioregion can plug in here</div>`;
   dp.classList.add('show')}
 window.openVitalDrop=openVitalDrop;
 function vitalQuest(label,home){SCENE.quests.push({q:label,at:home,addr:'resolver-guess',r:'20 ♥',need:'hands welcome',src:'vital'});
@@ -5740,19 +5988,22 @@ $('skGS').onchange=()=>setGScale(+$('skGS').value);
 /* the wizard shows every dial — same handlers, two homes, one truth */
 $('skBrush').oninput=()=>{$('pBrush').value=$('skBrush').value;$('pBrush').dispatchEvent(new Event('input'));$('skBrushV').textContent=$('skBrush').value+'%'};
 $('skPal').oninput=()=>{$('pPal').value=$('skPal').value;$('pPal').dispatchEvent(new Event('input'));$('skPalV').textContent=$('skPal').value+'%'};
-$('skTerr').onchange=()=>{const b=document.querySelector(`[data-tm="${$('skTerr').value}"]`);if(b)b.click()};
+$('skTerr').onchange=()=>{/* matched, not compiled (g6.05) — the fourth and last */
+  const v=$('skTerr').value;let b=null;
+  document.querySelectorAll('[data-tm]').forEach(x=>{if(!b&&x.dataset.tm===v)b=x});
+  if(b)b.click()};
 $('skGlow').onchange=()=>{SKIN.glow=$('skGlow').checked;
   toast(SKIN.glow?'The pulse is on. The village shimmers where it talks.':'Pulse off. A still land.')};
 /* vocabulary — the founder's words for the land (Q1d) */
 function renderVocab(){const host=$('skVocab');if(!host)return;
-  host.innerHTML=SUBTYPES.zone.map((z,i)=>`<button class="chip" data-vz="${i}" data-tip="Click to rename. Your land, your words; every drawn zone follows.">${z}</button>`).join('')
+  host.innerHTML=SUBTYPES.zone.map((z,i)=>`<button class="chip" data-vz="${i}" data-tip="Click to rename. Your land, your words; every drawn zone follows.">${escq(z)}</button>`).join('')
    +`<button class="chip" data-vz="+" style="border-style:dashed">+ word</button>`;
   host.querySelectorAll('[data-vz]').forEach(b=>b.onclick=()=>{
     const i=b.dataset.vz;
     const inp=document.createElement('input');inp.type='text';inp.value=i==='+'?'':SUBTYPES.zone[+i];
     inp.style.cssText='width:92px;background:rgba(44,33,20,.9);border:1px solid #c9a25e;border-radius:6px;color:#fff;font-family:inherit;font-size:10.5px;padding:3px 7px';
     b.replaceWith(inp);inp.focus();
-    inp.onkeydown=e=>{if(e.key==='Enter'){const v=inp.value.trim().toLowerCase();
+    inp.onkeydown=e=>{if(e.key==='Enter'){const v=vocabWord(inp.value);
         if(v){if(i==='+'){if(!SUBTYPES.zone.includes(v)){SUBTYPES.zone.push(v);logEdit('vocab','zone:+',{added:v})}}
           else{const old=SUBTYPES.zone[+i];if(v!==old){SUBTYPES.zone[+i]=v;
             SCENE.features.forEach(f=>{if(f.kind==='zone'&&f.subtype===old)f.subtype=v});
@@ -5957,7 +6208,15 @@ window.bandBox=function(which){const b=BAND_BOX[which];return b?{top:b.top,botto
 
 /* tooltips — one primitive, the house voice (A7) */
 (function tips(){const tp=document.createElement('div');tp.id='tip';document.body.appendChild(tp);let cur=null;
-  const show=el=>{const s2=el.getAttribute('data-tip');if(!s2)return;tp.innerHTML=s2;tp.classList.add('show');
+  /* TEXT, NOT MARKUP (g6.05). Every data-tip in this file is written through
+     escq — :3101 and :3102 are founder values — and that escape is correct for
+     the attribute and is UNDONE by the parser before this line runs:
+     getAttribute hands back the decoded characters, and innerHTML parsed them a
+     second time. One escape at one end of a two-hop round trip is not an
+     escape. Measured before changing it: of the 62 tips live on this page
+     exactly two contain any of < > &, both a literal ampersand in prose, which
+     reads the same either way. No tip in this file carries markup. */
+  const show=el=>{const s2=el.getAttribute('data-tip');if(!s2)return;tp.textContent=s2;tp.classList.add('show');
     const r=el.getBoundingClientRect();const w=tp.offsetWidth,h=tp.offsetHeight;
     let x=Math.min(innerWidth-w-8,Math.max(8,r.left+r.width/2-w/2));
     let y=r.top-h-9;if(y<6)y=r.bottom+9;
@@ -6042,7 +6301,7 @@ rebuildVitals();
 function renderMediaVocab(){const host=$('skMedia');if(!host)return;
   const L=SCENE.vocabulary.media;
   host.innerHTML=L.map((m,i)=>`<button class="chip" data-vm="${i}" data-tip="Click to change its name, its colour or its mark. Every flow of this kind follows.">`+
-      `<i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${m.color};margin-right:5px;vertical-align:middle"></i>${escq(m.name)}</button>`).join('')
+      `<i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${escq(m.color)};margin-right:5px;vertical-align:middle"></i>${escq(m.name)}</button>`).join('')
     +`<button class="chip" data-vm="+" style="border-style:dashed">+ type</button>`;
   host.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>mediaEditor(b,b.dataset.vm))}
 window.renderMediaVocab=renderMediaVocab;
@@ -6054,7 +6313,7 @@ function mediaEditor(btn,idx){
   box.style.cssText='display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap';
   const fld='background:rgba(44,33,20,.9);border:1px solid #c9a25e;border-radius:6px;color:#fff;font-family:inherit;font-size:10.5px;padding:3px 7px';
   box.innerHTML=`<input class="vmn" type="text" value="${escq(m.name)}" placeholder="what moves" style="${fld};width:104px">`+
-    `<input class="vmc" type="color" value="${m.color}" style="width:26px;height:22px;padding:0;border:1px solid #c9a25e;border-radius:6px;background:none">`+
+    `<input class="vmc" type="color" value="${escq(m.color)}" style="width:26px;height:22px;padding:0;border:1px solid #c9a25e;border-radius:6px;background:none">`+
     `<select class="vmg" style="${fld}">${Object.keys(GLYPH_PATH).map(g=>`<option value="${g}"${g===m.glyph?' selected':''}>${g}</option>`).join('')}</select>`+
     `<button class="chip vmok">keep</button>`+
     (add?'':`<button class="chip vmx" style="border-color:#a33d2a;color:#e8a090" data-tip="${used?used+' flows still move this way':'nothing moves this way'}">✕</button>`);
@@ -6067,7 +6326,7 @@ function mediaEditor(btn,idx){
        name is capped, and a name that cannot make a key is refused here where
        a person can see it. */
     const name=n.value.trim().slice(0,48);if(!name)return renderMediaVocab();
-    const color=box.querySelector('.vmc').value,glyph=box.querySelector('.vmg').value;
+    const color=vocabColor(box.querySelector('.vmc').value),glyph=box.querySelector('.vmg').value;
     if(add){const key=slugify(name).slice(0,32);
       if(!key)return toast('Give it a name with letters or numbers in it, so the map has something to file it under.');
       if(L.length>=24)return toast('Twenty four kinds of moving thing is the most a village can carry.');
@@ -6537,8 +6796,8 @@ function nextWalk(){clearTimeout(WTMR);const steps=walkSteps();WIDX++;
   travelTo(sBY.x,sBY.y,1.3,()=>{
     const wc=$('walkCard');
     const choice=st.gesture==='choice';
-    wc.innerHTML=`<h5>${st.title}</h5><p>${st.body}</p>
-      ${(!choice&&st.gesture&&st.gesture!=='none')?`<div class="wgate">✋ ${st.gate_hint||st.gesture}</div>`:''}
+    wc.innerHTML=`<h5>${escq(st.title)}</h5><p>${escq(st.body)}</p>
+      ${(!choice&&st.gesture&&st.gesture!=='none')?`<div class="wgate">✋ ${escq(st.gate_hint||st.gesture)}</div>`:''}
       ${choice?`<div class="wrow" style="flex-wrap:wrap">
         <button class="btn" onclick="claimQuest('Welcome Ambassador','the Welcome Lodge');endWalk(true)">⚑ Claim a first quest</button>
         <button class="btn" onclick="evRSVP('e1');endWalk(true)">✦ Join tonight’s feast</button>
