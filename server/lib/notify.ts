@@ -61,6 +61,12 @@ export interface NotifyPrefs {
    * row, so "immediate" here cannot become a flood however busy the thread.
    */
   messagesEmail: "immediate" | "daily" | "off";
+  /**
+   * The weekly brief (L5b): the whole digest, in-app, email and agent inbox
+   * together. One switch, default on, because the brief is the village
+   * saying what the week holds and off must be one honest click.
+   */
+  weeklyBrief: "on" | "off";
 }
 
 /** Junk-tolerant, field-by-field: a malformed blob degrades to defaults. */
@@ -76,6 +82,7 @@ export function resolveNotifyPrefs(prefs: any): NotifyPrefs {
     mentionsEmail: pick(n.mentionsEmail, ["immediate", "daily", "off"], "immediate"),
     repliesEmail: pick(n.repliesEmail, ["immediate", "daily", "off"], "immediate"),
     messagesEmail: pick(n.messagesEmail, ["immediate", "daily", "off"], "immediate"),
+    weeklyBrief: pick(n.weeklyBrief, ["on", "off"], "on"),
   };
 }
 
@@ -100,6 +107,11 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
       return p.repliesEmail;
     case "message":
       return p.messagesEmail;
+    case "weekly_brief":
+      // "off" ON PURPOSE: runWeeklyBrief sends its own full HTML and stamps
+      // emailed_at itself. If this said "immediate", the insert path would
+      // race it with a flattened one-line version of the same brief.
+      return "off";
     case "thread_activity":
       return "off"; // in-app only by design — follows are ambient, never urgent
     case "contact_request":
@@ -243,6 +255,118 @@ export async function runNotificationDigest(deps: NotifyDeps): Promise<{ users: 
     await new Promise((r) => setTimeout(r, 300));
   }
   return { users: sent, rows: included };
+}
+
+// ── The weekly brief sender (round 4, lane L5b) ─────────────────────────────
+
+export interface WeeklyBriefRendered {
+  subject: string;
+  /** One line for the in-app row's body. */
+  line: string;
+  text: string;
+  html: string;
+  /** The gathered facts, as the agent inbox envelope's data. */
+  data: unknown;
+}
+
+export interface RunWeeklyBriefOpts {
+  weekKey: string;
+  /** Who could receive one. The caller decides the population; this filters by prefs. */
+  members: Array<{ id: string }>;
+  /** Build one member's brief. Null skips them quietly. NEVER calls a model. */
+  gather(member: any): Promise<WeeklyBriefRendered | null>;
+  /**
+   * Queue the digest to the member's agent inbox (L6's enqueueAgentDelivery,
+   * bound by the caller). Every non-ok answer is tolerated silently: the
+   * brief lands in-app and by email whether or not an agent is listening.
+   */
+  enqueueAgent?(userId: string, data: unknown): Promise<{ ok: boolean } | unknown>;
+}
+
+export interface WeeklyBriefSummary {
+  eligible: number;
+  fresh: number;
+  emailed: number;
+  agents: number;
+  optedOut: number;
+}
+
+/**
+ * Deliver the weekly brief: one in-app row per opted-in member (dedupe key
+ * `brief:<weekKey>:<userId>`, so a second run in the same week inserts and
+ * sends NOTHING), an email with the full HTML for those the cap and their
+ * prefs allow, and one agent-inbox delivery per member whose agent listens.
+ *
+ * `emailCadenceFor("weekly_brief")` answers "off" on purpose, so the insert's
+ * own immediate path never emails a flattened body; the email leaves from
+ * here, once, and stamps `emailed_at` on the same row.
+ */
+export async function runWeeklyBrief(deps: NotifyDeps, opts: RunWeeklyBriefOpts): Promise<WeeklyBriefSummary> {
+  const summary: WeeklyBriefSummary = { eligible: 0, fresh: 0, emailed: 0, agents: 0, optedOut: 0 };
+  for (const m of opts.members) {
+    const user = await deps.memberById(m.id);
+    if (!user) continue;
+    const prefs = resolveNotifyPrefs(user.prefs);
+    if (prefs.weeklyBrief === "off") {
+      summary.optedOut += 1;
+      continue;
+    }
+    summary.eligible += 1;
+
+    let rendered: WeeklyBriefRendered | null = null;
+    try {
+      rendered = await opts.gather(user);
+    } catch (e) {
+      console.error("[brief] gather failed for one member (the rest continue)", e);
+    }
+    if (!rendered) continue;
+
+    const inserted = await insertNotification(deps, {
+      userId: user.id,
+      type: "weekly_brief",
+      title: rendered.subject,
+      body: rendered.line,
+      link: `/events?brief=${opts.weekKey}`,
+      dedupeKey: `brief:${opts.weekKey}:${user.id}`,
+    });
+    if (!inserted.fresh) continue;
+    summary.fresh += 1;
+
+    if (!prefs.emailsOff && user.email && user.passwordHash && (await underDailyCap(deps.pool, user.id))) {
+      try {
+        await deps.sendEmail({
+          to: [user.email],
+          subject: rendered.subject,
+          html: emailShell(
+            deps.projectName(),
+            `<h2 style="margin:0 0 6px;font-size:17px">${escapeHtml(rendered.subject)}</h2>` +
+              rendered.html +
+              `<p style="margin:16px 0 0"><a href="${escapeHtml(deps.origin() + `/events?brief=${opts.weekKey}`)}" style="display:inline-block;background:#2D5A5A;color:#fff;border-radius:8px;padding:9px 16px;text-decoration:none;font-weight:600">Open the calendar</a></p>` +
+              `<p style="color:#9ca3af;font-size:12px;margin-top:18px">You can turn the weekly brief off on the calendar page, under the brief itself.</p>`,
+          ),
+        });
+        if (inserted.id) {
+          await deps.pool.query("UPDATE notifications SET emailed_at = CURRENT_TIMESTAMP WHERE id = ? AND emailed_at IS NULL", [inserted.id]);
+        }
+        summary.emailed += 1;
+        // Be gentle with the mail provider's rate limits, same as the digest.
+        await new Promise((r) => setTimeout(r, 300));
+      } catch (e) {
+        console.error("[brief] email failed (in-app row stands)", e);
+      }
+    }
+
+    if (opts.enqueueAgent) {
+      try {
+        const q: any = await opts.enqueueAgent(user.id, rendered.data);
+        if (q && q.ok === true) summary.agents += 1;
+        // Every non-ok reason (no inbox, disabled, bad kind) passes in silence.
+      } catch (e) {
+        console.error("[brief] agent enqueue failed (delivery elsewhere stands)", e);
+      }
+    }
+  }
+  return summary;
 }
 
 // ── Reads ────────────────────────────────────────────────────────────────────
