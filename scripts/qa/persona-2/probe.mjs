@@ -504,13 +504,21 @@ async function run() {
       rec.notes.push(`layer-ish chips visible: ${layers}`);
       const rsvp = await page.locator("button", { hasText: /going|maybe|can't|cannot/i }).count();
       rec.notes.push(`rsvp controls visible (never pressed): ${rsvp}`);
-      const meet = page.locator("text=Meet me").first();
-      if (await meet.count()) {
-        await meet.scrollIntoViewIfNeeded().catch(() => {});
-        await page.waitForTimeout(500);
-        rec.extraShots.push(await shot(page, shotsDir, `events-meet-me--${profile.name}`));
-        rec.notes.push("meet-me window surface present (form render only, write path not exercised on live)");
-      } else rec.notes.push("meet-me surface NOT visible on /events");
+      // The community card ("post, meet, bring") ships collapsed; opening it is
+      // client-only state, and the meet-me windows live inside it.
+      const communityToggle = page.locator("button", { hasText: "Your calendar: post, meet, bring" }).first();
+      if (await communityToggle.count()) {
+        await communityToggle.scrollIntoViewIfNeeded().catch(() => {});
+        await communityToggle.click({ timeout: 3000 }).catch(() => rec.notes.push("community card toggle click failed"));
+        await page.waitForTimeout(900);
+        const meet = page.locator("text=Meet me").first();
+        if (await meet.count()) {
+          await meet.scrollIntoViewIfNeeded().catch(() => {});
+          await page.waitForTimeout(400);
+          rec.extraShots.push(await shot(page, shotsDir, `events-meet-me--${profile.name}`));
+          rec.notes.push("meet-me windows inside the community card (render only, write path not exercised on live)");
+        } else rec.notes.push("community card opened but no Meet me section inside");
+      } else rec.notes.push("community card (post, meet, bring) NOT found on /events");
     },
     [`/events?brief=${"WEEK"}`]: null, // replaced below with the real date key
     "/messages": async (page, rec) => {
@@ -535,6 +543,17 @@ async function run() {
         ["legend", /legend/i], ["decides-by", /decides/i], ["currency", /currency|tokens|hearts/i], ["your seat", /your seat|my seat|you are/i],
       ]) {
         rec.notes.push(`${what} text: ${(await page.locator(`text=${re}`).count()) ? "present" : "NOT found"}`);
+      }
+      // The Legend ships collapsed on the phone and the currency picker lives in
+      // its footer; expanding is client-only state.
+      const legend = page.locator("button", { hasText: /^Legend$/ }).first();
+      if (await legend.count()) {
+        await legend.scrollIntoViewIfNeeded().catch(() => {});
+        await legend.click({ timeout: 3000 }).catch(() => rec.notes.push("legend toggle click failed"));
+        await page.waitForTimeout(700);
+        const cur = await page.locator("text=/currency|CRC|colones/i").count();
+        rec.notes.push(`legend expanded; currency picker text hits inside: ${cur}`);
+        rec.extraShots.push(await shot(page, shotsDir, `map-circles-legend-open--${profile.name}`));
       }
       const search = page.locator('input[placeholder*="Who does"]').first();
       if (await search.count()) {
@@ -570,9 +589,12 @@ async function run() {
       }
     },
     "/modules": async (page, rec) => {
-      const on = await page.locator("text=/^On$/").count();
+      const on = await page.locator("text=On in this village").count();
+      const core = await page.locator("text=Always on").count();
       const founders = await page.locator("text=/ask your founders/i").count();
-      rec.notes.push(`module cards with an On badge: ${on}; ask-your-founders affordances: ${founders} (this account is an admin, so founder-only chrome may show)`);
+      rec.notes.push(`module cards: "On in this village" x${on}, "Always on" x${core}; ask-your-founders affordances: ${founders} (this account is an admin, so founder-only chrome may show)`);
+      const shelves = await page.locator("h2, h3").allInnerTexts().catch(() => []);
+      rec.notes.push(`shelf headings: ${JSON.stringify(shelves.slice(0, 12))}`);
     },
     "/map": async (page, rec) => {
       await page.waitForTimeout(2500);
@@ -850,7 +872,10 @@ function assemble() {
           if (!verdictRows.contrast.worst || c.ratio < (verdictRows.contrast.worstRatio ?? 99)) { verdictRows.contrast.worst = `${r.route}: ${c.ratio}:1 ${c.size}px "${c.text}" ${c.fg} on ${c.bg}`; verdictRows.contrast.worstRatio = c.ratio; }
         }
       } else verdictRows.contrast.nm += 1;
-      if (f.onwardLinks === 0 && !f.hasBottomBar && r.route !== "/x-missing-page-probe") {
+      // A soft-404 page is counted in the 404 row, not here: its "Go Home" is a
+      // button, which the anchor count cannot see, and one page should not fill
+      // two harm rows.
+      if (f.onwardLinks === 0 && !f.hasBottomBar && !f.soft404 && r.route !== "/x-missing-page-probe") {
         verdictRows.deadend.count += 1;
         if (!verdictRows.deadend.worst) verdictRows.deadend.worst = `${r.route} ${vp}`;
         findings.push({ id: fid(), severity: "MED", category: "navigation", route: r.route, viewport: vp, buildMarker: run.buildStart, elementChain: "(page)", repro: `open ${r.route} at ${vp}; look for any way onward`, screenshot: r.shot, personaLine: "I had nowhere to go except the phone's back button." });
