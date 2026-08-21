@@ -689,6 +689,69 @@ ways to get a wrong answer, both seen in one session:
   "two more failures" is unreadable, "`provenance filter drops creator wires`,
   which also fails on the baseline" is an answer.
 
+`verify_maia_journey.js` covers the guided conversation, Maia's voice, and the
+dock as an injection surface. 73 checks over both profiles, and it ships with
+its own mutation runner:
+
+    source ./env.sh && node verify_maia_journey.js      # ~70s
+    source ./env.sh && python3 break_maia_journey.py    # ~16 min, 12 mutations
+
+`break_maia_journey.py` writes a deliberately broken artifact for each known
+defect, stages it as `<dir>/grounds-v0.html` under `%LOCALAPPDATA%`, and
+requires both a full check count and the named checks going red. **Run it when
+you add a check to that suite**, because it has already caught the suite
+passing over three real breaks: the dock has two independent XSS defences
+(escaping at every call site, and `maiaClean` parsing inside an inert
+`<template>`), and any assertion that only observes their combined outcome
+stays green when either one alone is removed. Section J measures each layer
+separately for that reason.
+
+**C7/C7b cover the arrival guard, and they cost a second draft.** `playJourney`
+speaks from the camera flight's arrival callback, which fires frames after the
+walk may already have ended, so that callback re-checks `JWALK`. The obvious
+check is "no extra stop row appears after `jEnd()`". That check passes with the
+guard REMOVED: without it the callback reaches `jRow(JWALK.i+1, ...)` with
+`JWALK` already null, throws while building the argument, and never calls
+`maiaSay` at all. Same row count, different world. C7b counts page errors over
+that window instead, which is what the comment sitting beside the guard in the
+artifact had already said: it is the only callback that fires late, so it is
+the only one that threw. **Read the comment next to the thing you are
+checking.**
+
+`check_maia_voice.mjs` holds Maia's shipped copy to the house writing rules.
+It needs no browser and takes about four seconds:
+
+    node check_maia_voice.mjs                  # 203 lines, 8 resident lines
+    python3 break_maia_voice.py                # ~40s, 6 mutations + a selftest
+
+**The repo gate cannot see this artifact, and that is the reason this file
+exists.** `scripts/check-voice.mjs` scans `SCAN_ROOTS = ["client/src",
+"server", "shared", "docs/knowledge"]`, and `walkFiles()` admits only
+`/\.(tsx?|json|md)$/`. So `docs/prototypes/grounds-v0.html` is excluded twice
+over, and no green CI run has ever said anything about a word Maia speaks.
+`check_maia_voice.mjs` does not restate the rules: it extracts her copy, writes
+it as a `.ts` file of string literals, and runs the real `scripts/check-voice.mjs`
+over that. The rules stay in one place and cannot drift.
+
+**Two traps live in that handoff, and both shipped before they were caught.**
+
+- `check-voice.mjs` resolves its arguments with `path.join(ROOT, arg)`. Given an
+  ABSOLUTE path it builds a nonsense path, fails `existsSync`, skips every
+  file, prints `[]` and **exits 0**. Zero files scanned is byte-identical to
+  zero violations found. The first draft of `check_maia_voice.mjs` passed an
+  absolute path and reported ALL GREEN over three planted violations. Anything
+  else that shells out to that gate wants a relative path and this paragraph.
+- So the generated file ends with a **canary** line that must be flagged. If
+  its finding does not come back, the run is reported red as "the guard never
+  read these lines" rather than green. `break_maia_voice.py`'s selftest reverts
+  the invocation on a copy of the gate and requires the canary to catch it.
+
+The six artifact mutations split evenly, and the split is the design. Three
+plant a real violation in a line she says. Three take her copy away from the
+extractor without changing a word of it: rename `MAIA_STOPS`, rename the call
+sites, move a sentinel. A gate that stays green through the second group is the
+silent-zero defect wearing a green shirt.
+
 ## Known harness caveats
 
 - Native `title` tooltips (the vitals bar) can't be screenshotted headlessly —
@@ -698,3 +761,21 @@ ways to get a wrong answer, both seen in one session:
   only the setup is scripted.
 - The `§25` blueprint-edge check is vacuous with the shipped seed data — there
   are no flows touching a blueprint structure.
+- `secB.js` §14 reads `TOUR`, `tourI` and `tourTimer`, which are now a VIEW the
+  journey publishes rather than a tour of their own. `clearTimeout(tourTimer)`
+  still halts the walk, because the journey's dwell timer is that same handle,
+  but assigning `tourI = -1` no longer ends it: `JWALK` stays set and the
+  address stays on `#/journey/j1`. §14 only logs, so nothing fails; a later
+  section running with a walk still open is the thing to watch for.
+- §14's 66-second budget now covers eight stops at a 6.5s dwell plus their
+  camera flights, which is about 58s. It fits, with less room than before.
+- **A camera flight is frame-counted, not time-counted, and headless rAF runs
+  at 8 to 11fps.** `travel.t += dt*1.6` with `dt` capped at `.05` means a
+  flight is about 12.5 frames whatever the clock says, so `travelTo` lands in
+  roughly 600ms in a real browser and anywhere from 1.4s to over 2.5s here.
+  Any assertion that waits a fixed number of milliseconds for an arrival is a
+  coin flip. `verify_maia_journey.js` F7 was written that way, budgeted 2500ms,
+  and went red in 3 runs of 5 against an artifact that was behaving correctly
+  every time. Every one of those runs printed a full 71 of 71 checks, so it
+  read as a real defect and not as a flake. It now polls for the spoken line,
+  which is both correct and faster. **Wait for the state.**
