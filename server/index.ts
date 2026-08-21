@@ -489,6 +489,32 @@ import {
   type OrgAssignment,
   type OrgRole,
 } from "./lib/orgChart";
+// ── Lane L3: how resources flow — declarations, never movements ─────────────
+import {
+  answerFourQuestions,
+  budgetProblem,
+  buildApprovalRequest,
+  deleteBudget,
+  deleteRule,
+  deleteSource,
+  listBudgets,
+  listRules,
+  listSources,
+  measuredInflows,
+  publicSources,
+  requestKeyFor,
+  ruleAppliesTo,
+  ruleProblem,
+  sourceProblem,
+  upsertBudget,
+  upsertRule,
+  upsertSource,
+  visibleRules,
+  vocabulary,
+  type ResourcesViewer,
+} from "./lib/resources";
+import { CAPITALS } from "../shared/capitals";
+import { defaultDisplayCurrency } from "../shared/money";
 import {
   addMember as addPatternMember,
   applyRoll,
@@ -12458,6 +12484,354 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   // â”€â”€ S49-S51: village health — the dashboard reads (collection lives in
   //    the cycle close; only DISPLAY is module-gated) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  // ── How resources flow (0084, lane L3): a map of rules, never a wallet ──
+  //    Declarations in three tables; the measured side is SELECT only over
+  //    fiat_charges and token_ledger, counts and totals, never a user id.
+
+  app.use("/api/resources", requireModule("resources"));
+  app.use("/api/admin/resources", requireModule("resources"));
+
+  /** The resources module's config, defaults filled. */
+  function resourcesConfig(): { requestCategory: string; measuredVisibleTo: string; labels: Record<string, string> } {
+    const c = (moduleConfig("resources") as any) ?? MODULES_BY_ID["resources"].defaultConfig ?? {};
+    return {
+      requestCategory: String(c.requestCategory ?? "governance"),
+      measuredVisibleTo: c.measuredVisibleTo === "admins" ? "admins" : "members",
+      labels: c.labels && typeof c.labels === "object" ? c.labels : {},
+    };
+  }
+
+  /**
+   * Who is looking, the structureRead pattern: seats and circles from LIVE
+   * org seatings, declare rights through the same three doors the map uses
+   * (admin, org.declare, a represents_circle seat: R29 P10), and the right
+   * to ask through proposal.open while the forum is on.
+   */
+  async function resourcesViewerFor(req: express.Request): Promise<{
+    viewer: ResourcesViewer;
+    declareCtx: DeclareContext;
+    orgRoles: OrgRole[];
+    user: any | null;
+  }> {
+    const user = await authedUser(req);
+    const admin = await isAdmin(req);
+    const ctx = user ? await capabilityCtx(user) : null;
+    const [orgRoles, orgAssignments] = await Promise.all([
+      listOrgRoles(getPool()),
+      listOrgAssignments(getPool(), lapseContext()),
+    ]);
+    const mine = user
+      ? orgAssignments.filter((a) => !a.endedAt && !a.isExample && a.userId === user.id)
+      : [];
+    const heldRoleIds = Array.from(new Set(mine.map((a) => a.orgRoleId)));
+    const roleById = new Map(orgRoles.map((r) => [r.id, r]));
+    const circleIds = Array.from(
+      new Set(heldRoleIds.map((id) => roleById.get(id)?.circleId).filter((v): v is string => !!v)),
+    );
+    const declareCtx: DeclareContext = {
+      isAdmin: admin,
+      hasOrgDeclare: admin || (ctx ? hasCapability("org.declare", ctx) : false),
+      userId: user?.id ?? null,
+      roles: orgRoles,
+      assignments: orgAssignments,
+    };
+    const canDeclare =
+      admin ||
+      declareCtx.hasOrgDeclare ||
+      (circlesRepo.all() as any[]).some((c: any) => !c.isExample && mayDeclare(String(c.id), declareCtx));
+    const canRequest =
+      !!user &&
+      !!ctx &&
+      hasCapability("proposal.open", ctx) &&
+      LIFECYCLE_RANK[effectiveLifecycle("forum")] >= LIFECYCLE_RANK.members;
+    return {
+      viewer: {
+        userId: user?.id ?? null,
+        isAdmin: admin,
+        canDeclare,
+        canRequest,
+        heldRoleIds,
+        circleIds,
+      },
+      declareCtx,
+      orgRoles,
+      user,
+    };
+  }
+
+  /** Names and the money method, for the zero-token sentences. */
+  function resourcesSentenceCtx(orgRoles: OrgRole[]) {
+    const circles = circlesRepo.all() as any[];
+    const circleName = (id: string) => String(circles.find((c: any) => c.id === id)?.name ?? id);
+    const roleById = new Map(orgRoles.map((r) => [r.id, r.name]));
+    const roleName = (id: string) => String(roleById.get(id) ?? id);
+    const villageDefault = (moduleConfig("map") as any)?.power?.decidesBy ?? null;
+    const moneyMethod = (circleId: string): string | null => {
+      const c = circles.find((x: any) => x.id === circleId);
+      const domains = projectDecidesByDomains(c?.decidesByDomains);
+      const method = domains?.money?.method ?? c?.decidesBy ?? villageDefault;
+      if (!method) return null;
+      return (DECIDES_BY.find((d) => d.id === method)?.label ?? String(method)).toLowerCase();
+    };
+    const tokenWords = (slug: string) => {
+      const d = tokenDef(slug);
+      return d ? { name: d.name, decimals: d.decimals } : undefined;
+    };
+    return { circleName, roleName, moneyMethod, tokenWords };
+  }
+
+  const resourcesTokenExists = (slug: string) => !!tokenDef(slug);
+
+  /** The declared unit a new rule starts on: the village's own currency,
+   *  CHF when none is set (P8). Display convention only. */
+  function resourcesDefaultUnit(): string {
+    return defaultDisplayCurrency(mergedConfig().project);
+  }
+
+  /**
+   * The whole picture: declared rules at the viewer's tier, sources,
+   * budgets, measured inflows, the vocabulary and the capitals. A stranger
+   * (while map.public_structure is on, exactly as /api/map) gets sources as
+   * name and kind, no amounts, no rules.
+   */
+  app.get("/api/resources", async (req, res) => {
+    const { viewer, orgRoles } = await resourcesViewerFor(req);
+    if (!viewer.userId && !viewer.isAdmin) {
+      if (!boolVar("map.public_structure")) {
+        return res.status(401).json({ error: "auth_required", message: "Sign in to see how resources flow" });
+      }
+      return res.json({
+        tier: "public",
+        capitals: CAPITALS,
+        sources: publicSources(await listSources(getPool())),
+        rules: [],
+        budgets: [],
+        measured: null,
+        vocab: vocabulary(resourcesConfig().labels),
+        viewer,
+      });
+    }
+    const config = resourcesConfig();
+    const [rules, sources, budgets] = await Promise.all([
+      listRules(getPool()),
+      listSources(getPool()),
+      listBudgets(getPool()),
+    ]);
+    const measured =
+      config.measuredVisibleTo === "admins" && !viewer.isAdmin ? null : await measuredInflows(getPool());
+    const circles = circlesRepo.all() as any[];
+    const circleLeads: Record<string, string> = {};
+    for (const c of circles) if (c.leadRoleId) circleLeads[String(c.id)] = String(c.leadRoleId);
+    res.json({
+      tier: viewer.isAdmin || viewer.canDeclare ? "declarer" : "member",
+      capitals: CAPITALS,
+      rules: visibleRules(rules, viewer),
+      sources,
+      budgets,
+      measured,
+      vocab: vocabulary(config.labels),
+      defaultUnit: resourcesDefaultUnit(),
+      circleLeads,
+      seatNames: Object.fromEntries(orgRoles.map((r) => [r.id, r.name])),
+      viewer,
+    });
+  });
+
+  /** The four questions, answered for THIS viewer in template sentences. */
+  app.get("/api/resources/me", async (req, res) => {
+    const { viewer, orgRoles, user } = await resourcesViewerFor(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to ask what you can spend" });
+    const [rules, sources, budgets] = await Promise.all([
+      listRules(getPool()),
+      listSources(getPool()),
+      listBudgets(getPool()),
+    ]);
+    const visible = visibleRules(rules, viewer);
+    const answers = answerFourQuestions(
+      { rules: visible, budgets, sources },
+      viewer,
+      resourcesSentenceCtx(orgRoles),
+    );
+    res.json({
+      answers,
+      rules: visible.map((r) => ({ ...r, appliesToYou: ruleAppliesTo(r, viewer) })),
+      viewer,
+    });
+  });
+
+  /**
+   * "Request approval": validate the ask against the rule and hand back the
+   * pre-fill for POST /api/forum/threads, the ONE decision primitive. This
+   * route posts nothing itself; 409 when the same author already has the
+   * same ask open, so one request becomes one proposal (harm metric b).
+   */
+  app.post("/api/resources/requests", async (req, res) => {
+    const { viewer, orgRoles, user } = await resourcesViewerFor(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to ask" });
+    const ruleId = String(req.body?.ruleId ?? "");
+    const amountMinor = Number(req.body?.amountMinor);
+    const purpose = String(req.body?.purpose ?? "").trim();
+    const rules = await listRules(getPool());
+    const rule = rules.find((r) => r.id === ruleId);
+    if (!rule || !visibleRules([rule], viewer).length) {
+      return res.status(404).json({ error: "No such spending rule" });
+    }
+    if (!ruleAppliesTo(rule, viewer)) {
+      return res.status(403).json({ error: "This rule does not name a seat you hold" });
+    }
+    if (rule.approval === "none") {
+      return res.status(400).json({ error: "No approval is needed under this rule. Spend it well" });
+    }
+    if (!viewer.canRequest) {
+      const forumOn = LIFECYCLE_RANK[effectiveLifecycle("forum")] >= LIFECYCLE_RANK.members;
+      return res.status(403).json({
+        error: forumOn
+          ? "Opening a decision requires the co-creator stage or a role that grants it"
+          : "The forum is off, so there is nowhere to open the decision. Ask a steward directly",
+      });
+    }
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      return res.status(400).json({ error: "Say how much, in minor units of the rule's own currency" });
+    }
+    if (amountMinor > rule.amountMinor) {
+      return res.status(400).json({ error: "That is above this rule's ceiling. Ask for the ceiling or split the purchase into decisions" });
+    }
+    if (!purpose) return res.status(400).json({ error: "Say what the money is for" });
+    const requestKey = requestKeyFor(rule.id, amountMinor);
+    const [open] = await getPool().query<any[]>(
+      "SELECT id FROM forum_threads WHERE author_id = ? AND kind = 'decision' AND hidden_at IS NULL " +
+        "AND JSON_UNQUOTE(JSON_EXTRACT(meta, '$.status')) = 'open' " +
+        "AND JSON_UNQUOTE(JSON_EXTRACT(meta, '$.resourcesRequest.requestKey')) = ? LIMIT 1",
+      [user.id, requestKey],
+    );
+    if (open.length) {
+      return res.status(409).json({
+        error: "You already have this ask open",
+        threadId: String(open[0].id),
+      });
+    }
+    const prefill = buildApprovalRequest(
+      rule,
+      amountMinor,
+      purpose,
+      resourcesSentenceCtx(orgRoles),
+      forumCategories(),
+      resourcesConfig().requestCategory,
+    );
+    res.json({ prefill, requestKey });
+  });
+
+  /** May this viewer declare at this target? Admin, org.declare, or the
+   *  circle's own speaking seat; village-level targets take the first two. */
+  function mayDeclareResources(target: string, declareCtx: DeclareContext): boolean {
+    return mayDeclare(target, declareCtx);
+  }
+
+  /** Everything the admin tab edits, plus the pickers' names. */
+  app.get("/api/admin/resources", async (req, res) => {
+    const { viewer, declareCtx, orgRoles } = await resourcesViewerFor(req);
+    if (!viewer.isAdmin && !viewer.canDeclare) return res.status(401).json({ error: "auth_required" });
+    const [rules, sources, budgets] = await Promise.all([
+      listRules(getPool()),
+      listSources(getPool()),
+      listBudgets(getPool()),
+    ]);
+    const circles = (circlesRepo.all() as any[]).filter((c: any) => !c.isExample);
+    res.json({
+      rules,
+      sources,
+      budgets,
+      vocab: vocabulary(resourcesConfig().labels),
+      labels: resourcesConfig().labels,
+      defaultUnit: resourcesDefaultUnit(),
+      circles: circles.map((c: any) => ({ id: c.id, name: c.name })),
+      seats: orgRoles
+        .filter((r) => r.active && !r.isExample)
+        .map((r) => ({ id: r.id, name: r.name, circleId: r.circleId ?? null })),
+      mayDeclareVillage: mayDeclareResources("village", declareCtx),
+      measured: await measuredInflows(getPool()),
+    });
+  });
+
+  /** The circle a rule's declare right keys on: its own circle, or the
+   *  village for a seat that orbits none. */
+  function ruleDeclareTarget(body: { scope: string; scopeId: string }, orgRoles: OrgRole[]): string {
+    if (body.scope === "circle") return String(body.scopeId);
+    const role = orgRoles.find((r) => r.id === String(body.scopeId));
+    return role?.circleId ?? "village";
+  }
+
+  app.post("/api/admin/resources/rules", async (req, res) => {
+    const { declareCtx, orgRoles, user } = await resourcesViewerFor(req);
+    const problem = ruleProblem(req.body, resourcesTokenExists);
+    if (problem) return res.status(400).json({ error: problem });
+    if (!mayDeclareResources(ruleDeclareTarget(req.body, orgRoles), declareCtx)) {
+      return res.status(401).json({ error: "auth_required", message: "Declaring here takes admin, org.declare, or this circle's speaking seat" });
+    }
+    if (req.body.scope === "circle" && !(circlesRepo.all() as any[]).some((c: any) => c.id === String(req.body.scopeId))) {
+      return res.status(400).json({ error: "No such circle" });
+    }
+    if (req.body.scope === "role" && !orgRoles.some((r) => r.id === String(req.body.scopeId))) {
+      return res.status(400).json({ error: "No such seat" });
+    }
+    const id = await upsertRule(getPool(), req.body, adminActor(req)?.id ?? user?.id ?? null);
+    res.json({ success: true, id });
+  });
+
+  app.delete("/api/admin/resources/rules/:id", async (req, res) => {
+    const { declareCtx, orgRoles, user } = await resourcesViewerFor(req);
+    const rules = await listRules(getPool());
+    const rule = rules.find((r) => r.id === req.params.id);
+    if (!rule) return res.status(404).json({ error: "No such spending rule" });
+    if (!mayDeclareResources(ruleDeclareTarget(rule, orgRoles), declareCtx)) {
+      return res.status(401).json({ error: "auth_required" });
+    }
+    await deleteRule(getPool(), rule.id, adminActor(req)?.id ?? user?.id ?? null);
+    res.json({ success: true });
+  });
+
+  app.post("/api/admin/resources/sources", async (req, res) => {
+    const { declareCtx, user } = await resourcesViewerFor(req);
+    // Funding sources are the village's shared story: village-level rights.
+    if (!mayDeclareResources("village", declareCtx)) return res.status(401).json({ error: "auth_required" });
+    const problem = sourceProblem(req.body, resourcesTokenExists);
+    if (problem) return res.status(400).json({ error: problem });
+    const id = await upsertSource(getPool(), req.body, adminActor(req)?.id ?? user?.id ?? null);
+    res.json({ success: true, id });
+  });
+
+  app.delete("/api/admin/resources/sources/:id", async (req, res) => {
+    const { declareCtx, user } = await resourcesViewerFor(req);
+    if (!mayDeclareResources("village", declareCtx)) return res.status(401).json({ error: "auth_required" });
+    const gone = await deleteSource(getPool(), String(req.params.id), adminActor(req)?.id ?? user?.id ?? null);
+    if (!gone) return res.status(404).json({ error: "No such funding source" });
+    res.json({ success: true });
+  });
+
+  app.post("/api/admin/resources/budgets", async (req, res) => {
+    const { declareCtx, user } = await resourcesViewerFor(req);
+    const problem = budgetProblem(req.body, resourcesTokenExists);
+    if (problem) return res.status(400).json({ error: problem });
+    if (!mayDeclareResources(String(req.body.circleId), declareCtx)) {
+      return res.status(401).json({ error: "auth_required" });
+    }
+    if (!(circlesRepo.all() as any[]).some((c: any) => c.id === String(req.body.circleId))) {
+      return res.status(400).json({ error: "No such circle" });
+    }
+    const id = await upsertBudget(getPool(), req.body, adminActor(req)?.id ?? user?.id ?? null);
+    res.json({ success: true, id });
+  });
+
+  app.delete("/api/admin/resources/budgets/:id", async (req, res) => {
+    const { declareCtx, user } = await resourcesViewerFor(req);
+    const budgets = await listBudgets(getPool());
+    const budget = budgets.find((b) => b.id === req.params.id);
+    if (!budget) return res.status(404).json({ error: "No such budget" });
+    if (!mayDeclareResources(budget.circleId, declareCtx)) return res.status(401).json({ error: "auth_required" });
+    await deleteBudget(getPool(), budget.id, adminActor(req)?.id ?? user?.id ?? null);
+    res.json({ success: true });
+  });
 
   app.use("/api/health", requireModule("health"));
   app.use("/api/admin/health", requireModule("health"));
