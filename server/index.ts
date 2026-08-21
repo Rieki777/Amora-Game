@@ -131,7 +131,7 @@ import {
 } from "./lib/ledger";
 import type { TransferGuard } from "./lib/ledger";
 import { allowanceFor, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
-import { addCharacter, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
+import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
 import { assertVoiceSecret, checkVoiceSecret, claimHistory, claimReadiness, requestVoiceClaim, settleVoiceClaim } from "./lib/voiceClaim";
@@ -321,7 +321,10 @@ import {
   previewDraft,
   publishDraft,
   revertDraft,
+  setDraftVision,
+  visionProgress,
 } from "./lib/orgDrafts";
+import { DECIDES_BY, DOMAINS, HOW_CHOSEN, SHAPES } from "../shared/power";
 import {
   coveredSeatIds,
   createRelation,
@@ -472,6 +475,11 @@ import {
   structuralLoad,
   unclaimedSeatingsFor,
   updateOrgRole,
+  circleDecidesProblem,
+  declarableTargets,
+  mayDeclare,
+  villagePowerProblem,
+  type DeclareContext,
   type LapseContext,
   type OrgAssignment,
   type OrgRole,
@@ -7944,6 +7952,40 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   /**
+   * The village's declared power block (0083), read from the map module's
+   * config and re-validated on the way out: a config written before the
+   * vocabulary changed degrades to "nothing declared" instead of feeding the
+   * map an id it cannot draw.
+   */
+  function villagePowerDeclared(): { shape: string; shapeGloss: string | null; decidesBy: string; decidesByGloss: string | null } | null {
+    const p = (moduleConfig("map") as any)?.power;
+    if (!p || villagePowerProblem(p)) return null;
+    return {
+      shape: String(p.shape),
+      shapeGloss: p.shapeGloss ? String(p.shapeGloss) : null,
+      decidesBy: String(p.decidesBy),
+      decidesByGloss: p.decidesByGloss ? String(p.decidesByGloss) : null,
+    };
+  }
+
+  /**
+   * Everything `mayDeclare` needs about one viewer (0083, P10). The seat
+   * plane is only consulted when the first two doors are shut, so an admin
+   * request costs no extra queries.
+   */
+  async function orgDeclareCtx(req: express.Request): Promise<DeclareContext> {
+    const viewer = await authedUser(req);
+    const admin = await isAdmin(req);
+    const hasOrgDeclare =
+      admin || (viewer ? hasCapability("org.declare", await capabilityCtx(viewer)) : false);
+    const needSeats = !admin && !hasOrgDeclare && !!viewer;
+    const [roles, assignments] = needSeats
+      ? await Promise.all([listOrgRoles(getPool()), listOrgAssignments(getPool())])
+      : [[], []];
+    return { isAdmin: admin, hasOrgDeclare, userId: viewer?.id ?? null, roles, assignments };
+  }
+
+  /**
    * The one map payload. Tiers: anonymous visitors get STRUCTURE only —
    * circles, role titles, seat counts, never names — and only while
    * map.public_structure allows it; members with map.viewPeople see holders.
@@ -7952,9 +7994,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const viewer = await authedUser(req);
     const admin = await isAdmin(req);
     let viewPeople = admin;
+    let viewerCapCtx: Awaited<ReturnType<typeof capabilityCtx>> | null = null;
     if (!viewPeople && viewer) {
-      const ctx = await capabilityCtx(viewer);
-      viewPeople = hasCapability("map.viewPeople", ctx);
+      viewerCapCtx = await capabilityCtx(viewer);
+      viewPeople = hasCapability("map.viewPeople", viewerCapCtx);
     }
     if (!viewer && !boolVar("map.public_structure")) {
       return res.status(401).json({ error: "auth_required", message: "Sign in to see the village map" });
@@ -7977,9 +8020,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // single page-level banner scoped to "map" therefore went away on the
     // first real circle and left the other two rendering as village content.
     // The flag rides every node so the page can mark them one by one.
-    const [orgRoles, orgAssignments] = await Promise.all([
+    const [orgRoles, orgAssignments, relTypes, rels] = await Promise.all([
       listOrgRoles(getPool()),
       listOrgAssignments(getPool(), lapseContext()),
+      listRelationTypes(getPool()),
+      listRelations(getPool()),
     ]);
     const heldBySeat = new Map<string, OrgAssignment[]>();
     for (const a of orgAssignments) {
@@ -7987,10 +8032,39 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       list.push(a);
       heldBySeat.set(a.orgRoleId, list);
     }
+
+    // Primary-character avatars for every holder on the page, one query
+    // (0083, spec 4/5): faces ride the same viewPeople tier names do, so the
+    // anonymous map stays glyphs and counts.
+    const avatarByUser = new Map<string, string | null>();
+    if (viewPeople) {
+      const holderIds = Array.from(
+        new Set(orgAssignments.map((a) => a.userId).filter((v): v is string => !!v)),
+      );
+      if (holderIds.length) {
+        const [rows]: any = await getPool().query(
+          "SELECT u.`id`, pc.`archetype_key`, pc.`presentation`, pc.`tone` " +
+            "FROM `users` u JOIN `player_characters` pc ON pc.`id` = u.`primary_character_id` " +
+            `WHERE u.\`id\` IN (${holderIds.map(() => "?").join(",")})`,
+          holderIds,
+        );
+        for (const r of rows as any[]) {
+          avatarByUser.set(String(r.id), avatarFor(String(r.archetype_key), String(r.presentation), String(r.tone)));
+        }
+      }
+    }
+
     const roles = orgRoles
       .filter((r) => r.active)
       .map((r) => {
         const held = heldBySeat.get(r.id) ?? [];
+        // The earliest live term on this seat: a DATE about the seat, so it
+        // rides the structure tier. The amber arc and the clock derive from
+        // it; who the date belongs to stays behind viewPeople.
+        const termDates = held
+          .map((h) => h.termEndsAt)
+          .filter((t): t is Date => !!t)
+          .sort((a, b) => a.getTime() - b.getTime());
         return {
           id: r.id,
           name: r.name,
@@ -8004,6 +8078,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
           vacant: held.length < r.seats,
           state: seatState(r, held),
           isExample: r.isExample,
+          // 0083: representation and succession, structure tier both.
+          representsCircle: r.representsCircle,
+          howChosen: r.howChosen,
+          howChosenGloss: r.howChosenGloss,
+          termEnds: termDates.length ? termDates[0].toISOString() : null,
           holders: viewPeople
             ? held.map((h) => ({
                 userId: h.userId,
@@ -8013,11 +8092,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
                 kind: h.holderKind,
                 focus: h.focus,
                 lapsed: !!h.lapsed,
+                avatar: h.userId ? (avatarByUser.get(h.userId) ?? null) : null,
+                termEndsAt: h.termEndsAt ? h.termEndsAt.toISOString() : null,
               }))
             : [],
         };
       });
 
+    const seasonNow = seasonState();
     res.json({
       circles: circlesRepo.all(),
       roles,
@@ -8027,7 +8109,38 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
           id: q.id, title: q.title, circleId: circleIdForQuestName(q.circle),
           isExample: !!q.isExample,
         })),
-      viewer: { viewPeople, canContact: false },
+      // 0083: the power vocabulary and the village's declared block. The
+      // glossary rides the payload so the legend, the pickers and the lens
+      // all read ONE list, and a fork that edits shared/power.ts is done.
+      power: {
+        ...(villagePowerDeclared() ?? { shape: null, shapeGloss: null, decidesBy: null, decidesByGloss: null }),
+        glossary: { shapes: SHAPES, decidesBy: DECIDES_BY, domains: DOMAINS, howChosen: HOW_CHOSEN },
+      },
+      // Links between NODES (0054): publishable by construction, so they ride
+      // the structure tier. Example rows stay home like everywhere else.
+      relationTypes: relTypes.filter((t) => !t.isExample),
+      relations: rels.filter((rel) => !rel.isExample),
+      // The season ring (spec 9): when the current season rolls.
+      season: {
+        current: seasonNow.current,
+        nextRollAt: seasonNow.current?.endsOn || seasonNow.upcoming?.startsOn || null,
+      },
+      viewer: {
+        viewPeople,
+        canContact: false,
+        // Where this viewer may declare (P10): "village" and/or circle ids.
+        // The pencil shows where this says; the server re-checks on write.
+        mayDeclare: declarableTargets(
+          {
+            isAdmin: admin,
+            hasOrgDeclare: admin || (viewerCapCtx ? hasCapability("org.declare", viewerCapCtx) : false),
+            userId: viewer?.id ?? null,
+            roles: orgRoles,
+            assignments: orgAssignments,
+          },
+          (circlesRepo.all() as any[]).filter((c: any) => !c.isExample).map((c: any) => String(c.id)),
+        ),
+      },
       vacantHighlight: boolVar("map.vacant_highlight"),
       conciergeEnabled: boolVar("map.concierge_enabled") && numberVar("map.contact_daily_cap") >= 0,
     });
@@ -19224,6 +19337,201 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   /*
+   * ── How power is held: the declarations (0083) ───────────────────────
+   *
+   * Three writes and a read. Every write re-checks `mayDeclare` server-side
+   * (admin, org.declare, or the represents_circle bridge the ADR records)
+   * and lands in the journal through `recordEvent`, because declaring how a
+   * village decides is a governance act and governance acts leave a line.
+   */
+
+  /** Declare how ONE circle decides. The third door (a circle's own seated
+   *  delegate) opens exactly here and nowhere else. */
+  app.put("/api/org/circles/:id/decides", async (req, res) => {
+    const viewer = await authedUser(req);
+    if (!viewer) return res.status(401).json({ error: "auth_required", message: "Sign in to declare how a circle decides" });
+    const all = circlesRepo.all();
+    const idx = all.findIndex((c: any) => c.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    // Example circles are inert here exactly as they are on the admin PUT:
+    // a declared method would be deleted with the example on retirement.
+    if (await isExampleRow(getPool(), "circles", req.params.id)) {
+      return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
+    const ctx = await orgDeclareCtx(req);
+    if (!mayDeclare(String(req.params.id), ctx)) {
+      return res.status(403).json({ error: "Declaring how this circle decides belongs to its delegate, org.declare holders and admins" });
+    }
+    const body = req.body ?? {};
+    const problem = circleDecidesProblem(body);
+    if (problem) return res.status(400).json({ error: problem });
+    const before = all[idx] as any;
+    const clearing = body.decidesBy === null || body.decidesBy === "" || body.decidesBy === undefined;
+    // Written like the admin circle PUT: merge, pin id and isExample, then
+    // replaceAll. Clearing the method takes the gloss with it; the domains
+    // only move when the body names them.
+    const merged = {
+      ...before,
+      decidesBy: clearing ? null : String(body.decidesBy),
+      decidesByGloss: clearing ? null : (String(body.decidesByGloss ?? "").trim() || null),
+      ...(body.decidesByDomains !== undefined
+        ? { decidesByDomains: body.decidesByDomains && Object.keys(body.decidesByDomains).length ? body.decidesByDomains : null }
+        : {}),
+      id: before.id,
+      isExample: before.isExample,
+    };
+    all[idx] = merged;
+    await circlesRepo.replaceAll(all);
+    await recordEvent(getPool(), {
+      kind: "org",
+      text: `decides by: ${before.decidesBy ?? "the village default"} -> ${merged.decidesBy ?? "the village default"}`,
+      actorUserId: viewer.id,
+      entityType: "circle",
+      entityRef: before.id,
+      audience: "admin",
+    });
+    res.json({ success: true, circle: merged });
+  });
+
+  /** Declare the village's shape and default method. Admin or org.declare;
+   *  the seat-plane door stays per-circle (the pin in orgDeclare.test.ts). */
+  app.put("/api/org/village/power", async (req, res) => {
+    const viewer = await authedUser(req);
+    if (!viewer) return res.status(401).json({ error: "auth_required", message: "Sign in to declare the village's shape" });
+    const ctx = await orgDeclareCtx(req);
+    if (!mayDeclare("village", ctx)) {
+      return res.status(403).json({ error: "Declaring the village's shape belongs to org.declare holders and admins" });
+    }
+    const body = req.body ?? {};
+    const problem = villagePowerProblem(body);
+    if (problem) return res.status(400).json({ error: problem });
+    const power = {
+      shape: String(body.shape),
+      ...(String(body.shapeGloss ?? "").trim() ? { shapeGloss: String(body.shapeGloss).trim() } : {}),
+      decidesBy: String(body.decidesBy),
+      ...(String(body.decidesByGloss ?? "").trim() ? { decidesByGloss: String(body.decidesByGloss).trim() } : {}),
+    };
+    // MERGED over the module's existing config: `power` is one key in the
+    // map module's document, and writing the whole document from this route
+    // would drop whatever else lives there.
+    const existing = (moduleConfig("map") as any) ?? {};
+    const before = villagePowerDeclared();
+    const result = await setModuleConfig("map", { ...existing, power }, viewer.id);
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    await recordEvent(getPool(), {
+      kind: "org",
+      text: `village shape: ${before?.shape ?? "undeclared"} -> ${power.shape}; decides by ${power.decidesBy}`,
+      actorUserId: viewer.id,
+      entityType: "village",
+      entityRef: "power",
+      audience: "admin",
+    });
+    res.json({ success: true, power });
+  });
+
+  /**
+   * The Vision layer (0083, P1, N2): open drafts as ghosts, each with its
+   * vision block re-measured on read. Rides the same tier the org chart
+   * does: structure for anyone the map admits, PEOPLE only behind
+   * map.viewPeople, so a ghost says "a member" to everyone else.
+   *
+   * Nothing here applies anything. The panel's prompt links to the existing
+   * admin publish button, and `publishDraft`'s only caller stays that route.
+   */
+  app.get("/api/org/vision", async (req, res) => {
+    const viewer = await authedUser(req);
+    if (!viewer && !boolVar("map.public_structure")) {
+      return res.status(401).json({ error: "auth_required", message: "Sign in to see where this village is growing" });
+    }
+    const admin = await isAdmin(req);
+    const maySeePeople =
+      admin || (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
+    const drafts = (await listDrafts(getPool())).filter((d) => d.status === "open");
+
+    // Measure lazily: only the metric families the open visions actually
+    // name are counted, so a village with no visions pays nothing here.
+    const wanted = new Set<string>();
+    for (const d of drafts) {
+      for (const o of d.vision?.objectives ?? []) if (o.source === "measured" && o.metric) wanted.add(o.metric);
+    }
+    const measured = new Map<string, number>();
+    if (Array.from(wanted).some((m) => m === "seats_filled" || m.startsWith("seats_filled_in:"))) {
+      const [roles, assignments] = await Promise.all([
+        listOrgRoles(getPool()),
+        listOrgAssignments(getPool(), lapseContext()),
+      ]);
+      const bySeat = new Map<string, OrgAssignment[]>();
+      for (const a of assignments) {
+        if (a.isExample) continue;
+        bySeat.set(a.orgRoleId, [...(bySeat.get(a.orgRoleId) ?? []), a]);
+      }
+      const live = roles.filter((r) => r.active && !r.isExample);
+      const filled = live.filter((r) => seatState(r, bySeat.get(r.id) ?? []) === "filled");
+      measured.set("seats_filled", filled.length);
+      for (const m of Array.from(wanted)) {
+        if (!m.startsWith("seats_filled_in:")) continue;
+        const circleId = m.slice("seats_filled_in:".length);
+        measured.set(m, filled.filter((r) => r.circleId === circleId).length);
+      }
+    }
+    if (Array.from(wanted).some((m) => m.startsWith("members_at_stage:"))) {
+      const [allMembers, consented] = await Promise.all([members.all(), claimsRepo.consentedCounts()]);
+      const real = (allMembers as any[]).filter((u) => !isExampleUser(u));
+      for (const m of Array.from(wanted)) {
+        if (!m.startsWith("members_at_stage:")) continue;
+        const floor = stageIndex(m.slice("members_at_stage:".length));
+        if (floor < 0) continue;
+        measured.set(
+          m,
+          real.filter((u) => stageIndex(computeStage(u, Number(consented.get(u.id) ?? 0))) >= floor).length,
+        );
+      }
+    }
+    if (wanted.has("seasons_completed")) {
+      const s = seasonState();
+      measured.set(
+        "seasons_completed",
+        s.seasons.filter((x: any) => x.endsOn && x.endsOn <= s.today).length,
+      );
+    }
+    const measure = (m: string) => (measured.has(m) ? measured.get(m)! : null);
+
+    res.json({
+      drafts: drafts.map((d) => {
+        const progress = d.vision ? visionProgress(d.vision, measure) : null;
+        return {
+          id: d.id,
+          title: d.title,
+          rationale: d.rationale,
+          vision: progress
+            ? { objectives: progress.objectives, trigger: d.vision!.trigger }
+            : null,
+          progress: progress
+            ? { done: progress.done, total: progress.total, allDone: progress.allDone }
+            : null,
+          // The ghosts: enough structure to draw, nobody's name below the
+          // people tier. `create_seat` payload names a SEAT, which is
+          // structure; `seat_holder` names a PERSON, which is not.
+          changes: d.changes.map((c) => ({
+            op: c.op,
+            orgRoleId: c.orgRoleId,
+            ...(c.op === "create_seat" || c.op === "update_seat"
+              ? {
+                  name: c.payload?.name ? String(c.payload.name) : null,
+                  circleId: c.payload?.circleId ? String(c.payload.circleId) : null,
+                  seats: c.payload?.seats !== undefined ? Number(c.payload.seats) : null,
+                }
+              : {}),
+            ...(c.op === "seat_holder"
+              ? { holder: maySeePeople ? String(c.payload?.displayName ?? "a member") : "a member" }
+              : {}),
+          })),
+        };
+      }),
+    });
+  });
+
+  /*
    * ── The village that publishes itself ─────────────────────────────────
    *
    * Three unauthenticated documents at predictable URLs. See
@@ -19283,6 +19591,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * for all three.
    */
   const orgUpdatedAt = async (): Promise<string> => {
+    // 0083 added the map module's settings row: the village SHAPE lives in
+    // module_settings.config.power, so declaring a new shape must move this
+    // clock or the signed document changes under an unmoved updatedAt, the
+    // exact defect the LANE Q paragraph above records for circles.
     const [[row]]: any = await getPool().query(
       `SELECT GREATEST(
          COALESCE((SELECT MAX(updated_at) FROM org_roles), '1970-01-01'),
@@ -19290,7 +19602,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
          COALESCE((SELECT MAX(ended_at) FROM org_role_assignments), '1970-01-01'),
          COALESCE((SELECT MAX(created_at) FROM circles), '1970-01-01'),
          COALESCE((SELECT MAX(created_at) FROM org_relations), '1970-01-01'),
-         COALESCE((SELECT MAX(created_at) FROM org_relation_types), '1970-01-01')
+         COALESCE((SELECT MAX(created_at) FROM org_relation_types), '1970-01-01'),
+         COALESCE((SELECT MAX(updated_at) FROM module_settings WHERE module_id = 'map'), '1970-01-01')
        ) AS t`,
     );
     const t = row?.t ? new Date(row.t) : new Date(0);
@@ -19313,6 +19626,8 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       assignments,
       circles: circlesRepo.all() as any[],
       updatedAt,
+      // 0083: the declared shape, ids only; buildOrgExport re-checks the id.
+      shape: villagePowerDeclared()?.shape ?? null,
       // Resolved here so the export module stays a pure function of its
       // inputs. A link whose type was deleted is dropped rather than published
       // with a blank label.
@@ -19536,6 +19851,27 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   app.get("/api/admin/org/drafts/:id/preview", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(await previewDraft(getPool(), req.params.id));
+  });
+
+  /**
+   * The draft's vision block (0083, P1): objectives and a trigger. Writing
+   * one changes when the platform PROMPTS; it never changes what applies a
+   * draft, which stays the publish button below and nothing else.
+   */
+  app.put("/api/admin/org/drafts/:id/vision", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const vision = req.body?.vision ?? null;
+    const r = await setDraftVision(getPool(), req.params.id, vision);
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    void recordEvent(getPool(), {
+      kind: "org",
+      text: vision ? "vision written: the draft now says what would make it real" : "vision cleared",
+      actorUserId: (await authedUser(req))?.id ?? null,
+      entityType: "org_draft",
+      entityRef: req.params.id,
+      audience: "admin",
+    });
+    res.json({ success: true });
   });
 
   app.post("/api/admin/org/drafts/:id/publish", async (req, res) => {

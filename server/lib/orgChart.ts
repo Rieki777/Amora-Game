@@ -20,6 +20,11 @@
  * expiry so it lapses back rather than outliving the moment somebody meant it.
  */
 import type { Pool } from "mysql2/promise";
+import {
+  decidesByProblem,
+  domainsProblem,
+  shapeProblem,
+} from "../../shared/power";
 
 export type SeatState = "open" | "filled" | "partial" | "forming" | "expired";
 
@@ -1064,4 +1069,123 @@ export async function backfillOrgChart(pool: Pool, input: BackfillInput): Promis
   );
 
   return { circlesWritten, councilsToForming, seatsWritten, holdersWritten, skipped: false };
+}
+
+// ── Who may declare how power is held (0083, P10, N5) ───────────────────────
+
+/**
+ * Everything `mayDeclare` needs, passed in so it stays a pure function of its
+ * inputs like the rest of this file. `hasOrgDeclare` is resolved by the
+ * caller through the ONE gate (`hasCapability("org.declare", ctx)`), never
+ * re-derived here: this function adds the third path, it does not re-answer
+ * the first two.
+ */
+export interface DeclareContext {
+  isAdmin: boolean;
+  /** hasCapability("org.declare") for this viewer, resolved by the caller. */
+  hasOrgDeclare: boolean;
+  /** The viewer's user id, or null for a stranger. */
+  userId: string | null;
+  roles: Array<Pick<OrgRole, "id" | "circleId" | "representsCircle" | "active" | "isExample">>;
+  /** LIVE seatings (ended_at null), as listOrgAssignments returns them. */
+  assignments: Array<Pick<OrgAssignment, "orgRoleId" | "userId" | "endedAt" | "isExample">>;
+}
+
+/**
+ * May this viewer declare how power is held at `target`?
+ *
+ * Three doors, and the third is the narrow one the ADR exists for:
+ *
+ *   1. An admin.
+ *   2. A holder of the `org.declare` capability (an appointment).
+ *   3. For ONE CIRCLE only: a live, non-example holder of an active,
+ *      non-example seat flagged `represents_circle` in that circle.
+ *
+ * The village level takes the first two doors only. A circle's delegate
+ * speaks for their circle, and the village's shape is everyone's; scoping the
+ * bridge this tightly is what keeps it an exception instead of a precedent
+ * (docs/ADR_2026-08_REPRESENTS_CIRCLE_DECLARES.md).
+ *
+ * A lapsed holding still opens the door. Nothing is revoked at a season turn
+ * (see `isLapsed`), the person is still the seated delegate, and losing the
+ * pen mid-harvest for reasons nobody chose is the exact failure that rule
+ * exists to avoid. An ENDED holding does not: the caller passes live rows.
+ */
+export function mayDeclare(target: string, ctx: DeclareContext): boolean {
+  if (ctx.isAdmin) return true;
+  if (ctx.hasOrgDeclare) return true;
+  if (target === "village") return false;
+  if (!ctx.userId) return false;
+  const speaking = new Set(
+    ctx.roles
+      .filter((r) => r.active && !r.isExample && r.representsCircle && r.circleId === target)
+      .map((r) => r.id),
+  );
+  if (!speaking.size) return false;
+  return ctx.assignments.some(
+    (a) => !a.endedAt && !a.isExample && a.userId === ctx.userId && speaking.has(a.orgRoleId),
+  );
+}
+
+/**
+ * Every target this viewer may declare for, for the map's `viewer.mayDeclare`
+ * payload: "village" and/or circle ids. The client shows the pencil where
+ * this list says so; the server re-checks `mayDeclare` on every write.
+ */
+export function declarableTargets(ctx: DeclareContext, circleIds: string[]): string[] {
+  const out: string[] = [];
+  if (mayDeclare("village", ctx)) out.push("village");
+  for (const id of circleIds) {
+    if (id === "village") continue;
+    if (mayDeclare(id, ctx)) out.push(id);
+  }
+  return out;
+}
+
+// ── What a declaration is allowed to say (0083) ─────────────────────────────
+
+/**
+ * The village-level power block, stored in the map module's config as
+ * `power: {shape, shapeGloss?, decidesBy, decidesByGloss?}`. Validation
+ * lives HERE, not on the ModuleDef: shared/modules.ts is the catalog, and
+ * the words a village declares about itself are this plane's to check.
+ */
+export function villagePowerProblem(v: unknown): string | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) {
+    return "A village power declaration needs a shape and a way of deciding";
+  }
+  const p = v as Record<string, unknown>;
+  const badShape = shapeProblem(p.shape, p.shapeGloss);
+  if (badShape) return badShape;
+  const badDecides = decidesByProblem(p.decidesBy, p.decidesByGloss);
+  if (badDecides) return badDecides;
+  const known = new Set(["shape", "shapeGloss", "decidesBy", "decidesByGloss"]);
+  for (const key of Object.keys(p)) {
+    if (!known.has(key)) return `"${key}" is not part of a power declaration`;
+  }
+  return null;
+}
+
+/**
+ * A circle's decides declaration: `{decidesBy, decidesByGloss?,
+ * decidesByDomains?}`. `decidesBy: null` clears the circle back to the
+ * village default, and clearing takes the gloss with it, because a gloss
+ * with no method is a caption with no picture.
+ */
+export function circleDecidesProblem(v: unknown): string | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) {
+    return "A decides declaration needs a way of deciding, or null to clear it";
+  }
+  const p = v as Record<string, unknown>;
+  if (p.decidesBy !== null && p.decidesBy !== undefined && p.decidesBy !== "") {
+    const bad = decidesByProblem(p.decidesBy, p.decidesByGloss);
+    if (bad) return bad;
+  }
+  const badDomains = domainsProblem(p.decidesByDomains);
+  if (badDomains) return badDomains;
+  const known = new Set(["decidesBy", "decidesByGloss", "decidesByDomains"]);
+  for (const key of Object.keys(p)) {
+    if (!known.has(key)) return `"${key}" is not part of a decides declaration`;
+  }
+  return null;
 }

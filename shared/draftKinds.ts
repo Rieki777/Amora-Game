@@ -155,4 +155,5 @@ export const CAPABILITY_CONSEQUENCE: Record<Capability, string> = {
   "mechanics.propose": "propose changes to the game's own rules",
   "event.rsvp": "say they are coming to a gathering",
   "event.manage": "put gatherings on the village calendar, edit them, and cancel them",
+  "org.declare": "declare the village's shape and how any circle decides",
 };
