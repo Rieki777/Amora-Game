@@ -13,7 +13,27 @@
 }
 
 @media print {
-  /* The app's chrome: navigation, footers, toasts, buttons. */
+  /* Only the wrapped view prints. The visibility pattern beats hunting the
+     page's chrome selector by selector: everything vanishes, then the print
+     area and its children come back. The page around it (tabs, steppers,
+     cards, toasts) needs no cooperation and no markup changes. */
+  body * {
+    visibility: hidden;
+  }
+
+  .calendar-print,
+  .calendar-print * {
+    visibility: visible;
+  }
+
+  .calendar-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+  }
+
+  /* Hidden AND removed, so they cost no layout space above the sheet. */
   header,
   footer,
   nav,
