@@ -60,6 +60,144 @@ export interface Draft {
   publishedAt: string | null;
   revertedAt: string | null;
   changes: DraftChange[];
+  /** The vision block (0083, P1, N2), or null for a draft without one. */
+  vision: VisionBlock | null;
+}
+
+// ── The vision block (0083, P1, N2) ─────────────────────────────────────────
+//
+// A draft is already "a reorganisation you can read before it is true". The
+// vision block adds WHEN: objectives with a metric and a target, and a
+// trigger. When every objective is done the platform PROMPTS "Vision
+// conditions met: apply this structure?" and a human presses the existing
+// publish button. Nothing in this file or anywhere else applies a draft on
+// its own; `publishDraft` has exactly one caller and it is that button.
+
+export interface VisionObjective {
+  /** The objective in the village's own words. */
+  text: string;
+  /** A measured metric id, or null for one a human ticks. */
+  metric: string | null;
+  /** The number the metric must reach. Null for declared objectives. */
+  target: number | null;
+  /** Last known value. Stored for the record; re-measured on read. */
+  current: number | null;
+  /** `measured` = the platform counts it; `declared` = a human ticks it. */
+  source: "measured" | "declared";
+  /** The tick, authoritative for declared objectives; derived for measured. */
+  done: boolean;
+}
+
+export interface VisionBlock {
+  objectives: VisionObjective[];
+  trigger: {
+    all_objectives_done: boolean;
+    /** An optional date the village hopes to be there by. Words, not a gate. */
+    by?: string | null;
+  };
+}
+
+/**
+ * The measured metrics v1 knows how to count. A metric id outside this list
+ * is refused at write time, so a typo fails as a sentence instead of as an
+ * objective that never moves.
+ */
+export const VISION_METRICS = ["seats_filled", "seasons_completed"] as const;
+export const VISION_METRIC_PREFIXES = ["seats_filled_in:", "members_at_stage:"] as const;
+
+export function visionMetricKnown(metric: string): boolean {
+  if ((VISION_METRICS as readonly string[]).includes(metric)) return true;
+  return VISION_METRIC_PREFIXES.some((p) => metric.startsWith(p) && metric.length > p.length);
+}
+
+/** What is wrong with a proposed vision block, in the words somebody would use. */
+export function visionProblem(v: unknown): string | null {
+  if (v === null || v === undefined) return null; // clearing the block is allowed
+  if (typeof v !== "object" || Array.isArray(v)) return "A vision is an object with objectives and a trigger";
+  const b = v as Record<string, unknown>;
+  if (!Array.isArray(b.objectives)) return "A vision needs a list of objectives";
+  if (b.objectives.length === 0) return "A vision with no objectives can never be met. Add at least one";
+  if (b.objectives.length > 20) return "Twenty objectives is the most a vision can hold";
+  for (const raw of b.objectives) {
+    if (!raw || typeof raw !== "object") return "Each objective needs its own text";
+    const o = raw as Record<string, unknown>;
+    const text = String(o.text ?? "").trim();
+    if (!text) return "Each objective needs its own text";
+    if (text.length > 300) return "An objective is a line, and 300 characters is the room it has";
+    const source = o.source;
+    if (source !== "measured" && source !== "declared") {
+      return `An objective's source is measured or declared`;
+    }
+    if (source === "measured") {
+      const metric = String(o.metric ?? "");
+      if (!visionMetricKnown(metric)) {
+        return `"${metric}" is not a metric the platform counts. Measured ones are: ${VISION_METRICS.join(", ")}, ${VISION_METRIC_PREFIXES.map((p) => `${p}…`).join(", ")}`;
+      }
+      const target = Number(o.target);
+      if (!Number.isFinite(target) || target <= 0) {
+        return "A measured objective needs a target above zero";
+      }
+    }
+  }
+  const t = b.trigger;
+  if (!t || typeof t !== "object" || Array.isArray(t)) return "A vision needs a trigger";
+  if ((t as Record<string, unknown>).all_objectives_done !== true) {
+    return "The one trigger v1 knows is all_objectives_done: true";
+  }
+  return null;
+}
+
+/**
+ * Where a vision stands, given a way to measure. PURE: the measure function
+ * is passed in, so this file keeps its no-pool discipline and the same
+ * arithmetic runs identically in tests, on the server and in a preview.
+ *
+ * Declared objectives keep their human tick. Measured ones are re-derived
+ * from the measurement every time, so a vision can UN-meet if seats empty
+ * out: the prompt says what is true today, never what was true once.
+ */
+export function visionProgress(
+  vision: VisionBlock,
+  measure: (metric: string) => number | null,
+): { objectives: VisionObjective[]; done: number; total: number; allDone: boolean } {
+  const objectives = vision.objectives.map((o) => {
+    if (o.source !== "measured" || !o.metric) return { ...o };
+    const current = measure(o.metric);
+    return {
+      ...o,
+      current: current ?? o.current ?? null,
+      done: current !== null && o.target !== null && current >= o.target,
+    };
+  });
+  const done = objectives.filter((o) => o.done).length;
+  return {
+    objectives,
+    done,
+    total: objectives.length,
+    allDone: objectives.length > 0 && done === objectives.length,
+  };
+}
+
+/**
+ * Write a draft's vision block. Only an OPEN draft: a published draft is a
+ * record of what happened, and a vision edited onto one afterwards would
+ * claim conditions that never gated it.
+ */
+export async function setDraftVision(
+  pool: Pool,
+  draftId: string,
+  vision: VisionBlock | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const problem = visionProblem(vision);
+  if (problem) return { ok: false, error: problem };
+  const [[d]] = await pool.query<any[]>("SELECT status FROM org_drafts WHERE id = ?", [draftId]);
+  if (!d) return { ok: false, error: "No such draft" };
+  if (d.status !== "open") return { ok: false, error: `This draft is ${d.status} and can no longer be edited` };
+  await pool.query("UPDATE org_drafts SET vision = ? WHERE id = ?", [
+    vision === null ? null : JSON.stringify(vision),
+    draftId,
+  ]);
+  return { ok: true };
 }
 
 let seq = 0;
@@ -95,6 +233,7 @@ export async function listDrafts(pool: Pool): Promise<Draft[]> {
     publishedAt: d.published_at ? new Date(d.published_at).toISOString() : null,
     revertedAt: d.reverted_at ? new Date(d.reverted_at).toISOString() : null,
     changes: byDraft.get(d.id) ?? [],
+    vision: (asJson(d.vision) as VisionBlock | null) ?? null,
   }));
 }
 

@@ -38,7 +38,8 @@ export type Capability =
   | "message.send" // start a conversation and post to one (reading is membership)
   | "mechanics.propose" // propose a change to the game's own rules (Game Mechanics)
   | "event.rsvp" // say you are coming to a gathering
-  | "event.manage"; // put a gathering on the village calendar, edit or cancel it
+  | "event.manage" // put a gathering on the village calendar, edit or cancel it
+  | "org.declare"; // declare how the village and its circles hold power (0083)
 
 /**
  * The canonical list, as a VALUE: badge validation and unlock diffs iterate
@@ -66,6 +67,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "mechanics.propose",
   "event.rsvp",
   "event.manage",
+  "org.declare",
 ];
 
 /**
@@ -113,6 +115,14 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   // They are TWO keys on purpose. One key would mean anyone trusted to
   // propose a change to the land is also trusted to overwrite it live. Split,
   // they buy the useful middle: a member drafts, a cartographer publishes.
+  //
+  // `org.declare` is deliberately absent too (0083, P10). Declaring how the
+  // village holds power is an appointment a founder makes, granted by a role
+  // or a badge, never reached by climbing. The third path to declaring, a
+  // live holder of a seat flagged represents_circle, is scoped to that one
+  // circle and lives in orgChart.mayDeclare, not here: the one narrow bridge
+  // from the seat plane, recorded in
+  // docs/ADR_2026-08_REPRESENTS_CIRCLE_DECLARES.md.
 };
 
 /**

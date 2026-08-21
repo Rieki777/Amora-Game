@@ -142,6 +142,9 @@ importers:
       compression:
         specifier: ^1.8.1
         version: 1.8.1
+      d3-interpolate:
+        specifier: 3.0.1
+        version: 3.0.1
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(mysql2@3.23.1(@types/node@24.7.0))

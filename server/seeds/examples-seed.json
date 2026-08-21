@@ -66,7 +66,8 @@
         "status": "active",
         "sortOrder": 1,
         "leadRoleId": "ex-role-land-steward",
-        "isExample": true
+        "isExample": true,
+        "decidesBy": "consent"
       },
       {
         "id": "ex-circle-welcome",
@@ -83,7 +84,8 @@
         "status": "active",
         "sortOrder": 2,
         "leadRoleId": "ex-role-welcome-host",
-        "isExample": true
+        "isExample": true,
+        "decidesBy": "consensus"
       },
       {
         "id": "ex-circle-build",
@@ -100,7 +102,8 @@
         "status": "forming",
         "sortOrder": 3,
         "leadRoleId": null,
-        "isExample": true
+        "isExample": true,
+        "decidesBy": "do_ocracy"
       }
     ],
     "_memberTrigger": "The first circle a founder creates clears them."

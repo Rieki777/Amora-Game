@@ -169,4 +169,21 @@ describe("the starter vocabulary", () => {
       expect(t.label, t.id).toBe(t.inverseLabel);
     }
   });
+
+  it("carries escalation exactly once, matching the 0083 row word for word", () => {
+    // Two seeding doors exist: the migration's INSERT IGNORE for deployments
+    // that seeded before 0083, and this list for fresh installs. They must
+    // agree on every field, or which door a village came through would decide
+    // which words its map draws.
+    const esc = STARTER_TYPES.filter((t) => t.id === "escalation");
+    expect(esc).toHaveLength(1);
+    expect(esc[0]).toEqual({
+      id: "escalation",
+      label: "escalates objections to",
+      inverseLabel: "hears objections from",
+      symmetric: false,
+      isCover: false,
+      order: 6,
+    });
+  });
 });

@@ -462,6 +462,9 @@ export async function seedExamples(
           id: c.id, name: c.name, purpose: c.purpose, aliases: J(c.aliases),
           parent_circle_id: null, lead_role_id: c.leadRoleId, icon: c.icon,
           color: c.color, status: c.status, sort_order: c.sortOrder, is_example: 1,
+          // 0083 (P4): examples ship declaring a method, so the decide lens
+          // has something to teach before a village says anything.
+          decides_by: c.decidesBy ?? null,
         });
       }
       break;

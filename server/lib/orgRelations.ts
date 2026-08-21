@@ -62,6 +62,11 @@ export const STARTER_TYPES: Array<Omit<RelationType, "isExample">> = [
   { id: "mentor", label: "is mentored by", inverseLabel: "mentors", symmetric: false, isCover: false, order: 3 },
   { id: "prerequisite", label: "requires", inverseLabel: "is required by", symmetric: false, isCover: false, order: 4 },
   { id: "works-with", label: "works closely with", inverseLabel: "works closely with", symmetric: true, isCover: false, order: 5 },
+  // 0083 (P5): "if I disagree, where do I go" as a drawable line. The power
+  // map draws it as a thin arrow; existing deployments got the same row from
+  // the migration's INSERT IGNORE. Deleted once, gone for good, like every
+  // starter type.
+  { id: "escalation", label: "escalates objections to", inverseLabel: "hears objections from", symmetric: false, isCover: false, order: 6 },
 ];
 
 export async function seedStarterTypes(pool: Pool): Promise<number> {
