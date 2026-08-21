@@ -359,3 +359,320 @@ export function layoutMap(circles: LayoutCircle[]): MapLayout {
 
   return { width: CANVAS, height: CANVAS, center, circles: positioned };
 }
+
+// ── The shape layouts (0083, R29): one input, one output type, six pictures ──
+//
+// `layoutForShape` is the power map's layout switch. Same discipline as
+// everything above: pure, deterministic, jitter-free, and the `circle` branch
+// IS `layoutNestedMap`, byte for byte, so today's picture cannot drift while
+// the other shapes exist beside it. One output type (`NestedLayout`) so one
+// renderer draws every shape and framer-motion can animate seats between
+// them: same node ids, new positions, and the morph is the story.
+//
+// The `pad` argument is an outer margin for lenses that draw AROUND the
+// village (lane L3's resources ring). pad = 0 returns the base layout object
+// untouched, which is what keeps the byte-identity promise checkable.
+
+/** The tree-and-size pass layoutNestedMap runs, duplicated deliberately so
+ *  that function stays untouched (its output is under byte-identity test). */
+function sizedRoots(inputs: NestedInput[]): PackedNode[] {
+  const sorted = [...inputs].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  const byId = new Map(sorted.map((c) => [c.id, c]));
+  const nodeFor = new Map<string, PackedNode>();
+  for (const c of sorted) nodeFor.set(c.id, { input: c, r: 0, dx: 0, dy: 0, children: [] });
+  const roots: PackedNode[] = [];
+  for (const c of sorted) {
+    const node = nodeFor.get(c.id)!;
+    const parent = c.parentId && c.parentId !== c.id ? nodeFor.get(c.parentId) : undefined;
+    if (parent && byId.has(c.parentId!)) parent.children.push(node);
+    else roots.push(node);
+  }
+  const sizeNode = (node: PackedNode): void => {
+    node.children.forEach(sizeNode);
+    const contentR = packChildren(node.children);
+    node.r = Math.max(ownRadius(node.input), contentR + ROLE_RING_INSET + ROLE_DOT_R + 10);
+  };
+  roots.forEach(sizeNode);
+  return roots;
+}
+
+/** The per-circle furniture layoutNestedMap's `place` draws: seats on the
+ *  inner ring, quest dots on the bottom arc. Same numbers, same sorting. */
+function furnish(node: PackedNode, x: number, y: number, depth: number, out: NestedCircle[]): void {
+  const c = node.input;
+  const ringR = node.r - ROLE_RING_INSET;
+  const roles = [...c.roles].sort((a, b) => Number(a.vacant) - Number(b.vacant) || a.id.localeCompare(b.id));
+  const rolePositions = roles.map((role, j) => {
+    const ra = -Math.PI / 2 + (2 * Math.PI * j) / Math.max(1, roles.length);
+    return { id: role.id, vacant: role.vacant, x: x + ringR * Math.cos(ra), y: y + ringR * Math.sin(ra) };
+  });
+  const shownQuests = Math.min(c.questCount, QUEST_DISPLAY_CAP);
+  const questDots = Array.from({ length: shownQuests }, (_, j) => {
+    const qa = Math.PI / 2 + ((j - (shownQuests - 1) / 2) * 0.28);
+    return { x: x + (ringR - 18) * Math.cos(qa), y: y + (ringR - 18) * Math.sin(qa) };
+  });
+  out.push({
+    id: c.id, x, y, r: node.r, depth,
+    roles: rolePositions, questDots,
+    questOverflow: Math.max(0, c.questCount - shownQuests),
+  });
+  node.children.forEach((child) => furnish(child, x + child.dx, y + child.dy, depth + 1, out));
+}
+
+/** Village seats spread across the top arc of the boundary, as today. */
+function boundarySeats(
+  villageRoles: Array<{ id: string; vacant: boolean }>,
+  cx: number,
+  cy: number,
+  r: number,
+): NestedLayout["village"]["roles"] {
+  const vRoles = [...villageRoles].sort(
+    (a, b) => Number(a.vacant) - Number(b.vacant) || a.id.localeCompare(b.id),
+  );
+  const arcSpan = Math.min(Math.PI * 0.9, vRoles.length * 0.24);
+  return vRoles.map((role, j) => {
+    const a = -Math.PI / 2 + (vRoles.length === 1 ? 0 : arcSpan * (j / (vRoles.length - 1) - 0.5));
+    return { id: role.id, vacant: role.vacant, x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+  });
+}
+
+/** Place sized top-level nodes on one ring, arc-proportionally, and furnish. */
+function ringOfNodes(
+  roots: PackedNode[],
+  villageRoles: Array<{ id: string; vacant: boolean }>,
+  opts: {
+    /** Extra ring radius on top of what spacing needs, as a factor. */
+    spread?: number;
+    /** The ring the roots must clear from the centre outward. */
+    clearR?: number;
+    /** Equal angular slots instead of arc-proportional ones. */
+    equalSlots?: boolean;
+    /** Force every top-level node to this radius. */
+    uniformR?: number;
+    /** Where the village's own seats go. */
+    seats: "top-arc" | "full-ring" | "centre-ring" | "centre-cluster";
+  },
+): NestedLayout {
+  const spread = opts.spread ?? 1;
+  const uniform = opts.uniformR;
+  const rOf = (n: PackedNode) => uniform ?? n.r;
+  const maxR = roots.length ? Math.max(...roots.map(rOf)) : 0;
+  const total = roots.reduce((s, n) => s + 2 * rOf(n) + PACK_GAP, 0);
+  const byCircumference = total / (2 * Math.PI) + maxR * 0.2;
+  const byDistance = (opts.clearR ?? 0) + maxR + PACK_GAP;
+  // One circle alone still needs to sit OFF centre when the centre is held
+  // (council, steward), and exactly ON centre reads better when it is not.
+  const ringR = roots.length <= 1 && !opts.clearR ? 0 : Math.max(byDistance, byCircumference) * spread;
+
+  const villageR = ringR + maxR + 30;
+  const canvas = Math.max(MIN_CANVAS, Math.ceil((villageR + VILLAGE_PAD) * 2));
+  const cx = canvas / 2;
+  const cy = canvas / 2;
+
+  const out: NestedCircle[] = [];
+  let arc = 0;
+  roots.forEach((node, i) => {
+    const slice = 2 * rOf(node) + PACK_GAP;
+    const angle = opts.equalSlots
+      ? -Math.PI / 2 + (2 * Math.PI * i) / Math.max(1, roots.length)
+      : -Math.PI / 2 + (2 * Math.PI * (arc + slice / 2)) / Math.max(total, 1);
+    arc += slice;
+    const x = cx + ringR * Math.cos(angle);
+    const y = cy + ringR * Math.sin(angle);
+    furnish({ ...node, r: rOf(node) }, x, y, 0, out);
+  });
+
+  // The village's own seats, where the shape says they live.
+  let seats: NestedLayout["village"]["roles"] = [];
+  const sortedSeats = [...villageRoles].sort(
+    (a, b) => Number(a.vacant) - Number(b.vacant) || a.id.localeCompare(b.id),
+  );
+  if (opts.seats === "top-arc") {
+    seats = boundarySeats(villageRoles, cx, cy, villageR);
+  } else if (opts.seats === "full-ring") {
+    seats = sortedSeats.map((role, j) => {
+      const a = -Math.PI / 2 + (2 * Math.PI * j) / Math.max(1, sortedSeats.length);
+      return { id: role.id, vacant: role.vacant, x: cx + villageR * Math.cos(a), y: cy + villageR * Math.sin(a) };
+    });
+  } else if (opts.seats === "centre-ring") {
+    const innerR = opts.clearR ? opts.clearR - ROLE_DOT_R - 6 : 0;
+    seats = sortedSeats.map((role, j) => {
+      const a = -Math.PI / 2 + (2 * Math.PI * j) / Math.max(1, sortedSeats.length);
+      return { id: role.id, vacant: role.vacant, x: cx + innerR * Math.cos(a), y: cy + innerR * Math.sin(a) };
+    });
+  } else {
+    // centre-cluster: one seat exactly at the centre; a second and third in a
+    // tight rosette around it. The steward's picture.
+    const rosetteR = sortedSeats.length <= 1 ? 0 : ROLE_DOT_R * 2.2;
+    seats = sortedSeats.map((role, j) => {
+      const a = -Math.PI / 2 + (2 * Math.PI * j) / Math.max(1, sortedSeats.length);
+      return {
+        id: role.id,
+        vacant: role.vacant,
+        x: cx + rosetteR * Math.cos(a),
+        y: cy + rosetteR * Math.sin(a),
+      };
+    });
+  }
+
+  return {
+    width: canvas,
+    height: canvas,
+    village: { x: cx, y: cy, r: villageR, roles: seats },
+    circles: out,
+  };
+}
+
+/** Top-down tree: the head seat on top, layers report up (down the page). */
+function layoutPyramid(
+  inputs: NestedInput[],
+  villageRoles: Array<{ id: string; vacant: boolean }>,
+): NestedLayout {
+  // Every circle is its OWN node here: a pyramid says hierarchy with rows,
+  // so children sit in the row below their parent instead of nesting inside
+  // it. The renderer draws the connecting lines from `parentId`.
+  const sorted = [...inputs].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  const byId = new Map(sorted.map((c) => [c.id, c]));
+  const rowOf = (c: NestedInput): number => {
+    let depth = 0;
+    let cur = c;
+    const seen = new Set<string>([c.id]);
+    while (cur.parentId && byId.has(cur.parentId) && !seen.has(cur.parentId)) {
+      seen.add(cur.parentId);
+      cur = byId.get(cur.parentId)!;
+      depth += 1;
+    }
+    return depth;
+  };
+  const rows = new Map<number, NestedInput[]>();
+  for (const c of sorted) {
+    const row = rowOf(c);
+    rows.set(row, [...(rows.get(row) ?? []), c]);
+  }
+  const rowKeys = Array.from(rows.keys()).sort((a, b) => a - b);
+
+  const APEX_H = villageRoles.length ? 64 : 24;
+  const ROW_GAP = 26;
+  const nodesByRow = rowKeys.map((k) =>
+    rows.get(k)!.map((c) => ({ input: c, r: ownRadius(c), dx: 0, dy: 0, children: [] as PackedNode[] })),
+  );
+  const rowWidth = (nodes: Array<{ r: number }>) =>
+    nodes.reduce((s, n) => s + 2 * n.r + PACK_GAP, 0) + PACK_GAP;
+  const width = Math.max(
+    MIN_CANVAS,
+    Math.ceil(
+      Math.max(...(nodesByRow.length ? nodesByRow.map(rowWidth) : [0]), villageRoles.length * ROLE_DOT_R * 3 + 40) +
+        PACK_GAP * 2,
+    ),
+  );
+
+  const out: NestedCircle[] = [];
+  let y = APEX_H;
+  nodesByRow.forEach((nodes, rowIdx) => {
+    const maxR = Math.max(...nodes.map((n) => n.r));
+    y += maxR;
+    let x = (width - rowWidth(nodes)) / 2 + PACK_GAP;
+    for (const node of nodes) {
+      const cxNode = x + PACK_GAP / 2 + node.r;
+      furnish(node, cxNode, y, rowKeys[rowIdx], out);
+      x += 2 * node.r + PACK_GAP;
+    }
+    y += maxR + ROW_GAP;
+  });
+  const height = Math.max(MIN_CANVAS, Math.ceil(y - ROW_GAP + 24));
+
+  // The head seats crown the apex, spread on a short horizontal line.
+  const vRoles = [...villageRoles].sort(
+    (a, b) => Number(a.vacant) - Number(b.vacant) || a.id.localeCompare(b.id),
+  );
+  const seatSpan = Math.min(width - 48, vRoles.length * ROLE_DOT_R * 3);
+  const seats = vRoles.map((role, j) => ({
+    id: role.id,
+    vacant: role.vacant,
+    x: width / 2 + (vRoles.length === 1 ? 0 : seatSpan * (j / (vRoles.length - 1) - 0.5)),
+    y: APEX_H / 2,
+  }));
+
+  return {
+    width,
+    height,
+    // The frame exists so every shape shares one type; the pyramid renderer
+    // draws rows and connectors, not the enclosing ring.
+    village: { x: width / 2, y: height / 2, r: Math.max(width, height) / 2, roles: seats },
+    circles: out,
+  };
+}
+
+export type PowerShape = "circle" | "pyramid" | "council" | "flat" | "steward" | "network" | "other";
+
+/**
+ * The power map's layout: one function, seven shapes, one output type.
+ *
+ *   circle   today's nested ring pack, byte for byte (layoutNestedMap).
+ *   pyramid  a top-down tree, the head seat on top.
+ *   council  the village's own seats as an inner ring, circles around.
+ *   flat     one ring of equals: same radius, equal slots, seats all round.
+ *   steward  the steward at the centre inside one enclosing line.
+ *   network  nodes spread on a wide ring; relation chords are the renderer's.
+ *   other    draws as circle; its own words live in the legend gloss.
+ *
+ * `pad` is an outer margin for lenses drawn around the village (L3's
+ * resources ring): every coordinate shifts by it and the canvas grows by
+ * twice it. pad = 0 hands back the base layout object untouched.
+ */
+export function layoutForShape(
+  shape: PowerShape | string,
+  inputs: NestedInput[],
+  villageRoles: Array<{ id: string; vacant: boolean }> = [],
+  pad = 0,
+): NestedLayout {
+  const base = (() => {
+    switch (shape) {
+      case "pyramid":
+        return layoutPyramid(inputs, villageRoles);
+      case "council": {
+        const roots = sizedRoots(inputs);
+        const councilR = Math.max(
+          46,
+          (villageRoles.length * ROLE_DOT_R * 2.6) / (2 * Math.PI) + ROLE_DOT_R + 22,
+        );
+        return ringOfNodes(roots, villageRoles, { clearR: councilR, seats: "centre-ring" });
+      }
+      case "flat": {
+        const roots = sizedRoots(inputs);
+        const uniformR = roots.length ? Math.max(...roots.map((n) => n.r)) : 0;
+        return ringOfNodes(roots, villageRoles, { uniformR, equalSlots: true, seats: "full-ring" });
+      }
+      case "steward": {
+        const roots = sizedRoots(inputs);
+        const clearR = Math.max(52, ROLE_DOT_R * 2.2 + ROLE_DOT_R + 26);
+        return ringOfNodes(roots, villageRoles, { clearR, seats: "centre-cluster" });
+      }
+      case "network": {
+        const roots = sizedRoots(inputs);
+        return ringOfNodes(roots, villageRoles, { spread: 1.45, seats: "top-arc" });
+      }
+      default:
+        // circle, other, and any id the map has not learned to draw yet.
+        return layoutNestedMap(inputs, villageRoles);
+    }
+  })();
+  if (!pad) return base;
+  return {
+    width: base.width + 2 * pad,
+    height: base.height + 2 * pad,
+    village: {
+      x: base.village.x + pad,
+      y: base.village.y + pad,
+      r: base.village.r,
+      roles: base.village.roles.map((s) => ({ ...s, x: s.x + pad, y: s.y + pad })),
+    },
+    circles: base.circles.map((c) => ({
+      ...c,
+      x: c.x + pad,
+      y: c.y + pad,
+      roles: c.roles.map((s) => ({ ...s, x: s.x + pad, y: s.y + pad })),
+      questDots: c.questDots.map((q) => ({ x: q.x + pad, y: q.y + pad })),
+    })),
+  };
+}
