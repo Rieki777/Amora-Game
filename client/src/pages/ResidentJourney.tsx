@@ -104,8 +104,13 @@ const journeySteps = [
     title: "Put Down a Deposit on Your Future Home",
     description: "Secure your future home with a fully refundable deposit, from $5k to $20k+ depending on the home type you're reserving. This holds your place and starts the real conversation.",
     icon: Wallet,
-    link: "#",
-    linkText: "Reserve With a Deposit",
+    // Slice 1 of the reservation flow (0077). This stage carried "#" since it
+    // was written, so both of Housing.tsx's CTAs pointed at a step that went
+    // nowhere. It now reaches the form that records which home and which
+    // hamlet a person wants. The deposit itself is still a later step, and
+    // when it lands it reuses server/lib/payments.ts.
+    link: "/reserve",
+    linkText: "Reserve Your Home",
     external: false,
     details: ["Fully refundable deposit", "$5k-$20k+ depending on home type", "Reserves your future home", "Priority on your chosen lot"]
   },

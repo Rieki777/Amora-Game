@@ -35,6 +35,7 @@ const role = (id: string, over: Partial<R> = {}): R => ({
   icon: null, color: null, order: 0, isExample: false,
   authority: null, firstYearOutcomes: null, first90DayOutcomes: null,
   locationExpectations: null, compensationReality: null, evidenceRequired: null,
+  representsCircle: false, howChosen: null, howChosenGloss: null,
   ...over,
 });
 
@@ -79,6 +80,11 @@ describe("the export carries counts and never people", () => {
     "on site three days a week",
     "unpaid, board seat after a year",
     "two references from water work",
+    // 0083: the glosses. Ids publish ("consent", "other"); the village's own
+    // words do NOT, because free text can hold a name, and here it does.
+    "ask Ada Vance before spending",
+    "Bo Reyes chooses the next one",
+    "Ada holds it as the land trust",
   ];
 
   const pack = {
@@ -92,7 +98,10 @@ describe("the export carries counts and never people", () => {
 
   const doc = build(
     [
-      role("water-steward", { circleId: "land-circle", name: "Water Steward", seats: 2, aim: "Keep the water running.", ...pack }),
+      role("water-steward", {
+        circleId: "land-circle", name: "Water Steward", seats: 2, aim: "Keep the water running.",
+        howChosen: "other", howChosenGloss: "Bo Reyes chooses the next one", ...pack,
+      }),
       role("gate-steward", { circleId: "land-circle", name: "Gate Steward", ...pack }),
     ],
     [
@@ -103,7 +112,17 @@ describe("the export carries counts and never people", () => {
       }),
       seating("gate-steward"),
     ],
-    [circle("land-circle", { name: "Land Circle" })],
+    [
+      circle("land-circle", {
+        name: "Land Circle",
+        decidesBy: "consent",
+        decidesByGloss: "ask Ada Vance before spending",
+        decidesByDomains: {
+          money: { method: "lead_decides", gloss: "ask Ada Vance before spending" },
+          space_land: { method: "other", gloss: "Ada holds it as the land trust" },
+        },
+      }),
+    ],
   );
 
   it("leaks nothing private into the JSON", () => {
@@ -523,5 +542,62 @@ describe("the fixes the recon pass found", () => {
     const child = doc.circles.find((c) => c.id === "child")!;
     expect(child.parentCircleId).toBe("parent");
     expect(child.grownFromOrgRoleId).toBe("lead-seat");
+  });
+});
+
+// ── 0083: how power is held, published as ids ───────────────────────────────
+
+describe("the power vocabulary publishes ids and only ids", () => {
+  it("publishes the village shape when it is a known id, and null otherwise", () => {
+    const shaped = buildOrgExport({
+      instanceId: "inst-1", villageName: "Riverbend", roles: [], assignments: [],
+      circles: [], updatedAt: "2026-08-03T00:00:00.000Z", shape: "council",
+    });
+    expect(shaped.shape).toBe("council");
+    const junk = buildOrgExport({
+      instanceId: "inst-1", villageName: "Riverbend", roles: [], assignments: [],
+      circles: [], updatedAt: "2026-08-03T00:00:00.000Z", shape: "Ada Vance's way",
+    });
+    expect(junk.shape).toBeNull();
+    expect(JSON.stringify(junk)).not.toContain("Ada");
+    const unsaid = build([], [], []);
+    expect(unsaid.shape).toBeNull();
+  });
+
+  it("publishes a circle's decides-by id and its domain override ids", () => {
+    const doc = build([], [], [circle("land-circle", {
+      decidesBy: "consent",
+      decidesByDomains: { money: { method: "lead_decides", gloss: "ask the lead first" } },
+    })]);
+    const c = doc.circles[0];
+    expect(c.decidesBy).toBe("consent");
+    expect(c.decidesByDomains).toEqual({ money: "lead_decides" });
+    expect(JSON.stringify(doc)).not.toContain("ask the lead first");
+  });
+
+  it("degrades a hand-edited row to null instead of publishing its text", () => {
+    const doc = build([], [], [circle("c", {
+      decidesBy: "whatever Ada says",
+      decidesByDomains: { money: { method: "whatever Ada says" }, weather: { method: "consent" } },
+    })]);
+    expect(doc.circles[0].decidesBy).toBeNull();
+    expect(doc.circles[0].decidesByDomains).toBeNull();
+    expect(JSON.stringify(doc)).not.toContain("whatever Ada says");
+  });
+
+  it("reads domain overrides that arrive as a JSON string, as mysql drivers hand them", () => {
+    const doc = build([], [], [circle("c", {
+      decidesBy: "majority",
+      decidesByDomains: JSON.stringify({ rules: { method: "hypha" } }),
+    })]);
+    expect(doc.circles[0].decidesByDomains).toEqual({ rules: "hypha" });
+  });
+
+  it("says Decides by on the circle page, from the platform label", () => {
+    const doc = build([], [], [circle("land-circle", { name: "Land Circle", decidesBy: "consent" })]);
+    const page = circleMarkdown(doc, doc.circles[0]);
+    expect(page).toContain("Decides by: consent.");
+    const silent = build([], [], [circle("quiet-circle", { name: "Quiet Circle" })]);
+    expect(circleMarkdown(silent, silent.circles[0])).not.toContain("Decides by");
   });
 });

@@ -7,8 +7,10 @@
  */
 import type { CalendarItem } from "@shared/gatherings";
 import type { YearAnchor } from "@shared/lunar";
+import { LayerChips, layerPillLabel, useLayerFilter } from "./LayerChips";
 import MoonGlyph from "./MoonGlyph";
 import { StackedHeaders } from "./MonthView";
+import WhoIsHereBand from "./WhoIsHereBand";
 import {
   itemsByDay,
   kindColour,
@@ -37,7 +39,10 @@ export interface WeekViewProps {
 
 export default function WeekView(p: WeekViewProps) {
   const days = weekOf(p.cursor, p.timezone);
-  const byDay = itemsByDay(p.items, p.timezone);
+  // 0088: the chips hide layers on screen; the server already decided what
+  // this viewer may see at all.
+  const { filtered, present, off, toggle } = useLayerFilter(p.items);
+  const byDay = itemsByDay(filtered, p.timezone);
   const focus = days.find((d) => d.key === p.selectedKey) ?? p.cursor;
   const info = lunarDayInfo(focus, p.anchor, p.timezone);
   const label = info ? moonLabel(info.monthIndex, p.monthNames) : null;
@@ -54,6 +59,10 @@ export default function WeekView(p: WeekViewProps) {
         bottom={info && label ? `${label.title}${label.name ? `, ${label.name}` : ""}, day ${info.day} of ${info.length}` : "Outside the lunar table"}
         pill={label?.isExample ? "example name" : null}
       />
+      <LayerChips present={present} off={off} toggle={toggle} />
+      {/* 0088: who is on the land this week, from stays. Renders nothing
+          while stays is off or the week is quiet. */}
+      <WhoIsHereBand days={days} />
       <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {days.map((day) => {
           const li = lunarDayInfo(day, p.anchor, p.timezone);
@@ -87,6 +96,11 @@ export default function WeekView(p: WeekViewProps) {
                     <span className={`text-[10px] leading-tight ${i.status === "cancelled" ? "line-through opacity-60" : ""}`}>
                       <span className="hidden sm:inline">{i.allDay ? "" : `${villageClock(new Date(i.startsAt), p.timezone)} `}</span>
                       <span className="hidden sm:inline">{i.title}</span>
+                      {layerPillLabel(i.layer) && (
+                        <span className="hidden sm:inline ml-1 text-[9px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1">
+                          {layerPillLabel(i.layer)}
+                        </span>
+                      )}
                     </span>
                   </li>
                 ))}

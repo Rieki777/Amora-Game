@@ -46,6 +46,39 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as edSign, verify as edVerify } from "crypto";
 import type { Pool } from "mysql2/promise";
 import { seatState, type OrgAssignment, type OrgRole } from "./orgChart";
+import { DECIDES_BY, DOMAINS, SHAPES } from "../../shared/power";
+
+/*
+ * 0083 vocabulary, published as IDS ONLY and sanitised against the closed
+ * sets. The columns under these were validated at write time, but this
+ * document goes to the open internet, so a hand-edited row must degrade to
+ * null here rather than publish whatever text it holds: free text can hold a
+ * name, and the privacy rule above has no exceptions.
+ */
+const SHAPE_IDS = new Set<string>(SHAPES.map((s) => s.id));
+const DECIDES_BY_IDS = new Set<string>(DECIDES_BY.map((d) => d.id));
+const DOMAIN_IDS = new Set<string>(DOMAINS.map((d) => d.id));
+
+function exportableShape(v: unknown): string | null {
+  return typeof v === "string" && SHAPE_IDS.has(v) ? v : null;
+}
+
+function exportableDecidesBy(v: unknown): string | null {
+  return typeof v === "string" && DECIDES_BY_IDS.has(v) ? v : null;
+}
+
+/** {money: {method, gloss?}, ...} -> {money: "consent", ...}, ids only. */
+function exportableDomains(v: unknown): Record<string, string> | null {
+  const raw = typeof v === "string" ? (() => { try { return JSON.parse(v); } catch { return null; } })() : v;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: Record<string, string> = {};
+  for (const [domain, entry] of Object.entries(raw as Record<string, any>)) {
+    if (!DOMAIN_IDS.has(domain)) continue;
+    const method = exportableDecidesBy(entry?.method);
+    if (method) out[domain] = method;
+  }
+  return Object.keys(out).length ? out : null;
+}
 
 export const EXPORT_PROTOCOL = "village/1";
 
@@ -263,6 +296,16 @@ export interface ExportCircle {
   parentCircleId: string | null;
   /** The fractal: this circle grew out of a seat that outgrew itself. */
   grownFromOrgRoleId: string | null;
+  /**
+   * How this circle decides (0083): the ID from shared/power.ts, never the
+   * gloss. A gloss is the village's own free text and free text can hold a
+   * name, which is the one thing these documents never carry. A village
+   * telling the network "we decide by consent" is village-content and safe;
+   * its sentence about what that means stays on the authenticated map.
+   */
+  decidesBy: string | null;
+  /** Per-domain override IDS only: {money?: "consent", ...}. Same rule. */
+  decidesByDomains: Record<string, string> | null;
 }
 
 export interface ExportSeat {
@@ -309,6 +352,12 @@ export interface OrgExport {
   instanceId: string;
   name: string;
   updatedAt: string;
+  /**
+   * The village's declared shape (0083): the ID from shared/power.ts SHAPES,
+   * or null while the village has not said. Ids only, same rule as
+   * `decidesBy` below: the gloss is free text and stays home.
+   */
+  shape: string | null;
   circles: ExportCircle[];
   seats: ExportSeat[];
   /**
@@ -329,6 +378,8 @@ export interface OrgExportInput {
   assignments: OrgAssignment[];
   circles: any[];
   updatedAt: string;
+  /** The village's declared shape id, from the map module's power config. */
+  shape?: string | null;
   /** 0054 links, with their type already resolved. Omitted means none. */
   relations?: Array<{
     typeId: string; label: string; inverseLabel: string;
@@ -359,6 +410,8 @@ export function buildOrgExport(input: OrgExportInput): OrgExport {
       status: String(c.status ?? "active"),
       parentCircleId: c.parentCircleId ?? null,
       grownFromOrgRoleId: c.grownFromOrgRoleId ?? null,
+      decidesBy: exportableDecidesBy(c.decidesBy),
+      decidesByDomains: exportableDomains(c.decidesByDomains),
     }));
 
   // Cross-references are resolved AFTER both lists are known, so nothing
@@ -418,6 +471,7 @@ export function buildOrgExport(input: OrgExportInput): OrgExport {
     instanceId: input.instanceId,
     name: input.villageName,
     updatedAt: input.updatedAt,
+    shape: exportableShape(input.shape),
     circles,
     seats,
     relations,
@@ -425,6 +479,7 @@ export function buildOrgExport(input: OrgExportInput): OrgExport {
       "Who holds a seat. This document is unauthenticated, so it carries counts and never people.",
       "Standing example rows. They are demo data, so this document drops them instead of flagging them.",
       "Retired seats.",
+      "The village's own glosses on its shape and ways of deciding. Ids only here; the words stay on the map.",
     ],
   };
 }
@@ -553,6 +608,12 @@ export function circleMarkdown(doc: OrgExport, circle: ExportCircle): string {
   if (parent) lines.push("", `Inside [${linkText(parent.name)}](${parent.id}.md).`);
   if (grown) lines.push("", `Grew out of the [${linkText(grown.name)}](../roles/${grown.id}.md) seat as it outgrew one person.`);
   if (circle.status !== "active") lines.push("", `Status: ${circle.status}.`);
+  // 0083: the platform LABEL for the id, never the village's gloss. The label
+  // is our vocabulary; the gloss is their free text and stays home.
+  if (circle.decidesBy) {
+    const label = DECIDES_BY.find((d) => d.id === circle.decidesBy)?.label ?? circle.decidesBy;
+    lines.push("", `Decides by: ${label.toLowerCase()}.`);
+  }
   if (circle.purpose) lines.push("", "## Purpose", "", prose(circle.purpose));
 
   if (seats.length) {

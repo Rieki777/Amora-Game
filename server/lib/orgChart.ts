@@ -20,6 +20,11 @@
  * expiry so it lapses back rather than outliving the moment somebody meant it.
  */
 import type { Pool } from "mysql2/promise";
+import {
+  decidesByProblem,
+  domainsProblem,
+  shapeProblem,
+} from "../../shared/power";
 
 export type SeatState = "open" | "filled" | "partial" | "forming" | "expired";
 
@@ -54,6 +59,21 @@ export interface OrgRole {
   color: string | null;
   order: number;
   isExample: boolean;
+  /**
+   * This seat SPEAKS FOR ITS CIRCLE (0083, P10). A live, non-example holder
+   * of a seat with this flag may declare how that one circle decides, and
+   * nothing else. The one narrow bridge from the seat plane to a permission,
+   * recorded in docs/ADR_2026-08_REPRESENTS_CIRCLE_DECLARES.md; admin only to
+   * grant, through the existing PUT /api/admin/org/roles/:id.
+   */
+  representsCircle: boolean;
+  /**
+   * How the next holder is chosen (0083, P6): an id from shared/power.ts
+   * HOW_CHOSEN, with the village's own line in the gloss when it is `other`.
+   * Shown on the seat card; never in the public export.
+   */
+  howChosen: string | null;
+  howChosenGloss: string | null;
   /**
    * THE RECRUITMENT PACK. Six columns 0049 created and `WRITABLE` has always
    * accepted, and which nothing ever read back: `ROLE_COLS` omitted every one,
@@ -104,7 +124,10 @@ const ROLE_COLS =
   "id, circle_id, name, aim, domain, accountabilities, why_it_matters, seats, criticality, active, recruiting, expires_each_season, status_override, status_override_expires_at, icon, color, sort_order, is_example, " +
   // The recruitment pack. Written since 0049, selected by nobody until now, so
   // every one of them was a column the API accepted and then swallowed.
-  "authority, first_year_outcomes, first_90_day_outcomes, location_expectations, compensation_reality, evidence_required";
+  "authority, first_year_outcomes, first_90_day_outcomes, location_expectations, compensation_reality, evidence_required, " +
+  // 0083: representation and succession. Selected from day one, because the
+  // recruitment pack above is the cautionary tale about columns nobody reads.
+  "represents_circle, how_chosen, how_chosen_gloss";
 
 const ASSIGN_COLS =
   // `is_example` rides along so the flag travels through every SELECT. It was
@@ -148,6 +171,9 @@ function rowToRole(r: any): OrgRole {
     color: r.color ?? null,
     order: Number(r.sort_order ?? 0),
     isExample: !!r.is_example,
+    representsCircle: !!r.represents_circle,
+    howChosen: r.how_chosen ?? null,
+    howChosenGloss: r.how_chosen_gloss ?? null,
     authority: r.authority ?? null,
     firstYearOutcomes: r.first_year_outcomes ?? null,
     first90DayOutcomes: r.first_90_day_outcomes ?? null,
@@ -532,6 +558,13 @@ export function describeOrgChange(before: OrgRole | null, after: Partial<OrgRole
   if (after.expiresEachSeason !== undefined) {
     say("expires each season", before.expiresEachSeason, after.expiresEachSeason);
   }
+  // 0083: representation is a POWER change, so the journal must say it. A
+  // seat quietly gaining "speaks for its circle" is the drift the ADR warns
+  // about, and the journal line is half of how it stays visible.
+  if (after.representsCircle !== undefined) {
+    say("speaks for its circle", before.representsCircle, after.representsCircle);
+  }
+  if (after.howChosen !== undefined) say("how the next holder is chosen", before.howChosen, after.howChosen);
   return lines;
 }
 
@@ -552,6 +585,9 @@ const WRITABLE: Record<string, string> = {
   locationExpectations: "location_expectations",
   compensationReality: "compensation_reality",
   evidenceRequired: "evidence_required",
+  representsCircle: "represents_circle",
+  howChosen: "how_chosen",
+  howChosenGloss: "how_chosen_gloss",
   icon: "icon",
   color: "color",
   order: "sort_order",
@@ -614,7 +650,7 @@ export async function updateOrgRole(pool: Pool, id: string, body: any): Promise<
     sets.push(`\`${col}\` = ?`);
     if (js === "seats") args.push(Math.max(1, Number(body[js] ?? 1)));
     else if (js === "order") args.push(Number(body[js] ?? 0));
-    else if (js === "active" || js === "recruiting") args.push(body[js] ? 1 : 0);
+    else if (js === "active" || js === "recruiting" || js === "representsCircle") args.push(body[js] ? 1 : 0);
     else if (js === "expiresEachSeason") args.push(body[js] === null ? null : body[js] ? 1 : 0);
     else args.push(body[js] === "" ? null : body[js]);
   }
@@ -1033,4 +1069,145 @@ export async function backfillOrgChart(pool: Pool, input: BackfillInput): Promis
   );
 
   return { circlesWritten, councilsToForming, seatsWritten, holdersWritten, skipped: false };
+}
+
+// ── Who may declare how power is held (0083, P10, N5) ───────────────────────
+
+/**
+ * Everything `mayDeclare` needs, passed in so it stays a pure function of its
+ * inputs like the rest of this file. `hasOrgDeclare` is resolved by the
+ * caller through the ONE gate (`hasCapability("org.declare", ctx)`), never
+ * re-derived here: this function adds the third path, it does not re-answer
+ * the first two.
+ */
+export interface DeclareContext {
+  isAdmin: boolean;
+  /** hasCapability("org.declare") for this viewer, resolved by the caller. */
+  hasOrgDeclare: boolean;
+  /** The viewer's user id, or null for a stranger. */
+  userId: string | null;
+  roles: Array<Pick<OrgRole, "id" | "circleId" | "representsCircle" | "active" | "isExample">>;
+  /** LIVE seatings (ended_at null), as listOrgAssignments returns them. */
+  assignments: Array<Pick<OrgAssignment, "orgRoleId" | "userId" | "endedAt" | "isExample">>;
+}
+
+/**
+ * May this viewer declare how power is held at `target`?
+ *
+ * Three doors, and the third is the narrow one the ADR exists for:
+ *
+ *   1. An admin.
+ *   2. A holder of the `org.declare` capability (an appointment).
+ *   3. For ONE CIRCLE only: a live, non-example holder of an active,
+ *      non-example seat flagged `represents_circle` in that circle.
+ *
+ * The village level takes the first two doors only. A circle's delegate
+ * speaks for their circle, and the village's shape is everyone's; scoping the
+ * bridge this tightly is what keeps it an exception instead of a precedent
+ * (docs/ADR_2026-08_REPRESENTS_CIRCLE_DECLARES.md).
+ *
+ * A lapsed holding still opens the door. Nothing is revoked at a season turn
+ * (see `isLapsed`), the person is still the seated delegate, and losing the
+ * pen mid-harvest for reasons nobody chose is the exact failure that rule
+ * exists to avoid. An ENDED holding does not: the caller passes live rows.
+ */
+export function mayDeclare(target: string, ctx: DeclareContext): boolean {
+  if (ctx.isAdmin) return true;
+  if (ctx.hasOrgDeclare) return true;
+  if (target === "village") return false;
+  if (!ctx.userId) return false;
+  const speaking = new Set(
+    ctx.roles
+      .filter((r) => r.active && !r.isExample && r.representsCircle && r.circleId === target)
+      .map((r) => r.id),
+  );
+  if (!speaking.size) return false;
+  return ctx.assignments.some(
+    (a) => !a.endedAt && !a.isExample && a.userId === ctx.userId && speaking.has(a.orgRoleId),
+  );
+}
+
+/**
+ * Every target this viewer may declare for, for the map's `viewer.mayDeclare`
+ * payload: "village" and/or circle ids. The client shows the pencil where
+ * this list says so; the server re-checks `mayDeclare` on every write.
+ */
+export function declarableTargets(ctx: DeclareContext, circleIds: string[]): string[] {
+  const out: string[] = [];
+  if (mayDeclare("village", ctx)) out.push("village");
+  for (const id of circleIds) {
+    if (id === "village") continue;
+    if (mayDeclare(id, ctx)) out.push(id);
+  }
+  return out;
+}
+
+// ── What a declaration is allowed to say (0083) ─────────────────────────────
+
+/**
+ * The village-level power block, stored in the map module's config as
+ * `power: {shape, shapeGloss?, decidesBy, decidesByGloss?}`. Validation
+ * lives HERE, not on the ModuleDef: shared/modules.ts is the catalog, and
+ * the words a village declares about itself are this plane's to check.
+ */
+export function villagePowerProblem(v: unknown): string | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) {
+    return "A village power declaration needs a shape and a way of deciding";
+  }
+  const p = v as Record<string, unknown>;
+  const badShape = shapeProblem(p.shape, p.shapeGloss);
+  if (badShape) return badShape;
+  const badDecides = decidesByProblem(p.decidesBy, p.decidesByGloss);
+  if (badDecides) return badDecides;
+  const known = new Set(["shape", "shapeGloss", "decidesBy", "decidesByGloss"]);
+  for (const key of Object.keys(p)) {
+    if (!known.has(key)) return `"${key}" is not part of a power declaration`;
+  }
+  return null;
+}
+
+/**
+ * The stored shape of a domain override: `{method, gloss?}` and NOTHING
+ * else. `circleDecidesProblem` refuses unknown DOMAIN keys by name, and this
+ * drops unknown keys nested INSIDE a valid entry, so what lands in the
+ * column is exactly what the vocabulary defines rather than whatever rode
+ * along in the body. Residue in a JSON column is how a future reader
+ * inherits data nobody validated (the security review's one note).
+ */
+export function projectDecidesByDomains(
+  v: unknown,
+): Record<string, { method: string; gloss?: string }> | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const out: Record<string, { method: string; gloss?: string }> = {};
+  for (const [domain, entry] of Object.entries(v as Record<string, any>)) {
+    const method = String(entry?.method ?? "");
+    if (!method) continue;
+    const gloss = String(entry?.gloss ?? "").trim();
+    out[domain] = gloss ? { method, gloss } : { method };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * A circle's decides declaration: `{decidesBy, decidesByGloss?,
+ * decidesByDomains?}`. `decidesBy: null` clears the circle back to the
+ * village default, and clearing takes the gloss with it, because a gloss
+ * with no method is a caption with no picture.
+ */
+export function circleDecidesProblem(v: unknown): string | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) {
+    return "A decides declaration needs a way of deciding, or null to clear it";
+  }
+  const p = v as Record<string, unknown>;
+  if (p.decidesBy !== null && p.decidesBy !== undefined && p.decidesBy !== "") {
+    const bad = decidesByProblem(p.decidesBy, p.decidesByGloss);
+    if (bad) return bad;
+  }
+  const badDomains = domainsProblem(p.decidesByDomains);
+  if (badDomains) return badDomains;
+  const known = new Set(["decidesBy", "decidesByGloss", "decidesByDomains"]);
+  for (const key of Object.keys(p)) {
+    if (!known.has(key)) return `"${key}" is not part of a decides declaration`;
+  }
+  return null;
 }

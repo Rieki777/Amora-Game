@@ -259,3 +259,61 @@ invisible from `file://`, caught by `verify_doors` in one line.
 - Investors: automatically excluded since they hold no roles — but should an investor account be able to USE the concierge/contact (currently yes, if stage/capability allows)?
 - Does contact deserve a Gratitude-adjacent gesture later (e.g. attach thanks after a successful connection), and if so it must route through the one ledger — deliberately out of scope now?
 - Seed content: who writes Amora's real circles-seed.json — port the 8 Circles.tsx councils verbatim, or restructure to match the 9 distinct quests.circle values first?
+
+## How Power Is Held: the /map/circles rebuild (round 4, lane L2, 0083)
+
+`/map/circles` is the POWER MAP now: the adopted 14-point interaction spec
+(`SOCIOCRACY_MAPS_RESEARCH_2026-08-16.md`) plus the R29 layers. The page's H1
+says "How Power Is Held"; the nav label and catalog rename are the
+coordinator's and L1's respectively.
+
+**Three layers and a lens.** The village declares a SHAPE (circle, pyramid,
+council, flat, steward, network, other) and a default way of deciding, stored
+as `power: {shape, shapeGloss?, decidesBy, decidesByGloss?}` in the map
+module's config, validated by `orgChart.villagePowerProblem`. Each circle may
+declare its own `decides_by` (+gloss), and may override it for exactly four
+domains: money, people, space and land, rules (`decides_by_domains` JSON).
+The "How we decide" lens colours circles by the resolved method: domain
+override, else circle, else village default. Vocabulary ids are CLOSED
+(`shared/power.ts`); `other` requires a one-line gloss the legend shows (R28).
+
+**The picture morphs.** `layoutForShape` (`shared/mapLayout.ts`) draws one
+`NestedLayout` per shape; `circle` is `layoutNestedMap` byte for byte, under
+test, so today's map cannot drift. The camera is a pure reducer
+(`components/power/camera.ts`) on van Wijk's `interpolateZoom`: tap a circle
+to fly in (`?focus=` in the URL), tap the focused ring or backdrop to go out,
+and a tap on a SEAT never moves the camera. Five seat states draw as five
+glyphs, colour never alone.
+
+**Who may declare (P10, N5).** `mayDeclare` in `orgChart.ts`: admin, the
+`org.declare` capability (an appointment, never a stage rung), or a live
+holder of a seat flagged `represents_circle`, for that one circle only. The
+third door is the single sanctioned bridge from the seat plane to a
+permission: `docs/ADR_2026-08_REPRESENTS_CIRCLE_DECLARES.md`, pinned by
+`server/lib/orgDeclare.test.ts`.
+
+**Now | Vision (P1, N2).** Vision draws open `org_drafts` as ghosts, each
+with a `vision` block `{objectives[{text, metric, target, current, source,
+done}], trigger}`. Measured metrics v1: `seats_filled`,
+`seats_filled_in:<circleId>`, `members_at_stage:<stageId>`,
+`seasons_completed`. When every objective is met the panel PROMPTS and links
+a human to the existing publish button; nothing applies itself
+(`visionNeverApplies.test.ts`).
+
+**Currency (P8, N4).** Display only: `project.country` + `project.fiatCurrency`
+(blank resolves to CHF), a per-viewer display currency (prefs or browser),
+`shared/money.ts` for formatting and cross rates, and the `fx-rates-daily`
+job caching the ECB daily list (base EUR) through the guarded dialer into
+`fx_rates`. The ECB list carries no CRC (measured 2026-08-21): colones show
+unconverted until an admin records a `manual` row, and the picker says so.
+Stripe settlement never reads any of it.
+
+**Publish surface.** `org.json` gains a top-level `shape`; circles gain
+`decidesBy` and `decidesByDomains`, ids only and sanitised against the closed
+sets, because a gloss is free text and free text can hold a name. The circle
+markdown adds "Decides by: consent."
+
+**The setup walk (§8 item 16).** Admins walk every open or partial seat
+(assign / skip / open call), then every circle without a method, then the
+shape, ending at "publish structure to the network?". Assignment posts to the
+existing seating endpoint, so it stays a dated row.

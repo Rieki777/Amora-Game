@@ -83,6 +83,16 @@ interface ExternalCalendar {
   lastPolledAt: string | null; lastStatus: string; lastError: string | null; importedCount: number;
 }
 
+/** 0088: a slot as the admin surface reads it, names always included. */
+interface AdminSlot {
+  id: string; kind: string; label: string; needed: number; note: string | null;
+  takenCount: number; names?: Array<{ userId: string; name: string | null; note: string | null }>;
+}
+
+const SLOT_KIND_CHOICES = ["dish", "ride", "childcare", "setup", "other"] as const;
+const WEEKDAY_CHOICES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const EMPTY_SLOT = { kind: "dish", label: "", needed: "1", note: "" };
+
 export default function EventsAdminPanel({ password }: { password: string }) {
   const [events, setEvents] = useState<CalendarItem[] | null>(null);
   const [timezone, setTimezone] = useState<string>("");
@@ -97,6 +107,13 @@ export default function EventsAdminPanel({ password }: { password: string }) {
   const [calendars, setCalendars] = useState<ExternalCalendar[] | null>(null);
   const [calForm, setCalForm] = useState({ name: "", url: "", layer: "village", colour: "" });
   const [calBusy, setCalBusy] = useState<string | null>(null);
+  // 0088: slots per gathering, and the weekly brief's settings.
+  const [openSlots, setOpenSlots] = useState<string | null>(null);
+  const [slots, setSlots] = useState<Record<string, AdminSlot[]>>({});
+  const [slotForm, setSlotForm] = useState(EMPTY_SLOT);
+  const [brief, setBrief] = useState<{ enabled: boolean; day: number; hour: number } | null>(null);
+  const [briefPreview, setBriefPreview] = useState<{ subject: string; html: string } | null>(null);
+  const [briefBusy, setBriefBusy] = useState(false);
 
   const auth = { Authorization: `Bearer ${password}` };
 
@@ -131,7 +148,78 @@ export default function EventsAdminPanel({ password }: { password: string }) {
     } catch { /* the section stays hidden */ }
   }, [password]);
 
-  useEffect(() => { load(); loadNames(); loadCalendars(); }, [load, loadNames, loadCalendars]);
+  const loadBrief = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/events/brief", { headers: auth });
+      if (!res.ok) return;
+      const d = await res.json();
+      setBrief(d.config ?? { enabled: true, day: 0, hour: 18 });
+    } catch { /* the card stays hidden */ }
+  }, [password]);
+
+  useEffect(() => { load(); loadNames(); loadCalendars(); loadBrief(); }, [load, loadNames, loadCalendars, loadBrief]);
+
+  // ── 0088: slots the crew declares ──────────────────────────────────────────
+
+  const loadSlots = async (eventId: string) => {
+    const res = await fetch(`/api/admin/events/${eventId}/slots`, { headers: auth });
+    if (res.ok) { const d = await res.json(); setSlots((s) => ({ ...s, [eventId]: d.slots ?? [] })); }
+  };
+
+  const toggleSlots = async (g: CalendarItem) => {
+    if (openSlots === g.id) { setOpenSlots(null); return; }
+    setOpenSlots(g.id);
+    setSlotForm(EMPTY_SLOT);
+    if (!slots[g.id]) await loadSlots(g.id);
+  };
+
+  const addSlot = async (eventId: string) => {
+    const res = await fetch(`/api/admin/events/${eventId}/slots`, {
+      method: "POST", headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: slotForm.kind, label: slotForm.label.trim(), needed: Number(slotForm.needed) || 1, note: slotForm.note.trim() || null }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(d?.error ?? "That did not work"); return; }
+    toast.success("Slot added");
+    setSlotForm(EMPTY_SLOT);
+    await loadSlots(eventId);
+  };
+
+  const removeSlot = async (eventId: string, slotId: string) => {
+    const res = await fetch(`/api/admin/events/${eventId}/slots/${slotId}`, { method: "DELETE", headers: auth });
+    if (res.ok) { toast.success("Slot removed"); await loadSlots(eventId); } else toast.error("That did not work");
+  };
+
+  // ── 0088: the weekly brief's evening ───────────────────────────────────────
+
+  const saveBrief = async (next: { enabled: boolean; day: number; hour: number }) => {
+    setBriefBusy(true);
+    try {
+      // setModuleConfig REPLACES the whole config, so carry everything else.
+      const mods = await fetch("/api/admin/modules", { headers: auth });
+      const all = mods.ok ? await mods.json() : { modules: [] };
+      const events = (all.modules ?? []).find((m: any) => m.id === "events");
+      const config = { ...(events?.config && typeof events.config === "object" ? events.config : {}), brief: next };
+      const res = await fetch("/api/admin/modules/events/config", {
+        method: "PUT", headers: { ...auth, "Content-Type": "application/json" },
+        body: JSON.stringify({ config }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); toast.error(d?.error ?? "That did not work"); }
+      else { toast.success("Weekly brief settings saved"); setBrief(next); }
+    } catch { toast.error("That did not work"); }
+    setBriefBusy(false);
+  };
+
+  const previewBrief = async () => {
+    setBriefBusy(true);
+    try {
+      const res = await fetch("/api/admin/events/brief", { headers: auth });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) toast.error(d?.error ?? "That did not work");
+      else setBriefPreview({ subject: d.subject, html: d.html });
+    } catch { toast.error("That did not work"); }
+    setBriefBusy(false);
+  };
 
   const body = () => {
     const keys = form.structureKeys.split(",").map((s) => s.trim()).filter(Boolean);
@@ -402,6 +490,33 @@ export default function EventsAdminPanel({ password }: { password: string }) {
         <p className="text-sm text-gray-400 py-6 text-center">Nothing on the calendar yet.</p>
       )}
 
+      {/* 0088: members' requests for the public calendar wait here. */}
+      {authored.some((g) => g.status === "draft" && g.layer === "public") && (
+        <div className="border border-amber-200 bg-amber-50 rounded-xl p-4 mb-4">
+          <h3 className="font-semibold text-amber-900 mb-1">Approve for the public calendar</h3>
+          <p className="text-xs text-amber-800 mb-2">
+            Members asked for these on the public calendar. Publishing puts them in front of visitors and search
+            engines; they stay drafts until you say yes.
+          </p>
+          <ul className="space-y-1.5">
+            {authored.filter((g) => g.status === "draft" && g.layer === "public").map((g) => (
+              <li key={`approve:${g.id}`} className="flex items-center justify-between gap-2 text-sm">
+                <span className="min-w-0 truncate text-gray-900">
+                  {g.title}
+                  <span className="text-xs text-gray-500"> {new Date(g.startsAt).toLocaleString()}</span>
+                </span>
+                <span className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => setStatus(g, "scheduled")}
+                    className="px-2.5 py-1 text-xs bg-[#2D5A5A] text-white rounded-lg">Approve</button>
+                  <button onClick={() => remove(g)}
+                    className="px-2.5 py-1 text-xs border border-red-200 text-red-700 rounded-lg">Delete</button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="space-y-3">
         {authored.map((g) => (
           <div key={`${g.id}:${g.occurrenceKey}`} className="border border-gray-200 rounded-xl p-4">
@@ -439,6 +554,10 @@ export default function EventsAdminPanel({ password }: { password: string }) {
                   className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50">
                   {openRsvps === g.id ? "Hide answers" : "Answers"}
                 </button>
+                <button onClick={() => toggleSlots(g)}
+                  className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50">
+                  {openSlots === g.id ? "Hide slots" : "Slots"}
+                </button>
                 <button onClick={() => edit(g)}
                   className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50">Edit</button>
                 {g.status === "draft" && (
@@ -471,9 +590,108 @@ export default function EventsAdminPanel({ password }: { password: string }) {
                 </ul>
               </div>
             )}
+
+            {/* 0088: what this gathering asks people to bring or hold. */}
+            {openSlots === g.id && (
+              <div className="mt-3 border-t border-gray-100 pt-3">
+                <p className="text-xs text-gray-500 mb-2">
+                  Slots the gathering asks for: a dish, a ride, childcare, setup crew. Members going can take
+                  them; counts are public, names show to people going and to you.
+                </p>
+                {(slots[g.id] ?? []).length === 0 && (
+                  <p className="text-xs text-gray-400 mb-2">No slots declared yet.</p>
+                )}
+                <ul className="text-xs text-gray-600 space-y-1 mb-3">
+                  {(slots[g.id] ?? []).map((s) => (
+                    <li key={s.id} className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate">
+                        <span className="text-gray-900">{s.label}</span>
+                        <span className="text-gray-400"> ({s.kind}, {s.takenCount} of {s.needed})</span>
+                        {s.names && s.names.length > 0 && (
+                          <span className="text-gray-500"> {s.names.map((n) => n.name ?? "a member who has since left").join(", ")}</span>
+                        )}
+                      </span>
+                      <button onClick={() => removeSlot(g.id, s.id)}
+                        className="px-2 py-0.5 text-[11px] border border-red-200 text-red-700 rounded-lg shrink-0">Remove</button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex items-end gap-2 flex-wrap">
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-500 mb-0.5" htmlFor={`slot-kind-${g.id}`}>Kind</label>
+                    <select id={`slot-kind-${g.id}`} value={slotForm.kind}
+                      onChange={(e) => setSlotForm({ ...slotForm, kind: e.target.value })}
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+                      {SLOT_KIND_CHOICES.map((k) => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex-1 min-w-[140px]">
+                    <label className="block text-[11px] font-medium text-gray-500 mb-0.5" htmlFor={`slot-label-${g.id}`}>What is needed</label>
+                    <input id={`slot-label-${g.id}`} value={slotForm.label}
+                      onChange={(e) => setSlotForm({ ...slotForm, label: e.target.value })}
+                      placeholder="A salad for twelve" className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5" />
+                  </div>
+                  <div className="w-16">
+                    <label className="block text-[11px] font-medium text-gray-500 mb-0.5" htmlFor={`slot-needed-${g.id}`}>How many</label>
+                    <input id={`slot-needed-${g.id}`} type="number" min={1} value={slotForm.needed}
+                      onChange={(e) => setSlotForm({ ...slotForm, needed: e.target.value })}
+                      className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5" />
+                  </div>
+                  <button onClick={() => addSlot(g.id)} disabled={!slotForm.label.trim()}
+                    className="px-3 py-1.5 text-xs bg-[#2D5A5A] text-white rounded-lg disabled:opacity-50">Add slot</button>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
+
+      {/* ── 0088: the weekly brief's evening ─────────────────────────────── */}
+      {brief && (
+        <div className="border border-gray-200 rounded-xl p-5 mt-8">
+          <h3 className="font-semibold text-gray-900 mb-1">The weekly brief</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Once a week, on the evening you pick here in village time, every member gets one digest: arrivals
+            and departures, meals and gatherings, the moon and the season, open seats, new quests. Written by a
+            template from the village's own records, no AI spend, and each member can turn theirs off.
+          </p>
+          <div className="flex items-end gap-3 flex-wrap">
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input type="checkbox" checked={brief.enabled}
+                onChange={(e) => saveBrief({ ...brief, enabled: e.target.checked })} disabled={briefBusy} />
+              Send the weekly brief
+            </label>
+            <div>
+              <label className="block text-[11px] font-medium text-gray-500 mb-0.5" htmlFor="brief-day">Evening</label>
+              <select id="brief-day" value={String(brief.day)} disabled={briefBusy}
+                onChange={(e) => saveBrief({ ...brief, day: Number(e.target.value) })}
+                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+                {WEEKDAY_CHOICES.map((w, i) => <option key={w} value={i}>{w}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-gray-500 mb-0.5" htmlFor="brief-hour">From (village time)</label>
+              <select id="brief-hour" value={String(brief.hour)} disabled={briefBusy}
+                onChange={(e) => saveBrief({ ...brief, hour: Number(e.target.value) })}
+                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+                {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+              </select>
+            </div>
+            <button onClick={previewBrief} disabled={briefBusy}
+              className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+              {briefBusy ? "Working..." : "Preview for me"}
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-400 mt-2">The preview renders this week's brief for you and sends nothing.</p>
+          {briefPreview && (
+            <div className="mt-4 border border-gray-200 rounded-lg p-4">
+              <div className="font-medium text-gray-900 mb-2">{briefPreview.subject}</div>
+              <div className="text-sm text-gray-700 [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1 [&_ul]:pl-4 [&_li]:my-0.5"
+                dangerouslySetInnerHTML={{ __html: briefPreview.html }} />
+            </div>
+          )}
+        </div>
+      )}
 
       {monthNames && (
         <div className="border border-gray-200 rounded-xl p-5 mt-8">

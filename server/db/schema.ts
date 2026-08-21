@@ -154,6 +154,10 @@ export const quests = mysqlTable("quests", {
   startsAt: datetime("starts_at"),
   endsAt: datetime("ends_at"),
   dueAt: datetime("due_at"),
+  /** When the quest first appeared (0088). Nullable: rows older than the
+   *  column have no honest date, and the weekly brief must never call them
+   *  new. New inserts stamp themselves through the column default. */
+  createdAt: timestamp("created_at"),
 });
 
 export const questClaims = mysqlTable("quest_claims", {
@@ -292,6 +296,17 @@ export const circles = mysqlTable("circles", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   /** Standing-example row (0046). */
   isExample: boolean("is_example").default(false).notNull(),
+  /**
+   * How this circle decides (0083, P2): an id from shared/power.ts
+   * DECIDES_BY, validated in code rather than by an enum so an unknown word
+   * refuses with a sentence. NULL inherits the village default in the map
+   * module's config. The gloss is the village's own line for `other`.
+   */
+  decidesBy: varchar("decides_by", { length: 32 }),
+  decidesByGloss: varchar("decides_by_gloss", { length: 160 }),
+  /** {money?, people?, space_land?, rules?}, each {method, gloss?}: a lens
+   *  over the one method above, never a replacement for it. */
+  decidesByDomains: json("decides_by_domains"),
 });
 
 export const roles = mysqlTable("roles", {
