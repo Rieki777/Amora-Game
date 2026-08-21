@@ -8,7 +8,7 @@
  * sanitize, the same posture Messages takes.
  */
 import Layout from "@/components/Layout";
-import ModuleGate, { SignInToSee } from "@/components/modules/ModuleGate";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -155,11 +155,25 @@ function IntroductionsPage() {
   };
 
   if (!user) {
+    // The module is public here (requireModule admitted the board), so the
+    // page keeps its own chrome and offers sign-in inline. SignInToSee
+    // carries a whole Layout of its own and belongs to the gate path only.
     return (
       <Layout>
         <div className="container max-w-2xl py-6 sm:py-10 space-y-6">
           <Header />
-          <SignInToSee name="Introductions" next="/introductions" />
+          <div className="rounded-xl border border-border bg-card p-6 text-center space-y-3">
+            <p className="text-sm text-muted-foreground">
+              The rest of this page opens when you sign in: your own intents, offers to confirm, and the
+              introductions waiting for you.
+            </p>
+            <Link
+              href={`/login?next=${encodeURIComponent("/introductions")}`}
+              className="inline-flex items-center min-h-[44px] px-5 rounded-lg bg-teal-deep text-white font-semibold"
+            >
+              Sign in
+            </Link>
+          </div>
           <Board entries={board} />
         </div>
       </Layout>
