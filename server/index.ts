@@ -12789,6 +12789,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
       return res.status(400).json({ error: "No such seat" });
     }
     const id = await upsertRule(getPool(), req.body, adminActor(req)?.id ?? user?.id ?? null);
+    // The first real declaration retires the module's standing examples.
+    onRealItemPublished(getPool(), "resources", adminActor(req)?.id ?? user?.id ?? null);
     res.json({ success: true, id });
   });
 
@@ -12811,6 +12813,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const problem = sourceProblem(req.body, resourcesTokenExists);
     if (problem) return res.status(400).json({ error: problem });
     const id = await upsertSource(getPool(), req.body, adminActor(req)?.id ?? user?.id ?? null);
+    onRealItemPublished(getPool(), "resources", adminActor(req)?.id ?? user?.id ?? null);
     res.json({ success: true, id });
   });
 
@@ -12833,6 +12836,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       return res.status(400).json({ error: "No such circle" });
     }
     const id = await upsertBudget(getPool(), req.body, adminActor(req)?.id ?? user?.id ?? null);
+    onRealItemPublished(getPool(), "resources", adminActor(req)?.id ?? user?.id ?? null);
     res.json({ success: true, id });
   });
 

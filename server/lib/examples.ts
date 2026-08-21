@@ -66,6 +66,11 @@ export const EXAMPLE_TABLES: Record<string, string[]> = {
   commerce: ["payment_products"],
   badges: ["badge_awards", "badges"],
   health: ["regen_entries"],
+  // Declarations only, no children among them: rules and budgets point at
+  // the map's example circles and progression's example seats by id, so
+  // this module's examples read as a whole while those stand and retire on
+  // the village's first real declaration regardless.
+  resources: ["spending_rules", "funding_sources", "circle_budgets"],
   automation: ["call_tasks", "call_syntheses", "transcripts", "recordings"],
   network: ["peer_shared_cache", "peer_instances", "shared_items"],
   exchange: ["currency_prices", "token_exchange_settings", "tokens"],
@@ -722,6 +727,36 @@ export async function seedExamples(
       // of those cycles was silently swallowed by rows nothing could read.
       // The regen entries above DO render (regenEntries does not filter), and
       // they are what teaches the module.
+      break;
+
+    case "resources":
+      // A map of rules, never a wallet: every row is a declaration, and the
+      // seeder writes the three declaration tables and nothing else.
+      for (const r of block.spendingRules ?? []) {
+        n += await ins(p, "spending_rules", {
+          id: r.id, scope: r.scope, scope_id: r.scopeId,
+          amount_minor: r.amountMinor, unit: r.unit,
+          approval: r.approval, approval_note: r.approvalNote ?? null,
+          paid_from: r.paidFrom, visibility: r.visibility ?? "village",
+          note: r.note ?? null, is_example: 1,
+        });
+      }
+      for (const s of block.fundingSources ?? []) {
+        n += await ins(p, "funding_sources", {
+          id: s.id, name: s.name, kind: s.kind,
+          share_pct: s.sharePct ?? null,
+          amount_minor_per_year: s.amountMinorPerYear ?? null,
+          unit: s.unit ?? null, note: s.note ?? null,
+          sort_order: s.sortOrder ?? 0, is_example: 1,
+        });
+      }
+      for (const b of block.circleBudgets ?? []) {
+        n += await ins(p, "circle_budgets", {
+          id: b.id, circle_id: b.circleId, season_id: b.seasonId ?? null,
+          amount_minor: b.amountMinor, unit: b.unit,
+          note: b.note ?? null, is_example: 1,
+        });
+      }
       break;
 
     case "automation":

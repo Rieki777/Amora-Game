@@ -91,6 +91,11 @@ const BLOCK_TABLE: Record<string, { key: string; table: string; idKey?: string }
   commerce: [{ key: "products", table: "payment_products" }],
   badges: [{ key: "badges", table: "badges" }],
   health: [{ key: "regenEntries", table: "regen_entries" }],
+  resources: [
+    { key: "spendingRules", table: "spending_rules" },
+    { key: "fundingSources", table: "funding_sources" },
+    { key: "circleBudgets", table: "circle_budgets" },
+  ],
   automation: [{ key: "recordings", table: "recordings" }],
   network: [
     { key: "sharedItems", table: "shared_items" },

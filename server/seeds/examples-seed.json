@@ -831,6 +831,91 @@
     ],
     "_memberTrigger": "The first measurement a steward records clears them."
   },
+  "resources": {
+    "_trigger": "POST /api/admin/resources/{rules,sources,budgets} writes a real declaration",
+    "_note": "Declarations only, never balances. Scope ids point at the map's example circles and progression's example seats, so the lens draws whole while those stand. Amounts are minor units; CHF is the platform default currency (P8).",
+    "spendingRules": [
+      {
+        "id": "ex-rule-land-alone",
+        "scope": "circle",
+        "scopeId": "ex-circle-land",
+        "amountMinor": 5000,
+        "unit": "CHF",
+        "approval": "none",
+        "paidFrom": "circle-budget",
+        "visibility": "village",
+        "note": "Seeds, small tools, fuel for the pump: the everyday things the land asks for.",
+        "isExample": true
+      },
+      {
+        "id": "ex-rule-land-consent",
+        "scope": "circle",
+        "scopeId": "ex-circle-land",
+        "amountMinor": 50000,
+        "unit": "CHF",
+        "approval": "circle-consent",
+        "paidFrom": "treasury",
+        "visibility": "village",
+        "note": "Bigger purchases for the land pass through the circle before the treasury pays.",
+        "isExample": true
+      },
+      {
+        "id": "ex-rule-steward-alone",
+        "scope": "role",
+        "scopeId": "ex-seat-land-steward",
+        "amountMinor": 15000,
+        "unit": "CHF",
+        "approval": "none",
+        "paidFrom": "circle-budget",
+        "visibility": "holders",
+        "note": "The steward keeps the work moving without asking for every bag of lime.",
+        "isExample": true
+      },
+      {
+        "id": "ex-rule-steward-founders",
+        "scope": "role",
+        "scopeId": "ex-seat-land-steward",
+        "amountMinor": 200000,
+        "unit": "CHF",
+        "approval": "founders",
+        "paidFrom": "treasury",
+        "visibility": "holders",
+        "note": "Anything that changes the land itself waits for the founders' yes.",
+        "isExample": true
+      }
+    ],
+    "fundingSources": [
+      {
+        "id": "ex-source-stays",
+        "name": "Guest stays",
+        "kind": "stays",
+        "sharePct": 40,
+        "note": "Nights hosted on the land carry the largest share of the year.",
+        "sortOrder": 1,
+        "isExample": true
+      },
+      {
+        "id": "ex-source-grants",
+        "name": "A restoration grant",
+        "kind": "grants",
+        "amountMinorPerYear": 2400000,
+        "unit": "CHF",
+        "note": "A three year grant for watershed repair, drawn down as the work lands.",
+        "sortOrder": 2,
+        "isExample": true
+      }
+    ],
+    "circleBudgets": [
+      {
+        "id": "ex-budget-land",
+        "circleId": "ex-circle-land",
+        "amountMinor": 120000,
+        "unit": "CHF",
+        "note": "The land circle's standing envelope for a season of ordinary work.",
+        "isExample": true
+      }
+    ]
+  },
   "automation": {
     "_trigger": "POST /api/admin/recordings ingests a real recording",
     "_note": "Synthesis normally costs an LLM call; the example synthesis is seeded directly. ai_body and body deliberately differ: that pair IS the product. Publishing an example is refused, so no forum thread is ever created from it.",
