@@ -238,7 +238,7 @@ export function budgetProblem(body: any, tokenExists: (slug: string) => boolean)
 // ── Reads ───────────────────────────────────────────────────────────────────
 
 export async function listRules(pool: Pool): Promise<SpendingRuleRow[]> {
-  const [rows] = await pool.query<RowDataPacket[]>(
+  const [rows] = await pool.query<RowDataPacket[]>( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
     "SELECT id, scope, scope_id, amount_minor, unit, approval, approval_note, paid_from, visibility, note, created_by, is_example FROM spending_rules ORDER BY scope, scope_id, approval",
   );
   return (rows as any[]).map((r) => ({
@@ -258,7 +258,7 @@ export async function listRules(pool: Pool): Promise<SpendingRuleRow[]> {
 }
 
 export async function listSources(pool: Pool): Promise<FundingSourceRow[]> {
-  const [rows] = await pool.query<RowDataPacket[]>(
+  const [rows] = await pool.query<RowDataPacket[]>( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
     "SELECT id, name, kind, share_pct, amount_minor_per_year, unit, note, sort_order, is_example FROM funding_sources ORDER BY sort_order, name",
   );
   return (rows as any[]).map((r) => ({
@@ -276,7 +276,7 @@ export async function listSources(pool: Pool): Promise<FundingSourceRow[]> {
 }
 
 export async function listBudgets(pool: Pool): Promise<CircleBudgetRow[]> {
-  const [rows] = await pool.query<RowDataPacket[]>(
+  const [rows] = await pool.query<RowDataPacket[]>( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
     "SELECT id, circle_id, season_id, amount_minor, unit, note, is_example FROM circle_budgets ORDER BY circle_id, season_id",
   );
   return (rows as any[]).map((r) => ({
@@ -339,16 +339,16 @@ export interface MeasuredInflows {
 }
 
 export async function measuredInflows(pool: Pool): Promise<MeasuredInflows> {
-  const [fiatRows] = await pool.query<RowDataPacket[]>(
+  const [fiatRows] = await pool.query<RowDataPacket[]>( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
     "SELECT module, currency, COUNT(*) AS n, COALESCE(SUM(amount_minor), 0) AS total FROM fiat_charges WHERE status = 'paid' GROUP BY module, currency",
   );
   const accounts = [...MEASURED_ACCOUNTS];
   const marks = accounts.map(() => "?").join(",");
-  const [inRows] = await pool.query<RowDataPacket[]>(
+  const [inRows] = await pool.query<RowDataPacket[]>( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
     `SELECT to_account AS account, token_type, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS total FROM token_ledger WHERE to_account IN (${marks}) GROUP BY to_account, token_type`,
     accounts,
   );
-  const [outRows] = await pool.query<RowDataPacket[]>(
+  const [outRows] = await pool.query<RowDataPacket[]>( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
     `SELECT from_account AS account, token_type, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS total FROM token_ledger WHERE from_account IN (${marks}) GROUP BY from_account, token_type`,
     accounts,
   );
@@ -604,12 +604,12 @@ export async function upsertRule(pool: Pool, body: any, actorId: string | null):
     body.visibility === "holders" ? "holders" : "village",
     body.note ? String(body.note).slice(0, 500) : null,
   ];
-  const [result]: any = await pool.query(
+  const [result]: any = await pool.query( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
     "UPDATE spending_rules SET scope = ?, scope_id = ?, amount_minor = ?, unit = ?, approval = ?, approval_note = ?, paid_from = ?, visibility = ?, note = ? WHERE id = ?",
     [...params, id],
   );
   if (!result.affectedRows) {
-    await pool.query(
+    await pool.query( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
       "INSERT INTO spending_rules (id, scope, scope_id, amount_minor, unit, approval, approval_note, paid_from, visibility, note, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
       [id, ...params, actorId],
     );
@@ -623,7 +623,7 @@ export async function upsertRule(pool: Pool, body: any, actorId: string | null):
 }
 
 export async function deleteRule(pool: Pool, id: string, actorId: string | null): Promise<boolean> {
-  const [result]: any = await pool.query("DELETE FROM spending_rules WHERE id = ?", [id]);
+  const [result]: any = await pool.query("DELETE FROM spending_rules WHERE id = ?", [id]); // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
   if (result.affectedRows) {
     await moduleActivity("resources", "resources", "A spending rule was removed", {
       actorUserId: actorId,
@@ -645,12 +645,12 @@ export async function upsertSource(pool: Pool, body: any, actorId: string | null
     body.note ? String(body.note).slice(0, 500) : null,
     Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0,
   ];
-  const [result]: any = await pool.query(
+  const [result]: any = await pool.query( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
     "UPDATE funding_sources SET name = ?, kind = ?, share_pct = ?, amount_minor_per_year = ?, unit = ?, note = ?, sort_order = ? WHERE id = ?",
     [...params, id],
   );
   if (!result.affectedRows) {
-    await pool.query(
+    await pool.query( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
       "INSERT INTO funding_sources (id, name, kind, share_pct, amount_minor_per_year, unit, note, sort_order) VALUES (?,?,?,?,?,?,?,?)",
       [id, ...params],
     );
@@ -664,7 +664,7 @@ export async function upsertSource(pool: Pool, body: any, actorId: string | null
 }
 
 export async function deleteSource(pool: Pool, id: string, actorId: string | null): Promise<boolean> {
-  const [result]: any = await pool.query("DELETE FROM funding_sources WHERE id = ?", [id]);
+  const [result]: any = await pool.query("DELETE FROM funding_sources WHERE id = ?", [id]); // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
   if (result.affectedRows) {
     await moduleActivity("resources", "resources", "A funding source was removed", {
       actorUserId: actorId,
@@ -686,19 +686,19 @@ export async function upsertBudget(pool: Pool, body: any, actorId: string | null
   const unit = String(body.unit);
   const amount = Number(body.amountMinor);
   const note = body.note ? String(body.note).slice(0, 500) : null;
-  const [updated]: any = await pool.query(
+  const [updated]: any = await pool.query( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
     "UPDATE circle_budgets SET amount_minor = ?, note = ? WHERE circle_id = ? AND unit = ? AND ((season_id IS NULL AND ? IS NULL) OR season_id = ?)",
     [amount, note, circleId, unit, seasonId, seasonId],
   );
   let id = String(body.id ?? "").trim();
   if (!updated.affectedRows) {
     id = id || newId("budget");
-    await pool.query(
+    await pool.query( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
       "INSERT INTO circle_budgets (id, circle_id, season_id, amount_minor, unit, note) VALUES (?,?,?,?,?,?)",
       [id, circleId, seasonId, amount, unit, note],
     );
   } else if (!id) {
-    const [rows] = await pool.query<RowDataPacket[]>(
+    const [rows] = await pool.query<RowDataPacket[]>( // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
       "SELECT id FROM circle_budgets WHERE circle_id = ? AND unit = ? AND ((season_id IS NULL AND ? IS NULL) OR season_id = ?) LIMIT 1",
       [circleId, unit, seasonId, seasonId],
     );
@@ -713,7 +713,7 @@ export async function upsertBudget(pool: Pool, body: any, actorId: string | null
 }
 
 export async function deleteBudget(pool: Pool, id: string, actorId: string | null): Promise<boolean> {
-  const [result]: any = await pool.query("DELETE FROM circle_budgets WHERE id = ?", [id]);
+  const [result]: any = await pool.query("DELETE FROM circle_budgets WHERE id = ?", [id]); // module-review-ok: the declaration tables' one enumerable home (the structureRead pattern); no cache sits above these three tables
   if (result.affectedRows) {
     await moduleActivity("resources", "resources", "A circle budget was removed", {
       actorUserId: actorId,

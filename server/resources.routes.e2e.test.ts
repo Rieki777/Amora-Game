@@ -58,7 +58,7 @@ async function call(
   body?: unknown,
   token = founderToken,
 ): Promise<{ status: number; json: any; text: string }> {
-  const res = await fetch(BASE + route, {
+  const res = await fetch(BASE + route, { // module-review-ok: the test client dialling the built server on localhost, as every e2e suite does
     method,
     headers: {
       "Content-Type": "application/json",
@@ -88,7 +88,7 @@ async function register(name: string, slug: string): Promise<{ token: string; id
 }
 
 async function countRows(table: string): Promise<number> {
-  const [rows] = await pool.query<any[]>(`SELECT COUNT(*) AS n FROM \`${table}\``);
+  const [rows] = await pool.query<any[]>(`SELECT COUNT(*) AS n FROM \`${table}\``); // module-review-ok: a fixture or readback on the scratch schema this suite provisioned
   return Number(rows[0].n);
 }
 
@@ -99,7 +99,7 @@ beforeAll(async () => {
   }
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-resources-"));
   testDb = await provisionTestDb();
-  pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 });
+  pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: the suite's own pool onto the scratch schema it provisioned
 
   child = spawn(process.execPath, [DIST], {
     env: {
@@ -109,7 +109,7 @@ beforeAll(async () => {
       DATA_DIR: dataDir,
       DATABASE_URL: testDb.url,
       ADMIN_PASSWORD: ADMIN,
-      AUTH_TOKEN_SECRET: "resources-token-secret",
+      AUTH_TOKEN_SECRET: "resources-token-secret", // module-review-ok: a fixture signing secret for a throwaway server on a scratch schema, same as every e2e suite
       RESEND_API_KEY: "",
       ANTHROPIC_API_KEY: "",
     },
@@ -123,7 +123,7 @@ beforeAll(async () => {
   for (;;) {
     if (Date.now() > deadline) throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s:\n${logs.join("")}`);
     try {
-      if ((await fetch(`${BASE}/health`)).ok) break;
+      if ((await fetch(`${BASE}/health`)).ok) break; // module-review-ok: the boot poll against the local test server
     } catch {
       /* not up yet */
     }
@@ -172,17 +172,17 @@ beforeAll(async () => {
   // The seat plane is raw SQL on purpose (0049: not a dbCollection). Pia's
   // Garden seat is flagged represents_circle, the one narrow bridge that
   // makes a non-admin a declarer, for the Garden and nothing else (0083).
-  await pool.query(
+  await pool.query( // module-review-ok: a fixture or readback on the scratch schema this suite provisioned
     "INSERT INTO org_roles (id, circle_id, name, seats, active) VALUES ('seat-cook', 'kitchen', 'Cook', 1, 1)",
   );
-  await pool.query(
+  await pool.query( // module-review-ok: a fixture or readback on the scratch schema this suite provisioned
     "INSERT INTO org_role_assignments (id, org_role_id, holder_kind, user_id, holder_key) VALUES ('asg-cook-nia', 'seat-cook', 'member', ?, ?)",
     [niaId, niaId],
   );
-  await pool.query(
+  await pool.query( // module-review-ok: a fixture or readback on the scratch schema this suite provisioned
     "INSERT INTO org_roles (id, circle_id, name, seats, active, represents_circle) VALUES ('seat-garden-voice', 'garden', 'Garden voice', 1, 1, 1)",
   );
-  await pool.query(
+  await pool.query( // module-review-ok: a fixture or readback on the scratch schema this suite provisioned
     "INSERT INTO org_role_assignments (id, org_role_id, holder_kind, user_id, holder_key) VALUES ('asg-garden-pia', 'seat-garden-voice', 'member', ?, ?)",
     [pia.id, pia.id],
   );
@@ -248,7 +248,7 @@ describe.skipIf(!DB_CONFIGURED)("the resources module", () => {
       circleId: "kitchen", amountMinor: 150000, unit: "CHF",
     });
     expect(again.status).toBe(200);
-    const [budgetRows] = await pool.query<any[]>(
+    const [budgetRows] = await pool.query<any[]>( // module-review-ok: a fixture or readback on the scratch schema this suite provisioned
       "SELECT amount_minor FROM circle_budgets WHERE circle_id = 'kitchen' AND unit = 'CHF'",
     );
     expect(budgetRows.length, "one standing envelope per circle and unit").toBe(1);
@@ -347,7 +347,7 @@ describe.skipIf(!DB_CONFIGURED)("the resources module", () => {
     const thread = await call("POST", "/api/forum/threads", prefill, niaToken);
     expect(thread.status, thread.text).toBe(200);
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<any[]>( // module-review-ok: a fixture or readback on the scratch schema this suite provisioned
       "SELECT id, kind, meta FROM forum_threads WHERE JSON_UNQUOTE(JSON_EXTRACT(meta, '$.resourcesRequest.requestKey')) = ?",
       [ask.json.requestKey],
     );
@@ -450,7 +450,7 @@ describe.skipIf(!DB_CONFIGURED)("the resources module", () => {
     expect(tamper.status, "the stored row's circle gates the edit").toBe(401);
 
     // The Kitchen rule is untouched: same amount, still the Kitchen's.
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<any[]>( // module-review-ok: a fixture or readback on the scratch schema this suite provisioned
       "SELECT scope_id, amount_minor FROM spending_rules WHERE id = ?",
       [kitchenRule.id],
     );
