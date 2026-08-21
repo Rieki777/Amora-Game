@@ -19,6 +19,7 @@ import LookPanel from "@/components/LookPanel";
 import IdentityPackPanel from "@/components/IdentityPackPanel";
 import MapSkinPanel from "@/components/MapSkinPanel";
 import EventsAdminPanel from "@/components/EventsAdminPanel";
+import ResourcesAdminPanel from "@/components/power/ResourcesAdminPanel";
 import HousingAdminPanel from "@/components/HousingAdminPanel";
 import WalkEditorPanel from "@/components/WalkEditorPanel";
 import { ExampleChip, ExamplesBanner, forgetExamplesCache, RETIRES_WITH } from "@/components/ExamplesBanner";
@@ -308,6 +309,7 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         { key: "badges-admin", label: "Badges", icon: GraduationCap },
         { key: "library-admin", label: "Library", icon: Inbox },
         { key: "health-admin", label: "Village Health", icon: Activity },
+        { key: "resources-admin", label: "How Resources Flow", icon: Coins },
         { key: "exits-admin", label: "Departures", icon: LogOut },
         { key: "calls-admin", label: "Calls", icon: Calendar },
         { key: "tokens", label: "Tokens", icon: Coins },
@@ -9164,6 +9166,7 @@ export default function Admin() {
           {activeTab === "badges-admin" && <BadgesAdminTab password={password} />}
           {activeTab === "library-admin" && <LibraryAdminTab password={password} />}
           {activeTab === "health-admin" && <HealthAdminTab password={password} />}
+          {activeTab === "resources-admin" && <ResourcesAdminPanel password={password} />}
           {activeTab === "exits-admin" && <ExitsAdminTab password={password} />}
           {activeTab === "calls-admin" && <CallsAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}

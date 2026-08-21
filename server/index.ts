@@ -12743,7 +12743,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       sources,
       budgets,
       vocab: vocabulary(resourcesConfig().labels),
-      labels: resourcesConfig().labels,
+      config: resourcesConfig(),
       defaultUnit: resourcesDefaultUnit(),
       circles: circles.map((c: any) => ({ id: c.id, name: c.name })),
       seats: orgRoles
