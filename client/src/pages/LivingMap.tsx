@@ -264,6 +264,55 @@ export default function LivingMap() {
   }, []);
 
   /**
+   * Who is playing, and what the village says about its seats.
+   *
+   * SEPARATE FROM THE HAND, and deliberately so. `pushHand` decides whether the
+   * Build button works, and hanging these off it would make a founder's edit
+   * rights wait on the org chart: `/api/map` is four queries and reads the whole
+   * `users` table when the caller may see people. This message only decides what
+   * the org lens draws, so it can arrive whenever it arrives.
+   *
+   * BOTH ARE CREDENTIALED, and both have to be. The party is which characters
+   * this particular player has chosen, and `/api/map/config` is fetched WITHOUT
+   * credentials and returns the same answer to everyone, so nothing
+   * identity-bearing may ride it.
+   *
+   * Every failure here is silent and costs only the narrowing. With no party the
+   * map shows every mark, and with no seats it draws each one as the scene wrote
+   * it, which is exactly what a signed-out reader already gets.
+   */
+  const pushLens = useCallback(async () => {
+    const win = frame.current?.contentWindow;
+    if (!win) return;
+    const [partyRes, orgRes] = await Promise.all([
+      gameFetch("/api/me/characters").catch(() => null),
+      gameFetch("/api/map").catch(() => null),
+    ]);
+    const partyBody = partyRes?.ok ? await partyRes.json().catch(() => null) : null;
+    const orgBody = orgRes?.ok ? await orgRes.json().catch(() => null) : null;
+    const party: string[] = Array.isArray(partyBody?.party)
+      ? partyBody.party.map((c: any) => String(c?.archetypeKey ?? "")).filter(Boolean)
+      : [];
+    // Example seats are demo data the `progression` module seeds into every
+    // fresh fork. Handing them over would paint a village's own land with seats
+    // nobody in it has ever heard of.
+    const roles = Array.isArray(orgBody?.roles)
+      ? orgBody.roles
+          .filter((r: any) => r && !r.isExample && typeof r.name === "string")
+          .map((r: any) => ({
+            name: String(r.name),
+            state: String(r.state ?? "open"),
+            archetypes: Array.isArray(r.archetypes) ? r.archetypes.map(String) : [],
+          }))
+      : [];
+    try {
+      win.postMessage({ type: "lens", party, roles }, window.location.origin);
+    } catch {
+      /* The lens keeps whatever it is already drawing. */
+    }
+  }, []);
+
+  /**
    * The map asking the village to keep, publish, discard or roll back its
    * work.
    *
@@ -423,6 +472,9 @@ export default function LivingMap() {
         // even though their hand request tells them they may do nothing.
         pushConfig();
         pushHand();
+        // Third and last, because it is the only one nothing waits on: the org
+        // lens narrows what is drawn and never decides what may be done.
+        pushLens();
         return;
       }
       // The map asking to be closed. Same path as the browser Back button.
@@ -445,7 +497,7 @@ export default function LivingMap() {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [navigate, pushConfig, pushHand, exitApp, relayPromise, relayScene]);
+  }, [navigate, pushConfig, pushHand, pushLens, exitApp, relayPromise, relayScene]);
 
   /**
    * A save in the wizard retints an open map.

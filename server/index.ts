@@ -8356,6 +8356,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
           howChosen: r.howChosen,
           howChosenGloss: r.howChosenGloss,
           termEnds: termDates.length ? termDates[0].toISOString() : null,
+          // The classes this seat is tagged for. A tag is a suggestion about
+          // what to show first, never a permission, and it is the same answer
+          // for every reader, so it carries nothing about who is asking.
+          // Empty means every class; see the note on `OrgRole.archetypes`.
+          archetypes: r.archetypes,
           holders: viewPeople
             ? held.map((h) => ({
                 userId: h.userId,

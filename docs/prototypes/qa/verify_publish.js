@@ -31,12 +31,30 @@ const path = require('path');
 
 const FILE = process.env.GROUNDS_FILE || 'file:///root/amora/work/grounds-v0.html';
 const EXE = process.env.PW_EXE || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const SHELL = FILE.replace(/grounds-v0\.html$/, 'qa/shell_publish.html');
+/* THE SHELL COMES FROM THE ARTIFACT'S DIRECTORY, NOT FROM ITS NAME.
+ *
+ * This was `FILE.replace(/grounds-v0\.html$/, 'qa/shell_publish.html')`, which
+ * is a NO-OP for any artifact not called grounds-v0.html - so SHELL came back
+ * equal to FILE, the suite loaded the artifact as its own shell, found no
+ * frame, and threw at check 3 of 31. That is what happened on the control side
+ * of FIVE OF FIVE paired reps, on a lane and on its reviewer, and because
+ * paired_summary.sh greps '^FAIL' a crash contributed an EMPTY failing set and
+ * the comparison printed "SUBSET" about a side that never ran.
+ *
+ * qa/shell_publish.html hardcodes `<iframe src="../grounds-v0.html">`, so a
+ * control MUST be staged as <dir>/grounds-v0.html with a qa/ beside it. That
+ * requirement is now checked and named at check A0 instead of being discovered
+ * as a TypeError twenty lines later. */
+const DIR = FILE.replace(/\/[^/]*$/, '');
+const SHELL = DIR + '/qa/shell_publish.html';
 const ART = path.join(__dirname, '..', 'grounds-v0.html');
 const SHARED = path.join(__dirname, '..', '..', '..', 'shared', 'mapScene.ts');
 
 let fails = 0;
 const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++; };
+
+/* file:///C:/a/b.html -> C:/a/b.html, and file:///root/x -> /root/x */
+const onDisk = u => decodeURIComponent(String(u).replace(/^file:\/\/\//, /^file:\/\/\/[A-Za-z]:/.test(u) ? '' : '/'));
 
 /* A scene the map will accept: same shape buildExportJSON writes, cut to what
    restoreScene actually reads, plus one building that is not in the seed so a
@@ -57,6 +75,25 @@ const PUSHED_SCENE = {
   const perr = [], cerr = [];
   page.on('pageerror', e => perr.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') cerr.push(m.text()); });
+
+  /* ---------- A0. THE SUITE CAN ACTUALLY RUN ----------
+     First, and it exits rather than continuing, because everything after B
+     needs a shell with the artifact inside it and a suite that dies partway
+     reports NO failures at all - which is indistinguishable from a clean run
+     to anything counting '^FAIL' lines. */
+  const staged = /\/grounds-v0\.html$/.test(FILE) && fs.existsSync(onDisk(SHELL));
+  ok(staged,
+    `A0: the artifact is staged where the shell can frame it - <dir>/grounds-v0.html with qa/ beside it ` +
+    `(artifact ${FILE}, shell ${SHELL}${fs.existsSync(onDisk(SHELL)) ? '' : ', WHICH IS NOT ON DISK'})`);
+  if (!staged) {
+    console.log('\nverify_publish cannot run against this path. qa/shell_publish.html carries a hardcoded');
+    console.log('<iframe src="../grounds-v0.html">, so a control has to be COPIED to <dir>/grounds-v0.html');
+    console.log('with a qa/ directory beside it, and <dir> has to be a real C:/ path - a /tmp path does');
+    console.log('not resolve for the browser on Windows.');
+    await browser.close();
+    console.log(`\n${fails} FAILED`);
+    process.exit(1);
+  }
 
   /* ---------- A. standalone: nobody to ask, so the hand is open ---------- */
   await page.goto(FILE);
@@ -90,7 +127,23 @@ const PUSHED_SCENE = {
   shell.on('pageerror', e => sperr.push(String(e)));
   await shell.goto(SHELL);
   await shell.waitForTimeout(3000);
-  const frame = shell.frames().find(f => /grounds-v0/.test(f.url()));
+  /* THE FRAME IS IDENTIFIED BY IDENTITY, NOT BY NAME. `find(f =>
+     /grounds-v0/.test(f.url()))` returns undefined when the artifact is called
+     something else and then every line below throws; worse, it returns the
+     WRONG frame when a control sits in a directory whose grounds-v0.html is
+     somebody else's. The shell has exactly one child and it must be the file
+     this run was pointed at. */
+  const kids = shell.frames().filter(f => f !== shell.mainFrame());
+  const frame = kids[0];
+  ok(kids.length === 1 && !!frame && frame.url() === FILE,
+    `B0: the shell framed the artifact under test and nothing else (${kids.length} frame(s): ${kids.map(f => f.url()).join(' | ') || 'none'})`);
+  if (!frame || frame.url() !== FILE) {
+    console.log('\nThe shell did not load the artifact this run was pointed at, so nothing below would');
+    console.log('be about it. Stage the artifact AS <dir>/grounds-v0.html with qa/ beside it.');
+    await browser.close();
+    console.log(`\n${fails} FAILED`);
+    process.exit(1);
+  }
   await frame.evaluate(() => leaveIntro());
   await shell.waitForTimeout(300);
 

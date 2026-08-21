@@ -75,6 +75,25 @@ export interface OrgRole {
   howChosen: string | null;
   howChosenGloss: string | null;
   /**
+   * The classes this seat is tagged for (0069).
+   *
+   * A SUGGESTION and never a restriction: nothing here may be consulted by
+   * `hasCapability`, and a class must never decide whether an action is
+   * allowed. It exists so a surface can show a player the work their
+   * characters do first.
+   *
+   * EMPTY MEANS EVERY CLASS, and it has to, because the column is nullable and
+   * "tagged for nobody" has to read the same way as "not tagged at all".
+   * Collapsing those the other way is how a filter quietly empties a board.
+   * `asList` returns `[]` for NULL, for an empty array and for unparseable
+   * text alike, so all three land in the one branch every reader takes.
+   *
+   * It was written by 0069 and selected by nobody, so the column the API
+   * accepted was swallowed on the way back out, the same shape as the
+   * recruitment pack below.
+   */
+  archetypes: string[];
+  /**
    * THE RECRUITMENT PACK. Six columns 0049 created and `WRITABLE` has always
    * accepted, and which nothing ever read back: `ROLE_COLS` omitted every one,
    * so an admin could type a seat's pay reality into the API and watch it
@@ -121,7 +140,7 @@ export interface OrgAssignment {
 }
 
 const ROLE_COLS =
-  "id, circle_id, name, aim, domain, accountabilities, why_it_matters, seats, criticality, active, recruiting, expires_each_season, status_override, status_override_expires_at, icon, color, sort_order, is_example, " +
+  "id, circle_id, name, aim, domain, accountabilities, why_it_matters, seats, criticality, active, recruiting, expires_each_season, status_override, status_override_expires_at, icon, color, sort_order, is_example, archetypes, " +
   // The recruitment pack. Written since 0049, selected by nobody until now, so
   // every one of them was a column the API accepted and then swallowed.
   "authority, first_year_outcomes, first_90_day_outcomes, location_expectations, compensation_reality, evidence_required, " +
@@ -174,6 +193,7 @@ function rowToRole(r: any): OrgRole {
     representsCircle: !!r.represents_circle,
     howChosen: r.how_chosen ?? null,
     howChosenGloss: r.how_chosen_gloss ?? null,
+    archetypes: asList(r.archetypes),
     authority: r.authority ?? null,
     firstYearOutcomes: r.first_year_outcomes ?? null,
     first90DayOutcomes: r.first_90_day_outcomes ?? null,

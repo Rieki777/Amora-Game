@@ -250,6 +250,134 @@ artifact keeps the founder's full hand and stays the standalone design tool it
 has always been. Reading silence as a refusal is what made D8's first cut
 invisible from `file://`, caught by `verify_doors` in one line.
 
+## The org lens on the land (L5)
+
+The Circles chart and the living map used to disagree about what an org is. The
+chart drew circles with role satellites; the lens drew a ring around every one
+of the twenty-two buildings, in grey where a building had no circle at all. The
+lens now draws what the chart draws, on the land.
+
+| piece | where |
+|---|---|
+| Halos, satellites, three inks, the governing fallback | `patch_h5_01_lens.py`, `patch_h5_02_satarc.py`, `patch_h5_03_keyline.py` |
+| Round trip, the party, the live seat states | `patch_h5_04_roundtrip.py`, `patch_h5_06_live.py`, `patch_h5_07_reapply.py` |
+| Marks that answer to the party | `patch_h5_05_badges.py` |
+| Hardening (declaration order, canvas state) | `patch_h5_08_tdz.py`, `patch_h5_09_ctxstate.py` |
+| The drawn record, the lens plane, the ground line | `patch_h5_10_satlog.py`, `patch_h5_11_overcanvas.py`, `patch_h5_12_footline.py`, `patch_h5_13_plane.py`, `patch_h5_14_platedodge.py` |
+| A role gathers at its own circle's home; the fan opens | `patch_h5_15_govhome.py`, `patch_h5_16_fanwidth.py` |
+| Braided rim, prototype-safe name index, tooltip | `patch_h5_17_three.py` |
+| Circle tables a scene file cannot reach through | `patch_h5_18_circtables.py` |
+| Class tags on a seat | `drizzle/0069_characters.sql`, `server/lib/orgChart.ts` |
+| Shell relay | `client/src/pages/LivingMap.tsx` |
+| Gates | `qa/verify_org_lens.js` (the model), `qa/verify_org_ground.js` (the screen), `server/lib/orgArchetypes.test.ts` |
+
+**A halo marks a circle, not a building.** The ten curated `CIRCLE_HOMES` are
+the only anchors, so the lens and the chart cannot disagree about where a circle
+lives.
+
+**No two halos overlap, by construction.** Each takes half the distance to its
+nearest neighbour, capped at 46, so for any pair the two radii sum to at most
+the distance between them. A flat 46 left eight overlapping pairs on this land,
+because five homes sit inside the heart district.
+
+**A governing function gathers at ITS OWN CIRCLE'S HOME, at DRAW TIME, and is
+never written down.** `roleHome()` asks `classify()`, the artifact's own
+provenance predicate: an address a person chose reads `creator` and is never
+moved, while a resolver guess and silence both gather at `CIRCLE_HOMES[circle]`.
+`ROLE_GOV_HOME` is only what is left when that circle has no home on the land,
+and it fires zero times here. It used to be the rule rather than the fallback,
+and it contradicted `CIRCLE_HOMES` for three of the four circles it claimed:
+Outreach lives at the gate, Finance at the market, Wisdom at the council fire.
+The map said so out loud - three Wisdom roles addressed at the council fire were
+dragged to the Community Center, whose hovercard then read "0 seats open" with
+no seal while the lens drew three satellites on it, and the council fire's read
+"4 seats open" with a seal while the lens drew one. Writing a home onto the row
+would destroy the difference between a default and a founder's choice, which is
+the distinction `0060` exists to preserve.
+
+**The two seat counts on the map are now compared.** `seatsAt()` answers "which
+seats are ADDRESSED here" and feeds the hovercard and the seat seal;
+`roleSeatsBy()` answers "which seats DRAW here" and feeds the lens. Both were
+computed every frame and compared by nothing. `verify_org_ground.js` S1-S4 reads
+the rendered hovercard's own text and the seal in the badge plane - the two
+surfaces a person reads - and requires them to equal what the lens drew, then
+forces a role apart to prove the comparison is live.
+
+**A satellite never lands on the building it belongs to, and never under a mark.**
+Two separate laws, and both were found by looking at the screen rather than at
+the model:
+
+- *The ground line.* A halo is a circle around an anchor and a sprite is a tall
+  box standing on it, so at the crowded homes the ring is INSIDE the sprite: the
+  no-overlap solver takes the Community Center's ring to 29.1 scene units while
+  its painted sprite reaches 31.6 below the same anchor and 43 to either side.
+  The satellite's `py` takes a floor at the sprite's own foot, published by
+  `syncBanners` as `s._footU` from the same `sc`/`psc`/`k` it writes into the
+  sprite's transform on the same line, so the two cannot drift. `px` is
+  untouched, so nothing reaches further sideways than the halo already did and
+  no satellite can migrate into a neighbour's circle. Raising the radius instead
+  is not available: the Community Center's sprite is 43 of half-width and the
+  Library's is 36.7 and they stand 58 apart, so the sprites themselves overlap.
+- *The plane.* `#lens` sits at z 13, above the sprites at 10, the name plates at
+  11 and the seals at 12, and `body.org-lens` dims `#badges` to a third while it
+  is on. Edge-to-edge clearance from the seals is not achievable on this land -
+  fifty are on screen at the Community Center at cam.z 2.4, on rings around five
+  buildings that `layoutBadges` deliberately does not space against each other -
+  so the lens is a MODE that owns the top while it is on. In exchange the
+  satellites join `window.BADGE_PTS`, so the name plates dodge them the way they
+  already dodge every seal. That costs at most one building name of the dozen on
+  screen, measured, and bounded at one by `verify_org_ground.js` G7b.
+
+**No name a scene file chose is looked up on an object with a prototype.**
+Seat names key the live-state merge in `roleApplyLive`, and circle names key
+`CIRCLE_COL`, `CIRCLE_HOMES` and `ROLE_GOV`. All four were plain objects, so a
+seat called `constructor` matched a phantom row, drew open and incremented the
+count the shell reports; a circle with that name was treated as governing, was
+gathered off the building it is addressed to, and took a Function as its colour
+- which canvas refuses by KEEPING THE PREVIOUS strokeStyle, so the satellite is
+drawn in another circle's ink rather than being visibly wrong. The `||` and
+`&&` fallbacks that look like they cover this cannot, because an inherited
+value is truthy. `Object.create(null)` on all four; nothing calls a method on
+any of them and every reader uses `Object.keys`, `in`, or a bracket lookup.
+
+**The two org suites are separate on purpose.** `verify_org_lens.js` proves the
+model and never looks at the screen: it drives `roleSat` onto canvases made with
+`createElement`, which is right for the three inks and blind to everything
+geometric. It reported 38 of 38 green while two of the three governing
+satellites were invisible. `verify_org_ground.js` reads only the composited page
+and rects off the live DOM, and carries `BREAK=floor` and `BREAK=plane` negative
+controls that must take it red.
+
+**The lens reads state; it never stores it.** `x.state` is what a scene file
+says and round-trips through `restoreScene` and the export. `x._state` is what
+the village says this minute, merged by name off the credentialed hand and
+carrying the leading underscore this file uses for read-but-never-saved. The
+export names its fields one by one and `_state` is not among them, so a
+Tuesday's holder count can never freeze into the map a founder drew.
+
+**Character identity rides its own credentialed message.** `/api/map/config` is
+fetched without credentials and returns the same answer to every reader, so the
+party cannot travel on it. It travels on `lens`, which is separate from `hand`
+on purpose: `hand` decides whether the Build button works and must not wait on
+`/api/map`, which is four queries and reads the whole `users` table when the
+caller may see people. `lens` only narrows what is drawn, so it can land late,
+and if it never lands the map shows every mark and draws every seat as the scene
+wrote it. It is pushed once, on the boot handshake, so a party edited in another
+tab reaches the map on the next open.
+
+**Empty means every class, everywhere.** `org_roles.archetypes` is nullable, so
+"tagged for nobody" and "not tagged at all" arrive as the same `[]` from
+`asList` and take the one branch every reader takes. A village that has tagged
+nothing sees no narrowing at all, and a class never reaches `hasCapability`.
+
+**The quest half of the filter is wired and has no data yet.** 0069 tagged
+`quests` as well as `org_roles`, but `server/repos/quests.ts` does not select
+the column and `/api/map` does not emit it, so a quest reaches the map untagged
+and `roleAny` answers true for every quest mark. Closing it is the same four
+moves the seat side took: select the column, emit it, send it, merge it. Until
+then only the seat mark narrows, which is the honest behaviour rather than a
+guess about who a quest is for.
+
 ## Open questions
 
 - Source of truth for circles per deployment: some villages will already model circles in their Hypha DHO — should map.circles_source (platform | hypha-readonly) be a v2 deployment choice, and if hypha, does the concierge still resolve contacts against platform role_holders?

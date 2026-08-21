@@ -131,3 +131,7 @@ DEPLOY_HANDOFF_2026-07-04.md
 # somebody's `git add .`, which is how another lane's in-flight work has been
 # committed under the wrong message before.
 docs/prototypes/.qa-out/
+# The staged control for paired_reps.sh: a 5.5 MB copy of the artifact under a
+# git ref, plus the qa/ shell it has to be framed by. qa/README.md now tells you
+# to make it, so it needs a line here for the same reason .qa-out does.
+docs/prototypes/.qa-ctrl/

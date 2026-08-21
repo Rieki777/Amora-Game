@@ -35,7 +35,7 @@ const role = (over: Partial<OrgRole> = {}): OrgRole => ({
   accountabilities: [], whyItMatters: null, seats: 1, criticality: "normal",
   active: true, recruiting: false, expiresEachSeason: null,
   statusOverride: null, statusOverrideExpiresAt: null,
-  icon: null, color: null, order: 0, isExample: false,
+  icon: null, color: null, order: 0, isExample: false, archetypes: [],
   authority: null, firstYearOutcomes: null, first90DayOutcomes: null,
   locationExpectations: null, compensationReality: null, evidenceRequired: null,
   representsCircle: false, howChosen: null, howChosenGloss: null,
