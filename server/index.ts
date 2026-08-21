@@ -92,7 +92,29 @@ import {
   whoIsHere,
   withdrawSlotSignup,
 } from "./lib/calendarCommunity";
-import { gatherWeeklyBrief, villageDateKey } from "./lib/calendarBrief";
+import { gatherWeeklyBrief, setOpportunitiesProvider, villageDateKey } from "./lib/calendarBrief";
+// ── LANE L7 IMPORTS: intents and introductions ──────────────────────────────
+import {
+  CONSENT_SENTENCE,
+  acceptOpportunity,
+  adminDemand,
+  createIntent,
+  declineOpportunity,
+  eraseIntentsForMember,
+  exportIntentsForMember,
+  getPolicy as getIntentPolicy,
+  hideReason,
+  listBoard,
+  listMyIntents,
+  listMyOpportunities,
+  matchIntent,
+  opportunitiesForBrief,
+  putPolicy as putIntentPolicy,
+  runIntentsSweep,
+  suggestOffers,
+  updateIntent,
+  type IntentsDeps,
+} from "./lib/intents";
 import { ensureSky, mirrorCalendarSources } from "./lib/calendarProviders";
 import { listMonthNames, lunarSummaryFor, namesForHemisphere, setMonthName } from "./lib/lunarTable";
 import { buildIcs, feedTokenStatus, looksLikeFeedToken, mintFeedToken, resolveFeedToken, revokeFeedTokens } from "./lib/icsFeed";
@@ -369,8 +391,8 @@ import {
   callReader, fenceForPrompt, readerCatalog, toolNameForKey, toolNameToKey, wireReaders, type ReaderViewer,
 } from "./lib/villageReaders";
 import {
-  DEFAULT_ASSISTANT_MODEL, borrowingPlatformKey, callAssistant, parseJsonReply, sanitizeMessages, wireAssistant,
-  type AssistantResult,
+  ASSISTANT_MODES, DEFAULT_ASSISTANT_MODEL, borrowingPlatformKey, callAssistant, parseJsonReply, sanitizeMessages,
+  wireAssistant, type AssistantResult,
 } from "./lib/assistant";
 import { recordAssistantUsage, type AssistantPath } from "./lib/assistantUsage";
 // LANE K1: which road an organize question takes, decided without a model.
@@ -3284,6 +3306,9 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<Era
     "UPDATE contact_requests SET message = '[removed with the member]' WHERE from_user_id = ?",
     [target.id],
   );
+  // Intents are the same class of trace: their own words about what they
+  // sought and offered, plus every matcher sentence where they were a party.
+  await eraseIntentsForMember(pool, target.id);
 
   await members.update(target.id, (u: any) => {
     u.name = anon;
@@ -4223,6 +4248,20 @@ async function startServer() {
     // reads, never into a log nobody opens.
     return `${r.scanned} decided, ${r.created} filed, ${r.alreadyDerived} already there` +
       (r.lost > 0 ? `, ${r.lost} lost to a slug collision` : "");
+  });
+
+  // ── LANE L7: introductions — expiries, one reminder each, held retries, and
+  // the matching pass. The deps builder is a hoisted function beside the
+  // /api/intents block; the same effectiveLifecycle-at-tick idiom as above.
+  registerJob("intents-sweep", 6 * 60 * 60 * 1000, async () => {
+    if (effectiveLifecycle("introductions") === "off") return "introductions module off";
+    const s = await runIntentsSweep(getPool(), makeIntentsDeps());
+    return (
+      `${s.matchRuns} match runs, ${s.surfacedHeld} held surfaced, ` +
+      `${s.expiredOpportunities} proposals and ${s.expiredIntents} intents expired, ` +
+      `${s.opportunityReminders + s.intentReminders} reminded, ` +
+      `${s.blankedReasons + s.blankedIntents} aged out`
+    );
   });
   // ── LANE A ZONE END: the derivation job ──────────────────────────────────
 
@@ -8755,6 +8794,270 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   app.get("/api/admin/map/concierge-log", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json(await conciergeLog(getPool(), String(req.query.unmatched ?? "") === "1"));
+  });
+
+  // ── LANE L7: intents and introductions ────────────────────────────────────
+  // Every route mounts behind requireModule('introductions'): off is a 404,
+  // preview is admins, members needs a signed-in member, public admits the
+  // board. The behaviour lives in server/lib/intents.ts; this block is the
+  // wiring: who may act, the live dials, and the two usage writers the host
+  // owns (noteAssistantUsage is private to this file, on purpose).
+  app.use("/api/intents", requireModule("introductions"));
+
+  /**
+   * The introductions deps, built per call so every dial reads live. A
+   * hoisted function declaration, deliberately: the intents-sweep job
+   * registered at boot calls it long before this line has "run".
+   */
+  function makeIntentsDeps(): IntentsDeps {
+    return {
+      notify: async (input) => {
+        await notify(input);
+      },
+      // L6's seam. Every non-ok reason (no inbox, disabled) is silence: the
+      // introduction still lands in the member's own inbox and email.
+      enqueueAgent: async (userId, data) => {
+        try {
+          await enqueueAgentDelivery(getPool(), userId, { kind: "opportunity", data });
+        } catch (e) {
+          console.error("[intents] agent delivery enqueue failed (opportunity unaffected)", e);
+        }
+      },
+      noteUsage: (call, userId) => noteAssistantUsage("introductions", DEFAULT_ASSISTANT_MODEL, call, userId),
+      // The 0081 posture: a deterministic run is still a row, so the metric
+      // COUNT(*) WHERE mode='introductions' AND path <> 'deterministic' has a
+      // denominator anyone can check later.
+      noteDeterministicRun: async (userId) => {
+        await recordAssistantUsage(getPool(), {
+          villageId: instanceIdentity().instanceId,
+          mode: "introductions",
+          model: "none",
+          keySource: "none",
+          userId,
+          usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
+          iterations: 0,
+          stopReason: null,
+          path: "deterministic",
+        });
+      },
+      // The sweep buys nothing once four fifths of the concierge day is gone:
+      // introductions ride the concierge's budget and must never drain it.
+      budgetNearlySpent: async () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const spent = Math.max(1, Math.floor(ASSISTANT_MODES.concierge.dailyBudget * 0.8));
+        return atLimit(`assistant-day:concierge:${today}`, spent, 24 * 60 * 60 * 1000);
+      },
+      orgSeats: async () => {
+        const [roles, assignments] = await Promise.all([
+          listOrgRoles(getPool()),
+          listOrgAssignments(getPool(), lapseContext()),
+        ]);
+        const byId = new Map(roles.map((r) => [r.id, r] as const));
+        const out: Array<{
+          userId: string;
+          roleId: string;
+          roleName: string;
+          aim: string | null;
+          domain: string | null;
+          circleId: string | null;
+        }> = [];
+        for (const a of assignments) {
+          if (a.holderKind !== "member" || !a.userId || a.isExample) continue;
+          const role = byId.get(a.orgRoleId);
+          if (!role || !role.active || role.isExample) continue;
+          out.push({
+            userId: String(a.userId),
+            roleId: role.id,
+            roleName: role.name,
+            aim: role.aim,
+            domain: role.domain,
+            circleId: role.circleId,
+          });
+        }
+        return out;
+      },
+      vars: {
+        recipientDailyCap: () => numberVar("introductions.recipient_daily_cap"),
+        matchFloor: () => numberVar("introductions.match_floor"),
+        opportunityDays: () => numberVar("introductions.opportunity_days"),
+        retentionDays: () => numberVar("introductions.retention_days"),
+      },
+    };
+  }
+
+  // L5b's seam, wired the day both lanes are aboard: the weekly brief's
+  // opportunities section reads this module's plain lines.
+  setOpportunitiesProvider(opportunitiesForBrief);
+
+  /**
+   * Who may post, edit, confirm, set policy and accept: members who may
+   * message, or a guest with an active stay. They are on the land; meeting
+   * people is the point of being here. Visitors read the board only.
+   */
+  async function canActOnIntents(user: any): Promise<boolean> {
+    if (hasCapability("message.send", await capabilityCtx(user))) return true;
+    if ((await stageOf(user)) === "guest") {
+      const stays = await staysForUser(getPool(), user.id);
+      if (stays.some((s) => s.status === "active")) return true;
+    }
+    return false;
+  }
+
+  /** The library throws plain sentences; the wire answers with the right code. */
+  function intentsError(res: express.Response, e: unknown) {
+    const msg = String((e as any)?.message ?? "That did not work");
+    if (/not here|not open yet/.test(msg)) return res.status(404).json({ error: msg });
+    if (/Only the|has closed|already opened/.test(msg)) return res.status(403).json({ error: msg });
+    return res.status(400).json({ error: msg });
+  }
+
+  const CANNOT_ACT_YET = "Introductions open at the member stage, or during an active stay";
+
+  /** My intents, my policy line, and the consent sentence to render. */
+  app.get("/api/intents/mine", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    res.json({
+      intents: await listMyIntents(getPool(), user.id),
+      policy: await getIntentPolicy(getPool(), user.id),
+      consentSentence: CONSENT_SENTENCE,
+      canAct: await canActOnIntents(user),
+    });
+  });
+
+  /** The open board. Signed out sees public rows; signed in adds members rows. */
+  app.get("/api/intents/board", async (req, res) => {
+    const user = await authedUser(req);
+    res.json({ board: await listBoard(getPool(), user?.id ?? null) });
+  });
+
+  /** "You could offer…" chips, computed on read, never stored. */
+  app.get("/api/intents/suggestions", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    if (!(await canActOnIntents(user))) return res.status(403).json({ error: CANNOT_ACT_YET });
+    res.json(await suggestOffers(getPool(), user.id, makeIntentsDeps()));
+  });
+
+  /** My inbox: every surfaced opportunity, through the one projector. */
+  app.get("/api/intents/opportunities", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    res.json({ opportunities: await listMyOpportunities(getPool(), user.id) });
+  });
+
+  /** Post an intent. The matcher runs for this intent only, right away. */
+  app.post("/api/intents", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    if (isExampleUser(user)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    if (!(await canActOnIntents(user))) return res.status(403).json({ error: CANNOT_ACT_YET });
+    if (await overLimit(`intents-create:${user.id}`, 10, 10 * 60 * 1000)) {
+      return res.status(429).json({ error: "That is a lot of intents at once. Give it a few minutes" });
+    }
+    try {
+      const intent = await createIntent(getPool(), user.id, {
+        kind: req.body?.kind,
+        text: req.body?.text,
+        why: req.body?.why,
+        tier: req.body?.tier,
+        topics: req.body?.topics,
+        expiresWeeks: req.body?.expiresWeeks,
+        inferredFrom: req.body?.inferredFrom,
+      });
+      const run = await matchIntent(getPool(), makeIntentsDeps(), intent.id, {
+        clientIp: clientIp(req),
+        allowModel: true,
+      });
+      res.json({ intent, proposed: !!run.opportunityId });
+    } catch (e) {
+      intentsError(res, e);
+    }
+  });
+
+  /** The policy line: consent, the weekly ration, topics, a pause. */
+  app.put("/api/intents/policy", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    if (isExampleUser(user)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    if (!(await canActOnIntents(user))) return res.status(403).json({ error: CANNOT_ACT_YET });
+    try {
+      const policy = await putIntentPolicy(getPool(), user.id, {
+        consent: typeof req.body?.consent === "boolean" ? req.body.consent : undefined,
+        maxPerWeek: req.body?.maxPerWeek === undefined ? undefined : Number(req.body.maxPerWeek),
+        topics: req.body?.topics === undefined ? undefined : req.body.topics === null ? null : req.body.topics,
+        pauseDays: req.body?.pauseDays === undefined ? undefined : req.body.pauseDays === null ? null : Number(req.body.pauseDays),
+      });
+      res.json({ policy });
+    } catch (e) {
+      intentsError(res, e);
+    }
+  });
+
+  /** Edit my own intent: words, tier, topics, lifecycle, a fresh window. */
+  app.put("/api/intents/:id", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    if (!(await canActOnIntents(user))) return res.status(403).json({ error: CANNOT_ACT_YET });
+    try {
+      const intent = await updateIntent(getPool(), user.id, String(req.params.id), {
+        text: req.body?.text,
+        why: req.body?.why,
+        tier: req.body?.tier,
+        topics: req.body?.topics,
+        lifecycle: req.body?.lifecycle,
+        expiresWeeks: req.body?.expiresWeeks,
+      });
+      if (!intent) return res.status(404).json({ error: "Not found" });
+      res.json({ intent });
+    } catch (e) {
+      intentsError(res, e);
+    }
+  });
+
+  /** My yes. Mine alone: the library throws for anyone who is not a party. */
+  app.post("/api/intents/opportunities/:id/accept", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    if (isExampleUser(user)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    if (!(await canActOnIntents(user))) return res.status(403).json({ error: CANNOT_ACT_YET });
+    try {
+      const { opportunity, opened } = await acceptOpportunity(getPool(), String(req.params.id), user.id, makeIntentsDeps());
+      const projected = (await listMyOpportunities(getPool(), user.id)).find((o) => o.id === opportunity.id) ?? null;
+      res.json({ opportunity: projected, opened });
+    } catch (e) {
+      intentsError(res, e);
+    }
+  });
+
+  /** Not now. Both intents return to the pool; nobody is scolded. */
+  app.post("/api/intents/opportunities/:id/decline", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    try {
+      await declineOpportunity(getPool(), String(req.params.id), user.id);
+      res.json({ success: true });
+    } catch (e) {
+      intentsError(res, e);
+    }
+  });
+
+  /** The show-and-correct control: the subject hides a sentence about them. */
+  app.post("/api/intents/opportunities/:id/reasons/:idx/hide", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    try {
+      await hideReason(getPool(), String(req.params.id), Math.trunc(Number(req.params.idx)), user.id);
+      res.json({ success: true });
+    } catch (e) {
+      intentsError(res, e);
+    }
+  });
+
+  /** The founders' demand signal, beside the concierge's gaps in the tab. */
+  app.get("/api/intents/admin/demand", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    res.json(await adminDemand(getPool()));
   });
 
   // â”€â”€ S15: the tools hub — the framework's reference consumer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
@@ -21205,6 +21508,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       introductionsSent: await mine("SELECT * FROM contact_requests WHERE from_user_id = ?"),
       introductionsReceived: await mine("SELECT * FROM contact_requests WHERE to_user_id = ?"),
       conciergeQueries: await mine("SELECT query, created_at FROM concierge_queries WHERE user_id = ?"),
+      memberIntents: await exportIntentsForMember(pool, user.id),
       onchainBalances: await mine("SELECT * FROM onchain_balances WHERE user_id = ?"),
       exits: await mine("SELECT * FROM exits WHERE user_id = ?"),
       /*

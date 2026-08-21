@@ -859,6 +859,28 @@ export const MODULES: ModuleDef[] = [
     ],
     apiPrefixes: ["/api/events", "/api/admin/events"],
   },
+  {
+    id: "introductions",
+    tier: "included",
+    dataClass: "member-pii",
+    group: "connect",
+    setup: "none",
+    name: "Introductions",
+    description:
+      "Members say in plain words what they seek, confirm offers the village already knows about them, and receive a few good introductions a week. A match is a proposal with its reasoning attached; both people say yes separately before one conversation opens.",
+    // A mutual yes opens a Messages thread, so the thread's home must exist
+    // before the first introduction can land (the feed-requires-forum shape).
+    requires: ["messaging"],
+    recommends: ["badges", "map"],
+    capabilities: [],
+    variableKeys: [
+      "introductions.recipient_daily_cap",
+      "introductions.match_floor",
+      "introductions.opportunity_days",
+      "introductions.retention_days",
+    ],
+    apiPrefixes: ["/api/intents"],
+  },
 ];
 
 export const MODULES_BY_ID: Record<string, ModuleDef> = Object.fromEntries(

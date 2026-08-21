@@ -312,6 +312,7 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         { key: "resources-admin", label: "How Resources Flow", icon: Coins },
         { key: "exits-admin", label: "Departures", icon: LogOut },
         { key: "calls-admin", label: "Calls", icon: Calendar },
+        { key: "intents-admin", label: "Introductions", icon: Handshake },
         { key: "tokens", label: "Tokens", icon: Coins },
         { key: "ledger", label: "Ledger", icon: BarChart3 },
         { key: "variables", label: "Game Mechanics", icon: Activity },
@@ -7312,6 +7313,106 @@ function CallsAdminTab({ password }: { password: string }) {
   );
 }
 
+/**
+ * LANE L7: the founders' demand signal. Unmatched intents by topic sit
+ * beside the concierge's unmatched queries, because together they answer
+ * "which role or module should exist next". Incognito rows arrive as counts
+ * and topics only; their words never reach this tab.
+ */
+function IntentsAdminTab({ password }: { password: string }) {
+  const [demand, setDemand] = useState<any>(null);
+  const [conciergeGaps, setConciergeGaps] = useState<any[] | null>(null);
+  const [mapOff, setMapOff] = useState(false);
+  const [off, setOff] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`${API_BASE}/intents/admin/demand`, { headers: authHeaders(password) });
+        if (res.status === 404) { setOff(true); setLoading(false); return; }
+        if (res.ok) setDemand(await res.json());
+      } catch { setDemand(null); }
+      try {
+        const res = await fetch(`${API_BASE}/admin/map/concierge-log?unmatched=1`, { headers: authHeaders(password) });
+        if (res.status === 404) setMapOff(true);
+        else if (res.ok) setConciergeGaps(await res.json());
+      } catch { setConciergeGaps(null); }
+      setLoading(false);
+    })();
+  }, [password]);
+
+  if (loading) return <p className="text-sm text-gray-500">Loading…</p>;
+  if (off) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <p className="text-sm text-gray-600">The Introductions module is off. Turn it on in the Module Library.</p>
+      </div>
+    );
+  }
+  const counts = demand?.counts ?? {};
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          ["Active intents", counts.activeIntents],
+          ["Surfaced this moon", counts.surfacedThisMoon],
+          ["Opened this moon", counts.openedThisMoon],
+          ["Model calls this moon", counts.modelCallsThisMoon],
+        ].map(([label, n]) => (
+          <div key={String(label)} className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-2xl font-bold text-gray-900">{Number(n ?? 0)}</p>
+            <p className="text-xs text-gray-500">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
+        <h3 className="font-semibold text-gray-900">What people asked for and did not get</h3>
+        <p className="text-xs text-gray-500">
+          Active intents no introduction has touched in 14 days, by topic. This is the demand signal: the next role,
+          quest or module lives in this list.
+        </p>
+        {(demand?.unmatchedByTopic ?? []).length === 0 && (
+          <p className="text-sm text-gray-400">Nothing is waiting. Every active intent has seen a proposal.</p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {(demand?.unmatchedByTopic ?? []).map((t: any) => (
+            <span key={t.topic} className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
+              {t.topic} <span className="font-semibold">{t.count}</span>
+            </span>
+          ))}
+        </div>
+        <ul className="divide-y divide-gray-100">
+          {(demand?.unmatched ?? []).map((i: any, idx: number) => (
+            <li key={idx} className="py-2 text-sm text-gray-700">
+              <span className="text-xs uppercase text-gray-400 mr-2">{i.kind}</span>
+              {i.text ?? <span className="italic text-gray-400">incognito: topics only ({(i.topics ?? []).join(", ") || "untagged"})</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
+        <h3 className="font-semibold text-gray-900">The concierge's own gaps</h3>
+        {mapOff ? (
+          <p className="text-sm text-gray-400">The map is off, so there is no concierge log to read.</p>
+        ) : (
+          <>
+            {(conciergeGaps ?? []).length === 0 && <p className="text-sm text-gray-400">No unmatched queries.</p>}
+            <ul className="divide-y divide-gray-100">
+              {(conciergeGaps ?? []).slice(0, 30).map((q: any) => (
+                <li key={q.id} className="py-2 text-sm text-gray-700">{q.query}</li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TokensTab({ password }: { password: string }) {
   const [tokens, setTokens] = useState<any[]>([]);
   const [mintCap, setMintCap] = useState<number>(0);
@@ -9169,6 +9270,7 @@ export default function Admin() {
           {activeTab === "resources-admin" && <ResourcesAdminPanel password={password} />}
           {activeTab === "exits-admin" && <ExitsAdminTab password={password} />}
           {activeTab === "calls-admin" && <CallsAdminTab password={password} />}
+          {activeTab === "intents-admin" && <IntentsAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}

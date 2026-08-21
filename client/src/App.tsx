@@ -93,6 +93,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/roles": "Roles",
   "/forum": "Forum",
   "/messages": "Messages",
+  "/introductions": "Introductions",
   "/feed": "Village feed",
   "/map": "Village map",
   "/map/circles": "Circles and seats",
@@ -244,6 +245,7 @@ const Events = lazyPage(() => import("./pages/Events"));
 const FirstWalk = lazyPage(() => import("./pages/FirstWalk"));
 const Forum = lazyPage(() => import("./pages/Forum"));
 const Messages = lazyPage(() => import("./pages/Messages"));
+const Introductions = lazyPage(() => import("./pages/Introductions"));
 const Feed = lazyPage(() => import("./pages/Feed"));
 const Stay = lazyPage(() => import("./pages/Stay"));
 const Wallet = lazyPage(() => import("./pages/Wallet"));
@@ -323,6 +325,7 @@ function Router() {
       <Route path="/forum/:id" component={Forum} />
       <Route path="/messages" component={Messages} />
       <Route path="/messages/:id" component={Messages} />
+      <Route path="/introductions" component={Introductions} />
       <Route path="/propose-quest" component={ProposeQuest} />
       <Route path="/roles" component={Roles} />
       <Route path="/how-we-create" component={HowWeCreate} />
