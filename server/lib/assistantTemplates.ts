@@ -121,6 +121,179 @@ export function renderWeek(data: unknown, timeZone: string): Rendered | null {
   return out("events.week", `This week: ${total} ${plural(total, "gathering", "gatherings")}: ${list}.`);
 }
 
+// ── The weekly brief (round 4, lane L5b) ────────────────────────────────────
+
+/**
+ * What `renderWeeklyBrief` says, in three forms: an email subject, a one-line
+ * body for the in-app notification, and the full text and HTML.
+ */
+export interface RenderedBrief {
+  subject: string;
+  line: string;
+  text: string;
+  html: string;
+}
+
+/** "Mon 25 Aug" from a village-date key. UTC noon dodges every boundary. */
+function briefDay(dateKey: unknown): string {
+  const d = new Date(`${String(dateKey ?? "")}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return String(dateKey ?? "");
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" }).format(d);
+}
+
+const esc = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/**
+ * The zero-token weekly digest (§9.2 A4). Deliberately a STANDALONE export
+ * and not a `RENDERERS` entry: that table is keyed by reader for the organize
+ * route, and this renders a gathered document, on a timer, for delivery.
+ *
+ * Same rule as every renderer in this file: never throws, and a section whose
+ * data is not the shape it expects is DROPPED, never guessed at. An empty
+ * section is omitted; a wholly quiet week still sends one honest line.
+ */
+export function renderWeeklyBrief(input: unknown): RenderedBrief | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const d = input as Record<string, any>;
+  const projectName = String(d.projectName ?? "").trim() || "the village";
+  const timeZone = typeof d.timezone === "string" && d.timezone ? d.timezone : "UTC";
+  if (typeof d.weekKey !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(d.weekKey)) return null;
+
+  interface Section { heading: string; lines: string[] }
+  const sections: Section[] = [];
+  const push = (heading: string, lines: string[]) => {
+    const kept = lines.map((l) => l.trim()).filter((l) => l.length > 0);
+    if (kept.length) sections.push({ heading, lines: kept });
+  };
+
+  // Coming and going: counts or names, exactly as gathered. Tier is decided
+  // upstream; this function adds nobody.
+  try {
+    const p = d.people;
+    if (p && typeof p === "object") {
+      const lines: string[] = [];
+      const here = p.here;
+      if (here && Number.isFinite(Number(here.count)) && Number(here.count) > 0) {
+        const names = Array.isArray(here.names) ? here.names.filter((n: unknown) => typeof n === "string") : null;
+        lines.push(
+          names && names.length
+            ? `Staying now: ${names.slice(0, MAX_NAMED).join(", ")}.`
+            : `Staying now: ${Number(here.count)} ${plural(Number(here.count), "person", "people")}.`,
+        );
+      }
+      for (const a of Array.isArray(p.arrivals) ? p.arrivals.slice(0, 10) : []) {
+        if (!a || !Number.isFinite(Number(a.count))) continue;
+        const names = Array.isArray(a.names) ? a.names.filter((n: unknown) => typeof n === "string") : null;
+        lines.push(
+          names && names.length
+            ? `${briefDay(a.date)}: ${names.slice(0, MAX_NAMED).join(", ")} arriving.`
+            : `${briefDay(a.date)}: ${Number(a.count)} arriving.`,
+        );
+      }
+      for (const a of Array.isArray(p.departures) ? p.departures.slice(0, 10) : []) {
+        if (!a || !Number.isFinite(Number(a.count))) continue;
+        const names = Array.isArray(a.names) ? a.names.filter((n: unknown) => typeof n === "string") : null;
+        lines.push(
+          names && names.length
+            ? `${briefDay(a.date)}: ${names.slice(0, MAX_NAMED).join(", ")} moved on.`
+            : `${briefDay(a.date)}: ${Number(a.count)} moved on.`,
+        );
+      }
+      push("Coming and going", lines);
+    }
+  } catch { /* the section drops, the brief survives */ }
+
+  try {
+    const list = Array.isArray(d.gatherings) ? d.gatherings : [];
+    push(
+      "On the calendar",
+      list.slice(0, 20).map((g: any) => {
+        const title = String(g?.title ?? "").trim();
+        if (!title) return "";
+        const when = g?.allDay ? briefDay(String(g?.startsAt ?? "").slice(0, 10)) : clockIn(String(g?.startsAt ?? ""), timeZone);
+        if (!when) return "";
+        const place = String(g?.place ?? "").trim();
+        const seats =
+          Number.isFinite(Number(g?.spotsLeft)) && g?.spotsLeft !== null
+            ? Number(g.spotsLeft) === 0
+              ? Number.isFinite(Number(g?.waitlistCount)) && Number(g.waitlistCount) > 0
+                ? `full, ${Number(g.waitlistCount)} waiting`
+                : "full"
+              : `${Number(g.spotsLeft)} ${plural(Number(g.spotsLeft), "seat", "seats")} open`
+            : "";
+        return `${title}, ${when}${place ? `, ${place}` : ""}${seats ? ` (${seats})` : ""}.`;
+      }),
+    );
+  } catch { /* dropped */ }
+
+  try {
+    const list = Array.isArray(d.marks) ? d.marks : [];
+    push(
+      "The sky and the season",
+      list.slice(0, 10).map((m: any) => {
+        const title = String(m?.title ?? "").trim();
+        if (!title) return "";
+        const day = briefDay(String(m?.startsAt ?? "").slice(0, 10));
+        return day ? `${title}, ${day}.` : "";
+      }),
+    );
+  } catch { /* dropped */ }
+
+  try {
+    const seats = d.openSeats;
+    if (seats && Number.isFinite(Number(seats.count)) && Number(seats.count) > 0) {
+      const names = Array.isArray(seats.names) ? seats.names.filter((n: unknown) => typeof n === "string") : [];
+      const total = Number(seats.count);
+      const listed = names.slice(0, 5).join(", ");
+      push("Open seats", [
+        listed
+          ? `${total} ${plural(total, "role needs", "roles need")} someone: ${listed}${total > names.length ? `, and ${total - names.length} more` : ""}.`
+          : `${total} ${plural(total, "role needs", "roles need")} someone.`,
+      ]);
+    }
+  } catch { /* dropped */ }
+
+  try {
+    const q = d.newQuests;
+    if (q && Number.isFinite(Number(q.count)) && Number(q.count) > 0) {
+      const titles = Array.isArray(q.titles) ? q.titles.filter((t: unknown) => typeof t === "string") : [];
+      const total = Number(q.count);
+      push("New quests", [
+        titles.length
+          ? `${total} new ${plural(total, "quest", "quests")} this week: ${titles.slice(0, 5).join(", ")}${total > titles.length ? `, and ${total - titles.length} more` : ""}.`
+          : `${total} new ${plural(total, "quest", "quests")} this week.`,
+      ]);
+    }
+  } catch { /* dropped */ }
+
+  try {
+    const ops = Array.isArray(d.opportunities)
+      ? d.opportunities.filter((o: unknown) => typeof o === "string" && (o as string).trim().length > 0)
+      : [];
+    push("Openings for you", ops.slice(0, 5).map((o: string) => o.trim()));
+  } catch { /* dropped */ }
+
+  const subject = `Your week at ${projectName}`;
+  const line = sections.length
+    ? sections.map((s) => s.heading.toLowerCase()).slice(0, 3).join(", ")
+    : "a quiet week";
+  const text = sections.length
+    ? sections.map((s) => `${s.heading}\n${s.lines.map((l) => `- ${l}`).join("\n")}`).join("\n\n")
+    : "Nothing is on the calendar for the coming week.";
+  const html = sections.length
+    ? sections
+        .map(
+          (s) =>
+            `<h3 style="margin:14px 0 4px;font-size:14px">${esc(s.heading)}</h3>` +
+            `<ul style="margin:0;padding-left:18px">${s.lines.map((l) => `<li style="margin:3px 0">${esc(l)}</li>`).join("")}</ul>`,
+        )
+        .join("")
+    : `<p style="margin:0">Nothing is on the calendar for the coming week.</p>`;
+
+  return { subject, line: `This week: ${line}.`, text, html };
+}
+
 export const RENDERERS: Record<string, Renderer> = {
   // Reads `villageTimezone()` at render time, so the table stays a table of
   // (data) => Rendered and the route needs no special case for this key.

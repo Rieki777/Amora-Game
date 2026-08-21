@@ -1,0 +1,81 @@
+/*
+ * The calendar's print sheet (0088, L5b): the wheel poster and the month
+ * grid on paper. Screen styles are untouched; everything here lives behind
+ * the print media query except the two utility classes.
+ *
+ * print-hide: controls and chrome that mean nothing on paper.
+ * print-header: the sheet's own title line (zone, month, moon), hidden on
+ * screen because the screen already says all of it in richer ways.
+ */
+
+.print-header {
+  display: none;
+}
+
+@media print {
+  /* Only the wrapped view prints. The visibility pattern beats hunting the
+     page's chrome selector by selector: everything vanishes, then the print
+     area and its children come back. The page around it (tabs, steppers,
+     cards, toasts) needs no cooperation and no markup changes. */
+  body * {
+    visibility: hidden;
+  }
+
+  .calendar-print,
+  .calendar-print * {
+    visibility: visible;
+  }
+
+  .calendar-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+  }
+
+  /* Hidden AND removed, so they cost no layout space above the sheet. */
+  header,
+  footer,
+  nav,
+  .print-hide {
+    display: none !important;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  .print-header {
+    display: block;
+    font-size: 14pt;
+    font-weight: 600;
+    margin: 0 0 8pt;
+    color: #000;
+  }
+
+  .print-header .print-header-sub {
+    display: block;
+    font-size: 10pt;
+    font-weight: 400;
+    color: #333;
+  }
+
+  /* The month grid and the wheel take the page's width, light on ink. */
+  .calendar-print {
+    width: 100% !important;
+    max-width: 100% !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .calendar-print svg {
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Cells keep their hairlines; interactive tints go. */
+  .calendar-print button {
+    background: #fff !important;
+    color: #000 !important;
+  }
+}

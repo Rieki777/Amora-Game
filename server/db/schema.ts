@@ -154,6 +154,10 @@ export const quests = mysqlTable("quests", {
   startsAt: datetime("starts_at"),
   endsAt: datetime("ends_at"),
   dueAt: datetime("due_at"),
+  /** When the quest first appeared (0088). Nullable: rows older than the
+   *  column have no honest date, and the weekly brief must never call them
+   *  new. New inserts stamp themselves through the column default. */
+  createdAt: timestamp("created_at"),
 });
 
 export const questClaims = mysqlTable("quest_claims", {

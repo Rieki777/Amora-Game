@@ -115,3 +115,67 @@ No recurrence (`RRULE`), no ActivityPub federation, no per-event visibility
 beyond `draft`, no waitlist when a gathering fills, and no ticketing or
 payments. `is_example` rides on the table but `EXAMPLE_TABLES` is untouched, so
 the standing-examples machinery does not retire these rows.
+
+## The community half (0088, round 4 lane L5b)
+
+The calendar grew its community features on top of the one-table core (0085):
+
+**The waitlist.** A full gathering takes a queue instead of a shrug.
+`POST /api/events/:id/waitlist` joins only when the room is genuinely full,
+measured under the same `FOR UPDATE` lock on the events row that `rsvp()`
+takes, and promotion runs INSIDE whichever transaction frees a seat (an
+answer moving off `going`, a withdrawn answer in the now-transactional
+`withdrawRsvp`, a raised capacity in `updateGathering`). Oldest first, no
+priority for anyone, `promoted_at` stamped once, and the person is told
+through a notification sink that fires only after commit
+(`server/lib/calendarCommunity.ts`). Rejoining after leaving goes to the
+back of the line.
+
+**Slots.** A gathering declares what it needs (a dish, a ride, childcare,
+setup crew; `event_slots`, kinds in `shared/gatherings.ts`). Whoever holds
+`event.manage` writes them in the admin panel; members going sign up under
+`FOR UPDATE` on the slot row so the cap holds. Counts travel to anyone who
+may see the event; names only to a viewer whose own answer is `going` or to
+the crew. Never emailed.
+
+**Meet-me windows.** `kind = 'meet-me'`: a member says when and where they
+are findable, on the village layer or their own private one, seven open
+windows at most, one new one an hour. L7's introductions read them through
+`listCalendarItems({ kinds: ["meet-me"] })`.
+
+**Layers in the UI.** Week and month views carry layer chips (a display
+filter over what the server already decided; the client never filters FOR
+privacy) and per-item pills. A member posts to their own private layer live,
+or asks for the public calendar, which saves as a draft the crew approves in
+the admin panel. `/api/events/mine` shows the author where their request
+stands.
+
+**Who is here.** `GET /api/events/who-is-here` folds stays into the week
+view's band: arrivals from `arrive_on`, here-now from `status = 'active'`,
+departures only from `status = 'ended'` and the row's own `updated_at`
+(stays has no departure date and the band does not invent one). Names at the
+`map.viewPeople` tier; counts, with no name or id key at all, below it. 404
+while stays is off.
+
+**Print.** The month grid and the year wheel print through one sheet
+(`client/src/components/calendar/print.css`): chrome stripped, light
+background, the zone and both month names in the header.
+
+**The weekly brief.** Once a week, on an admin-chosen evening in village
+time (Sunday 18:00 by default, `module_settings.config` under
+`events.brief`), every member gets one digest: arrivals and departures,
+meals and gatherings, moon and season marks, open seats, new quests
+(`quests.created_at`, added in 0088; older rows stay NULL and are never
+called new), and opportunities once L7 wires
+`setOpportunitiesProvider(opportunitiesForBrief)` in
+`server/lib/calendarBrief.ts`. The whole thing is a template
+(`renderWeeklyBrief` in `assistantTemplates.ts`) over readers the village
+already has: NO model call, no `assistant_usage` row, no `assistant-day:`
+bucket, and the test in `server/lib/calendarBrief.test.ts` holds that line.
+Delivery is `runWeeklyBrief` in `notify.ts`: an in-app row (dedupe
+`brief:<week>:<user>`, so the evening's later ticks send nothing), an email
+with the full HTML for those the daily cap and their prefs allow, and one
+`enqueueAgentDelivery(..., { kind: "weekly_digest" })` per member whose
+agent listens, every non-ok reason tolerated in silence. Each member's
+opt-out is `notify.weeklyBrief` on their profile prefs, switchable inside
+the brief panel at `/events?brief=`.

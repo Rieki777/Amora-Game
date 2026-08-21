@@ -44,6 +44,7 @@ import {
   listCalendarItems,
   type CalendarViewer,
 } from "./calendar";
+import { firePromotionSink, promoteForCapacityChange, promoteWaitlist } from "./calendarCommunity";
 
 const newId = () => `ev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -66,6 +67,11 @@ export interface GatheringInput {
   recurrence?: Recurrence | null;
   link?: string | null;
   colour?: string | null;
+  /**
+   * 0088: the one person a private-layer row belongs to. The member
+   * post-to-my-layer route sets it to the author; admin surfaces leave it.
+   */
+  ownerUserId?: string | null;
 }
 
 export interface ListOptions {
@@ -174,8 +180,8 @@ export async function createGathering(
     `INSERT INTO events
       (id, title, description, starts_at, ends_at, location_text, structure_keys,
        visit_type_id, capacity, status, attendance_mode, online_url, created_by,
-       kind, layer, all_day, recurrence, link, colour)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       kind, layer, all_day, recurrence, link, colour, owner_user_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       input.title,
@@ -198,6 +204,7 @@ export async function createGathering(
       recurrence ? JSON.stringify(recurrence) : null,
       cleanUrl(input.link),
       cleanColour(input.colour),
+      input.ownerUserId ?? null,
     ],
   );
   return (await getGathering(pool, id))!;
@@ -240,13 +247,28 @@ export async function updateGathering(
   if (!sets.length) return getGathering(pool, id);
   params.push(id);
   await pool.query(`UPDATE events SET ${sets.join(", ")} WHERE id = ?`, params);
+  // 0088: a raised (or removed) capacity means seats exist that the queue is
+  // owed. The promotion takes its own transaction and the same events-row
+  // lock as every other seat path; a lowered capacity promotes nobody
+  // because promoteWaitlist checks `going < capacity` before each seat.
+  if (patch.capacity !== undefined) {
+    try {
+      await firePromotionSink(await promoteForCapacityChange(pool, id));
+    } catch (e) {
+      console.error("[waitlist] capacity-change promotion failed (edit saved)", e);
+    }
+  }
   return getGathering(pool, id);
 }
 
 export async function deleteGathering(pool: Pool, id: string): Promise<boolean> {
   // RSVPs go with it. They are answers to a question that no longer exists,
-  // and there is no ledger value here to preserve.
+  // and there is no ledger value here to preserve. The queue and the slots
+  // (0088) are answers of the same kind and go the same way.
   await pool.query("DELETE FROM event_rsvps WHERE event_id = ?", [id]);
+  await pool.query("DELETE FROM event_waitlist WHERE event_id = ?", [id]);
+  await pool.query("DELETE ss FROM event_slot_signups ss JOIN event_slots s ON s.id = ss.slot_id WHERE s.event_id = ?", [id]);
+  await pool.query("DELETE FROM event_slots WHERE event_id = ?", [id]);
   const [res] = await pool.query<any>("DELETE FROM events WHERE id = ?", [id]);
   return Number(res?.affectedRows ?? 0) > 0;
 }
@@ -337,8 +359,16 @@ export async function rsvp(
       );
     }
 
-    const nextGoing = going + (takingSeat ? 1 : 0) - (prior?.status === "going" && wanted !== "going" ? 1 : 0);
+    // 0088: an answer moving OFF `going` frees a seat, and the waitlist is
+    // served inside this same transaction, under the row lock taken above,
+    // so the freed seat cannot also be handed to a walk-up.
+    const freedSeat = prior?.status === "going" && wanted !== "going";
+    const promoted = freedSeat ? await promoteWaitlist(conn, eventId, occ) : [];
+
+    const nextGoing = going + (takingSeat ? 1 : 0) - (freedSeat ? 1 : 0) + promoted.length;
     await conn.commit();
+    // Notify only once the promotion is real. Never throws.
+    await firePromotionSink(promoted);
     return { ok: true, status: wanted, goingCount: nextGoing, duplicate: prior?.status === wanted };
   } catch (err) {
     await conn.rollback();
@@ -390,12 +420,39 @@ export async function listRsvps(pool: Pool, eventId: string, occurrenceKey?: str
   }));
 }
 
+/**
+ * Take an answer back.
+ *
+ * Since 0088 this runs in a transaction under the SAME events-row lock
+ * `rsvp()` takes, because a withdrawn `going` frees a seat and the waitlist
+ * must be served before anyone else can read the count. The bare DELETE this
+ * used to be would have freed seats the queue never heard about.
+ */
 export async function withdrawRsvp(pool: Pool, eventId: string, userId: string, occurrenceKey = ""): Promise<boolean> {
-  const [res] = await pool.query<any>(
-    "DELETE FROM event_rsvps WHERE event_id = ? AND user_id = ? AND occurrence_key = ?",
-    [eventId, userId, occurrenceKey],
-  );
-  return Number(res?.affectedRows ?? 0) > 0;
+  const conn: PoolConnection = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    // Lock order matches rsvp(): events row first, then answer rows.
+    const [[event]] = await conn.query<any[]>("SELECT id FROM events WHERE id = ? FOR UPDATE", [eventId]);
+    const [[prior]] = await conn.query<any[]>(
+      "SELECT id, status FROM event_rsvps WHERE event_id = ? AND user_id = ? AND occurrence_key = ?",
+      [eventId, userId, occurrenceKey],
+    );
+    if (!prior) {
+      await conn.rollback();
+      return false;
+    }
+    await conn.query("DELETE FROM event_rsvps WHERE id = ?", [prior.id]);
+    const promoted = event && prior.status === "going" ? await promoteWaitlist(conn, eventId, occurrenceKey) : [];
+    await conn.commit();
+    await firePromotionSink(promoted);
+    return true;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 /**

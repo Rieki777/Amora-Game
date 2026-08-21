@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { authToken } from "@/lib/gameApi";
 import { CalendarPlus, Copy, RefreshCw } from "lucide-react";
+import CommunityCalendarCard from "./CommunityCalendarCard";
+import WeeklyBrief from "./WeeklyBrief";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -62,7 +64,12 @@ export default function CalendarFeedCard({ signedIn }: { signedIn: boolean }) {
   };
 
   return (
-    <div className="mt-8 border border-border rounded-xl bg-card">
+    <>
+    {/* L5b rides under the feed card so the page mounts one component: the
+        community card (post, meet, bring) and the weekly brief panel. */}
+    <CommunityCalendarCard signedIn={signedIn} />
+    <WeeklyBrief signedIn={signedIn} />
+    <div className="print-hide mt-4 border border-border rounded-xl bg-card">
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
         className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left">
         <span className="flex items-center gap-2 font-medium text-foreground">
@@ -124,5 +131,6 @@ export default function CalendarFeedCard({ signedIn }: { signedIn: boolean }) {
         </div>
       )}
     </div>
+    </>
   );
 }

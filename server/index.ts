@@ -11,7 +11,7 @@ import crypto from "crypto";
 import multer from "multer";
 import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
-import { moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
+import { civilParts, moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { sceneStopsFor } from "../shared/questScenes";
 import { cleanCrewName, crewsRepo as crewsRepoFactory } from "./lib/crews";
 import { ALL_CAPABILITIES, hasCapability, STAGE_UNLOCKS, type Capability } from "../shared/capabilities";
@@ -67,6 +67,7 @@ import {
   createGathering,
   deleteGathering,
   eventsOpenState,
+  getGathering,
   listGatherings,
   listRsvps,
   rsvp,
@@ -74,7 +75,24 @@ import {
   upcomingByStructure,
   withdrawRsvp,
 } from "./lib/gatherings";
-import { cleanRecurrence, getCalendarItemFor, isAuthoredKind, listCalendarItems, listCalendarRows } from "./lib/calendar";
+import { cleanRecurrence, getCalendarItemFor, isAuthoredKind, iso, listCalendarItems, listCalendarRows } from "./lib/calendar";
+import {
+  attachWaitlistInfo,
+  cancelMeetMe,
+  createMeetMe,
+  createSlot,
+  deleteSlot,
+  joinWaitlist,
+  leaveWaitlist,
+  listMyMeetMe,
+  listSlotsFor,
+  setPromotionSink,
+  signupSlot,
+  updateSlot,
+  whoIsHere,
+  withdrawSlotSignup,
+} from "./lib/calendarCommunity";
+import { gatherWeeklyBrief, villageDateKey } from "./lib/calendarBrief";
 import { ensureSky, mirrorCalendarSources } from "./lib/calendarProviders";
 import { listMonthNames, lunarSummaryFor, namesForHemisphere, setMonthName } from "./lib/lunarTable";
 import { buildIcs, feedTokenStatus, looksLikeFeedToken, mintFeedToken, resolveFeedToken, revokeFeedTokens } from "./lib/icsFeed";
@@ -250,6 +268,7 @@ import {
   notificationsFor,
   resolveNotifyPrefs,
   runNotificationDigest,
+  runWeeklyBrief,
   type NotifyDeps,
 } from "./lib/notify";
 import { registerJob, startScheduler } from "./lib/scheduler";
@@ -351,7 +370,7 @@ import {
 import { recordAssistantUsage, type AssistantPath } from "./lib/assistantUsage";
 // LANE K1: which road an organize question takes, decided without a model.
 import { routeQuestion } from "./lib/assistantRouter";
-import { RENDERERS, type Rendered } from "./lib/assistantTemplates";
+import { RENDERERS, renderWeeklyBrief, type Rendered } from "./lib/assistantTemplates";
 import { guardedFetchJson } from "./lib/toolcheck";
 // ── LANE L6 IMPORTS: your agent ─────────────────────────────────────────────
 import {
@@ -8702,6 +8721,66 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       (failed.length ? `, ${failed.length} failed: ${failed.map((r) => r.id).join(", ")}` : "");
   });
 
+  // ── 0088 (L5b): waitlist promotions tell the person, after commit ────────
+  // The sink is the only notification path for promotions; the library fires
+  // it once the owning transaction is real, and insertNotification's dedupe
+  // key makes a retried promotion tell them once.
+  setPromotionSink(async (promoted) => {
+    for (const p of promoted) {
+      await notify({
+        userId: p.userId,
+        type: "waitlist_promoted",
+        title: `A spot opened: ${p.title}`.slice(0, 200),
+        body: "You were next in line, so the seat is yours. The calendar has the details.",
+        link: `/events`,
+        dedupeKey: `waitlist:${p.eventId}:${p.userId}${p.occurrenceKey ? `:${p.occurrenceKey}` : ""}`,
+      });
+    }
+  });
+
+  /**
+   * The weekly brief (§9.2 A4, L5b): an hourly check that ACTS once the
+   * village-local weekday and hour configured in module_settings.config
+   * (events.brief) have both arrived, the stay-nightly idiom. The dedupe key
+   * brief:<weekKey>:<userId> makes the evening's later ticks and any restart
+   * insert nothing. ZERO model calls anywhere downstream: the gather is
+   * template work over readers (calendarBrief.ts), and the harm-metric test
+   * holds assistant_usage and the assistant-day buckets unchanged.
+   */
+  registerJob("weekly-brief", 60 * 60 * 1000, async () => {
+    const cfg = (moduleConfig<any>("events")?.brief ?? {}) as { enabled?: unknown; day?: unknown; hour?: unknown };
+    const enabled = cfg.enabled !== false;
+    const day = Number.isInteger(cfg.day) && Number(cfg.day) >= 0 && Number(cfg.day) <= 6 ? Number(cfg.day) : 0;
+    const hour = Number.isInteger(cfg.hour) && Number(cfg.hour) >= 0 && Number(cfg.hour) <= 23 ? Number(cfg.hour) : 18;
+    if (!enabled) return "brief switched off";
+    if (effectiveLifecycle("events") === "off") return "events module off";
+    const tz = villageTimezone();
+    const local = civilParts(new Date(), tz);
+    if (local.weekday !== day || local.hour < hour) return "not the brief's evening yet";
+    const weekKey = `${local.year}-${String(local.month).padStart(2, "0")}-${String(local.day).padStart(2, "0")}`;
+
+    const all = await members.all();
+    const recipients = (all as any[]).filter(
+      (u) => u.passwordHash && !String(u.email ?? "").endsWith("@anonymized.invalid"),
+    );
+    const projectName = mergedConfig().project.name;
+    const summary = await runWeeklyBrief(notifyDeps, {
+      weekKey,
+      members: recipients.map((u) => ({ id: u.id })),
+      gather: async (user) => {
+        const admin = user.role === "admin" || user.role === "founder";
+        const withNames = admin || hasCapability("map.viewPeople", await capabilityCtx(user));
+        const data = await gatherWeeklyBrief(getPool(), {
+          userId: user.id, isAdmin: admin, withNames, timezone: tz, weekKey, projectName,
+        });
+        const rendered = renderWeeklyBrief(data);
+        return rendered ? { ...rendered, data } : null;
+      },
+      enqueueAgent: (userId, data) => enqueueAgentDelivery(getPool(), userId, { kind: "weekly_digest", data }),
+    });
+    return `${summary.fresh} sent, ${summary.emailed} emailed, ${summary.agents} to agents, ${summary.optedOut} opted out`;
+  });
+
   /** Putting something on the village calendar: admin OR `event.manage`. */
   async function mayManageEvents(req: any): Promise<boolean> {
     if (await isAdmin(req)) return true;
@@ -8816,6 +8895,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       limit: 1000,
       now,
     });
+    // 0088: queue numbers on capped items, and the viewer's own place.
+    await attachWaitlistInfo(getPool(), list, viewer.userId);
     const settings = calendarSkyOptions();
     const names = namesForHemisphere(await listMonthNames(getPool()), settings.hemisphere);
     res.json({
@@ -8949,6 +9030,209 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     res.json({ structures: await upcomingByStructure(getPool(), numberVar("events.upcoming_days")) });
   });
 
+  // ── 0088 (L5b): the community half's routes. Every named path here is
+  // registered ABOVE `/api/events/:id`, the by-structure pattern, so none of
+  // them is ever read as an id.
+
+  /**
+   * Who is on the land: arrivals, people here now, recent departures, from
+   * stays. Counts for everyone past the module gate; names only for an admin
+   * or a holder of map.viewPeople, the same tier the map itself draws
+   * (anonymous visitors get STRUCTURE only). 404 when stays is off, because
+   * then there is no such picture to serve.
+   */
+  app.get("/api/events/who-is-here", async (req, res) => {
+    if (effectiveLifecycle("stays") === "off") return res.status(404).json({ error: "Not found" });
+    const tz = villageTimezone();
+    const dayKey = /^\d{4}-\d{2}-\d{2}$/;
+    const today = villageDateKey(tz);
+    const from = typeof req.query.from === "string" && dayKey.test(req.query.from) ? req.query.from : today;
+    let to = typeof req.query.to === "string" && dayKey.test(req.query.to) ? req.query.to : "";
+    const plusDays = (key: string, days: number) => {
+      const d = new Date(`${key}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+    if (!to || to < from) to = plusDays(from, 7);
+    if (to > plusDays(from, 60)) to = plusDays(from, 60);
+    const user = await authedUser(req);
+    const admin = await isAdmin(req);
+    const withNames = admin || (user ? hasCapability("map.viewPeople", await capabilityCtx(user)) : false);
+    res.json({ window: { from, to }, ...(await whoIsHere(getPool(), { from, to }, withNames)) });
+  });
+
+  /**
+   * The weekly brief, rendered for the person asking (§9.2 A4): the panel at
+   * /events?brief= reads it, and the admin card's preview is this same call.
+   * A read with no side effect, NO model call, and the recipient's own layer
+   * visibility, exactly as the scheduled evening send builds it.
+   */
+  app.get("/api/events/brief", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    const tz = villageTimezone();
+    const week = typeof req.query.week === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.week)
+      ? req.query.week
+      : villageDateKey(tz);
+    const admin = user.role === "admin" || user.role === "founder";
+    const withNames = admin || hasCapability("map.viewPeople", await capabilityCtx(user));
+    const data = await gatherWeeklyBrief(getPool(), {
+      userId: user.id,
+      isAdmin: admin,
+      withNames,
+      timezone: tz,
+      weekKey: week,
+      projectName: mergedConfig().project.name,
+    });
+    const rendered = renderWeeklyBrief(data);
+    if (!rendered) return res.status(500).json({ error: "The brief could not be put together" });
+    const prefs = resolveNotifyPrefs(user.prefs);
+    res.json({
+      week,
+      timezone: tz,
+      optedOut: prefs.weeklyBrief === "off",
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
+    });
+  });
+
+  /**
+   * The signed-in member's own calendar rows, drafts included: a public-layer
+   * request waiting for the crew is invisible to `listCalendarItems` until
+   * approved, and its author still deserves to see where it stands.
+   */
+  app.get("/api/events/mine", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    const [rows] = await getPool().query<any[]>(
+      "SELECT id, title, starts_at, ends_at, status, kind, layer, location_text FROM events " +
+        "WHERE (created_by = ? OR owner_user_id = ?) AND removed_at IS NULL AND kind IN ('gathering','festival','meet-me') " +
+        "ORDER BY starts_at DESC LIMIT 100",
+      [user.id, user.id],
+    );
+    res.json({
+      events: rows.map((r: any) => ({
+        id: String(r.id),
+        title: String(r.title),
+        startsAt: iso(r.starts_at),
+        endsAt: r.ends_at ? iso(r.ends_at) : null,
+        status: String(r.status),
+        kind: String(r.kind),
+        layer: String(r.layer),
+        locationText: r.location_text ?? null,
+      })),
+    });
+  });
+
+  /**
+   * "Meet me" windows (§9.2 A5): a member says when and where they are
+   * findable. Village layer or their own private one, seven open at most,
+   * one new window an hour. L7's introductions read these through
+   * listCalendarItems({kinds:["meet-me"]}); nothing here matches anybody.
+   */
+  app.post("/api/events/meet-me", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    if (!hasCapability("event.rsvp", await capabilityCtx(user))) {
+      return res.status(403).json({ error: "Meet-me windows open once you are part of the village" });
+    }
+    if (await overLimit(`meet-me:${user.id}`, 1, 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "One new window an hour is plenty. Try again soon" });
+    }
+    const outcome = await createMeetMe(getPool(), {
+      userId: user.id,
+      firstName: String(user.name ?? ""),
+      startsAt: req.body?.startsAt,
+      endsAt: req.body?.endsAt,
+      place: req.body?.place,
+      note: req.body?.note,
+      layer: req.body?.layer,
+    });
+    if (!outcome.ok) {
+      const message =
+        outcome.reason === "too_many" ? "Seven open windows is the cap. Close one first"
+        : outcome.reason === "bad_layer" ? "A meet-me window is village or private"
+        : "Give the window a real start and end, up to a day long";
+      return res.status(outcome.reason === "too_many" ? 429 : 400).json({ error: message, reason: outcome.reason });
+    }
+    await recordEvent(getPool(), {
+      kind: "meet_me_opened",
+      text: "opened a meet-me window",
+      actorUserId: user.id,
+      entityType: "event",
+      entityRef: outcome.id,
+      audience: "admin",
+    });
+    res.json({ success: true, id: outcome.id, windows: await listMyMeetMe(getPool(), user.id) });
+  });
+
+  app.get("/api/events/meet-me/mine", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    res.json({ windows: await listMyMeetMe(getPool(), user.id) });
+  });
+
+  app.delete("/api/events/meet-me/:id", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    const gone = await cancelMeetMe(getPool(), req.params.id, user.id);
+    if (!gone) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  });
+
+  /**
+   * Post to my layer (§5 item 9, C4): a member puts a gathering on their own
+   * private layer, live at once, or asks for the public calendar, which
+   * saves as a DRAFT the crew approves in the admin panel (the existing
+   * PUT /api/admin/events/:id flips its status). The village layer stays
+   * with event.manage, which is what the admin route already enforces.
+   */
+  app.post("/api/events", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    if (!hasCapability("event.rsvp", await capabilityCtx(user))) {
+      return res.status(403).json({ error: "Posting to the calendar opens once you are part of the village" });
+    }
+    const layer = req.body?.layer === "public" ? "public" : req.body?.layer === "private" ? "private" : null;
+    if (!layer) {
+      return res.status(400).json({ error: "Pick a layer: private for your own calendar, public to ask the crew" });
+    }
+    if (await overLimit(`member-event:${user.id}`, 10, 24 * 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "Ten calendar posts in a day is plenty. Try again tomorrow" });
+    }
+    const problem = validateGatheringBody(req.body, true);
+    if (problem) return res.status(400).json({ error: problem });
+    const created = await createGathering(
+      getPool(),
+      {
+        title: String(req.body.title),
+        description: req.body.description ?? null,
+        startsAt: String(req.body.startsAt),
+        endsAt: req.body.endsAt ?? null,
+        locationText: req.body.locationText ?? null,
+        capacity: req.body.capacity,
+        allDay: Boolean(req.body.allDay),
+        kind: "gathering",
+        layer,
+        // A private item is live at once: only its owner can see it. A public
+        // request is a draft until the crew says yes.
+        status: layer === "private" ? "scheduled" : "draft",
+        ownerUserId: user.id,
+      },
+      user.id,
+    );
+    await recordEvent(getPool(), {
+      kind: layer === "public" ? "event_public_requested" : "event_created",
+      text: layer === "public" ? `asked for "${created.title}" on the public calendar` : "put something on their own calendar",
+      actorUserId: user.id,
+      entityType: "event",
+      entityRef: created.id,
+      audience: "admin",
+    });
+    res.json({ success: true, event: created, pendingApproval: layer === "public" });
+  });
+
   /**
    * One gathering, with its schema.org markup alongside.
    *
@@ -8966,6 +9250,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const manages = viewer.isAdmin || (await mayManageEvents(req));
     const g = await getCalendarItemFor(getPool(), req.params.id, { ...viewer, isAdmin: manages }, { includeDrafts: manages });
     if (!g) return res.status(404).json({ error: "Not found" });
+    await attachWaitlistInfo(getPool(), [g], viewer.userId);
     res.json({
       event: g,
       schemaOrg: toSchemaOrg(g, { siteUrl: mergedConfig().project.siteUrl }),
@@ -9036,7 +9321,122 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const occ = typeof req.query.occurrence === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.occurrence)
       ? req.query.occurrence
       : "";
+    // 0088: the withdraw is transactional in the library now, and a freed
+    // seat serves the waitlist inside that same transaction.
     const removed = await withdrawRsvp(getPool(), req.params.id, user.id, occ);
+    res.json({ success: true, removed });
+  });
+
+  /**
+   * The waitlist (§5 item 8, 0088). Joining is refused while a seat is
+   * open, measured under the same events-row lock the RSVP takes; promotion
+   * happens inside whichever transaction frees a seat, never here. Nobody
+   * gets priority: the queue is age order, full stop.
+   */
+  app.post("/api/events/:id/waitlist", async (req, res) => {
+    if (!boolVar("events.rsvp_enabled")) {
+      return res.status(403).json({ error: "RSVPs are closed for this village" });
+    }
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to queue for a seat" });
+    if (!hasCapability("event.rsvp", await capabilityCtx(user))) {
+      return res.status(403).json({ error: "You cannot RSVP yet" });
+    }
+    const outcome = await joinWaitlist(
+      getPool(),
+      req.params.id,
+      user.id,
+      typeof req.body?.occurrenceKey === "string" ? req.body.occurrenceKey : undefined,
+    );
+    if (!outcome.ok) {
+      const code = outcome.reason === "not_found" ? 404 : 409;
+      const message =
+        outcome.reason === "not_found" ? "Not found"
+        : outcome.reason === "not_open" ? "This gathering is not taking answers"
+        : outcome.reason === "already_going" ? "You already have a seat"
+        : "There are seats open. Answer the gathering instead";
+      return res.status(code).json({ error: message, reason: outcome.reason });
+    }
+    if (!outcome.duplicate) {
+      await recordEvent(getPool(), {
+        kind: "event_waitlist",
+        text: "joined the waitlist for a gathering",
+        actorUserId: user.id,
+        entityType: "event",
+        entityRef: req.params.id,
+        audience: "admin",
+      });
+    }
+    res.json({ success: true, position: outcome.position, waiting: outcome.waiting });
+  });
+
+  app.delete("/api/events/:id/waitlist", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    const occ = typeof req.query.occurrence === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.occurrence)
+      ? req.query.occurrence
+      : "";
+    const removed = await leaveWaitlist(getPool(), req.params.id, user.id, occ);
+    res.json({ success: true, removed });
+  });
+
+  /**
+   * Slots (0088): what the gathering asks people to bring or hold. Counts
+   * for anyone who may see the event; names only when the viewer's own
+   * answer is `going` for that evening, or they hold event.manage. Never
+   * emails: an organiser reads names on this surface and nowhere else.
+   */
+  app.get("/api/events/:id/slots", async (req, res) => {
+    const viewer = await calendarViewer(req);
+    const manages = viewer.isAdmin || (await mayManageEvents(req));
+    const g = await getCalendarItemFor(getPool(), req.params.id, { ...viewer, isAdmin: manages }, { includeDrafts: manages });
+    if (!g) return res.status(404).json({ error: "Not found" });
+    const occ = typeof req.query.occurrence === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.occurrence)
+      ? req.query.occurrence
+      : "";
+    let withNames = manages;
+    if (!withNames && viewer.userId) {
+      const [[mine]] = await getPool().query<any[]>(
+        "SELECT status FROM event_rsvps WHERE event_id = ? AND user_id = ? AND occurrence_key = ?",
+        [req.params.id, viewer.userId, occ],
+      );
+      withNames = mine?.status === "going";
+    }
+    res.json({ slots: await listSlotsFor(getPool(), req.params.id, occ, { userId: viewer.userId, withNames }) });
+  });
+
+  app.post("/api/events/:id/slots/:slotId/signup", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    if (!hasCapability("event.rsvp", await capabilityCtx(user))) {
+      return res.status(403).json({ error: "You cannot take slots yet" });
+    }
+    const outcome = await signupSlot(
+      getPool(),
+      req.params.id,
+      req.params.slotId,
+      user.id,
+      typeof req.body?.occurrenceKey === "string" ? req.body.occurrenceKey : undefined,
+      req.body?.note,
+    );
+    if (!outcome.ok) {
+      const code = outcome.reason === "not_found" ? 404 : 409;
+      const message =
+        outcome.reason === "not_found" ? "Not found"
+        : outcome.reason === "not_open" ? "This gathering is not taking answers"
+        : "That slot is spoken for";
+      return res.status(code).json({ error: message, reason: outcome.reason });
+    }
+    res.json({ success: true, duplicate: outcome.duplicate, takenCount: outcome.takenCount });
+  });
+
+  app.delete("/api/events/:id/slots/:slotId/signup", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    const occ = typeof req.query.occurrence === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.occurrence)
+      ? req.query.occurrence
+      : "";
+    const removed = await withdrawSlotSignup(getPool(), req.params.id, req.params.slotId, user.id, occ);
     res.json({ success: true, removed });
   });
 
@@ -9108,6 +9508,44 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   app.get("/api/admin/events/calendars", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     res.json({ calendars: await listExternalCalendars(getPool()) });
+  });
+
+  /**
+   * The weekly brief's admin preview (L5b): rendered as an admin viewer,
+   * sending NOTHING. A named admin gets their own layers; the shared admin
+   * password gets the admin tier without a personal layer, which is the
+   * honest most it can be. Registered above the `:id` routes.
+   */
+  app.get("/api/admin/events/brief", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const tz = villageTimezone();
+    const week = typeof req.query.week === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.week)
+      ? req.query.week
+      : villageDateKey(tz);
+    const user = await authedUser(req);
+    const data = await gatherWeeklyBrief(getPool(), {
+      userId: user?.id ?? "admin-preview",
+      isAdmin: true,
+      withNames: true,
+      timezone: tz,
+      weekKey: week,
+      projectName: mergedConfig().project.name,
+    });
+    const rendered = renderWeeklyBrief(data);
+    if (!rendered) return res.status(500).json({ error: "The brief could not be put together" });
+    const cfg = (moduleConfig<any>("events")?.brief ?? {}) as { enabled?: unknown; day?: unknown; hour?: unknown };
+    res.json({
+      week,
+      timezone: tz,
+      config: {
+        enabled: cfg.enabled !== false,
+        day: Number.isInteger(cfg.day) && Number(cfg.day) >= 0 && Number(cfg.day) <= 6 ? Number(cfg.day) : 0,
+        hour: Number.isInteger(cfg.hour) && Number(cfg.hour) >= 0 && Number(cfg.hour) <= 23 ? Number(cfg.hour) : 18,
+      },
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
+    });
   });
 
   app.post("/api/admin/events/calendars", async (req, res) => {
@@ -9200,6 +9638,43 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
     const occ = typeof req.query.occurrence === "string" ? req.query.occurrence : undefined;
     res.json({ rsvps: await listRsvps(getPool(), req.params.id, occ) });
+  });
+
+  /**
+   * Slots, the crew's side (0088): declare what a gathering needs (a dish, a
+   * ride, childcare, setup crew), change it, take it away. The crew always
+   * reads names here; the member surface's name tier lives on the public
+   * route.
+   */
+  app.get("/api/admin/events/:id/slots", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    const occ = typeof req.query.occurrence === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.occurrence)
+      ? req.query.occurrence
+      : "";
+    res.json({ slots: await listSlotsFor(getPool(), req.params.id, occ, { userId: null, withNames: true }) });
+  });
+
+  app.post("/api/admin/events/:id/slots", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    const g = await getGathering(getPool(), req.params.id);
+    if (!g) return res.status(404).json({ error: "Not found" });
+    if (!String(req.body?.label ?? "").trim()) return res.status(400).json({ error: "Name the slot: a dish, a ride, a task" });
+    const id = await createSlot(getPool(), req.params.id, req.body ?? {});
+    res.json({ success: true, id, slots: await listSlotsFor(getPool(), req.params.id, "", { userId: null, withNames: true }) });
+  });
+
+  app.put("/api/admin/events/:id/slots/:slotId", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    const changed = await updateSlot(getPool(), req.params.id, req.params.slotId, req.body ?? {});
+    if (!changed) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  });
+
+  app.delete("/api/admin/events/:id/slots/:slotId", async (req, res) => {
+    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    const gone = await deleteSlot(getPool(), req.params.id, req.params.slotId);
+    if (!gone) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
   });
 
   app.post("/api/admin/events", async (req, res) => {
