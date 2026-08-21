@@ -468,6 +468,43 @@ export const MODULES: ModuleDef[] = [
     apiPrefixes: ["/api/map", "/api/circles"],
   },
   {
+    id: "resources",
+    tier: "included",
+    dataClass: "village-content",
+    group: "know-and-decide",
+    setup: "optional",
+    name: "How Resources Flow",
+    description:
+      "A declared map of how money and resources are governed: who may spend what, with whose approval, paid from where, and where the money comes from; it describes the flow and moves nothing.",
+    // A hard dependency, like feed on forum: the resources picture is a LENS
+    // drawn over the village map's circles and seats.
+    requires: ["map"],
+    recommends: ["forum"],
+    capabilities: [],
+    variableKeys: [],
+    apiPrefixes: ["/api/resources"],
+    defaultConfig: { requestCategory: "governance", measuredVisibleTo: "members", labels: {} },
+    validateConfig: (c: any) => {
+      if (!c || typeof c !== "object") return "config must be an object";
+      if (c.requestCategory !== undefined && !/^[a-z0-9][a-z0-9-]{0,40}$/.test(String(c.requestCategory))) {
+        return "requestCategory must be a lowercase slug naming a forum category";
+      }
+      if (c.measuredVisibleTo !== undefined && !["members", "admins"].includes(String(c.measuredVisibleTo))) {
+        return "measuredVisibleTo must be members or admins";
+      }
+      if (c.labels !== undefined) {
+        if (!c.labels || typeof c.labels !== "object" || Array.isArray(c.labels)) {
+          return "labels must be an object of id to wording";
+        }
+        for (const [k, v] of Object.entries(c.labels)) {
+          if (typeof v !== "string" || !v.trim()) return `label "${k}" needs words`;
+          if (String(v).length > 80) return `label "${k}" runs past 80 characters`;
+        }
+      }
+      return null;
+    },
+  },
+  {
     id: "forum",
     tier: "included",
     dataClass: "member-pii",

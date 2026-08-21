@@ -22,8 +22,10 @@
  * MySQL, matching regen-civics so its code ports rather than gets rewritten.
  */
 import {
+  bigint,
   boolean,
   datetime,
+  decimal,
   int,
   json,
   mysqlEnum,
@@ -456,6 +458,71 @@ export const tokenLedger = mysqlTable("token_ledger", {
   idempotencyKey: varchar("idempotency_key", { length: 160 }).notNull().unique(),
   at: timestamp("at").defaultNow().notNull(),
 });
+
+// ─── How resources flow (0084, lane L3) ──────────────────────────────────────
+
+/**
+ * Declared spending rules: who may spend what, with whose approval, paid
+ * from where. A map of rules, never a wallet; nothing here debits anything.
+ * `unit` is uppercase ISO 4217 or `token:<slug>`, validated in code against
+ * the token registry (0084's header says why it is not an enum).
+ */
+export const spendingRules = mysqlTable("spending_rules", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  scope: mysqlEnum("scope", ["circle", "role"]).notNull(),
+  scopeId: varchar("scope_id", { length: 64 }).notNull(),
+  amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+  unit: varchar("unit", { length: 32 }).notNull(),
+  approval: mysqlEnum("approval", ["none", "circle-consent", "lead", "founders", "treasury", "hypha", "other"]).notNull(),
+  /** Required in code when approval is `other`: the village's own words. */
+  approvalNote: varchar("approval_note", { length: 160 }),
+  paidFrom: mysqlEnum("paid_from", ["treasury", "circle-budget", "member", "grant", "sponsor", "other"]).notNull(),
+  visibility: mysqlEnum("visibility", ["village", "holders"]).default("village").notNull(),
+  /** Free words; required in code when paid_from is `other`. */
+  note: varchar("note", { length: 500 }),
+  createdBy: varchar("created_by", { length: 64 }),
+  isExample: boolean("is_example").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Declared inflows: where the money comes from, as the village tells it. */
+export const fundingSources = mysqlTable("funding_sources", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  kind: mysqlEnum("kind", ["donations", "memberships", "stays", "grants", "sales", "land-or-lease", "investors", "other"]).notNull(),
+  sharePct: decimal("share_pct", { precision: 5, scale: 2 }),
+  amountMinorPerYear: bigint("amount_minor_per_year", { mode: "number" }),
+  unit: varchar("unit", { length: 32 }),
+  /** Free words; required in code when kind is `other`. */
+  note: varchar("note", { length: 500 }),
+  sortOrder: int("sort_order").default(0).notNull(),
+  isExample: boolean("is_example").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+/**
+ * Per-season circle envelopes. A budget is declared, never decremented.
+ * season_id NULL means "not tied to a dated season" (org_role_assignments'
+ * shape); the app's upsert dedupes the NULL case because MySQL unique keys
+ * treat NULLs as always distinct.
+ */
+export const circleBudgets = mysqlTable("circle_budgets", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  circleId: varchar("circle_id", { length: 64 }).notNull(),
+  seasonId: varchar("season_id", { length: 64 }),
+  amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+  unit: varchar("unit", { length: 32 }).notNull(),
+  note: varchar("note", { length: 500 }),
+  isExample: boolean("is_example").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SpendingRule = typeof spendingRules.$inferSelect;
+export type FundingSource = typeof fundingSources.$inferSelect;
+export type CircleBudget = typeof circleBudgets.$inferSelect;
 
 export type Token = typeof tokens.$inferSelect;
 export type LedgerEntry = typeof tokenLedger.$inferSelect;
