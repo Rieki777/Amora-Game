@@ -33,6 +33,11 @@ import HolderCard from "@/components/power/HolderCard";
 import ShapePicker from "@/components/power/ShapePicker";
 import CurrencyPicker from "@/components/power/CurrencyPicker";
 import DecideLens, { DecideKey } from "@/components/power/DecideLens";
+// Lane L3: the resources lens rides PowerMap's `lenses` seam and the
+// layout's pad argument; these two imports and the wiring below are its
+// whole footprint in this file.
+import ResourcesLens, { ResourcesKey, RESOURCES_PAD, useResources } from "@/components/power/ResourcesLens";
+import ResourcesPanel from "@/components/power/ResourcesPanel";
 import SetupWalk from "@/components/power/SetupWalk";
 import { useVision, VisionGhosts, VisionPanel } from "@/components/power/VisionLayer";
 import {
@@ -83,11 +88,14 @@ export default function VillageMap() {
   const [shapePreview, setShapePreview] = useState<string | null>(null);
   const [lensOn, setLensOn] = useState(false);
   const [lensDomain, setLensDomain] = useState<string | null>(null);
+  const [resourcesOn, setResourcesOn] = useState(false);
   const [mode, setMode] = useState<"now" | "vision">("now");
   const [viewerIsAdmin, setViewerIsAdmin] = useState(false);
   const [walkOpen, setWalkOpen] = useState(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const vision = useVision(mode === "vision");
+  const resourcesModule = useModule("resources");
+  const resources = useResources(resourcesOn && !!resourcesModule);
 
   const refetchMap = () => {
     fetch("/api/map", { headers: headers() })
@@ -146,8 +154,10 @@ export default function VillageMap() {
       name: String(c.name ?? c.id),
     }));
     const villageRoles = data.roles.filter((r) => !r.circleId).map((r) => ({ id: r.id, vacant: r.vacant }));
-    return layoutForShape(shape, inputs, villageRoles);
-  }, [data, shape]);
+    // The resources ring draws AROUND the village, so the canvas grows by
+    // the pad while that lens is on; pad 0 hands back the base layout.
+    return layoutForShape(shape, inputs, villageRoles, resourcesOn ? RESOURCES_PAD : 0);
+  }, [data, shape, resourcesOn]);
 
   // A focus pointing at a circle the layout does not draw falls back to the
   // village, so a stale link cannot strand the camera.
@@ -190,6 +200,7 @@ export default function VillageMap() {
     data && layout ? (
       <>
         {lensOn && <DecideLens layout={layout} circles={data.circles} power={data.power} domain={lensDomain} />}
+        {resourcesOn && resources && <ResourcesLens layout={layout} circles={data.circles} resources={resources} />}
         {mode === "vision" && <VisionGhosts layout={layout} drafts={vision.drafts} />}
       </>
     ) : null;
@@ -315,6 +326,19 @@ export default function VillageMap() {
                   >
                     How we decide
                   </button>
+                  {resourcesModule && (
+                    <button
+                      type="button"
+                      aria-pressed={resourcesOn}
+                      onClick={() => setResourcesOn((v) => !v)}
+                      data-resources-toggle
+                      className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border ${
+                        resourcesOn ? "bg-teal-deep text-white border-teal-deep" : "bg-card text-muted-foreground border-border"
+                      }`}
+                    >
+                      Resources
+                    </button>
+                  )}
                   <button
                     type="button"
                     aria-pressed={linesOn}
@@ -389,11 +413,18 @@ export default function VillageMap() {
                     <DecideKey circles={data.circles} power={data.power} domain={lensDomain} />
                   </div>
                 )}
+                {resourcesOn && resources && <ResourcesKey resources={resources} />}
               </div>
 
               {mode === "vision" && (
                 <div className="mb-4 max-w-2xl">
                   <VisionPanel drafts={vision.drafts} isAdmin={viewerIsAdmin} />
+                </div>
+              )}
+
+              {resourcesOn && (
+                <div className="mb-4 max-w-2xl">
+                  <ResourcesPanel resources={resources} circles={data.circles} />
                 </div>
               )}
 
