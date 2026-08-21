@@ -11,7 +11,7 @@
  */
 import Layout from "@/components/Layout";
 import MicButton from "@/components/MicButton";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { layoutNestedMap, wrapLabel, type NestedInput } from "@shared/mapLayout";
@@ -114,7 +114,7 @@ export default function VillageMap() {
     if (modules.loaded) rememberMapAvailable(Boolean(mapModule));
   }, [modules.loaded, mapModule?.id]);
 
-  if (modules.loaded && !mapModule) return <NotFound />;
+  if (modules.loaded && !mapModule) return <ModuleGate moduleId="map" name="How Power Is Held" />;
 
   return (
     <Layout>

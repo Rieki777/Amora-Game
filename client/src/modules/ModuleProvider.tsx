@@ -28,6 +28,13 @@ export interface HyphaState {
 interface ModulesState {
   modules: ClientModule[];
   hypha: HyphaState;
+  /**
+   * R36: module ids a signed-out visitor could see by signing in (served
+   * lifecycle `members`). Only ever non-empty on the anonymous manifest; the
+   * ModuleGate reads it to offer sign-in where a 404 used to be. Never
+   * carries preview or off ids, by the server's construction.
+   */
+  signInToSee: string[];
   loaded: boolean;
   /** True when every retry failed: the catalog is unknown, not empty. */
   failed: boolean;
@@ -37,6 +44,7 @@ interface ModulesState {
 const EMPTY: ModulesState = {
   modules: [],
   hypha: { configured: false, orgUrl: "", links: {} },
+  signInToSee: [],
   loaded: false,
   failed: false,
   refresh: () => {},
@@ -78,6 +86,7 @@ export function ModuleProvider({ children }: { children: ReactNode }) {
           setState({
             modules: Array.isArray(d.modules) ? d.modules : [],
             hypha: d.hypha ?? EMPTY.hypha,
+            signInToSee: Array.isArray(d.signInToSee) ? d.signInToSee : [],
             loaded: true,
             failed: false,
             refresh,

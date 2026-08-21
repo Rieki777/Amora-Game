@@ -5,7 +5,7 @@
  * the cards server-side before they arrived.
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
@@ -59,7 +59,7 @@ export default function ToolsHub() {
   }, [toolsModule?.id]);
 
   // The framework decides existence: invisible module = the ordinary 404.
-  if (modules.loaded && !toolsModule) return <NotFound />;
+  if (modules.loaded && !toolsModule) return <ModuleGate moduleId="tools" name="Tools Hub" />;
 
   const beacon = (id: string) => {
     try {

@@ -120,6 +120,9 @@ const PAGE_TITLES: Record<string, string> = {
   "/game-mechanics": "Game Mechanics",
   "/exit-policy": "Leaving well",
   "/tools": "Tools",
+  // One line covers the shelf and every detail page: keys match by longest
+  // prefix, so /modules/stays reads as the library too.
+  "/modules": "Module Library",
   "/admin": "Village settings",
 };
 
@@ -247,6 +250,8 @@ const Badges = lazyPage(() => import("./pages/Badges"));
 const Library = lazyPage(() => import("./pages/Library"));
 const VillageHealth = lazyPage(() => import("./pages/VillageHealth"));
 const ExitPolicy = lazyPage(() => import("./pages/ExitPolicy"));
+const Modules = lazyPage(() => import("./pages/Modules"));
+const ModuleDetail = lazyPage(() => import("./pages/ModuleDetail"));
 
 /**
  * Shown while a page chunk arrives. Deliberately quiet: on a slow link this
@@ -291,6 +296,11 @@ function Router() {
       <Route path="/quests" component={Quests} />
       <Route path="/quests/:id" component={QuestDetail} />
       <Route path="/tools" component={ToolsHub} />
+      {/* The Module Library: public, read-only, the whole platform on five
+          shelves. The Material Library keeps /library; the two never trade
+          names. */}
+      <Route path="/modules" component={Modules} />
+      <Route path="/modules/:id" component={ModuleDetail} />
       {/* The geographic map is what /map means now. The nested-circles org
           view keeps its own address: it holds the concierge, the contact
           relay and raise-your-hand, which read live data behind the

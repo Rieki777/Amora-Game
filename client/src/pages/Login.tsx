@@ -19,7 +19,10 @@ export default function Login() {
     setLoading(true);
     try {
       await login(email, password);
-      navigate("/profile");
+      // A sign-in that started on a members-only page goes back there (R36).
+      // Internal paths only, so a crafted link cannot bounce anyone offsite.
+      const next = new URLSearchParams(window.location.search).get("next");
+      navigate(next && next.startsWith("/") && !next.startsWith("//") ? next : "/profile");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

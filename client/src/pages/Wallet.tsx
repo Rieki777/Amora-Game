@@ -11,7 +11,7 @@
  * Stripe return URLs and order notifications in server/index.ts point at them.
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import SwapCard from "@/components/SwapCard";
 import { useEffect, useState } from "react";
 import { useModule, useModules, useHypha } from "@/modules/ModuleProvider";
@@ -68,7 +68,7 @@ export default function Wallet() {
     if (q === "cancelled") setNotice("Checkout cancelled. Nothing was charged.");
   }, [exchangeModule?.id]);
 
-  if (modules.loaded && !exchangeModule) return <NotFound />;
+  if (modules.loaded && !exchangeModule) return <ModuleGate moduleId="exchange" name="Exchange" />;
 
   const buy = (slug: string) => {
     setError(""); setRefusedSlug(null);

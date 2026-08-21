@@ -9,7 +9,7 @@
  * products show the instructions and record the intent.
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
@@ -60,7 +60,7 @@ export default function Contribute() {
     if (q === "cancelled") setNotice("Checkout cancelled. Nothing was charged.");
   }, [commerce?.id]);
 
-  if (modules.loaded && !commerce) return <NotFound />;
+  if (modules.loaded && !commerce) return <ModuleGate moduleId="commerce" name="Payments & Donations" />;
 
   const checkout = (p: any) => {
     setBusy(p.id);

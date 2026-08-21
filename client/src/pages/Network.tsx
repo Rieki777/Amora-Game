@@ -14,7 +14,7 @@
  * consent rows — not by loosening this page.
  */
 import Layout from "@/components/Layout";
-import NotFound from "@/pages/NotFound";
+import ModuleGate from "@/components/modules/ModuleGate";
 import { useCallback, useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
@@ -77,7 +77,7 @@ export default function Network() {
     }
   }, [networkModule?.id, user?.id]);
 
-  if (modules.loaded && !networkModule) return <NotFound />;
+  if (modules.loaded && !networkModule) return <ModuleGate moduleId="network" name="Village Network" />;
 
   const call = (route: string, opts: RequestInit, key: string) => {
     setBusy(key);
