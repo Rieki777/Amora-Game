@@ -323,6 +323,20 @@ export const MODULE_CATALOG: Record<string, ModuleCatalogEntry> = {
     hue: 280,
     emblem: "CalendarDays",
   },
+  introductions: {
+    promise: "A few good introductions a week, and both people say yes first.",
+    benefits: [
+      "Say what you seek in your own words, with a privacy tier you choose",
+      "Offers are suggested from what the village already knows, and only you confirm them",
+      "Every match shows its reasons, and you can correct any sentence about you",
+      "A mutual yes opens one Messages thread; nothing is accepted for anyone",
+    ],
+    forWhom: "Villages where the right two people have not met yet.",
+    setupSummary: "Nothing to set up. It works from the first intent someone posts.",
+    dataSummary: "What members seek and offer, in their own words, plus who was introduced to whom.",
+    hue: 320,
+    emblem: "Handshake",
+  },
 };
 
 // ── The builders' shelf ──────────────────────────────────────────────────────

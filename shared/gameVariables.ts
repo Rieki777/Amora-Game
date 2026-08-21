@@ -1361,6 +1361,60 @@ export const VARIABLES: VariableDef[] = [
     type: "boolean",
     default: "false",
   },
+
+  // ── Introductions (0086; visible in Admin only while the module is non-off) ──
+  //
+  // Four knobs, all four READ: the recipient cap and the floor gate every
+  // surfacing decision, the window bounds how long a proposal waits, and the
+  // retention day drives the sweep's blanking.
+  {
+    key: "introductions.recipient_daily_cap",
+    category: "Introductions",
+    label: "Introductions one person receives per day",
+    description:
+      "Protects busy people, the map relay's per-recipient brake extended to introductions: the relay's received count and the day's surfaced introductions share one day. A match over the cap is held for the sweep, never dropped.",
+    type: "integer",
+    default: "3",
+    min: 1,
+    max: 20,
+    unit: "introductions",
+  },
+  {
+    key: "introductions.match_floor",
+    category: "Introductions",
+    label: "Match score floor",
+    description:
+      "Nothing scoring under this is ever shown. Few good introductions beat many okay ones; raise it when matches feel thin, lower it for a small village where any bridge helps.",
+    type: "integer",
+    default: "3",
+    min: 1,
+    max: 20,
+    unit: "points",
+  },
+  {
+    key: "introductions.opportunity_days",
+    category: "Introductions",
+    label: "Days an introduction stays open",
+    description:
+      "How long both people have to say yes. One gentle reminder after three days; past the window the proposal expires and both intents return to the pool.",
+    type: "integer",
+    default: "10",
+    min: 3,
+    max: 60,
+    unit: "days",
+  },
+  {
+    key: "introductions.retention_days",
+    category: "Introductions",
+    label: "Keep match reasoning for",
+    description:
+      "The sweep blanks an introduction's reasoning sentences, and the words of expired intents, once they are older than this. The record that an introduction happened stays. 0 keeps everything forever.",
+    type: "integer",
+    default: "90",
+    min: 0,
+    max: 3650,
+    unit: "days",
+  },
 ];
 
 // ── Progression: the ladder's economics and thresholds, GENERATED per stage ──

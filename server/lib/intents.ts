@@ -509,6 +509,22 @@ export async function suggestOffers(
 const K1 = 1.2;
 const B = 0.75;
 
+/**
+ * Function words carry no signal about WHAT somebody wants (the map.ts
+ * lesson: free points for length is the failure mode this closes). Kept
+ * small on purpose: "seeking", "offering", "help" and every domain word a
+ * member might actually mean stay scorable.
+ */
+const STOPWORDS: ReadonlySet<string> = new Set(
+  (
+    "the a an and or but if then of to in on at by for with from as into over under about is are was were be been am " +
+    "do does did have has had can could will would may might must shall should i we you he she it they me us them " +
+    "my our your their his her its who whom whose which what when where why how no not yes any all some more most " +
+    "much many very just also too so such own same other another each every both either neither this that these those " +
+    "there here one two after before"
+  ).split(" "),
+);
+
 export interface SeekerInput {
   intentId: string;
   userId: string;
@@ -564,12 +580,13 @@ export function scorePairs(
   opts: { floor: number },
 ): ScoredPair[] {
   if (!candidates.length) return [];
-  const queryText = `${seeker.text} ${seeker.topics.join(" ")}`;
-  const queryTerms = Array.from(new Set(tokenize(queryText)));
-  if (!queryTerms.length) return [];
+  // Topics are their own channel (+2 each below), NOT part of the text: one
+  // shared topic is worth exactly two points, never two-and-a-bit.
+  const queryTerms = Array.from(new Set(tokenize(seeker.text))).filter((t) => !STOPWORDS.has(t));
+  if (!queryTerms.length && !seeker.topics.length) return [];
 
   const docs: Array<Indexed<CandidateInput>> = candidates.map((c) =>
-    indexDoc(c, `${c.text} ${c.topics.join(" ")} ${c.fragments.map((f) => f.text).join(" ")}`),
+    indexDoc(c, `${c.text} ${c.fragments.map((f) => f.text).join(" ")}`),
   );
   const n = docs.length;
   const avgLen = docs.reduce((a, d) => a + d.len, 0) / n || 1;
@@ -603,7 +620,7 @@ export function scorePairs(
       !!c.joinedAt &&
       Math.abs(seeker.joinedAt.getTime() - c.joinedAt.getTime()) > 90 * 86_400_000;
     if (cohortGap) score += 1;
-    if (score < opts.floor) continue;
+    if (score <= 0 || score < opts.floor) continue;
     const hitFragments = c.fragments.filter((frag) => {
       const terms = new Set(tokenize(frag.text));
       return queryTerms.some((t) => terms.has(t));
@@ -775,8 +792,13 @@ async function gatherCandidates(
       "AND u.is_example = 0 AND u.password_hash <> '' " +
       "AND NOT EXISTS (SELECT 1 FROM intent_opportunities o WHERE (o.intent_a_id = i.id OR o.intent_b_id = i.id) " +
       "AND o.status IN ('proposed','a_accepted','b_accepted')) " +
+      // A pair that has met before, whatever became of it, never re-proposes:
+      // filtered here so the matcher offers the NEXT candidate instead of
+      // colliding with the unique key and offering nobody.
+      "AND NOT EXISTS (SELECT 1 FROM intent_opportunities o2 WHERE (o2.intent_a_id = i.id AND o2.intent_b_id = ?) " +
+      "OR (o2.intent_a_id = ? AND o2.intent_b_id = i.id)) " +
       "ORDER BY i.updated_at DESC LIMIT 200",
-    [seekerIntent.userId],
+    [seekerIntent.userId, seekerIntent.id, seekerIntent.id],
   );
   const candidateIntents = rows.map(rowToIntent);
   const owners = Array.from(new Set([seekerIntent.userId, ...candidateIntents.map((i) => i.userId)]));
@@ -799,9 +821,11 @@ async function gatherCandidates(
     const f = facts.get(c.userId);
     if (!f) continue;
     if (pausedNow(f.policy)) continue;
-    // Their policy filters what reaches them; mine filters what reaches me.
-    if (!topicsAllow(f.policy, seekerIntent.topics.length ? seekerIntent.topics : c.topics)) continue;
-    if (!topicsAllow(seekerFacts.policy, c.topics.length ? c.topics : seekerIntent.topics)) continue;
+    // A topics line judges the pair's whole subject matter: the union of both
+    // intents' topics. Their line filters what reaches them; mine, me.
+    const pairTopics = Array.from(new Set([...seekerIntent.topics, ...c.topics]));
+    if (!topicsAllow(f.policy, pairTopics)) continue;
+    if (!topicsAllow(seekerFacts.policy, pairTopics)) continue;
     candidates.push({
       intentId: c.id,
       userId: c.userId,
@@ -963,12 +987,20 @@ async function recipientHasRoom(pool: Pool, deps: IntentsDeps, userId: string): 
 /**
  * Surface a held opportunity when BOTH people have room, or leave it held.
  * Held is a real state, never a drop: the sweep keeps trying until the
- * opportunity expires or the caps open.
+ * opportunity expires or the caps open. The topics line is re-read here
+ * because a held row can outlive a change of preference.
  */
 export async function trySurface(pool: Pool, deps: IntentsDeps, opp: OpportunityRow): Promise<boolean> {
   if (opp.status !== "proposed" || opp.surfacedAt) return false;
   if (!(await recipientHasRoom(pool, deps, opp.userA))) return false;
   if (!(await recipientHasRoom(pool, deps, opp.userB))) return false;
+  const pairIntents = await intentsOf(pool, opp);
+  if (pairIntents) {
+    const pairTopics = Array.from(new Set([...pairIntents.a.topics, ...pairIntents.b.topics]));
+    for (const side of [opp.userA, opp.userB] as const) {
+      if (!topicsAllow(await getPolicy(pool, side), pairTopics)) return false;
+    }
+  }
 
   const days = Math.max(1, deps.vars.opportunityDays());
   const [r]: any = await pool.query(
@@ -978,7 +1010,7 @@ export async function trySurface(pool: Pool, deps: IntentsDeps, opp: Opportunity
   );
   if (!r?.affectedRows) return false;
 
-  const intents = await intentsOf(pool, opp);
+  const intents = pairIntents ?? (await intentsOf(pool, opp));
   await recordEvent(pool, {
     kind: "introduction",
     text: "an introduction was surfaced to both people",
