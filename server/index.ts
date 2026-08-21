@@ -480,6 +480,7 @@ import {
   circleDecidesProblem,
   declarableTargets,
   mayDeclare,
+  projectDecidesByDomains,
   villagePowerProblem,
   type DeclareContext,
   type LapseContext,
@@ -19419,8 +19420,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       ...before,
       decidesBy: clearing ? null : String(body.decidesBy),
       decidesByGloss: clearing ? null : (String(body.decidesByGloss ?? "").trim() || null),
+      // PROJECTED, never stored as given: exactly {method, gloss?} per
+      // domain, so unknown keys nested inside a valid entry are dropped at
+      // write instead of riding a JSON column into some future reader.
       ...(body.decidesByDomains !== undefined
-        ? { decidesByDomains: body.decidesByDomains && Object.keys(body.decidesByDomains).length ? body.decidesByDomains : null }
+        ? { decidesByDomains: projectDecidesByDomains(body.decidesByDomains) }
         : {}),
       id: before.id,
       isExample: before.isExample,

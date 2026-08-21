@@ -1167,6 +1167,28 @@ export function villagePowerProblem(v: unknown): string | null {
 }
 
 /**
+ * The stored shape of a domain override: `{method, gloss?}` and NOTHING
+ * else. `circleDecidesProblem` refuses unknown DOMAIN keys by name, and this
+ * drops unknown keys nested INSIDE a valid entry, so what lands in the
+ * column is exactly what the vocabulary defines rather than whatever rode
+ * along in the body. Residue in a JSON column is how a future reader
+ * inherits data nobody validated (the security review's one note).
+ */
+export function projectDecidesByDomains(
+  v: unknown,
+): Record<string, { method: string; gloss?: string }> | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const out: Record<string, { method: string; gloss?: string }> = {};
+  for (const [domain, entry] of Object.entries(v as Record<string, any>)) {
+    const method = String(entry?.method ?? "");
+    if (!method) continue;
+    const gloss = String(entry?.gloss ?? "").trim();
+    out[domain] = gloss ? { method, gloss } : { method };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
  * A circle's decides declaration: `{decidesBy, decidesByGloss?,
  * decidesByDomains?}`. `decidesBy: null` clears the circle back to the
  * village default, and clearing takes the gloss with it, because a gloss

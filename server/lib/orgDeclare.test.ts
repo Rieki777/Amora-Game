@@ -13,6 +13,7 @@ import {
   circleDecidesProblem,
   declarableTargets,
   mayDeclare,
+  projectDecidesByDomains,
   villagePowerProblem,
   type DeclareContext,
 } from "./orgChart";
@@ -179,6 +180,29 @@ describe("what a declaration may say", () => {
 
   it("refuses stowaway keys by name", () => {
     expect(villagePowerProblem({ shape: "circle", decidesBy: "consent", isAdmin: true })).toContain('"isAdmin"');
+  });
+
+  it("stores exactly {method, gloss} per domain: residue is stripped at write", () => {
+    // The security review's one note, closed: a valid domain entry can
+    // arrive carrying stowaway keys, and a JSON column that stores the body
+    // as given hands unvalidated data to every future reader. The write
+    // path projects, so only the vocabulary's own fields survive.
+    expect(
+      projectDecidesByDomains({
+        money: { method: "consent", gloss: "  ask first  ", sneak: "payload", nested: { deep: 1 } },
+        rules: { method: "hypha" },
+      }),
+    ).toEqual({
+      money: { method: "consent", gloss: "ask first" },
+      rules: { method: "hypha" },
+    });
+    expect(projectDecidesByDomains({})).toBeNull();
+    expect(projectDecidesByDomains(null)).toBeNull();
+    expect(projectDecidesByDomains([])).toBeNull();
+    // An entry with no method carries nothing worth keeping.
+    expect(projectDecidesByDomains({ money: { gloss: "orphan" } })).toBeNull();
+    const projected = projectDecidesByDomains({ money: { method: "consent", extra: true } })!;
+    expect(JSON.stringify(projected)).not.toContain("extra");
   });
 
   it("a circle may declare, override by domain, or clear back to the default", () => {
