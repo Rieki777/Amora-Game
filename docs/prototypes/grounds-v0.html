@@ -3053,7 +3053,7 @@ $('icons').addEventListener('click',e=>{
 function homeSheet(key){
   const s=BY[key];if(!s)return;
   const lot=(window.LOTS||{})[key],room=(window.ROOMS||{})[key];
-  const line=lot?`${lot.sold} of ${lot.total} spoken for`
+  const line=lot?`${lot.sold} of ${lot.total} spoken for${housingTag(key)?' · '+housingTag(key):''}`
             :room?`${room.taken} of ${room.total} full tonight`:'';
   /* A lodge takes bookings and a hamlet takes requests; the sheet is the
      same door either way, and only the route behind it changes. */
@@ -3061,6 +3061,7 @@ function homeSheet(key){
   setHash('#/place/'+key);
   $('moduleCard').innerHTML=`<h2>⌂ Request a home at ${s.name}</h2>
     <div class="route">${line}</div>
+    ${(lot&&housingNote(key))?`<p style="margin:4px 0 0;font-size:11.5px;color:#a3703d">${housingNote(key)}</p>`:''}
     <p>Tell us who is coming and when, and a steward answers. Nothing is held until you hear back.</p>
     <div class="acts">
       <a class="btn" href="${siteHref(route)}" target="_blank" rel="noopener" onclick="return siteNav(event,'${route}')">Begin your request</a>
@@ -3401,7 +3402,7 @@ function showHover(s,anchor){const q=questsAt(s.key).length,st=seatsAt(s.key).le
   <div class="row"><span>⚑ <b>${q}</b> quest${q===1?'':'s'}</span><span>⛨ <b>${st}</b> seat${st===1?'':'s'} open</span></div>
   ${s.event?`<div class="row"><span>✦ ${s.event}</span></div>`:''}
   ${(window.eventsAt&&eventsAt(s.key).length)?`<div class="row"><span>✦ ${eventsAt(s.key)[0].when}: ${eventsAt(s.key)[0].title}</span></div>`:''}
-  ${(window.LOTS&&LOTS[s.key])?`<div class="row"><span>⌂ ${LOTS[s.key].sold} of ${LOTS[s.key].total} spoken for · ${LOTS[s.key].total-LOTS[s.key].sold} open</span></div>`:''}
+  ${(window.LOTS&&LOTS[s.key])?`<div class="row"><span>⌂ ${LOTS[s.key].sold} of ${LOTS[s.key].total} spoken for · ${LOTS[s.key].total-LOTS[s.key].sold} open</span></div>${housingTag(s.key)?`<div class="row"><span style="color:#a3703d">${housingTag(s.key)}</span></div>`:''}`:''}
   <div class="hint">click to open the door</div>`;
   const r=anchor.getBoundingClientRect();hc.style.display='block';
   hc.style.left=Math.min(innerWidth-270,r.left)+'px';hc.style.top=Math.max(8,r.top-hc.offsetHeight-10)+'px'}
@@ -3438,7 +3439,7 @@ function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].
     body.innerHTML=`<p>${s.blurb}</p>
     <p style="margin-top:9px;font-style:italic;color:#4a3a26">${s.role||'A new organ, still finding its function in the body of the village.'}</p>
     <div style="font-size:10.5px;color:#8a7347;margin-top:3px">${dn} · ${phaseName(s.phase)} · AMORA MASTER PLAN V7</div>
-    ${(window.LOTS&&LOTS[s.key])?`<p style="margin-top:6px;font-size:12px;color:#6b4d1e">⌂ <b>${LOTS[s.key].sold} of ${LOTS[s.key].total}</b> lots spoken for · ${LOTS[s.key].total-LOTS[s.key].sold} open · reserve through the door below</p>`:''}
+    ${(window.LOTS&&LOTS[s.key])?`<p style="margin-top:6px;font-size:12px;color:#6b4d1e">⌂ <b>${LOTS[s.key].sold} of ${LOTS[s.key].total}</b> lots spoken for · ${LOTS[s.key].total-LOTS[s.key].sold} open${housingSet(s.key)?' · reserve through the door below':''}</p>${housingSet(s.key)?'':`<p style="margin:3px 0 0;font-size:11.5px;color:#a3703d">${housingNote(s.key)}</p>`}`:''}
     ${window.eventCard?eventCard(s):''}
     ${doorBtns(s)}
     <p style="margin-top:8px;font-size:12px;color:#6b4d1e">⚑ ${q.length} quests · ⛨ ${st.length} open seats · 💬 ${threadsAt(s.key).length} conversation${threadsAt(s.key).length===1?'':'s'}${s.event?' · ✦ '+s.event:''}</p>
@@ -5249,6 +5250,24 @@ const DOOR_DEFS={
   wallet:{module:'wallet',icon:'♥',cta:'Open the Exchange'}};
 window.DOOR_DEFS=DOOR_DEFS;
 window.LOTS={ridgeA:{sold:2,total:5},ridgeB:{sold:1,total:6},pondhomes:{sold:3,total:4}}; // sample until Stays feeds it
+/* ---------- housing numbers: one predicate, four surfaces ----------
+   A hamlet's numbers are an EXAMPLE until its structure key appears in the
+   housing block of /api/map/config. Presence in `entries` is the whole test.
+   The server has already dropped every row with a count still unset, so no
+   surface here reads a NULL and no surface re-derives the rule: three lanes
+   with three copies of "is it set" is how three lanes disagree.
+   HOUSING_AVAILABILITY_CONTRACT.md, section F.
+
+   `window.HOUSING` is null until the shell hands the block over, so every
+   hamlet on this map reads as an example today, and all four labels go away
+   on their own when a founder sets one. A hamlet at 0 of 0 is SET and is
+   never called an example, which is why this asks about presence and never
+   about the numbers. */
+window.HOUSING=window.HOUSING||null;
+window.housingSet=function(k){const H=window.HOUSING;
+  return !!(H&&Array.isArray(H.entries)&&H.entries.some(e=>e&&e.structureKey===k))};
+window.housingTag=function(k){return window.housingSet(k)?'':'Example numbers'};
+window.housingNote=function(k){return window.housingSet(k)?'':'Example numbers. The founder has not set this hamlet yet.'};
 window.ROOMS={guest:{taken:2,total:3}};
 window.EVENTS=[
  {id:'e1',title:'Full-moon feast',at:['kitchen','community'],days:0,when:'tonight'},
@@ -5323,8 +5342,8 @@ const MODULES={
     sample:ctx=>{const s=ctx&&ctx.at&&BY[ctx.at];
       return `${s?`<div class="lastv" style="margin:0 0 6px">reserving in <b>${s.name}</b></div>`:''}
       ${[['ridgeA','walls rising'],['ridgeB','staked &amp; pooled'],['pondhomes','by the water']].map(([k,note])=>{const L=LOTS[k];const nm=BY[k]?BY[k].name:k;
-        return `<div class="mrow"><span><b>${nm}</b><small>${note}</small></span><span><b>${L.sold} of ${L.total}</b><small>lots spoken for · ${L.total-L.sold} open</small></span></div>`}).join('')}
-      <div class="lastv">the same numbers the banners wear · sample until the Stays door feeds it live</div>`}},
+        return `<div class="mrow"><span><b>${nm}</b><small>${note}</small></span><span><b>${L.sold} of ${L.total}</b><small>lots spoken for · ${L.total-L.sold} open${housingTag(k)?' · '+housingTag(k):''}</small></span></div>`}).join('')}
+      <div class="lastv">the same numbers the banners wear${(()=>{const u=['ridgeA','ridgeB','pondhomes'].filter(k=>!housingSet(k));return u.length?' · Example numbers. The founder has not set '+(u.length===1?'this hamlet':'these hamlets')+' yet.':''})()}</div>`}},
   library:{name:'Material Library',icon:MICON.library,route:'/library',
     blurb:'The lending commons. Add your tools to earn credits, borrow with a deposit, wear quoted up front. Every item carries its own story.',
     sample:ctx=>`<div class="mrow"><span><b>Borrow quote</b><small>Makita driver · 10 days</small></span><span><b>≈ 84 credits</b><small>≈ 1.4% wear, quoted before you borrow</small></span></div>
