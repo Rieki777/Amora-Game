@@ -957,16 +957,21 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
     const anaAgent = deps.agent.find((a) => a.userId === ANA);
     expect(JSON.stringify(anaAgent ?? {})).not.toContain("grief companion after a loss");
 
-    // Even the export gives Ana only the row, never Ben's words: the
-    // opportunity carries reasons about Ben only as Ben wrote them for
-    // himself. Reasons whose subject is Ben are Ben's to read.
+    // The export runs through the same projector as every route (the
+    // security review's one finding closed): Ana's file carries neither
+    // Ben's words nor his identity, and her own half in full.
     const anaExport = await exportIntentsForMember(pool, ANA);
-    const anaReasons = anaExport.opportunities.flatMap((o) => o.reasons);
-    // The raw row does carry both subjects' reasons; the EXPORT is the raw
-    // half Ana is entitled to (her own record of the introduction), so this
-    // asserts the projection is what routes must use, and the e2e test
-    // asserts no route leaks it.
-    expect(Array.isArray(anaReasons)).toBe(true);
+    expect(anaExport.opportunities).toHaveLength(1);
+    const exported = JSON.stringify(anaExport);
+    expect(exported).not.toContain("quietly seeking");
+    expect(exported).not.toContain("after a loss");
+    expect(exported).not.toContain(BEN);
+    expect(anaExport.opportunities[0].theirs.incognito).toBe(true);
+    expect(exported).toContain("grief companion for anyone"); // her own offer
+
+    // Ben's own export keeps his words: they are his.
+    const benExport = await exportIntentsForMember(pool, BEN);
+    expect(JSON.stringify(benExport)).toContain("quietly seeking a grief companion");
   });
 
   // ── The board ──────────────────────────────────────────────────────────────
@@ -1131,12 +1136,24 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
     expect(deps).toBeTruthy();
   });
 
-  it("exports both halves of every introduction beside the member's own rows", async () => {
+  it("exports every introduction the member has seen, projected, beside their own rows", async () => {
     await surfacedPair();
     const doc = await exportIntentsForMember(pool, ANA);
     expect(doc.intents).toHaveLength(1);
     expect(doc.opportunities).toHaveLength(1);
-    expect([doc.opportunities[0].userA, doc.opportunities[0].userB]).toContain(ANA);
+    // Projected: her half whole, the counterpart's half as she saw it.
+    expect(doc.opportunities[0].mine.text).toContain("permaculture food forest");
+    expect(doc.opportunities[0].theirs.counterpart?.firstName).toBe("Ben");
+
+    // A hidden sentence stays hidden in the export too.
+    const opp = (await pool.query<any[]>("SELECT id FROM intent_opportunities"))[0][0];
+    const full = (await opportunityById(pool, String(opp.id)))!;
+    const benIdx = full.reasons.findIndex((r) => r.subject === BEN);
+    if (benIdx >= 0) {
+      await hideReason(pool, full.id, benIdx, BEN);
+      const again = await exportIntentsForMember(pool, ANA);
+      expect(again.opportunities[0].reasons.map((r) => r.index)).not.toContain(benIdx);
+    }
   });
 
   it("counts model calls for the admin demand signal from the usage table", async () => {

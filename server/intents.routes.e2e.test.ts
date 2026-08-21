@@ -269,6 +269,9 @@ describe.skipIf(!DB_CONFIGURED)("introductions over HTTP", () => {
       ["/api/intents/mine", ana.token],
       ["/api/intents/admin/demand", founderToken],
       ["/api/intents/board", founderToken],
+      // The self-service export rides the same boundary (the security
+      // review's finding: a raw row here once leaked the counterpart).
+      ["/api/profile/export", ana.token],
     ] as const) {
       const r = await call("GET", route, undefined, token);
       expect(r.status).toBe(200);

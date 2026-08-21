@@ -1578,19 +1578,35 @@ export async function eraseIntentsForMember(pool: Pool, userId: string): Promise
   );
 }
 
-/** Both halves of every introduction they were part of, plus their own rows. */
+/**
+ * Both halves of every introduction they have SEEN, each rendered through
+ * the one projector, so the export honors the same incognito, private and
+ * hidden boundaries every route honors (the security review's one finding:
+ * a raw row here handed the exporter the counterpart's identity and quoted
+ * words, which is exactly what the incognito tier promises never travels).
+ * Their own intents and policy come whole: those are theirs. Held rows
+ * nobody has seen are matchmaking state, not yet a fact about the member,
+ * and stay out.
+ */
 export async function exportIntentsForMember(pool: Pool, userId: string): Promise<{
   intents: IntentRow[];
   policy: IntentPolicyRow | null;
-  opportunities: OpportunityRow[];
+  opportunities: ProjectedOpportunity[];
 }> {
   const [oppRows] = await pool.query<RowDataPacket[]>(
-    "SELECT * FROM intent_opportunities WHERE user_a = ? OR user_b = ?",
+    "SELECT * FROM intent_opportunities WHERE (user_a = ? OR user_b = ?) AND surfaced_at IS NOT NULL",
     [userId, userId],
   );
+  const opportunities: ProjectedOpportunity[] = [];
+  for (const row of oppRows.map(rowToOpportunity)) {
+    const ctx = await intentsOf(pool, row);
+    if (!ctx) continue;
+    const projected = projectOpportunityFor(userId, row, ctx);
+    if (projected) opportunities.push(projected);
+  }
   return {
     intents: await listMyIntents(pool, userId),
     policy: await getPolicy(pool, userId),
-    opportunities: oppRows.map(rowToOpportunity),
+    opportunities,
   };
 }
