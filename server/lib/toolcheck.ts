@@ -166,7 +166,11 @@ async function dialPinnedJson(
           ...(extraHeaders ?? {}),
         },
         lookup: (_h: string, _o: any, cb: (e: Error | null, a: string | LookupAddress[], f?: number) => void) => {
-          cb(null, vetted.address, (vetted as any).family === 6 ? 6 : 4);
+          // Node >= 20 asks with { all: true } and reads an ARRAY back; the
+          // string form dies as "Invalid IP address: undefined" before any
+          // packet moves. Same one vetted address either way: the pin holds.
+          if (_o?.all) cb(null, [{ address: vetted.address, family: (vetted as any).family === 6 ? 6 : 4 }]);
+          else cb(null, vetted.address, (vetted as any).family === 6 ? 6 : 4);
         },
       },
       (r) => {
@@ -229,7 +233,9 @@ async function dialPinned(rawUrl: string, method: "HEAD" | "GET", hops = 0): Pro
         // must still pass); only the address dialled is pinned.
         servername: host,
         lookup: (_hostname: string, _opts: any, cb: (err: Error | null, address: string | LookupAddress[], family?: number) => void) => {
-          cb(null, vetted.address, (vetted as any).family === 6 ? 6 : 4);
+          // Same Node >= 20 array contract as dialPinnedJson above.
+          if (_opts?.all) cb(null, [{ address: vetted.address, family: (vetted as any).family === 6 ? 6 : 4 }]);
+          else cb(null, vetted.address, (vetted as any).family === 6 ? 6 : 4);
         },
       },
       (res) => {
@@ -313,7 +319,11 @@ async function dialPinnedText(rawUrl: string, timeoutMs: number, maxBytes: numbe
         path: url.pathname + url.search, method: "GET", timeout: timeoutMs, servername: host,
         headers: { Accept: "text/calendar, text/plain;q=0.9, */*;q=0.1", "User-Agent": "village-calendar/0085" },
         lookup: (_h: string, _o: any, cb: (e: Error | null, a: string | LookupAddress[], f?: number) => void) => {
-          cb(null, vetted.address, (vetted as any).family === 6 ? 6 : 4);
+          // Node >= 20 asks with { all: true } and reads an ARRAY back; the
+          // string form dies as "Invalid IP address: undefined" before any
+          // packet moves. Same one vetted address either way: the pin holds.
+          if (_o?.all) cb(null, [{ address: vetted.address, family: (vetted as any).family === 6 ? 6 : 4 }]);
+          else cb(null, vetted.address, (vetted as any).family === 6 ? 6 : 4);
         },
       },
       (r) => {
