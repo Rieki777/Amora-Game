@@ -33,6 +33,7 @@ import HolderCard from "@/components/power/HolderCard";
 import ShapePicker from "@/components/power/ShapePicker";
 import CurrencyPicker from "@/components/power/CurrencyPicker";
 import DecideLens, { DecideKey } from "@/components/power/DecideLens";
+import SetupWalk from "@/components/power/SetupWalk";
 import { useVision, VisionGhosts, VisionPanel } from "@/components/power/VisionLayer";
 import {
   NO_FILTERS,
@@ -84,17 +85,22 @@ export default function VillageMap() {
   const [lensDomain, setLensDomain] = useState<string | null>(null);
   const [mode, setMode] = useState<"now" | "vision">("now");
   const [viewerIsAdmin, setViewerIsAdmin] = useState(false);
+  const [walkOpen, setWalkOpen] = useState(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const vision = useVision(mode === "vision");
 
-  useEffect(() => {
-    if (!mapModule) return;
+  const refetchMap = () => {
     fetch("/api/map", { headers: headers() })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then(setData)
       .catch((status) => {
         if (status === 401) setDenied(true);
       });
+  };
+
+  useEffect(() => {
+    if (!mapModule) return;
+    refetchMap();
     const t = authToken();
     if (t) {
       fetch("/api/profile", { headers: headers() })
@@ -424,10 +430,18 @@ export default function VillageMap() {
                         <HolderCard seat={selectedSeat} circle={selectedCircle} data={data} onPickPerson={pickPerson} />
                       </div>
                     ) : (
-                      <VillageSummary data={data} mayDeclareVillage={mayDeclareVillage} shapePreview={shapePreview} onPreview={setShapePreview} onSaved={(p) => {
-                        setShapePreview(null);
-                        setData((d) => (d ? { ...d, power: { ...d.power, ...p } } : d));
-                      }} />
+                      <VillageSummary
+                        data={data}
+                        mayDeclareVillage={mayDeclareVillage}
+                        isAdmin={viewerIsAdmin}
+                        onOpenWalk={() => setWalkOpen(true)}
+                        shapePreview={shapePreview}
+                        onPreview={setShapePreview}
+                        onSaved={(p) => {
+                          setShapePreview(null);
+                          setData((d) => (d ? { ...d, power: { ...d.power, ...p } } : d));
+                        }}
+                      />
                     )}
                   </aside>
                 </div>
@@ -470,6 +484,8 @@ export default function VillageMap() {
                   </SeatSheet>
                 </div>
               )}
+
+              {walkOpen && <SetupWalk data={data} onClose={() => setWalkOpen(false)} onChanged={refetchMap} />}
             </>
           )}
         </div>
@@ -482,12 +498,16 @@ export default function VillageMap() {
 function VillageSummary({
   data,
   mayDeclareVillage,
+  isAdmin,
+  onOpenWalk,
   shapePreview,
   onPreview,
   onSaved,
 }: {
   data: PowerData;
   mayDeclareVillage: boolean;
+  isAdmin: boolean;
+  onOpenWalk: () => void;
   shapePreview: string | null;
   onPreview: (s: string | null) => void;
   onSaved: (p: { shape: string; shapeGloss?: string | null; decidesBy: string; decidesByGloss?: string | null }) => void;
@@ -512,6 +532,16 @@ function VillageSummary({
       <p className="text-xs text-muted-foreground">
         Tap a circle to step inside it. Tap a seat to meet whoever holds it, or to raise your hand.
       </p>
+      {isAdmin && (
+        <button
+          type="button"
+          onClick={onOpenWalk}
+          data-power-walk-launch
+          className="w-full text-sm bg-amber/90 text-teal-deep rounded-lg px-4 py-2 font-semibold"
+        >
+          Walk the setup: seats, methods, shape
+        </button>
+      )}
       {mayDeclareVillage && (
         <ShapePicker power={data.power} preview={shapePreview} onPreview={onPreview} onSaved={onSaved} />
       )}
