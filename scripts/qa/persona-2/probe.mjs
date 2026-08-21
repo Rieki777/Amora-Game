@@ -354,6 +354,20 @@ async function settle(page, ms = 3500) {
   try { await page.addStyleTag({ content: "* { scroll-behavior: auto !important; }" }); } catch { /* frame gone */ }
 }
 
+/** Some routes paint nothing for seconds after the 3.5s beat. Poll for real body
+ *  text so detectors measure the page, not the blank; the wait itself is recorded
+ *  and reported, because a member on a phone lives through it. */
+async function waitForContent(page, capMs = 9000) {
+  const t0 = Date.now();
+  let len = 0;
+  for (;;) {
+    len = await page.evaluate("(document.body.innerText || '').length").catch(() => 0);
+    if (len > 60 || Date.now() - t0 > capMs) break;
+    await page.waitForTimeout(500);
+  }
+  return { extraMs: Date.now() - t0, textLen: len, cameLate: len > 60 && Date.now() - t0 > 900 };
+}
+
 async function shot(page, dir, name, quality = 72) {
   const p = path.join(dir, `${name}.jpg`);
   try { await page.screenshot({ path: p, type: "jpeg", quality }); return path.basename(p); }
@@ -402,20 +416,28 @@ async function run() {
   // The write guard and the bearer, one router: the bearer goes ONLY to the site
   // under test (never to a third-party host), and any non-GET is fulfilled locally
   // so nothing this script does can write to the deployment.
+  //
+  // --noguard exists because interception itself adds latency to every request:
+  // that mode does pure page loads (no journeys, no clicks, so still nothing that
+  // could write) to measure time-to-content without the router in the path. The
+  // client sends its own bearer from storage, so auth still holds.
+  const NOGUARD = ARGS.includes("--noguard");
   const blockedWrites = [];
-  await ctx.route("**/*", (route) => {
-    const req = route.request();
-    const m = req.method();
-    const sameSite = req.url().startsWith(BASE);
-    if (m === "GET" || m === "HEAD" || m === "OPTIONS") {
-      if (sameSite) {
-        return route.continue({ headers: { ...req.headers(), authorization: `Bearer ${TOKEN}` } });
+  if (!NOGUARD) {
+    await ctx.route("**/*", (route) => {
+      const req = route.request();
+      const m = req.method();
+      const sameSite = req.url().startsWith(BASE);
+      if (m === "GET" || m === "HEAD" || m === "OPTIONS") {
+        if (sameSite) {
+          return route.continue({ headers: { ...req.headers(), authorization: `Bearer ${TOKEN}` } });
+        }
+        return route.continue();
       }
-      return route.continue();
-    }
-    blockedWrites.push({ method: m, path: req.url().startsWith(BASE) ? new URL(req.url()).pathname : req.url().slice(0, 60) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
-  });
+      blockedWrites.push({ method: m, path: req.url().startsWith(BASE) ? new URL(req.url()).pathname : req.url().slice(0, 60) });
+      return route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+    });
+  }
 
   const results = { profile: profile.name, buildStart, routes: [], blockedWrites, unmeasured: [] };
   const monday = (() => {
@@ -428,15 +450,21 @@ async function run() {
   /** Route-specific member-journey interactions. Each returns { notes, extraShots }. */
   const journeys = {
     "/": async (page, rec) => {
-      const bell = page.locator('button[aria-label="Notifications"]').first();
+      const bell = page.locator('button[aria-label="Notifications"]:visible').first();
       if (await bell.count()) {
         const box = await bell.boundingBox();
         rec.notes.push(`bell present${box ? ` (${Math.round(box.width)}x${Math.round(box.height)})` : ""}`);
-        await bell.click({ timeout: 3000 }).catch(() => rec.notes.push("bell click failed"));
+        const clicked = await bell.click({ timeout: 4000 }).then(() => true).catch(() => false);
         await page.waitForTimeout(900);
-        rec.extraShots.push(await shot(page, shotsDir, `home-bell-open--${profile.name}`));
-        rec.notes.push("bell opened; the mark-read POST is intercepted by the guard (write path not exercised on live)");
-      } else rec.notes.push("notifications bell NOT found in header");
+        if (clicked) {
+          rec.extraShots.push(await shot(page, shotsDir, `home-bell-open--${profile.name}`));
+          const dd = await page.evaluate(() => {
+            const t = document.body.innerText || "";
+            return { header: /notifications/i.test(t), caughtUp: /caught up|no notifications|nothing new/i.test(t) };
+          });
+          rec.notes.push(`bell opened (dropdown header=${dd.header} emptyText=${dd.caughtUp}); mark-read POST intercepted if fired (write path not exercised on live)`);
+        } else rec.notes.push("bell click FAILED (timeout; possibly covered)");
+      } else rec.notes.push("notifications bell NOT visible in header");
     },
     "/profile": async (page, rec) => {
       const h = page.locator("h2", { hasText: "Your agent" }).first();
@@ -463,12 +491,15 @@ async function run() {
         rec.extraShots.push(await shot(page, shotsDir, `events-week--${profile.name}`));
         rec.notes.push("week view opened");
       } else rec.notes.push("Week tab NOT found");
+      const band = await page.locator('[aria-label="Who is here this week"]').count();
       const bandText = await page.evaluate(() => {
         const t = document.body.innerText || "";
-        const m = t.match(/(arriv|depart|here (this|all) week|nobody has said|who is here)[^\n]*/i);
+        const m = t.match(/(on the land now|arriv|depart|who is here)[^\n]*/i);
         return m ? m[0].slice(0, 90) : null;
       });
-      rec.notes.push(bandText ? `who-is-here band text: "${bandText}"` : "who-is-here band text NOT found on week view");
+      // The band renders nothing when nobody is here and nobody arrives or leaves
+      // (module posture), so absence with no data is a quiet state, not a defect.
+      rec.notes.push(band ? `who-is-here band present: "${bandText}"` : "who-is-here band not rendered (quiet state renders nothing by design; band untestable without arrivals data)");
       const layers = await page.locator("button", { hasText: /gathering|work|meal|ceremony|festival|meet/i }).count();
       rec.notes.push(`layer-ish chips visible: ${layers}`);
       const rsvp = await page.locator("button", { hasText: /going|maybe|can't|cannot/i }).count();
@@ -515,24 +546,26 @@ async function run() {
         await search.fill("").catch(() => {});
         await page.keyboard.press("Escape").catch(() => {});
       }
-      // Zoom: tap the map centre; a hit pushes ?focus= (pushState), Back must return.
-      const svg = page.locator("svg").first();
-      if (await svg.count()) {
-        const box = await svg.boundingBox();
-        if (box) {
-          await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.45);
-          await page.waitForTimeout(1400);
-          const url1 = page.url();
-          if (url1.includes("focus=")) {
-            rec.extraShots.push(await shot(page, shotsDir, `map-circles-focused--${profile.name}`));
-            await page.goBack({ waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => rec.notes.push("goBack from focus FAILED"));
-            await page.waitForTimeout(1500);
-            const url2 = page.url();
-            const alive = await page.evaluate(() => (document.body.innerText || "").length > 60).catch(() => false);
-            rec.backTests.push({ what: "map ?focus= then Back", ok: !url2.includes("focus=") && alive, from: url1.slice(-40), to: url2.slice(-40) });
-          } else {
-            rec.notes.push("centre tap did not focus a circle (no ?focus=), zoom-back not exercised");
-          }
+      // Zoom: below 480px the circles SVG is hidden by design (the accordion IS
+      // the page, spec 12a), so the tap-to-focus walk only runs where a map box
+      // with real size exists. ?focus= is a pushState, so Back must return.
+      const mapBox = page.locator("[data-power-map-box]:visible").first();
+      const box = (await mapBox.count()) ? await mapBox.boundingBox() : null;
+      if (!box || box.width < 200) {
+        const accordion = await page.evaluate(() => (document.body.innerText || "").length);
+        rec.notes.push(`no visible map box at this width (phone gets the accordion list by design); accordion textLen=${accordion}; zoom-and-back exercised on the desktop profile instead`);
+      } else {
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.45);
+        await page.waitForTimeout(1400);
+        const url1 = page.url();
+        if (url1.includes("focus=")) {
+          rec.extraShots.push(await shot(page, shotsDir, `map-circles-focused--${profile.name}`));
+          await page.goBack({ waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => rec.notes.push("goBack from focus FAILED"));
+          const wf = await waitForContent(page);
+          const url2 = page.url();
+          rec.backTests.push({ what: "map ?focus= then Back", ok: !url2.includes("focus=") && wf.textLen > 60, msToContent: wf.extraMs, from: url1.slice(-40), to: url2.slice(-40) });
+        } else {
+          rec.notes.push("centre tap did not land on a circle (no ?focus=); zoom-back not exercised at this size");
         }
       }
     },
@@ -567,10 +600,9 @@ async function run() {
     rec.extraShots.push(await shot(page, shotsDir, `events-brief--${profile.name}`));
     // Back out of the brief: /events was loaded first, so history has a real entry.
     await page.goBack({ waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => rec.notes.push("goBack from brief FAILED"));
-    await page.waitForTimeout(1600);
+    const wf = await waitForContent(page);
     const url = page.url();
-    const alive = await page.evaluate(() => (document.body.innerText || "").length > 60).catch(() => false);
-    rec.backTests.push({ what: "?brief= then Back", ok: !url.includes("brief=") && alive, to: url.slice(-40) });
+    rec.backTests.push({ what: "?brief= then Back", ok: !url.includes("brief=") && wf.textLen > 60, msToContent: wf.extraMs, to: url.slice(-40) });
   };
 
   const ROUTES = [
@@ -609,24 +641,43 @@ async function run() {
     }
     await settle(page);
     rec.status = status;
+    const at35 = await page.evaluate("(document.body.innerText || '').length").catch(() => 0);
+    if (at35 < 60) {
+      rec.extraShots.push(await shot(page, shotsDir, `${slug(route)}-blank-at-3s5--${profile.name}`));
+    }
+    rec.late = await waitForContent(page);
+    rec.late.textAt3500 = at35;
+    finite(rec.late.extraMs, `${route} time-to-content`, results.unmeasured);
+    rec.timing = await page.evaluate(`(() => {
+      const n = performance.getEntriesByType("navigation")[0];
+      const res = performance.getEntriesByType("resource");
+      return n ? {
+        dcl: Math.round(n.domContentLoadedEventEnd), load: Math.round(n.loadEventEnd || 0),
+        transferKb: Math.round(res.reduce((a, r) => a + (r.transferSize || 0), 0) / 1024),
+        resources: res.length,
+      } : null;
+    })()`).catch(() => null);
     rec.first = await page.evaluate(FIRST_PAINT_PROBE);
     finite(rec.first?.over, `${route} overflow`, results.unmeasured);
     finite(rec.first?.textLen, `${route} textLen`, results.unmeasured);
     rec.shot = await shot(page, shotsDir, `${String(ROUTES.indexOf(route)).padStart(2, "0")}-${slug(route)}--${profile.name}`);
 
-    const journey = journeys[route];
+    const journey = NOGUARD ? null : journeys[route];
     if (journey) { try { await journey(page, rec); } catch (e) { rec.notes.push(`journey step threw: ${String(e).slice(0, 100)}`); } }
 
-    rec.tap = await page.evaluate(TAP_PROBE).catch(() => null);
-    if (!rec.tap) { results.unmeasured.push({ what: `${route} tap targets`, note: "probe threw" }); }
-    rec.contrast = await page.evaluate(CONTRAST_PROBE).catch(() => null);
-    if (!rec.contrast) { results.unmeasured.push({ what: `${route} contrast`, note: "probe threw" }); }
+    if (!NOGUARD) {
+      rec.tap = await page.evaluate(TAP_PROBE).catch(() => null);
+      if (!rec.tap) { results.unmeasured.push({ what: `${route} tap targets`, note: "probe threw" }); }
+      rec.contrast = await page.evaluate(CONTRAST_PROBE).catch(() => null);
+      if (!rec.contrast) { results.unmeasured.push({ what: `${route} contrast`, note: "probe threw" }); }
+    }
 
     rec.ms = Date.now() - t0;
     results.routes.push(rec);
     console.log(
       `  ${route.padEnd(30)} ${String(status).padEnd(4)} over=${rec.first?.over ?? "?"} r26=${rec.first?.r26?.length ?? "?"} ` +
-      `small=${rec.tap?.small?.length ?? "?"} contrastFails=${rec.contrast?.fails?.length ?? "?"} (${rec.ms}ms)`);
+      `small=${rec.tap?.small?.length ?? "?"} contrastFails=${rec.contrast?.fails?.length ?? "?"} ` +
+      `${rec.late?.cameLate ? `late=+${rec.late.extraMs}ms ` : ""}(${rec.ms}ms)`);
   }
 
   results.consoleErrs = consoleErrs;
@@ -636,8 +687,9 @@ async function run() {
   for (const b of blockedWrites) console.log(`    intercepted ${b.method} ${b.path} (never reached the site)`);
   reportUnmeasured("bands in this run", results.unmeasured.length, results.unmeasured.map((u) => `${u.what}: ${u.note}`));
 
-  fs.writeFileSync(path.join(rawDir, `results-${profile.name}.json`), JSON.stringify(results, null, 2));
-  console.log(`wrote raw/results-${profile.name}.json`);
+  const fname = `results-${profile.name}${NOGUARD ? "-noguard" : ""}.json`;
+  fs.writeFileSync(path.join(rawDir, fname), JSON.stringify(results, null, 2));
+  console.log(`wrote raw/${fname}`);
   await browser.close();
 }
 
@@ -729,7 +781,7 @@ async function validate() {
 
 function assemble() {
   const rawDir = path.join(OUT, "raw");
-  const files = fs.readdirSync(rawDir).filter((f) => f.startsWith("results-") && f.endsWith(".json"));
+  const files = fs.readdirSync(rawDir).filter((f) => f.startsWith("results-") && f.endsWith(".json") && !f.includes("-noguard"));
   if (!files.length) { console.error("no raw results to assemble"); process.exit(2); }
   const runs = files.map((f) => JSON.parse(fs.readFileSync(path.join(rawDir, f), "utf8")));
 
@@ -813,6 +865,11 @@ function assemble() {
       if (f.soft404 && (r.status ?? 200) < 400 && r.route !== "/x-missing-page-probe") {
         verdictRows.e404.count += 1;
         findings.push({ id: fid(), severity: "HIGH", category: "routing", route: r.route, viewport: vp, buildMarker: run.buildStart, elementChain: "(page)", repro: `open ${r.route}`, screenshot: r.shot, personaLine: "It told me the page does not exist." });
+      }
+      if (r.late && r.late.textLen <= 60) {
+        findings.push({ id: fid(), severity: "HIGH", category: "routing", route: r.route, viewport: vp, buildMarker: run.buildStart, elementChain: "(page shell)", repro: `open ${r.route} at ${vp}; wait twelve seconds`, screenshot: r.shot, personaLine: "The page never showed anything at all.", detail: r.late });
+      } else if (r.late?.cameLate && r.late.extraMs > 1500) {
+        findings.push({ id: fid(), severity: r.late.extraMs > 4500 ? "HIGH" : "MED", category: "polish", route: r.route, viewport: vp, buildMarker: run.buildStart, elementChain: "(page shell)", repro: `open ${r.route} at ${vp}; watch after the header paints`, screenshot: r.shot, personaLine: "The screen sat empty before anything appeared.", detail: { msPastBaseline: r.late.extraMs, textAt3500: r.late.textAt3500 } });
       }
     }
     for (const b of run.badResponses ?? []) {
