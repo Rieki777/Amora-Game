@@ -14,6 +14,7 @@ import LookPanel from "@/components/LookPanel";
 import IdentityPackPanel from "@/components/IdentityPackPanel";
 import MapSkinPanel from "@/components/MapSkinPanel";
 import EventsAdminPanel from "@/components/EventsAdminPanel";
+import HousingAdminPanel from "@/components/HousingAdminPanel";
 import WalkEditorPanel from "@/components/WalkEditorPanel";
 import { ExampleChip, ExamplesBanner, forgetExamplesCache, RETIRES_WITH } from "@/components/ExamplesBanner";
 // visit-inquiry and membership-508 were missing, and they are the two highest-value
@@ -287,6 +288,9 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         // tab's dates: this is what a season CARRIES, not when it runs.
         { key: "seasons-patterns", label: "Season Shapes", icon: Calendar },
         { key: "circles-map", label: "Circles & Map", icon: Circle },
+        // Beside the map on purpose: a hamlet's homes are keyed by the same
+        // structure key the map mints, and builder mode edits the same rows.
+        { key: "housing", label: "Housing & Reservations", icon: Home },
         // Next to the map on purpose: a gathering's structure keys are what
         // light the map's buildings, so the two are edited in the same visit.
         { key: "events-admin", label: "Calendar", icon: Calendar },
@@ -9109,6 +9113,7 @@ export default function Admin() {
           {activeTab === "players" && <PlayersTab password={password} />}
           {activeTab === "game-roles" && <GameRolesTab password={password} />}
           {activeTab === "modules" && <ModulesTab password={password} />}
+          {activeTab === "housing" && <HousingAdminPanel password={password} />}
           {activeTab === "org-chart" && <OrgChartTab password={password} />}
           {activeTab === "brain" && <VillageBrainTab password={password} />}
           {activeTab === "drafts" && <DraftQueueTab password={password} />}

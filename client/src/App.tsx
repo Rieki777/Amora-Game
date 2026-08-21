@@ -207,6 +207,7 @@ const Roles = lazyPage(() => import("./pages/Roles"));
 const HowWeCreate = lazyPage(() => import("./pages/HowWeCreate"));
 const CoCreatorsGuide = lazyPage(() => import("./pages/CoCreatorsGuide"));
 const Housing = lazyPage(() => import("./pages/Housing"));
+const ReserveHome = lazyPage(() => import("./pages/ReserveHome"));
 const Opportunities = lazyPage(() => import("./pages/Opportunities"));
 const MasterPlan = lazyPage(() => import("./pages/MasterPlan"));
 const Team = lazyPage(() => import("./pages/Team"));
@@ -317,6 +318,7 @@ function Router() {
       <Route path="/how-we-create" component={HowWeCreate} />
       <Route path="/co-creators-guide" component={CoCreatorsGuide} />
       <Route path="/housing" component={Housing} />
+      <Route path="/reserve" component={ReserveHome} />
       <Route path="/opportunities" component={Opportunities} />
       <Route path="/master-plan" component={MasterPlan} />
       <Route path="/team" component={Team} />
