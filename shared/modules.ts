@@ -471,6 +471,8 @@ export const MODULES: ModuleDef[] = [
     id: "resources",
     tier: "included",
     dataClass: "village-content",
+    group: "know-and-decide",
+    setup: "optional",
     name: "How Resources Flow",
     description:
       "A declared map of how money and resources are governed: who may spend what, with whose approval, paid from where, and where the money comes from; it describes the flow and moves nothing.",

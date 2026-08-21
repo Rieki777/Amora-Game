@@ -141,6 +141,20 @@ export const MODULE_CATALOG: Record<string, ModuleCatalogEntry> = {
     hue: 28,
     emblem: "Landmark",
   },
+  resources: {
+    promise: "Who may spend what, with whose yes, and where the money comes from, drawn on the map.",
+    benefits: [
+      "Spending rules per circle or seat: what moves alone, what needs a yes",
+      "Funding sources and season budgets, declared in the village's own currency",
+      "Request approval opens a forum decision pre-filled from the rule",
+      "Declared beside measured: the ledger's own counts and totals, never a member's balance",
+    ],
+    forWhom: "Villages that want the money questions answered before anyone has to ask.",
+    setupSummary: "Declare one rule, one source and one budget; the map draws the rest.",
+    dataSummary: "Rules, sources and budgets the village declares. Counts and totals from the ledger, no names.",
+    hue: 75,
+    emblem: "Coins",
+  },
   forum: {
     promise: "Conversations that can end in a decision.",
     benefits: [
