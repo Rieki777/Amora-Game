@@ -28,6 +28,7 @@ import {
   type ModuleLifecycle,
 } from "../../shared/modules";
 import { recordEvent } from "./events";
+import { hasRealContent } from "./examples";
 import { secretValue } from "./secrets";
 
 interface ModuleRow {
@@ -315,11 +316,98 @@ export function requireModule(id: string) {
   };
 }
 
+// ── Readiness (the Go-live card's question) ──────────────────────────────────
+
+/**
+ * What "there is something here" means per module, said as the FIRST STEP a
+ * founder takes rather than as a verdict. Only modules whose setup is not
+ * "none" get a reader at all; the default reader is the examples engine's own
+ * real-content check (real rows in the module's tables, examples excluded),
+ * because that is already the platform's one definition of "this village made
+ * something here".
+ */
+const READINESS_HINTS: Record<string, string> = {
+  map: "Draw one circle first",
+  tools: "Add one tool card first",
+  badges: "Create a badge and award it once first",
+  health: "Record one measurement of the land first",
+  automation: "Feed it one call recording first",
+  stays: "Post one room and a price first",
+  library: "Put one item on the shelves first",
+  exchange: "List a token and post its price first",
+  commerce: "Create one product first",
+};
+
+let readinessAttached = false;
+
+/**
+ * Attach a readiness reader to every module that declares setup. Idempotent,
+ * and called at route-registration time (immediately before the admin modules
+ * route mounts), which runs once at boot: the same pattern as the
+ * openStateCheck attachments, so the shared registry stays import-clean for
+ * the client bundle.
+ *
+ * Stays is the one custom reader: a room without a price reads as real
+ * content to the default check (either table counts), and a stay nobody can
+ * book is not ready. Both tables must hold a real row.
+ */
+export function attachModuleReadiness(getPool: () => Pool): void {
+  if (readinessAttached) return;
+  readinessAttached = true;
+  for (const def of MODULES) {
+    if (!def.setup || def.setup === "none") continue;
+    const hint = READINESS_HINTS[def.id] ?? "Add the first real item before going live";
+    if (def.id === "stays") {
+      def.readiness = async () => {
+        try {
+          const p = getPool();
+          const [[rooms]] = await p.query<RowDataPacket[]>(
+            "SELECT COUNT(*) n FROM accommodations WHERE is_example = 0",
+          );
+          const [[prices]] = await p.query<RowDataPacket[]>(
+            "SELECT COUNT(*) n FROM accommodation_prices WHERE is_example = 0",
+          );
+          return { ready: Number(rooms.n) > 0 && Number(prices.n) > 0, hint };
+        } catch {
+          return { ready: false, hint };
+        }
+      };
+      continue;
+    }
+    def.readiness = async () => {
+      try {
+        return { ready: await hasRealContent(getPool(), def.id), hint };
+      } catch {
+        return { ready: false, hint };
+      }
+    };
+  }
+}
+
+/**
+ * The widest lifecycle this module's hard dependencies allow: the lowest
+ * effectiveLifecycle among `requires` (core counts as public, and a module
+ * with no dependencies is unbounded). The Go-live card greys "Everyone" with
+ * this; setModuleLifecycle refuses past it, so feed-at-public over
+ * forum-at-members is impossible instead of discouraged (§8 item 11).
+ */
+export function moduleMaxLifecycle(id: string): ModuleLifecycle {
+  const def = MODULES_BY_ID[id];
+  if (!def) return "off";
+  if (def.core) return "public";
+  let bound: ModuleLifecycle = "public";
+  for (const dep of def.requires) {
+    const depLc: ModuleLifecycle = MODULES_BY_ID[dep]?.core ? "public" : effectiveLifecycle(dep);
+    if (LIFECYCLE_RANK[depLc] < LIFECYCLE_RANK[bound]) bound = depLc;
+  }
+  return bound;
+}
+
 // ── Writes ───────────────────────────────────────────────────────────────────
 
 export type LifecycleResult =
   | { ok: true; lifecycle: ModuleLifecycle }
-  | { ok: false; status: number; error: string; missing?: string[]; dependents?: string[]; count?: number; description?: string; withdrawnSince?: string };
+  | { ok: false; status: number; error: string; missing?: string[]; dependents?: string[]; count?: number; description?: string; withdrawnSince?: string; limitedBy?: string[]; maxLifecycle?: ModuleLifecycle };
 
 export interface LifecycleGuards {
   /** True while the deployment's only admin credential is a shared password —
@@ -371,6 +459,31 @@ export async function setModuleLifecycle(
     );
     if (missing.length) {
       return { ok: false, status: 409, error: `"${def.name}" requires ${missing.join(", ")} to be enabled first`, missing };
+    }
+    /*
+     * The publish rank bound (§8 item 11): a module may not stand WIDER than
+     * a hard dependency serves. Feed at public over forum at members is a
+     * wall of links only members can open, so the Go-live card greys the
+     * option and this refuses the write that would sneak past the card. The
+     * missing-dependency check above already owns the off case, which is why
+     * this only ever fires for members and public asks. Lowering a dependency
+     * under an already-wider dependent stays as today, deliberately.
+     */
+    const bound = moduleMaxLifecycle(id);
+    if (LIFECYCLE_RANK[next] > LIFECYCLE_RANK[bound]) {
+      const limiting = def.requires.filter(
+        (dep) => !MODULES_BY_ID[dep]?.core && LIFECYCLE_RANK[effectiveLifecycle(dep)] < LIFECYCLE_RANK[next],
+      );
+      const names = limiting.map(
+        (dep) => `${MODULES_BY_ID[dep]?.name ?? dep} (now ${effectiveLifecycle(dep)})`,
+      );
+      return {
+        ok: false,
+        status: 409,
+        error: `"${def.name}" can only go as wide as what it depends on. ${names.join(" and ")} must reach ${next} first.`,
+        limitedBy: limiting,
+        maxLifecycle: bound,
+      };
     }
     if (def.legalReview && current === "off" && guards.sharedPasswordPosture()) {
       return {
