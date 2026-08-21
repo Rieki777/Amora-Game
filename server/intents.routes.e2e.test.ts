@@ -92,7 +92,7 @@ beforeAll(async () => {
   if (!fs.existsSync(DIST)) throw new Error(`${DIST} is missing. Run \`pnpm build\` before the intents route test.`);
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-intents-"));
   testDb = await provisionTestDb();
-  pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 });
+  pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: the e2e harness against the scratch schema, as every e2e suite holds
 
   child = spawn(process.execPath, [DIST], {
     env: {
@@ -175,7 +175,7 @@ describe.skipIf(!DB_CONFIGURED)("introductions over HTTP", () => {
     const guest = await call("POST", "/api/intents", { kind: "seek", text: "seeking a chess partner" }, cara.token);
     expect(guest.status).toBe(403);
 
-    await pool.query(
+    await pool.query( // module-review-ok: the e2e harness against the scratch schema, as every e2e suite holds
       "INSERT INTO stays (id, user_id, accommodation_id, status, arrive_on) VALUES ('sty-cara', ?, 'acc-x', 'active', CURDATE())",
       [cara.id],
     );

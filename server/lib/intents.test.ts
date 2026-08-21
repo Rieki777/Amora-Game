@@ -350,7 +350,7 @@ const BEN = "usr-ben";
 const CARA = "usr-cara";
 
 async function addUser(id: string, name: string, joinedDaysAgo = 0) {
-  await pool.query(
+  await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     "INSERT INTO users (id, name, email, password_hash, joined_at) VALUES (?,?,?,?, (NOW() - INTERVAL ? DAY)) " +
       "ON DUPLICATE KEY UPDATE name = VALUES(name), joined_at = VALUES(joined_at)",
     [id, name, `${id}@example.test`, "hash", joinedDaysAgo],
@@ -423,7 +423,7 @@ function wireModelStub(answer: unknown, calls: any[] = []) {
 describe.skipIf(!configured)("intents repo (MySQL)", () => {
   beforeAll(async () => {
     db = await provisionTestDb();
-    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 4 });
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
   });
 
   afterAll(async () => {
@@ -433,18 +433,18 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
 
   beforeEach(async () => {
     unwireModel();
-    await pool.query("DELETE FROM intent_opportunities");
-    await pool.query("DELETE FROM member_intents");
-    await pool.query("DELETE FROM member_intent_policies");
-    await pool.query("DELETE FROM contact_requests");
-    await pool.query("DELETE FROM conversation_members");
-    await pool.query("DELETE FROM conversations");
-    await pool.query("DELETE FROM skill_tags");
-    await pool.query("DELETE FROM badge_awards");
-    await pool.query("DELETE FROM badges");
-    await pool.query("DELETE FROM quest_claims");
-    await pool.query("DELETE FROM assistant_usage");
-    await pool.query("DELETE FROM users");
+    await pool.query("DELETE FROM intent_opportunities"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM member_intents"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM member_intent_policies"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM contact_requests"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM conversation_members"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM conversations"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM skill_tags"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM badge_awards"); // module-review-ok: clearing the fixture award between tests; scratch schema, never the platform's award path
+    await pool.query("DELETE FROM badges"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM quest_claims"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM assistant_usage"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM users"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     await addUser(ANA, "Ana Ruiz");
     await addUser(BEN, "Ben Cole");
     await addUser(CARA, "Cara Diaz");
@@ -508,10 +508,10 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
     expect(before.suggestions).toEqual([]);
 
     await putPolicy(pool, ANA, { consent: true });
-    await pool.query("INSERT INTO skill_tags (id, user_id, tag) VALUES ('sk-1', ?, 'carpentry')", [ANA]);
-    await pool.query("INSERT INTO badges (id, name, description) VALUES ('bdg-1', 'Beekeeper', 'bees')");
-    await pool.query("INSERT INTO badge_awards (id, badge_id, user_id) VALUES ('awd-1', 'bdg-1', ?)", [ANA]);
-    await pool.query(
+    await pool.query("INSERT INTO skill_tags (id, user_id, tag) VALUES ('sk-1', ?, 'carpentry')", [ANA]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("INSERT INTO badges (id, name, description) VALUES ('bdg-1', 'Beekeeper', 'bees')"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("INSERT INTO badge_awards (id, badge_id, user_id) VALUES ('awd-1', 'bdg-1', ?)", [ANA]); // module-review-ok: seeding the fixture award the suggestions read; scratch schema, never the platform's award path
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "INSERT INTO quest_claims (id, quest_id, quest_title, user_id, status) VALUES ('clm-1', 'q-1', 'Fix the well pump', ?, 'consented')",
       [ANA],
     );
@@ -729,7 +729,7 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
     const [userA, userB] = BEN < uid ? [BEN, uid] : [uid, BEN];
     const [intentA, intentB] = userA === BEN ? [benOffer.id, seek.id] : [seek.id, benOffer.id];
     const id = `opp-cap-${i}`;
-    await pool.query(
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "INSERT INTO intent_opportunities (id, user_a, user_b, intent_a_id, intent_b_id, score, method, reasons, status) " +
         "VALUES (?,?,?,?,?, 5, 'deterministic', JSON_ARRAY(), 'proposed')",
       [id, userA, userB, intentA, intentB],
@@ -767,7 +767,7 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
     const deps = makeDeps();
     // Ben already received three relay contacts today: his day is full.
     for (let i = 0; i < 3; i++) {
-      await pool.query(
+      await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
         "INSERT INTO contact_requests (id, from_user_id, to_user_id, message, source, idempotency_key) VALUES (?,?,?,?,?,?)",
         [`ctr-${i}`, CARA, BEN, "hello", "map", `k-${i}`],
       );
@@ -801,8 +801,8 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
 
     // A pause holds the door the same way.
     await putPolicy(pool, "usr-seeker-01", { pauseDays: 7 });
-    await pool.query("UPDATE intent_opportunities SET surfaced_at = NULL WHERE id = ?", [first]);
-    await pool.query("UPDATE member_intent_policies SET max_per_week = 5 WHERE user_id = ?", [BEN]);
+    await pool.query("UPDATE intent_opportunities SET surfaced_at = NULL WHERE id = ?", [first]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("UPDATE member_intent_policies SET max_per_week = 5 WHERE user_id = ?", [BEN]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     await putPolicy(pool, "usr-seeker-00", { pauseDays: 7 });
     expect(await trySurface(pool, deps, (await opportunityById(pool, first))!)).toBe(false);
   });
@@ -996,7 +996,7 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
   it("reminds once, then expires, and the pool takes the intent back", async () => {
     const deps = makeDeps();
     const row = await createIntent(pool, ANA, { kind: "seek", text: "seeking a stargazing friend" });
-    await pool.query("UPDATE member_intents SET expires_at = (NOW() - INTERVAL 1 DAY) WHERE id = ?", [row.id]);
+    await pool.query("UPDATE member_intents SET expires_at = (NOW() - INTERVAL 1 DAY) WHERE id = ?", [row.id]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
 
     await runIntentsSweep(pool, deps);
     expect((await intentById(pool, row.id))!.lifecycle).toBe("active");
@@ -1008,7 +1008,7 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
     expect((await intentById(pool, row.id))!.lifecycle).toBe("active");
 
     // A week past the reminder, the intent rests.
-    await pool.query("UPDATE member_intents SET reminded_at = (NOW() - INTERVAL 8 DAY) WHERE id = ?", [row.id]);
+    await pool.query("UPDATE member_intents SET reminded_at = (NOW() - INTERVAL 8 DAY) WHERE id = ?", [row.id]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     await runIntentsSweep(pool, deps);
     expect((await intentById(pool, row.id))!.lifecycle).toBe("expired");
   });
@@ -1017,13 +1017,13 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
     const deps = makeDeps();
     const { oppId, seekId } = await surfacedPair();
     await acceptOpportunity(pool, oppId, ANA, deps);
-    await pool.query("UPDATE intent_opportunities SET surfaced_at = (NOW() - INTERVAL 4 DAY) WHERE id = ?", [oppId]);
+    await pool.query("UPDATE intent_opportunities SET surfaced_at = (NOW() - INTERVAL 4 DAY) WHERE id = ?", [oppId]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
 
     await runIntentsSweep(pool, deps);
     const reminders = deps.notified.filter((n) => n.dedupeKey.startsWith("intro-reminder:"));
     expect(reminders.map((n) => n.userId)).toEqual([BEN]);
 
-    await pool.query("UPDATE intent_opportunities SET expires_at = (NOW() - INTERVAL 1 DAY) WHERE id = ?", [oppId]);
+    await pool.query("UPDATE intent_opportunities SET expires_at = (NOW() - INTERVAL 1 DAY) WHERE id = ?", [oppId]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     await runIntentsSweep(pool, deps);
     expect((await opportunityById(pool, oppId))!.status).toBe("expired");
     // Back in the pool: the seek may match somebody new.
@@ -1068,8 +1068,8 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
   it("blanks reasons and expired words past the retention day, keeping the record", async () => {
     const deps = makeDeps();
     const { oppId, seekId } = await surfacedPair();
-    await pool.query("UPDATE intent_opportunities SET created_at = (NOW() - INTERVAL 100 DAY) WHERE id = ?", [oppId]);
-    await pool.query(
+    await pool.query("UPDATE intent_opportunities SET created_at = (NOW() - INTERVAL 100 DAY) WHERE id = ?", [oppId]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "UPDATE member_intents SET lifecycle = 'expired', updated_at = (NOW() - INTERVAL 100 DAY) WHERE id = ?",
       [seekId],
     );
@@ -1100,7 +1100,7 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
     );
     expect(Number(stillFull.n)).toBe(1);
     // The day turns: age the surfaced ones out of the window.
-    await pool.query(
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "UPDATE intent_opportunities SET surfaced_at = (NOW() - INTERVAL 2 DAY) WHERE surfaced_at IS NOT NULL",
     );
     const summary = await runIntentsSweep(pool, deps);
@@ -1157,7 +1157,7 @@ describe.skipIf(!configured)("intents repo (MySQL)", () => {
   });
 
   it("counts model calls for the admin demand signal from the usage table", async () => {
-    await pool.query(
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "INSERT INTO assistant_usage (id, village_id, mode, model, key_source, user_id, input_tokens, output_tokens, " +
         "cache_creation_input_tokens, cache_read_input_tokens, iterations, stop_reason, path) VALUES " +
         "('au-1', 'v', 'introductions', 'none', 'none', NULL, 0,0,0,0,0,NULL,'deterministic')," +

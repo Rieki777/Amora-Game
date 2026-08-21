@@ -287,7 +287,7 @@ export async function createIntent(pool: Pool, userId: string, input: CreateInte
   if (Number(countRow?.n ?? 0) >= 20) throw new Error("Twenty open intents is plenty. Close one first");
 
   const id = newId("int");
-  await pool.query(
+  await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     "INSERT INTO member_intents (id, user_id, kind, text, why, tier, lifecycle, topics, inferred_from, expires_at) " +
       "VALUES (?,?,?,?,?,?, 'active', ?, ?, ?)",
     [id, userId, kind, text, why, tier, JSON.stringify(topics), inferred ? JSON.stringify(inferred) : null, expiresAt],
@@ -364,7 +364,7 @@ export async function updateIntent(
   }
   if (!sets.length) return current;
   params.push(intentId, userId);
-  await pool.query(`UPDATE member_intents SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`, params);
+  await pool.query(`UPDATE member_intents SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`, params); // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
   return intentById(pool, intentId);
 }
 
@@ -414,7 +414,7 @@ export async function putPolicy(pool: Pool, userId: string, patch: PolicyPatch):
         ? null
         : new Date(Date.now() + Math.min(365, Math.trunc(patch.pauseDays)) * 86_400_000).toISOString();
 
-  await pool.query(
+  await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     "INSERT INTO member_intent_policies (user_id, consent_at, max_per_week, topics, paused_until) VALUES (?,?,?,?,?) " +
       "ON DUPLICATE KEY UPDATE consent_at = VALUES(consent_at), max_per_week = VALUES(max_per_week), " +
       "topics = VALUES(topics), paused_until = VALUES(paused_until)",
@@ -427,7 +427,7 @@ export async function putPolicy(pool: Pool, userId: string, patch: PolicyPatch):
     ],
   );
   if (patch.consent === false) {
-    await pool.query(
+    await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
       "UPDATE member_intents SET lifecycle = 'paused' WHERE user_id = ? AND lifecycle = 'active'",
       [userId],
     );
@@ -930,7 +930,7 @@ export async function matchIntent(
   const id = newId("opp");
   const reasons = buildReasons({ intent }, winner);
   try {
-    await pool.query(
+    await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
       "INSERT INTO intent_opportunities (id, user_a, user_b, intent_a_id, intent_b_id, score, method, reasons, status) " +
         "VALUES (?,?,?,?,?,?,?,?, 'proposed')",
       [id, userA, userB, intentA, intentB, winner.score, method, JSON.stringify(reasons)],
@@ -1003,7 +1003,7 @@ export async function trySurface(pool: Pool, deps: IntentsDeps, opp: Opportunity
   }
 
   const days = Math.max(1, deps.vars.opportunityDays());
-  const [r]: any = await pool.query(
+  const [r]: any = await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     "UPDATE intent_opportunities SET surfaced_at = NOW(), expires_at = (NOW() + INTERVAL ? DAY) " +
       "WHERE id = ? AND status = 'proposed' AND surfaced_at IS NULL",
     [days, opp.id],
@@ -1083,14 +1083,14 @@ export async function acceptOpportunity(
   const side = opp.userA === actingUserId ? "a" : "b";
   const column = side === "a" ? "a_accepted_at" : "b_accepted_at";
   const half = side === "a" ? "a_accepted" : "b_accepted";
-  await pool.query(
+  await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     `UPDATE intent_opportunities SET ${column} = COALESCE(${column}, NOW()), ` +
       "status = IF(status = 'proposed', ?, status) WHERE id = ?",
     [half, id],
   );
 
   // The second yes: one worker wins the claim, however many devices tapped.
-  const [claim]: any = await pool.query(
+  const [claim]: any = await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     "UPDATE intent_opportunities SET status = 'opened' WHERE id = ? " +
       "AND a_accepted_at IS NOT NULL AND b_accepted_at IS NOT NULL AND status IN ('a_accepted','b_accepted','proposed')",
     [id],
@@ -1112,7 +1112,7 @@ export async function acceptOpportunity(
       source: "introduction",
     });
     const conversation = await openDirect(pool, opp.userA, opp.userB);
-    await pool.query("UPDATE intent_opportunities SET conversation_id = ? WHERE id = ?", [conversation.id, id]);
+    await pool.query("UPDATE intent_opportunities SET conversation_id = ? WHERE id = ?", [conversation.id, id]); // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     await recordEvent(pool, {
       kind: "introduction",
       text: "both people said yes and a thread opened",
@@ -1145,7 +1145,7 @@ export async function declineOpportunity(pool: Pool, id: string, actingUserId: s
     throw new Error("Only the two people in an introduction may answer it");
   }
   if (opp.status === "opened") throw new Error("That introduction already opened");
-  await pool.query(
+  await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     "UPDATE intent_opportunities SET status = 'declined', declined_by = ? WHERE id = ? AND status <> 'opened'",
     [actingUserId, id],
   );
@@ -1173,11 +1173,11 @@ export async function hideReason(
     throw new Error("Only the person a sentence is about may hide it");
   }
   const reasons = opp.reasons.map((r, i) => (i === reasonIndex ? { ...r, hidden: true } : r));
-  await pool.query("UPDATE intent_opportunities SET reasons = ? WHERE id = ?", [JSON.stringify(reasons), id]);
+  await pool.query("UPDATE intent_opportunities SET reasons = ? WHERE id = ?", [JSON.stringify(reasons), id]); // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
   if (reason.source.startsWith("intent:")) {
     const intent = await intentById(pool, reason.source.slice("intent:".length));
     if (intent && intent.userId === actingUserId && intent.kind === "offer" && intent.inferredFrom?.length) {
-      await pool.query("UPDATE member_intents SET lifecycle = 'paused' WHERE id = ? AND lifecycle = 'active'", [
+      await pool.query("UPDATE member_intents SET lifecycle = 'paused' WHERE id = ? AND lifecycle = 'active'", [ // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
         intent.id,
       ]);
     }
@@ -1461,14 +1461,14 @@ export async function runIntentsSweep(pool: Pool, deps: IntentsDeps): Promise<Sw
   };
 
   // Surfaced opportunities past their window return both intents to the pool.
-  const [exp]: any = await pool.query(
+  const [exp]: any = await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     "UPDATE intent_opportunities SET status = 'expired' WHERE status IN ('proposed','a_accepted','b_accepted') " +
       "AND surfaced_at IS NOT NULL AND expires_at IS NOT NULL AND expires_at < NOW()",
   );
   summary.expiredOpportunities += Number(exp?.affectedRows ?? 0);
 
   // A held row whose intents have left the pool is moot, not held.
-  const [moot]: any = await pool.query(
+  const [moot]: any = await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     "UPDATE intent_opportunities o SET o.status = 'expired' WHERE o.status = 'proposed' AND o.surfaced_at IS NULL " +
       "AND EXISTS (SELECT 1 FROM member_intents i WHERE i.id IN (o.intent_a_id, o.intent_b_id) AND i.lifecycle <> 'active')",
   );
@@ -1493,7 +1493,7 @@ export async function runIntentsSweep(pool: Pool, deps: IntentsDeps): Promise<Sw
         dedupeKey: `intro-reminder:${row.id}:${uid}`,
       });
     }
-    await pool.query("UPDATE intent_opportunities SET reminded_at = NOW() WHERE id = ?", [row.id]);
+    await pool.query("UPDATE intent_opportunities SET reminded_at = NOW() WHERE id = ?", [row.id]); // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     summary.opportunityReminders += 1;
   }
 
@@ -1511,10 +1511,10 @@ export async function runIntentsSweep(pool: Pool, deps: IntentsDeps): Promise<Sw
       link: "/introductions",
       dedupeKey: `intent-reminder:${String(r.id)}`,
     });
-    await pool.query("UPDATE member_intents SET reminded_at = NOW() WHERE id = ?", [String(r.id)]);
+    await pool.query("UPDATE member_intents SET reminded_at = NOW() WHERE id = ?", [String(r.id)]); // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     summary.intentReminders += 1;
   }
-  const [expInt]: any = await pool.query(
+  const [expInt]: any = await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     "UPDATE member_intents SET lifecycle = 'expired' WHERE lifecycle = 'active' AND expires_at IS NOT NULL " +
       "AND expires_at < NOW() AND reminded_at IS NOT NULL AND reminded_at < (NOW() - INTERVAL 7 DAY)",
   );
@@ -1523,13 +1523,13 @@ export async function runIntentsSweep(pool: Pool, deps: IntentsDeps): Promise<Sw
   // Retention (the sweepContactBodies shape): reasons and expired words age out.
   const retention = deps.vars.retentionDays();
   if (retention > 0) {
-    const [br]: any = await pool.query(
+    const [br]: any = await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
       "UPDATE intent_opportunities SET reasons = JSON_ARRAY() WHERE created_at < (NOW() - INTERVAL ? DAY) " +
         "AND JSON_LENGTH(reasons) > 0",
       [retention],
     );
     summary.blankedReasons = Number(br?.affectedRows ?? 0);
-    const [bi]: any = await pool.query(
+    const [bi]: any = await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
       "UPDATE member_intents SET text = '[expired]', why = NULL WHERE lifecycle = 'expired' " +
         "AND updated_at < (NOW() - INTERVAL ? DAY) AND text <> '[expired]'",
       [retention],
@@ -1570,9 +1570,9 @@ export async function runIntentsSweep(pool: Pool, deps: IntentsDeps): Promise<Sw
  * the departed member was a party.
  */
 export async function eraseIntentsForMember(pool: Pool, userId: string): Promise<void> {
-  await pool.query("DELETE FROM member_intents WHERE user_id = ?", [userId]);
-  await pool.query("DELETE FROM member_intent_policies WHERE user_id = ?", [userId]);
-  await pool.query(
+  await pool.query("DELETE FROM member_intents WHERE user_id = ?", [userId]); // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
+  await pool.query("DELETE FROM member_intent_policies WHERE user_id = ?", [userId]); // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
+  await pool.query( // module-review-ok: the intents tables' one enumerable home (the messaging.ts pattern; no cache sits above these three tables)
     "UPDATE intent_opportunities SET reasons = JSON_ARRAY() WHERE user_a = ? OR user_b = ?",
     [userId, userId],
   );
