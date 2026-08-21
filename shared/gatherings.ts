@@ -98,6 +98,40 @@ export interface Gathering {
   /** This viewer's own answer, absent when signed out. */
   myRsvp?: RsvpStatus | null;
   isExample?: boolean;
+  /** 0088: how many people are queued for a seat, on a full gathering. */
+  waitlistCount?: number | null;
+  /** 0088: this viewer's place in that queue, 1-based; null when not queued. */
+  myWaitlistPosition?: number | null;
+}
+
+// ── 0088: structured slots — what a gathering asks people to bring or hold ──
+
+/**
+ * The slot vocabulary. varchar in the table, validated at write time, so a
+ * new kind is a code change and never a live enum widening (0006's rule).
+ */
+export const SLOT_KINDS = ["dish", "ride", "childcare", "setup", "other"] as const;
+export type SlotKind = (typeof SLOT_KINDS)[number];
+
+export interface EventSlot {
+  id: string;
+  eventId: string;
+  kind: SlotKind;
+  label: string;
+  /** How many people the slot needs. Signups past it are refused. */
+  needed: number;
+  note: string | null;
+  sortOrder: number;
+  isExample: boolean;
+  /** Taken places for the occurrence asked about. */
+  takenCount: number;
+  /** Whether this viewer holds one of them. */
+  mine: boolean;
+  /**
+   * Who took the places. Present only for a viewer who is going to the
+   * gathering, or who may manage events; counts travel to everyone else.
+   */
+  names?: Array<{ userId: string; name: string | null; note: string | null }>;
 }
 
 /**
