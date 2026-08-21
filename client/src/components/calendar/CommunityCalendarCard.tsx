@@ -263,7 +263,8 @@ export default function CommunityCalendarCard({ signedIn }: { signedIn: boolean 
           <div>
             <p className="font-medium text-foreground mb-1">Meet me</p>
             <p className="text-xs text-muted-foreground mb-2">
-              A window that says when and where you are findable. On the village calendar, or just your own.
+              A window that says when and where you are findable. The village calendar is readable by anyone
+              past the gate, so put it there when you mean to be found; your own layer stays yours alone.
             </p>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
