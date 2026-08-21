@@ -362,6 +362,38 @@ describe("the panel still routes every decision through housingForm", () => {
     expect(panel).toContain("defaultValue={labelFieldValue(r)}");
   });
 
+  it("asks the server whether a hamlet is set, and never re-derives it", () => {
+    /*
+     * PAID, AND SHIPPED TO MAIN BEFORE IT WAS CAUGHT. This line said
+     * `r.open !== null`, and a comment above it claimed that was the predicate
+     * publicEntries applies. It was not. `open` comes off the EFFECTIVE taken,
+     * so a hamlet flipped to `reservations` with a homes_taken nobody typed
+     * showed the founder a green badge reading "9 open of 9" beside an EMPTY
+     * taken box, while /reserve told the visitor "Example numbers. The founder
+     * has not set this hamlet yet."
+     *
+     * The fix landed with NO GATE ON IT. A reviewer put the one line back and
+     * ran everything: 91 files, 1491 tests, 0 failed, exit 0, plus all seven
+     * guards. Not one test moved. Nothing in this repo renders a component -
+     * no @testing-library, no render() anywhere - so this file and its
+     * siblings are the only thing standing between that line and production.
+     *
+     * A SOURCE GUARD IS WEAKER THAN A BEHAVIOUR TEST and this comment says so
+     * rather than pretending otherwise: the sibling M6 guard was evaded once by
+     * spelling the same defect a different way. Two assertions here, so a
+     * rename alone cannot satisfy both: the panel must READ isSet off the row,
+     * and `open` must not be compared to null anywhere in the file.
+     */
+    const panel = readSource(PANEL);
+    // Plain string compares, deliberately. Three regex attempts in this session
+    // were mangled before they reached the file: the last one wrote literal
+    // backspace bytes (0x08) from a word-boundary escape, giving a regex that could never
+    // match and a failure that read like a stale file read. cat -A found it.
+    expect(panel).toContain("const isSet = r.isSet;");
+    expect(panel).not.toContain("r.open !== null");
+    expect(panel).not.toContain("r.open != null");
+  });
+
   it("builds no request body of its own", () => {
     const panel = readSource(PANEL);
     expect(panel).toContain("JSON.stringify(patch)");

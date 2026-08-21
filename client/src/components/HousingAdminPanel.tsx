@@ -250,26 +250,24 @@ export default function HousingAdminPanel({ password }: { password: string }) {
       ) : (
         <div className="space-y-3">
           {rows.map((r) => {
-            /*
-             * `open` is null exactly when either count is unset, which is the
-             * same predicate the server applies once in publicEntries. Asking
-             * the derived field rather than re-deriving it from two nullable
-             * counts also keeps the live `taken` count out of this file
-             * entirely, which is what the panel's guard test checks for.
-             */
-            /*
-             * THIS LINE USED TO SAY `r.open !== null`, and the comment above it
-             * claimed that was the predicate publicEntries applies. It was not.
-             * `open` is computed from the EFFECTIVE taken, so a hamlet flipped to
-             * `reservations` with a homes_taken nobody had typed showed the founder
-             * a green badge reading `4 open of 6` beside an EMPTY taken box, while
-             * every visitor was told `Example numbers. The founder has not set this
-             * hamlet yet.` Both surfaces photographed at the same moment, 2026-08-16.
-             * 1349 green tests never saw it, because nothing tied the two together.
-             *
-             * Read the server's own predicate off the row. Never re-derive set-ness
-             * here, and never ask `open`.
-             */
+              /*
+               * The server decides what SET means, once, in publicEntries, and
+               * carries the answer on the row. Read it. Never re-derive set-ness
+               * here, and never ask `open`.
+               *
+               * This line used to compare `open` to null, and the comment that sat
+               * here claimed that was the same predicate publicEntries applies. It
+               * was not: `open` comes off the EFFECTIVE taken, so a hamlet flipped
+               * to `reservations` with a homes_taken nobody had typed showed the
+               * founder a green badge reading `9 open of 9` beside an EMPTY taken
+               * box, while a visitor was told `Example numbers. The founder has not
+               * set this hamlet yet.` Both surfaces photographed at once, 2026-08-16.
+               *
+               * 1349 green tests never saw it, and the fix then shipped to main with
+               * no gate either: putting the one line back left 1491 tests green.
+               * Nothing in this repo renders a component, so housingForm.test.ts is
+               * the only thing standing between this line and production.
+               */
             const isSet = r.isSet;
             return (
               <div key={r.structureKey} className="p-4 border border-stone-200 rounded-xl">
