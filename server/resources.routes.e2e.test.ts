@@ -42,10 +42,12 @@ let dataDir = "";
 let pool: mysql.Pool;
 let founderToken = "";
 
-// Nia holds the Kitchen's cook seat; Omar holds nothing.
+// Nia holds the Kitchen's cook seat; Omar holds nothing; Pia speaks for a
+// second circle (the Garden) and so is a declarer for it and nothing else.
 let niaToken = "";
 let niaId = "";
 let omarToken = "";
+let piaToken = "";
 
 let ledgerRowsBefore = 0;
 let fiatRowsBefore = 0;
@@ -146,29 +148,43 @@ beforeAll(async () => {
   // The village: one circle, one seat, one holder.
   const kitchen = await call("POST", "/api/admin/circles", { name: "Kitchen" });
   expect(kitchen.status, "the Kitchen must exist").toBe(200);
+  const garden = await call("POST", "/api/admin/circles", { name: "Garden" });
+  expect(garden.status, "the Garden must exist").toBe(200);
 
   const nia = await register("Nia Sol", "nia");
   niaToken = nia.token;
   niaId = nia.id;
   const omar = await register("Omar Rios", "omar");
   omarToken = omar.token;
+  const pia = await register("Pia Vega", "pia");
+  piaToken = pia.token;
 
   // Opening a decision takes proposal.open (co-creator); Omar stays member.
   for (const [id, stage] of [
     [niaId, "co-creator"],
     [omar.id, "member"],
+    [pia.id, "member"],
   ] as const) {
     const granted = await call("PUT", `/api/admin/players/${id}/stage`, { stageId: stage });
     expect(granted.status, `stage grant for ${id}`).toBe(200);
   }
 
-  // The seat plane is raw SQL on purpose (0049: not a dbCollection).
+  // The seat plane is raw SQL on purpose (0049: not a dbCollection). Pia's
+  // Garden seat is flagged represents_circle, the one narrow bridge that
+  // makes a non-admin a declarer, for the Garden and nothing else (0083).
   await pool.query(
     "INSERT INTO org_roles (id, circle_id, name, seats, active) VALUES ('seat-cook', 'kitchen', 'Cook', 1, 1)",
   );
   await pool.query(
     "INSERT INTO org_role_assignments (id, org_role_id, holder_kind, user_id, holder_key) VALUES ('asg-cook-nia', 'seat-cook', 'member', ?, ?)",
     [niaId, niaId],
+  );
+  await pool.query(
+    "INSERT INTO org_roles (id, circle_id, name, seats, active, represents_circle) VALUES ('seat-garden-voice', 'garden', 'Garden voice', 1, 1, 1)",
+  );
+  await pool.query(
+    "INSERT INTO org_role_assignments (id, org_role_id, holder_kind, user_id, holder_key) VALUES ('asg-garden-pia', 'seat-garden-voice', 'member', ?, ?)",
+    [pia.id, pia.id],
   );
 
   ledgerRowsBefore = await countRows("token_ledger");
@@ -404,6 +420,43 @@ describe.skipIf(!DB_CONFIGURED)("the resources module", () => {
     });
     expect(ghostCircle.status).toBe(400);
     expect(String(ghostCircle.json?.error)).toContain("No such circle");
+  });
+
+  it("a circle's representative cannot overwrite another circle's rule by its id (BOLA)", async () => {
+    // Pia speaks for the Garden, so she may declare Garden rules and only
+    // those. She declares one, to prove she is a real declarer.
+    const own = await call(
+      "POST", "/api/admin/resources/rules",
+      { scope: "circle", scopeId: "garden", amountMinor: 1000, unit: "CHF", approval: "none", paidFrom: "circle-budget" },
+      piaToken,
+    );
+    expect(own.status, own.text).toBe(200);
+
+    // A Kitchen rule she has no authority over. Read its id and its amount.
+    const kitchenRule = ((await call("GET", "/api/resources", undefined, niaToken)).json.rules as any[]).find(
+      (r) => r.scope === "circle" && r.scopeId === "kitchen" && r.approval === "none",
+    );
+    expect(kitchenRule, "a Kitchen rule exists to target").toBeTruthy();
+    const amountBefore = kitchenRule.amountMinor;
+
+    // The attack: pass the Kitchen rule's id, but name the Garden (which she
+    // may declare for) as the scope. The destination gate would pass; the
+    // stored-row gate must not.
+    const tamper = await call(
+      "POST", "/api/admin/resources/rules",
+      { id: kitchenRule.id, scope: "circle", scopeId: "garden", amountMinor: 999999, unit: "CHF", approval: "none", paidFrom: "treasury" },
+      piaToken,
+    );
+    expect(tamper.status, "the stored row's circle gates the edit").toBe(401);
+
+    // The Kitchen rule is untouched: same amount, still the Kitchen's.
+    const [rows] = await pool.query<any[]>(
+      "SELECT scope_id, amount_minor FROM spending_rules WHERE id = ?",
+      [kitchenRule.id],
+    );
+    expect(rows.length).toBe(1);
+    expect(String(rows[0].scope_id)).toBe("kitchen");
+    expect(Number(rows[0].amount_minor)).toBe(amountBefore);
   });
 
   it("moved nothing: the ledger and the charges hold their row counts (harm metric a)", async () => {

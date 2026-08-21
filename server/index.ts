@@ -12769,6 +12769,19 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!mayDeclareResources(ruleDeclareTarget(req.body, orgRoles), declareCtx)) {
       return res.status(401).json({ error: "auth_required", message: "Declaring here takes admin, org.declare, or this circle's speaking seat" });
     }
+    // An edit must clear the gate for the row it OVERWRITES, not only the
+    // destination it names. Without this, a declarer for circle A could send
+    // circle B's rule id with scopeId=A: the check above sees A and passes,
+    // then upsertRule's UPDATE ... WHERE id = <B's row> re-parents B's rule to
+    // A. The DELETE path already authorizes against the stored row; the upsert
+    // has to match, so a represents_circle seat cannot reach outside its circle.
+    const editId = String(req.body?.id ?? "").trim();
+    if (editId) {
+      const existing = (await listRules(getPool())).find((r) => r.id === editId);
+      if (existing && !mayDeclareResources(ruleDeclareTarget(existing, orgRoles), declareCtx)) {
+        return res.status(401).json({ error: "auth_required", message: "That rule belongs to a circle you cannot declare for" });
+      }
+    }
     if (req.body.scope === "circle" && !(circlesRepo.all() as any[]).some((c: any) => c.id === String(req.body.scopeId))) {
       return res.status(400).json({ error: "No such circle" });
     }
