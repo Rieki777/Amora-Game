@@ -20,7 +20,14 @@ const headers = (): Record<string, string> => {
   const t = authToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
-const jsonHeaders = () => ({ ...headers(), "Content-Type": "application/json" });
+// The Authorization header is attached HERE, in this declaration, on purpose:
+// the auth guard (scripts/check-auth-fetch.mjs) reads one helper deep, and a
+// helper that hides the token behind a second helper reads as a stranger's
+// call to every route that refuses strangers.
+const jsonHeaders = (): Record<string, string> => {
+  const t = authToken();
+  return { ...(t ? { Authorization: `Bearer ${t}` } : {}), "Content-Type": "application/json" };
+};
 
 interface MineRow {
   id: string;
