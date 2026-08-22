@@ -589,6 +589,22 @@
      the panel starts at plus a hand's breadth under it. */
   #skin{max-height:calc(100vh - 120px);max-height:calc(100dvh - 120px);
     overflow-y:auto;overscroll-behavior:contain}
+  /* THE ROWS KEEP THEIR OWN HEIGHT AND THE PANEL SCROLLS. Giving this
+     column a ceiling (above, and height:72% in the pocket sheet) is what
+     stops its tail running off the bottom of the screen, and it also let
+     flexbox do what flexbox does to a bounded column: flex-shrink defaults
+     to 1, so every row became free to shrink BELOW ITS OWN CONTENT.
+     MEASURED with the panel open and nothing else on screen: the land
+     theme row reported height 44 while the swatch list inside it reported
+     164, so 120 px of theme buttons painted over the rows above and below.
+     Every probe passed the whole time, because a crushed row's children
+     are still the right size, still opaque, still on screen, and
+     elementFromPoint at each centre still returns the button. Overlap is
+     not a question any of those ask, and a screenshot is what caught it.
+     All three containers, because #maskLook and the nested #themePanel are
+     themselves columns inside a bounded column and inherit the same
+     defaults. */
+  #skin>*,#skin #maskLook>*,#skin #themePanel>*{flex:0 0 auto}
   /* THE THEME PANEL, NOW A SECTION OF THIS ONE. #themePanel is moved into
      #maskLook at boot with a single appendChild, so every control keeps the
      element, the listener and the state it already had. Two id selectors
@@ -1510,7 +1526,11 @@
   <button class="btn ghostbtn" id="skReset" style="font-size:11px;padding:5px 13px">Reset to Amora</button>
   <button class="btn ghostbtn" id="skClose" style="font-size:11px;padding:5px 13px;margin-left:auto">✕</button>
  </div>
- <div style="font-size:9.5px;color:#8a7347;font-style:italic">this panel lives at step 6 of Make This Yours on the site. Style it once and site and land match.</div>
+ <!-- This sentence is about where the VILLAGE's styling is administered, so
+      it belongs with the village's own rows and not above a member's
+      personal view. It was the last thing a member read in a panel whose
+      first sentence promises the opposite. -->
+ <div data-village="1" style="font-size:9.5px;color:#8a7347;font-style:italic">this panel lives at step 6 of Make This Yours on the site. Style it once and site and land match.</div>
 </div>
 <button id="buildBtn">⚒ Build</button>
 <div id="buildBar"><h3>Build mode · the founder's hand</h3><div id="palette"></div>

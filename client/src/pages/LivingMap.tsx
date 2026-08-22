@@ -179,32 +179,45 @@ export default function LivingMap() {
   }, []);
 
   /**
-   * Put the page back to life size.
+   * Put the page back to life size, and SAY SO WHEN THE BROWSER REFUSES.
    *
-   * There is no API that sets `visualViewport.scale`, so this does the one
-   * thing that works across engines: pins `maximum-scale=1` for a moment, which
-   * makes the current zoom illegal and the browser drops it, then puts the
-   * original content back.
+   * There is no API that sets `visualViewport.scale`. The one technique that
+   * exists is to pin `maximum-scale=1` for a moment, which makes the current
+   * zoom illegal so the engine drops it, then put the original back.
    *
-   * THE RESTORE IS NOT OPTIONAL AND IS NOT TIDINESS. Leaving `maximum-scale=1`
-   * in place would take pinch zoom away from the whole site permanently, which
-   * is the thing WCAG 1.4.4 exists to stop, and it would do it to the people
-   * who need it most. It is restored on the next frame, and again in a
-   * `finally` if anything in between throws.
+   * IT DOES NOT WORK EVERYWHERE, AND THIS WAS MEASURED RATHER THAN ASSUMED.
+   * Driven at 390x844 with a genuine `Input.synthesizePinchGesture` to scale
+   * 3, four variants of the technique were tried and every one left the page
+   * at 3: restoring on the next frame, holding `maximum-scale=1` for 350 ms,
+   * adding `user-scalable=no`, replacing the whole meta element, and scrolling
+   * to the origin first. It is documented to work on iOS Safari and it
+   * provably does not work on this engine.
+   *
+   * So the button TRIES, and if the scale has not come down 600 ms later it
+   * stops claiming and tells the person the gesture that will. A control that
+   * silently does nothing is worse than no control, and the founder's
+   * complaint here was being stranded without knowing why.
+   *
+   * THE RESTORE IS NOT TIDINESS. Leaving `maximum-scale=1` in place would take
+   * pinch zoom away from the whole site permanently, which is what WCAG 1.4.4
+   * exists to stop, and it would take it from the people who need it most. It
+   * is restored on a timer that runs whatever else happens.
    */
+  const [zoomStuck, setZoomStuck] = useState(false);
+
   const resetZoom = useCallback(() => {
     const meta = document.querySelector('meta[name="viewport"]');
     if (!meta) return;
     const original = meta.getAttribute("content") || "";
-    try {
-      meta.setAttribute(
-        "content",
-        "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover",
-      );
-      requestAnimationFrame(() => meta.setAttribute("content", original));
-    } finally {
-      setTimeout(() => meta.setAttribute("content", original), 300);
-    }
+    meta.setAttribute(
+      "content",
+      "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover",
+    );
+    window.setTimeout(() => meta.setAttribute("content", original), 350);
+    window.setTimeout(() => {
+      const vv = window.visualViewport;
+      setZoomStuck(!!vv && vv.scale > 1.05);
+    }, 600);
   }, []);
 
   /**
@@ -796,17 +809,21 @@ export default function LivingMap() {
         <button
           type="button"
           onClick={resetZoom}
-          aria-label="Reset view"
+          aria-label={zoomStuck ? "Pinch the page to put it back" : "Reset view"}
           className="fixed z-20 inline-flex items-center gap-2 min-h-[44px] px-4 py-2 text-sm rounded-full border border-border bg-background/95 text-foreground shadow-md backdrop-blur-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           style={{
             left: `${zoom.left + 12}px`,
             top: `${zoom.top + 12}px`,
+            /* Counter-scaled so it stays the size it was drawn at instead of
+               growing into a slab as the zoom climbs. Its LAYOUT box shrinks
+               and its physical size on the glass does not, which is the size a
+               thumb is measured against. */
             transform: `scale(${1 / zoom.scale})`,
             transformOrigin: "top left",
           }}
         >
           <Minimize2 className="w-4 h-4 shrink-0" aria-hidden="true" />
-          Reset view
+          {zoomStuck ? "Pinch to put the page back" : "Reset view"}
         </button>
       )}
 
