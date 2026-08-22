@@ -1978,7 +1978,10 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect((await api("POST", "/api/admin/stays/post-nights", {}, founderToken)).json.posted).toBe(0);
     const mineNow = await api("GET", "/api/stays", undefined, guestToken);
     expect(mineNow.json.mine.balance).toBe(4); // 10 - 3 nights × 2
-    expect(mineNow.json.mine.stays[0].nightsRemaining).toBe(2); // floor(4/2), derived
+    // Look the stay up by id. Indexing [0] made this a coin flip: two stays for one
+    // guest booked in the same second tie on created_at, so the order was undefined.
+    const mineRow = mineNow.json.mine.stays.find((r: any) => r.id === stayId);
+    expect(mineRow?.nightsRemaining).toBe(2); // floor(4/2), derived
 
     // ── GRACE: with 10 more nights owed and 4 credits held, posting walks the
     // balance down to exactly -(grace_nights × rate) = -4 and STOPS. The stay
@@ -1989,7 +1992,8 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(grace.json.stopped).toBe(1);
     const inDebt = await api("GET", "/api/stays", undefined, guestToken);
     expect(inDebt.json.mine.balance).toBe(-4);
-    expect(inDebt.json.mine.stays[0].status).toBe("active"); // never auto-ended
+    const debtRow = inDebt.json.mine.stays.find((r: any) => r.id === stayId);
+    expect(debtRow?.status).toBe("active"); // never auto-ended
     // The economy still verifies: this negative is LEGAL (stay_night grace).
     const recGrace = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
     expect(recGrace.json.invariants.ok).toBe(true);
