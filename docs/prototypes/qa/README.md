@@ -690,11 +690,21 @@ ways to get a wrong answer, both seen in one session:
   which also fails on the baseline" is an answer.
 
 `verify_maia_journey.js` covers the guided conversation, Maia's voice, and the
-dock as an injection surface. 73 checks over both profiles, and it ships with
+dock as an injection surface. 82 checks over both profiles, and it ships with
 its own mutation runner:
 
-    source ./env.sh && node verify_maia_journey.js      # ~70s
-    source ./env.sh && python3 break_maia_journey.py    # ~16 min, 12 mutations
+    source ./env.sh && node verify_maia_journey.js      # ~75s
+    source ./env.sh && python3 break_maia_journey.py    # ~25 min, 15 mutations
+    MAIA_ONLY=arrival python3 break_maia_journey.py     # one row; it prints PARTIAL
+    MAIA_SUITE=/path/to/other.js python3 break_maia_journey.py   # A/B two suites
+
+`MAIA_SUITE` exists so two versions of the suite can be put against the SAME
+mutant. A guard fix has to be shown to change something, and the only honest
+way to show it is to run the mutant twice, alternating, with nothing else
+moving. Screenshots go to `../.qa-out/`, which `.gitignore` already carries;
+they used to be written by bare relative path into whatever directory the suite
+was launched from, and 2.8 MB of untracked PNGs in a shared worktree is one
+`git add .` away from being committed by another lane.
 
 `break_maia_journey.py` writes a deliberately broken artifact for each known
 defect, stages it as `<dir>/grounds-v0.html` under `%LOCALAPPDATA%`, and
@@ -705,6 +715,24 @@ passing over three real breaks: the dock has two independent XSS defences
 `<template>`), and any assertion that only observes their combined outcome
 stays green when either one alone is removed. Section J measures each layer
 separately for that reason.
+
+**And for two rounds it did not, which is the sharper half of the story.**
+Section J separated the layers and then held its spy open for a fixed 2600ms
+against a camera flight that is frame-counted. When the flight lands late the
+spy captures only the OPENING line of the walk, where the journey NAME is
+escaped by a different call: J2 finds its `&lt;img` there, J3 finds no live one
+there, and both print green with the poisoned step TITLE never handed to the
+parser at all. `break_maia_journey.py` said so in plain words the whole time,
+`journey title unescaped again -> SILENT (nothing) MISSING J3`, and the report
+of that round did not carry the line. **The breaker was honest; the summary of
+it was not.**
+
+Measured, four browsers at a time: the 2600ms version missed that break in
+**6 of 6** runs and the polling version caught it **6 of 6**. Run the same pair
+serially on an idle box and BOTH catch it 5 of 5, which is why an idle rerun is
+not a defence of a budget. J1 now waits for the stop row and asserts the
+ARRIVAL line was among what the spy caught, rather than counting lines: one
+line is what the opening satisfies on its own.
 
 **C7/C7b cover the arrival guard, and they cost a second draft.** `playJourney`
 speaks from the camera flight's arrival callback, which fires frames after the
@@ -717,6 +745,109 @@ that window instead, which is what the comment sitting beside the guard in the
 artifact had already said: it is the only callback that fires late, so it is
 the only one that threw. **Read the comment next to the thing you are
 checking.**
+
+**Then the second draft waited for a clock, which is the defect the paragraph
+below had already taught this file.** `jEnd()` followed by a fixed
+`setTimeout(3500)` for that frame-counted flight: when the landing falls past
+the budget the late callback is never driven, no throw can be observed, and C7b
+prints green over a path nobody walked. The first measurement of that miss was
+wrong about its own conditions, and an independent review caught it: the probe
+here opened a fresh context per rep and timed from `playJourney`, a COLD flight
+landing at 3835-4371ms, past the budget, and reported the break missed in
+**2 of 6** runs. The review ran the same pair in the suite's real conditions,
+about 40 seconds in on a warm page with the flight landing at 1882-2491ms, and
+the 3500ms version caught the removal **11 of 11** there. Both numbers are true
+of their own context and neither is a property of the check: a budget that
+catches a break warm and misses it cold or under load is an observability that
+moves with machine state, and a missed run prints a full 73 of 73 ALL GREEN.
+C7 polls
+`travel` now and the timeout is an ASSERTION rather than a fallback, so a flight
+that never lands turns C7 red instead of letting C7b pass over nothing. C7 also
+PRINTS the landing it waited for, so the number that decides this comes out of
+the gate rather than out of a separate instrument.
+
+The same defect, in three sections of one file, each found separately. **When
+you fix one fixed-millisecond wait, grep the whole suite for the others the
+same hour.**
+
+**The dock's second layer had holes, and each was held shut by something other
+than itself.** `escq` replaces `&`, `<` and `"`, which makes a value safe to SIT
+inside an attribute and says nothing about what the attribute then DOES:
+`javascript:alert(1)` goes through it letter for letter, and the dock built a
+sign-in href out of `d.href`, which arrives on the `promise-result` message over
+the same bridge section H drives. Nothing fired, because an anchor carrying
+`target="_blank"` declines a `javascript:` URL. A defence that rests on another
+attribute's side effect is not a defence, so `safeHref()` now refuses any scheme
+that is not http or https, and it reads the scheme off the string the browser
+will see rather than the string it was handed (`java\tscript:x` runs; tabs and
+newlines come out of a URL before the scheme is parsed). K1-K3 drive the real
+message and assert on the href the anchor carries, never on a click: a click on
+that anchor would measure the browser's rule and never the map's.
+
+`maiaClean` removed banned ELEMENTS and never looked at attributes, so a live
+`on*` handler on a `<b>` the parser was happy to keep went straight through the
+layer that exists for exactly that day. It strips them now against
+**an allowlist over the handler VALUE, never over the element**: the dock writes
+its own controls as `<button onclick="jNext()">` and no rule about elements can
+tell those from an attacker's. The `claimQuest` form in that allowlist accepts
+two single-quoted arguments with every inner quote and backslash escaped, which
+is what `escja` produces and what a broken `escja` would not, so an escaping
+regression now shows up in layer two as well as layer one. `<style>`, `<marquee>`
+and `<details>` joined `MSAY_BAN` in the same pass; `<style>` is the one that
+matters, because one rule reaches the whole page.
+
+**J6 is the check that was hard to write, and it is the reason the strip can be
+trusted.** The failure mode of an allowlist is silent: a stripped `onclick`
+renders as a button that does nothing, which looks exactly like a button nobody
+wired. Grepping 37 call sites for `onclick=` does not answer it, because a
+template literal puts the handler on a different line from the `maiaSay`
+carrying it. So `maiaClean` records what it removed, and J6 reads that record
+after the suite has driven the tour, a journey from both entry points, the
+concierge, the claim link and two poisoned scenes over the bridge, and requires
+it to be empty. **That is an enumeration. A grep is not.**
+
+**The strip took an existing check with it, and the breaker found that on its
+first run.** The row `the claim attribute loses its JS escape` used to prove
+itself through I6, which counts EXECUTIONS. With the strip in place a broken
+`escja` no longer produces a live handler at all: the value stops matching the
+allowlist, the handler is removed, and the anchor arrives inert. So the run
+printed
+
+    the claim attribute loses its JS escape   81   SILENT  I5,J3b   MISSING I6
+
+I6 is not wrong. It is now guarded by two defences and cannot tell them apart,
+which is the same two-defences-one-observation shape section J exists to end,
+arriving from the other side. **A new defence can retire an old check without
+anyone noticing, and the mutation runner is what notices.** I6b reads the
+string the concierge handed the parser, before any strip touches it, so only
+layer one can satisfy it. I5 and J3b go red on that mutant too and are
+deliberately not required: those are layer two doing its job.
+
+**And I6b's own first draft was red on a correct artifact.** It searched the
+whole handed line for the raw closer, and the same answer prints the quest name
+as TEXT beside the link through `escq`, which leaves a single quote alone,
+correctly, because a quote in text is a quote. The text occurrence is right and
+the attribute occurrence is the defect; a substring test over the line cannot
+separate them. It pulls the `onclick` values out first now. Two instrument
+bugs in one pass, both found by running the thing rather than by reading it.
+
+**Where the breaker stands: 15 of 15, exit 0, control 82 checks clean.** Print
+that line whenever this lane is reported on. The run before it was 14 of 15 and
+the summary of the run before THAT one omitted a failure entirely, which is the
+whole reason this paragraph exists.
+
+### Named for the lane that owns the doors
+
+`escq` is entity-only everywhere, and `safeHref()` is exported as
+`window.safeHref` so it can be used outside the dock. On `origin/main` there are
+three `href="${escq(...)}"` sites in `grounds-v0.html`; this lane fixed the one
+it owns, the sign-in door built from `d.href`. **The other two are the door
+surfaces, and they are not obviously latent the way the dock's was.** The dock's
+anchor is saved by `target="_blank"`, which declines a `javascript:` URL. Those
+two carry `onclick="return siteNav(event,…)"`, and `siteNav` does
+`window.top.location.href = siteHref(route)` when the map is embedded, which is
+a programmatic navigation and gets no such refusal. Worth a look by whoever owns
+that surface; this lane did not touch it.
 
 `check_maia_voice.mjs` holds Maia's shipped copy to the house writing rules.
 It needs no browser and takes about four seconds:
@@ -779,3 +910,17 @@ silent-zero defect wearing a green shirt.
   every time. Every one of those runs printed a full 71 of 71 checks, so it
   read as a real defect and not as a flake. It now polls for the spoken line,
   which is both correct and faster. **Wait for the state.**
+- **And the fix for F7 did not travel.** C7b shipped with `setTimeout(3500)`
+  and section J with `setTimeout(2600)` for that same arrival, in the same file,
+  after F7's fix and after the paragraph above was written. Both were found by
+  a reviewer rather than by this harness.
+- **The knob is BROWSERS, not cores, and that is worth knowing before you try
+  to reproduce one of these.** `_probe_arrival_dist.js` measures the landing
+  directly: one browser on an idle box lands at **1858-2148ms**, and four
+  CPU-burning workers do not move it by a millisecond, because headless
+  chromium's rAF throttle is the bound rather than the core. Four SUITES at
+  once, which is the ordinary state of this box when several lanes work
+  together, put it at **3170-4220ms** over twelve runs. Both retired budgets
+  sit inside that spread. So a serial rerun on a quiet machine cannot clear a
+  fixed-millisecond wait, and "it passed for me" about one of these means only
+  that nobody else was running.

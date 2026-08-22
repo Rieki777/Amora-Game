@@ -77,10 +77,22 @@ BREAKS = [
       "maiaSay(`${s.name}: ${s.blurb.split('.')[0].toLowerCase()}. "),
      ["I2"]),
 
+    # THIS ROW MOVED WHEN LAYER TWO ARRIVED, and it moved for a good reason.
+    # I6 measures executions. maiaClean now strips a handler whose value is not
+    # one this file writes, so a broken escja produces an INERT anchor and I6
+    # reads zero executions whether escaping works or not. The first run after
+    # the strip landed reported exactly that:
+    #   the claim attribute loses its JS escape  81  SILENT  I5,J3b  MISSING I6
+    # I6b reads the string the parser was handed, before any strip, so it is
+    # the one that can still see layer one. I5 and J3b go red too and are NOT
+    # required: I5 because the anchor lost its onclick, J3b because the strip
+    # records that the dock lost a control it wrote. Those are layer two doing
+    # its job, and requiring them would make this row red for something that is
+    # not the escaping.
     ("the claim attribute loses its JS escape",
      ("<a onclick=\"claimQuest('${escja(best.q)}','${escja(nm)}')\">",
       "<a onclick=\"claimQuest('${escq(best.q)}','${escq(nm)}')\">"),
-     ["I6"]),
+     ["I6b"]),
 
     ("the phone sheet never opens",
      ("document.body.classList.add('msheet');JSHEET=true}}",
@@ -144,7 +156,7 @@ BREAKS = [
     ("MSAY_BAN loses style",
      (",track,style,marquee,details';",
       ",track,marquee,details';"),
-     ["J8"]),
+     ["J7"]),
 
     ("maiaClean stops reading attributes",
      ("  t.content.querySelectorAll('*').forEach(function(el){\n"
@@ -155,7 +167,7 @@ BREAKS = [
       "      MSAY_STRIPPED.push(el.tagName.toLowerCase()+'['+a.name.toLowerCase()+']');\n"
       "      while(MSAY_STRIPPED.length>24)MSAY_STRIPPED.shift()}});\n",
       ""),
-     ["J7b"]),
+     ["J6b"]),
 
     ("the sign-in href goes back to escq",
      ('<a href="${safeHref(d.href)}" target="_blank" rel="noopener">Sign in</a>',

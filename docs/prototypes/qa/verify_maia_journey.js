@@ -55,7 +55,9 @@ function shot(name) { try { fs.mkdirSync(SHOTS, { recursive: true }); } catch (_
  *   journey title unescaped again      -> J3
  *   dock parses in a live document     -> J1, J2
  *   maiaContext prints the name raw    -> I2
- *   claim attribute loses escja        -> I6
+ *   claim attribute loses escja        -> I6b, and I5 and J3b as
+ *     knock-ons: layer two strips the broken handler, so the link
+ *     arrives inert and I6 sees nothing execute either way
  *   the phone sheet never opens        -> D3, D4, D5
  *   #maia gets a bottom literal        -> D5
  *   the third answer disappears        -> C1, D6
@@ -65,8 +67,8 @@ function shot(name) { try { fs.mkdirSync(SHOTS, { recursive: true }); } catch (_
  *   the voice ships defaulted to hear  -> F1b
  *   the arrival callback drops its
  *     JWALK re-check                   -> C7b
- *   MSAY_BAN loses <style>             -> J8
- *   maiaClean stops reading attributes -> J7b
+ *   MSAY_BAN loses <style>             -> J7
+ *   maiaClean stops reading attributes -> J6b
  *   the sign-in href goes back to escq -> K2
  */
 const BREAKS = 15;
@@ -537,8 +539,15 @@ async function open(browser, opts) {
      string without touching an HTML delimiter. */
   const i5 = await page.evaluate(async () => {
     window.__JS = 0;
+    /* THE STRING THE PARSER WAS HANDED, kept so layer one can be read on its
+       own. Without this the only observable is "did it execute", and since
+       maiaClean started stripping handlers that answers NO whether escja works
+       or not. Same spy as section J, same reason. */
+    const realClean = window.maiaClean;
+    window.__SEEN2 = [];
+    window.maiaClean = function (h) { window.__SEEN2.push(String(h)); return realClean(h); };
     const q = SCENE.quests[0];
-    if (!q) return { drove: false };
+    if (!q) { window.maiaClean = realClean; return { drove: false }; }
     q.q = "');window.__JS=1;('";
     /* questBest() scores shared words over 3 letters and needs two of them, so
        the ask has to actually match this quest or the concierge answers with
@@ -551,10 +560,37 @@ async function open(browser, opts) {
     const a = document.querySelector('#maiaLog a[onclick]');
     if (a) a.click();
     await new Promise(r => setTimeout(r, 400));
-    return { drove: true, hasAnchor: !!a, attr: a ? a.getAttribute('onclick') : '', fired: window.__JS || 0 };
+    window.maiaClean = realClean;
+    return { drove: true, hasAnchor: !!a, attr: a ? a.getAttribute('onclick') : '', fired: window.__JS || 0,
+             handed: (window.__SEEN2 || []).join('\n') };
   });
   ok(i5.drove && i5.hasAnchor, `I5: the concierge really does build a claim link with a name in it (${i5.hasAnchor})`);
   ok(i5.fired === 0, `I6: and a quest name cannot close the JS string inside its attribute (${i5.fired} executions)`);
+
+  /* I6b. LAYER ONE ON ITS OWN, and it exists because I6 stopped being able to
+     see the break it was written for. I6 measures EXECUTIONS, and maiaClean
+     now strips a handler whose value is not one this file writes, so a broken
+     escja produces an inert anchor rather than a live one and nothing executes
+     either way. Two defences, one observation, exactly the shape section J was
+     built to end. This reads the string the concierge handed the parser,
+     before any strip touches it, so layer two cannot satisfy it.
+
+     AND IT ASSERTS THE PAYLOAD ARRIVED. "no raw closer in the string" is also
+     what an empty string reports, and what a concierge that answered about
+     something else entirely reports.
+
+     IT READS THE ATTRIBUTE, NOT THE LINE, and the first draft did not. Searching
+     the whole handed string for the raw closer went RED on a correct artifact,
+     because the same answer prints the quest name as TEXT beside the link
+     through escq, and escq leaves a single quote alone: correctly so, since a
+     quote in text is a quote. The text occurrence is right and the attribute
+     occurrence is the defect, and a substring test over the whole line cannot
+     tell those apart. So the onclick values are pulled out first. */
+  const i6attrs = ((i5.handed || '').match(/onclick="[^"]*"/g) || []).join('\n');
+  const i6raw = i6attrs.indexOf("');window.__JS=1;('") >= 0;
+  const i6saw = i6attrs.indexOf('claimQuest(') >= 0 && i6attrs.indexOf('window.__JS') >= 0;
+  ok(i6saw && !i6raw,
+    `I6b: LAYER ONE. the quest name reaches the parser with its quotes already escaped inside the attribute (payload reached it=${i6saw}, raw closer present=${i6raw})`);
 
   /* ---------- J. each defence on its own ----------
      THIS SECTION EXISTS BECAUSE THE BREAK REHEARSAL EMBARRASSED THE ONE
@@ -616,6 +652,30 @@ async function open(browser, opts) {
   ok(j1.all.indexOf('<img') < 0,
     'J3: and no live <img> is ever handed to it, whatever the parser would do with one');
 
+  /* J3b. THE ALLOWLIST'S OWN POSITIVE CONTROL, and the reason the strip below
+     can be trusted at all. maiaClean now removes every on* attribute whose
+     value is not one of the five handlers this file writes, and the failure
+     mode of an allowlist is silent: a stripped onclick renders as a button
+     that does nothing, which looks exactly like a button nobody wired.
+
+     SO THE STRIP KEEPS A RECORD AND THIS READS IT. By this line the suite has
+     driven the tour, a journey from both entry points, the concierge, the
+     claim link whose onclick carries an escja'd quest name, and two poisoned
+     scenes over the config bridge. The record has to be empty. That is an
+     enumeration; a grep over 37 call sites is not, because a template literal
+     puts the handler on a different line from the maiaSay carrying it.
+
+     IT IS READ HERE, BEFORE J4, AND THAT PLACEMENT COST A RED. Written after
+     J5 it reported `1: button[onclick]` on a correct artifact, because J4
+     hands maiaClean its own `<button onclick="void 0">` and `void 0` is not
+     one of this file's handlers, so the strip took it and said so. The record
+     answers "what did the VILLAGE lose", and everything below this line is the
+     suite feeding the parser strings the village never wrote. A control that
+     counts the experiment's own leavings is measuring itself. */
+  const jrec = await page.evaluate(() => (window.MSAY_STRIPPED || []).slice());
+  ok(jrec.length === 0,
+    `J3b: nothing the dock wrote for itself was stripped by the handler allowlist (${jrec.length}${jrec.length ? ': ' + jrec.join(' ') : ''})`);
+
   const j4 = await page.evaluate(async () => {
     window.__INERT = 0;
     const frag = window.maiaClean('<img src=x onerror="window.__INERT=1">' +
@@ -631,23 +691,7 @@ async function open(browser, opts) {
   ok(j4.b === 1 && j4.btn === 1,
     `J5: and keeps the markup the dock is built from, including its own onclick controls (b=${j4.b}, button=${j4.btn})`);
 
-  /* J6. THE ALLOWLIST'S OWN POSITIVE CONTROL, and the reason the strip below
-     can be trusted at all. maiaClean now removes every on* attribute whose
-     value is not one of the five handlers this file writes, and the failure
-     mode of an allowlist is silent: a stripped onclick renders as a button
-     that does nothing, which looks exactly like a button nobody wired.
-
-     SO THE STRIP KEEPS A RECORD AND THIS READS IT. By this line the suite has
-     driven the tour, a journey from both entry points, the concierge, the
-     claim link whose onclick carries an escja'd quest name, and two poisoned
-     scenes over the config bridge. The record has to be empty. That is an
-     enumeration; a grep over 37 call sites is not, because a template literal
-     puts the handler on a different line from the maiaSay carrying it. */
-  const j6 = await page.evaluate(() => (window.MSAY_STRIPPED || []).slice());
-  ok(j6.length === 0,
-    `J6: nothing the dock wrote for itself was stripped by the handler allowlist (${j6.length}${j6.length ? ': ' + j6.join(' ') : ''})`);
-
-  /* J7. LAYER TWO AGAINST ATTRIBUTES, which is the half it did not have.
+  /* J6. LAYER TWO AGAINST ATTRIBUTES, which is the half it did not have.
      maiaClean removed banned ELEMENTS and never looked at attributes, so a
      live on* handler on a <b> the parser was happy to keep went straight
      through it. Layer two exists for the day a call site forgets to escape,
@@ -656,7 +700,7 @@ async function open(browser, opts) {
      THEN IT DRIVES THE RENDERED ELEMENT WITH A REAL EVENT. An attribute list
      is a description of the page; a handler that fires is the thing a
      person's mouse finds. */
-  const j7 = await page.evaluate(async () => {
+  const jattr = await page.evaluate(async () => {
     if (window.MSAY_STRIPPED) window.MSAY_STRIPPED.length = 0; else window.MSAY_STRIPPED = [];
     window.__ATTR = 0;
     document.getElementById('maiaLog').innerHTML = '';
@@ -671,17 +715,17 @@ async function open(browser, opts) {
              on: el ? [...el.attributes].map(a => a.name).filter(n => /^on/i.test(n)) : null,
              took: (window.MSAY_STRIPPED || []).slice() };
   });
-  ok(j7.kept && j7.text === 'hover me',
-    `J7: the element itself is still kept, so the village still reads what it wrote ("${j7.text}")`);
-  ok(j7.fired === 0 && j7.on && j7.on.length === 0,
-    `J7b: and no live handler survives the parse, driven by a real mouseover and a real click (fired=${j7.fired}, on=${JSON.stringify(j7.on)})`);
-  ok(j7.took.length === 2,
-    `J7c: and the strip says what it took, which is what makes J6's empty list mean something (${JSON.stringify(j7.took)})`);
+  ok(jattr.kept && jattr.text === 'hover me',
+    `J6: the element itself is still kept, so the village still reads what it wrote ("${jattr.text}")`);
+  ok(jattr.fired === 0 && jattr.on && jattr.on.length === 0,
+    `J6b: and no live handler survives the parse, driven by a real mouseover and a real click (fired=${jattr.fired}, on=${JSON.stringify(jattr.on)})`);
+  ok(jattr.took.length === 2,
+    `J6c: and the strip says what it took, which is what makes J3b's empty list mean something (${JSON.stringify(jattr.took)})`);
 
-  /* J8. The three elements that were missing from MSAY_BAN. <style> is the one
+  /* J7. The three elements that were missing from MSAY_BAN. <style> is the one
      that matters: a single rule reaches the whole page, and a dock that prints
      a village's own text is a place a rule can arrive. */
-  const j8 = await page.evaluate(() => {
+  const jban = await page.evaluate(() => {
     const probe = document.createElement('div');
     probe.appendChild(window.maiaClean(
       '<style>body{display:none}</style><marquee>m</marquee>' +
@@ -691,8 +735,8 @@ async function open(browser, opts) {
              details: probe.querySelectorAll('details').length,
              b: probe.querySelectorAll('b').length };
   });
-  ok(j8.style === 0 && j8.marquee === 0 && j8.details === 0 && j8.b === 1,
-    `J8: style, marquee and details go too, and the text beside them stays (style=${j8.style}, marquee=${j8.marquee}, details=${j8.details}, b=${j8.b})`);
+  ok(jban.style === 0 && jban.marquee === 0 && jban.details === 0 && jban.b === 1,
+    `J7: style, marquee and details go too, and the text beside them stays (style=${jban.style}, marquee=${jban.marquee}, details=${jban.details}, b=${jban.b})`);
 
   /* ---------- K. a URL is not text ----------
      escq replaces &, < and ", which makes a value safe to SIT inside an
@@ -806,7 +850,7 @@ async function open(browser, opts) {
   await P.ctx.close();
 
   /* ---------- the count is part of the result ---------- */
-  const EXPECTED = 81;
+  const EXPECTED = 82;
   console.log(`\nchecks run: ${checks} (expected ${EXPECTED}), breaks proven when written: ${BREAKS}`);
   if (checks < EXPECTED) {
     console.log(`FAIL SHORT: this suite stopped at ${checks} of ${EXPECTED} checks. A crash contributes an empty set, `
