@@ -71,7 +71,7 @@ Estimated sessions: 2
 - `PUT /api/admin/tools/:id — update, same validation`
 - `DELETE /api/admin/tools/:id — delete (click rows retained, orphan-tolerated)`
 - `PUT /api/admin/tools/order — bulk reorder, body is the full ordered id array, rewrites sortOrder atomically`
-- `PUT /api/admin/tools/categories — replace the category list; refuses to remove a category still referenced by a tool`
+- Categories live in the module config, not on a route of their own: `PUT /api/admin/modules/tools/config` replaces the whole document and the module's `validateConfig` checks it. Edited from Admin -> The Game -> Tools.
 - `POST /api/admin/tools/icon — multer memory + sharp: rotate, resize 256x256 fit inside, webp q82, saved as tool-{stamp}.webp in UPLOADS_DIR (exact clone of the brand-image pipeline; raster only, SVG explicitly rejected)`
 - `POST /api/admin/tools/check-links — admin-triggered (no scheduler exists): HEAD each enabled tool url with a 5s timeout, store lastCheckedAt/lastCheckStatus; https-only and private-IP ranges refused (SSRF guard)`
 - `GET /api/admin/tools/analytics — clicks per tool per window, the F13 'instrument now' readout (v2 polish; raw counts already on GET /api/admin/tools in v1)`

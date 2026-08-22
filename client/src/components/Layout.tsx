@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModules } from "@/modules/ModuleProvider";
 import NotificationBell from "@/components/NotificationBell";
-import { useGameConfig } from "@/lib/gameApi";
+import { altOr, useGameConfig } from "@/lib/gameApi";
 import { NAV, ACCOUNT_MENU, isGroup, type NavLink, type NavGroup } from "@/config/nav";
 import MobileTabBar, { isBareRoute } from "./mobile/MobileTabBar";
 import MobileFab from "./mobile/MobileFab";
@@ -122,7 +122,7 @@ export default function Layout({ children }: LayoutProps) {
             {cfg?.images?.logo ? (
               <img
                 src={cfg.images.logo}
-                alt={villageName || "Village logo"}
+                alt={altOr(cfg.images.logoAlt, villageName || "Village logo")}
                 style={{ height: "64px", width: "auto" }}
                 draggable={false}
               />
@@ -387,7 +387,7 @@ export default function Layout({ children }: LayoutProps) {
                 {cfg?.images?.heartLogo && (
                   <img
                     src={cfg.images.heartLogo}
-                    alt={villageName || "Village mark"}
+                    alt={altOr(cfg.images.heartLogoAlt, villageName || "Village mark")}
                     style={{ height: "90px", width: "auto" }}
                     draggable={false}
                   />

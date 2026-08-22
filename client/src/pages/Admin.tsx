@@ -21,14 +21,17 @@ import { BUILDER_GUIDE_URL, MODULE_GROUPS, POOL_REASON_COPY } from "@shared/modu
 import { filterNavByModules, TAB_MODULE, type TabBadge } from "@/lib/adminNav";
 import { AdminGoLive } from "@/components/modules/GoLiveCard";
 import type { ModuleLifecycle } from "@shared/modules";
+import { CIRCLE_STATUSES } from "@shared/draftKinds";
 
 const API_BASE = "/api";
 import TypographyPanel from "@/components/TypographyPanel";
 import LookPanel from "@/components/LookPanel";
 import IdentityPackPanel from "@/components/IdentityPackPanel";
 import MapSkinPanel from "@/components/MapSkinPanel";
+import MapVocabularyPanel from "@/components/admin/MapVocabularyPanel";
 import EventsAdminPanel from "@/components/EventsAdminPanel";
 import ResourcesAdminPanel from "@/components/power/ResourcesAdminPanel";
+import { CrowdpoolAdminTab, ForumCategoriesEditor, ToolsCategoriesEditor } from "@/components/admin/ModuleConfigPanels";
 import HousingAdminPanel from "@/components/HousingAdminPanel";
 import WalkEditorPanel from "@/components/WalkEditorPanel";
 import { ExampleChip, ExamplesBanner, forgetExamplesCache, RETIRES_WITH } from "@/components/ExamplesBanner";
@@ -147,6 +150,10 @@ function ForumModerationTab({ password }: { password: string }) {
           Hiding is always reversible. Nothing here deletes anyone's words.
         </p>
       </div>
+
+      {/* The category list, which the forum has validated on every write and
+          read on every request since it shipped, with no editor anywhere. */}
+      <ForumCategoriesEditor password={password} />
 
       <div className="flex gap-2">
         {(["open", "resolved", "dismissed"] as const).map((s) => (
@@ -483,6 +490,10 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         // light the map's buildings, so the two are edited in the same visit.
         { key: "events-admin", label: "Calendar", icon: Calendar },
         { key: "tools-admin", label: "Tools", icon: Handshake },
+        // The crowdpool shipped with campaign linking in module config and no
+        // door to it, so a founder could enable the module and never link a
+        // raising. This is that door.
+        { key: "crowdpool-admin", label: "Crowdpool", icon: Coins },
         { key: "stays-admin", label: "Stays & Payments", icon: Home },
         { key: "exchange-admin", label: "Exchange", icon: TrendingUp },
         { key: "badges-admin", label: "Badges", icon: GraduationCap },
@@ -4539,6 +4550,8 @@ function OrgChartTab({ password }: { password: string }) {
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<Record<string, any>>({});
+  const [circleDraft, setCircleDraft] = useState<Record<string, any>>({});
+  const [newSeat, setNewSeat] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState<Record<string, string>>({});
   // Opened per seat, because the point of a journal is reading one node's
   // history before you change it, not scrolling a feed of everything.
@@ -4583,7 +4596,11 @@ function OrgChartTab({ password }: { password: string }) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) { toast.error(d?.error ?? "That did not save"); return null; }
+    // `refusal` and not `d?.error`: the refusal bodies this tab now meets
+    // carry the sentence in `message` and the machine code in `error`, and a
+    // toast that prints `unknown_status` hands a founder a code and calls it
+    // an explanation. `??` also let a body with `error: ""` toast nothing.
+    if (!res.ok) { toast.error(refusal(d, "That did not save")); return null; }
     return d;
   };
 
@@ -4659,19 +4676,71 @@ function OrgChartTab({ password }: { password: string }) {
           const seats = byCircle.get(c.id) ?? [];
           return (
             <div key={c.id} className="bg-white border border-gray-100 rounded-xl p-5">
-              <div className="flex items-baseline justify-between mb-1">
-                <h3 className="font-semibold text-gray-900">{c.name}</h3>
-                <span className="text-xs text-gray-400">
-                  {c.status}
-                  {c.grownFromOrgRoleId && " · grew from a seat"}
-                </span>
-              </div>
-              {c.purpose && <p className="text-xs text-gray-500 mb-3">{c.purpose}</p>}
+              {/*
+                A CIRCLE'S NAME, PURPOSE AND STATUS ARE EDITABLE HERE.
+
+                All three are printed by /circles, /roles and /team, all three
+                of which are always-on core pages. The only editor used to be
+                the Circles and Map tab, which disappears with the map module,
+                so turning the map off took away the ability to rename a circle
+                while the public pages kept printing the old name. This tab has
+                no module gate, and `/api/admin/circles` no longer has one
+                either.
+              */}
+              {(() => {
+                const cd = circleDraft[c.id] ?? c;
+                const cDirty = ["name", "purpose", "status"].some((k) => (cd[k] ?? "") !== (c[k] ?? ""));
+                const setCircle = (patch: any) => setCircleDraft({ ...circleDraft, [c.id]: { ...cd, ...patch } });
+                return (
+                  <div className="mb-4">
+                    <div className="grid sm:grid-cols-3 gap-2 items-end">
+                      <label className="text-xs text-gray-500">Circle name
+                        <input value={cd.name ?? ""} className={`${inputCls} w-full mt-1 min-h-[44px]`} disabled={!!c.isExample}
+                          onChange={(e) => setCircle({ name: e.target.value })} />
+                      </label>
+                      <label className="text-xs text-gray-500">Status
+                        <select value={cd.status ?? "active"} className={`${inputCls} w-full mt-1 min-h-[44px]`} disabled={!!c.isExample}
+                          onChange={(e) => setCircle({ status: e.target.value })}>
+                          {CIRCLE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </label>
+                      <div className="text-xs text-gray-400 pb-2">
+                        {c.grownFromOrgRoleId && <span>Grew from a seat. </span>}
+                        {c.isExample && <span className="text-amber-700">Standing example, publish your own to replace it.</span>}
+                      </div>
+                    </div>
+                    <label className="text-xs text-gray-500 block mt-2">Purpose
+                      <textarea rows={2} value={cd.purpose ?? ""} className={`${inputCls} w-full mt-1`} disabled={!!c.isExample}
+                        onChange={(e) => setCircle({ purpose: e.target.value })} />
+                      <span className="block text-[11px] text-gray-400 mt-0.5">
+                        Printed on /circles as the circle's description, and on /roles as the heading under its name.
+                      </span>
+                    </label>
+                    <button
+                      disabled={!cDirty || !!c.isExample}
+                      className="mt-2 text-sm border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+                      onClick={async () => {
+                        const ok = await call(`/admin/circles/${c.id}`, { name: cd.name, purpose: cd.purpose, status: cd.status }, "PUT");
+                        if (ok) { toast.success("Circle saved"); setCircleDraft({ ...circleDraft, [c.id]: undefined }); void load(); }
+                      }}
+                    >Save circle</button>
+                  </div>
+                );
+              })()}
 
               <div className="space-y-3">
                 {seats.map((r) => {
                   const d = draft[r.id] ?? r;
-                  const dirty = ["name", "circleId", "aim", "domain", "seats"].some((k) => d[k] !== r[k]);
+                  /*
+                   * accountabilities is an ARRAY, so it is compared by value.
+                   * A `d[k] !== r[k]` over an array is a reference comparison
+                   * that is true the moment the draft object is cloned and
+                   * false for two different lists that happen to be the same
+                   * object, which is the wrong answer in both directions.
+                   */
+                  const dirty =
+                    ["name", "circleId", "aim", "domain", "seats", "whyItMatters"].some((k) => (d[k] ?? "") !== (r[k] ?? "")) ||
+                    JSON.stringify(d.accountabilities ?? []) !== JSON.stringify(r.accountabilities ?? []);
                   return (
                     <div key={r.id} className="border border-gray-100 rounded-lg p-3">
                       <div className="grid sm:grid-cols-4 gap-2 items-end">
@@ -4706,10 +4775,56 @@ function OrgChartTab({ password }: { password: string }) {
                             onChange={(e) => setDraft({ ...draft, [r.id]: { ...d, domain: e.target.value } })} />
                         </label>
                       </div>
+                      {/*
+                        Both of these are rendered on /roles inside the seat's
+                        expanded panel, and `updateOrgRole` has accepted both
+                        since the org chart shipped. The form never sent them,
+                        so every village's accountabilities and reason-this-
+                        matters were frozen at whatever the backfill wrote,
+                        while the banner on the old cards editor sent founders
+                        here promising the site updates immediately.
+                      */}
+                      <div className="grid sm:grid-cols-2 gap-2 mt-2">
+                        <label className="text-xs text-gray-500">Key accountabilities, one per line
+                          <textarea rows={4} value={(d.accountabilities ?? []).join("\n")} className={`${inputCls} w-full mt-1`}
+                            onChange={(e) => setDraft({
+                              ...draft,
+                              [r.id]: { ...d, accountabilities: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) },
+                            })} />
+                          <span className="block text-[11px] text-gray-400 mt-0.5">
+                            The ongoing work the circle counts on this seat to keep doing. Listed on /roles.
+                          </span>
+                        </label>
+                        <label className="text-xs text-gray-500">Why this seat matters
+                          <textarea rows={4} value={d.whyItMatters ?? ""} className={`${inputCls} w-full mt-1`}
+                            onChange={(e) => setDraft({ ...draft, [r.id]: { ...d, whyItMatters: e.target.value } })} />
+                          <span className="block text-[11px] text-gray-400 mt-0.5">
+                            Shown on /roles under Why This Role Matters.
+                          </span>
+                        </label>
+                      </div>
 
+                      {/*
+                        SEATING SOMEBODY WAS A ONE-WAY DOOR.
+
+                        `DELETE /api/admin/org/seatings/:id` and its `/forget`
+                        sibling shipped with their own test suite and no caller
+                        anywhere in the client, so a village could seat a person
+                        and never unseat them, and the right-to-be-forgotten
+                        path was reachable only by curl. `/api/org` now carries
+                        the seating id for admins, which is what these two need.
+
+                        Two doors on purpose. Ending a holding is ordinary and
+                        reversible: the person stays in the record and can be
+                        seated again. Forgetting is destructive and only exists
+                        for a documented holder, a real person with no account
+                        who asked to be erased: it scrubs their name and note
+                        from every row, live and historical, and nothing brings
+                        it back. It is labelled as such and it types their name.
+                      */}
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {(r.holders ?? []).map((h: any) => (
-                          <span key={h.userId ?? h.name} className={`text-xs rounded-full px-2 py-1 ${h.lapsed ? "bg-amber-50 border border-amber-200" : "bg-gray-100"}`}>
+                          <span key={h.assignmentId ?? h.userId ?? h.name} className={`text-xs rounded-full pl-3 pr-1 py-1 inline-flex items-center gap-1 ${h.lapsed ? "bg-amber-50 border border-amber-200" : "bg-gray-100"}`}>
                             {h.name}
                             {h.focus && <span className="text-gray-500"> · {h.focus}</span>}
                             {h.kind === "documented" && <span className="text-amber-700"> · no account yet</span>}
@@ -4717,6 +4832,35 @@ function OrgChartTab({ password }: { password: string }) {
                               <span className="text-amber-700">
                                 {" "}· {h.lapsedReason === "term" ? "term ended" : "seated last season"}
                               </span>
+                            )}
+                            {h.assignmentId && (
+                              <button
+                                type="button"
+                                aria-label={`End ${h.name}'s holding of ${r.name}`}
+                                className="ml-1 min-h-[44px] min-w-[44px] px-2 rounded-full text-gray-600 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+                                onClick={async () => {
+                                  const reason = window.prompt(`End ${h.name}'s holding of "${r.name}"? They stay in the record and can be seated again. Reason for the journal (optional):`);
+                                  if (reason === null) return;
+                                  const ok = await call(`/admin/org/seatings/${h.assignmentId}`, { reason }, "DELETE");
+                                  if (ok) { toast.success("Holding ended"); void load(); }
+                                }}
+                              >Unseat</button>
+                            )}
+                            {h.assignmentId && h.kind === "documented" && (
+                              <button
+                                type="button"
+                                aria-label={`Forget ${h.name} permanently`}
+                                className="min-h-[44px] min-w-[44px] px-2 rounded-full text-red-700 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-600"
+                                onClick={async () => {
+                                  const typed = window.prompt(
+                                    `FORGET ${h.name}. This ends every holding in their name and erases their name and notes from this seat's history, past entries included. It cannot be undone.\n\nType their name exactly to confirm:`,
+                                  );
+                                  if (typed === null) return;
+                                  if (typed.trim() !== String(h.name).trim()) { toast.error("That name did not match. Nothing was changed."); return; }
+                                  const ok = await call(`/admin/org/seatings/${h.assignmentId}/forget`, { reason: "forgotten at their request" });
+                                  if (ok) { toast.success(`Forgotten. ${ok.seatings} holding(s) ended.`); void load(); }
+                                }}
+                              >Forget</button>
                             )}
                           </span>
                         ))}
@@ -4749,6 +4893,7 @@ function OrgChartTab({ password }: { password: string }) {
                           onClick={async () => {
                             const ok = await call(`/admin/org/roles/${r.id}`, {
                               name: d.name, circleId: d.circleId, aim: d.aim, domain: d.domain, seats: d.seats,
+                              accountabilities: d.accountabilities ?? [], whyItMatters: d.whyItMatters ?? "",
                             }, "PUT");
                             if (ok) { toast.success("Saved"); setDraft({ ...draft, [r.id]: undefined }); void load(); }
                           }}
@@ -4778,6 +4923,27 @@ function OrgChartTab({ password }: { password: string }) {
                   );
                 })}
                 {seats.length === 0 && <p className="text-xs text-gray-400">No seats in this circle yet.</p>}
+                {/*
+                  Creating a seat. `POST /api/admin/org/roles` has existed since
+                  the org chart shipped and nothing in the browser called it, so
+                  a village could rename and re-seat the seats it was given and
+                  never add one of its own.
+                */}
+                <div className="flex flex-wrap gap-2 items-end pt-2 border-t border-gray-50">
+                  <label className="text-xs text-gray-500">Add a seat to this circle
+                    <input value={newSeat[c.id] ?? ""} placeholder="Welcome Host"
+                      className={`${inputCls} mt-1 min-h-[44px]`}
+                      onChange={(e) => setNewSeat({ ...newSeat, [c.id]: e.target.value })} />
+                  </label>
+                  <button
+                    className="text-sm border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+                    disabled={!String(newSeat[c.id] ?? "").trim()}
+                    onClick={async () => {
+                      const ok = await call("/admin/org/roles", { name: String(newSeat[c.id]).trim(), circleId: c.id, seats: 1 });
+                      if (ok) { toast.success("Seat added"); setNewSeat({ ...newSeat, [c.id]: "" }); void load(); }
+                    }}
+                  >Add seat</button>
+                </div>
               </div>
             </div>
           );
@@ -5316,6 +5482,10 @@ function ToolsAdminTab({ password }: { password: string }) {
       </div>
       {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
         <div className="space-y-6">
+          {/* The category list the tool form's picker reads. Validated on every
+              write, refused by name when a tool names one that is missing, and
+              editable by nobody until now. */}
+          <ToolsCategoriesEditor password={password} />
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
@@ -6932,6 +7102,86 @@ function HealthAdminTab({ password }: { password: string }) {
  * blocking badges, the balance sweep, the terminal resolve (refused with
  * named domains until clean), and the policy editor.
  */
+/**
+ * An ordered list of sentences, editable. Used by the exit policy for the two
+ * step lists /exit-policy prints as numbered lists.
+ *
+ * Rows are addressed by index, so a step keeps its position while it is being
+ * retyped. Every control clears 44px and carries a text label, because "the
+ * red one deletes" is not a label.
+ */
+function StepListEditor({
+  label, hint, steps, onChange,
+}: {
+  label: string;
+  hint?: string;
+  steps: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const set = (i: number, v: string) => onChange(steps.map((s, j) => (j === i ? v : s)));
+  const remove = (i: number) => onChange(steps.filter((_, j) => j !== i));
+  const move = (i: number, by: number) => {
+    const j = i + by;
+    if (j < 0 || j >= steps.length) return;
+    const next = [...steps];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+  const btn = "min-h-[44px] min-w-[44px] px-3 text-xs rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A] disabled:opacity-40";
+  // An HTML id may not contain whitespace, and the label is a sentence.
+  const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return (
+    <fieldset className="mb-4 border-0 p-0 m-0">
+      <legend className="text-xs font-medium text-gray-700">{label}</legend>
+      {hint && <p className="text-[11px] text-gray-500 mb-2">{hint}</p>}
+      <ol className="space-y-2">
+        {steps.map((s, i) => (
+          <li key={i} className="flex items-start gap-2">
+            <span className="text-xs text-gray-400 mt-3 w-4 text-right shrink-0">{i + 1}.</span>
+            <label className="sr-only" htmlFor={`step-${slug}-${i}`}>{`Step ${i + 1} of ${label}`}</label>
+            <textarea id={`step-${slug}-${i}`} rows={2} value={s} onChange={(e) => set(i, e.target.value)}
+              className="flex-1 min-h-[44px] border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]" />
+            <div className="flex flex-col gap-1 shrink-0">
+              <button type="button" className={btn} onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move step ${i + 1} up`}>Up</button>
+              <button type="button" className={btn} onClick={() => move(i, 1)} disabled={i === steps.length - 1} aria-label={`Move step ${i + 1} down`}>Down</button>
+            </div>
+            <button type="button" className={`${btn} text-red-600 border-red-200`} onClick={() => remove(i)} aria-label={`Remove step ${i + 1}`}>Remove</button>
+          </li>
+        ))}
+      </ol>
+      <button type="button" onClick={() => onChange([...steps, ""])}
+        className="mt-2 min-h-[44px] px-3 text-xs rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]">
+        Add a step
+      </button>
+    </fieldset>
+  );
+}
+
+/** Whitespace and case are formatting, so they never count as new words. */
+const sameWords = (a: unknown, b: unknown) =>
+  String(a ?? "").replace(/\s+/g, " ").trim().toLowerCase() === String(b ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+
+const sameSteps = (a: unknown, b: unknown) => {
+  const x = Array.isArray(a) ? a : [];
+  const y = Array.isArray(b) ? b : [];
+  return x.length === y.length && x.every((s, i) => sameWords(s, y[i]));
+};
+
+/**
+ * The rendered terms of the exit policy that are still word for word the
+ * platform's. The same four the server checks, computed from the SAME defaults
+ * the server sends down, so the editor can never disagree with the refusal.
+ */
+function stalePolicyTerms(draft: any, defaults: any): string[] {
+  if (!draft || !defaults) return [];
+  const out: string[] = [];
+  if (sameWords(draft.voluntary?.valuationMethod, defaults.voluntary?.valuationMethod)) out.push("How contributed value is honored");
+  if (sameSteps(draft.voluntary?.unwindSteps, defaults.voluntary?.unwindSteps)) out.push("The steps of a voluntary departure");
+  if (sameWords(draft.involuntary?.process, defaults.involuntary?.process)) out.push("If the village asks someone to leave");
+  if (sameSteps(draft.restorative?.steps, defaults.restorative?.steps)) out.push("The restorative path");
+  return out;
+}
+
 function ExitsAdminTab({ password }: { password: string }) {
   const [data, setData] = useState<any>(null);
   const [players, setPlayers] = useState<any[]>([]);
@@ -6940,6 +7190,11 @@ function ExitsAdminTab({ password }: { password: string }) {
   const [state, setState] = useState<any>(null);
   const [policyDraft, setPolicyDraft] = useState<any>(null);
   const [roles, setRoles] = useState<any[]>([]);
+  // The platform's own words, sent down with the policy. Held rather than
+  // copied into the bundle so the editor's "still the platform's" marker and
+  // the server's refusal can never drift apart.
+  const [policyDefaults, setPolicyDefaults] = useState<any>(null);
+  const [circles, setCircles] = useState<any[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -6952,6 +7207,8 @@ function ExitsAdminTab({ password }: { password: string }) {
       const e = await eRes.json();
       setData(e);
       setPolicyDraft(e.policy);
+      setPolicyDefaults(e.defaults ?? null);
+      setCircles(Array.isArray(e.circles) ? e.circles : []);
       const p = await pRes.json();
       setPlayers(Array.isArray(p) ? p : []);
       const r = await rRes.json();
@@ -7070,42 +7327,129 @@ function ExitsAdminTab({ password }: { password: string }) {
       </div>
 
       {/* Policy editor */}
-      {policyDraft && (
+      {policyDraft && (() => {
+        const stale = stalePolicyTerms(policyDraft, policyDefaults);
+        const setVol = (patch: any) => setPolicyDraft({ ...policyDraft, voluntary: { ...policyDraft.voluntary, ...patch } });
+        const setInv = (patch: any) => setPolicyDraft({ ...policyDraft, involuntary: { ...policyDraft.involuntary, ...patch } });
+        const setRes = (patch: any) => setPolicyDraft({ ...policyDraft, restorative: { ...policyDraft.restorative, ...patch } });
+        const mark = (isStale: boolean) => (
+          <span className={`ml-2 text-[11px] rounded px-1.5 py-0.5 border ${isStale ? "border-amber-300 bg-amber-50 text-amber-800" : "border-emerald-300 bg-emerald-50 text-emerald-800"}`}>
+            {isStale ? "Still the platform's words" : "The village's own words"}
+          </span>
+        );
+        return (
         <div className="bg-white border border-gray-100 rounded-xl p-5">
           <h3 className="font-semibold text-gray-900 mb-1">The published policy</h3>
-          <p className="text-xs text-gray-500 mb-3">
-            Lives at /exit-policy for everyone to read. The terms are the
-            community's to decide{policyDraft.placeholder ? " (these are still the platform's placeholders)" : ""}.
+          <p className="text-xs text-gray-500 mb-4">
+            Every field here is printed at /exit-policy for anyone to read,
+            signed in or not. This is the highest-stakes copy on the site: it
+            says what happens to a person, and to what they built, when they
+            leave{policyDraft.placeholder ? ". The banner above it says these are still the platform's starting terms" : ""}.
           </p>
-          <div className="grid sm:grid-cols-2 gap-3 mb-3">
+
+          <div className="grid sm:grid-cols-2 gap-3 mb-4">
             <label className="text-xs text-gray-500">Notice period (days)
               <input type="number" min={0} value={policyDraft.voluntary?.noticePeriodDays ?? 0}
-                onChange={(e) => setPolicyDraft({ ...policyDraft, voluntary: { ...policyDraft.voluntary, noticePeriodDays: Number(e.target.value) } })}
-                className={`${inputCls} w-full mt-1`} />
+                onChange={(e) => setVol({ noticePeriodDays: Number(e.target.value) })}
+                className={`${inputCls} w-full mt-1 min-h-[44px]`} />
             </label>
             <label className="text-xs text-gray-500">Restorative intake role
               <select value={policyDraft.restorative?.intakeContactRole ?? ""}
-                onChange={(e) => setPolicyDraft({ ...policyDraft, restorative: { ...policyDraft.restorative, intakeContactRole: e.target.value } })}
-                className={`${inputCls} w-full mt-1`}>
+                onChange={(e) => setRes({ intakeContactRole: e.target.value })}
+                className={`${inputCls} w-full mt-1 min-h-[44px]`}>
                 <option value="">none configured</option>
                 {roles.map((r: any) => <option key={r.id} value={r.id}>{r.name ?? r.id}</option>)}
               </select>
             </label>
           </div>
-          <label className="text-xs text-gray-500 block mb-3">Involuntary process
+
+          <label className="text-xs text-gray-500 block mb-4">
+            <span className="font-medium text-gray-700">How contributed value is honored</span>
+            {mark(stale.includes("How contributed value is honored"))}
+            <textarea rows={3} value={policyDraft.voluntary?.valuationMethod ?? ""}
+              onChange={(e) => setVol({ valuationMethod: e.target.value })}
+              className={`${inputCls} w-full mt-1`} />
+            <span className="block text-[11px] text-gray-400 mt-1">
+              What a departing member is owed for what they built, and how it is worked out.
+            </span>
+          </label>
+
+          <StepListEditor
+            label="The steps of a voluntary departure"
+            hint="Printed as the numbered list under Choosing to leave."
+            steps={Array.isArray(policyDraft.voluntary?.unwindSteps) ? policyDraft.voluntary.unwindSteps : []}
+            onChange={(next) => setVol({ unwindSteps: next })}
+          />
+          <p className="text-[11px] mb-4 -mt-2">{mark(stale.includes("The steps of a voluntary departure"))}</p>
+
+          <label className="text-xs text-gray-500 block mb-4">
+            <span className="font-medium text-gray-700">If the village asks someone to leave</span>
+            {mark(stale.includes("If the village asks someone to leave"))}
             <textarea rows={3} value={policyDraft.involuntary?.process ?? ""}
-              onChange={(e) => setPolicyDraft({ ...policyDraft, involuntary: { ...policyDraft.involuntary, process: e.target.value } })}
+              onChange={(e) => setInv({ process: e.target.value })}
               className={`${inputCls} w-full mt-1`} />
           </label>
-          <label className="text-xs text-gray-500 flex items-center gap-2 mb-3">
-            <input type="checkbox" checked={!policyDraft.placeholder}
-              onChange={(e) => setPolicyDraft({ ...policyDraft, placeholder: !e.target.checked })} />
-            These terms were decided by the community (clears the draft banner)
-          </label>
+
+          {/*
+            Two ids that were stored, published to nobody and editable by
+            nobody. They are the two facts a member most needs from this page,
+            so they get a picker here and a line on the page.
+          */}
+          <div className="grid sm:grid-cols-2 gap-3 mb-4">
+            <label className="text-xs text-gray-500">Which circle decides an involuntary exit
+              <select value={policyDraft.involuntary?.decidingDomainId ?? ""}
+                onChange={(e) => setInv({ decidingDomainId: e.target.value })}
+                className={`${inputCls} w-full mt-1 min-h-[44px]`}>
+                <option value="">not stated on the page</option>
+                {circles.map((c: any) => <option key={c.id} value={c.id}>{c.name ?? c.id}</option>)}
+              </select>
+            </label>
+            <label className="text-xs text-gray-500">Which circle hears an appeal
+              <select value={policyDraft.involuntary?.appealDomainId ?? ""}
+                onChange={(e) => setInv({ appealDomainId: e.target.value })}
+                className={`${inputCls} w-full mt-1 min-h-[44px]`}>
+                <option value="">not stated on the page</option>
+                {circles.map((c: any) => <option key={c.id} value={c.id}>{c.name ?? c.id}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <StepListEditor
+            label="The restorative path"
+            hint="Printed under Repair before departure. Its content reaches only the people in the room; these are the steps, never the content."
+            steps={Array.isArray(policyDraft.restorative?.steps) ? policyDraft.restorative.steps : []}
+            onChange={(next) => setRes({ steps: next })}
+          />
+          <p className="text-[11px] mb-4 -mt-2">{mark(stale.includes("The restorative path"))}</p>
+
+          {/*
+            THE ACKNOWLEDGEMENT.
+            Disabled while any printed term is still the platform's, and the
+            server refuses the same write for the same reason, so a founder
+            who reaches the route another way gets the same answer.
+          */}
+          <div className={`rounded-lg border p-3 mb-3 ${stale.length ? "border-amber-200 bg-amber-50" : "border-gray-200"}`}>
+            <label className="text-xs text-gray-700 flex items-start gap-2">
+              <input type="checkbox" checked={!policyDraft.placeholder} disabled={stale.length > 0}
+                onChange={(e) => setPolicyDraft({ ...policyDraft, placeholder: !e.target.checked })}
+                className="mt-0.5 w-5 h-5 shrink-0 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]" />
+              <span>These terms were decided by the community, and the draft banner comes off /exit-policy.</span>
+            </label>
+            {stale.length > 0 && (
+              <p className="text-[11px] text-amber-900 mt-2 pl-7">
+                Not yet available. {stale.join(", ")} {stale.length === 1 ? "is" : "are"} still
+                word for word what the platform ships. Ticking this would publish the platform's
+                boilerplate as the village's settled exit terms. Write {stale.length === 1 ? "it" : "them"} in
+                the community's own words first.
+              </p>
+            )}
+          </div>
+
           <button onClick={async () => { const d = await call("/admin/exit-policy", policyDraft, "PUT"); if (d) { toast.success("Policy published"); load(); } }}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Publish policy</button>
+            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 min-h-[44px] font-medium focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#2D5A5A]">Publish policy</button>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -8767,7 +9111,7 @@ function SeasonTab({ password }: { password: string }) {
 // ── One hero image: upload (compressed for you) or point at your own URL ──────
 
 function BrandImageField({
-  label, value, fallback, alt, password, onChange, onAltChange,
+  label, value, fallback, alt, password, onChange, onAltChange, altUnavailable,
 }: {
   label: string;
   value: string;
@@ -8776,6 +9120,16 @@ function BrandImageField({
   password: string;
   onChange: (v: string) => void;
   onAltChange: (v: string) => void;
+  /**
+   * Why this image has no alt text to write, when it has none.
+   *
+   * The favicon is the one case: it renders as `<link rel="icon">`, so there is
+   * no `alt` attribute for a value to reach. The field used to be offered
+   * anyway and the value went into storage that nothing read. An accessibility
+   * control that discards what a founder types also records the work as done,
+   * which is worse than the missing control.
+   */
+  altUnavailable?: string;
 }) {
   const [uploading, setUploading] = useState(false);
   const [note, setNote] = useState("");
@@ -8852,13 +9206,20 @@ function BrandImageField({
         />
       )}
 
-      <input
-        type="text"
-        value={alt}
-        onChange={(e) => onAltChange(e.target.value)}
-        placeholder="Describe this image (for screen readers)"
-        className="w-full mt-2 px-3 py-1.5 text-xs border border-gray-200 rounded-lg"
-      />
+      {altUnavailable ? (
+        <p className="text-[11px] text-gray-500 mt-2 border-l-2 border-gray-200 pl-2">{altUnavailable}</p>
+      ) : (
+        <label className="block mt-2 text-[11px] text-gray-500">
+          Alt text, read aloud by screen readers
+          <input
+            type="text"
+            value={alt}
+            onChange={(e) => onAltChange(e.target.value)}
+            placeholder="Describe what is in this picture"
+            className="w-full mt-1 px-3 py-2 min-h-[44px] text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+          />
+        </label>
+      )}
 
       {note && <p className="text-[11px] text-emerald-600 mt-1">{note}</p>}
       <p className="text-[11px] text-gray-400 mt-0.5">
@@ -8961,7 +9322,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
     </div>
   );
 
-  const imageField = (key: string, label: string) => (
+  const imageField = (key: string, label: string, altUnavailable?: string) => (
     <BrandImageField
       key={key}
       label={label}
@@ -8971,6 +9332,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
       password={password}
       onChange={(v) => setField("images", key, v)}
       onAltChange={(v) => setField("images", `${key}Alt`, v)}
+      altUnavailable={altUnavailable}
     />
   );
 
@@ -9063,12 +9425,16 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
           {imageField("masterPlanHero", "Master plan hero")}
           {imageField("logo", "Header logo (~64px tall, transparent)")}
           {imageField("heartLogo", "Footer mark (~90px tall, transparent)")}
-          {imageField("favicon", "Browser tab icon (square)")}
+          {imageField(
+            "favicon",
+            "Browser tab icon (square)",
+            "A tab icon has no alt text. Browsers name the tab from the page title, so there is nothing here for a screen reader to read.",
+          )}
         </div>
         <button onClick={() => saveBrand("images", { images: brand.images })} disabled={savingSection === "images"} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
           {savingSection === "images" ? "Saving..." : "Save pictures"}
         </button>
-        <p className="text-xs text-gray-400 mt-2">The logo, footer mark and tab icon apply live, no deploy. Crawler-facing metadata (og:image, canonical URL) stays neutral in <code>client/index.html</code>; a fork that wants it adds it in its own fork.</p>
+        <p className="text-xs text-gray-400 mt-2">The logo, footer mark and tab icon apply live, no deploy. Alt text ships with the pictures and is what a screen reader reads aloud in place of the image. Crawler-facing metadata (og:image, canonical URL) stays neutral in <code>client/index.html</code>; a fork that wants it adds it in its own fork.</p>
         {/* Typography lives with Pictures: both are "how the village looks".
             Self-contained component — see client/src/components/TypographyPanel.tsx. */}
         <LookPanel password={password} />
@@ -9102,6 +9468,9 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
       <Section id="map" n={5} title="Map & styling" subtitle="How the Living Map draws your land. Blank keeps the map's own look.">
         <MapSkinPanel password={password} />
         <WalkEditorPanel password={password} />
+        {/* The vocabulary route has been live since the map shipped and its
+            only caller was a CLI importer. This is its first door. */}
+        <MapVocabularyPanel password={password} />
       </Section>
 
       <Section id="technical" n={6} title="Go live" subtitle="One-time technical setup. Hand these to your developer or Claude Code.">
@@ -9748,6 +10117,7 @@ export default function Admin() {
           {activeTab === "seasons-patterns" && <SeasonPatternsTab password={password} />}
           {activeTab === "circles-map" && <CirclesMapTab password={password} />}
           {activeTab === "tools-admin" && <ToolsAdminTab password={password} />}
+          {activeTab === "crowdpool-admin" && <CrowdpoolAdminTab password={password} />}
           {activeTab === "stays-admin" && <StaysAdminTab password={password} />}
           {activeTab === "exchange-admin" && <ExchangeAdminTab password={password} />}
           {activeTab === "badges-admin" && <BadgesAdminTab password={password} />}

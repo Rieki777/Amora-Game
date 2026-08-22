@@ -27,6 +27,7 @@ export const TAB_MODULE: Record<string, string> = {
   "circles-map": "map",
   "events-admin": "events",
   "tools-admin": "tools",
+  "crowdpool-admin": "crowdpool",
   "stays-admin": "stays",
   "exchange-admin": "exchange",
   "badges-admin": "badges",

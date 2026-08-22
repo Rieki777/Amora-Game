@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { useBrandImages } from "@/lib/gameApi";
+import { altOr, useBrandImages } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { 
@@ -72,7 +72,7 @@ export default function MasterPlan() {
         <div className="absolute inset-0 z-0">
           <Image
             src={brand.masterPlanHero || HERO_IMAGE}
-            alt="Amora Master Plan"
+            alt={altOr(brand.masterPlanHeroAlt, "The master plan for the village")}
             priority
             className="w-full h-full"
           />

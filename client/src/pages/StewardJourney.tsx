@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { useBrandImages } from "@/lib/gameApi";
+import { altOr, useBrandImages } from "@/lib/gameApi";
 import FaqSection from "@/components/FaqSection";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
@@ -188,7 +188,7 @@ export default function StewardJourney() {
         <div className="absolute inset-0 z-0">
           <motion.img
             src={brand.stewardHero || STEWARD_IMAGE}
-            alt="Village stewards in circle"
+            alt={altOr(brand.stewardHeroAlt, "Stewards meeting in a circle")}
             className="w-full h-full object-cover"
             initial={{ scale: 1.1 }}
             animate={{ scale: 1 }}

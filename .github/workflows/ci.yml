@@ -99,6 +99,21 @@ jobs:
         # whole, which is why it can be a hard gate.
         run: node scripts/check-auth-fetch.mjs
 
+      - name: Admin reach guard
+        # An admin write route that nothing in the browser calls is not a
+        # feature a founder has. Two shipped that way and both were found by a
+        # person reading files: DELETE /api/admin/org/seatings/:id and its
+        # /forget sibling had their own test suite, their own e2e coverage, a
+        # line in the runbook and no caller anywhere in client/src, so a village
+        # could seat somebody and never unseat them and the
+        # right-to-be-forgotten path was reachable only by curl.
+        #
+        # A green test suite says a route WORKS. It never says a founder can
+        # reach it. The route list is read from the handlers and the caller list
+        # from the client, so both follow the code; the standing-debt list
+        # inside the script is a ratchet that may only shrink.
+        run: node scripts/check-admin-reach.mjs
+
       - name: Living map artifact budget
         # The bundle budget below measures dist/public. The living map is served
         # straight from docs/prototypes and never copied into dist, so it is the
