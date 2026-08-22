@@ -140,7 +140,23 @@ export default defineConfig({
          * Verify any chunking change with `node scripts/check-dist-budget.mjs`,
          * which prints both measures.
          */
-        manualChunks: (id: string) => (id.includes("lucide-react") ? "icons" : undefined),
+        manualChunks: (id: string) => {
+          if (id.includes("lucide-react")) return "icons";
+          /*
+           * The natural interface kit, one chunk instead of four.
+           *
+           * Its pieces are shared by the dashboard, the quest board, the
+           * profile, the admin and both crowdpool boards, so rollup gave each
+           * one its own shared chunk: 4276 real bytes spread across four files
+           * and charged 16 KB in blocks. Grouped, the same bytes cost one
+           * block. This is the merging fix the block-charge note above
+           * describes, at the smallest scale it is worth doing.
+           */
+          if (/components[\\/]natural[\\/]|lib[\\/]celebrated|shared[\\/]capabilities/.test(id)) {
+            return "natural";
+          }
+          return undefined;
+        },
       },
     },
   },

@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { ArrowRight, CheckCircle2, Circle, Compass, Heart, Sparkles } from "lucide-react";
 import MoonProgress from "@/components/natural/MoonProgress";
+import StageAdvanced from "@/components/StageAdvanced";
+import { claimMoment } from "@/lib/celebrated";
 
 const CLAIM_STATUS: Record<string, { label: string; cls: string }> = {
   claimed: { label: "In progress", cls: "bg-amber-100 text-amber-800" },
@@ -14,9 +16,24 @@ const CLAIM_STATUS: Record<string, { label: string; cls: string }> = {
 export default function GameDashboard() {
   const [me, setMe] = useState<GameMe | null>(null);
   const [currency, setCurrency] = useState("Gratitude");
+  /**
+   * The advance to celebrate, or null.
+   *
+   * Claimed the instant the data lands, and claiming is the check, so a
+   * re-render cannot re-open it and a member who crossed this rung last month
+   * sees the ladder without the fanfare. The key mirrors the server's own
+   * notification dedupe key for the same event, `stage:<member>:<stage>`,
+   * with the event's timestamp standing in for the member id because this
+   * ledger is per browser.
+   */
+  const [advance, setAdvance] = useState<GameMe["lastAdvance"]>(null);
 
   useEffect(() => {
-    fetchGameMe().then(setMe);
+    fetchGameMe().then((next) => {
+      setMe(next);
+      const fresh = next?.lastAdvance;
+      if (fresh && claimMoment(`stage:${fresh.toStage}:${fresh.at}`)) setAdvance(fresh);
+    });
     fetch("/api/game/config")
       .then((r) => r.json())
       .then((c) => setCurrency(c?.currency?.name ?? "Gratitude"))
@@ -30,6 +47,10 @@ export default function GameDashboard() {
 
   return (
     <div className="space-y-6">
+      {advance && (
+        <StageAdvanced advance={advance} stages={me.stages} onClose={() => setAdvance(null)} />
+      )}
+
       {/* Next best action */}
       <Link
         href={me.nextAction.href}

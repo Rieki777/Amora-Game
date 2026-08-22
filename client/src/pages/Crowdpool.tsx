@@ -15,6 +15,7 @@ import { ExampleChip } from "@/components/ExamplesBanner";
 import { Users } from "lucide-react";
 import InfoTip from "@/components/InfoTip";
 import { CrowdpoolStyles, MiniRing, money, phaseLabel, timeAgo } from "@/components/crowdpool/PoolPieces";
+import BreathingLoader from "@/components/natural/BreathingLoader";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -79,7 +80,8 @@ export default function Crowdpool() {
       <section className="py-6 bg-background">
         <div className="container max-w-3xl space-y-4">
           {cards === null && (
-            <div className="cp-board p-8 text-center" role="status" aria-live="polite">
+            <div className="cp-board p-8 flex flex-col items-center gap-2">
+              <BreathingLoader label="Reading the ledger" size={48} />
               <p className="cp-smallcaps text-sm">Reading the ledger</p>
             </div>
           )}

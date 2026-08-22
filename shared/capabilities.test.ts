@@ -9,7 +9,14 @@
  * a badge grant, and a stage unlock). Only admin outranks a deny.
  */
 import { describe, expect, it } from "vitest";
-import { hasCapability, STAGE_UNLOCKS, type Capability } from "./capabilities";
+import {
+  ALL_CAPABILITIES,
+  CAPABILITY_LABELS,
+  capabilityLabel,
+  hasCapability,
+  STAGE_UNLOCKS,
+  type Capability,
+} from "./capabilities";
 
 const LADDER = ["visitor", "guest", "member", "co-creator"];
 const stageIndexOf = (id: string) => LADDER.indexOf(id);
@@ -124,5 +131,47 @@ describe("map.edit and map.publish are appointments", () => {
     const c = ctx({ roleCapabilities: ["map.edit", "map.publish"], badgeDenies: ["map.publish"] });
     expect(hasCapability("map.publish", c)).toBe(false);
     expect(hasCapability("map.edit", c)).toBe(true);
+  });
+});
+
+/**
+ * The labels are what a member reads when a stage advance tells them what
+ * opened. A key with no label renders as `forum.post`, which is the machine
+ * text this table exists to replace, so the lockstep is a test and not a
+ * comment asking nicely.
+ */
+describe("capability labels", () => {
+  it("names every capability the platform knows about", () => {
+    for (const cap of ALL_CAPABILITIES) {
+      expect(CAPABILITY_LABELS[cap], `no label for ${cap}`).toBeTruthy();
+    }
+  });
+
+  it("names nothing that is not a capability", () => {
+    expect(Object.keys(CAPABILITY_LABELS).sort()).toEqual([...ALL_CAPABILITIES].sort());
+  });
+
+  it("reads as the completion of 'You can now', so the list is an invitation", () => {
+    for (const cap of ALL_CAPABILITIES) {
+      const label = CAPABILITY_LABELS[cap];
+      // A sentence-shaped label would read "You can now You may post."
+      expect(label).not.toMatch(/^(You|Can|May|Able)\b/);
+      expect(label).not.toMatch(/[.]$/);
+      // Capitalised, because each one is a list item on its own line.
+      expect(label[0]).toBe(label[0].toUpperCase());
+    }
+  });
+
+  it("carries no dotted key through as its own label", () => {
+    for (const cap of ALL_CAPABILITIES) {
+      expect(CAPABILITY_LABELS[cap]).not.toBe(cap);
+    }
+  });
+
+  it("falls back to the key rather than dropping an unknown one", () => {
+    // A key with no label is a bug in the table; saying so out loud beats
+    // rendering an empty row and telling a member less than they hold.
+    expect(capabilityLabel("nope.invented")).toBe("nope.invented");
+    expect(capabilityLabel("forum.post")).toBe(CAPABILITY_LABELS["forum.post"]);
   });
 });

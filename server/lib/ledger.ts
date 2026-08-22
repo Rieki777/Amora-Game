@@ -670,6 +670,44 @@ export async function entriesForMember(pool: Pool, userId: string): Promise<Memb
   }));
 }
 
+/**
+ * WHAT A MEMBER'S CONSENTED QUESTS ACTUALLY CREDITED THEM, keyed by claim id.
+ *
+ * The claim row stores `amount` as the number the witness granted, and the
+ * badge reward multiplier is applied AFTER that row is written, so a member
+ * holding a standing badge is credited `floor(granted * multiplier)` while
+ * their quest card says `granted`. The card was under-reporting the payout,
+ * and the reward moment this feeds would have counted up to the wrong number.
+ *
+ * Read from the ledger rather than recomputed, for two reasons. The ledger is
+ * what actually moved, which is the definition of what they were paid; and
+ * the multiplier is a standing that changes, so recomputing it today would
+ * answer a question about now when the question is about the day the quest
+ * was consented.
+ *
+ * THE TOKEN FILTER IS LOAD-BEARING, and leaving it out was caught by driving
+ * a real consent rather than by reading the route. A consent posts TWO rows
+ * under `source = 'quest_consent'` with the SAME `source_ref`: the recognition
+ * credit, and whatever the village's rules mint on a confirmed contribution,
+ * which today is its voice token. Keyed on the claim alone, the second row
+ * overwrites the first, and an 80-point quest reported 10000 credited.
+ *
+ * Per claim and per token there is exactly one row, because the idempotency
+ * key is the claim id, so this is one row per claim once the token is pinned.
+ * A claim with no row simply does not appear, which is what a zero grant
+ * looks like.
+ */
+export async function questCreditsFor(pool: Pool, userId: string): Promise<Map<string, number>> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT source_ref, amount FROM token_ledger " +
+      "WHERE to_account = ? AND source = 'quest_consent' AND token_type = ? AND source_ref IS NOT NULL",
+    [memberAccount(userId), PLATFORM_TOKEN],
+  );
+  const credits = new Map<string, number>();
+  for (const r of rows) credits.set(String(r.source_ref), Number(r.amount));
+  return credits;
+}
+
 // ── Boot invariants ─────────────────────────────────────────────────────────
 
 export interface InvariantReport {

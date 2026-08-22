@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { TrendingUp, Heart, ScrollText, ShieldCheck, Users } from "lucide-react";
 import { authToken } from "@/lib/gameApi";
+import Celebration from "@/components/natural/Celebration";
+import BreathingLoader from "@/components/natural/BreathingLoader";
+import { useMomentWindow } from "@/components/natural/moments";
+import { capabilityLabel } from "@shared/capabilities";
+import { claimMoment } from "@/lib/celebrated";
+import { playMoment } from "@/lib/sound";
 
 /**
  * S4: the member's journey in numbers, over three live endpoints that had no
@@ -26,16 +32,69 @@ function prettySource(s: string): string {
   return String(s ?? "").replace(/[_:]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/**
+ * A BLOSSOM FOR BEING THANKED, and the restraint that keeps it worth seeing.
+ *
+ * Two things arrive as `gratitude` and only one of them is rare. A written
+ * acknowledgment is capped at ONE per sender per recipient per lunar cycle
+ * and has to carry a message, so receiving one is somebody sitting down and
+ * saying why. A heart is a tap on a forum post, five per sender per cycle,
+ * and `feed.hearts_on_wall` already defaults false on the reasoning that a
+ * tap is a gesture. Celebrating the tap would spend the bloom on the cheaper
+ * thing within a week, so `kind === "heart"` is filtered out here and gets
+ * nothing.
+ *
+ * ONE PER VISIT, AT MOST. Only the newest unseen acknowledgment is offered,
+ * so a member returning after ten thank-yous sees one bloom rather than ten.
+ * `claimMoment` then holds it to once ever for that entry.
+ */
+function useGratitudeBloom(): { name: string; message: string } | null {
+  const [bloom, setBloom] = useState<{ name: string; message: string } | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    authedGet("/api/game/gratitude/me").then((data) => {
+      if (!live || !data) return;
+      const newest = (data.received ?? []).find((g: any) => g?.kind !== "heart");
+      if (!newest?.id || !claimMoment(`gratitude:${newest.id}`)) return;
+      setBloom({ name: String(newest.fromName ?? "Someone"), message: String(newest.message ?? "") });
+      playMoment("gratitude", "tap");
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  return bloom;
+}
+
 export default function ProfileJourney() {
   const [prog, setProg] = useState<any | null>(null);
   const [flows, setFlows] = useState<any | null>(null);
   const [ledger, setLedger] = useState<any | null>(null);
+  const bloom = useGratitudeBloom();
+  const blooming = useMomentWindow(bloom !== null);
+  const [settled, setSettled] = useState(false);
 
   useEffect(() => {
-    authedGet("/api/game/progression").then(setProg);
-    authedGet("/api/game/gratitude/flows").then(setFlows);
-    authedGet("/api/game/ledger").then(setLedger);
+    Promise.all([
+      authedGet("/api/game/progression").then(setProg),
+      authedGet("/api/game/gratitude/flows").then(setFlows),
+      authedGet("/api/game/ledger").then(setLedger),
+    ]).finally(() => setSettled(true));
   }, []);
+
+  // Waiting, said as a breath. The page showed nothing at all until all three
+  // reads landed, which on a slow connection is a profile that looks empty
+  // and then fills. `settled` is what keeps this from becoming a permanent
+  // loader for a signed-out reader, whose three reads resolve to null.
+  if (!settled) {
+    return (
+      <div className="flex justify-center py-12">
+        <BreathingLoader label="Reading your journey" size={44} showLabel />
+      </div>
+    );
+  }
 
   if (!prog && !flows && !ledger) return null;
 
@@ -82,8 +141,13 @@ export default function ProfileJourney() {
                       {prettySource(h.fromStage)} → {prettySource(h.toStage)}
                     </span>
                     {h.reason && <span className="text-gray-500">: {h.reason}</span>}
-                    {h.unlocked && (
-                      <span className="block text-xs text-teal-deep mt-0.5">Unlocked: {h.unlocked}</span>
+                    {/* An array interpolated straight into JSX rendered as
+                        `forum.post,message.send`. The same labels the stage
+                        celebration reads turn it back into language. */}
+                    {Array.isArray(h.unlocked) && h.unlocked.length > 0 && (
+                      <span className="block text-xs text-teal-deep mt-0.5">
+                        Unlocked: {h.unlocked.map(capabilityLabel).join(", ")}
+                      </span>
                     )}
                     <span className="block text-xs text-gray-400 mt-0.5">
                       {new Date(h.at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
@@ -107,7 +171,23 @@ export default function ProfileJourney() {
           <div className="flex items-center gap-2 mb-4">
             <Heart className="w-5 h-5 text-coral" />
             <h2 className="text-2xl font-display font-bold text-teal-deep">Recognition Flows</h2>
+            {blooming && bloom && (
+              <span className="ml-auto shrink-0">
+                <Celebration
+                  kind="blossom"
+                  intensity="moment"
+                  size={64}
+                  message={`${bloom.name} thanked you.`}
+                />
+              </span>
+            )}
           </div>
+          {bloom && (
+            <div className="mb-5 rounded-xl border border-coral/30 bg-coral/5 px-4 py-3">
+              <p className="text-sm font-semibold text-gray-900">{bloom.name} thanked you</p>
+              {bloom.message && <p className="text-sm text-gray-600 mt-0.5">{bloom.message}</p>}
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-4 mb-5">
             <div className="text-center bg-teal-deep/5 rounded-xl py-4">
               <p className="text-2xl font-display font-bold text-teal-deep">{flows.totals?.received ?? 0}</p>

@@ -14,7 +14,21 @@
  * types appear only as TINTS on needs tiles, never as the hub's segmented
  * capital-stack widget.
  */
+import type { CSSProperties } from "react";
 import { BookOpen, Coins, Hammer, Mountain, Package, Repeat, Sparkles, UserRound, type LucideIcon } from "lucide-react";
+import Celebration from "@/components/natural/Celebration";
+import { useArrival, useMomentWindow } from "@/components/natural/moments";
+
+/**
+ * The kit's water tokens, repainted in the board's gold. Recolouring through
+ * the custom properties is the documented way to move the whole vocabulary at
+ * once; the alternative is a forked copy of the drawing, which is how two
+ * ripples drift apart.
+ */
+const GOLD_WATER = {
+  "--nat-water": "#ecd08a",
+  "--nat-water-deep": "transparent",
+} as CSSProperties;
 
 // ── The nine capital tints ───────────────────────────────────────────────────
 // Hues chosen to sit on parchment; the hub's own hex accents belong to the
@@ -101,6 +115,18 @@ export function timeAgo(iso: string | null): string {
  * share as the outer gold arc, delivered share as a quieter inner arc so the
  * promise can be seen running ahead of the walls. `ripple` increments when a
  * new arrival lands and plays one expanding ring.
+ *
+ * THE ARRIVAL IS THE KIT'S RIPPLES NOW. It used to be one hand-rolled circle
+ * with `@keyframes cp-ripple`, and under reduce-motion that rule set
+ * `opacity: 0`: the arrival became invisible for exactly the members the
+ * still states exist for, which is the difference between a dignified still
+ * form and an absent one. `Celebration kind="ripples"` already carries rings
+ * held at their full width as its still form, so the moment lands either way.
+ *
+ * It is recoloured through the kit's own tokens rather than forked: the board
+ * is gold, so `--nat-water` is set to the ring's gold on the wrapper and
+ * `--nat-water-deep` is cleared, because the centre of this ring is occupied
+ * by the percentage and a water dot on top of it would be noise.
  */
 export function GoldRing({
   percentPledged,
@@ -121,6 +147,7 @@ export function GoldRing({
   const cIn = 2 * Math.PI * rIn;
   const pledged = Math.min(100, Math.max(0, percentPledged));
   const delivered = Math.min(100, Math.max(0, percentDelivered));
+  const landing = useMomentWindow(ripple, 3200);
   return (
     <div className="cp-ring-wrap" style={{ width: size, height: size }}>
       <svg viewBox="0 0 200 200" width={size} height={size} role="img" aria-label={`${pledged} percent pledged, ${delivered} percent delivered`}>
@@ -131,9 +158,6 @@ export function GoldRing({
             <stop offset="1" stopColor="#a37f42" />
           </linearGradient>
         </defs>
-        {ripple > 0 && (
-          <circle key={ripple} className="cp-ripple" cx="100" cy="100" r={r} fill="none" stroke="#ecd08a" strokeWidth="2" />
-        )}
         <circle cx="100" cy="100" r={r} fill="none" stroke="rgba(201,162,94,.22)" strokeWidth="9" />
         <circle
           className="cp-arc"
@@ -155,6 +179,17 @@ export function GoldRing({
         <text x="100" y="97" textAnchor="middle" className="cp-ring-pct">{pledged}%</text>
         <text x="100" y="117" textAnchor="middle" className="cp-ring-sub">pooled</text>
       </svg>
+      {landing && (
+        <span className="cp-ring-land" style={GOLD_WATER}>
+          <Celebration
+            kind="ripples"
+            intensity="moment"
+            size={size}
+            seed={ripple}
+            message="A promise landed on the ring."
+          />
+        </span>
+      )}
       <div className="cp-ring-label">{label}</div>
     </div>
   );
@@ -252,6 +287,17 @@ export function SlotMeter({
  * blueprint, wip, painted: the sprite ladder every structure on the map
  * climbs, keyed here to the DELIVERED share, because walls are made of what
  * arrived. Ships as stylized SVG; a painted sprite set is a named follow-up.
+ *
+ * CROSSING A THRESHOLD IS NOW LEGIBLE. The strip was a pure function of the
+ * current percentage: 14% became 16%, the middle cell quietly swapped one
+ * class for another, and the build passing from Blueprint to Raising was the
+ * single most important thing this page can report and made no sound at all.
+ *
+ * `useArrival` is what keeps that from becoming noise. The first stage it
+ * sees seeds the baseline in silence, so opening the page on a build that
+ * crossed last month announces nothing; only a crossing that happens while
+ * somebody is watching does. That is the rule the whole product runs on:
+ * motion answers the person, it does not arrive unasked.
  */
 export function GrowthStrip({ percentDelivered, percentPledged }: { percentDelivered: number; percentPledged: number }) {
   const stage = percentDelivered >= 70 ? 2 : percentDelivered >= 15 ? 1 : 0;
@@ -260,17 +306,26 @@ export function GrowthStrip({ percentDelivered, percentPledged }: { percentDeliv
     { name: "Raising", at: "frames and scaffold" },
     { name: "Painted", at: "walls, roof, door" },
   ];
+  const crossing = useMomentWindow(useArrival(String(stage)), 3600);
   return (
     <div className="cp-growth">
       <div className="cp-growth-row">
         {stages.map((s, i) => (
-          <div key={s.name} className={`cp-growth-cell ${i === stage ? "on" : i < stage ? "done" : ""}`}>
+          <div
+            key={s.name}
+            className={`cp-growth-cell ${i === stage ? "on" : i < stage ? "done" : ""}${crossing && i === stage ? " crossed" : ""}`}
+          >
             <HouseSprite stage={i} lit={i <= stage} />
             <div className="cp-growth-name">{s.name}</div>
             <div className="cp-growth-at">{s.at}</div>
           </div>
         ))}
       </div>
+      {/* The news in words, because a border that brightened is not a readout
+          and a screen reader has nothing to read in a class name. */}
+      <p className="cp-growth-crossed" role="status" aria-live="polite">
+        {crossing ? `The walls reached ${stages[stage].name}.` : ""}
+      </p>
       <p className="cp-growth-note">
         The ring holds the promise; the walls are what has arrived.
         {percentPledged > percentDelivered
@@ -339,8 +394,7 @@ export function CrowdpoolStyles() {
       .cp-arc{transition:stroke-dashoffset 1.4s cubic-bezier(.25,.8,.3,1)}
       .cp-arc-slow{transition-duration:2s}
       .cp-ring-label{text-align:center;margin-top:6px;font-variant:small-caps;letter-spacing:.2em;font-size:13px;color:#c9a25e}
-      .cp-ripple{animation:cp-ripple 1.6s ease-out 1;transform-origin:100px 100px}
-      @keyframes cp-ripple{from{opacity:.9;transform:scale(1)}to{opacity:0;transform:scale(1.28)}}
+      .cp-ring-land{position:absolute;top:0;left:0;right:0;display:flex;justify-content:center;pointer-events:none}
       .cp-lantern{display:flex;flex-direction:column;align-items:center;gap:4px}
       .cp-lantern-line{font-size:12px;color:#e4d3ae;letter-spacing:.06em;text-align:center}
       .cp-slots-track{position:relative;height:10px;border-radius:6px;background:rgba(36,26,15,.15);border:1px solid rgba(138,106,51,.4);overflow:hidden}
@@ -356,15 +410,22 @@ export function CrowdpoolStyles() {
       .cp-growth-cell{flex:1;text-align:center;opacity:.45;padding:8px 4px;border-radius:10px;border:1px dashed rgba(201,162,94,.25)}
       .cp-growth-cell.done{opacity:.8;border-style:solid}
       .cp-growth-cell.on{opacity:1;border-style:solid;border-color:#ecd08a;background:rgba(236,208,138,.07);box-shadow:0 0 14px rgba(236,208,138,.12)}
+      .cp-growth-cell.crossed{animation:cp-cross 1.1s cubic-bezier(.37,0,.29,1) 1}
+      @keyframes cp-cross{from{opacity:.45;transform:scale(.97)}60%{opacity:1;transform:scale(1.02)}to{opacity:1;transform:none}}
+      .cp-growth-crossed{min-height:18px;font-size:12.5px;font-variant:small-caps;letter-spacing:.14em;color:#ecd08a;margin-top:8px;text-align:center}
       .cp-growth-name{font-variant:small-caps;letter-spacing:.16em;font-size:12px;color:#ecd08a;margin-top:2px}
       .cp-growth-at{font-size:10.5px;color:#c9a25e}
       .cp-growth-note{font-size:12.5px;color:#e4d3ae;margin-top:10px;line-height:1.5}
       .cp-stale{background:rgba(36,26,15,.85);border:1px solid rgba(201,162,94,.5);color:#e4d3ae;border-radius:10px;padding:10px 14px;font-size:13px}
       @media (prefers-reduced-motion: reduce){
         .cp-arc{transition:none}
-        .cp-ripple{animation:none;opacity:0}
         .cp-ledger-line.arrival{animation:none}
         .cp-lantern-star{filter:none}
+        /* The crossed cell holds the lit state it animated toward. The old
+           rule here set the ripple to opacity 0, which removed the arrival
+           instead of stilling it; the kit's Ripples now carries its own held
+           form and needs nothing said about it. */
+        .cp-growth-cell.crossed{animation:none;opacity:1}
       }
     `}</style>
   );

@@ -13,6 +13,10 @@ import {
 } from "@/lib/messageReports";
 import { resolutionLine } from "@/lib/reportFeedback";
 import { ALL_CAPABILITIES } from "@shared/capabilities";
+import BreathingLoader from "@/components/natural/BreathingLoader";
+import Celebration from "@/components/natural/Celebration";
+import { useMomentWindow } from "@/components/natural/moments";
+import { playMoment } from "@/lib/sound";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { holdCancelled, swipeIntent } from "@/lib/gestures";
@@ -842,7 +846,7 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
   if (loading || isAdmin) {
     return (
       <div className="min-h-screen bg-[#2D5A5A] flex items-center justify-center">
-        <RefreshCw className="w-6 h-6 text-white/60 animate-spin" />
+        <BreathingLoader label="Opening the admin" size={56} />
       </div>
     );
   }
@@ -8251,6 +8255,15 @@ function CyclesTab({ password }: { password: string }) {
   const [confirming, setConfirming] = useState(false);
   const [closing, setClosing] = useState(false);
   const [outcome, setOutcome] = useState<{ settled: boolean; headline: string; lines: string[] } | null>(null);
+  /**
+   * THE VILLAGE'S HARVEST. A counter, not a flag, because a founder can
+   * settle twice in one sitting and a flag that is already true never re-arms
+   * the window. It counts only settlements that actually released something:
+   * a 200 carrying `closed: 0` is the double press, and the report already
+   * refuses to call that a settlement.
+   */
+  const [harvest, setHarvest] = useState(0);
+  const harvesting = useMomentWindow(harvest);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -8291,7 +8304,12 @@ function CyclesTab({ password }: { password: string }) {
       if (!res.ok) throw new Error(refusal(data, "The close was refused."));
       // The server's own answer decides the words. A 200 carrying `closed: 0`
       // is the double press, and it must never read as a settlement.
-      setOutcome(closeReport(data, poolName || String(pending?.pool.token ?? "")));
+      const report = closeReport(data, poolName || String(pending?.pool.token ?? ""));
+      setOutcome(report);
+      if (report.settled) {
+        setHarvest((n) => n + 1);
+        playMoment("quest_complete", "arrive");
+      }
       setConfirming(false);
       await load();
     } catch (e: any) {
@@ -8320,10 +8338,28 @@ function CyclesTab({ password }: { password: string }) {
         </button>
       </div>
 
-      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <BreathingLoader label="Reading the lunations" size={44} showLabel />
+        </div>
+      ) : (
         <div className="space-y-6">
           {outcome && (
-            <div className={`rounded-xl border px-4 py-3 ${outcome.settled ? "border-emerald-200 bg-emerald-50" : "border-gray-200 bg-gray-50"}`}>
+            <div className={`relative rounded-xl border px-4 py-3 ${outcome.settled ? "border-emerald-200 bg-emerald-50" : "border-gray-200 bg-gray-50"}`}>
+              {/* The one admin act that releases value, and the only one that
+                  earns a moment. Fireflies: many small lights, which is what a
+                  settled lunation is. */}
+              {harvesting && (
+                <span className="absolute top-1 right-2 pointer-events-none">
+                  <Celebration
+                    kind="fireflies"
+                    intensity="moment"
+                    size={72}
+                    seed={harvest}
+                    message={outcome.headline}
+                  />
+                </span>
+              )}
               <p className={`font-semibold ${outcome.settled ? "text-emerald-900" : "text-gray-800"}`}>{outcome.headline}</p>
               <ul className="mt-1 space-y-0.5">
                 {outcome.lines.map((line, i) => (

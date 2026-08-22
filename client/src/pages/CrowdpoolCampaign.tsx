@@ -25,6 +25,7 @@ import {
   CrowdpoolStyles, GoldRing, GrowthStrip, KIND_LABELS, SlotMeter, StarLantern,
   capitalTint, kindGlyph, money, phaseLabel, timeAgo,
 } from "@/components/crowdpool/PoolPieces";
+import BreathingLoader from "@/components/natural/BreathingLoader";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -161,7 +162,8 @@ export default function CrowdpoolCampaign() {
           </Link>
 
           {!c && !unreachable && (
-            <div className="cp-board p-8 text-center" role="status" aria-live="polite">
+            <div className="cp-board p-8 flex flex-col items-center gap-2">
+              <BreathingLoader label="Reading the ledger" size={48} />
               <p className="cp-smallcaps text-sm">Reading the ledger</p>
             </div>
           )}
