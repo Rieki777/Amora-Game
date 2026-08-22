@@ -43,11 +43,18 @@ Two CI budgets cap the client: main JS **700 KB** and total `dist/public` **6600
 measured after `pnpm build`. Read the numbers off `MAX_MAIN_JS_KB` and `MAX_TOTAL_DIST_KB` in
 `.github/workflows/ci.yml`, which is the authority: this block said 6 MB for as long as the
 ceiling was 6000, and stayed at 6 MB when `dbb4f9c` raised it to 6600 for the catalog art.
-`node scripts/check-dist-budget.mjs` reproduces both locally and CI runs the same script, so a
-number you measure here is the number that decides. It was checked against a real ext4 volume on
-five different built trees and matched `du -sk` to the kilobyte on every one. Measured on this
-branch, `dist/public` is **5432 KB** block-charged against the 6600 ceiling and main JS is
-**477 KB**.
+`node scripts/check-dist-budget.mjs` reproduces the CI measurement locally and CI runs the same
+script, so the METHOD no longer differs between the two. It was checked against a real ext4
+volume on five different built trees and matched `du -sk` to the kilobyte on every one. Measured
+on this branch, `dist/public` is **5432 KB** block-charged against the 6600 ceiling and main JS
+is **477 KB**.
+
+**The TREE still differs by machine, so leave a margin.** The same commit built here and built on
+the runner came out as the same 178 files in the same 6 directories, and 29 KB apart in real
+bytes: 5432 KB block-charged locally against 5460 KB in CI, nearly all of it in the Tailwind CSS
+(215 KB here, 218.5 KB there). CI runs Node 22 and checks out LF while this box runs 25.x with
+CRLF. So a local measurement is the right number to about thirty kilobytes, which is fine at 1168
+KB of headroom and is not fine if you ever get within a hundred KB of the ceiling again.
 
 **The total is measured in 4 KB BLOCKS, and that changes what a fix looks like.** CI sizes the
 tree with `du -sk`, and `du` counts allocated blocks: on the runner's ext4 filesystem every file
