@@ -5923,7 +5923,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       if (recipients.length) {
         await sendResendEmail({
           to: recipients,
-          subject: `[Amora] New ${type} submission from ${applicantName}`,
+          subject: `[${notifyDeps.projectName()}] New ${type} submission from ${applicantName}`,
           html: buildSubmissionEmailHtml(type, data, `${origin}/admin`),
         });
       }
@@ -16219,7 +16219,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
 </div></body></html>`;
       await sendResendEmail({
         to: [email],
-        subject: "Your Amora Investor Packet",
+        subject: `Your ${notifyDeps.projectName()} Investor Packet`,
         html,
       });
       // Also notify the investor team
@@ -16227,7 +16227,7 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       if (investorTeam.length) {
         await sendResendEmail({
           to: investorTeam,
-          subject: `[Amora] New investor doc request from ${name}`,
+          subject: `[${notifyDeps.projectName()}] New investor doc request from ${name}`,
           html: buildSubmissionEmailHtml("investor-doc-request", { name, email, accredited }, `${origin}/admin`),
         });
       }
