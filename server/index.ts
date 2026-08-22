@@ -330,7 +330,7 @@ import { usersRepo } from "./repos/users";
 import { gratitudeCyclesRepo, gratitudeDistributionsRepo, gratitudeLogRepo } from "./repos/gratitude";
 import { claimsRepo as claimsRepoFactory, questsRepo as questsRepoFactory } from "./repos/quests";
 import { budgetFor, sendGratitude, type GratitudeDeps } from "./lib/gratitude";
-import { deleteEvent, recentEvents, recordEvent } from "./lib/events";
+import { recentEvents, recordEvent } from "./lib/events";
 import { checkToolLink } from "./lib/toolcheck";
 import { canSeeTool } from "../shared/toolsVisibility";
 import {
@@ -2417,12 +2417,28 @@ async function authedUser(req: express.Request): Promise<any | null> {
   return user;
 }
 
+/**
+ * Alt-text keys that were collected once and have no renderer to reach.
+ *
+ * `faviconAlt` is the only one. The wizard offered the field for as long as it
+ * has existed, `PUT /api/admin/brand` spread it into storage, and a tab icon is
+ * a `<link rel="icon">` with no alt attribute for the value to become. The
+ * field is gone from the wizard and says so in its place; this strips what the
+ * villages who typed one are still carrying, on the read AND on the write, so
+ * it cannot round-trip back in from a browser tab that loaded the old form.
+ */
+function withoutOrphanedAlt<T extends Record<string, any>>(images: T): T {
+  const out = { ...images };
+  delete (out as any).faviconAlt;
+  return out;
+}
+
 function getBrand() {
   const b = brandRepo.get();
   return {
     project: { ...DEFAULT_BRAND.project, ...(b.project ?? {}) },
     currency: { ...DEFAULT_BRAND.currency, ...(b.currency ?? {}) },
-    images: { ...DEFAULT_BRAND.images, ...(b.images ?? {}) },
+    images: withoutOrphanedAlt({ ...DEFAULT_BRAND.images, ...(b.images ?? {}) }),
     setup: { ...DEFAULT_BRAND.setup, ...(b.setup ?? {}) },
     // This function REBUILDS the document from named sections, so a section
     // added to DEFAULT_BRAND but not listed here is silently dropped on every
@@ -2520,10 +2536,11 @@ function mergedConfig() {
        * deliberate markup for a decorative image, and an admin who clears the
        * field means it. `alt()` distinguishes "typed nothing" from "not set".
        *
-       * These nine keys must stay listed here. This object is REBUILT from
+       * These eight keys must stay listed here. This object is REBUILT from
        * named keys, so a key added to the wizard and not added here is dropped
-       * on every read, which is exactly how the nine alt fields spent their
-       * whole life going nowhere.
+       * on every read, which is exactly how the alt fields spent their whole
+       * life going nowhere. Eight, and it said nine until `faviconAlt` was
+       * taken out of storage: a tab icon has no alt attribute to fill.
        */
       heroAlt: alt("heroAlt"),
       investorHeroAlt: alt("investorHeroAlt"),
@@ -17107,7 +17124,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const next = {
       project: { ...current.project, ...(req.body.project ?? {}) },
       currency: { ...current.currency, ...(req.body.currency ?? {}) },
-      images: { ...current.images, ...(req.body.images ?? {}) },
+      // Stripped on the way in as well as on the way out: a wizard tab opened
+      // before this change still holds `faviconAlt` in the object it posts
+      // back, and storing it again would put the orphan straight back.
+      images: withoutOrphanedAlt({ ...current.images, ...(req.body.images ?? {}) }),
       setup: { ...current.setup, ...(req.body.setup ?? {}) },
       // Theme fields are validated at EMISSION (server/lib/themeCss.ts), not
       // here — storing a value the sanitiser later rejects yields an empty
@@ -18131,29 +18151,15 @@ Send an empty drafts array when you are still listening. A role payload is {name
     res.json({ success: true, ...after });
   });
 
-  // Legacy single-season save, kept so nothing that still points here breaks:
-  // it updates the season covering today, or appends one if there is none.
-  app.put("/api/admin/season", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
-    const cfg = getSeasonConfig();
-    const currentId = seasonState().current?.id;
-    const idx = cfg.seasons.findIndex((s) => s.id === currentId);
-    const entry = {
-      id: req.body.id || currentId || `season-${cfg.seasons.length + 1}`,
-      name: req.body.name ?? "", theme: req.body.theme ?? "", focus: req.body.focus ?? "",
-      startsOn: req.body.startsOn ?? "", endsOn: req.body.endsOn ?? "",
-      // Carried through rather than dropped: this legacy route overwrites the
-      // whole entry, so omitting the field would silently unhook the season
-      // from its pattern every time somebody used the old save.
-      patternId: req.body.patternId ?? (idx >= 0 ? (cfg.seasons[idx] as any)?.patternId ?? "" : ""),
-      goals: Array.isArray(req.body.goals) ? req.body.goals : [],
-    };
-    if (idx >= 0) cfg.seasons[idx] = entry; else cfg.seasons.push(entry);
-    await seasonRepo.put(cfg);
-    if (entry.name) await addActivity("season", `The season has been set: ${entry.name}`, { actorUserId: adminActor(req)?.id, entityType: "season" });
-    res.json({ success: true });
-  });
+  /*
+   * `PUT /api/admin/season` used to sit here: the single-season save from
+   * before a village could hold more than one. It was kept "so nothing that
+   * still points here breaks", and nothing pointed here. The Season tab has
+   * used the plural `PUT /api/admin/seasons` above since multi-season
+   * shipped, and the singular was reachable only over curl while carrying
+   * its own overwrite semantics for the same rows. Two writers of one
+   * document, one of them with no door, is the shape this round removed.
+   */
 
   // Quests: public list
   app.get("/api/quests", async (_req, res) => {
@@ -23055,14 +23061,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
     res.json(exportDoc);
   });
 
-  // Activity admin: remove a single pulse entry (e.g. a test account's join line).
-  // Find the id via GET /api/game/pulse, then DELETE with the admin password.
-  app.delete("/api/admin/activity/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    const removed = await deleteEvent(getPool(), req.params.id);
-    if (!removed) return res.status(404).json({ error: "Not found" });
-    res.json({ success: true, removed });
-  });
+  /*
+   * `DELETE /api/admin/activity/:id` used to sit here. Its own comment told
+   * you to find the id with `GET /api/game/pulse` and then send the delete
+   * with the admin password, which is a description of a curl session and not
+   * of a product. Nothing in the browser called it, and the pulse is a record
+   * of what happened: a village that wants a line gone can say so, and a
+   * founder deleting one silently is not a power this admin ever offered.
+   */
 
   // Static Files + SPA Fallback
   const staticPath =

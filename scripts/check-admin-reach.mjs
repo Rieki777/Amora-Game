@@ -79,18 +79,29 @@ const ALLOWED = {
 const STANDING_ORPHANS = {
   "POST /api/admin/assistant/studio":
     "The Setup Studio assistant. It is the only prompt that reads the village brief and nothing calls it.",
-  "PUT /api/admin/season":
-    "The pre-multi-season single write. The Season tab uses PUT /api/admin/seasons. Probably a deletion.",
-  "PUT /api/admin/governance/weights/:userId": "Governance weighting has no admin surface.",
-  "POST /api/admin/governance/weights/bulk": "Governance weighting has no admin surface.",
+  /*
+   * `PUT /api/admin/season` came off this list by DELETION, not by wiring.
+   * It was the pre-multi-season single write and the Season tab has used
+   * `PUT /api/admin/seasons` since. Same for `DELETE /api/admin/activity/:id`
+   * further down, which offered a founder no way to remove a pulse line that
+   * did not start with curl.
+   */
+  "PUT /api/admin/governance/weights/:userId":
+    "Voting weight has no admin surface, and the variable's own description promises one: `governance.weight_mode` " +
+    "offers Custom and says weight comes from 'the allocation table you keep under Voting weights'. Under custom " +
+    "mode an absent row weighs ZERO, so these two routes are the only thing standing between a village that picks " +
+    "Custom and a ballot no quorum can ever carry. This is a surface missing its screen. It is not a deletion.",
+  "POST /api/admin/governance/weights/bulk": "The bulk half of the same missing screen. See above.",
   "POST /api/admin/org/drafts": "The assistant's org-draft flow has no admin surface.",
   "POST /api/admin/org/drafts/:id/changes": "The assistant's org-draft flow has no admin surface.",
   "PUT /api/admin/org/drafts/:id/vision": "The assistant's org-draft flow has no admin surface.",
   "POST /api/admin/org/drafts/:id/publish": "The assistant's org-draft flow has no admin surface.",
   "POST /api/admin/org/drafts/:id/revert": "The assistant's org-draft flow has no admin surface.",
-  "POST /api/admin/org/relations": "Circle-to-circle relations are stored and drawn, and no form writes them.",
-  "DELETE /api/admin/org/relations/:id": "Same as above, and this is the only way to undo one.",
-  "DELETE /api/admin/activity/:id": "Removing a pulse entry is possible over curl and nowhere else.",
+  "POST /api/admin/org/relations":
+    "Circle-to-circle relations are stored and DRAWN: `GET /api/map` serves them, `RelationLines.tsx` draws them as " +
+    "chords on the Power Map, and no form writes them. Deleting this would leave a live renderer that can only ever " +
+    "draw nothing, which is the VisionLayer shape. A door is owed, not a deletion.",
+  "DELETE /api/admin/org/relations/:id": "Same drawn feature, and this is the only way to undo a link. Also a door owed.",
   "POST /api/admin/exchange/reconcile":
     "An operator command for a stuck settlement. The scheduler runs it hourly and this is the manual override, so it may well belong in ALLOWED. Decide, then move it.",
   "POST /api/admin/library/sweep": "Scheduler-owned, with a by-hand override. Same decision as the reconcile above.",

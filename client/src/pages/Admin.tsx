@@ -88,13 +88,22 @@ function refusal(d: any, fallback: string): string {
   }
   return fallback;
 }
+/*
+ * ONE SECTION LEFT, and the six that went are why this comment exists.
+ *
+ * Investor, Steward, Resident and Prosperity saved into
+ * `app_config['content'].<pathway>` and the four journey pages each hold their
+ * own `journeySteps` constant and never fetched it, so every save was a green
+ * toast over nothing. Circles and Roles had carried an amber banner since 0049
+ * saying the public pages no longer read them, which is an editor admitting it
+ * lies and staying on the rail anyway. /circles and /roles read `/api/org`;
+ * their editor is Admin, Org Chart.
+ *
+ * Team stays because Team.tsx really does fetch `/api/content/team`: the cards
+ * carry the portrait and the bio a seat row has no place for, and a card for
+ * somebody who holds no seat is the only way they reach the page at all.
+ */
 const CONTENT_SECTIONS = [
-  { key: "investor", label: "Investor Journey", icon: TrendingUp },
-  { key: "steward", label: "Steward Journey", icon: Users },
-  { key: "resident", label: "Resident Journey", icon: Home },
-  { key: "prosperity", label: "Prosperity Journey", icon: Sparkles },
-  { key: "circles", label: "Circles Page", icon: Circle },
-  { key: "roles", label: "Roles Page", icon: Users2 },
   { key: "team", label: "Team Page", icon: Users },
 ] as const;
 
@@ -1174,16 +1183,11 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
     setSaving(false);
   };
 
-  // Journey steps have a friendlier structured editor
-  const isJourney = ["investor", "steward", "resident", "prosperity"].includes(sectionKey);
-  const journeyData = isJourney && raw ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : null;
-
-  // Circles, Roles, and Team get the same treatment: cards with plain fields,
-  // the raw JSON demoted to "advanced". Editing mutates the PARSED array
-  // in place and re-serializes, so keys the form doesn't know about
-  // survive untouched — the JSON stays the ground truth. These cards feed the
-  // public /roles, /circles, and /team pages directly.
-  const isCards = sectionKey === "circles" || sectionKey === "roles" || sectionKey === "team";
+  // Team gets a card editor: plain fields, the raw JSON demoted to "advanced".
+  // Editing mutates the PARSED array in place and re-serializes, so keys the
+  // form doesn't know about survive untouched — the JSON stays the ground
+  // truth. These cards feed the public /team page directly.
+  const isCards = sectionKey === "team";
   const cardsData: any[] | null = isCards && raw ? (() => {
     try { const p = JSON.parse(raw); return Array.isArray(p) ? p : null; } catch { return null; }
   })() : null;
@@ -1192,37 +1196,14 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
     fn(arr);
     setRaw(JSON.stringify(arr, null, 2));
   };
-  // field spec per section: [key, label, kind, options?]
-  const CARD_FIELDS: Array<[string, string, "text" | "long" | "lines" | "select", string[]?]> =
-    sectionKey === "circles"
-      ? [
-          ["name", "Circle name", "text"],
-          ["subtitle", "Subtitle", "text"],
-          ["stage", "Stage (today = current team circle, future = as the village matures)", "select", ["today", "future"]],
-          ["description", "Description", "long"],
-          ["domain", "Domain (what it cares for)", "long"],
-          ["members", "Who's in it", "long"],
-          ["focus", "Focus areas (one per line)", "lines"],
-        ]
-      : sectionKey === "roles"
-      ? [
-          ["name", "Role name", "text"],
-          ["group", "Circle / group (cards with the same group appear together)", "text"],
-          ["status", "Seat status", "select", ["open", "filled", "partial", "forming"]],
-          ["holders", "Who holds it (one name per line, or leave empty for an open seat)", "lines"],
-          ["holderNote", "Holder note (optional, e.g. 'seeking a full-time steward')", "text"],
-          ["aim", "Aim", "long"],
-          ["domain", "Domain", "long"],
-          ["accountabilities", "Key accountabilities (one per line)", "lines"],
-          ["whyItMatters", "Why this role matters", "long"],
-        ]
-      : [
-          ["name", "Name", "text"],
-          ["role", "Role title", "text"],
-          ["circle", "Circle (shown under the title)", "text"],
-          ["photo", "Photo URL", "text"],
-          ["bio", "Bio", "long"],
-        ];
+  // field spec: [key, label, kind, options?]
+  const CARD_FIELDS: Array<[string, string, "text" | "long" | "lines" | "select", string[]?]> = [
+    ["name", "Name", "text"],
+    ["role", "Role title", "text"],
+    ["circle", "Circle (shown under the title)", "text"],
+    ["photo", "Photo URL", "text"],
+    ["bio", "Bio", "long"],
+  ];
 
   return (
     <div>
@@ -1251,99 +1232,11 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
         </div>
       </div>
 
-      {/*
-        The roles, circles and team cards stopped driving the public pages at
-        0049: /roles, /circles and /team read the org ROWS now. Leaving this
-        editor looking authoritative would be the worst outcome of the whole
-        change, because somebody follows the walkthrough they were given, edits
-        a card, saves, and nothing moves on the site.
-      */}
-      {isCards && (
-        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm text-amber-900 font-medium">
-            The public pages no longer read these cards.
-          </p>
-          <p className="text-sm text-amber-800 mt-1">
-            Circles, seats and who holds them moved into the org chart, so
-            /roles, /circles and /team come from <strong>Admin → Org Chart</strong>.
-            Edit them there and the site updates immediately. These cards are
-            kept as a record of what the pages said before the move.
-          </p>
-        </div>
-      )}
-
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading...</div>
       ) : (
         <>
-          {/* Structured editor for journey steps */}
-          {isJourney && journeyData?.journeySteps && (
-            <div className="mb-6 space-y-4">
-              <h3 className="font-semibold text-gray-700 text-sm uppercase tracking-wide">Journey Steps</h3>
-              {(journeyData.journeySteps as any[]).map((step: any, idx: number) => (
-                <div key={step.id || idx} className="border border-gray-200 rounded-xl p-5 bg-gray-50">
-                  <div className="grid grid-cols-2 gap-4 mb-3">
-                    <div>
-                      <label className="text-xs font-medium text-gray-500 block mb-1">Step Title</label>
-                      <input
-                        type="text"
-                        value={step.title}
-                        onChange={(e) => {
-                          const updated = { ...journeyData };
-                          updated.journeySteps[idx].title = e.target.value;
-                          setRaw(JSON.stringify(updated, null, 2));
-                        }}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
-                      />
-                    </div>
-                    {step.stage && (
-                      <div>
-                        <label className="text-xs font-medium text-gray-500 block mb-1">Stage Label</label>
-                        <input
-                          type="text"
-                          value={step.stage}
-                          onChange={(e) => {
-                            const updated = { ...journeyData };
-                            updated.journeySteps[idx].stage = e.target.value;
-                            setRaw(JSON.stringify(updated, null, 2));
-                          }}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
-                        />
-                      </div>
-                    )}
-                  </div>
-                  <div className="mb-3">
-                    <label className="text-xs font-medium text-gray-500 block mb-1">Description</label>
-                    <textarea
-                      value={step.description}
-                      rows={2}
-                      onChange={(e) => {
-                        const updated = { ...journeyData };
-                        updated.journeySteps[idx].description = e.target.value;
-                        setRaw(JSON.stringify(updated, null, 2));
-                      }}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-500 block mb-1">Checklist Items (one per line)</label>
-                    <textarea
-                      value={(step.details || []).join("\n")}
-                      rows={4}
-                      onChange={(e) => {
-                        const updated = { ...journeyData };
-                        updated.journeySteps[idx].details = e.target.value.split("\n").filter(Boolean);
-                        setRaw(JSON.stringify(updated, null, 2));
-                      }}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-none font-mono"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Card editor for circles/roles — plain fields, no JSON in sight */}
+          {/* Card editor — plain fields, no JSON in sight */}
           {isCards && cardsData && (
             <div className="mb-6 space-y-4">
               {cardsData.map((card: any, idx: number) => (
@@ -1426,19 +1319,14 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
               ))}
               <button
                 onClick={() => mutateCards((a) => a.push(
-                  sectionKey === "circles"
-                    ? { id: `circle-${Date.now()}`, name: "New circle", subtitle: "", stage: "today", description: "", domain: "", members: "", focus: [] }
-                    : sectionKey === "roles"
-                    ? { id: `role-${Date.now()}`, name: "New role", group: "General Circle", status: "open", holders: [], holderNote: "", aim: "", domain: "", accountabilities: [], whyItMatters: "" }
-                    : { name: "New team member", role: "", circle: "", photo: "", bio: "" },
+                  { name: "New team member", role: "", circle: "", photo: "", bio: "" },
                 ))}
                 className="text-sm text-[#2D5A5A] font-medium hover:underline"
               >
-                + Add {sectionKey === "circles" ? "a circle" : sectionKey === "roles" ? "a role" : "a team member"}
+                + Add a team member
               </button>
               <p className="text-xs text-gray-400">
                 Remember to hit Save Changes above. Edits here go live only after saving.
-                {sectionKey === "roles" && " To fill or open a seat, change its status and edit the holder names. The public page updates the moment you save."}
               </p>
             </div>
           )}
@@ -1447,7 +1335,7 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                {isJourney || isCards ? "Raw JSON (advanced edits)" : "Edit JSON"}
+                {isCards ? "Raw JSON (advanced edits)" : "Edit JSON"}
               </label>
               {parseError && (
                 <span className="text-xs text-red-500">{parseError}</span>
@@ -1456,7 +1344,7 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
             <textarea
               value={raw}
               onChange={(e) => { setRaw(e.target.value); setParseError(""); }}
-              rows={isJourney || isCards ? 12 : 28}
+              rows={isCards ? 12 : 28}
               spellCheck={false}
               className="w-full px-4 py-3 text-xs font-mono border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 bg-gray-900 text-green-300 resize-none"
             />
@@ -9336,8 +9224,13 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
     />
   );
 
+  /*
+   * The "Journey page copy" row came out with the four tabs it pointed at.
+   * It sent a founder to an editor whose saves the journey pages never read,
+   * and a wizard that hands somebody a door to a room that was demolished is
+   * worse than one that stays quiet about it.
+   */
   const contentEditors = [
-    { tab: "investor", label: "Journey page copy", hint: "Hero text, steps, sections for each of the 4 pathways (use the Content editors)." },
     { tab: "faqs", label: "FAQs", hint: "The Common Questions on each journey page." },
     { tab: "milestones", label: "Build Progress", hint: "Your real build milestones shown on the homepage." },
     { tab: "training-modules", label: "Training modules", hint: "Your community's onboarding/learning modules." },
