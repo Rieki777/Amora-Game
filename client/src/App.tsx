@@ -112,8 +112,8 @@ const PAGE_TITLES: Record<string, string> = {
   // and what a member sees; /wallet stays mounted because Stripe return URLs
   // and order notifications already carry it (server/index.ts), and a member's
   // own balances now also live in a Wallet section on their profile.
-  "/tokens": "Tokens",
-  "/wallet": "Tokens",
+  "/tokens": "The Exchange",
+  "/wallet": "The Exchange",
   "/profile": "My profile",
   "/login": "Sign in",
   "/set-password": "Choose a password",

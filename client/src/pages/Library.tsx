@@ -55,7 +55,7 @@ export default function Library() {
         const { ok, data: d, refusal } = await readRefusal(r);
         if (refusal && itemId) { setRefusedItem({ id: itemId, message: refusal }); return; }
         if (!ok) throw new Error(d?.error || "Request failed");
-        if (d.escrow != null) setNotice(`Reserved. ${d.escrow} credit(s) moved to escrow until settle.`);
+        if (d.escrow != null) setNotice(`Reserved. ${d.escrow} credit(s) set aside while you borrow.`);
         if (d.released != null) setNotice(`Cancelled. ${d.released} credit(s) released back to you.`);
         load();
       })
@@ -149,7 +149,7 @@ export default function Library() {
                       <button
                         onClick={() => call(`/api/library/items/${i.id}/reserve`, undefined, i.id)}
                         disabled={!eligible}
-                        title={eligible ? `Locks ${i.escrow} credit(s) in escrow` : "Not open to you yet"}
+                        title={eligible ? `Sets aside ${i.escrow} credit(s) while you borrow` : "Not open to you yet"}
                         className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
                       >
                         Borrow

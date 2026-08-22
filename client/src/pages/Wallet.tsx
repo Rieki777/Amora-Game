@@ -68,7 +68,7 @@ export default function Wallet() {
     if (q === "cancelled") setNotice("Checkout cancelled. Nothing was charged.");
   }, [exchangeModule?.id]);
 
-  if (modules.loaded && !exchangeModule) return <ModuleGate moduleId="exchange" name="Exchange" />;
+  if (modules.loaded && !exchangeModule) return <ModuleGate moduleId="exchange" name="The Exchange" />;
 
   const buy = (slug: string) => {
     setError(""); setRefusedSlug(null);
@@ -92,11 +92,13 @@ export default function Wallet() {
     <Layout>
       <section className="py-12 bg-gradient-to-b from-teal-deep/5 to-background">
         <div className="container text-center">
-          <h1 className="font-display text-4xl font-bold text-foreground mb-3">Tokens</h1>
+          <h1 className="font-display text-4xl font-bold text-foreground mb-3">The Exchange</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            What you hold, and the village exchange. Recognition is earned, never
-            bought. Only the village's own credit tokens are ever listed here.
-            Your own balances also sit on{" "}
+            Every token the village uses, in one room. Gratitude is thanks for
+            work, never pay. Stay credits are nights earned through work
+            exchange. Library credits are the deposit that waits while you
+            borrow. Money can buy the credit tokens; Gratitude is only ever
+            earned. Your own balances also sit on{" "}
             <a href="/profile#wallet" className="text-teal-deep font-medium hover:underline">your profile</a>.
           </p>
           <ExamplesBanner moduleId="exchange" noun="listing" />
@@ -141,10 +143,10 @@ export default function Wallet() {
           <div className="bg-card border border-border rounded-xl p-5">
             <div className="flex items-center gap-2 mb-3">
               <Coins className="w-4 h-4 text-teal-deep" />
-              <p className="font-semibold text-foreground text-sm">The exchange</p>
+              <p className="font-semibold text-foreground text-sm">Buy tokens</p>
             </div>
             {status === "failed" ? (
-              <p className="text-sm text-muted-foreground">Couldn't load the exchange just now.</p>
+              <p className="text-sm text-muted-foreground">Couldn't load the listings just now.</p>
             ) : status === "ready" && (data?.listings ?? []).length === 0 ? (
               <p className="text-sm text-muted-foreground">Nothing is listed for purchase right now.</p>
             ) : null}

@@ -103,7 +103,7 @@ export const NAV: readonly NavEntry[] = [
       { href: "/library", label: "Library", module: "library" },
       { href: "/tools", label: "Tools", module: "tools" },
       { href: "/village-health", label: "Health", module: "health" },
-      { href: "/tokens", label: "Tokens", module: "exchange" },
+      { href: "/tokens", label: "The Exchange", module: "exchange" },
       { href: "/housing", label: "Housing" },
       { href: "/network", label: "Village Network", module: "network" },
       { href: "/contribute", label: "Contribute", module: "commerce" },
