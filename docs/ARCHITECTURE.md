@@ -1396,6 +1396,49 @@ Sources: CI uses a
 at a scratch-capable server — never the app schema. No `TEST_DATABASE_URL`
 → DB-backed suites **skip loudly** rather than pass hollowly.
 
+**Migrate once, clone per suite (2026-08-22).** 44 test files provision a
+schema and 47 calls do it, so "applies every migration" used to mean applying
+88 files 47 times: roughly five minutes of every CI job, growing by that
+multiple with every migration anyone added. One PR-merge job was cancelled on
+the workflow's 15-minute cap while the push job for the same commit finished in
+4m38s, so the headroom this spent is what made runner variance fatal.
+
+MySQL has no `CREATE DATABASE ... TEMPLATE`, so `provisionTestDb` builds the
+equivalent: migrate ONCE into a template schema named
+`village_tpl_<sha of every migration's name and bytes>_<collation>`, then give
+each suite a copy assembled from that template's own `SHOW CREATE TABLE` plus a
+server-side `INSERT … SELECT` for the tables migrations seed. The DDL is the
+server's own rendering, replayed on the same server, so nothing is translated
+between engines and MariaDB locally and MySQL in CI each clone their own
+dialect exactly. `applyPending` still runs on the clone and must find nothing
+to do; it says so loudly if it does.
+
+What that keeps: each suite still gets a private, uniquely-named scratch schema
+nobody else writes to, `drop()` and the two-hour orphan sweep are unchanged,
+and the fail-loud skip is unchanged. Templates get a sweep of their own
+(`STALE_TEMPLATE_MS`, 24 hours), skipping the one in use by name and any one a
+builder holds a MySQL named lock on. Anything that goes wrong in the clone path
+falls back to migrating the schema in full and **prints why**, because a silent
+fallback is exactly the five minutes this exists to save.
+`server/db/harness.test.ts` proves a clone is column-for-column, index-for-index
+and row-count-for-row-count identical to a schema built by running the
+migrations, against whichever engine the run is on.
+
+The price is printed. Every run ends with a provisioning summary from
+`server/db/provisioningReport.ts` (wired as vitest's `globalSetup`), and
+`pnpm measure:provisioning` prints the template build, the per-clone cost, the
+per-migration-file cost and the whole-run total.
+
+Measured on a local MariaDB 12.3 at 88 migrations, on a quiet box: template
+**2.1s** (24ms per migration file), clone **0.7s**, whole-run provisioning
+**129s → 34s**. The same tree under load, with other lanes working the same
+machine, measured template **8.8s** and clone **4.1s** and whole-run
+provisioning **569s → 189s**. **The ratio is the stable number, roughly a
+quarter of what provisioning cost, and the absolute figures move 4x with what
+else is running** — which is the local version of the spread CI runners show on
+identical content. Read the run's own printed summary, never a remembered
+figure.
+
 **The loop test** (`server/loop.e2e.test.ts`) is the acceptance criterion
 for the whole product, not a unit test: it boots the BUILT `dist/index.js`
 as a subprocess against a scratch schema and a throwaway data dir, then walks

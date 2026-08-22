@@ -118,6 +118,13 @@ time so `/health` cannot report a build that isn't running.
 - DB-backed suites need `TEST_DATABASE_URL` in the local `.env` (the S5 harness in
   `server/db/testDb.ts` drops/recreates a scratch schema — never point it at the app schema).
   Without it they skip loudly rather than pass hollowly.
+- **Provisioning migrates once per run, not once per suite.** 44 files provision a schema;
+  the harness migrates into a `village_tpl_<hash>` template and clones it, so each suite
+  still gets a private schema for a fraction of the cost. Every run prints what it paid, and
+  `pnpm measure:provisioning` prints the template build, the per-clone cost and the
+  per-migration-file price. Read that number before adding ten migrations. If a run prints
+  `[testDb] could not clone template`, provisioning fell back to the slow path and the
+  message says why.
 - Unit anchors: `server/ledger.test.ts`, `server/swap.test.ts`, `server/payments.test.ts`.
 
 ## Non-negotiable invariants
