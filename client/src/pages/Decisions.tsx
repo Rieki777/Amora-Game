@@ -37,7 +37,7 @@ import { BreathingLoader, MoonProgress } from "@/components/natural";
 import InfoTip from "@/components/InfoTip";
 import DecisionCard from "@/components/governance/DecisionCard";
 import MyStanding from "@/components/governance/MyStanding";
-import { fetchBallots, fetchStanding, type Ballot, type Standing } from "@/components/governance/governanceApi";
+import { fetchBallots, fetchStanding, type BallotCard, type Standing } from "@/components/governance/governanceApi";
 import { quorumPctOf } from "@shared/governanceEngine";
 
 export default function Decisions() {
@@ -45,7 +45,7 @@ export default function Decisions() {
   const modules = useModules();
   const governance = useModule("governance");
 
-  const [ballots, setBallots] = useState<Ballot[] | null>(null);
+  const [ballots, setBallots] = useState<BallotCard[] | null>(null);
   const [standing, setStanding] = useState<Standing | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -206,7 +206,7 @@ function Group({
 }: {
   title: string;
   blurb: string;
-  ballots: Ballot[];
+  ballots: BallotCard[];
   emptyNote?: string | null;
 }) {
   if (ballots.length === 0 && !emptyNote) return null;
@@ -235,7 +235,7 @@ function Group({
  * percent travels in the accessible name and again in the caption, which is
  * the component's own rule about a shape never being a readout on its own.
  */
-function TurnoutCard({ ballots }: { ballots: Ballot[] }) {
+function TurnoutCard({ ballots }: { ballots: BallotCard[] }) {
   const decided = ballots.filter((b) => b.status !== "open");
   if (decided.length === 0) return null;
   const average =

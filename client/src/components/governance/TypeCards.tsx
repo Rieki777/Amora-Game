@@ -16,9 +16,13 @@
  * It is still SHOWN, because hiding it would make the village's own governance
  * look smaller than it is.
  *
- * ACCESSIBILITY. The cards are a radiogroup of real buttons: Tab reaches the
- * group, arrows move inside it, aria-checked carries the choice, and the
- * chosen card is marked with a ring AND a check, never with colour alone.
+ * ACCESSIBILITY. The cards are toggle buttons in a named group, not a
+ * radiogroup: a radiogroup promises roving focus, where Tab reaches the group
+ * and arrows move within it, and every card here stays individually reachable
+ * by Tab so a keyboard reader can read all five before choosing. aria-pressed
+ * carries the choice, and the chosen card is marked with a ring AND a check,
+ * never with colour alone. A type this village cannot conduct is disabled and
+ * says why in words.
  */
 import { Check, Lock } from "lucide-react";
 import { TYPE_GROUPS, WIZARD_TYPE_CONFIGS, type WizardType } from "./wizardConfig";
@@ -34,7 +38,7 @@ export default function TypeCards({
   onChoose: (id: WizardType) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label="What kind of decision" className="space-y-6">
+    <div role="group" aria-label="What kind of decision" className="space-y-6">
       {TYPE_GROUPS.map((group) => {
         const types = WIZARD_TYPE_CONFIGS.filter((t) => t.group === group);
         if (types.length === 0) return null;
@@ -50,8 +54,7 @@ export default function TypeCards({
                   <button
                     key={t.id}
                     type="button"
-                    role="radio"
-                    aria-checked={isChosen}
+                    aria-pressed={isChosen}
                     disabled={!available}
                     onClick={() => onChoose(t.id)}
                     className={`relative flex min-h-[44px] items-start gap-3 rounded-xl border-2 p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2 ${

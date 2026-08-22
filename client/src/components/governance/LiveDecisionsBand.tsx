@@ -24,14 +24,14 @@ import { useModule } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import VoteClock from "./VoteClock";
 import { subjectNoun } from "./wizardConfig";
-import { fetchBallots, type Ballot } from "./governanceApi";
+import { fetchBallots, type BallotCard } from "./governanceApi";
 
 const SHOWN = 3;
 
 export default function LiveDecisionsBand() {
   const governance = useModule("governance");
   const { user } = useAuth();
-  const [ballots, setBallots] = useState<Ballot[] | null>(null);
+  const [ballots, setBallots] = useState<BallotCard[] | null>(null);
 
   useEffect(() => {
     if (!governance || !user) return;

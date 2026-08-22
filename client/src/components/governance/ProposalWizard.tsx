@@ -101,24 +101,44 @@ export default function ProposalWizard() {
   }, [type, dials.length]);
 
   // ── The draft ─────────────────────────────────────────────────────────────
+  /**
+   * Saves are SERIALIZED, and the id is held in a ref beside the state.
+   *
+   * Two writes can be in flight at once here: the autosave timer and the save
+   * that a step change or a Leave triggers. Both read `draftId`, and if the
+   * first has not returned yet, both read null and both INSERT, so a member
+   * clicking Next while an autosave is in the air ends up with the same
+   * proposal in their drafts card twice. The ref is written the moment an id
+   * comes back, and every save waits on the one before it, so the second write
+   * sees the id the first created and updates that row.
+   */
+  const inFlight = useRef<Promise<string | null>>(Promise.resolve(null));
+  const draftIdRef = useRef<string | null>(null);
+
   const persist = useCallback(
-    async (over?: { stepIndex?: number }): Promise<string | null> => {
-      if (!type) return null;
-      const answer = await saveDraft({
-        id: draftId,
-        wizardType: type,
-        payload: answers,
-        stepIndex: over?.stepIndex ?? stepIndex,
+    (over?: { stepIndex?: number }): Promise<string | null> => {
+      if (!type) return Promise.resolve(null);
+      const run = inFlight.current.then(async () => {
+        const answer = await saveDraft({
+          id: draftIdRef.current,
+          wizardType: type,
+          payload: answers,
+          stepIndex: over?.stepIndex ?? stepIndex,
+        });
+        if (!answer.ok) {
+          setFeedback({ ok: false, text: answer.error });
+          return null;
+        }
+        draftIdRef.current = answer.data.draft.id;
+        setDraftId(answer.data.draft.id);
+        setDirty(false);
+        return answer.data.draft.id;
       });
-      if (!answer.ok) {
-        setFeedback({ ok: false, text: answer.error });
-        return null;
-      }
-      setDraftId(answer.data.draft.id);
-      setDirty(false);
-      return answer.data.draft.id;
+      // A rejection must not poison the chain for every later save.
+      inFlight.current = run.catch(() => null);
+      return run;
     },
-    [answers, draftId, stepIndex, type],
+    [answers, stepIndex, type],
   );
 
   // Autosave after a pause. A wizard that saves on every keystroke writes a
@@ -169,6 +189,7 @@ export default function ProposalWizard() {
     setBusyDraft(draft.id);
     setType(draft.wizardType as WizardType);
     setAnswers(draft.payload ?? {});
+    draftIdRef.current = draft.id;
     setDraftId(draft.id);
     setStep(stepAtIndex(draft.wizardType, draft.stepIndex));
     setDirty(false);
@@ -180,7 +201,8 @@ export default function ProposalWizard() {
     const answer = await apiDeleteDraft(draft.id);
     if (answer.ok) {
       setDrafts((prev) => prev.filter((d) => d.id !== draft.id));
-      if (draftId === draft.id) {
+      if (draftIdRef.current === draft.id) {
+        draftIdRef.current = null;
         setDraftId(null);
         setAnswers({});
         setType(null);
@@ -212,7 +234,8 @@ export default function ProposalWizard() {
     // Published work is not draft work: the row goes, and it goes here rather
     // than on a schedule, so the drafts card never offers a proposal that is
     // already in front of the village.
-    if (draftId) await apiDeleteDraft(draftId);
+    if (draftIdRef.current) await apiDeleteDraft(draftIdRef.current);
+    draftIdRef.current = null;
     setDirty(false);
     setPublished({ id: answer.data?.id, title: String(answers.title ?? cfg.title) });
     setBusy(false);
@@ -255,6 +278,7 @@ export default function ProposalWizard() {
               setPublished(null);
               setType(null);
               setAnswers({});
+              draftIdRef.current = null;
               setDraftId(null);
               setStep("type");
             }}

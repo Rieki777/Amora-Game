@@ -5097,6 +5097,33 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(record.json.myWeight).toBe(1);
     expect(record.json.votes.every((v: any) => typeof v.weight === "number")).toBe(true);
 
+    // THE LIST KNOWS WHO IS ASKING. This is a regression guard on a real
+    // defect: the list route served every ballot with no viewer, so `myVote`
+    // and `myWeight` came back null for everybody and no card could ever say
+    // "waiting on you" - the single question a member opens a list of votes
+    // to answer. Asserted per member, because a viewer-blind route passes any
+    // check made from one account's point of view.
+    const asVoter = await api("GET", "/api/governance/ballots", undefined, voters[0].token);
+    expect(asVoter.status).toBe(200);
+    const cardForVoter = asVoter.json.find((b: any) => b.id === ballot.id);
+    expect(cardForVoter, "the ballot is in the list").toBeTruthy();
+    expect(cardForVoter.myVote?.choice, "the list carries the viewer's own vote").toBe("yes");
+    expect(cardForVoter.myWeight).toBe(1);
+    expect(cardForVoter.votedCount).toBe(5);
+    // Cards do not build the roll: names cost a query each, and a hundred
+    // ballots would be a thousand of them to draw a list of titles.
+    expect(cardForVoter.votes).toBeUndefined();
+    expect(cardForVoter.silent).toBeUndefined();
+
+    // And a member OUTSIDE this electorate reads the same card with a null
+    // weight, which is what makes "you are not on this roll" renderable.
+    const asOutsider = await api("GET", "/api/governance/ballots", undefined, outsider.json.token);
+    const cardForOutsider = asOutsider.json.find((b: any) => b.id === ballot.id);
+    expect(cardForOutsider.myWeight).toBeNull();
+    expect(cardForOutsider.myVote).toBeNull();
+    // Same ballot, same tallies: the viewer changes only the "you" fields.
+    expect(cardForOutsider.tallies).toEqual(cardForVoter.tallies);
+
     // The wizard's own facts: what this deployment can actually conduct. The
     // list is the server's, so the type step never walks a member toward a
     // publish route no lane has mounted.

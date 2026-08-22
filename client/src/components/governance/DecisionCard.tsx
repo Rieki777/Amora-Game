@@ -17,7 +17,7 @@ import type { VoteChoice } from "@shared/governanceEngine";
 import { subjectNoun } from "./wizardConfig";
 import { VoteResultMini } from "./VoteResult";
 import VoteClock from "./VoteClock";
-import type { Ballot } from "./governanceApi";
+import type { BallotCard as BallotCardData } from "./governanceApi";
 
 const MINE: Record<VoteChoice, { label: string; icon: typeof CircleCheck; tone: string }> = {
   yes: { label: "You voted yes", icon: CircleCheck, tone: "text-sage" },
@@ -32,7 +32,7 @@ const CLOSED_WORD: Record<string, string> = {
   withdrawn: "Withdrawn",
 };
 
-export default function DecisionCard({ ballot }: { ballot: Ballot }) {
+export default function DecisionCard({ ballot }: { ballot: BallotCardData }) {
   const open = ballot.status === "open";
   const mine = ballot.myVote ? MINE[ballot.myVote.choice] : null;
   const MineIcon = mine?.icon;

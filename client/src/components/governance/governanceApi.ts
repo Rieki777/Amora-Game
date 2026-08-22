@@ -30,6 +30,8 @@ export interface BallotSilent {
 export interface BallotObjection {
   id: string;
   by: string;
+  /** The viewer raised this one, so they may withdraw it. */
+  mine: boolean;
   text: string;
   status: "open" | "integrated" | "concern" | "withdrawn";
   rulingNote: string | null;
@@ -68,6 +70,37 @@ export interface Ballot {
   myWeight: number | null;
 }
 
+/**
+ * A ballot as a CARD reads it: the two bars, the clock, and whether this vote
+ * is waiting on the viewer. Deliberately NOT a `Ballot`: the list route does
+ * not build the voter roll, so a card that reached for `votes` would be
+ * reading a field the server never sends, and the typecheck says so here
+ * instead of a member seeing an empty list.
+ */
+export interface BallotCard {
+  id: string;
+  subjectType: string;
+  subjectRef: string;
+  title: string;
+  method: BallotMethod;
+  weightMode: "equal" | "token" | "custom";
+  unityPct: number;
+  quorumPct: number;
+  totalWeight: number;
+  electorateCount: number;
+  opensAt: string;
+  closesAt: string;
+  status: "open" | "passed" | "failed" | "no_quorum" | "withdrawn";
+  outcomeNote: string | null;
+  closedAt: string | null;
+  tallies: { yesW: number; noW: number; abstainW: number };
+  unity: number;
+  quorum: number;
+  votedCount: number;
+  myVote: { choice: VoteChoice; reason: string | null } | null;
+  myWeight: number | null;
+}
+
 export interface Standing {
   mode: "equal" | "token" | "custom";
   token: string | null;
@@ -75,6 +108,8 @@ export interface Standing {
   eligible: boolean;
   weight: number;
   why: string;
+  /** Holds proposal.decide: may rule objections and close a ballot early. */
+  mayDecide: boolean;
   history: Array<{
     id: number;
     userId: string;
@@ -132,7 +167,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<Answer<T>> {
   }
 }
 
-export const fetchBallots = () => call<Ballot[]>("/api/governance/ballots");
+export const fetchBallots = () => call<BallotCard[]>("/api/governance/ballots");
 export const fetchBallot = (id: string) => call<Ballot>(`/api/governance/ballots/${encodeURIComponent(id)}`);
 export const fetchStanding = () => call<Standing>("/api/governance/standing");
 export const fetchWizardFacts = () => call<WizardFacts>("/api/governance/wizard");
