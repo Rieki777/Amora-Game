@@ -59,7 +59,7 @@ export default function CycleClock({ hemisphere = "north" }: { hemisphere?: Hemi
               <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={T.brand} strokeWidth="2.5" />
               <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
                 fontSize="7.5" fill={T.brand} opacity="0.9">
-                {q.label === "Equal Day & Night" ? "Equal" : q.label === "Longest Day" ? "Longest" : "Shortest"}
+                {q.label === "Equal Day & Night" ? "Equinox" : "Solstice"}
               </text>
             </g>
           );
