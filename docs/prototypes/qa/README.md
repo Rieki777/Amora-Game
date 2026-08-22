@@ -670,6 +670,34 @@ tries the building's **emblem** before its name plate for the same reason.
 gate at all" before any of it was written. Keep it: the answer is browser
 policy, not artifact behaviour, and it will be asked again.
 
+`verify_org_lens.js` is the org lane's MODEL suite: halos only at circle homes,
+radii that cannot overlap, one satellite per role, the three seat inks, the
+governing gather rule, and the party filter on the marks. **When `SCENE.seats`
+gains a field, run it**: `restoreScene` is a field-by-field whitelist reached on
+every shell scene push, so a field with no line in it is dropped on the first
+publish and the map keeps working while quietly drawing every seat as open.
+
+`verify_org_ground.js` is the org lane's SCREEN suite, and the two are separate
+on purpose. verify_org_lens reported 38 of 38 green while two of the three
+governing satellites were painted underneath a building sprite and could not be
+seen at all, because it proves the marks by driving `roleSat` onto canvases made
+with `createElement` - and a scratch canvas has no sprite on it and no plane
+above it. **Anything about position, occlusion or legibility goes in
+verify_org_ground.js**, which reads only two things: the composited page from
+`page.screenshot()`, and rects off the live DOM.
+
+It carries its own negative controls and they are not decoration - the
+thresholds are set from what they measure, and a check nobody has watched fail
+reports what a check that passed reports:
+
+    BREAK=floor node qa/verify_org_ground.js   # the sprite's foot back to zero
+    BREAK=plane node qa/verify_org_ground.js   # the lens plane back under the seals
+    BREAK=ink   node qa/verify_org_ground.js   # recorded, drawn, never composited
+
+`floor` must take G2 red, `plane` G0e, `ink` G5c at every satellite. G5c's
+threshold sits in a measured gap: 0% with the ink suppressed, 19-45% when the
+seals were covering it, 70-80% as shipped.
+
 ## Measuring these suites (n=1 is not a measurement)
 
 `verify_doors`, `verify_badges`, `verify_loom` and `verify_features` are
@@ -882,6 +910,44 @@ plant a real violation in a line she says. Three take her copy away from the
 extractor without changing a word of it: rename `MAIA_STOPS`, rename the call
 sites, move a sentinel. A gate that stays green through the second group is the
 silent-zero defect wearing a green shirt.
+
+## Comparing against a control
+
+`paired_reps.sh` runs the suites against a pristine artifact and the working one
+back to back, n times; `paired_summary.sh` reports each side's failures as a SET
+and says whether the lane's is a subset of the control's.
+
+    CTRL="file:///C:/…/base.html" REPS=5 bash paired_reps.sh
+    bash paired_summary.sh
+
+Three things it exists to stop. A raw failure COUNT is not a comparison when the
+suites are intermittent; several checks print the value they measured into the
+message, so the same failing check reads as two different ones until the numbers
+are normalised out; and **a side that CRASHED contributes an empty failing set,
+which is a subset of everything**. That last one was live: `verify_publish`
+derived its shell by replacing a trailing `grounds-v0.html`, so a control staged
+under any other name loaded the artifact as its own shell, found no frame and
+threw at check 3 of 31 - on five of five reps, on a lane and on its reviewer -
+and the summary printed "SUBSET" about a control that never ran. `paired_reps.sh`
+now records a `__QA_CHECKS` trailer in every log and `paired_summary.sh` refuses
+to compare a side that reached zero checks on any rep.
+
+**STAGE THE CONTROL AS `<dir>/grounds-v0.html` WITH A `qa/` BESIDE IT.**
+`qa/shell_publish.html` carries a hardcoded `<iframe src="../grounds-v0.html">`,
+so the name is load-bearing and `verify_publish` now says so at check A0 instead
+of crashing. The directory has to be a real `C:/` path: a `/tmp` path does not
+resolve for the browser on Windows.
+
+    mkdir -p .qa-ctrl/qa && cp qa/shell_publish.html qa/shell.html qa/lib2.js .qa-ctrl/qa/
+    git cat-file -p origin/main:docs/prototypes/grounds-v0.html > .qa-ctrl/grounds-v0.html
+
+**Derive the control from git, and not from a scratch directory.** The one under
+`AppData/Local/Temp/claude/...` is keyed on the project, not the session, so
+sibling lanes write files with the same obvious names into it. A `pre-patch.html`
+saved there was silently replaced by another lane's copy mid-session here, and
+the reps then compared this lane against that lane's artifact and called it main.
+
+    git show HEAD:docs/prototypes/grounds-v0.html > ctrl.html
 
 ## Known harness caveats
 

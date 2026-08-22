@@ -43,6 +43,24 @@
 
   /* ---------- SVG emblem layer (the game's own art, Civ/AoE-style) ---------- */
   #icons{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:10}
+  /* ---------- L5: THE LENS PAINTS OVER THE BUILDINGS ----------
+     Over the sprites in #icons at 10, over the district names in #banners
+     at 11 and over the seals in #badges at 12. It started at 11, under the
+     last two, and the composited-page check found the satellites it had
+     just rescued from the sprites sitting under the seals instead: 0%, 4%
+     and 14% of a 15x15 box at the Community Center. Fifty seals are on
+     screen there at cam.z 2.4 and layoutBadges deliberately does not space
+     one building's marks against another's, so there is no free ground to
+     move a satellite to. The lens is a MODE; while it is on it owns the
+     top, and the seals below dim rather than argue.
+     Deaf, like every other plane except the seals, so the marks under it
+     still take every tap. */
+  #lens{position:absolute;inset:0;pointer-events:none;z-index:13}
+  /* Still legible as "there are marks here", no longer competing with the
+     answer the reader turned the lens on to get. Opacity only: no rect, no
+     display and no hit target moves, so every badge check still measures
+     exactly what it measured. */
+  body.org-lens #badges{opacity:.32;transition:opacity .18s ease}
   .poi{position:absolute;left:0;top:0;width:52px;height:52px;margin:-26px 0 0 -26px;cursor:pointer;pointer-events:auto;
     filter:drop-shadow(0 3px 4px rgba(0,0,0,.45));transition:filter .15s ease}
   .poi svg{width:100%;height:100%;overflow:visible;display:block}
@@ -452,6 +470,35 @@
   #orgSvg text{font-family:inherit;pointer-events:none}
   @keyframes opulse{0%,100%{stroke-opacity:.9}50%{stroke-opacity:.3}}
   #orgSvg .ovac{animation:opulse 2.4s ease-in-out infinite}
+  /* ---------- L5: THE ORG LENS ON THE LAND ----------
+     The key names three inks and nothing else. It carries no counts,
+     because a count on a legend is a number nobody can check. */
+  /* The corner holds three things and the key has to clear two of them.
+     BELOW #layers, which is top 10 and is the bar carrying the Org button
+     itself, and LEFT of #dock, which is top 52 right 12 with 38 wide
+     buttons. top 44 and right 58 is the one place that clears both.
+     verify_org_lens reads all three rectangles and fails on an
+     intersection, because patch 01's right 12 landed on the dock and the
+     first correction for that landed on the layer bar. Neither was
+     measured; both looked fine in the CSS. */
+  #roleKey{position:absolute;top:44px;right:58px;z-index:30;display:none;gap:9px;
+    align-items:center;padding:5px 10px;border-radius:8px;font-size:10.5px;
+    letter-spacing:.02em;color:var(--parch);pointer-events:none;
+    background:linear-gradient(180deg,rgba(44,33,20,.95),rgba(28,20,11,.95));
+    border:1px solid rgba(201,162,94,.3);box-shadow:0 4px 14px rgba(0,0,0,.4)}
+  body.org-lens #roleKey{display:flex}
+  #roleKey .role-k{width:11px;height:11px;border-radius:50%;display:inline-block;
+    margin-right:3px;vertical-align:-1px;box-sizing:border-box}
+  #roleKey .role-open{background:rgba(28,20,11,.86);border:1.6px dashed var(--gold)}
+  #roleKey .role-part{border:1.6px solid var(--gold);
+    background:linear-gradient(90deg,rgba(28,20,11,.86) 50%,var(--gold) 50%)}
+  #roleKey .role-full{background:var(--gold);border:1.6px solid var(--gold)}
+  /* The chart covers the whole viewport at z 28 and the lens bar sits at
+     z 30 on top of it, so the lens could be toggled with nothing behind
+     it to see. Both of these come AFTER the rule that shows the key, so
+     they win on order at equal specificity. */
+  body.circles :is(#layers,#roleKey){display:none}
+  body.pocket #roleKey{display:none}
 
 
   /* ---------- round C: living-land systems ---------- */
@@ -525,6 +572,13 @@
   body.bfilter #badges .bseal{opacity:.18}
   body.f-quest #badges .b-quest,body.f-quest #badges .b-invite,
   body.f-event #badges .b-event{opacity:1}
+  /* ---------- L5: THE MARKS ANSWER TO THE PARTY (R8) ----------
+     Only when a party has arrived, only at mid range, and never on a group
+     the reader has opened. `body.role-party` is absent until a shell pushes
+     a party, so a visitor's map and every file:// QA run are untouched.
+     Hiding is display, so the seal stays in the DOM and every check that
+     reads the marks a building wears still reads all of them. */
+  body.role-party #badges .bgroup.bmid:not(.fanned) .bseal[data-brel="0"]{display:none}
   /* A collapsed ring, opened. Transform only, so nothing reflows. */
   .bgroup.fanned .bseal{display:block;transform:scale(1.18)}
   .bgroup.fanned .b-more{display:none}
@@ -542,7 +596,24 @@
      solved for has not moved; this is the ink catching up to it. */
   .bseal{position:absolute;width:28px;height:28px;margin:-14px 0 0 -14px;pointer-events:auto;
     cursor:pointer;transition:opacity .2s ease,transform .18s ease}
+  /* 22 IS THE LARGEST THAT FITS, and it is worth writing down why, because
+     the next person to read Rye's "a bit bigger" will try 26 as I did.
+     verify_features D2 A1 counts a door as unreliable when the nearest door
+     on ANOTHER building is closer than the seal is wide, reading the width
+     off this rule, so the ink is the bar. Swept on the shipped land, worst
+     band, 50 doors: 22 -> 4 bad, 23 -> 6, 24 -> 6, 25 -> 8, 26 -> 8, against
+     a ratchet of 4. There is no headroom, and a wider mark at z 1.0 is a
+     mark that answers its neighbour's tap.
+
+     So the mid-range mark gets WEIGHT instead of width. At 22 px against a
+     24-unit viewBox every stroke renders at 0.917 of its authored width, so
+     the rim lands at 1.83 device px; 2.6 lands at 2.38. Footprint, hit
+     target and every door distance the budget measures are untouched.
+     `sol` and `cut` stay as they are: sol is a filled silhouette, and cut
+     carves the face colour back out of it, so a heavier carve closes the
+     detail that exists to survive being small. */
   .bmid .bseal{width:22px;height:22px;margin:-11px 0 0 -11px}
+  .bmid .bseal .rim,.bmid .bseal .ink,.bmid .bseal .staff{stroke-width:2.6}
   /* A 44px target under a 22px mark: the seal is small on purpose and a
      thumb is not. Centred on the seal, invisible, and the only hit surface. */
   .bseal .bhit{position:absolute;left:50%;top:50%;width:44px;height:44px;
@@ -579,6 +650,14 @@
   .bseal.r-silver .rim{stroke:#c9d3d6}
   .bseal.r-open .rim{stroke-dasharray:4 3}
   .bseal.r-braid .rim{stroke-dasharray:6 2 2 2;stroke-width:2.4}
+  /* A SPECIFICITY TIE THE BRAID WON WITH THE WRONG NUMBER. `.bmid .bseal
+     .rim` and `.bseal.r-braid .rim` are both three classes, so source order
+     decides and the braid rule above is later - which meant the braid took
+     2.4 at mid range while every other rim took 2.6. The one rim whose
+     weight carries meaning was the LIGHTEST mark on the screen at exactly
+     the range the mid-range pass was written for. Same 1.2x over the base
+     that it carries at near range (2.4 on 2), applied to the 2.6. */
+  .bmid .bseal.r-braid .rim{stroke-width:3.1}
   .bseal.r-soft .rim{stroke:#7fb6b0}
   .bgroup .b-invite{opacity:.55}
   .bgroup .b-invite .face{fill-opacity:.5}
@@ -899,6 +978,7 @@
 <body class="intro">
 <canvas id="scene"></canvas>
 <div id="icons"></div>
+<canvas id="lens"></canvas>
 <div id="banners"></div>
 <div id="badges"></div>
 <div id="vignette"></div>
@@ -907,6 +987,7 @@
 <div id="layers">
   <button id="lyNow" class="on">Now</button><button id="lyVision">Vision</button><button id="lyOrg">Org</button><button id="lyFlows">Flows</button>
 </div>
+<div id="roleKey"><span class="role-k role-open"></span>open<span class="role-k role-part"></span>part filled<span class="role-k role-full"></span>full</div>
 <button id="dayBtn" title="Time of day">☀</button>
 <button id="themeBtn">✦ Theme</button>
 <div id="themePanel">
@@ -1504,6 +1585,9 @@ window.FACTS=[
 <script>
 /* ================= ENGINE ================= */
 const cv=document.getElementById('scene'),cx=cv.getContext('2d');
+/* The lens plane. Declared beside the scene canvas so fit() can size both
+   in one place; read from the later script block the way cam and DPR are. */
+const lv=document.getElementById('lens'),lcx=lv.getContext('2d');
 
 /* ---------- THE MEDIA VOCABULARY (D3.1) ----------
    What moves through a village is the village's own word for it. This list
@@ -1582,7 +1666,7 @@ function flowMark(x,y,k,col){
   cx.fillStyle=(st==='gold')?'#ecd08a':col;
   cx.beginPath();cx.arc(x,y,3.1,0,7);cx.fill()}
 let DPR=Math.min(window.devicePixelRatio||1,2);
-function fit(){DPR=Math.min(window.devicePixelRatio||1,2);cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px'}
+function fit(){DPR=Math.min(window.devicePixelRatio||1,2);cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px';lv.width=cv.width;lv.height=cv.height;lv.style.width=cv.style.width;lv.style.height=cv.style.height}
 fit();addEventListener('resize',()=>{fit();mmDirty=true});
 
 function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
@@ -2059,10 +2143,10 @@ function frame(ts){const t=ts/1000,dt=Math.min(.05,(ts-tPrev)/1000||.016);tPrev=
   cx.fillStyle='rgba(255,255,255,.5)';
   for(let i=0;i<14;i++){const y=(i*131+t*26)%H;if(Math.sin(t*1.6+i*1.9)>.2)
     cx.fillRect(144+Math.sin(y*.006)*18+Math.sin(y*.017)*8-Math.abs(Math.sin(t+i))*7,y,3,1.6)}
-  // org halos
-  if(orgOn)for(const s of SCENE.structures){if(mode==='now'&&s.state==='blueprint')continue;
-    const col=CIRCLE_COL[s.circle]||'#ccc';cx.fillStyle=col+'2e';cx.beginPath();cx.arc(s.x,s.y,46,0,7);cx.fill();
-    cx.strokeStyle=col+'aa';cx.lineWidth=1.2;cx.beginPath();cx.arc(s.x,s.y,46,0,7);cx.stroke()}
+  // org halos: circle homes, and one satellite per role. roleLens is declared
+  // beside CIRCLE_HOMES, in a later script block, so the call is guarded the
+  // way every other cross-block call in this file is.
+  if(typeof roleLensFrame==='function')roleLensFrame(cx,mode,t);
   // flows lens: the declared metabolism, animated (blue = water, gold = matter, rose = care)
   if(flowsOn){cx.lineCap='round';
     const visF=k2=>{const s2=BY[k2];return s2&&!(mode==='now'&&s2.state==='blueprint'&&!(window.buildModeOn&&window.buildModeOn()))};
@@ -2174,8 +2258,17 @@ function frame(ts){const t=ts/1000,dt=Math.min(.05,(ts-tPrev)/1000||.016);tPrev=
 </script>
 <script>
 /* ================= HUD ================= */
-const CIRCLE_COL={Land:'#6fae52',Building:'#c98b4e',Community:'#d0a94f',Learning:'#7f9fd0',Finance:'#b8b06a',
-  Coordination:'#d0785a',Gathering:'#c96a8a',Healing:'#8ad0c0',Wisdom:'#a98ad0',Arts:'#d0648f',Outreach:'#6ac9c0'};
+/* NO PROTOTYPE, because the key is a circle name out of a scene file and a
+   scene file is hand-editable and importable from a stranger. On a plain
+   object CIRCLE_COL['constructor'] is a Function, `Function+'aa'` is a long
+   string, canvas refuses it as a colour and KEEPS THE PREVIOUS ONE - so the
+   satellite is not missing and not obviously wrong, it is drawn in another
+   circle's ink. The `||'#9aa08f'` below reads like it covers this and cannot,
+   because the inherited value is truthy. Nothing calls a method on this
+   table; every reader uses Object.keys or a bracket lookup. */
+const CIRCLE_COL=Object.assign(Object.create(null),
+  {Land:'#6fae52',Building:'#c98b4e',Community:'#d0a94f',Learning:'#7f9fd0',Finance:'#b8b06a',
+  Coordination:'#d0785a',Gathering:'#c96a8a',Healing:'#8ad0c0',Wisdom:'#a98ad0',Arts:'#d0648f',Outreach:'#6ac9c0'});
 window.CIRCLE_COL=CIRCLE_COL;
 const $=id=>document.getElementById(id);
 /* the full pattern language — permaculture zones 0-5 · GEN ecovillage dimensions · startup-village & network-state amenities.
@@ -2475,12 +2568,17 @@ function refreshBadges(){
         tint:(window.CIRCLE_COL&&window.CIRCLE_COL[aff])||'',
         pips:badgeWeight(q),
         rim:(q.addr==='creator'||q.address_source==='creator')?'':'r-amber',
+        /* The mark stands for every quest here, so it survives if ANY of
+           them is this party's work. `roleAny` answers true until a party
+           arrives and true for an untagged row either way. */
+        rel:(typeof roleAny==='function')?roleAny(qs):true,
         braid:badgeSkilled(q),n:qs.length});
     } else if(!qs.length&&badgeOn(s,'quest')){
       // No work here yet, so the door says there is room for some.
       marks.push({kind:'invite',tint:'',pips:0,rim:'r-open',braid:false,n:0});
     }
     if(st.length&&badgeOn(s,'seat')) marks.push({kind:'seat',tint:(window.CIRCLE_COL&&window.CIRCLE_COL[st[0].c||s.circle])||'',
+      rel:(typeof roleAny==='function')?roleAny(st):true,
       pips:0,rim:'r-silver r-open',braid:false,n:st.length});
     if(th.length&&badgeOn(s,'talk')) marks.push({kind:'talk',tint:'',pips:0,rim:'r-soft',braid:false,n:th.length});
     /* The star was the one mark nobody could tap: it lived inside the
@@ -2495,13 +2593,15 @@ function refreshBadges(){
        placement pass asks for it, because the decision depends on the
        camera and this function does not run per frame. */
     const total=marks.reduce((n,m)=>n+(m.n||0),0)||marks.length;
-    const sig=marks.map(m=>m.kind+m.pips+m.rim+m.tint+(m.claimed?'✓':'')+(m.extra||'')).join(',')+'|'+total;
+    /* Relevance is IN the signature, so editing the party rebuilds the ring
+       instead of leaving the last reader's answer on the land. */
+    const sig=marks.map(m=>m.kind+m.pips+m.rim+m.tint+(m.claimed?'✓':'')+(m.rel===false?'-':'')+(m.extra||'')).join(',')+'|'+total;
     if(g.dataset.sig!==sig){
       g.innerHTML=marks.map(m=>{
         const cls=['bseal','b-'+m.kind,m.rim,m.braid?'r-braid':'',m.claimed?'claimed':'',m.extra||''].filter(Boolean).join(' ');
         const tint=m.tint?` style="--btint:${m.tint}"`:'';
         const tick=m.claimed?'<path class="tick" d="M7.6 12.4l2.9 2.9 6-6.2"/>':'';
-        return `<span class="${cls}" data-bk="${escq(s.key)}" data-bkind="${m.kind}"${tint}>`+
+        return `<span class="${cls}" data-bk="${escq(s.key)}" data-bkind="${m.kind}" data-brel="${m.rel===false?'0':'1'}"${tint}>`+
                badgeSvg(m.kind,(m.pips?badgePips(m.pips):'')+tick)+`</span>`;
       }).join('')+
       `<span class="bseal b-more" data-bk="${escq(s.key)}" data-bkind="more"><svg viewBox="0 0 24 24">`+
@@ -2843,6 +2943,15 @@ function layoutBadges(){
     if(hc2){const ha=(BADGE_SLOT.home+g.rot)*Math.PI/180,hr=g.cluster?Math.max(g.off,24):g.R;
       pts.push({x:g.cx+Math.cos(ha)*hr,y:g.cy-Math.sin(ha)*hr})}
   }
+  /* THE LENS'S OWN MARKS JOIN THE LIST THE PLATES DODGE. #lens paints above
+     #banners, so a name plate that lands on a satellite hides the answer the
+     reader turned the lens on to get - measured at the Community Center,
+     where the middle satellite sat across two letters of "Council Fire".
+     A satellite is a mark on the land and this is the list of those.
+     Empty whenever the lens is off, because roleLensFrame clears the record
+     then, so this costs nothing and needs no flag to say so. */
+  if(window.ROLE_LAST_SATS)for(const r of ROLE_LAST_SATS){
+    const[mx,my]=worldToScreen(r.x,r.y);pts.push({x:mx/DPR,y:my/DPR})}
 }
 window.BADGE_PTS=[];
 /* ---------- A NAME STAYS WITH ITS BUILDING (E1) ----------
@@ -3408,6 +3517,16 @@ function syncBanners(){
       const sc=((typeof FAM_SCALE!=='undefined'&&FAM_SCALE[fam])||1)*(s.scale||1)*(window.GSCALE||1);
       const psc=(s.scale||1)*(window.GSCALE||1); // the founder's own size dial. The flat arm below used to drop it.
       s._crownOff=(painted?k*1.35*sc*54:(iso?k*1.35*sc*34:k*30*psc))+6;
+      /* HOW FAR THIS SPRITE REACHES BELOW ITS ANCHOR, in SCENE units, for
+         anything that has to draw on the ground under it. From the CSS box
+         and THIS line's own scale factors, so a sprite that changes size
+         cannot leave the number behind: .poi is 52px with margin -26, so
+         its own box ends 26 below the anchor, and .sprite is bottom:-4 on
+         top of that, so a painted one ends at 30. Scene units and not
+         screen pixels like _crownOff above, because k/cam.z is not
+         constant across the zoom range and the reader is the lens, which
+         draws in scene space. */
+      s._footU=(painted?k*1.35*sc*30:(iso?k*1.35*sc*26:k*psc*26))/cam.z;
       p.style.transform=`translate(${sx}px,${sy}px) scale(${(iso||painted)?k*1.35*sc:k*psc})`;
       p.style.zIndex=1000+Math.round(s.y);
       p.classList.toggle('m-iso',iso);p.classList.toggle('m-painted',painted);
@@ -3587,7 +3706,8 @@ mm.addEventListener('click',e=>{const r=mm.getBoundingClientRect();
 /* layers + day */
 $('lyNow').onclick=()=>setMode('now');$('lyVision').onclick=()=>setMode('vision');
 $('lyOrg').onclick=()=>{orgOn=!orgOn;$('lyOrg').classList.toggle('on',orgOn);
-  toast(orgOn?'Org lens: circle colors over the land':'Org lens off')};
+  document.body.classList.toggle('org-lens',orgOn); // the key rides the same switch
+  toast(orgOn?'Org lens: a halo where each circle lives, and one satellite for every role.':'Org lens off')};
 let flowsSeen=false;
 $('lyFlows').onclick=()=>{flowsOn=!flowsOn;$('lyFlows').classList.toggle('on',flowsOn);
   toast(flowsOn?'Flows lens on. Every kind of moving thing wears its own mark: a droplet for water, a bowl for a cooked meal, a leaf for compost.':'Flows lens off');
@@ -4206,7 +4326,12 @@ function buildExportJSON(){
         geometry:{type:'Polygon',coordinates:[ring]}}},
     circles:Object.keys(CIRCLE_COL).map(c=>({name:c,color:CIRCLE_COL[c],home_structure_key:CIRCLE_HOMES[c]||null})),
     org_roles:SCENE.seats.map(x=>({role:x.s,structure_key:x.at||null,circle:x.c,note:x.note,
-      address_source:addrSrc(x),src:x.src||'scene',circle_site:x.circle_site||null})),
+      address_source:addrSrc(x),src:x.src||'scene',circle_site:x.circle_site||null,
+      /* Null is the honest absence and importers map it to NULL. A seat this
+         map has never been told about reads open, and writing 'open' here
+         would make "nobody has said" indistinguishable from "the village
+         says nobody holds it". */
+      state:x.state||null,archetypes:x.archetypes||null})),
     quests:SCENE.quests.map(x=>({title:x.q,structure_key:x.at||null,reward:x.r,need:x.need,desc:x.desc||'',
       src:x.src||'scene',circle_site:x.circle_site||null,circle_aff:x.aff||null,
       key:questKey(x), // the site stores this and never computes it
@@ -4640,8 +4765,389 @@ function scheduleAutosave(){clearTimeout(autosaveT);
       ?'Your work saves itself to your own draft. Nobody else sees it until you publish.'
       :'Your work saves itself in this browser. ⤓ Export scene hands you the file any time.')}}
 addEventListener('beforeunload',e=>{if(EDITS.length>0){e.preventDefault();e.returnValue=''}});
-const CIRCLE_HOMES={Outreach:'gate',Community:'welcome',Finance:'market',Land:'greenhouse',Coordination:'community',
-  Gathering:'kitchen',Learning:'library',Wisdom:'council',Building:'ridgeA',Healing:'sanctuary',Arts:'community'};
+/* And the same again: this one is asked `CIRCLE_HOMES[x.c]` with a circle
+   name from the scene, and an inherited Function passes the `h &&` guard
+   before BY[h] finally comes back undefined. */
+const CIRCLE_HOMES=Object.assign(Object.create(null),
+  {Outreach:'gate',Community:'welcome',Finance:'market',Land:'greenhouse',Coordination:'community',
+  Gathering:'kitchen',Learning:'library',Wisdom:'council',Building:'ridgeA',Healing:'sanctuary',Arts:'community'});
+/* ---------- L5: THE ORG LENS ON THE LAND (R6, R4) ----------
+   A lens, never a ledger: everything below READS the scene and writes
+   nothing back into it. `roleHome` in particular never assigns `x.at`.
+
+   WHICH CIRCLES ARE GOVERNING FUNCTIONS. Rye named marketing and accounting
+   and said "etc", so this is the reading and it is one editable line:
+   Outreach is the village's face outward, Finance is its books, Coordination
+   is its administration and Wisdom is its governance. The other seven are
+   circles that belong to a PLACE (Land to the gardens, Gathering to the
+   hearth, Building to the ridge), and a place-bound circle that has lost its
+   address should read as homeless instead of quietly moving to the centre. */
+/* Same reason as CIRCLE_COL: `ROLE_GOV['constructor']` is truthy on a plain
+   object, so a circle with that name would be treated as governing and its
+   roles moved off the buildings they are addressed to. */
+const ROLE_GOV=Object.assign(Object.create(null),{Outreach:1,Finance:1,Coordination:1,Wisdom:1});
+/* THE LAST RESORT, AND ONLY THAT. It used to be where all four of those
+   circles gathered, which contradicted CIRCLE_HOMES for three of them
+   (Outreach lives at the gate, Finance at the market, Wisdom at the council
+   fire) and agreed with the fourth by accident. A governing role gathers at
+   ITS OWN circle's home now; this is what is left when that home is not on
+   the land - deleted, or a blueprint in `now` mode - and the village centre
+   is the honest guess for a role with nowhere else to be. It fires zero
+   times on the shipped land. */
+const ROLE_GOV_HOME='community';
+/* The party the player has chosen, as archetype keys, pushed over the
+   CREDENTIALED hand. Null until then, and null means every role is relevant:
+   a map with nobody signed in narrows nothing.
+
+   DECLARED HERE, ABOVE EVERY READER, on purpose. `let` throws on a read in
+   its dead zone rather than answering undefined, and the file's only
+   top-level refreshBadges() call is wrapped in a swallowing catch, so a
+   reader that got above this line would silence the badge language with
+   nothing in the console. */
+let ROLE_PARTY=null;
+/* Halo radius. MAX is the radius the lens has always drawn at. MIN is a
+   legibility floor, and it is the only thing that can break the no-overlap
+   proof in roleHomes(); it takes two circle homes standing 36 scene units
+   apart to reach it, which is closer than two sprites can stand. */
+const ROLE_HALO_MAX=46,ROLE_HALO_MIN=18;
+/* Where a satellite sits when no circle calls this building home and there
+   is no ring to sit on. The sprite boxes at the ten curated homes measure
+   20.1 to 28.9 scene units of half-extent, so 30 clears the widest of them
+   before the satellite's own 5 is added. */
+const ROLE_SAT_R=30;
+/* The satellite's OUTER edge, which is not its arc. roleSat strokes a 2.6
+   keyline on a 5.8 circle, so the GEOMETRY stops at 5.8+1.3 = 7.1 - and the
+   INK does not, because a stroked arc is antialiased outward. Rendered at
+   all three states and scanned for the furthest pixel carrying alpha, the
+   mark reaches 8.06, and a floor built on 7.1 left the greenhouse satellite
+   0.96 units onto its own sprite - which is exactly what G2 reported.
+   THIS IS A MEASUREMENT, NOT A DERIVATION, and qa/verify_org_ground.js G0d
+   re-takes it every run: change roleSat's arc or its keyline without
+   changing this and the suite says so. Clearances use this and never the 5
+   the coloured rim uses, because the keyline is the part that has to sit on
+   clear ground. */
+const ROLE_SAT_RIM=8.1;
+/* The hollow. Opaque enough that canopy does not show through it, and still
+   the darkest of the three inks. The #roleKey swatches carry the same value,
+   so the legend and the land cannot drift. */
+const ROLE_DARK='rgba(28,20,11,.86)';
+/* THE FIVE VALUES `SeatState` ALLOWS, copied from the type in
+   server/lib/orgChart.ts:24 rather than remembered:
+
+       open | filled | partial | forming | expired
+
+   Getting this list wrong is silent in both directions. A value that is
+   here and not in the type is a state nothing can ever send, and a value
+   in the type and not here is refused at the door and quietly drawn as
+   open. This list held a `frozen` that does not exist and was missing
+   `forming`, which is exactly both mistakes at once.
+
+   A scene file is hand-editable and importable from a stranger, so what
+   arrives is checked against this list and anything else becomes
+   undefined. `forming` and `expired` both draw open, because Rye asked
+   for three inks and a seat being set up and a seat whose holders have
+   lapsed are both openly waiting for somebody. */
+const ROLE_STATES=['open','partial','filled','forming','expired'];
+function roleStateIn(v){return ROLE_STATES.indexOf(String(v||''))>=0?String(v):undefined}
+/* Class tags, filtered to strings and capped. Absent and empty both mean
+   "every class", so both return undefined and roleRelevant() answers true. */
+function roleTagsIn(v){if(!Array.isArray(v))return undefined;
+  const out=v.filter(a=>typeof a==='string'&&a.length<40).slice(0,12);
+  return out.length?out:undefined}
+/* The party, as archetype keys. Same filter, and the same law: an empty
+   party is no party, because a player who has chosen nothing has asked for
+   no narrowing rather than for an empty map. */
+/* Is ANY of these worth showing this player? A mark stands for every item of
+   its kind at a building, so one relevant quest keeps the quest mark. An
+   empty list is not a narrowing: the invite seal means "there is room for
+   work here" and it is addressed to everyone. */
+function roleAny(list){
+  if(!ROLE_PARTY||!ROLE_PARTY.length)return true;
+  if(!list||!list.length)return true;
+  for(const it of list)if(roleRelevant(it&&(it._tags||it.archetypes)))return true;
+  return false}
+window.roleAny=roleAny;
+function roleSetParty(v){ROLE_PARTY=roleTagsIn(v)||null;
+  document.body.classList.toggle('role-party',!!ROLE_PARTY);
+  if(typeof refreshBadges==='function')refreshBadges();
+  return ROLE_PARTY}
+window.roleSetParty=roleSetParty;
+/* What the village says about these seats right now, merged onto the scene's
+   own seats by name. `scripts/import-map-scene.ts` addresses org_roles with
+   matchColumn 'name', so name is already the join between these two worlds;
+   case is folded because the two sides are typed by different people.
+
+   IT LANDS ON `_state` AND `_tags`, which carry the leading underscore this
+   file uses for read-but-never-saved (`_why`, `_res`, `_crownOff`). The
+   export names its fields one by one and neither of these is among them, so
+   a live holder count can never freeze into the scene a founder drew.
+   Returns how many seats it matched, so a caller can say so and a probe can
+   read it. */
+/* The last thing the village said about its seats. Remembered because
+   restoreScene rebuilds SCENE.seats from scratch and the merged fields go
+   with the objects they were on, and because the shell re-pushes the scene
+   on its own (a skin save, a cross-tab storage event) with no hand beside
+   it. Null until a hand arrives, which is a visitor and a file:// QA run. */
+let ROLE_LIVE=null;
+function roleReapplyLive(){
+  if(ROLE_LIVE)return roleApplyLive(ROLE_LIVE);
+  if(typeof refreshBadges==='function')refreshBadges();
+  return 0}
+window.roleReapplyLive=roleReapplyLive;
+function roleApplyLive(rows){
+  ROLE_LIVE=Array.isArray(rows)?rows:null;
+  /* KEYED ON NAMES THIS FILE DID NOT CHOOSE, so the map may not inherit
+     anything. On a plain object `by['constructor']` is truthy before a row
+     arrives, so a seat called "constructor" or "valueOf" matches a phantom,
+     draws open, and increments the count this returns - which is what the
+     shell reports and what the suite asserts on. `by['__proto__']=r` is
+     worse: it does not store the row, it re-parents the map onto it. */
+  const by=Object.create(null);
+  if(Array.isArray(rows))for(const r of rows)
+    if(r&&typeof r.name==='string')by[r.name.trim().toLowerCase()]=r;
+  let n=0;
+  for(const x of SCENE.seats){
+    const r=by[String(x.s||'').trim().toLowerCase()];
+    if(!r){delete x._state;delete x._tags;continue}
+    x._state=roleStateIn(r.state);x._tags=roleTagsIn(r.archetypes);n++}
+  if(typeof refreshBadges==='function')refreshBadges();
+  return n}
+window.roleApplyLive=roleApplyLive;
+/* An untagged row belongs to everyone, and "tagged for nobody" has to read
+   the same way as "not tagged at all". That is the server's own law in
+   server/lib/characters.ts, written here so the two cannot drift. */
+function roleRelevant(tags){
+  if(!ROLE_PARTY||!ROLE_PARTY.length)return true;
+  if(!Array.isArray(tags)||!tags.length)return true;
+  for(const a of tags)if(ROLE_PARTY.indexOf(a)>=0)return true;
+  return false}
+/* Where a role DRAWS, which is not always where it is addressed.
+   `classify()` is the artifact's own provenance predicate and it is the one
+   asked here: 'creator' is a person's decision and is never moved, while
+   'resolver' is a guess and 'pool' is silence. A governing function holding
+   either of those two gathers at the Community Center until a founder places
+   it, and the moment they do, classify() says 'creator' and this stops. */
+/* ONE GUARDED READ OF `BY`, AND THE LENS USES NOTHING ELSE.
+   `BY` is a plain object keyed on `s.key`, so `BY['constructor']` is a
+   Function, `BY['toString']` is a Function and `BY['__proto__']` is
+   Object.prototype - all three truthy before a single structure is read. A
+   seat carrying `at:'constructor'` therefore passed the `x.at&&BY[x.at]`
+   guard below, roleHome handed back 'constructor', and roleSeatsBy's
+   `(m[k]||(m[k]=[])).push(x)` called .push on Object. That throw lands INSIDE
+   THE DRAW LOOP: the lens stopped at sixteen satellites and did not come back
+   when the seat was removed, because roleLensFrame died on the way to its own
+   clear. Measured, not reasoned about; qa/verify_org_lens.js L9 holds it.
+   THE GUARD IS ON THE READ AND NOT ON THE TABLE, because BY is base code that
+   four other lanes read. Returns null rather than undefined so every caller
+   can keep its `if(!s)` shape. */
+function roleBuilding(k){
+  return (typeof k==='string'&&Object.prototype.hasOwnProperty.call(BY,k))?BY[k]:null}
+window.roleBuilding=roleBuilding;
+function roleHome(x){
+  if(!x)return null;
+  const own=(x.at&&roleBuilding(x.at))?x.at:null;
+  if(own&&(typeof classify!=='function'||classify(x)==='creator'))return own;
+  /* A GOVERNING ROLE NOBODY PLACED GATHERS AT ITS CIRCLE'S HOME. Not at one
+     hardcoded building: CIRCLE_HOMES already answers "where does this circle
+     live", the halos are drawn from it, and asking it here is what stops the
+     ring and the wash from disagreeing. Three Wisdom roles addressed at the
+     council fire were being dragged to the Community Center by the old line,
+     against a table that said Wisdom lives at the council fire. */
+  if(ROLE_GOV[x.c]){
+    const h=CIRCLE_HOMES[x.c];
+    if(h&&roleBuilding(h))return h;
+    if(roleBuilding(ROLE_GOV_HOME))return ROLE_GOV_HOME}
+  return own}
+/* True when this role is drawn somewhere its address does not name it. */
+function roleDefaulted(x){const h=roleHome(x);return !!(h&&h!==x.at)}
+/* Five server values, three inks, because Rye asked for three. `expired`
+   reads open: the server's own comment calls it "still held, and openly
+   waiting for the village to reassign it", which is an opening. */
+function roleState(x){const v=String((x&&(x._state||x.state))||'open');
+  return v==='filled'?'full':(v==='partial'?'partial':'open')}
+/* The curated homes that resolve, each with a radius that CANNOT overlap a
+   neighbour's. Half the distance to the nearest other home, capped at MAX:
+   for any pair r_a <= d/2 and r_b <= d/2, so r_a + r_b <= d. Measured on the
+   shipped land this returns ten homes with radii from 29 to 46, against the
+   eight overlapping pairs a flat 46 produced. Recomputed per frame on
+   purpose, because build mode drags buildings and a cached radius would go
+   stale mid-drag; ten homes is forty-five distances. */
+function roleHomes(mode){
+  const seen=Object.create(null),out=[];
+  for(const c of Object.keys(CIRCLE_COL)){
+    const k=CIRCLE_HOMES[c],s=k&&roleBuilding(k);
+    if(!s)continue;
+    if(mode==='now'&&s.state==='blueprint')continue;
+    if(seen[k]){seen[k].circles.push(c);continue}
+    const e={k:k,x:s.x,y:s.y,circles:[c],r:ROLE_HALO_MAX};
+    seen[k]=e;out.push(e)}
+  for(const a of out){let nn=Infinity;
+    for(const b of out)if(b!==a){const d=Math.hypot(a.x-b.x,a.y-b.y);if(d<nn)nn=d}
+    a.r=Math.max(ROLE_HALO_MIN,Math.min(ROLE_HALO_MAX,nn/2))}
+  return out}
+window.roleHomes=roleHomes;
+/* Every role that DRAWS at each building, keyed by building. Built once per
+   frame, so the satellite pass is one walk of the seats and not one walk
+   per building. */
+/* NO PROTOTYPE: `k` is roleHome()'s answer, which starts life as `x.at` in a
+   scene file. On a plain object `m['constructor']` is the Object function and
+   `(m[k]||(m[k]=[])).push(x)` throws rather than grouping. */
+function roleSeatsBy(){const m=Object.create(null);
+  for(const x of SCENE.seats){const k=roleHome(x);if(!k)continue;(m[k]||(m[k]=[])).push(x)}
+  return m}
+window.roleSeatsBy=roleSeatsBy;
+/* One satellite. Solid is full, half is partial, and a dashed hollow ring is
+   open. An open role the player's party can take breathes at the 2.4s the
+   org chart's own .ovac breathes at, so the land and the chart agree. */
+function roleSat(cx,px,py,col,st,pulse,t){
+  /* The keyline first. The land under a satellite is a graded photograph,
+     near-black under canopy and near-white on surf, and a token with no dark
+     edge reads as a smudge on the first and vanishes on the second. Every
+     badge seal solves this with a parchment face; a satellite is too small
+     to carry one, so it carries the edge instead. */
+  cx.lineWidth=2.6;cx.strokeStyle='rgba(0,0,0,.55)';
+  cx.beginPath();cx.arc(px,py,5.8,0,7);cx.stroke();
+  cx.lineWidth=2;cx.strokeStyle=col;
+  cx.beginPath();cx.arc(px,py,5,0,7);
+  if(st==='full'){cx.fillStyle=col;cx.fill();cx.stroke();return}
+  if(st==='partial'){cx.fillStyle=ROLE_DARK;cx.fill();cx.stroke();
+    cx.beginPath();cx.moveTo(px,py);cx.arc(px,py,5,-Math.PI/2,Math.PI/2);cx.closePath();
+    cx.fillStyle=col;cx.fill();return}
+  cx.fillStyle=ROLE_DARK;cx.fill();
+  cx.globalAlpha=pulse?(0.6+0.3*Math.sin(t*2.618)):0.9;
+  cx.setLineDash([2.4,2]);cx.stroke();cx.setLineDash([]);cx.globalAlpha=1}
+/* WHAT THE LENS PUT ON A REAL CANVAS, on the last frame that drew one.
+   One row per satellite: the seat, the building it drew at, the address it
+   answers to, the state, the SCENE point roleSat was handed, and the id of
+   the canvas the ink went onto.
+
+   ONLY FROM A CANVAS THAT IS IN THE DOCUMENT. The org-lens suite proves the
+   three inks by driving roleSat onto canvases made with createElement, and
+   those are not connected, so a scratch drive leaves this untouched and
+   cannot pass off a rehearsal as a frame.
+
+   MUTATED IN PLACE, NEVER REASSIGNED, so the window reference below stays
+   the live array for anything that grabbed it at boot. */
+const ROLE_LAST_SATS=[];
+window.ROLE_LAST_SATS=ROLE_LAST_SATS;
+/* The whole lens, called from the draw loop with the canvas already in scene
+   coordinates. Halos first so the satellites sit on top of their own wash. */
+function roleLens(cx,mode,t,scx){
+  /* WHERE THE SATELLITES GO. `cx` takes the halos and `scx` takes the
+     satellites; absent, one canvas takes both, which is what a scratch
+     drive in the suites wants and what this did before the review found
+     three satellites painted underneath a building sprite. */
+  const sx2=scx||cx;
+  /* The lens leaves lineWidth, strokeStyle, fillStyle, globalAlpha and a
+     dash pattern behind it, and every pass that draws later in this frame
+     inherits them. Auditing those passes works once and rots the moment
+     another lane adds one, so the lens is simply unable to reach them. */
+  cx.save();
+  /* A canvas in the document is a canvas a person can be looking at. The
+     suite's scratch canvases are not, and they must not overwrite the
+     record of the last real frame. */
+  const live=!!(sx2.canvas&&sx2.canvas.isConnected);
+  if(live)ROLE_LAST_SATS.length=0;
+  const homes=roleHomes(mode),byHome=Object.create(null);
+  for(const h of homes){byHome[h.k]=h;
+    const col=CIRCLE_COL[h.circles[0]]||'#9aa08f';
+    cx.fillStyle=col+'2e';cx.beginPath();cx.arc(h.x,h.y,h.r,0,7);cx.fill();
+    cx.lineWidth=1.2;
+    /* Two circles can share a home. Each gets its own ring, stepped inward,
+       so the Community Center reads as two circles and not as one. */
+    h.circles.forEach((c,i)=>{cx.strokeStyle=(CIRCLE_COL[c]||'#9aa08f')+'aa';
+      cx.beginPath();cx.arc(h.x,h.y,Math.max(5,h.r-i*4),0,7);cx.stroke()})}
+  const by=roleSeatsBy();
+  for(const k of Object.keys(by)){
+    const s=roleBuilding(k);if(!s)continue;
+    if(mode==='now'&&s.state==='blueprint')continue;
+    const list=by[k],n=list.length;
+    /* ON the circle's ring, the way the chart's role nodes sit on the orbit
+       ring rather than inside it. A building no circle calls home has no
+       ring, and takes ROLE_SAT_R. */
+    const h=byHome[k],R=h?h.r:ROLE_SAT_R;
+    /* ...AND NEVER ON THE BUILDING. A ring is a circle around an anchor and
+       a sprite is a tall box standing on it, so at the crowded homes the
+       ring is INSIDE the sprite: the no-overlap solver takes the Community
+       Center's ring to 29.1 while its sprite reaches 31.6 below the same
+       anchor. Three satellites landed on the roof among the seals.
+       A FLOOR, NOT A BIGGER RADIUS. Community's sprite is 43 of half-width
+       and Library's is 36.7 and they stand 58 apart, so the sprites already
+       overlap and any radius that clears one lands inside the other's halo.
+       This leaves px alone - nothing reaches further sideways than the halo
+       already did - and drops only the points that would have been covered. */
+    const floorY=s.y+(s._footU||0)+ROLE_SAT_RIM;
+    /* The chart's own fan law, pointed at the reader. It fans roles OUTWARD
+       from the village centre because outward is the direction with nothing
+       in it. On the land that direction is DOWN: a sprite stands up from its
+       anchor and covers a box 20 to 29 units of half-extent, so the ground
+       below is the only arc never covered. The cap holds even the widest fan
+       inside 11 to 169 degrees, which stays in the lower half - and that is
+       a correctness bound, because sin(a) > 0 over the whole arc is what
+       puts every satellite below the anchor line for the floor to catch. */
+    let spread=Math.min(2.6,0.62*Math.max(1,n-1));
+    /* ...AND THE FAN MAY NOT STACK ON ITSELF. Equal angles are not equal
+       distances: cos is flattest at the ends of an arc, so once the floor
+       above lays the fan out along the ground line the OUTER pair is always
+       the tightest. Four roles at the council fire came to 15.98 units where
+       two satellites need 16.2, and three roles never reached it because
+       three roles have no outer-but-one. Widening helps, which is worth
+       saying because it does not read that way: the end gap is
+       R*(sin h - sin(h-2h/(n-1))) and that rises with h over the range that
+       matters, 15.98 at h=0.93 to 17.50 at h=1.30. Horizontal distance is
+       the worst case of the two, since a point still on the arc has its
+       vertical separation as well.
+       WIDEST WINS IF NOTHING CLEARS, because the gap is not monotone all
+       the way out: for four roles it peaks near a half-angle of 1.35 and
+       falls again by the 1.45 cap, so a loop that simply widened until it
+       ran out would hand back a fan NARROWER at the ends than one it had
+       already walked past. It sweeps and keeps the best, and stops early at
+       the first width that clears - which on this land is 2.05, well before
+       the peak. A building crowded past what any width can hold still goes
+       red at G3 rather than silently taking the last value tried. */
+    if(n>1){const need=2*ROLE_SAT_RIM+0.4;let best=spread,bestGap=-1;
+      for(let w=spread;w<=2.901;w+=0.05){
+        const h=w/2,gap=R*(Math.sin(h)-Math.sin(h-w/(n-1)));
+        if(gap>bestGap){bestGap=gap;best=w}
+        if(gap>=need)break}
+      spread=best}
+    list.forEach((x,i)=>{
+      const a=Math.PI/2+(n===1?0:(i/(n-1)-0.5)*spread);
+      const st=roleState(x),px=s.x+R*Math.cos(a),py=Math.max(s.y+R*Math.sin(a),floorY);
+      if(live)ROLE_LAST_SATS.push({seat:x.s,circle:x.c,home:k,at:x.at||null,
+        x:px,y:py,st:st,surface:sx2.canvas.id});
+      roleSat(sx2,px,py,
+        CIRCLE_COL[x.c]||'#9aa08f',st,st==='open'&&roleRelevant(x._tags||x.archetypes),t||0)})}
+  cx.restore()}
+window.roleLens=roleLens;
+/* ONE CALL A FRAME, AND IT OWNS THE LENS PLANE.
+
+   It runs whether the lens is on or off, because #lens is a canvas and a
+   canvas nobody clears keeps the last thing it was given until the page
+   is reloaded: toggling Org off used to be enough when the ink was on
+   #scene, which is repainted from the sea colour every frame. ROLE_PAINTED
+   is what keeps that from costing a full-viewport clear sixty times a
+   second while nobody is looking at the lens.
+
+   THE TRANSFORM IS THE SCENE'S OWN, computed from the same cam and the
+   same DPR in the same shape as the line in frame(), so a satellite lands
+   on the same scene point on both planes. save/restore for the reason
+   patch 09 gave for the other plane: roleSat leaves a dash pattern and an
+   alpha behind on the branch it returns from. */
+let ROLE_PAINTED=false;
+function roleLensFrame(cx,mode,t){
+  const on=!!orgOn;
+  if(on||ROLE_PAINTED){
+    lcx.setTransform(1,0,0,1,0,0);lcx.clearRect(0,0,lv.width,lv.height);
+    ROLE_PAINTED=on;
+    if(!on)ROLE_LAST_SATS.length=0}
+  if(!on)return;
+  lcx.setTransform(cam.z*DPR,0,0,cam.z*DPR,
+    lv.width/2-cam.x*cam.z*DPR,lv.height/2-cam.y*cam.z*DPR);
+  lcx.save();
+  roleLens(cx,mode,t,lcx);
+  lcx.restore()}
+window.roleLensFrame=roleLensFrame;
 /* MEDIA is now a view of the vocabulary, not a second copy of it: every
    surface that asked for a colour keeps asking the same way. */
 function rebuildMedia(){const m={};SCENE.vocabulary.media.forEach(x=>{m[x.key]=x.color});window.MEDIA=m;return m}
@@ -5321,7 +5827,7 @@ function duplicateStructure(key){
     doors:s.doors?{...s.doors}:undefined,
     badges:s.badges?{...s.badges}:undefined,
     state:s.state,phase:s.phase,scale:s.scale,circle:s.circle};
-  delete c._crownOff;
+  delete c._crownOff;delete c._footU;
   const sfx=slug.slice(base.length); // '-c2', so a clone of a clone stays readable
   const q2=[],x2=[];
   for(const q of SCENE.quests)if(q.at===key)q2.push({...q,at:slug,addr:'creator',address_source:'creator',_why:''});
@@ -5363,7 +5869,13 @@ function restoreScene(J){try{
   SCENE.structures.forEach(s=>{makePoi(s);makeBanner(s)});
   SCENE.seats=(J.org_roles||[]).map(r=>({s:r.role,at:(r.structure_key&&BY[r.structure_key])?r.structure_key:null,c:r.circle,note:r.note,
     addr:(r.address_source&&r.address_source!=='pool')?r.address_source:undefined,
-    src:r.src||undefined,circle_site:r.circle_site||undefined}));
+    src:r.src||undefined,circle_site:r.circle_site||undefined,
+    /* This function is a WHITELIST and it is reached on every shell scene
+       push through applyScene, not only on a manual restore. A per-role
+       field with no line here is dropped on the first round trip and the
+       loss is silent: the lens would keep working until the village
+       published, then go back to drawing every seat as open. */
+    state:roleStateIn(r.state),archetypes:roleTagsIn(r.archetypes)}));
   SCENE.quests=(J.quests||[]).map(r=>({q:r.title,key:r.key||undefined,at:(r.structure_key&&BY[r.structure_key])?r.structure_key:null,r:r.reward,need:r.need,
     desc:r.desc||undefined,src:r.src||undefined,circle_site:r.circle_site||undefined,aff:r.circle_aff||undefined,
     weight:(r.weight===1||r.weight===2||r.weight===3)?r.weight:undefined,
@@ -5400,6 +5912,10 @@ function restoreScene(J){try{
   if(am&&Array.isArray(am.approved)){for(const f of Object.keys(ICONS))window.SPRITE_OK[f]=am.approved.includes(f);
     (am.reroll||[]).forEach(f=>window.SPRITE_RR[f]=true)}
   strandedCheck(false);refreshWork();paintTerrain();mmDirty=true;
+  /* SCENE.seats is a NEW set of objects, so the live states merged onto the
+     old ones are gone. Replayed here rather than left to whichever of the
+     shell's two independent pushes happened to land second. */
+  if(typeof roleReapplyLive==='function')roleReapplyLive();
   if(typeof rebuildVitals==='function')rebuildVitals();
   if(typeof refreshEventBadges==='function')refreshEventBadges();
   if(typeof renderVocab==='function')renderVocab();
@@ -6799,7 +7315,7 @@ window.bandBox=function(which){const b=BAND_BOX[which];return b?{top:b.top,botto
   addEventListener('scroll',hide,true);
   const TIPS={lyNow:'Now: only what is. Every icon traces to something true.',
     lyVision:'Vision: the whole masterplan. Blueprint ghosts are the fundable gap.',
-    lyOrg:'Circle colours wash over the land: who tends what.',
+    lyOrg:'Org: a ring where each circle lives, and one satellite per role. Hollow is open, half is partly held, solid is filled.',
     lyFlows:'The village metabolism. Each kind of moving thing wears its own mark, and the line beneath it keeps that colour.',
     msLiving:'The land itself, every building a door.',
     msCircles:'The same village as an organism: circles, roles and quests in orbit.',
@@ -7222,6 +7738,21 @@ addEventListener('message',e=>{try{
   /* D8. `hand` is the village saying who is holding this map; `scene-result`
      answers a draft-save, a publish or a restore. */
   if(d.type==='hand')applyHand(d);
+  /* L5. WHO IS PLAYING, and what the village says about its seats.
+
+     Its own message rather than a field on `hand`, because `hand` decides
+     whether this browser may edit the land and must not wait on anything.
+     The shell reads the party from /api/me/characters and the seats from
+     /api/map, and both are slower and less important than the draft.
+
+     CREDENTIALED, and it has to be. /api/map/config is fetched WITHOUT
+     credentials and is the same answer for every reader, so which
+     characters a particular player has chosen cannot ride it. Absent
+     leaves ROLE_PARTY null, which narrows nothing, so a visitor and a
+     file:// QA run are exactly as they were. */
+  if(d.type==='lens'){
+    if(typeof roleSetParty==='function')roleSetParty(d.party);
+    if(d.roles&&typeof roleApplyLive==='function')roleApplyLive(d.roles)}
   if(d.type==='scene-result'&&d.nonce)sceneResult(d);
 }catch(_){}});
 try{if(window.parent!==window)window.parent.postMessage({type:'grounds-ready',version:window.BUILD_VERSION||'v0.7'},'*')}catch(_){}
