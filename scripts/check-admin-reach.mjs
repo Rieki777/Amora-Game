@@ -104,12 +104,24 @@ const WAIVED = { ...ALLOWED, ...STANDING_ORPHANS };
 
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** Every `.tsx?` file under client/src. */
+/**
+ * Every `.tsx?` file under client/src that a person can actually reach.
+ *
+ * TESTS ARE NOT DOORS, and this exclusion is the whole guard.
+ * `DELETE /api/admin/org/seatings/:id` and its `/forget` sibling had a unit
+ * suite, e2e coverage and a runbook line, and no button: counting a test file
+ * as a caller would let exactly that ship again while the gate reported clean.
+ * A green test says a route works; only a control says a founder can reach it.
+ */
 function clientFiles(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) clientFiles(p, out);
-    else if (/\.tsx?$/.test(e.name)) out.push(p);
+    if (e.isDirectory()) {
+      if (e.name === "__tests__") continue;
+      clientFiles(p, out);
+    } else if (/\.tsx?$/.test(e.name) && !/\.(test|spec)\.tsx?$/.test(e.name)) {
+      out.push(p);
+    }
   }
   return out;
 }
