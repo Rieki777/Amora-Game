@@ -24,7 +24,7 @@
  *    village heard it, it does not block, and it travels with the agreement.
  */
 import { useState } from "react";
-import { CheckCircle2, Hand, MessageSquareWarning, Undo2 } from "lucide-react";
+import { CheckCircle2, CircleMinus, Hand, MessageSquareWarning } from "lucide-react";
 import InfoTip from "@/components/InfoTip";
 import type { BallotObjection } from "./governanceApi";
 
@@ -54,7 +54,7 @@ const STATUS: Record<
     label: "Withdrawn",
     blurb: "The person who raised it took it back.",
     chip: "bg-stone-100 text-stone-600",
-    icon: Undo2,
+    icon: CircleMinus,
   },
 };
 

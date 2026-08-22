@@ -23,7 +23,7 @@
  * (`evaluateBallot`, shared/governanceEngine), so the two cannot disagree.
  */
 import { useState } from "react";
-import { Gavel, Loader2 } from "lucide-react";
+import { Loader2, Scale } from "lucide-react";
 import { evaluateBallot } from "@shared/governanceEngine";
 import { pctText, weightText } from "./voteBars";
 import type { Ballot } from "./governanceApi";
@@ -84,7 +84,7 @@ export default function CloseBeat({
   return (
     <section className="rounded-xl border-2 border-teal-deep bg-white p-5">
       <h3 className="flex items-center gap-2 text-lg font-bold text-stone-900">
-        <Gavel className="w-5 h-5 text-teal-deep" aria-hidden="true" />
+        <Scale className="w-5 h-5 text-teal-deep" aria-hidden="true" />
         Close this decision
       </h3>
       <p className="mt-1 text-sm text-stone-600 leading-relaxed">
