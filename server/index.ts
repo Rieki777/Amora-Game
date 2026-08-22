@@ -22462,7 +22462,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
     });
     if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
 
-    await addActivity("governance", `The village is practising a decision: ${question}`, {
+    // Plainly what happened, and nothing about the village that asked. A
+    // village of two years sounding out a hard question is doing the same act
+    // as a village of two weeks finding its feet, and a feed line that called
+    // either one of them a beginner would be wrong about one of them.
+    await addActivity("governance", `An advisory vote opened: ${question}`, {
       actorUserId: user.id,
       entityType: "ballot",
       entityRef: result.ballot.id,
