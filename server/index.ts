@@ -18320,14 +18320,16 @@ Send an empty drafts array when you are still listening. A role payload is {name
          * near it, so charging through it would be the one surprise charge in
          * the build.
          *
-         * Refused as `closed`, which is the nearest existing reason and is
-         * deliberately not a new one: the map's copy table lives inside the
-         * generated artifact another lane owns, and a reason with no copy reads
-         * worse than a reason that is merely imprecise. The remedy is the same
-         * either way, which is to open the gathering.
+         * It sent `closed` for one release, and said in this comment that the
+         * reason had no copy on the map to send. It has copy now
+         * (`PROMISE_WHY.paid` in the artifact), so this sends `paid`. The
+         * difference is not cosmetic: a member who could have walked in was
+         * being told the door was shut. They are welcome, the price is the
+         * thing one tap cannot agree to, and `href` carries them to the room
+         * that prints it.
          */
         if (await seatPriceFor(pool, row.id)) {
-          return reply({ ok: false, state: "off", reason: "closed", count: await goingCountFor(pool, row.id) });
+          return reply({ ok: false, state: "off", reason: "paid", href: "/events", count: await goingCountFor(pool, row.id) });
         }
         const outcome = await rsvp(pool, row.id, user.id, "going");
         if (!outcome.ok) {
@@ -18522,6 +18524,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
       canCurate: hand.canCurate,
       openReports: hand.canCurate ? await placePhotosRepo.openReportCount(getPool()) : 0,
       perPlace: numberVar("map.photos_per_place"),
+      // ?gallery=1 adds a few photographs per place in one query, for the
+      // living map, which opens with every structure on screen and would
+      // otherwise cost a round trip per building.
+      gallery: req.query.gallery === "1"
+        ? await placePhotosRepo.photosByPlace(getPool(), PLACE_VILLAGE, 6)
+        : undefined,
     });
   });
 

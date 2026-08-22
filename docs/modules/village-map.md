@@ -499,5 +499,13 @@ skipping every filename a live photograph still points at.
 **Surfaces.** `/places` (the shelf, plus the curator's queue) and
 `/places/:key` (one place), both rendering
 `client/src/components/places/PlaceGallery.tsx`. The Living Map's place panel
-mounts that same component in a Photos tab; see the round 5 handoff note for
-whether that tab has landed.
+carries a **Photos tab at index 3** (`docs/prototypes/patch_r5_photos.py`, a
+guarded patch that writes zero bytes on a second run). It draws whatever the
+shell pushed into `window.PLACE_PHOTOS`, escaping every member-authored string,
+and always offers the door to `/places`, because adding a photograph, flagging
+one and asking for a photograph of yourself to come down all happen on the
+site. `pushPhotos` in `client/src/pages/LivingMap.tsx` sends it, reading
+`GET /api/places?gallery=1`, which is one query for every place at once.
+`docs/prototypes/qa/_probe_photos_tab.js` asserts the tab is present, that a
+click at its own centre lands on it rather than on something covering it, and
+that the room paints alt text, attribution and the door.

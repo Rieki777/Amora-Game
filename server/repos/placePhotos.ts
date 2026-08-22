@@ -145,6 +145,54 @@ export async function placesWithPhotos(pool: Pool, villageId: string): Promise<P
   return out;
 }
 
+/**
+ * A few photographs for every place at once, for the living map's own panel.
+ *
+ * ONE query and not one per place: the map opens with every structure on
+ * screen and asks for the lot, so a query per place would be forty round
+ * trips before the first tab is opened. Ordered by the gallery's own rule
+ * (a pinned hero, then newest) and capped in memory, because MySQL has no
+ * per-group limit worth writing here and the whole set is small.
+ */
+export async function photosByPlace(
+  pool: Pool,
+  villageId: string,
+  perPlace: number,
+): Promise<Record<string, { url: string; thumbUrl: string | null; alt: string; caption: string | null; by: string }[]>> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT p.structure_key, p.url, p.thumb_url, p.alt_text, p.caption, p.taken_on, p.created_at, " +
+      "u.name AS contributor_name FROM place_photos p LEFT JOIN users u ON u.id = p.contributor_id " +
+      "WHERE p.village_id = ? AND p.removed_at IS NULL AND p.hidden_at IS NULL " +
+      "ORDER BY p.structure_key ASC, (p.hero_at IS NULL) ASC, p.hero_at DESC, p.created_at DESC, p.id ASC LIMIT 2000",
+    [villageId],
+  );
+  const out: Record<string, { url: string; thumbUrl: string | null; alt: string; caption: string | null; by: string }[]> = {};
+  for (const r of rows) {
+    const key = String(r.structure_key);
+    const bucket = (out[key] ??= []);
+    if (bucket.length >= perPlace) continue;
+    bucket.push({
+      url: String(r.url),
+      thumbUrl: r.thumb_url ? String(r.thumb_url) : null,
+      alt: String(r.alt_text ?? ""),
+      caption: r.caption ? String(r.caption) : null,
+      by: attribution(r),
+    });
+  }
+  return out;
+}
+
+/** The attribution line, built where the row is read so the map gets it whole. */
+function attribution(r: any): string {
+  const who = (r.contributor_name ? String(r.contributor_name) : "").trim() || "a member";
+  const taken = toDateOnly(r.taken_on);
+  const when = taken ?? toIso(r.created_at);
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(when) ? `${when}T00:00:00Z` : when);
+  if (Number.isNaN(d.getTime())) return `Photo by ${who}`;
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  return `Photo by ${who}, ${taken ? "taken" : "added"} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 export async function countForPlace(pool: Pool, villageId: string, structureKey: string): Promise<number> {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT COUNT(*) AS n FROM place_photos WHERE village_id = ? AND structure_key = ? AND removed_at IS NULL",

@@ -351,6 +351,33 @@ export default function LivingMap() {
    * the read-only map every visitor gets. The gate is the SERVER's, and this
    * message only decides what gets drawn.
    */
+  /**
+   * The village's own photographs of its places (0093).
+   *
+   * SEPARATE FROM THE CONFIG PUSH, for the reason the hand is separate: this
+   * one depends on who is reading. A village that keeps its map to members
+   * answers 401 here, and the map draws the door and nothing else, which is
+   * exactly what it draws for a village whose members have not photographed
+   * anything yet. Absent means absent; nothing is overwritten with blanks.
+   *
+   * `?gallery=1` is one query for every place at once. The map opens with the
+   * whole land on screen, so a request per building would be forty round
+   * trips before anybody opened a tab.
+   */
+  const pushPhotos = useCallback(async () => {
+    const win = frame.current?.contentWindow;
+    if (!win) return;
+    try {
+      const res = await gameFetch("/api/places?gallery=1");
+      if (!res.ok) return;
+      const body = await res.json();
+      if (!body?.gallery || typeof body.gallery !== "object") return;
+      win.postMessage({ type: "photos", places: body.gallery }, window.location.origin);
+    } catch {
+      /* The map keeps the door it already has. */
+    }
+  }, []);
+
   const pushHand = useCallback(async () => {
     const win = frame.current?.contentWindow;
     if (!win) return;
@@ -596,6 +623,7 @@ export default function LivingMap() {
         // even though their hand request tells them they may do nothing.
         pushConfig();
         pushHand();
+        pushPhotos();
         // Third and last, because it is the only one nothing waits on: the org
         // lens narrows what is drawn and never decides what may be done.
         pushLens();
@@ -621,7 +649,7 @@ export default function LivingMap() {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [navigate, pushConfig, pushHand, pushLens, exitApp, relayPromise, relayScene]);
+  }, [navigate, pushConfig, pushHand, pushPhotos, pushLens, exitApp, relayPromise, relayScene]);
 
   /**
    * A save in the wizard retints an open map.
