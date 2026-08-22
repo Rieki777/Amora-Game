@@ -153,14 +153,18 @@ export default function ObjectionPanel({
                   </div>
                 )}
 
-                {canRule && o.status === "open" && (
+                {/* The facilitator tests an objection; its author may take it
+                    back. Offering the panel to everyone would be a row of
+                    buttons the route refuses, and finding out your standing by
+                    being told no is not how a member should learn it. */}
+                {(canRule || o.mine) && o.status === "open" && (
                   <div className="mt-3">
                     {rulingFor === o.id ? (
                       <div className="space-y-2">
                         <fieldset>
                           <legend className="text-sm font-medium text-stone-800">How does this land?</legend>
                           <div className="mt-1.5 space-y-1.5">
-                            {RULINGS.map((r) => (
+                            {(canRule ? RULINGS : RULINGS.filter((r) => r.id === "withdrawn")).map((r) => (
                               <label key={r.id} className="flex min-h-[44px] items-start gap-2 rounded-lg border border-stone-200 p-2 has-[:checked]:border-teal-deep">
                                 <input
                                   type="radio"
@@ -212,12 +216,12 @@ export default function ObjectionPanel({
                         type="button"
                         onClick={() => {
                           setRulingFor(o.id);
-                          setRuling("concern");
+                          setRuling(canRule ? "concern" : "withdrawn");
                           setNote("");
                         }}
                         className="min-h-[44px] rounded-lg border border-stone-300 px-4 text-sm font-medium text-stone-700 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
                       >
-                        Test this objection
+                        {canRule ? "Test this objection" : "Take this back"}
                       </button>
                     )}
                   </div>

@@ -24,10 +24,13 @@
  *               for a person, which is a different sentence from "closed".
  *   DECIDED     the ballot is closed. The widget stands down entirely.
  *
- * ACCESSIBILITY. The three choices are a radiogroup: arrow keys move between
- * them, the chosen one carries aria-checked, and the choice is named in text
- * beside a shape (a filled dot and a tick), never by colour alone. Every
- * target clears 44px.
+ * ACCESSIBILITY. The three choices are toggle buttons in a named group, and
+ * that is deliberate rather than a radiogroup. A radiogroup promises roving
+ * focus, where Tab reaches the group and arrows move inside it, and each of
+ * these buttons is a separate ACT that sends a request, so all three stay
+ * individually reachable by Tab. `aria-pressed` carries which one is yours.
+ * The choice is named in text beside a shape, never by colour alone, and
+ * every target clears 44px.
  */
 import { useState } from "react";
 import { CircleCheck, CircleMinus, CircleX, Loader2 } from "lucide-react";
@@ -127,11 +130,7 @@ export default function VoteWidget({
         </p>
       )}
 
-      <div
-        role="radiogroup"
-        aria-label="Your vote"
-        className="mt-3 grid gap-2 sm:grid-cols-3"
-      >
+      <div role="group" aria-label="Your vote" className="mt-3 grid gap-2 sm:grid-cols-3">
         {CHOICES.map((c) => {
           const Icon = c.icon;
           const chosen = mine === c.id;
@@ -139,8 +138,7 @@ export default function VoteWidget({
             <button
               key={c.id}
               type="button"
-              role="radio"
-              aria-checked={chosen}
+              aria-pressed={chosen}
               disabled={busy}
               onClick={() => submit(c.id)}
               className={`flex min-h-[44px] items-center justify-center gap-2 rounded-lg border-2 px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2 disabled:opacity-60 ${

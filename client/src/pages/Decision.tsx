@@ -237,7 +237,7 @@ export default function Decision() {
               <ObjectionPanel
                 objections={ballot.objections}
                 canFile={open && !expired && inRoll}
-                canRule={open}
+                canRule={open && !!standing?.mayDecide}
                 busy={busy}
                 onFile={async (text) => {
                   await act(() => fileObjection(ballot.id, text));

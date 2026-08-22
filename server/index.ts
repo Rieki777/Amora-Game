@@ -20945,6 +20945,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
         objections.map(async (o) => ({
           id: o.id,
           by: await nameOf(o.userId),
+          // The objector may withdraw their own, and the page cannot work that
+          // out from a first name. Sent as a fact rather than inferred.
+          mine: !!viewerId && o.userId === viewerId,
           text: o.text,
           status: o.status,
           rulingNote: o.rulingNote,
@@ -21060,16 +21063,72 @@ Send an empty drafts array when you are still listening. A role payload is {name
     res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
   });
 
+  /**
+   * A ballot as a CARD reads it (lane G2). Two things separate this from
+   * serveBallot, and both were defects the first time the list route was
+   * pointed at a page:
+   *
+   *  - IT KNOWS WHO IS ASKING. The list used to serve every ballot with no
+   *    viewer, so `myVote` and `myWeight` came back null for everyone and a
+   *    card could never say "waiting on you". That question is the whole
+   *    reason a member opens a list of votes.
+   *  - IT DOES NOT BUILD THE ROLL. Names cost a query each (`members.byId` is
+   *    uncached), and the full shape resolves one per voter per ballot. On a
+   *    hundred ballots that is a thousand queries to draw a list of titles.
+   *    Cards need tallies and a count; the roll belongs to the detail page.
+   */
+  async function serveBallotCard(b: any, viewerId?: string) {
+    const pool = getPool();
+    const tallies = await talliesFor(pool, b.id);
+    const [[counts]] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS voted FROM ballot_votes WHERE ballot_id = ?",
+      [b.id],
+    );
+    const [mine] = viewerId
+      ? await pool.query<any[]>(
+          "SELECT e.weight, v.choice FROM ballot_electorate e " +
+            "LEFT JOIN ballot_votes v ON v.ballot_id = e.ballot_id AND v.user_id = e.user_id " +
+            "WHERE e.ballot_id = ? AND e.user_id = ?",
+          [b.id, viewerId],
+        )
+      : [[]];
+    const row = mine[0];
+    return {
+      id: b.id,
+      subjectType: b.subjectType,
+      subjectRef: b.subjectRef,
+      title: b.title,
+      method: b.method,
+      weightMode: b.weightMode,
+      unityPct: b.unityPct,
+      quorumPct: b.quorumPct,
+      totalWeight: b.totalWeight,
+      electorateCount: b.electorateCount,
+      opensAt: b.opensAt,
+      closesAt: b.closesAt,
+      status: b.status,
+      outcomeNote: b.outcomeNote,
+      closedAt: b.closedAt,
+      tallies,
+      unity: unityPctOf(tallies),
+      quorum: quorumPctOf(tallies, b.totalWeight),
+      votedCount: Number(counts?.voted ?? 0),
+      myVote: row?.choice ? { choice: row.choice, reason: null } : null,
+      myWeight: row ? Number(row.weight) : null,
+    };
+  }
+
   /** The record: every ballot, newest first, filterable by subject. */
   app.get("/api/governance/ballots", async (req, res) => {
+    const viewer = await authedUser(req);
     const subjectType = String(req.query.subjectType ?? "").trim();
     const subjectRef = String(req.query.subjectRef ?? "").trim();
     if (subjectType && subjectRef) {
       const list = await ballotsFor(getPool(), subjectType, subjectRef);
-      return res.json(await Promise.all(list.map((b) => serveBallot(b))));
+      return res.json(await Promise.all(list.map((b) => serveBallotCard(b, viewer?.id))));
     }
     const [rows] = await getPool().query<any[]>("SELECT * FROM ballots ORDER BY created_at DESC, id DESC LIMIT 100");
-    res.json(await Promise.all(rows.map((r) => serveBallot(rowToBallot(r)))));
+    res.json(await Promise.all(rows.map((r) => serveBallotCard(rowToBallot(r), viewer?.id))));
   });
 
   app.get("/api/governance/ballots/:id", async (req, res) => {
@@ -21386,6 +21445,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
       eligible,
       weight,
       why,
+      // Whether this member facilitates: rules objections, closes early. The
+      // page hides those controls on this rather than offering a button the
+      // route will refuse, which is the difference between a surface that
+      // teaches a member their standing and one that lets them find out by
+      // being told no.
+      mayDecide: hasCapability("proposal.decide", ctx),
       // The member's own history, never the village's: the village-wide trail
       // already has its own route, and this one answers "why me".
       history: snapshot.mode === "custom" ? await weightHistory(getPool(), String(user.id), 50) : [],
