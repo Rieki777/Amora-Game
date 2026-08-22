@@ -74,7 +74,7 @@ platform bug.
 | `GET /api/game/gratitude/wall` | Public wall (names + messages only) |
 | `GET /api/game/gratitude/me` (auth) | Private journal with amounts |
 | `GET /api/game/pulse` | Public activity feed (joins, quests, gratitude, stage advances, season) |
-| `GET /api/season` + `PUT /api/admin/season` | Current season banner data |
+| `GET /api/season` + `PUT /api/admin/seasons` | Current season banner data (the singular `PUT /api/admin/season` was deleted: it predated multi-season and had no caller) |
 | `GET /api/admin/players` + `PUT .../:id/stage` | Player list with computed stages; grant ceremony-based stages |
 
 Stage computation: `computeStage()` interprets the declarative rules in

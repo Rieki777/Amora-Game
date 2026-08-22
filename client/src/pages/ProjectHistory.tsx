@@ -8,12 +8,9 @@ import {
   XSquare,
   Square,
   ExternalLink,
-  AlertTriangle,
   CheckCircle2,
   ChevronRight,
   ChevronDown,
-  Copy,
-  Check,
   FileSpreadsheet,
   FileText,
   Globe,
@@ -24,9 +21,7 @@ import {
   Edit2,
   Save,
   LayoutGrid,
-  Link as LinkIcon,
   StickyNote,
-  FileCheck,
   ClipboardList,
   TrendingUp,
 } from "lucide-react";
@@ -69,7 +64,6 @@ interface Deliverable {
   id: string;
   text: string;
   status: DeliveryStatus;
-  pageLink?: string; // page id to jump to in Page Copy view
 }
 
 interface Week {
@@ -77,21 +71,6 @@ interface Week {
   label: string;
   goal: string;
   deliverables: Deliverable[];
-}
-
-interface PageSection {
-  heading: string;
-  content: string;
-}
-
-interface PageTab {
-  id: string;
-  emoji: string;
-  title: string;
-  url: string;
-  week: string;
-  placeholders: string[];
-  sections: PageSection[];
 }
 
 // ─── Timeline Data ────────────────────────────────────────────────────────────
@@ -104,14 +83,14 @@ const WEEKS: Week[] = [
     deliverables: [
       { id: "w1-1", text: "Landing page - full copy and structure (welcome section, 5 journey paths)", status: "done" },
       { id: "w1-2", text: "Landing page - Attend, Experience, Co-Create, Integrate, Commit flow written and laid out", status: "done" },
-      { id: "w2-17", text: "Pages: Investor, Village Steward, Resident, How We Create, Quests - copy delivered (see page tabs)", status: "done", pageLink: "steward" },
-      { id: "w2-1", text: "Village Steward Space - Rights and Responsibilities page linked and drafted", status: "done", pageLink: "steward-rights" },
+      { id: "w2-17", text: "Pages: Investor, Village Steward, Resident, How We Create, Quests - copy delivered", status: "done" },
+      { id: "w2-1", text: "Village Steward Space - Rights and Responsibilities page linked and drafted", status: "done" },
       { id: "w2-2", text: "Village Steward Journey - Community Connection Calls CTA live", status: "pending" },
       { id: "w2-3", text: "Village Steward Journey - Potluck, Events, Workshops, Village Weaving links live", status: "pending" },
-      { id: "w2-6", text: "Village Steward Journey - Explore Quests section linked", status: "pending", pageLink: "quests" },
-      { id: "w2-7", text: "Village Steward Journey - Amora Game Guide linked (Roles, Co-Creator criteria)", status: "pending", pageLink: "roles" },
+      { id: "w2-6", text: "Village Steward Journey - Explore Quests section linked", status: "pending" },
+      { id: "w2-7", text: "Village Steward Journey - Amora Game Guide linked (Roles, Co-Creator criteria)", status: "pending" },
       { id: "w2-8", text: "Village Steward Journey - Role Application for Upcoming Season CTA live", status: "pending" },
-      { id: "w2-9", text: "Resident Space - Rights and Responsibilities page linked and drafted", status: "done", pageLink: "resident-rights" },
+      { id: "w2-9", text: "Resident Space - Rights and Responsibilities page linked and drafted", status: "done" },
       { id: "w2-10", text: "Resident Journey - Community Call and Discovery Call CTA live", status: "pending" },
       { id: "wt-1", text: "Decision needed - name the community contribution token (currently 'Gratitude'): tracks contributions to be resolved as debt, equity, or community currency, with a percentage split for early contributors", status: "amora" },
       { id: "w1-6", text: "AMORA: Provide brand kit assets (colors, fonts, logos)", status: "amora" },
@@ -122,19 +101,19 @@ const WEEKS: Week[] = [
     label: "Week 2 | Mar 24-30",
     goal: "Build the Roles and Circles infrastructure. Publish the Amora Game Guide as a navigable resource. Wire all governance links and role application flows.",
     deliverables: [
-      { id: "w4-11", text: "Pages: Governance Roles, Circles, Team - copy delivered (see page tabs)", status: "done", pageLink: "roles" },
+      { id: "w4-11", text: "Pages: Governance Roles, Circles, Team - copy delivered", status: "done" },
       { id: "w4-1", text: "Amora Game Guide - published as linked resource with Co-Creator criteria section", status: "pending" },
-      { id: "w4-2", text: "Roles section - all initial roles documented (Community Engagement, Land Liaison, Marketing, Operations, Visionary, Financial Mgmt)", status: "pending", pageLink: "roles" },
-      { id: "w4-3", text: "Investor Journey - Request Investor Pack drop-down and Pack created", status: "pending", pageLink: "investor" },
-      { id: "w4-4", text: "Circles section - Explore Roles page complete", status: "pending", pageLink: "circles" },
-      { id: "w2-18", text: "Circles cards - all role titles, descriptions, and links accurate", status: "pending", pageLink: "circles" },
-      { id: "w4-5", text: "Co-Creator Right of Passage - description and process documented and live", status: "pending", pageLink: "co-creators-guide" },
-      { id: "w4-6", text: "Seasonal Festivals - description page live", status: "pending", pageLink: "seasonal-festivals" },
-      { id: "w4-7", text: "Guide and Sage progression - criteria and Voice gains documented", status: "pending", pageLink: "co-creators-guide" },
-      { id: "w4-8", text: "Resident progression stages - documented with year thresholds", status: "pending", pageLink: "resident" },
+      { id: "w4-2", text: "Roles section - all initial roles documented (Community Engagement, Land Liaison, Marketing, Operations, Visionary, Financial Mgmt)", status: "pending" },
+      { id: "w4-3", text: "Investor Journey - Request Investor Pack drop-down and Pack created", status: "pending" },
+      { id: "w4-4", text: "Circles section - Explore Roles page complete", status: "pending" },
+      { id: "w2-18", text: "Circles cards - all role titles, descriptions, and links accurate", status: "pending" },
+      { id: "w4-5", text: "Co-Creator Right of Passage - description and process documented and live", status: "pending" },
+      { id: "w4-6", text: "Seasonal Festivals - description page live", status: "pending" },
+      { id: "w4-7", text: "Guide and Sage progression - criteria and Voice gains documented", status: "pending" },
+      { id: "w4-8", text: "Resident progression stages - documented with year thresholds", status: "pending" },
       { id: "w4-10", text: "All internal hyperlinks audit - every bold link in all 4 journeys verified as working", status: "pending" },
-      { id: "w1-4", text: "Roles section - role application workflow live", status: "pending", pageLink: "roles" },
-      { id: "am-7", text: "Add Hypha page link to How We Create and Co-Creators Guide", status: "pending", pageLink: "how-we-create" },
+      { id: "w1-4", text: "Roles section - role application workflow live", status: "pending" },
+      { id: "am-7", text: "Add Hypha page link to How We Create and Co-Creators Guide", status: "pending" },
       { id: "am-8", text: "Launch all Hypha tools - governance platform live and linked from site", status: "pending" },
       { id: "w4-12", text: "Finalize Role descriptions and Season structure for publication", status: "collab" },
       { id: "am-2", text: "Complete the investor memo for Lawrence - terms, vision, and deal structure written and ready to share", status: "collab" },
@@ -146,11 +125,11 @@ const WEEKS: Week[] = [
     label: "Week 3 | Mar 31-Apr 6",
     goal: "Deliver and wire the community identity pages - Love Letter, Co-Creators Guide, Good Neighbor, and Seasonal Festivals. Get all membership flows and CTAs live.",
     deliverables: [
-      { id: "w1-5", text: "Pages: Home, Love Letter, Co-Creators Guide, Good Neighbor - copy delivered (see page tabs)", status: "done", pageLink: "love-letter" },
-      { id: "w1-3", text: "Investor Journey - Schedule a Call drop-down and CTA button wired up", status: "pending", pageLink: "investor" },
+      { id: "w1-5", text: "Pages: Home, Love Letter, Co-Creators Guide, Good Neighbor - copy delivered", status: "done" },
+      { id: "w1-3", text: "Investor Journey - Schedule a Call drop-down and CTA button wired up", status: "pending" },
       { id: "w2-4", text: "Village Steward Journey - Village Weaving Immersion description and CTA live", status: "pending" },
-      { id: "w2-12", text: "Love Letter membership page linked (Steward and Resident journeys)", status: "pending", pageLink: "love-letter" },
-      { id: "w2-15", text: "Resident Journey - Good Neighbor criteria linked", status: "pending", pageLink: "good-neighbor" },
+      { id: "w2-12", text: "Love Letter membership page linked (Steward and Resident journeys)", status: "pending" },
+      { id: "w2-15", text: "Resident Journey - Good Neighbor criteria linked", status: "pending" },
     ],
   },
   {
@@ -158,11 +137,11 @@ const WEEKS: Week[] = [
     label: "Week 4 | Apr 7-13",
     goal: "Complete the Investor and Prosperity Creator journeys with all supporting content, interactive elements, and linked resources in place.",
     deliverables: [
-      { id: "w3-5", text: "Pages: Prosperity Journey - copy delivered (see page tab)", status: "done", pageLink: "prosperity" },
-      { id: "w3-1", text: "Investor Journey - full financial details and CTA flow complete", status: "pending", pageLink: "investor" },
-      { id: "w3-2", text: "Investor Journey - Request Investor Pack drop-down and CTA wired up", status: "pending", pageLink: "investor" },
-      { id: "w3-3", text: "Prosperity Journey - full ARI tier details and business paths documented", status: "pending", pageLink: "prosperity" },
-      { id: "w3-4", text: "Prosperity Journey - business proposal submission flow live", status: "pending", pageLink: "prosperity" },
+      { id: "w3-5", text: "Pages: Prosperity Journey - copy delivered", status: "done" },
+      { id: "w3-1", text: "Investor Journey - full financial details and CTA flow complete", status: "pending" },
+      { id: "w3-2", text: "Investor Journey - Request Investor Pack drop-down and CTA wired up", status: "pending" },
+      { id: "w3-3", text: "Prosperity Journey - full ARI tier details and business paths documented", status: "pending" },
+      { id: "w3-4", text: "Prosperity Journey - business proposal submission flow live", status: "pending" },
       { id: "w3-6", text: "Confirm ARI tiers and Voice allocations for Prosperity journey", status: "collab" },
       { id: "w3-7", text: "Confirm Investor Pack structure and financial projections", status: "collab" },
       { id: "am-1", text: "Complete token design - name, function, and economic rules for the community contribution token (currently 'Gratitude') finalised", status: "collab" },
@@ -177,16 +156,16 @@ const WEEKS: Week[] = [
     label: "Week 5 | Apr 14-20",
     goal: "Polish all pages, complete event CTAs. If the retainer is confirmed, begin scoping the backend and CRM integration. Final content review with the Amora team.",
     deliverables: [
-      { id: "w5-10", text: "Pages: Master Plan, Opportunities, Housing - copy delivered (see page tabs)", status: "done", pageLink: "master-plan" },
-      { id: "w2-11", text: "Resident Journey - Housing Options page linked", status: "pending", pageLink: "housing" },
-      { id: "w2-13", text: "Resident Journey - Waitlist sign-up and $NNN/month fee placeholder live", status: "pending", pageLink: "resident" },
+      { id: "w5-10", text: "Pages: Master Plan, Opportunities, Housing - copy delivered", status: "done" },
+      { id: "w2-11", text: "Resident Journey - Housing Options page linked", status: "pending" },
+      { id: "w2-13", text: "Resident Journey - Waitlist sign-up and $NNN/month fee placeholder live", status: "pending" },
       { id: "w2-14", text: "Resident Journey - Children's Play Day CTA live", status: "pending" },
-      { id: "w2-16", text: "Resident Journey - Land Share Agreement page linked", status: "pending", pageLink: "resident" },
+      { id: "w2-16", text: "Resident Journey - Land Share Agreement page linked", status: "pending" },
       { id: "w5-1", text: "Events section - Potluck, Village Weaving, Land Tour, Children's Play Day CTAs live", status: "pending" },
       { id: "w5-2", text: "Webinar section - slide show, email flow, recording share process documented", status: "pending" },
       { id: "w5-3", text: "Email nurture flow - basic flow outlined and handed off or implemented in CRM", status: "pending" },
       { id: "w5-4", text: "Social media - post structure and follow-up structure documented", status: "pending" },
-      { id: "w5-5", text: "Love Letter page - final design and membership dues confirmed", status: "pending", pageLink: "love-letter" },
+      { id: "w5-5", text: "Love Letter page - final design and membership dues confirmed", status: "pending" },
       { id: "w5-6", text: "Waitlist page - final design and fee structure confirmed", status: "pending" },
       { id: "w5-7", text: "Mobile responsiveness - full site tested on mobile", status: "pending" },
       { id: "w5-8", text: "Content audit - all placeholder values resolved by Amora", status: "pending" },
@@ -212,782 +191,43 @@ const WEEKS: Week[] = [
   },
 ];
 
-// ─── Page Copy Data ───────────────────────────────────────────────────────────
+// ─── Quick Links ──────────────────────────────────────────────────────────────
 
-const PAGES: PageTab[] = [
-  {
-    id: "home",
-    emoji: "🏠",
-    title: "Home",
-    url: "/",
-    week: "Week 1 | Mar 17-23",
-    placeholders: [],
-    sections: [
-      {
-        heading: "Hero",
-        content: `Tag: Come co-create paradise
-Headline: Co-Become the Most Beautiful Village
-Subheadline: A regenerative village in Costa Rica where all beings belong and thrive. Find your path to participation.
-CTAs: Find Your Path | Read the Co-Creators Guide`,
-      },
-      {
-        heading: "Journey Stages Bar",
-        content: `Title: Five Stages, Align to Home
-Text: Each stage is designed to filter for cultural fit while providing opportunities for mutual assessment.
-Stages: Align | Experience | Co-Create | Integrate | Home`,
-      },
-      {
-        heading: "Choose Your Path",
-        content: `Tag: What brought you here?
-Title: Choose Your Path
-Text: Four unique journeys to participate in the Amora community. Each path leads to belonging.
-
-Investor | Capital Contributor | Support regenerative development through financial resources, credit lines, or material contributions. Join a community that prioritizes debt over equity.
-Village Steward | Co-Creator | Coordinate and execute for the success of the whole village. Join circles, take on roles, and help shape our regenerative community.
-Resident | Co-Creator | Make Amora your home. Explore housing options, join the waitlist, and become part of a loving village where all beings belong.
-Prosperity Creator | Business Builder | Launch or grow your business within our thriving village economy. Align your enterprise with community values and share in collective prosperity.`,
-      },
-      {
-        heading: "Who Comes to Amora",
-        content: `Tag: People like you
-Title: Who Comes to Amora?
-Text: See yourself here? There is a path with your name on it.
-
-Digital Nomad Couple: Location-independent professionals ready to stop bouncing between Airbnbs and plant themselves somewhere with depth, community, and a reason to stay.
-Worldschooling Family: Families who want their children raised by a community, surrounded by nature, multi-generational wisdom, and real-world learning instead of a system.
-Retiree and Snowbird: Post-career dreamers who want warmth, beauty, belonging, and a role that still matters.
-Longevity Seeker: Health-conscious individuals chasing clean air, organic food, movement, community, and purpose as medicine.
-Remote Exec and Founder: High-achievers who want their next chapter to matter, contributing capital, skills, or leadership to something regenerative and lasting.
-Costa Rican and LatAm Professional: Local and regional changemakers who see Amora as the proving ground for the regenerative future of Central America.`,
-      },
-      {
-        heading: "Bottom CTA",
-        content: `Headline: Ready to Begin Your Journey?
-CTAs: Join Community Call | View All Events`,
-      },
-    ],
-  },
-  {
-    id: "love-letter",
-    emoji: "💌",
-    title: "Love Letter",
-    url: "/love-letter",
-    week: "Week 3 | Mar 31-Apr 6",
-    placeholders: ["The full body text of the Love Letter needs to be written by the Amora team"],
-    sections: [
-      {
-        heading: "Page Header",
-        content: "Title: The Amora Love Letter",
-      },
-      {
-        heading: "The Letter",
-        content: `Salutation: Dear Future Amora Family Member,
-Body: [PLACEHOLDER - Amora team to write the full letter body here]
-Closing: With love and anticipation, The Amora Community`,
-      },
-      {
-        heading: "Membership Commitments",
-        content: `Heading: As a member of Amora 508(c)(1)(a), you commit to:
-[LIST OF COMMITMENTS - Amora team to verify these are current and complete]`,
-      },
-      {
-        heading: "Sign Your Membership Form",
-        content: `Heading: Sign Your Membership
-Text: Fill in your details below to officially join the Amora Family.
-Fields: Full Name | Email | Phone/WhatsApp (optional) | Which path(s) are you on? | Monthly Membership Contribution ($33/$55/$88/$108/custom) | What called you to Amora?
-Checkbox: I have read the Love Letter and commit to the values of the Amora community.
-CTA: Sign the Love Letter and Join the Amora Family`,
-      },
-      {
-        heading: "Post-Submission",
-        content: `Heading: Welcome to the Amora Family
-Message: Your membership form has been received. You are now part of the Amora 508(c)(1)(a) community.
-Next steps: 1) Welcome email within 48 hours. 2) Personal welcome call scheduled. 3) Invited to first Community Circle.
-CTA: Return Home`,
-      },
-    ],
-  },
-  {
-    id: "co-creators-guide",
-    emoji: "📖",
-    title: "Amora Game Guide",
-    url: "/co-creators-guide",
-    week: "Week 3 | Mar 31-Apr 6",
-    placeholders: [
-      "Your Hypha DHO URL (e.g. app.hypha.earth/en/dho/amora-village) - paste the full URL to your Amora Hypha space so the platform links on the Game Guide page can go live",
-      "Page title - currently 'Amora Game Guide', confirm with the team (alternatives: 'The Co-Creators Guide', 'The Amora Playbook', or your own name)",
-      "Community currency name - currently 'Gratitude', will be replaced sitewide once finalised. Share the chosen name so we can update all pages at once.",
-      "Community currency value - RESOLVED (2026-07): Gratitude has no fixed peg. It's a surface token that shares a per-cycle pool of value, so its worth floats cycle to cycle. All '1 Gratitude = $1 USD' copy has been removed sitewide.",
-    ],
-    sections: [
-      {
-        heading: "Page Header",
-        content: "Title: The Amora Game Guide (also: The Co-Creators Guide)\nNav Tabs: R-Ikigai | Gratitude Economy | Voice and Governance | Hypha Platform | The Four Spaces | Path of Growth | Good Neighbor",
-      },
-      {
-        heading: "R-Ikigai",
-        content: `Heading: Your R-Ikigai
-Venn Diagram: What You LOVE (Passion) | What You are GOOD AT (Skills) | What AMORA NEEDS (Regeneration) | What Earns GRATITUDE (Compensation)
-Text: Roles, quests, and contributions that our community values and rewards.`,
-      },
-      {
-        heading: "Gratitude Economy",
-        content: `Heading: The Gratitude Economy
-Earn Gratitude: Complete quests, fulfill roles, or receive revenue shares from community and private businesses. (Land Stewardship Shifts, Business Revenue Share, Quests)
-Hold Gratitude: Gratitude accumulates in your Village Profile and reflect your contribution history.
-Use Gratitude: Pay for HOA, utilities, services, cafe, shop, and more within the village.
-Flow: Contribution > Gratitude Earned > Community Spending > Regenerative Loop`,
-      },
-      {
-        heading: "Voice and Governance",
-        content: `Heading: How Proposals Work
-1. Proposal - Anyone can raise a proposal. Presented clearly with context and goals.
-2. Clarification - The circle asks clarifying questions. Not debate, just understanding.
-3. Consent - No reasoned objections means we move forward.
-Key Principles: Circles Hold Authority | Monthly All-Village Calls`,
-      },
-      {
-        heading: "Hypha Platform",
-        content: `Heading: Hypha - Our Governance Platform
-Intro: Where governance happens in practice. Open-source, transparent, owned by its contributors. Value In = Value Out.
-[PLACEHOLDER - Amora: add your DHO link to CoCreatorsGuide.tsx when Hypha space is live]
-
-4 Action Cards:
-1. Start with an Agreement - Propose a new role, quest, or contribution type. Create Agreement link.
-2. Claim Your Gratitude - After completing a task, pay period, or season, propose a Contribution. Claim link.
-3. Propose Expenses - Cover costs that benefit the community. Pay for Expenses link.
-4. Delegate Your Voice - Trust another member to vote on your behalf. Members page link.
-
-Sense > Propose > Create cycle displayed at bottom.`,
-      },
-      {
-        heading: "The Four Spaces",
-        content: `Village Steward Space - Coordinates overall village success, open to all path members
-Resident Space - Governs residential life and neighbor relations
-Prosperity Space - Manages business interests and Gratitude economy
-Land Stewardship Space - Cares for land and ecosystem health`,
-      },
-      {
-        heading: "Path of Growth",
-        content: "Stages: Visitor | Guest | Immersant | Participant | Member (Amora Family) | Contributor | Quest Seeker | Initiate | Co-Creator | Role Holder | Guide (7+ years) | Sage (21+ years)",
-      },
-      {
-        heading: "Bottom CTAs",
-        content: `The Love Letter - Read our community covenant and founding values
-Find Your Quest - Discover opportunities that match your gifts
-Join Community Call - Meet us live and ask your questions`,
-      },
-    ],
-  },
-  {
-    id: "good-neighbor",
-    emoji: "🤝",
-    title: "Good Neighbor",
-    url: "/good-neighbor",
-    week: "Week 3 | Mar 31-Apr 6",
-    placeholders: ["\"What Amora Commits to You\" section content needs team verification"],
-    sections: [
-      {
-        heading: "Page Header",
-        content: "Tag: Our Living Covenant\nTitle: Good Neighbor Criteria\nSubtitle: What Amora Values, and Why It Matters",
-      },
-      {
-        heading: "The 8 Criteria",
-        content: `1. Core Values Alignment - You Live the Vision
-2. Communication and Conflict Resolution - You Practice Authentic Relating (NVC)
-3. Financial Responsibility - You Can Meet Your Obligations
-4. Contribution to Community Life - You Show Up and Participate
-5. Respect for Land, Nature, and All Beings - You Are a Steward
-6. Cultural Openness and Intergenerational Respect - You Value Diversity
-7. Background Check Acknowledgment - Safety and Trust for Everyone
-8. Children's Play Day Participation - For Families`,
-      },
-      {
-        heading: "The 7-Step Process",
-        content: `1. Initial Exploration - Learn about Amora through events, tours, and conversations.
-2. Community Engagement - Attend potlucks, workshops, and gatherings.
-3. Deep Conversation - Structured conversations with the Resident Circle about values, history, and commitment.
-4. Background Check - Standard background and reference check.
-5. Observation Period - A period of participation before full commitment.
-6. Resident Consent - Current residents give consent with no reasoned objections.
-7. Celebration - Welcome home.`,
-      },
-      {
-        heading: "Core Values Pillars",
-        content: `Regenerative Living: We do not just sustain, we heal. This community is built on the belief that humans can actively restore the land, water systems, and ecosystems we depend on.
-Community Care: We practice radical responsibility alongside deep interdependence. You show up for yourself and for the whole.
-Regenerative Purpose: Your life here has meaning. You are aligning your unique gifts with what Amora needs.`,
-      },
-      {
-        heading: "What Amora Commits to You",
-        content: "[PLACEHOLDER - Amora team to verify and fill in this section]\nCTAs: Sign the Membership Covenant | Attend a Community Call",
-      },
-    ],
-  },
-  {
-    id: "investor",
-    emoji: "💰",
-    title: "Investor Journey",
-    url: "/investor",
-    week: "Week 4 | Apr 7-13",
-    placeholders: ["Projected IRR %", "Target Raise amount for Phase 1", "ROI timeline answer"],
-    sections: [
-      {
-        heading: "Page Header",
-        content: "Tag: Capital Contributor Journey\nTitle: Invest in Regeneration\nCTA: Join Community Call",
-      },
-      {
-        heading: "Key Numbers",
-        content: `Land Value: $16M+ (appraised January 2026)
-Property: 266 acres in Dominicalito, Costa Rica
-Projected IRR: [PLACEHOLDER - team to confirm]
-Target Raise: [PLACEHOLDER - Phase 1, Infrastructure and retreat center]`,
-      },
-      {
-        heading: "Investment Philosophy",
-        content: `Debt Over Equity: We prioritize debt financing to ensure the community maintains ownership. Investors who want to live at Amora are given priority.
-$16M+ Appraisal: A January 2026 appraisal values the property at over $16 million, with additional commons land appraisal pending.
-1% Regenerative Loan: We are exploring a low-interest regenerative development loan that would accelerate multiple development phases.
-Community Ownership: Our goal is for all Amora homes, structures, and businesses to be owned by residents and co-creators.`,
-      },
-      {
-        heading: "Your Investment Journey",
-        content: `Curious: Discover Amora - Learn about our vision, values, and regenerative approach to community development.
-Interested: Request Investor Pack - Receive the full investor materials: feasibility study, proformas, and development timeline.
-Exploring: Schedule Investment Call - Connect one-on-one with our team to discuss your investment goals.
-Committed: Make Your Commitment - Choose your investment vehicle and formalize your contribution.`,
-      },
-      {
-        heading: "Investor FAQs",
-        content: `What is the legal structure? Horizontal Condominium under Costa Rican law, combined with a 508(c)(1)(a) community organization.
-What are my exit options? Lot sale at appreciated value, business equity stake, or structured buy-back options.
-How does debt vs equity work? We prefer debt financing to keep community ownership intact. Investors lend to the project and receive interest plus priority on lot purchases.
-Can I build on my investment? Yes. Investors who become residents can build a home on their lot.
-When is ROI expected? [PLACEHOLDER - answer to verify and add]`,
-      },
-    ],
-  },
-  {
-    id: "steward",
-    emoji: "🌿",
-    title: "Village Steward",
-    url: "/steward",
-    week: "Week 1 | Mar 17-23",
-    placeholders: ["Full page headline needs confirmation from Amora team"],
-    sections: [
-      {
-        heading: "Page Header",
-        content: "Tag: Village Steward Journey\nTitle: [Full headline to verify with Amora team]\nCTAs: Start with Community Call | Learn How We Create",
-      },
-      {
-        heading: "Your Journey to Co-Creation (9 Stages)",
-        content: `Visitor: Attend Community Call - Learn about the basics and ask questions about Amora.
-Guest: Participate in Events - Join potlucks, events, workshops, and parties to experience the community.
-Immersant: Village Weaving Immersion - Spend immersive time in the village learning how it operates and discovering where your gifts are most needed.
-Participant: Community Training - Complete training in NVC, authentic relating, and other community practices.
-Member: Join the Amora Family - Sign our Love Letter and formally become a member of Amora 508c1a.
-Contributor: Participate in a Circle - Join a sociocratic circle to contribute to community decision-making.
-Quest Seeker: Explore Quests - Take on quests to contribute meaningfully and demonstrate your commitment.
-Initiate: Co-Creator Right of Passage - Complete the right of passage with a vote from the Co-Creators circle.
-Co-Creator: Explore and Apply for Roles - Find a role that aligns with your gifts and apply for the upcoming season.`,
-      },
-      {
-        heading: "Seasonal Rhythm",
-        content: `Every 3 months the community votes on what kind of season comes next. Not a fixed cycle.
-
-Spring: Breaking ground. Starting new builds, projects, and initiatives.
-Summer: Full energy. Festivals, events, gatherings, and high community activity.
-Fall: Harvest time. Reflection, lessons learned, appreciating the abundance.
-Winter: Deep design. Systems redesign, governance evolution, economic modelling, financial preparation, and investor relations.
-
-CTA: Learn About Our Seasons`,
-      },
-      {
-        heading: "Your Next Step Form",
-        content: `Heading: Your Next Step
-Fields: Your name | Email | What gifts do you bring? | What called you to stewardship?
-CTA: Begin My Stewardship Journey`,
-      },
-    ],
-  },
-  {
-    id: "steward-rights",
-    emoji: "⚖️",
-    title: "Steward Rights & Responsibilities",
-    url: "/steward-rights",
-    week: "Week 1 | Mar 17-23",
-    placeholders: [],
-    sections: [
-      {
-        heading: "Page Header",
-        content: `Tag: Village Steward Space
-Title: Your Rights and Responsibilities
-Subtitle: A covenant between co-owners, not a legal document. Every Village Steward holds both, the rights that come from real ownership of this place, and the responsibilities that make those rights worth something.`,
-      },
-      {
-        heading: "Co-Ownership Framing",
-        content: `Heading: You Are a Co-Owner of This Village
-Text: Not in a passive sense. Not in a "you paid for something" sense. In the deepest sense, the land, the buildings, the culture, the economy, the future of this place are in your hands as much as anyone else's. Act from that space. Steward it as if you built it, because you are building it, right now.`,
-      },
-      {
-        heading: "Your Rights (6 Cards)",
-        content: `1. Voice in Governance - Participate in Circle consent rounds, vote on decisions in your domain, elect representatives to the Leadership Council.
-2. Earn Gratitude for Your Contribution - Every role, quest, and meaningful act earns Gratitude, a living record of the value you bring (no fixed dollar peg). Can convert to cash, equity, or community currency as Amora grows.
-3. Apply for Seasonal Roles - Once you pass your Co-Creator Right of Passage, propose yourself for any seasonal role that fits your gifts.
-4. Advance Along the Path - Progress from Co-Creator to Guide (after multiple seasons) to Sage (after seasons as Guide). Each level deepens your voice and compensation.
-5. Access to Shared Land and Commons - All trails, food forests, gathering spaces, and natural features of the 266 acres are yours to steward and enjoy.
-6. Retreat and Wellness Access - Access Amora's wellness offerings at community rates as a contributing steward.`,
-      },
-      {
-        heading: "Your Responsibilities (6 Cards)",
-        content: `1. Show Up for Your Circle - Attend meetings consistently, participate in consent rounds, communicate if you can't make it.
-2. Act as a Co-Owner - Approach every decision, every piece of land, every shared resource as if it belongs to you and to everyone here, because it does.
-3. Take On Quests - Actively complete quests that stretch your contribution. Your engagement keeps the community alive.
-4. Practice the Community Ways - NVC, authentic relating, consent-based decision-making. Not just knowing them, practicing them.
-5. Contribute to the Seasonal Rhythm - Attend seasonal transitions, participate in votes, help decide collectively what Amora focuses on next.
-6. Lift Others as You Rise - As you advance, carry responsibility for welcoming newcomers and mentoring those coming behind you.`,
-      },
-      {
-        heading: "Progression Path",
-        content: `Co-Creator: Full governance voice, seasonal role eligibility, Gratitude economy access.
-Guide (after multiple seasons): Mentorship responsibilities, increased Gratitude, voice in cross-circle decisions.
-Sage (after seasons as Guide): Highest governance voice, wisdom keeper, long-term strategic guidance for the village.`,
-      },
-    ],
-  },
-  {
-    id: "resident",
-    emoji: "🏡",
-    title: "Resident Journey",
-    url: "/resident",
-    week: "Week 1 | Mar 17-23",
-    placeholders: ["Village dues monthly amount ($NNN/month)", "Full page headline"],
-    sections: [
-      {
-        heading: "Page Header",
-        content: "Tag: Resident Co-Creator Journey\nTitle: [Full headline to verify with Amora team]\nCTAs: Start with Community Call | Explore Housing",
-      },
-      {
-        heading: "Your Path to Residency (12 Stages)",
-        content: `Visitor: Attend Community Call
-Guest: Attend Community Events
-Participant: Community Training
-Member: Sign the Love Letter / 508 Membership
-Explorer: Explore Housing Options
-Applicant: Background Check
-Waitlist: Join the Waitlist - first right of refusal on land opportunities
-Family Day: Children's Play Day
-Initiate: Resident Right of Passage
-Landowner: Purchase Land Share Agreement
-Builder: Build Your Home
-Resident: Move In Celebration!`,
-      },
-      {
-        heading: "Village Dues",
-        content: `Heading: Village Dues
-[PLACEHOLDER - Amora team to confirm monthly dues amount ($NNN/month)]
-Note: Dues cover utilities, maintenance, and community services. These can be offset through Gratitude - a living record of the value you contribute, with no fixed dollar peg.`,
-      },
-      {
-        heading: "Land Share Agreements",
-        content: `Renewable: Your agreement can be renewed, providing long-term security for your family.
-Transferable: Pass your land share to your children tax-free.
-Community Owned: The land remains in community ownership, ensuring our values are preserved.`,
-      },
-    ],
-  },
-  {
-    id: "resident-rights",
-    emoji: "🛡️",
-    title: "Resident Rights & Responsibilities",
-    url: "/resident-rights",
-    week: "Week 1 | Mar 17-23",
-    placeholders: ["Monthly village dues amount ($NNN/month)", "Exact year thresholds for governance milestone progression"],
-    sections: [
-      {
-        heading: "Page Header",
-        content: `Tag: Resident Space
-Title: Your Rights and Responsibilities
-Subtitle: Living at Amora means you are not a tenant. You are a co-owner of the whole village. These are the rights that protect you and the responsibilities that make this place worth protecting.`,
-      },
-      {
-        heading: "Co-Ownership Framing",
-        content: `Heading: You Live Here. This Is Yours.
-Text: The land at Amora is held collectively. Every resident is a steward of the whole 266 acres. Your home is your private space. The rest belongs to all of you. Approach every interaction with the land and the community from that place: this is mine, and it's also all of ours.`,
-      },
-      {
-        heading: "Your Rights (6 Cards)",
-        content: `1. Your Land Share is Yours - Long-term Land Share Agreement: renewable, transferable to your children tax-free, protected by collective ownership.
-2. Security Through Community Ownership - No single person can sell the land away. It's held in trust for the whole community, including your family and those that come after.
-3. Voice in Community Life - Full voice in Circles governing daily life. Governance rights deepen as you reach milestones and put down roots.
-4. Access to All Commons - Trails, food forests, gathering spaces, streams, ponds, seasonal festivals, events, all of it is yours.
-5. Community Services and Care - Access to wellness programs, education, healing arts, and services Amora develops together. Community businesses serve residents first.
-6. Dues Offset Through Gratitude - Dues can be offset through Gratitude, a living record of your contribution (no fixed dollar peg). The vision: shared business profits make life here net-positive.`,
-      },
-      {
-        heading: "Your Responsibilities (7 Cards)",
-        content: `1. Care for Your Home and Its Surroundings - Maintain your home and immediate space to a standard that honors the land and the community around it.
-2. Act as a Co-Owner - You live here. Pick up what needs picking up. Notice what others miss. Bring a co-owner's eye to every interaction with the land and the community.
-3. Contribute to Maintenance - Every resident contributes time to shared spaces, infrastructure, and community assets. Details agreed during residency onboarding.
-4. Village Dues - [PLACEHOLDER - $NNN/month] - Covers utilities, shared infrastructure, and community services. Offset through Gratitude; vision is full coverage through shared business profits.
-5. Participate in Community Processes - Show up to Circle meetings affecting your domain, conflict resolution processes, seasonal votes, and community governance.
-6. Honor the Good Neighbor Principles - Commit to and practice the Good Neighbor principles covering noise, shared resources, boundaries, children, and conflict.
-7. Raise the Next Generation Together - Children here are raised by the whole village. Contribute to a child-safe, child-enriching environment.`,
-      },
-      {
-        heading: "Maintenance and Fees Vision",
-        content: `Village dues exist to keep infrastructure running. The longer-term vision: as Amora's shared businesses mature, retreat center, cafe, wellness center, artisan market, education programs, revenue flows back into the community.
-
-The goal is a life here that is economically net-positive. Where Gratitude earnings, business participation, or role contributions cover your dues and give you back more than you put in.
-
-This is what "Wealth Through Contribution" actually means. Not a promise. A design intention we're building toward together.`,
-      },
-      {
-        heading: "Progression Over Time",
-        content: `Resident (Year 1+): Full commons access, housing rights, community participation.
-Established Resident (Year 3+): Deeper governance voice, eligible for Circle Representative roles. [PLACEHOLDER - confirm threshold]
-Long-Term Resident (Year 7+): Senior voice in community decisions, Sage eligibility, rights of nature representation. [PLACEHOLDER - confirm threshold]`,
-      },
-    ],
-  },
-  {
-    id: "how-we-create",
-    emoji: "⚙️",
-    title: "How We Create",
-    url: "/how-we-create",
-    week: "Week 1 | Mar 17-23",
-    placeholders: ["Hypha tools supporting text to verify with team"],
-    sections: [
-      {
-        heading: "Four Pillars",
-        content: `Sociocracy and Teal: We blend sociocratic governance with Teal organization principles. Self-management, wholeness, and evolutionary purpose guide our structure.
-Adaptive Governance: Using Hypha tools, each circle designs its own governance strategy, from consent to consensus, tailored to its unique culture and mission.
-Gratitude Economy: Gratitude tracks the value you contribute, a living record, not a fixed dollar amount. Each cycle the community shares a real pool of value across everyone's Gratitude, and it can convert to cash, equity, or community currency as Amora matures.
-Seasonal Rhythm: Every 3 months, the community votes on what kind of season comes next. Not a fixed cycle.`,
-      },
-      {
-        heading: "The Gratitude Economy",
-        content: `Earn Gratitude: Complete quests, fulfill roles, or receive revenue shares from community and private businesses.
-Track Value: Gratitude is an honest record of the work everyone is pooling to make Amora real, a living measure of value, not a fixed dollar peg.
-Future Conversion: As Amora matures, Gratitude will convert to cash or equity.`,
-      },
-      {
-        heading: "Seasonal Rhythm",
-        content: `Spring: Breaking ground. Starting new buildings, projects, and initiatives.
-Summer: Full momentum. Festivals, events, gatherings, and high community activity.
-Fall: Harvest time. Reflection, lessons learned, and appreciating the abundance.
-Winter: Deep design. Systems redesign, governance evolution, economic modelling, financial preparation, and investor relations.
-Note: No fixed cycle. The community votes every 3 months on what season comes next.`,
-      },
-    ],
-  },
-  {
-    id: "quests",
-    emoji: "⚔️",
-    title: "Community Quests",
-    url: "/quests",
-    week: "Week 1 | Mar 17-23",
-    placeholders: ["Circle assignments needed for: Circle Scribe, Retreat Center Host, Children's Play Day Facilitator, Tech and Platform Steward, Security and Night Watch"],
-    sections: [
-      {
-        heading: "What Is Gratitude?",
-        content: `Earn: Complete quests, contribute to circles, steward the land, teach, build, host, create. Every meaningful act earns Gratitude.
-Hold: Gratitude accumulates in your Village Profile and reflect your full contribution history.
-Convert: As Amora grows financially, Gratitude converts to cash or equity.`,
-      },
-      {
-        heading: "How to Claim Gratitude",
-        content: `1. Connect with a member of the core team and let them know you're interested in a quest.
-2. Put up a proposal to the Amora Hypha page with your proposal to complete this quest.
-3. If your proposal passes, do the quest. When you're done, gather evidence of your completion and prepare any lessons learned, ideas to share, etc.
-4. Make another proposal claiming tokens for your completed quest.
-5. Celebrate and get started on your next quest!`,
-      },
-      {
-        heading: "14 Quest Cards",
-        content: `Welcome Ambassador | Community Life | 50-100 Gratitude
-Food Forest Tender | Permaculture | 40-80 Gratitude
-Potluck and Celebration Organizer | Community Life | 100-200 Gratitude
-Trail Builder and Maintainer | Building and Village | 60-120 Gratitude
-Circle Scribe | [CIRCLE TO CONFIRM] | 40-80 Gratitude
-Retreat Center Host | [CIRCLE TO CONFIRM] | 80-150 Gratitude
-Village Photographer and Storyteller | Culture and Arts | 60-120 Gratitude
-Children's Play Day Facilitator | [CIRCLE TO CONFIRM] | 70-130 Gratitude
-Tech and Platform Steward | [CIRCLE TO CONFIRM] | 80-200 Gratitude
-Healing Arts Practitioner | Health and Healing | 50-150 Gratitude
-Infrastructure Builder | Building and Village | 80-160 Gratitude
-Arts and Mural Maker | Culture and Arts | 100-300 Gratitude
-Community Music Circle Host | Culture and Arts | 50-100 Gratitude
-Security and Night Watch | [CIRCLE TO CONFIRM] | 60-100 Gratitude`,
-      },
-    ],
-  },
-  {
-    id: "seasonal-festivals",
-    emoji: "🎉",
-    title: "Seasonal Festivals",
-    url: "/seasonal-festivals",
-    week: "Week 3 | Mar 31-Apr 6",
-    placeholders: ["Specific festival dates and themes to confirm with the Amora team", "Festival participation costs or contributions (if any)", "Registration or RSVP process for each festival"],
-    sections: [
-      {
-        heading: "Page Header",
-        content: `Tag: Community Celebrations
-Title: Seasonal Festivals at Amora
-Subtitle: We mark the rhythm of the year together - gathering to celebrate, reflect, and renew our commitment to this land and each other.`,
-      },
-      {
-        heading: "The Four Festivals",
-        content: `Spring Renewal (March/April): The land wakes up. We plant seeds - literally and metaphorically. Workshops on permaculture, ceremony for new beginnings, and a village potluck feast.
-
-Summer Solstice (June): Full energy. Music, art, dance, and celebration. The longest day of the year marks our season of abundance and community activity.
-
-Harvest Gathering (September/October): We harvest what we planted. Gratitude feast, reflection circle, and sharing the abundance of the season's work.
-
-Winter Solstice (December): The quieter turn. Storytelling, fire ceremony, and intentions for the year ahead. A time for rest, reflection, and renewal.`,
-      },
-      {
-        heading: "Who Can Attend",
-        content: `Members: All Amora Family members are welcome at every festival. Festivals are a key part of community life.
-
-Visitors and Guests: Friends, family, and prospective community members are welcome to join - festivals are one of the best ways to experience Amora.
-
-Quest Opportunity: Festivals are a rich source of quest opportunities. Co-creating, organizing, and hosting festival elements earns Gratitude.`,
-      },
-      {
-        heading: "Festival Contributions",
-        content: `Every festival is co-created by the community. Ways to contribute:
-- Bring food to share at the community feast
-- Offer a workshop, performance, or skill
-- Help with setup, decoration, or hosting
-- Take on a festival quest (Gratitude awarded for organizing roles)
-
-[PLACEHOLDER - Amora team to confirm any participation costs or contribution guidelines]`,
-      },
-      {
-        heading: "Registration and Logistics",
-        content: `[PLACEHOLDER - Amora team to add RSVP process, location details, and any logistics notes for each festival]
-
-For upcoming dates and to register for events, visit the Events page on amora.cr.`,
-      },
-    ],
-  },
-  {
-    id: "prosperity",
-    emoji: "🌱",
-    title: "Prosperity Journey",
-    url: "/prosperity",
-    week: "Week 4 | Apr 7-13",
-    placeholders: ["ARI tier names and specific criteria/metrics for each tier", "Launch Checklist final contents"],
-    sections: [
-      {
-        heading: "Page Header",
-        content: "Tag: Prosperity Creator Journey\nTitle: Launch Your Regenerative Business\nCTAs: Download Prosperity Packet | Gratitude Economy | Co-Ownership Model",
-      },
-      {
-        heading: "Your Path to Prosperity (7 Stages)",
-        content: `Researcher: Attend Community Call - Learn about business opportunities at Amora.
-Dreamer: Explore the Prosperity Packet - Download and read the whole guide.
-Applicant: Submit Business Proposal - Present your vision and how it aligns with village needs.
-Member: Sign Love Letter / 508 Membership - Become an official member.
-Partner: Community Approval - Present your business to the Business and Finance Council.
-Builder: Launch Your Business - Integrate with the Gratitude contribution system and begin serving the community.
-Prosperity Creator: Grow Your Impact - Advance through ARI tiers and scale your regenerative business.`,
-      },
-      {
-        heading: "ARI Tiers",
-        content: `Heading: ARI Tiers - Amora Regenerative Impact
-Tier 1: Early stage, establishing presence
-Tier 2: Growing, measurable contribution
-Tier 3: Established, regional impact
-Tier 4: Thriving, impact felt beyond the region
-[PLACEHOLDER - ARI tier names and metrics to be defined by Amora team]`,
-      },
-    ],
-  },
-  {
-    id: "roles",
-    emoji: "📋",
-    title: "Governance Roles",
-    url: "/roles",
-    week: "Week 2 | Mar 24-30",
-    placeholders: [
-      "Full details for each role: Purpose, Members, Key Responsibilities, Time Commitment, Terms, Compensation",
-      "Specialist Role descriptions (Architect, Civil Engineer, Permaculture Designer, Community Organizer)",
-    ],
-    sections: [
-      {
-        heading: "Page Header",
-        content: "Title: Governance Roles and Structures\nText: Multi-tiered governance balancing development expertise with community wisdom, evolving from development-focused leadership to community-driven self-governance.",
-      },
-      {
-        heading: "Role Cards (4 Cards)",
-        content: `1. Development Board of Directors
-[PLACEHOLDER - full details needed from Amora team]
-
-2. Community Advisory Council
-[PLACEHOLDER - full details needed from Amora team]
-Note: Advisors receive First Right of Refusal on lot purchases, retreat discounts, and recognition as Founding Advisors.
-
-3. Leadership Council
-[PLACEHOLDER - full details needed from Amora team]
-
-4. Core Team
-[PLACEHOLDER - full details needed from Amora team]`,
-      },
-      {
-        heading: "How These Structures Work Together",
-        content: `The Development Board provides expert oversight during the complex development phase, ensuring financial viability and regulatory compliance.
-The Community Advisory Council brings wisdom from practitioners and local leaders to shape culture and partnerships.
-The Core Team serves as the bridge, implementing Board decisions and supporting Circle initiatives.
-As residents arrive, the Sociocratic Circles gradually take on more governance responsibility.
-CTA: Explore Our Circles`,
-      },
-    ],
-  },
-  {
-    id: "circles",
-    emoji: "🔵",
-    title: "Circles",
-    url: "/circles",
-    week: "Week 2 | Mar 24-30",
-    placeholders: ["\"Who Participates\" and \"Key Focus Areas\" for each circle card need confirmation"],
-    sections: [
-      {
-        heading: "Page Header",
-        content: "Title: Our Sociocratic Circles\nText: Eight domain-specific circles provide self-governance while staying connected through elected representatives and consent-based decision-making.\nCTA: View Roles and Leadership Structure",
-      },
-      {
-        heading: "The 8 Circles",
-        content: `Permaculture Council | Land Stewardship and Food Systems | Cares for the land through regenerative agriculture, landscaping, and ecological restoration.
-Education Council | Learning and Development | Supports children's education, adult learning, and knowledge sharing across the community.
-Culture and Arts Council | Creative Expression | Cultivates artistic expression, musical events, and cultural programming.
-Health and Healing Council | Wellness and Care | Coordinates wellness services, healing modalities, and community health initiatives.
-Building and Village Council | Infrastructure and Maintenance | Oversees construction, maintenance, infrastructure development, and architectural decisions.
-Business and Finance Council | Economic Sustainability | Governs community financial decisions, business enterprises, and economic sustainability.
-Community Life Council | Social Connection | Coordinates social events, conflict resolution, and community celebrations.
-Intergenerational Wisdom Council | Wisdom and Rights of Nature | Bridges generations through elder care, children's advocacy, and rights of nature.`,
-      },
-    ],
-  },
-  {
-    id: "team",
-    emoji: "👥",
-    title: "Team",
-    url: "/team",
-    week: "Week 2 | Mar 24-30",
-    placeholders: [
-      "Individual bios for all Core Team members",
-      "Advisory Council member names and bios",
-      "Board member names and bios",
-      "Adriana's last name",
-    ],
-    sections: [
-      {
-        heading: "Core Team",
-        content: `This land called for women to lead the creation of a multigenerational, family-centered village.
-
-Jessica Filkins | CEO and Founder | [bio to verify]
-Kyleen Keenan | Finance Manager | [bio to verify]
-Nikita Timmermans | Community and Culture | [bio to verify]
-Victoria Leyden | Village Development | [bio to verify]
-Maria Kusk | Regenerative Design | [bio to verify]
-Adriana [last name missing] | Operations and Systems | [bio to verify]`,
-      },
-      {
-        heading: "Community Advisory Council",
-        content: "Note: Advisors receive First Right of Refusal on lot purchases, retreat discounts, and recognition as Founding Advisors.\n[Advisor names and bios to verify - Amora team to provide]",
-      },
-      {
-        heading: "Development Board of Directors",
-        content: "Expertise: Legal and Regulatory | Real Estate Development | Financial and Investment\nMeetings: Monthly Meetings | Quarterly Sessions | Annual Retreat\n[Board member names and bios to verify - Amora team to provide]",
-      },
-    ],
-  },
-  {
-    id: "master-plan",
-    emoji: "🗺️",
-    title: "Master Plan",
-    url: "/master-plan",
-    week: "Week 5 | Apr 14-20",
-    placeholders: ["Total Acres", "Planned Homes count", "Retreat Keys count", "Development phase descriptions beyond Phase 1", "Full Master Plan PDF link"],
-    sections: [
-      {
-        heading: "Key Stats",
-        content: `Total Acres: [PLACEHOLDER - verify]
-Planned Homes: [PLACEHOLDER - verify]
-Retreat Keys: [PLACEHOLDER - verify]
-Appraised Value: $16M+`,
-      },
-      {
-        heading: "Zone Descriptions",
-        content: `Village Center: The heart of Amora featuring the community center, cafe, market, and gathering spaces.
-Residential Neighborhoods: Clustered housing areas designed for community connection while maintaining privacy.
-Retreat and Wellness: The retreat center and health facilities serving guests and residents.
-Agricultural Land: Regenerative farms and food forests providing sustenance for the community.
-Commons and Conservation: Protected natural areas, trails, and shared spaces for all to enjoy.`,
-      },
-      {
-        heading: "Development Phases",
-        content: `Phase 1: Infrastructure and Community Center
-Phase 2: Show Homes [PLACEHOLDER - verify]
-Phase 3: Retreat Center [PLACEHOLDER - verify]
-Phase 4: Health Center [PLACEHOLDER - verify]
-Phase 5: Residential Phase 1 [PLACEHOLDER - verify]`,
-      },
-    ],
-  },
-  {
-    id: "opportunities",
-    emoji: "💼",
-    title: "Opportunities",
-    url: "/opportunities",
-    week: "Week 5 | Apr 14-20",
-    placeholders: ["Investment ranges for all 8 business types"],
-    sections: [
-      {
-        heading: "Opportunity Cards (8 Businesses)",
-        content: `Retreat Center | [investment range to verify] | A 120-150 key wellness retreat facility offering transformational experiences, workshops, and healing programs.
-Health and Wellness Center | [investment range to verify] | Integrative health services combining traditional and alternative medicine for residents and visitors.
-Cafe and Restaurant | [investment range to verify] | Farm-to-table dining experience showcasing local and organic produce from our regenerative farms.
-Artisan Market | [investment range to verify] | A marketplace for local crafts, produce, and goods created by community members and regional artisans.
-Learning Center | [investment range to verify] | Educational programs including a forest school and skill-sharing workshops.
-Fitness and Recreation | [investment range to verify] | Fitness facilities and outdoor recreation programs for residents and retreat guests.
-Art and Culture Hub | [investment range to verify] | A creative space for artists, musicians, and cultural programs that enrich community life.
-Regenerative Agriculture | [investment range to verify] | Farming operations that produce food for the community while regenerating the land.`,
-      },
-    ],
-  },
-  {
-    id: "housing",
-    emoji: "🏘️",
-    title: "Housing",
-    url: "/housing",
-    week: "Week 5 | Apr 14-20",
-    placeholders: ["Square footage and pricing for: Tiny Home, Casita, Family Home, Luxury Villa"],
-    sections: [
-      {
-        heading: "Housing Options",
-        content: `Tiny Home | Efficient, sustainable living spaces for individuals or couples. | [sq ft / price to verify]
-Casita | Cozy homes with room to breathe, ideal for small families. | [sq ft / price to verify]
-Family Home | Spacious homes for families with multiple bedrooms and living areas. | [sq ft / price to verify]
-Luxury Villa | Premium homes with exceptional finishes, views, and amenities. | [sq ft / price to verify]`,
-      },
-      {
-        heading: "Lot Features",
-        content: `Mountain Views: Many lots offer stunning views of the surrounding mountains and valleys.
-Water Access: Natural springs and streams throughout the property provide clean water.
-Mature Forest: Existing forest provides shade, privacy, and connection to nature.
-Solar Exposure: Lots are positioned for optimal solar energy and natural lighting.`,
-      },
-      {
-        heading: "Land Share Agreements",
-        content: `Renewable: Your agreement can be renewed, providing long-term security for your family.
-Transferable: Pass your land share to your children tax-free.
-Community Owned: The land remains in community ownership, ensuring our values are preserved.`,
-      },
-    ],
-  },
+/*
+ * WHAT THIS LIST USED TO BE.
+ *
+ * `PAGES` carried nineteen pages of section-by-section site copy plus a list
+ * of unresolved placeholders per page, and the editor over it wrote every
+ * edit into `app_config['journey-state'].copy` under a `<page>-<n>` key. No
+ * page on this site has ever read one of those keys: the copy shipped inside
+ * the page components, so the tracker was a second copy of the site that
+ * drifted from the first the moment anybody typed in it. The placeholder
+ * sheet counted the same fiction and reported progress against it.
+ *
+ * What survives is the part that always worked: a link to each live page.
+ * The old list also hid /seasonal-festivals behind a filter saying the route
+ * did not exist yet. It exists (App.tsx), so it is here with the rest.
+ */
+const QUICK_LINKS: { emoji: string; title: string; url: string }[] = [
+  { emoji: "🏠", title: "Home", url: "/" },
+  { emoji: "💌", title: "Love Letter", url: "/love-letter" },
+  { emoji: "📖", title: "Amora Game Guide", url: "/co-creators-guide" },
+  { emoji: "🤝", title: "Good Neighbor", url: "/good-neighbor" },
+  { emoji: "💰", title: "Investor Journey", url: "/investor" },
+  { emoji: "🌿", title: "Village Steward", url: "/steward" },
+  { emoji: "⚖️", title: "Steward Rights & Responsibilities", url: "/steward-rights" },
+  { emoji: "🏡", title: "Resident Journey", url: "/resident" },
+  { emoji: "🛡️", title: "Resident Rights & Responsibilities", url: "/resident-rights" },
+  { emoji: "⚙️", title: "How We Create", url: "/how-we-create" },
+  { emoji: "⚔️", title: "Community Quests", url: "/quests" },
+  { emoji: "🎉", title: "Seasonal Festivals", url: "/seasonal-festivals" },
+  { emoji: "🌱", title: "Prosperity Journey", url: "/prosperity" },
+  { emoji: "📋", title: "Governance Roles", url: "/roles" },
+  { emoji: "🔵", title: "Circles", url: "/circles" },
+  { emoji: "👥", title: "Team", url: "/team" },
+  { emoji: "🗺️", title: "Master Plan", url: "/master-plan" },
+  { emoji: "💼", title: "Opportunities", url: "/opportunities" },
+  { emoji: "🏘️", title: "Housing", url: "/housing" },
 ];
 
 // ─── Decision Log Data ────────────────────────────────────────────────────────
@@ -1079,7 +319,7 @@ interface DecisionDef {
   suggestedOptions?: string[];
 }
 
-type ViewId = "timeline" | "kanban" | "decisions" | "variables" | "discussion" | string;
+type ViewId = "timeline" | "kanban" | "decisions" | "discussion" | "economics";
 
 const API_BASE = "";
 
@@ -1403,10 +643,6 @@ export default function ProjectHistory() {
   const [activeView, setActiveView] = useState<ViewId>("timeline");
   const [serverState, setServerState] = useState<JourneyState>({ checkboxes: {}, copy: {}, kanban: {}, decisions: {} });
   const [loadingState, setLoadingState] = useState(true);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [editingSection, setEditingSection] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState("");
-  const [savingSection, setSavingSection] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
@@ -1503,48 +739,6 @@ export default function ProjectHistory() {
         ...prev,
         checkboxes: { ...prev.checkboxes, [d.id]: current },
       }));
-    }
-  };
-
-  const startEdit = (sectionId: string, currentContent: string) => {
-    setEditingSection(sectionId);
-    setEditDraft(currentContent);
-  };
-
-  const cancelEdit = () => {
-    setEditingSection(null);
-    setEditDraft("");
-  };
-
-  const saveEdit = async (sectionId: string) => {
-    setSavingSection(sectionId);
-    const draft = editDraft;
-    // Optimistic update
-    setServerState((prev) => ({
-      ...prev,
-      copy: { ...prev.copy, [sectionId]: draft },
-    }));
-    setEditingSection(null);
-    try {
-      await fetch(`${API_BASE}/api/journey/copy`, {
-        method: "POST",
-        headers: journeyHeaders(),
-        body: JSON.stringify({ sectionId, content: draft }),
-      });
-    } catch {
-      // Best effort - optimistic update stays
-    } finally {
-      setSavingSection(null);
-    }
-  };
-
-  const copyToClipboard = async (text: string, id: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
-    } catch {
-      // ignore
     }
   };
 
@@ -1657,8 +851,6 @@ export default function ProjectHistory() {
         .filter(Boolean)
     )
   );
-
-  const activePage = PAGES.find((p) => p.id === activeView);
 
   // Progress: weighted - ReGen Delivered (state 1) = 50%, Amora Confirmed (state 2) = 100%
   const allDeliverables = WEEKS.flatMap((w) => w.deliverables);
@@ -1793,32 +985,6 @@ export default function ProjectHistory() {
               )}
             </button>
             <button
-              onClick={() => setActiveView("variables")}
-              className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
-                activeView === "variables"
-                  ? "bg-teal-deep text-white"
-                  : "text-stone-600 hover:bg-stone-100"
-              }`}
-            >
-              <FileCheck className="w-4 h-4 shrink-0" />
-              <span>Variables</span>
-              {activeView === "variables" ? (
-                <ChevronRight className="w-3 h-3 ml-auto" />
-              ) : (
-                (() => {
-                  const allVars = PAGES.flatMap((p) => p.placeholders.map((_, i) => ({ pageId: p.id, i })));
-                  const pendingCount = allVars.filter(
-                    ({ pageId, i }) => !serverState.copy[`var-${pageId}-${i}`]?.trim()
-                  ).length;
-                  return pendingCount > 0 ? (
-                    <span className="ml-auto text-xs bg-orange-400 text-white font-bold px-1.5 py-0.5 rounded-full">
-                      {pendingCount}
-                    </span>
-                  ) : null;
-                })()
-              )}
-            </button>
-            <button
               onClick={() => setActiveView("discussion")}
               className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
                 activeView === "discussion"
@@ -1862,10 +1028,9 @@ export default function ProjectHistory() {
             </p>
           </div>
           <div className="px-3 mb-4 space-y-0.5">
-            {/* seasonal-festivals has no registered route yet - exclude until the page exists */}
-            {PAGES.filter((p) => p.id !== "seasonal-festivals").map((p) => (
+            {QUICK_LINKS.map((p) => (
               <a
-                key={`quicklink-${p.id}`}
+                key={`quicklink-${p.url}`}
                 href={p.url}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -1878,45 +1043,6 @@ export default function ProjectHistory() {
             ))}
           </div>
 
-          <div className="px-3 pb-1">
-            <p className="text-xs font-semibold text-stone-400 uppercase tracking-widest px-1 mb-2">
-              Page Copy
-            </p>
-          </div>
-
-          {/* Week group labels + page tabs */}
-          {[
-            { label: "Wk 1 - Journeys", pages: ["home", "steward", "resident", "how-we-create", "quests"] },
-            { label: "Wk 2 - Structure", pages: ["roles", "circles", "team"] },
-            { label: "Wk 3 - Community", pages: ["love-letter", "co-creators-guide", "good-neighbor", "seasonal-festivals"] },
-            { label: "Wk 4 - Prosperity", pages: ["investor", "prosperity"] },
-            { label: "Wk 5 - Complete", pages: ["master-plan", "opportunities", "housing"] },
-          ].map((group) => (
-            <div key={group.label} className="px-3 mb-3">
-              <p className="text-xs text-stone-400 px-1 mb-1 font-medium">{group.label}</p>
-              {group.pages.map((pid) => {
-                const page = PAGES.find((p) => p.id === pid)!;
-                const hasPlaceholders = page.placeholders.length > 0;
-                return (
-                  <button
-                    key={pid}
-                    onClick={() => setActiveView(pid)}
-                    className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-xs transition-colors ${
-                      activeView === pid
-                        ? "bg-teal-deep text-white"
-                        : "text-stone-600 hover:bg-stone-100"
-                    }`}
-                  >
-                    <span>{page.emoji}</span>
-                    <span className="text-left leading-tight">{page.title}</span>
-                    {hasPlaceholders && (
-                      <span className={`ml-auto shrink-0 w-2 h-2 rounded-full ${activeView === pid ? "bg-amber" : "bg-orange-400"}`} />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
         </aside>
 
         {/* ── Main Content ──────────────────────────────────────────────── */}
@@ -2105,15 +1231,6 @@ export default function ProjectHistory() {
                                     <div className="flex items-center gap-2 mb-2">
                                       <StickyNote className="w-3.5 h-3.5 text-stone-400" />
                                       <span className="text-xs font-semibold text-stone-400 uppercase tracking-wide">Notes</span>
-                                      {d.pageLink && (
-                                        <button
-                                          onClick={() => setActiveView(d.pageLink!)}
-                                          className="ml-auto flex items-center gap-1 text-xs text-teal hover:text-teal-deep transition-colors"
-                                        >
-                                          <LinkIcon className="w-3 h-3" />
-                                          View page copy
-                                        </button>
-                                      )}
                                     </div>
 
                                     {isEditingThisNote ? (
@@ -2461,137 +1578,6 @@ export default function ProjectHistory() {
                 </div>
               )}
 
-              {/* ── VARIABLES VIEW ──────────────────────────────────────── */}
-              {activeView === "variables" && (
-                <div className="max-w-3xl mx-auto">
-                  <div className="mb-6">
-                    <h2 className="font-display text-2xl font-bold text-teal-deep">Variables Sheet</h2>
-                    <p className="text-stone-500 text-sm mt-1">
-                      Fill in the values that need to be inserted into pages before launch. Resolved values are visible to the team.
-                    </p>
-                  </div>
-
-                  {/* Summary stats */}
-                  {(() => {
-                    const allVars = PAGES.flatMap((p) => p.placeholders.map((ph, i) => ({ pageId: p.id, ph, i })));
-                    const resolvedCount = allVars.filter(({ pageId, i }) => serverState.copy[`var-${pageId}-${i}`]?.trim()).length;
-                    return (
-                      <div className="flex gap-4 mb-6">
-                        <div className="bg-white border border-stone-200 rounded-xl px-5 py-4 flex-1 text-center shadow-sm">
-                          <p className="text-2xl font-bold text-emerald-600">{resolvedCount}</p>
-                          <p className="text-stone-400 text-xs mt-0.5">Resolved</p>
-                        </div>
-                        <div className="bg-white border border-stone-200 rounded-xl px-5 py-4 flex-1 text-center shadow-sm">
-                          <p className="text-2xl font-bold text-amber-600">{allVars.length - resolvedCount}</p>
-                          <p className="text-stone-400 text-xs mt-0.5">Pending</p>
-                        </div>
-                        <div className="bg-white border border-stone-200 rounded-xl px-5 py-4 flex-1 text-center shadow-sm">
-                          <p className="text-2xl font-bold text-stone-400">{allVars.length}</p>
-                          <p className="text-stone-400 text-xs mt-0.5">Total</p>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="space-y-4">
-                    {PAGES.filter((p) => p.placeholders.length > 0).map((p) => {
-                      const allResolved = p.placeholders.every((_, i) => serverState.copy[`var-${p.id}-${i}`]?.trim());
-                      return (
-                        <div key={p.id} className="bg-white border border-stone-200 rounded-xl overflow-hidden shadow-sm">
-                          <div className="flex items-center justify-between px-5 py-3.5 border-b border-stone-100 bg-stone-50">
-                            <div className="flex items-center gap-2">
-                              <span>{p.emoji}</span>
-                              <h3 className="font-semibold text-stone-800 text-sm">{p.title}</h3>
-                              <button
-                                onClick={() => setActiveView(p.id)}
-                                className="text-xs text-teal hover:text-teal-deep transition-colors flex items-center gap-0.5"
-                              >
-                                <LinkIcon className="w-3 h-3" />
-                                view copy
-                              </button>
-                            </div>
-                            {allResolved ? (
-                              <span className="text-xs bg-emerald-100 text-emerald-700 font-medium px-2 py-0.5 rounded">
-                                All resolved
-                              </span>
-                            ) : (
-                              <span className="text-xs bg-amber-100 text-amber-700 font-medium px-2 py-0.5 rounded">
-                                {p.placeholders.filter((_, i) => serverState.copy[`var-${p.id}-${i}`]?.trim()).length}/{p.placeholders.length} resolved
-                              </span>
-                            )}
-                          </div>
-                          <div className="divide-y divide-stone-100">
-                            {p.placeholders.map((ph, i) => {
-                              const varKey = `var-${p.id}-${i}`;
-                              const value = serverState.copy[varKey] ?? "";
-                              const isResolved = value.trim().length > 0;
-                              const isEditingVar = editingSection === varKey;
-                              return (
-                                <div key={i} className={`flex items-start gap-4 px-5 py-3.5 ${isResolved ? "bg-emerald-50/30" : ""}`}>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-semibold text-stone-500 mb-1.5">{ph}</p>
-                                    {isEditingVar ? (
-                                      <div className="flex gap-2 items-center">
-                                        <input
-                                          type="text"
-                                          value={editDraft}
-                                          onChange={(e) => setEditDraft(e.target.value)}
-                                          autoFocus
-                                          placeholder="Enter the value..."
-                                          className="flex-1 text-sm px-3 py-1.5 border border-stone-200 rounded-lg outline-none focus:border-teal-deep"
-                                          onKeyDown={(e) => {
-                                            if (e.key === "Enter") saveEdit(varKey);
-                                            if (e.key === "Escape") cancelEdit();
-                                          }}
-                                        />
-                                        <button
-                                          onClick={() => saveEdit(varKey)}
-                                          className="shrink-0 text-xs px-2.5 py-1.5 bg-teal-deep text-white rounded-lg hover:bg-teal transition-colors"
-                                        >
-                                          Save
-                                        </button>
-                                        <button
-                                          onClick={cancelEdit}
-                                          className="shrink-0 text-xs px-2.5 py-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300 transition-colors"
-                                        >
-                                          Cancel
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <div className="flex items-center gap-2">
-                                        {isResolved ? (
-                                          <span className="text-sm text-stone-700 font-medium">{value}</span>
-                                        ) : (
-                                          <span className="text-sm text-stone-300 italic">Not set yet</span>
-                                        )}
-                                        <button
-                                          onClick={() => startEdit(varKey, value)}
-                                          className="text-xs text-stone-400 hover:text-teal-deep transition-colors flex items-center gap-0.5"
-                                        >
-                                          <Edit2 className="w-3 h-3" />
-                                          {isResolved ? "Edit" : "Set value"}
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="shrink-0 mt-1">
-                                    {isResolved ? (
-                                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                                    ) : (
-                                      <AlertTriangle className="w-4 h-4 text-amber-400" />
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               {/* ── DISCUSSION VIEW ─────────────────────────────────────── */}
               {activeView === "discussion" && (
                 <div className="max-w-3xl mx-auto">
@@ -2692,209 +1678,6 @@ export default function ProjectHistory() {
 
               {/* ── ECONOMICS VIEW (S48): founder economics, read-and-steer ── */}
               {activeView === "economics" && <EconomicsView headers={journeyHeaders} />}
-
-              {/* ── PAGE COPY VIEW ──────────────────────────────────────── */}
-              {activePage && (
-                <div className="max-w-3xl mx-auto">
-                  {/* Page header */}
-                  <div className="mb-6">
-                    <div className="flex items-center gap-2 text-stone-400 text-sm mb-2">
-                      <span>{activePage.week}</span>
-                      <span>·</span>
-                      <a
-                        href={`https://amora.regencivics.earth${activePage.url}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-teal hover:underline flex items-center gap-1"
-                      >
-                        amora.regencivics.earth{activePage.url}
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
-                    <h2 className="font-display text-2xl font-bold text-teal-deep">
-                      {activePage.emoji} {activePage.title}
-                    </h2>
-                  </div>
-
-                  {/* Placeholder warnings */}
-                  {activePage.placeholders.length > 0 && (
-                    <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-6">
-                      <div className="flex items-center gap-2 mb-3">
-                        <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0" />
-                        <span className="text-orange-800 font-semibold text-sm">
-                          ACTION NEEDED before launch
-                        </span>
-                      </div>
-                      <ul className="space-y-1.5">
-                        {activePage.placeholders.map((ph, i) => (
-                          <li key={i} className="flex items-start gap-2 text-sm text-orange-700">
-                            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
-                            {ph}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* No placeholders badge */}
-                  {activePage.placeholders.length === 0 && (
-                    <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 mb-6 text-sm font-medium">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Copy delivered - no placeholders on this page
-                    </div>
-                  )}
-
-                  {/* Sections */}
-                  {activePage.sections.map((section, idx) => {
-                    const sectionId = `${activePage.id}-${idx}`;
-                    const isCopied = copiedId === sectionId;
-                    const isEditing = editingSection === sectionId;
-                    const isSaving = savingSection === sectionId;
-                    const currentContent = serverState.copy[sectionId] ?? section.content;
-                    const wasEdited = sectionId in serverState.copy;
-                    return (
-                      <div key={idx} className="bg-white border border-stone-200 rounded-xl mb-4 overflow-hidden shadow-sm">
-                        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-100 bg-stone-50">
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-stone-800 text-sm">{section.heading}</h3>
-                            {wasEdited && (
-                              <span className="text-xs text-teal-deep/60 italic">edited</span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {isEditing ? (
-                              <>
-                                <button
-                                  onClick={cancelEdit}
-                                  className="text-xs px-2.5 py-1 rounded-md bg-stone-200 text-stone-600 hover:bg-stone-300 transition-colors"
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  onClick={() => saveEdit(sectionId)}
-                                  disabled={isSaving}
-                                  className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-teal-deep text-white hover:bg-teal transition-colors disabled:opacity-60"
-                                >
-                                  <Save className="w-3 h-3" />
-                                  {isSaving ? "Saving..." : "Save"}
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button
-                                  onClick={() => startEdit(sectionId, currentContent)}
-                                  className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-stone-200 text-stone-600 hover:bg-stone-300 transition-colors"
-                                >
-                                  <Edit2 className="w-3 h-3" />
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => copyToClipboard(currentContent, sectionId)}
-                                  className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors ${
-                                    isCopied
-                                      ? "bg-emerald-100 text-emerald-700"
-                                      : "bg-stone-200 text-stone-600 hover:bg-stone-300"
-                                  }`}
-                                >
-                                  {isCopied ? (
-                                    <>
-                                      <Check className="w-3 h-3" />
-                                      Copied
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy className="w-3 h-3" />
-                                      Copy
-                                    </>
-                                  )}
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        {isEditing ? (
-                          <textarea
-                            value={editDraft}
-                            onChange={(e) => setEditDraft(e.target.value)}
-                            autoFocus
-                            className="w-full px-5 py-4 text-sm text-stone-700 font-sans leading-relaxed outline-none resize-y min-h-32 bg-amber-50/40 border-none"
-                          />
-                        ) : (
-                          <pre className="px-5 py-4 text-sm text-stone-700 whitespace-pre-wrap font-sans leading-relaxed">
-                            {currentContent}
-                          </pre>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {/* Notes footer */}
-                  <div className="bg-stone-100 rounded-xl p-5 mt-6 border border-stone-200">
-                    <p className="text-stone-500 text-xs font-semibold uppercase tracking-wide mb-2">
-                      Notes and Feedback
-                    </p>
-                    <p className="text-stone-400 text-sm">
-                      Click <strong>Edit</strong> on any section to update copy - edits are saved to the server and visible to everyone.
-                      For major decisions, use the{" "}
-                      <button
-                        onClick={() => setActiveView("decisions")}
-                        className="text-teal hover:underline"
-                      >
-                        Decision Log
-                      </button>
-                      {" "}in the sidebar. To fill in missing values, visit the{" "}
-                      <button
-                        onClick={() => setActiveView("variables")}
-                        className="text-teal hover:underline"
-                      >
-                        Variables Sheet
-                      </button>
-                      .
-                    </p>
-                  </div>
-
-                  {/* Prev / Next nav */}
-                  <div className="flex items-center justify-between mt-8 pt-6 border-t border-stone-200">
-                    {(() => {
-                      const idx = PAGES.findIndex((p) => p.id === activeView);
-                      const prev = PAGES[idx - 1];
-                      const next = PAGES[idx + 1];
-                      return (
-                        <>
-                          {prev ? (
-                            <button
-                              onClick={() => setActiveView(prev.id)}
-                              className="flex items-center gap-2 text-sm text-stone-500 hover:text-teal-deep transition-colors"
-                            >
-                              <ChevronRight className="w-4 h-4 rotate-180" />
-                              <span>{prev.emoji} {prev.title}</span>
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => setActiveView("timeline")}
-                              className="flex items-center gap-2 text-sm text-stone-500 hover:text-teal-deep transition-colors"
-                            >
-                              <ChevronRight className="w-4 h-4 rotate-180" />
-                              Timeline
-                            </button>
-                          )}
-                          {next ? (
-                            <button
-                              onClick={() => setActiveView(next.id)}
-                              className="flex items-center gap-2 text-sm text-stone-500 hover:text-teal-deep transition-colors"
-                            >
-                              <span>{next.emoji} {next.title}</span>
-                              <ChevronRight className="w-4 h-4" />
-                            </button>
-                          ) : (
-                            <span />
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
             </>
           )}
         </main>

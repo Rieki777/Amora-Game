@@ -91,13 +91,9 @@ export async function recentEvents(
   return rows.map(rowToEvent);
 }
 
-/** Admin removal of a single pulse line (e.g. a test account's join). */
-export async function deleteEvent(pool: Pool, id: string): Promise<EventRow | null> {
-  const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT id, kind, text, actor_user_id, entity_type, entity_ref, audience, at FROM health_events WHERE id = ?",
-    [id],
-  );
-  if (!rows[0]) return null;
-  await pool.query("DELETE FROM health_events WHERE id = ?", [id]);
-  return rowToEvent(rows[0]);
-}
+/*
+ * `deleteEvent` used to sit here, with `DELETE /api/admin/activity/:id` as its
+ * only caller. Both went in the same pass. This spine writes the record of
+ * what a village did; the one function that unwrote a line of it was reachable
+ * over curl and nowhere else.
+ */
