@@ -157,6 +157,10 @@ export const NAV: readonly NavEntry[] = [
     items: [
       { href: "/how-we-create", label: "How We Create" },
       { href: "/governance", label: "Governance" },
+      // The live surface, module-gated: /governance explains how the village
+      // decides and is always there, /decisions shows what it is deciding and
+      // exists only where the engine is switched on.
+      { href: "/decisions", label: "Decisions", module: "governance" },
       { href: "/master-plan", label: "Master Plan" },
       { href: "/team", label: "Our Team" },
       {

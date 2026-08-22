@@ -1,5 +1,6 @@
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
+import LiveDecisionsBand from "@/components/governance/LiveDecisionsBand";
 import {
   Vote,
   Users,
@@ -62,6 +63,12 @@ export default function Governance() {
           </p>
         </div>
       </section>
+
+      {/* The live votes, before any theory. This page used to explain how
+          decisions get made and stop there, which left a member reading about
+          governance while the village was holding a vote they never saw. The
+          band renders nothing where the engine is off. */}
+      <LiveDecisionsBand />
 
       {/* Core Principles */}
       <section className="bg-stone-50 py-20">
