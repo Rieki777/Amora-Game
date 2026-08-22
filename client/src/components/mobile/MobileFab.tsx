@@ -33,16 +33,8 @@ import { Link, useLocation } from "wouter";
 import { X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { FAB_ACTIONS, FabTriggerIcon, type FabAction } from "@/config/mobileNav";
+import { haptic } from "@/lib/haptics";
 import { isBareRoute, normalisePath } from "./MobileTabBar";
-
-/** Tiny haptic tap where supported; silently ignored elsewhere. */
-function haptic(ms = 8) {
-  try {
-    (navigator as Navigator & { vibrate?: (p: number) => boolean }).vibrate?.(ms);
-  } catch {
-    /* unsupported */
-  }
-}
 
 /** Springy easing so rows feel like they pop up out of the lotus. */
 const SPRING = "cubic-bezier(0.34, 1.4, 0.64, 1)";
@@ -86,7 +78,9 @@ export default function MobileFab() {
   const actions = resolve(FAB_ACTIONS, currentPath, !!user);
 
   const toggle = useCallback(() => {
-    haptic(10);
+    // "press" is 10ms, the number this line used to spell out. The util in
+    // client/src/lib/haptics.ts holds the vocabulary now.
+    haptic("press");
     setOpen((s) => !s);
   }, []);
 
@@ -163,7 +157,8 @@ export default function MobileFab() {
             );
 
             const closeThenRun = () => {
-              haptic(6);
+              // "tick" is 6ms, the number this line used to spell out.
+              haptic("tick");
               setOpen(false);
               if (a.event) window.dispatchEvent(new CustomEvent(a.event));
             };

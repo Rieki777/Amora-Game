@@ -2,6 +2,7 @@ import { fetchGameMe, GameMe } from "@/lib/gameApi";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { ArrowRight, CheckCircle2, Circle, Compass, Heart, Sparkles } from "lucide-react";
+import MoonProgress from "@/components/natural/MoonProgress";
 
 const CLAIM_STATUS: Record<string, { label: string; cls: string }> = {
   claimed: { label: "In progress", cls: "bg-amber-100 text-amber-800" },
@@ -53,7 +54,26 @@ export default function GameDashboard() {
       {/* Path of Growth */}
       <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
         <div className="flex items-center justify-between mb-1">
-          <h3 className="font-display text-xl font-bold text-teal-deep">Path of Growth</h3>
+          <div className="flex items-center gap-3">
+            {/*
+              The first surface to speak the natural kit's language: the rail's
+              own position, drawn as a moon filling toward full. The stage
+              chips below carry the same reading in words, so the moon adds a
+              shape to something already stated and never replaces it.
+
+              stageIndex over the last index, because the last stage is arrival
+              and a member standing there is at a full moon rather than at
+              seven eighths of one. One stage alone reads as full, which is the
+              truthful answer when there is nowhere further to walk.
+            */}
+            <MoonProgress
+              value={me.stages.length > 1 ? me.stageIndex / (me.stages.length - 1) : 1}
+              size={40}
+              label="Path of Growth"
+              showNumber={false}
+            />
+            <h3 className="font-display text-xl font-bold text-teal-deep">Path of Growth</h3>
+          </div>
           {/* sage, not teal-deep. The chip's own bg-teal-deep/10 composites over
               the white card to rgb(231,242,242), which drops teal from 4.81 on
               white to 4.21 and under the 4.5 floor. A tint you set on an element

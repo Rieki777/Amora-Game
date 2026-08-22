@@ -213,6 +213,88 @@
   --sidebar-ring: oklch(0.58 0.08 195);
 }
 
+/*
+ * THE NATURAL INTERFACE TOKENS (lane W0).
+ *
+ * The kit in client/src/components/natural draws moons, leaves, seeds,
+ * blossoms, fireflies, dawn and water. Its colours are declared here with the
+ * platform's other custom properties so a village retheming the site retints
+ * the whole vocabulary at once, and every component reads them as
+ * var(--nat-x, #fallback) so a stylesheet that never loaded still draws.
+ *
+ * They are NOT in @theme. Nothing here needs a Tailwind utility: these are
+ * fill and stroke values inside SVG, and a generated .bg-nat-leaf would be
+ * dead bytes in every build.
+ *
+ * The edge tokens carry the accessibility. A moon's lit limb touches the page
+ * directly, so --nat-moon-edge is the boundary WCAG 1.4.11 measures, and it
+ * has to invert between themes: a dark outline on a dark page is no outline.
+ */
+:root {
+  /* The moon */
+  --nat-moon-lit: #f0e4c4;
+  --nat-moon-lit-high: #fdf6e3;
+  --nat-moon-dark: #223b3f;
+  --nat-moon-edge: #2f4f52;
+  --nat-horizon: rgba(21, 127, 125, 0.18);
+  --nat-horizon-lit: #157f7d;
+
+  /* Growing things */
+  --nat-leaf: #a8cfc9;
+  --nat-leaf-edge: #157f7d;
+  --nat-seed: #b9c98a;
+  --nat-seed-edge: #6f8149;
+  --nat-earth: #9c8564;
+  --nat-petal: #f3cdd8;
+  --nat-petal-edge: #c4849b;
+  --nat-pollen: #ecb163;
+  --nat-pollen-deep: #a9702a;
+
+  /* Light and water */
+  --nat-firefly: #d8b64a;
+  --nat-dawn-low: #f6c98a;
+  --nat-dawn-high: rgba(246, 201, 138, 0);
+  --nat-dawn-ray: #d9a95e;
+  --nat-sun: #ecb163;
+  --nat-horizon-line: #6f8149;
+  --nat-water: #4d8b93;
+  --nat-water-deep: #2b686f;
+
+  /* Motion. One breath is about four seconds, near a calm human one, and the
+     easing is asymmetric so the swell is slower than the release. */
+  --nat-breath-dur: 4s;
+  --nat-ease-organic: cubic-bezier(0.37, 0, 0.29, 1);
+  --nat-settle: 1.1s;
+}
+
+.dark {
+  --nat-moon-lit: #e6d9b6;
+  --nat-moon-lit-high: #f5ecd4;
+  --nat-moon-dark: #14262a;
+  --nat-moon-edge: rgba(206, 228, 228, 0.6);
+  --nat-horizon: rgba(168, 207, 201, 0.2);
+  --nat-horizon-lit: #7fc4bd;
+
+  --nat-leaf: #3f7a76;
+  --nat-leaf-edge: #a8cfc9;
+  --nat-seed: #8fa066;
+  --nat-seed-edge: #cbd9a6;
+  --nat-earth: #6b5a42;
+  --nat-petal: #c98fa4;
+  --nat-petal-edge: #f0cfda;
+  --nat-pollen: #d79a4f;
+  --nat-pollen-deep: #f0c98a;
+
+  --nat-firefly: #f6e29a;
+  --nat-dawn-low: #a97a3f;
+  --nat-dawn-high: rgba(169, 122, 63, 0);
+  --nat-dawn-ray: #e8c489;
+  --nat-sun: #e8a94f;
+  --nat-horizon-line: #9fb376;
+  --nat-water: #7fb0b6;
+  --nat-water-deep: #bfe0e4;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -745,4 +827,218 @@ button, a, [role="button"], input, textarea, select, summary {
 /* Bottom safe area (iPhone home indicator) utility. */
 .safe-area-pb {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * THE NATURAL INTERFACE KIT (lane W0): layout and motion.
+ *
+ * Keyframes live here beside the platform's other keyframes rather than in a
+ * per-component <style> tag, so the reduce-motion block above governs them
+ * the same way it governs everything else, and so two copies of a component
+ * on one page cost one copy of the CSS.
+ *
+ * `nat-breathe` is a SECOND breath, not a replacement for `breathe`. The old
+ * one is the character-select idle: scale 1 to 1.015 with a 4px lift, tuned
+ * to read as a still portrait that happens to be alive. A loader has to be
+ * legible as motion from across a room, so this one moves scale and opacity
+ * together over a wider range. Both stay; they are one gesture at two
+ * amplitudes, and collapsing them would spoil whichever lost.
+ *
+ * Every animated class here is also given a still form in the component that
+ * owns it, because the reduce-motion rule above sets a 1ms duration, and a
+ * celebration that ends in "faded away" ends at nothing.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+@keyframes nat-breathe {
+  0%, 100% {
+    transform: scale(0.94);
+    opacity: 0.72;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes nat-seed-drift {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) rotate(0deg);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(14px, 34px) rotate(160deg);
+  }
+}
+
+@keyframes nat-petal-open {
+  0% {
+    opacity: 0;
+    transform: scale(0.12) translateY(14px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.06) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes nat-firefly-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  25% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+}
+
+@keyframes nat-dawn-lift {
+  0% {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes nat-dawn-widen {
+  0% {
+    opacity: 0;
+    transform: scaleY(0.2);
+    transform-origin: 50% 100%;
+  }
+  100% {
+    opacity: 1;
+    transform: scaleY(1);
+    transform-origin: 50% 100%;
+  }
+}
+
+@keyframes nat-ray-reach {
+  0% {
+    opacity: 0;
+    stroke-dasharray: 0 90;
+  }
+  100% {
+    opacity: 0.85;
+    stroke-dasharray: 90 0;
+  }
+}
+
+@keyframes nat-ripple-spread {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.35);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(4.2);
+  }
+}
+
+/* The moon */
+.nat-moon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nat-moon-readout {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.nat-moon-percent {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--foreground);
+}
+
+.nat-moon-phase {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+
+.nat-moon-lit,
+.nat-moon-ring {
+  transition: d var(--nat-settle) var(--nat-ease-organic),
+    stroke-dashoffset var(--nat-settle) var(--nat-ease-organic);
+}
+
+/* The loader */
+.nat-loader {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.nat-loader-label {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+  letter-spacing: 0.02em;
+}
+
+.nat-breathe {
+  animation: nat-breathe var(--nat-breath-dur) var(--nat-ease-organic) infinite;
+}
+
+/* The celebrations. --nat-delay and --nat-dur come from the component, which
+   computes them from celebrationPlan.ts. */
+.nat-celebrate {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.nat-seed {
+  animation: nat-seed-drift var(--nat-dur, 1s) var(--nat-ease-organic) var(--nat-delay, 0s) both;
+}
+
+.nat-petal {
+  transform-origin: 0 0;
+  animation: nat-petal-open var(--nat-dur, 1s) var(--nat-ease-organic) var(--nat-delay, 0s) both;
+}
+
+.nat-firefly {
+  animation: nat-firefly-rise var(--nat-dur, 1s) ease-out var(--nat-delay, 0s) both;
+}
+
+.nat-dawn-sun {
+  animation: nat-dawn-lift var(--nat-dur, 1s) var(--nat-ease-organic) var(--nat-delay, 0s) both;
+}
+
+.nat-dawn-sky {
+  animation: nat-dawn-widen var(--nat-dur, 1s) var(--nat-ease-organic) var(--nat-delay, 0s) both;
+}
+
+.nat-dawn-ray {
+  animation: nat-ray-reach var(--nat-dur, 1s) ease-out var(--nat-delay, 0s) both;
+}
+
+.nat-ripple {
+  transform-origin: 50px 50px;
+  animation: nat-ripple-spread var(--nat-dur, 1s) ease-out var(--nat-delay, 0s) both;
 }
