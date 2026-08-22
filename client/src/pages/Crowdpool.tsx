@@ -12,6 +12,7 @@ import { Link } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
 import { Users } from "lucide-react";
+import InfoTip from "@/components/InfoTip";
 import { CrowdpoolStyles, MiniRing, money, phaseLabel, timeAgo } from "@/components/crowdpool/PoolPieces";
 
 const headers = (): Record<string, string> => {
@@ -62,8 +63,9 @@ export default function Crowdpool() {
         <div className="container max-w-3xl text-center">
           <h1 className="font-display text-4xl font-bold mb-3">Our raisings</h1>
           <p className="text-muted-foreground">
-            What this village is gathering through the hub's crowdpool. Each ring fills as the pool does;
-            open one to watch it become walls.
+            What this village is gathering through the hub's{" "}
+            <InfoTip tip="A crowdpool gathers pledges of money, goods, tools and hands for one build. Nothing moves through this page; every claim finishes on the hub's own page.">crowdpool</InfoTip>.
+            Each ring fills as the pool does; open one to watch it become walls.
           </p>
         </div>
       </section>

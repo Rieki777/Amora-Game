@@ -19,6 +19,7 @@ import { Link, useRoute } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
 import { ArrowLeft, ExternalLink, HandHeart, Package, Sparkles, Users } from "lucide-react";
+import InfoTip from "@/components/InfoTip";
 import {
   CrowdpoolStyles, GoldRing, GrowthStrip, KIND_LABELS, SlotMeter, StarLantern,
   capitalTint, kindGlyph, money, phaseLabel, timeAgo,
@@ -173,7 +174,8 @@ export default function CrowdpoolCampaign() {
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 text-sm" style={{ color: "#e4d3ae" }}>
                       <span className="inline-flex items-center gap-1.5">
                         <HandHeart className="w-4 h-4" style={{ color: "#c9a25e" }} />
-                        {money(c.pledgedTotal, c.currency)} of {money(c.totalValue, c.currency)} pooled
+                        {money(c.pledgedTotal, c.currency)} of {money(c.totalValue, c.currency)}{" "}
+                        <InfoTip tip="The gold ring is everything pledged so far; the quieter green arc inside it is what has actually arrived.">pooled</InfoTip>
                       </span>
                       <span className="inline-flex items-center gap-1.5">
                         <Users className="w-4 h-4" style={{ color: "#c9a25e" }} />
@@ -243,7 +245,8 @@ export default function CrowdpoolCampaign() {
                         <div className="min-w-0 flex-1">
                           <h3 className="font-semibold text-sm leading-snug" style={{ color: "#241a10" }}>{n.name}</h3>
                           <p className="text-[11px] mt-0.5" style={{ color: tint }}>
-                            {KIND_LABELS[n.kind] ?? n.kind}, {n.capitalType} capital
+                            {KIND_LABELS[n.kind] ?? n.kind},{" "}
+                            <InfoTip tip="The village counts more kinds of wealth than money: material, living, social, intellectual and more. Every need names the capital it calls for.">{n.capitalType} capital</InfoTip>
                             {n.groupClaimable ? ", many hands welcome" : ""}
                           </p>
                           {n.description && (
@@ -300,7 +303,10 @@ export default function CrowdpoolCampaign() {
                   {c.partners.map((p) => (
                     <div key={p.partner} className="cp-plaque p-4">
                       <div className="flex items-center justify-between gap-3">
-                        <h3 className="font-semibold text-sm" style={{ color: "#241a10" }}>{p.label}</h3>
+                        <h3 className="font-semibold text-sm" style={{ color: "#241a10" }}>
+                          {p.label}
+                          <InfoTip tip="Ordinary money travels through this partner, never through this page. The tally is the hub's cache of the partner's own numbers." label={`How ${p.label} fits in`} />
+                        </h3>
                         <span className="text-xs font-bold" style={{ color: "#8a6a33" }}>{p.percent}%</span>
                       </div>
                       <div className="cp-slots-track mt-2">

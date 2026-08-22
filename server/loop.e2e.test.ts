@@ -2253,7 +2253,8 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     });
     const refused = await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, broke.json.token);
     expect(refused.status).toBe(409);
-    expect(String(refused.json.error)).toContain("escrow");
+    // "set aside" is the ruled member-facing escrow vocabulary (COPY-1/R46).
+    expect(String(refused.json.error)).toContain("set aside");
 
     const reserved = await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, peerToken);
     expect(reserved.status).toBe(200);

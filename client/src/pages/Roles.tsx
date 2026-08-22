@@ -22,6 +22,7 @@ import {
   Scale,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import InfoTip from "@/components/InfoTip";
 import SeatClaimCard from "@/components/SeatClaimCard";
 import { swatchFor } from "@/lib/swatch";
 
@@ -144,16 +145,25 @@ function RoleCard({ role, expanded, onToggle, index }: RoleCardProps) {
                 </div>
               )}
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Aim</h4>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  Aim
+                  <InfoTip tip="The aim is what this role works toward: the outcome it exists to keep alive." label="What an aim is" />
+                </h4>
                 <p className="text-sm text-foreground leading-relaxed">{role.aim}</p>
               </div>
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Domain</h4>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  Domain
+                  <InfoTip tip="The domain is what this role decides on without asking. Inside it the role holder has real authority; outside it they bring proposals." label="What a domain is" />
+                </h4>
                 <p className="text-sm text-muted-foreground leading-relaxed">{role.domain}</p>
               </div>
               {(role.accountabilities ?? []).length > 0 && (
                 <div>
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Key Accountabilities</h4>
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Key Accountabilities
+                    <InfoTip tip="Accountabilities are the ongoing activities the circle can count on this role to keep doing." label="What accountabilities are" />
+                  </h4>
                   <ul className="space-y-1.5">
                     {role.accountabilities.filter(Boolean).map((a) => (
                       <li key={a} className="text-sm text-muted-foreground flex gap-2">
@@ -253,8 +263,15 @@ export default function Roles() {
             <h1 className="font-display text-4xl md:text-5xl font-bold text-foreground mb-4">
               Roles and Circles
             </h1>
+            {/* R46 enchant-first: the forest image carries the surface; the
+                sociocracy mechanics live in the three tooltips. */}
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              We organize through sociocratic circles. Each role has an aim, a domain, and a set of accountabilities. Roles sit in the circle, not on the person.
+              The village organizes itself the way a forest does:{" "}
+              <InfoTip tip="Circles are sociocratic working groups with real authority over their own domain. Decisions inside a circle pass by consent.">circles</InfoTip>{" "}
+              of care, each holding its own ground, and every{" "}
+              <InfoTip tip="A role is a named responsibility inside a circle, with an aim, a domain, and accountabilities. The role belongs to the circle, and a person steps into it.">role</InfoTip>{" "}
+              is a way to hold some of it with your own hands, by{" "}
+              <InfoTip tip="A decision moves forward when nobody holds a reasoned objection. Consent is quieter than consensus and faster than voting.">consent</InfoTip>.
             </p>
           </motion.div>
 

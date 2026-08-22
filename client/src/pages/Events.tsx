@@ -23,6 +23,7 @@ import { authToken } from "@/lib/gameApi";
 import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, MapPin, Users, Video } from "lucide-react";
 import type { CalendarItem, RsvpStatus } from "@shared/gatherings";
 import { civilDate, lunarYearOf, type YearAnchor } from "@shared/lunar";
+import InfoTip from "@/components/InfoTip";
 import YearWheel from "@/components/calendar/YearWheel";
 import MonthView, { type GridMode } from "@/components/calendar/MonthView";
 import WeekView from "@/components/calendar/WeekView";
@@ -209,6 +210,7 @@ export default function Events() {
             </button>
           );
         })}
+        <InfoTip tip="A full gathering only blocks a new I'm coming. Maybe and can't make it always go through, and a freed place goes to whoever has waited longest." label="How answering works" />
       </div>
     );
   };
@@ -296,7 +298,10 @@ export default function Events() {
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Village Calendar</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            The village's calendar: twelve months and the moons of the year, side by side, and everything dated in one place.
+            The village keeps two clocks: the twelve months everyone shares,
+            and the{" "}
+            <InfoTip tip="The moons are the lunar months the land turns by. The wheel and the grid show them beside the civil calendar, and the village's cycles close when the moon does.">moons</InfoTip>{" "}
+            the land turns by. Everything dated lives here, side by side.
           </p>
           {lunar && (
             <p className="mt-3 inline-flex items-center gap-2 text-sm text-foreground bg-card border border-border rounded-full px-3 py-1.5">

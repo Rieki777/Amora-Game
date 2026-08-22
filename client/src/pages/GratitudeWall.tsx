@@ -6,6 +6,7 @@ import { Link } from "wouter";
 import { Heart, Send, Sparkles } from "lucide-react";
 import CycleClock from "@/components/CycleClock";
 import { forgetExamplesCache } from "@/components/ExamplesBanner";
+import InfoTip from "@/components/InfoTip";
 
 interface WallEntry {
   id: string;
@@ -81,9 +82,14 @@ export default function GratitudeWall() {
           <h1 className="font-display text-4xl md:text-5xl font-bold mb-3">
             The {currency} Wall
           </h1>
+          {/* R46 enchant-first: the cadence question (month against lunar
+              cycle, founder flag 10) leaves the surface line entirely; the
+              tooltip says "each cycle", which is true under any config. */}
           <p className="text-white/80 max-w-xl mx-auto">
-            Appreciation, spoken out loud. Every month each member has a budget of {currency.toLowerCase()} to
-            acknowledge the people building this village.
+            Appreciation, spoken out loud. Naming what is good is how the
+            village grows more of it, and every thanks on this wall becomes{" "}
+            <InfoTip tip={`Each cycle every member receives a budget of ${currency.toLowerCase()} to send. Sending is thanks for real contributions, never pay, and the wall keeps every word.`}>{currency.toLowerCase()}</InfoTip>{" "}
+            in the hands of the member it names.
           </p>
         </div>
       </section>
@@ -99,6 +105,7 @@ export default function GratitudeWall() {
                 {budget && budget.total > 0 ? (
                   <span className="text-sm text-stone-500">
                     <span className="font-semibold text-teal-deep">{budget.remaining}</span> / {budget.total} left this cycle
+                    <InfoTip tip="Your sending budget refills when the cycle turns. Sending moves it from your budget to their wall; it never costs you anything you earned." label="How the budget works" />
                   </span>
                 ) : budget && budget.total <= 0 ? (
                   <span className="text-xs text-stone-400 italic">Your sending budget unlocks as you progress</span>

@@ -343,7 +343,7 @@ export async function reserveItem(
       // transaction and cannot join the one above.
       await pool.query("DELETE FROM library_loans WHERE id = ?", [loanId]);
       await pool.query("UPDATE library_items SET status = 'available' WHERE id = ?", [item.id]);
-      return { ok: false, status: 409, error: `You need ${escrow} library credit(s) in escrow to borrow this. Earn them by contributing items or work` };
+      return { ok: false, status: 409, error: `You need ${escrow} library credit(s) set aside to borrow this. Earn them by contributing items or work` };
     }
   }
   await itemEvent(pool, item.id, "reserved", `loan ${loanId}, escrow ${escrow}`, input.userId);

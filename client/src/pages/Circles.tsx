@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import CircleScene from "@/components/CircleScene";
+import InfoTip from "@/components/InfoTip";
 import { swatchFor } from "@/lib/swatch";
 
 interface CircleEntry {
@@ -214,8 +215,14 @@ export default function Circles() {
             <h1 className="font-display text-4xl md:text-5xl font-bold text-foreground mb-4">
               Our Sociocratic Circles
             </h1>
+            {/* R46 enchant-first: the canopy image carries the surface; the
+                sociocracy mechanics live in the tooltips. */}
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-6">
-              The team organizes in circles, each with a clear domain, real authority within it, and a double link back to the General Coordinating Circle. Circles collaborate, and we win together.
+              Circles are how the village thinks: each one tends its own{" "}
+              <InfoTip tip="A domain is the ground a circle decides on without asking anyone above it. Real authority lives inside it.">domain</InfoTip>{" "}
+              the way a tree tends its own ground, and{" "}
+              <InfoTip tip="Two people belong to both a circle and the circle above it, one chosen by each. News travels both ways, so no circle drifts alone.">double links</InfoTip>{" "}
+              weave them into one canopy.
             </p>
             <Link href="/roles" className="inline-flex items-center gap-2 px-6 py-3 bg-sage text-white rounded-lg hover:bg-sage/90 transition-colors font-medium">
               View Open Roles

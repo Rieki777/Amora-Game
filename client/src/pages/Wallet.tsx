@@ -20,6 +20,26 @@ import { authToken } from "@/lib/gameApi";
 import { Coins, CreditCard, ExternalLink, ReceiptText, Wallet as WalletIcon } from "lucide-react";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
 import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
+import InfoTip from "@/components/InfoTip";
+
+/**
+ * The plain mechanics behind a balance row, keyed on the token's slug. The
+ * slugs are each village's own, so this matches on the platform families and
+ * falls back to the one truth every token shares: the ledger.
+ */
+const tokenTip = (slug: string): string => {
+  const s = slug.toLowerCase();
+  if (s.includes("gratitude") || s.includes("heart")) {
+    return "Thanks for work, never pay. Earned when someone appreciates a real contribution; it cannot be bought.";
+  }
+  if (s.includes("stay")) {
+    return "Nights at the village, earned through work exchange and spent when you book a stay.";
+  }
+  if (s.includes("library")) {
+    return "The Material Library's deposit token. Set aside while you borrow, returned when the item comes home.";
+  }
+  return "A village token. Every movement it makes is written on the shared ledger.";
+};
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -93,12 +113,15 @@ export default function Wallet() {
       <section className="py-12 bg-gradient-to-b from-teal-deep/5 to-background">
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">The Exchange</h1>
+          {/* R46 enchant-first: the surface line carries the image, and the
+              plain mechanics from the COPY-1 hero live on in the tooltips. */}
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Every token the village uses, in one room. Gratitude is thanks for
-            work, never pay. Stay credits are nights earned through work
-            exchange. Library credits are the deposit that waits while you
-            borrow. Money can buy the credit tokens; Gratitude is only ever
-            earned. Your own balances also sit on{" "}
+            One room, one ledger: every token the village lives by leaves its
+            thread here, the way roots share water under a forest floor.{" "}
+            <InfoTip tip="Gratitude is thanks for work, never pay. Earned when someone appreciates a real contribution; it cannot be bought.">Gratitude</InfoTip>,{" "}
+            <InfoTip tip="Stay credits are nights at the village, earned through work exchange and spent when you book a stay.">stay credits</InfoTip> and{" "}
+            <InfoTip tip="Library credits pay the Material Library's deposit: set aside while you borrow, back when the tool comes home.">library credits</InfoTip>{" "}
+            each carry their own story. Your own balances also sit on{" "}
             <a href="/profile#wallet" className="text-teal-deep font-medium hover:underline">your profile</a>.
           </p>
           <ExamplesBanner moduleId="exchange" noun="listing" />
@@ -132,7 +155,10 @@ export default function Wallet() {
                   {Object.entries(balances).map(([slug, bal]) => (
                     <div key={slug} className="border border-border rounded-lg px-3 py-2">
                       <p className={`text-lg font-bold ${Number(bal) < 0 ? "text-red-600" : "text-foreground"}`}>{bal}</p>
-                      <p className="text-xs text-muted-foreground">{slug}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {slug}
+                        <InfoTip tip={tokenTip(slug)} label={`What ${slug} is`} />
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -143,7 +169,10 @@ export default function Wallet() {
           <div className="bg-card border border-border rounded-xl p-5">
             <div className="flex items-center gap-2 mb-3">
               <Coins className="w-4 h-4 text-teal-deep" />
-              <p className="font-semibold text-foreground text-sm">Buy tokens</p>
+              <p className="font-semibold text-foreground text-sm">
+                Buy tokens
+                <InfoTip tip="Money flows in and never back out: the village sells its own credit tokens and never buys them back. Gratitude is never for sale." label="How buying works" />
+              </p>
             </div>
             {status === "failed" ? (
               <p className="text-sm text-muted-foreground">Couldn't load the listings just now.</p>
@@ -257,7 +286,10 @@ export default function Wallet() {
 
           {hypha.configured && (
             <div className="bg-card border border-border rounded-xl p-5">
-              <p className="font-semibold text-foreground text-sm mb-1">Hypha holdings</p>
+              <p className="font-semibold text-foreground text-sm mb-1">
+                Hypha holdings
+                <InfoTip tip="Hypha is the outside network where governance and equity tokens live. This page is a door to it; nothing here moves those holdings." label="What Hypha holdings are" />
+              </p>
               <p className="text-xs text-muted-foreground mb-3">
                 Governance and equity tokens live on your Hypha DHO. This platform
                 shows the door, never moves what's behind it.

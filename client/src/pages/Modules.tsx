@@ -11,6 +11,7 @@
  * this village", admins also see "Preview", and an anonymous reader sees
  * neither, so what a village is trying out never leaks here.
  */
+import InfoTip from "@/components/InfoTip";
 import Layout from "@/components/Layout";
 import ModuleCard, { type CatalogModule } from "@/components/modules/ModuleCard";
 import ModuleShelf from "@/components/modules/ModuleShelf";
@@ -29,7 +30,10 @@ function BuilderCard({ guideUrl, poolUrl }: { guideUrl: string; poolUrl: string 
     <div className="rounded-xl border border-dashed border-teal-deep/40 bg-teal-deep/5 p-4 flex flex-col min-w-0 break-words">
       <div className="flex items-center gap-2 mb-2">
         <Hammer className="w-5 h-5 text-teal-deep" aria-hidden="true" />
-        <h3 className="font-semibold text-foreground">Build one, get paid in $ReGen</h3>
+        <h3 className="font-semibold text-foreground">
+          Build one, get paid in{" "}
+          <InfoTip tip="$ReGen is the network's own token. The builders' pool pays module builders in it, each lunar cycle, sized by how many villages run their module.">$ReGen</InfoTip>
+        </h3>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed">
         Anyone can build a module for this platform. Every free module earns a share of the
@@ -74,9 +78,14 @@ export default function Modules() {
       <div className="container max-w-5xl py-8 sm:py-12">
         <header className="mb-8">
           <h1 className="font-display text-3xl sm:text-4xl font-bold text-foreground">Module Library</h1>
+          {/* The cards themselves are single links, so the pill mechanics
+              live up here where a tooltip trigger is legal HTML. */}
           <p className="text-muted-foreground mt-2 max-w-2xl leading-relaxed">
-            Everything this platform can be, one card at a time. A village turns on what it
-            needs and leaves the rest on the shelf.
+            Everything this platform can be, one card at a time. A village{" "}
+            <InfoTip tip="Every module ships off. An admin turns one on for members or for everyone, and the four core modules are always there.">turns on</InfoTip>{" "}
+            what it needs and leaves the rest on the shelf, and every card{" "}
+            <InfoTip tip="On a card, connected means the module talks to an outside service, and managed means a vendor runs it for you. A card with neither pill runs entirely here.">wears its pills</InfoTip>{" "}
+            so you can read it at a glance.
           </p>
         </header>
 
