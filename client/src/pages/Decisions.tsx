@@ -37,7 +37,15 @@ import { BreathingLoader, MoonProgress } from "@/components/natural";
 import InfoTip from "@/components/InfoTip";
 import DecisionCard from "@/components/governance/DecisionCard";
 import MyStanding from "@/components/governance/MyStanding";
-import { fetchBallots, fetchStanding, type BallotCard, type Standing } from "@/components/governance/governanceApi";
+import WeightRecord from "@/components/governance/WeightRecord";
+import {
+  fetchBallots,
+  fetchStanding,
+  fetchWeightRecord,
+  type BallotCard,
+  type Standing,
+  type WeightRecord as WeightRecordData,
+} from "@/components/governance/governanceApi";
 import { quorumPctOf } from "@shared/governanceEngine";
 
 export default function Decisions() {
@@ -47,17 +55,21 @@ export default function Decisions() {
 
   const [ballots, setBallots] = useState<BallotCard[] | null>(null);
   const [standing, setStanding] = useState<Standing | null>(null);
+  // The village-wide trail. Member-readable by design, so it rides the same
+  // load as the rest of the rail instead of hiding behind an admin door.
+  const [record, setRecord] = useState<WeightRecordData | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
     if (!governance || !user) return;
     let alive = true;
     (async () => {
-      const [b, s] = await Promise.all([fetchBallots(), fetchStanding()]);
+      const [b, s, w] = await Promise.all([fetchBallots(), fetchStanding(), fetchWeightRecord()]);
       if (!alive) return;
       if (b.ok) setBallots(b.data);
       else setProblem(b.error);
       if (s.ok) setStanding(s.data);
+      if (w.ok) setRecord(w.data);
     })();
     return () => {
       alive = false;
@@ -169,6 +181,7 @@ export default function Decisions() {
 
             <aside className="mt-10 space-y-6 lg:mt-0">
               {standing && <MyStanding standing={standing} />}
+              {record && <WeightRecord record={record} />}
               <TurnoutCard ballots={ballots} />
               <div className="rounded-xl border border-stone-200 bg-white p-4">
                 <h3 className="flex items-center gap-2 text-base font-bold text-stone-900">

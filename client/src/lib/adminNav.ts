@@ -42,6 +42,10 @@ export const TAB_MODULE: Record<string, string> = {
   "message-reports": "messaging",
   "resources-admin": "resources",
   "intents-admin": "introductions",
+  // `app.use("/api/admin/governance", requireModule("governance"))` gates every
+  // weight route, so the allocation table is only a table while the engine is
+  // on. Off, the tab hides instead of offering a form that 404s.
+  "governance-weights": "governance",
 };
 
 /** The badge an admin tab wears: where its module stands right now. */

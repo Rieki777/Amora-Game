@@ -207,6 +207,31 @@ export const closeBallot = (id: string, outcomeNote: string) =>
     body: JSON.stringify({ outcomeNote }),
   });
 
+/**
+ * The village-wide weight record, in first names.
+ *
+ * `MyStanding` answers "what do I weigh"; this answers "what does everyone
+ * weigh, and who changed it". `governance_weight_changes` is append-only and
+ * the constitution's rule is that weight is on the record, so the route serves
+ * this to every signed-in member and not only to admins. It had no caller for
+ * as long as the allocation table had no screen.
+ */
+export interface WeightRecord {
+  mode: "equal" | "token" | "custom";
+  token: string | null;
+  allocations: Array<{ member: string; weight: number }>;
+  history: Array<{
+    member: string;
+    oldWeight: number | null;
+    newWeight: number;
+    by: string;
+    note: string;
+    at: string;
+  }>;
+}
+
+export const fetchWeightRecord = () => call<WeightRecord>("/api/governance/weights");
+
 export const fetchDrafts = () => call<{ cap: number; drafts: ProposalDraft[] }>("/api/governance/drafts");
 
 export const saveDraft = (input: {
