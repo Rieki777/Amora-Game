@@ -8,9 +8,10 @@ and revocation and a season's end, is a granted capability re-evaluated or
 cached, and is this sound enough for a governance engine to hand out powers by
 vote.
 
-**Verdict: SOUND for granting ordinary powers, including by vote, with one
-condition that must be met before a `badge_grant` proposal type ships.** The
-condition is in section 7. Sections 1 to 6 are the evidence.
+**Verdict: SOUND for granting ordinary powers, including by vote, with two
+conditions that must be met before a `badge_grant` proposal type ships.** Both
+are in section 7. Sections 1 to 6 are the evidence, and section 4 carries the
+one finding that came close to flipping this.
 
 Every claim below was read off the code in this worktree, not off a design doc.
 
@@ -109,6 +110,51 @@ The 10 second window on dormancy is a cache of which badges are asleep, not a
 cache of who holds what, and its failure path returns "nothing is asleep",
 which neither widens nor narrows anyone's permissions.
 
+### The fifth lever nobody counted: editing the definition
+
+Raised by the silent-mutation lane, verified here against the route.
+
+`PUT /api/admin/badges/:id` (`server/index.ts:14273`) takes a `capabilities`
+array and writes it straight to the row. Because grants are read live off that
+row (section 1), the edit re-writes what EVERY existing holder can do, on their
+next request. Adding a key to `denies` on a warning badge suspends a capability
+across every holder the same way. **It is real.** No holder is notified: there
+is no `notify()` call anywhere in the route.
+
+There IS a record, and it is too coarse to be the answer: one audit row reading
+`badge:edit:<id>`, `audience: "admin"`. It says a definition changed. It does
+not say which capabilities moved, how many holders were affected, or who lost
+what, and no member can see it.
+
+What makes this sharper is that the route ALREADY solved this exact problem for
+one field. Changing a badge's `kind` counts the affected awards, refuses with a
+409 naming the number and the stakes, requires `confirmKindChange: true`, and
+then writes a specific audit row carrying `old->new` and the award count. The
+comment above it records the ruling in as many words: what may never happen is
+the change landing SILENTLY. Capabilities and denies ARE the power, and they
+got none of that treatment.
+
+**Why this does not flip the verdict.** It hands an admin nothing they did not
+already have. Admins pass the gate on its first line, and can revoke any award
+or retire any badge outright. The live re-read that makes an edit bite is the
+same property that makes revocation instant, which is the behaviour we want.
+This is a NARRATION defect on an admin-trusted path, and it is serious for the
+reason in section 7 rather than for what it lets an admin do.
+
+**The fix, specified.** Extend the kind-change pattern to `capabilities` and
+`denies`: count the holders, refuse the first PUT with a 409 naming what is
+being taken away and from how many people, accept a confirm flag, write an
+audit row naming the removed and added keys, and notify each affected holder
+through the notify spine with a stable `dedupe_key` per (badge edit, member).
+That last part is the half the kind-change pattern is also missing.
+
+Same family, corroborated while checking: `PUT /api/admin/governance/weights/:userId`
+and its bulk sibling (`server/index.ts:20832`, `:20850`) require a written
+reason (`server/lib/governanceWeights.ts:101`, "Every weight change carries a
+reason. Say why"), store it in the append-only trail, and then notify nobody. Neither route
+contains a `notify` or a `recordEvent` call. A member's voting weight can be
+changed, with a reason on file, and the member is never told.
+
 ## 5. Nothing caches a member's capabilities
 
 `capabilityCtx` (`server/index.ts:2798`) is built per request and answers
@@ -166,21 +212,37 @@ SEQUENCE. An electorate that can vote to hand `ballot.vote` to chosen people is
 an electorate that can vote to enlarge itself, one ballot at a time, and every
 step is procedurally valid.
 
-**What must change before `badge_grant` ships:**
+**Condition 1. `badge_grant` must refuse the governance keys.** `ballot.vote`
+and `member.vouch` at minimum, and the founder should rule on
+`proposal.decide` and `forum.moderate`. The refusal belongs on the proposal
+type, next to the thing it constrains, and it belongs in code rather than in a
+doc sentence. Whatever that list is, it should have exactly one home that the
+proposal type imports, so the next capability added to the union has to be
+classified rather than defaulting to grantable. The stale F4 sentence in
+`docs/modules/badges.md` is corrected as of this review, so the contract stops
+promising a firewall that has a hole in it.
 
-1. `badge_grant` must refuse the governance keys. `ballot.vote` and
-   `member.vouch` at minimum, and the founder should rule on `proposal.decide`
-   and `forum.moderate`. The refusal belongs on the proposal type, next to the
-   thing it constrains, and it belongs in code rather than in a doc sentence.
-2. Whatever that list is, it should have exactly one home that the proposal
-   type imports, so the next capability added to the union has to be
-   classified rather than defaulting to grantable.
-3. The stale F4 sentence in `docs/modules/badges.md` gets corrected in the same
-   change, so the contract stops promising a firewall that has a hole in it.
+**Condition 2. A badge that carries a vote-granted power must not be silently
+editable.** This is section 4's definition-edit finding, and it is why that
+finding matters more here than it does anywhere else. On the admin path it is a
+narration defect, because an admin was already trusted. The moment a VOTE is
+what put a capability on a badge, one admin editing that badge's capability
+array silently overturns the village's decision: the vote granted X, the row
+now says Y, every holder's powers changed, and nobody was told. A decision that
+one actor can quietly rewrite afterwards is advisory, whatever the ballot
+arithmetic said.
 
-None of that blocks a badge that grants ordinary powers, which is what the
+So `badge_grant` needs the confirm-and-notify treatment from section 4 shipped
+alongside it, or it needs to bind its grant to something an admin edit cannot
+reach. The second option is worth considering on its own: a vote-granted power
+that lives in the AWARD rather than in the shared definition cannot be edited
+out from under one holder by changing a row that other holders also answer to.
+
+Neither condition blocks a badge that grants ordinary powers, which is what the
 Cartographer badge does and what the appointment capabilities in section 8
-need. It blocks handing out the vote itself.
+need. Condition 1 blocks handing out the vote itself. Condition 2 blocks
+treating a badge_grant ballot as binding until the definition it writes to
+stops being quietly editable.
 
 This lane corrects the doc claim (item 2) and reports the condition. Building
 the refusal belongs with the governance engine, because that is where the
