@@ -352,6 +352,21 @@ export const MODULE_CATALOG: Record<string, ModuleCatalogEntry> = {
     hue: 280,
     emblem: "CalendarDays",
   },
+  governance: {
+    promise: "The village decides on-site: weighted ballots, frozen the day they open.",
+    benefits: [
+      "Staged proposals go to a real vote once support gathers",
+      "Thresholds, electorate and weights freeze when a ballot opens",
+      "Votes stay changeable until a human closes with a stated outcome",
+      "Passed mechanics changes apply through the one amendment ledger",
+      "Voting weight and every change to it sit on a member-readable record",
+    ],
+    forWhom: "Villages ready to conduct their own decisions where the sensing already happens.",
+    setupSummary: "Nothing to set up. Pick a weight mode and the dials when you want more than the defaults.",
+    dataSummary: "Ballots, who voted what and with what weight, objections and their rulings.",
+    hue: 205,
+    emblem: "Vote",
+  },
   introductions: {
     promise: "A few good introductions a week, and both people say yes first.",
     benefits: [

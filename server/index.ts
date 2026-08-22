@@ -132,6 +132,35 @@ import {
   validateChangeSet,
 } from "./lib/mechanics";
 import { buildMechanicsHandoff, extractMechanicsMarker } from "./lib/hypha-bridge";
+import {
+  ballotById,
+  ballotsFor,
+  castVote,
+  closeBallot,
+  fileObjection,
+  objectionsFor,
+  openBallot,
+  rowToBallot,
+  ruleObjection,
+  talliesFor,
+  voteOf,
+  votesFor,
+} from "./lib/ballots";
+import {
+  allWeights,
+  setWeight,
+  weightChangeProblem,
+  weightHistory,
+  weightsFor,
+  weightTokenProblem,
+  type WeightModeSnapshot,
+} from "./lib/governanceWeights";
+import {
+  dialsForMethod,
+  quorumPctOf,
+  unityPctOf,
+  type BallotMethod,
+} from "../shared/governanceEngine";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
   allTokens,
@@ -19105,7 +19134,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (closed.length > 0 && boolVar("governance.auto_apply_enabled")) {
       try {
         const [pending] = await getPool().query<any[]>(
-          "SELECT * FROM mechanics_proposals WHERE status = 'passed_verified' ORDER BY verified_at, id",
+          // passed_onsite is the on-site sibling of passed_verified (GOV_DESIGN
+          // 2.6): a ballot-passed set holding a cycle-timed dial waits for this
+          // same boundary. Ordered by when each pass was recorded; on-site
+          // passes carry no verified_at, so they sort with their close order.
+          "SELECT * FROM mechanics_proposals WHERE status IN ('passed_verified','passed_onsite') ORDER BY verified_at, id",
         );
         for (const row of pending) {
           const p = rowToProposal(row as any);
@@ -19950,11 +19983,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
    * reference. Idempotent: an already-applied proposal returns cleanly.
    */
   async function applyMechanicsProposal(
-    p: { id: string; title: string; changeSet: any[]; proposerUserId: string; hyphaRef: string | null; status: string },
+    p: { id: string; title: string; changeSet: any[]; proposerUserId: string; hyphaRef: string | null; status: string; ballotId?: string | null },
     actor: string | null,
   ): Promise<{ ok: boolean; applied: string[]; failed: Array<{ key: string; problem: string }> }> {
     if (p.status === "applied") return { ok: true, applied: [], failed: [] };
-    const proposalRef = `gm:${p.id}${p.hyphaRef ? ` ${p.hyphaRef}` : ""}`.slice(0, 255);
+    // An on-site pass carries its ballot the same way a Hypha pass carries
+    // its chain reference: every amendment row points at its vote.
+    const proposalRef = `gm:${p.id}${p.hyphaRef ? ` ${p.hyphaRef}` : ""}${p.ballotId ? ` bal:${p.ballotId}` : ""}`.slice(0, 255);
     const applied: string[] = [];
     const failed: Array<{ key: string; problem: string }> = [];
     for (const c of p.changeSet) {
@@ -20001,7 +20036,10 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const p = await proposalById(getPool(), req.params.id);
     if (!p) return res.status(404).json({ error: "Not found" });
-    if (p.status !== "to_hypha" && p.status !== "passed_claimed" && p.status !== "passed_verified") {
+    // passed_onsite joins the applyable set: a ballot-passed proposal held by
+    // the auto-apply brake (or by a cycle-timed dial) is applied by the same
+    // human hand as a Hypha-verified one.
+    if (p.status !== "to_hypha" && p.status !== "passed_claimed" && p.status !== "passed_verified" && p.status !== "passed_onsite") {
       return res.status(409).json({ error: `A ${p.status.replace(/_/g, " ")} proposal cannot be applied` });
     }
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
@@ -20145,6 +20183,484 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       }),
       markdown,
     });
+  });
+
+  // ── The on-site governance engine (round 5, lane G1) ──────────────────────
+  //
+  // Every route mounts behind requireModule("governance"): the module ships
+  // OFF (absent row = off), and while it is off this whole block is a 404 —
+  // the shipped Hypha/manual loop is the behavior, unchanged. That is the
+  // fork-safe default and the whole degradation story.
+  app.use("/api/governance", requireModule("governance"));
+  app.use("/api/admin/governance", requireModule("governance"));
+
+  /** The weight-mode snapshot the NEXT ballot would freeze (founder-held). */
+  function weightModeNow(): WeightModeSnapshot {
+    const raw = stringVar("governance.weight_mode");
+    const mode = raw === "token" || raw === "custom" ? raw : "equal";
+    return { mode, token: mode === "token" ? stringVar("governance.weight_token").trim() : null };
+  }
+
+  /**
+   * The village-wide electorate, built through the ONE gate: every real,
+   * sign-in-able member for whom hasCapability("ballot.vote") answers true.
+   * Example users are excluded; a warning badge's deny suspends voting; the
+   * admin shortcut and role/badge grants all ride the gate's own order.
+   * Weight per the current mode — the caller freezes the result into the
+   * ballot, after which nothing here matters to that vote again.
+   */
+  async function buildElectorate(): Promise<Array<{ userId: string; weight: number }>> {
+    const candidates = (await members.all()).filter((u: any) => !isExampleUser(u) && u.passwordHash);
+    const eligible: any[] = [];
+    for (const u of candidates) {
+      const ctx = await capabilityCtx(u);
+      if (hasCapability("ballot.vote", ctx)) eligible.push(u);
+    }
+    const snapshot = weightModeNow();
+    const weights = await weightsFor(getPool(), eligible.map((u: any) => String(u.id)), snapshot);
+    return eligible.map((u: any) => ({ userId: String(u.id), weight: weights.get(String(u.id)) ?? 0 }));
+  }
+
+  /** A ballot as the page reads it: tallies, bars, votes on the record. */
+  async function serveBallot(b: any, viewerId?: string) {
+    const pool = getPool();
+    const tallies = await talliesFor(pool, b.id);
+    const votes = await votesFor(pool, b.id);
+    const objections = b.method === "consent" ? await objectionsFor(pool, b.id) : [];
+    const names = new Map<string, string>();
+    const nameOf = async (id: string) => {
+      if (!names.has(id)) {
+        const u = await members.byId(id);
+        names.set(id, u ? firstName(u.name) : "A departed member");
+      }
+      return names.get(id)!;
+    };
+    return {
+      id: b.id,
+      subjectType: b.subjectType,
+      subjectRef: b.subjectRef,
+      title: b.title,
+      docMarkdown: b.docMarkdown,
+      method: b.method,
+      weightMode: b.weightMode,
+      weightToken: b.weightToken,
+      unityPct: b.unityPct,
+      quorumPct: b.quorumPct,
+      totalWeight: b.totalWeight,
+      electorateCount: b.electorateCount,
+      opensAt: b.opensAt,
+      closesAt: b.closesAt,
+      status: b.status,
+      outcomeNote: b.outcomeNote,
+      closedBy: b.closedBy ? await nameOf(b.closedBy) : null,
+      closedAt: b.closedAt,
+      tallies,
+      unity: unityPctOf(tallies),
+      quorum: quorumPctOf(tallies, b.totalWeight),
+      // Votes and weights are member-visible on purpose (the Hypha voter-list
+      // posture). This village does not run secret ballots, and the page says so.
+      votes: await Promise.all(
+        votes.map(async (v) => ({ name: await nameOf(v.userId), choice: v.choice, weight: v.weight, castAt: v.castAt })),
+      ),
+      objections: await Promise.all(
+        objections.map(async (o) => ({
+          id: o.id,
+          by: await nameOf(o.userId),
+          text: o.text,
+          status: o.status,
+          rulingNote: o.rulingNote,
+          ruledAt: o.ruledAt,
+          createdAt: o.createdAt,
+        })),
+      ),
+      myVote: viewerId ? await voteOf(pool, b.id, viewerId) : null,
+    };
+  }
+
+  /**
+   * Open the ballot on a staged mechanics proposal. The proposer or any
+   * proposal.open holder takes a proposal past the support threshold to the
+   * village's own vote — the on-site sibling of the to-hypha route. One
+   * transaction snapshots everything and flips the proposal to onsite_vote.
+   */
+  app.post("/api/governance/mechanics/:id/open-ballot", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const p = await proposalById(getPool(), req.params.id);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    if (p.status !== "open") {
+      return res.status(409).json({ error: `This proposal is ${p.status.replace(/_/g, " ")}, not open for a ballot` });
+    }
+    const ctx = await capabilityCtx(user);
+    if (p.proposerUserId !== user.id && !hasCapability("proposal.open", ctx)) {
+      return res.status(403).json({ error: "Taking a proposal to the vote is for its proposer or a proposal.open holder" });
+    }
+    const threshold = Math.max(0, numberVar("governance.proposal_support_threshold"));
+    const backers = await backerCounts(getPool(), [p.id]);
+    const supports = backers.get(p.id)?.supports ?? 0;
+    if (supports < threshold) {
+      return res.status(409).json({
+        error: `The village asks for ${threshold} supporter(s) before a proposal goes to the vote. This one has ${supports}. Gather more sensing first.`,
+        supports,
+        threshold,
+      });
+    }
+    const methodRaw = stringVar("governance.default_method");
+    if (methodRaw === "hypha") {
+      return res.status(409).json({ error: "This village decides mechanics on Hypha. Use Take to Hypha, or change governance.default_method first" });
+    }
+    const method = (["majority", "custom", "consensus", "consent"].includes(methodRaw) ? methodRaw : "custom") as BallotMethod;
+    const dials = dialsForMethod(method, {
+      unityPct: Math.max(0, numberVar("governance.unity_pct")),
+      quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
+    });
+    const snapshot = weightModeNow();
+    if (snapshot.mode === "token") {
+      const problem = weightTokenProblem(snapshot.token ?? "");
+      if (problem) return res.status(409).json({ error: problem });
+    }
+    const electorate = await buildElectorate();
+    const proposer = await members.byId(p.proposerUserId);
+    const markdown = proposalMarkdown({
+      id: p.id,
+      title: p.title,
+      rationale: p.rationale,
+      changeSet: p.changeSet,
+      villageName: mergedConfig().project.name,
+      proposerName: proposer ? firstName(proposer.name) : "A departed member",
+      supports,
+      createdAt: p.createdAt,
+    });
+    const result = await openBallot(getPool(), {
+      subjectType: "mechanics",
+      subjectRef: p.id,
+      title: p.title,
+      docMarkdown: markdown,
+      method,
+      weightMode: snapshot.mode,
+      weightToken: snapshot.token,
+      unityPct: dials.unityPct,
+      quorumPct: dials.quorumPct,
+      durationDays: Math.max(
+        1,
+        numberVar(method === "consent" ? "governance.consent_window_days" : "governance.vote_days"),
+      ),
+      openedBy: user.id,
+      electorate,
+      onOpen: async (conn, ballotId) => {
+        const [r] = await conn.query<any>(
+          "UPDATE mechanics_proposals SET status = 'onsite_vote', ballot_id = ? WHERE id = ? AND status = 'open'",
+          [ballotId, p.id],
+        );
+        if (Number(r.affectedRows) === 0) throw new Error("proposal moved while the ballot was opening");
+      },
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+    await addActivity("governance", `The village opened a vote: ${p.title}`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    await notify({
+      userId: p.proposerUserId,
+      type: "governance",
+      title: `Your proposal went to the village vote: ${p.title}`,
+      link: "/game-mechanics",
+      actorUserId: user.id,
+      dedupeKey: `bal:${result.ballot.id}:opened`,
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
+  });
+
+  /** The record: every ballot, newest first, filterable by subject. */
+  app.get("/api/governance/ballots", async (req, res) => {
+    const subjectType = String(req.query.subjectType ?? "").trim();
+    const subjectRef = String(req.query.subjectRef ?? "").trim();
+    if (subjectType && subjectRef) {
+      const list = await ballotsFor(getPool(), subjectType, subjectRef);
+      return res.json(await Promise.all(list.map((b) => serveBallot(b))));
+    }
+    const [rows] = await getPool().query<any[]>("SELECT * FROM ballots ORDER BY created_at DESC, id DESC LIMIT 100");
+    res.json(await Promise.all(rows.map((r) => serveBallot(rowToBallot(r)))));
+  });
+
+  app.get("/api/governance/ballots/:id", async (req, res) => {
+    const b = await ballotById(getPool(), req.params.id);
+    if (!b) return res.status(404).json({ error: "Not found" });
+    const viewer = await authedUser(req);
+    res.json(await serveBallot(b, viewer?.id));
+  });
+
+  /** Cast or change a vote. The electorate froze at open; so did the weights. */
+  app.post("/api/governance/ballots/:id/vote", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to vote" });
+    const result = await castVote(
+      getPool(),
+      req.params.id,
+      user.id,
+      String(req.body?.choice ?? ""),
+      req.body?.reason === undefined ? undefined : String(req.body.reason),
+    );
+    if (!result.ok) return res.status(409).json({ error: result.error });
+    const b = await ballotById(getPool(), req.params.id);
+    res.json({ success: true, choice: result.choice, ballot: b ? await serveBallot(b, user.id) : null });
+  });
+
+  /** File an objection on a consent ballot without voting no. */
+  app.post("/api/governance/ballots/:id/objections", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const result = await fileObjection(getPool(), req.params.id, user.id, String(req.body?.text ?? ""));
+    if (!result.ok) return res.status(409).json({ error: result.error });
+    res.json({ success: true, id: result.id });
+  });
+
+  /**
+   * Rule an objection: integrated (it stands, the proposal must change),
+   * concern (recorded, does not block), or withdrawn. The facilitator is a
+   * proposal.decide holder or an admin; an objector may withdraw their own.
+   */
+  app.post("/api/governance/ballots/:id/objections/:objectionId/rule", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ruling = String(req.body?.ruling ?? "");
+    const objections = await objectionsFor(getPool(), req.params.id);
+    const target = objections.find((o) => o.id === req.params.objectionId);
+    if (!target) return res.status(404).json({ error: "Not found" });
+    const ctx = await capabilityCtx(user);
+    const isFacilitator = hasCapability("proposal.decide", ctx);
+    const withdrawingOwn = ruling === "withdrawn" && target.userId === user.id;
+    if (!isFacilitator && !withdrawingOwn) {
+      return res.status(403).json({ error: "Ruling objections takes proposal.decide standing. You can withdraw your own" });
+    }
+    const result = await ruleObjection(getPool(), {
+      objectionId: req.params.objectionId,
+      ruling,
+      ruledBy: user.id,
+      note: String(req.body?.note ?? ""),
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error });
+    res.json({ success: true });
+  });
+
+  /**
+   * The guarded human close. Nothing auto-executes at expiry; after closes_at
+   * the proposer, a proposal.decide holder, or an admin closes with a required
+   * outcome note. Early close is the facilitator's call alone. On a passed
+   * mechanics ballot the close walks the EXACT tail the hub webhook walks:
+   * the founder's auto-apply brake, the cycle-timed hold, then THE ONE APPLY.
+   */
+  app.post("/api/governance/ballots/:id/close", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const b = await ballotById(getPool(), req.params.id);
+    if (!b) return res.status(404).json({ error: "Not found" });
+    const ctx = await capabilityCtx(user);
+    const isFacilitator = hasCapability("proposal.decide", ctx);
+    const subjectProposerId =
+      b.subjectType === "mechanics" ? (await proposalById(getPool(), b.subjectRef))?.proposerUserId ?? null : null;
+    const expired = Date.parse(b.closesAt) <= Date.now();
+    const isProposer = user.id === subjectProposerId || user.id === b.openedBy;
+    if (!isFacilitator && !(expired && isProposer)) {
+      return res.status(403).json({
+        error: expired
+          ? "Closing this ballot is for its proposer, a proposal.decide holder, or an admin"
+          : "The voting period is still running. Before it ends, only a proposal.decide holder or an admin may close",
+      });
+    }
+    const result = await closeBallot(getPool(), {
+      ballotId: b.id,
+      closedBy: user.id,
+      outcomeNote: String(req.body?.outcomeNote ?? req.body?.outcome_note ?? ""),
+      closerMayCloseEarly: isFacilitator,
+    });
+    if (!result.ok) {
+      return res.status(result.alreadyClosed ? 409 : 400).json({
+        error: result.error,
+        ballot: result.alreadyClosed ? await serveBallot(result.alreadyClosed) : undefined,
+      });
+    }
+    await addActivity("governance", `A village vote closed ${result.outcome === "passed" ? "passed" : "without passing"}: ${b.title}`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: b.id,
+    });
+
+    // Outcome routing, mechanics only in this lane (GOV_DESIGN 2.6). Every
+    // step is a guarded update or an idempotent apply, so a crash between
+    // close and here heals on the admin apply path rather than corrupting.
+    let applied: string[] = [];
+    let held: string | null = null;
+    if (b.subjectType === "mechanics") {
+      const p = await proposalById(getPool(), b.subjectRef);
+      if (p && p.status === "onsite_vote") {
+        if (result.outcome === "passed") {
+          await getPool().query(
+            "UPDATE mechanics_proposals SET status = 'passed_onsite' WHERE id = ? AND status = 'onsite_vote'",
+            [p.id],
+          );
+          const fresh = await proposalById(getPool(), p.id);
+          if (fresh) {
+            if (!boolVar("governance.auto_apply_enabled")) {
+              held = "auto-apply is off";
+              await notifyAdmins(
+                "governance",
+                `Passed on-site but auto-apply is off. Apply by hand: ${p.title}`,
+                `gmp:${p.id}:frozen`,
+              );
+            } else if (changeSetWaitsForCycleClose(fresh.changeSet)) {
+              held = "applies at next cycle close";
+              await notify({
+                userId: p.proposerUserId,
+                type: "governance",
+                title: `Passed. Your proposal applies at the next cycle close: ${p.title}`,
+                link: "/game-mechanics",
+                dedupeKey: `gmp:${p.id}:verified-waiting`,
+              });
+            } else {
+              const applyResult = await applyMechanicsProposal(fresh, user.id);
+              applied = applyResult.applied;
+              if (applyResult.failed.length > 0) {
+                await notifyAdmins(
+                  "governance",
+                  `A ballot-passed proposal could not fully apply: ${p.title} (${applyResult.failed.length} change(s) refused)`,
+                  `gmp:${p.id}:apply-failed`,
+                );
+              }
+            }
+          }
+        } else {
+          await getPool().query(
+            "UPDATE mechanics_proposals SET status = 'failed' WHERE id = ? AND status = 'onsite_vote'",
+            [p.id],
+          );
+          await notify({
+            userId: p.proposerUserId,
+            type: "governance",
+            title: `The village vote did not pass: ${p.title}`,
+            body: result.ballot.outcomeNote,
+            link: "/game-mechanics",
+            actorUserId: user.id,
+            dedupeKey: `gmp:${p.id}:failed`,
+          });
+        }
+      }
+    }
+    res.json({
+      success: true,
+      outcome: result.outcome,
+      unity: result.unity,
+      quorum: result.quorum,
+      tallies: result.tallies,
+      applied,
+      held,
+      ballot: await serveBallot(result.ballot, user.id),
+    });
+  });
+
+  /**
+   * The member-visible weight record: how weight is assigned right now, the
+   * custom allocations, and the append-only history. Weights are power;
+   * hidden power ends here.
+   */
+  app.get("/api/governance/weights", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const snapshot = weightModeNow();
+    const allocations = await allWeights(getPool());
+    const history = await weightHistory(getPool());
+    const nameOf = async (id: string) => {
+      const u = await members.byId(id);
+      return u ? firstName(u.name) : "A departed member";
+    };
+    res.json({
+      mode: snapshot.mode,
+      token: snapshot.token,
+      allocations: await Promise.all(
+        Array.from(allocations.entries()).map(async ([userId, weight]) => ({ member: await nameOf(userId), weight })),
+      ),
+      history: await Promise.all(
+        history.map(async (h) => ({
+          member: await nameOf(h.userId),
+          oldWeight: h.oldWeight,
+          newWeight: h.newWeight,
+          by: await nameOf(h.actorUserId),
+          note: h.note,
+          at: h.at,
+        })),
+      ),
+    });
+  });
+
+  /** The allocation surface: every real member with their current weight. */
+  app.get("/api/admin/governance/weights", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const snapshot = weightModeNow();
+    const allocations = await allWeights(getPool());
+    const rows = ((await members.all()) as any[])
+      .filter((u) => !isExampleUser(u) && u.passwordHash)
+      .map((u) => ({
+        id: String(u.id),
+        name: String(u.name),
+        weight: allocations.get(String(u.id)) ?? 0,
+      }));
+    res.json({
+      mode: snapshot.mode,
+      token: snapshot.token,
+      members: rows,
+      // The standing warning: a half-allocated village is visible before it
+      // fails a quorum, never after.
+      membersWithNoWeight: rows.filter((r) => r.weight === 0).length,
+    });
+  });
+
+  app.put("/api/admin/governance/weights/:userId", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const problem = weightChangeProblem({ weight: req.body?.weight, note: req.body?.note });
+    if (problem) return res.status(400).json({ error: problem });
+    const target = await members.byId(req.params.userId);
+    if (!target) return res.status(404).json({ error: "Not found" });
+    if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? "admin";
+    await setWeight(getPool(), {
+      userId: target.id,
+      weight: Number(req.body.weight),
+      actorUserId: actor,
+      note: String(req.body.note),
+    });
+    res.json({ success: true });
+  });
+
+  /** Bulk allocation: one note explains the whole pass, one row per member. */
+  app.post("/api/admin/governance/weights/bulk", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const changes = Array.isArray(req.body?.changes) ? req.body.changes : [];
+    const note = String(req.body?.note ?? "");
+    if (changes.length === 0) return res.status(400).json({ error: "Nothing to change" });
+    for (const c of changes) {
+      const problem = weightChangeProblem({ weight: c?.weight, note });
+      if (problem) return res.status(400).json({ error: problem });
+      const target = await members.byId(String(c?.userId ?? ""));
+      if (!target) return res.status(404).json({ error: `No member ${String(c?.userId ?? "")}` });
+      if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    }
+    const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? "admin";
+    for (const c of changes) {
+      await setWeight(getPool(), {
+        userId: String(c.userId),
+        weight: Number(c.weight),
+        actorUserId: actor,
+        note,
+      });
+    }
+    res.json({ success: true, changed: changes.length });
+  });
+
+  app.get("/api/admin/governance/weights/history", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const userId = String(req.query.userId ?? "").trim() || undefined;
+    res.json(await weightHistory(getPool(), userId));
   });
 
   /**
