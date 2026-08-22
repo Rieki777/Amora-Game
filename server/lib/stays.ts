@@ -155,14 +155,19 @@ export async function stayById(pool: Pool, id: string): Promise<StayRow | null> 
 
 export async function staysForUser(pool: Pool, userId: string): Promise<StayRow[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT * FROM stays WHERE user_id = ? ORDER BY created_at DESC",
+    // created_at is second-granular, so two stays booked in the same second have
+    // no defined order under it alone. id breaks the tie, which makes this a TOTAL
+    // comparator: the same rows always come back in the same order, in every process.
+    "SELECT * FROM stays WHERE user_id = ? ORDER BY created_at DESC, id DESC",
     [userId],
   );
   return rows.map(rowToStay);
 }
 
 export async function allStays(pool: Pool): Promise<StayRow[]> {
-  const [rows] = await pool.query<RowDataPacket[]>("SELECT * FROM stays ORDER BY created_at DESC");
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT * FROM stays ORDER BY created_at DESC, id DESC",
+  );
   return rows.map(rowToStay);
 }
 
