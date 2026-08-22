@@ -28,6 +28,7 @@ const SYSTEM_ICON: Record<string, React.ElementType> = {
 export default function Feed() {
   const modules = useModules();
   const feedModule = useModule("feed");
+  const introModule = useModule("introductions");
   const { user } = useAuth();
   const [data, setData] = useState<any>(null);
   const [draft, setDraft] = useState("");
@@ -123,6 +124,15 @@ export default function Feed() {
             Everyday life, woven with the village's milestones. A heart is a real
             gift from your cycle budget.
           </p>
+          {/* Introductions is where a member says what they are looking for and
+              is matched with someone who has it, and the feed is where they are
+              already reading. Gated: the module ships off and its page 404s. */}
+          {introModule && (
+            <p className="text-sm text-muted-foreground mt-2">
+              Looking for someone in particular? Say so in{" "}
+              <Link href="/introductions" className="text-teal-deep font-medium hover:underline">Introductions</Link>.
+            </p>
+          )}
           <ExamplesBanner moduleId="feed" noun="post" />
         </div>
       </section>

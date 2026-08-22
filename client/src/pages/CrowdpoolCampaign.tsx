@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useRoute } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
+import { ExampleChip } from "@/components/ExamplesBanner";
 import { ArrowLeft, ExternalLink, HandHeart, Package, Sparkles, Users } from "lucide-react";
 import {
   CrowdpoolStyles, GoldRing, GrowthStrip, KIND_LABELS, SlotMeter, StarLantern,
@@ -35,6 +36,8 @@ interface Need {
   needDeadline: string | null; priorityPinned: boolean; groupClaimable: boolean;
 }
 interface PoolEvent { id: string; type: string; who: string; item: string | null; at: string | null }
+/** Just enough of a sibling card to name it and link to it. */
+interface SiblingCard { key: string; slug?: string; title?: string; reachable: boolean; isDemo?: boolean }
 interface Partner {
   partner: string; label: string; url: string; raised: number;
   contributorCount: number; percent: number; cachedAt: string | null;
@@ -73,6 +76,16 @@ export default function CrowdpoolCampaign() {
   const [ripple, setRipple] = useState(0);
   const [arrivals, setArrivals] = useState<Set<string>>(new Set());
   const knownEvents = useRef<Set<string> | null>(null);
+  /**
+   * The village's other raisings.
+   *
+   * This page and /campaigns pointed only at each other, so the pair was a
+   * closed loop with one door in. These links are the sibling half of the fix:
+   * from any raising you can reach the rest of them, the way a module detail
+   * page reaches the other modules. Fetched once, not on the minute timer, and
+   * a failure leaves the row unrendered.
+   */
+  const [siblings, setSiblings] = useState<SiblingCard[]>([]);
 
   const load = () => {
     fetch(`/api/crowdpool/campaign?slug=${encodeURIComponent(slug)}`, { headers: headers() })
@@ -107,6 +120,18 @@ export default function CrowdpoolCampaign() {
     const t = setInterval(load, 60_000);
     return () => clearInterval(t);
   }, [crowdpool?.id, slug]);
+
+  useEffect(() => {
+    if (!crowdpool) return;
+    let live = true;
+    fetch("/api/crowdpool/campaigns", { headers: headers() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (live && d) setSiblings((d.campaigns ?? []) as SiblingCard[]); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [crowdpool?.id]);
+
+  const others = siblings.filter((s) => s.reachable && (s.slug ?? s.key) !== slug);
 
   if (modules.loaded && !crowdpool) return <ModuleGate moduleId="crowdpool" name="Crowdpool" />;
   if (missing) {
@@ -158,10 +183,44 @@ export default function CrowdpoolCampaign() {
                     The ledger sleeps. The hub last answered {timeAgo(lastSyncAt)}; these numbers are kept from then.
                   </div>
                 )}
+                {/*
+                  * THE DEMO MARKER.
+                  *
+                  * The hub flags a seeded campaign with isDemo, this page has
+                  * carried that field on its Campaign type since it shipped, and
+                  * nothing ever rendered it: a demo raising showed a full gold
+                  * ring, a pledged total and a backer count on a real village's
+                  * page with nothing to say it was sample data. The platform
+                  * already owns the answer to this, so the marker is the same
+                  * amber aside and the same ExampleChip every other surface uses
+                  * (client/src/components/ExamplesBanner.tsx).
+                  *
+                  * The sentence is written here rather than taken from
+                  * ExamplesBanner's `row` mode because that copy names a
+                  * retirement trigger the standing-examples system owns, and
+                  * this campaign belongs to the hub: no village publishing
+                  * anything clears it. Unlinking it does.
+                  */}
+                {c.isDemo && (
+                  <aside
+                    aria-labelledby="demo-raising"
+                    className="mb-5 rounded-lg border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-100"
+                  >
+                    <p id="demo-raising" className="font-medium">This is the hub's demonstration raising.</p>
+                    <p className="mt-1 leading-relaxed">
+                      Nobody in this village made it. The ring, the backers and the ledger below are
+                      the hub's sample data, and nothing you do to it takes effect. A steward clears
+                      it by unlinking the campaign in Village Settings.
+                    </p>
+                  </aside>
+                )}
                 <div className="grid md:grid-cols-[1fr_auto] gap-6 items-center">
                   <div>
                     <div className="cp-smallcaps text-xs mb-1">A raising on the hub</div>
-                    <h1 className="font-display text-3xl md:text-4xl font-bold" style={{ color: "#f3e6c8" }}>{c.title}</h1>
+                    <h1 className="font-display text-3xl md:text-4xl font-bold" style={{ color: "#f3e6c8" }}>
+                      {c.title}
+                      {c.isDemo && <ExampleChip className="ml-2 align-middle" />}
+                    </h1>
                     {(c.projectName || c.location) && (
                       <p className="text-sm mt-1" style={{ color: "#c9a25e" }}>
                         {[c.projectName, c.location].filter(Boolean).join(", ")}
@@ -357,6 +416,30 @@ export default function CrowdpoolCampaign() {
                 </ul>
               </div>
             </div>
+
+            {/* ── The village's other raisings ── */}
+            {others.length > 0 && (
+              <div>
+                <h2 className="font-display text-2xl font-bold mb-1">The village's other raisings</h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Every pool this village has linked. Each one keeps its own ring.
+                </p>
+                <ul className="flex flex-wrap gap-2">
+                  {others.map((s) => (
+                    <li key={s.key}>
+                      <Link
+                        href={`/campaign/${encodeURIComponent(s.slug ?? s.key)}`}
+                        className="inline-flex items-center gap-2 min-h-[44px] rounded-lg px-4 py-2 text-sm font-medium"
+                        style={{ background: "#241a10", color: "#ecd08a", border: "1px solid #c9a25e" }}
+                      >
+                        {s.title ?? s.key}
+                        {s.isDemo && <ExampleChip />}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* ── The one door out ── */}
             <div className="text-center pb-4">

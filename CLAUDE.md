@@ -30,6 +30,7 @@ node scripts/check-brand-refs.mjs      # brand ratchet (read $?, its last line i
 node scripts/check-voice.mjs           # house writing rules on shipped copy
 node scripts/check-auth-fetch.mjs      # a client call to a route that refuses strangers carries a token
 node scripts/check-doc-links.mjs       # every path the builder docs name resolves on disk
+node scripts/check-route-reachability.mjs  # two ways in to every route (--table prints the doors)
 node scripts/check-artifact-budget.mjs # the living map's disk and wire size
 node scripts/check-image-budget.mjs    # shipped images: WebP, 400 KB each, falling total
 ```
