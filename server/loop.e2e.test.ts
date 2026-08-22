@@ -4903,6 +4903,23 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(dark.status).toBe(404);
     expect(dark.json.error).toBe("module_disabled");
 
+    // G2's surfaces sit inside the same gate, so the wizard, the drafts and a
+    // member's own standing are dark too. Enumerated one by one on purpose: a
+    // route added to this block after the `app.use` line would inherit the
+    // gate, and a route added ABOVE it would not, and nothing but a check per
+    // route can tell those two apart.
+    for (const path of ["/api/governance/wizard", "/api/governance/drafts", "/api/governance/standing"]) {
+      const shut = await api("GET", path, undefined, founderToken);
+      expect(shut.status, path).toBe(404);
+      expect(shut.json.error, path).toBe("module_disabled");
+    }
+    const shutWrite = await api("POST", "/api/governance/drafts", {
+      wizardType: "mechanics",
+      payload: { title: "Should never be stored" },
+      stepIndex: 1,
+    }, founderToken);
+    expect(shutWrite.status).toBe(404);
+
     // And the shipped loop is untouched: a proposal still goes to Hypha.
     const proposal = await api("POST", "/api/game/mechanics/proposals", {
       title: "Longer sensing, decided on Hypha",
@@ -5050,5 +5067,93 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const weights = await api("GET", "/api/governance/weights", undefined, voters[2].token);
     expect(weights.status).toBe(200);
     expect(weights.json.mode).toBe("equal");
+
+    /*
+     * G2, on the same live server: the surfaces the wizard and the ballot page
+     * read from. The claims are the lane's own metrics.
+     */
+
+    // A member's own standing: whether they may vote, how much they weigh, and
+    // the sentence saying WHY. Custom-mode weight is opaque power; this route
+    // is where a member reads their own number instead of hunting a table.
+    const standing = await api("GET", "/api/governance/standing", undefined, voters[0].token);
+    expect(standing.status, JSON.stringify(standing.json)).toBe(200);
+    expect(standing.json.mode).toBe("equal");
+    expect(standing.json.eligible).toBe(true);
+    expect(standing.json.weight).toBe(1);
+    expect(String(standing.json.why).length).toBeGreaterThan(20);
+
+    // THE WHOLE FROZEN ROLL reaches the page: who voted, and who never did.
+    // The completeness is the claim worth holding, because a page that showed
+    // only voters would answer "who agreed" while a member was asking "who is
+    // this vote waiting on", and the difference between those two questions is
+    // the difference between a percentage and a list of people.
+    expect(record.json.silent.length).toBeGreaterThan(0);
+    expect(record.json.votes.length + record.json.silent.length).toBe(record.json.electorateCount);
+    expect(
+      record.json.silent.every((s: any) => typeof s.name === "string" && s.name.length > 0 && typeof s.weight === "number"),
+    ).toBe(true);
+    // And the viewer's own frozen weight, which is what the vote widget prints.
+    expect(record.json.myWeight).toBe(1);
+    expect(record.json.votes.every((v: any) => typeof v.weight === "number")).toBe(true);
+
+    // The wizard's own facts: what this deployment can actually conduct. The
+    // list is the server's, so the type step never walks a member toward a
+    // publish route no lane has mounted.
+    const wizard = await api("GET", "/api/governance/wizard", undefined, voters[0].token);
+    expect(wizard.status).toBe(200);
+    expect(wizard.json.conductable).toContain("mechanics");
+    expect(wizard.json.draftCap).toBeGreaterThan(0);
+
+    // THE DRAFT SURVIVES THE BROWSER. Written by one request, read back whole
+    // by a later one that shares nothing with it but a token: this is the
+    // harvest's one flagged upgrade over Hypha's localStorage drafts, proven
+    // over the wire rather than asserted in a comment.
+    const saved = await api("POST", "/api/governance/drafts", {
+      wizardType: "mechanics",
+      payload: { title: "A rule I am still thinking about", rationale: "Half a thought." },
+      stepIndex: 2,
+    }, voters[1].token);
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    expect(saved.json.created).toBe(true);
+    const draftId = saved.json.draft.id;
+
+    const reopened = await api("GET", "/api/governance/drafts", undefined, voters[1].token);
+    expect(reopened.status).toBe(200);
+    const found = reopened.json.drafts.find((d: any) => d.id === draftId);
+    expect(found, "the draft is there in a later session").toBeTruthy();
+    expect(found.stepIndex, "and it reopens at the step it was left on").toBe(2);
+    expect(found.payload.title).toBe("A rule I am still thinking about");
+
+    // Private in the SQL, not by a check the route could forget: another
+    // member's list does not carry it, and their delete is a miss.
+    const otherList = await api("GET", "/api/governance/drafts", undefined, voters[2].token);
+    expect(otherList.json.drafts.find((d: any) => d.id === draftId)).toBeUndefined();
+    const theft = await api("DELETE", `/api/governance/drafts/${draftId}`, undefined, voters[2].token);
+    expect(theft.status).toBe(404);
+
+    // Saving again updates the same row and moves the step.
+    const again = await api("POST", "/api/governance/drafts", {
+      id: draftId,
+      wizardType: "mechanics",
+      payload: { title: "A rule I am still thinking about", rationale: "The whole thought, now." },
+      stepIndex: 3,
+    }, voters[1].token);
+    expect(again.json.created).toBe(false);
+    expect(again.json.draft.stepIndex).toBe(3);
+    expect((await api("GET", "/api/governance/drafts", undefined, voters[1].token)).json.drafts).toHaveLength(1);
+
+    // A type the village does not know never reaches the table.
+    const nonsense = await api("POST", "/api/governance/drafts", {
+      wizardType: "coup",
+      payload: {},
+      stepIndex: 0,
+    }, voters[1].token);
+    expect(nonsense.status).toBe(400);
+
+    // And the author's own discard works, which is what the wizard calls on
+    // publish so a published proposal never lingers as a draft.
+    expect((await api("DELETE", `/api/governance/drafts/${draftId}`, undefined, voters[1].token)).status).toBe(200);
+    expect((await api("GET", "/api/governance/drafts", undefined, voters[1].token)).json.drafts).toHaveLength(0);
   });
 });

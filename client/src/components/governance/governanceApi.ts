@@ -1,0 +1,193 @@
+/**
+ * The one door onto the governance engine, typed.
+ *
+ * Every route in this module's block refuses a stranger (`authedUser` then
+ * 401), so every call from here carries the session token. That is not a
+ * convention: `scripts/check-auth-fetch.mjs` derives the rule from the server
+ * and fails the build for a client call that reaches a refusing route without
+ * one, which is why nothing in this directory calls `fetch` directly.
+ *
+ * The payload types mirror what `serveBallot` in server/index.ts answers with.
+ * They are written out rather than inferred because a page that renders a
+ * field the server stopped sending should fail at the typecheck, not by
+ * quietly showing an empty bar to a village mid-vote.
+ */
+import { authToken } from "@/lib/gameApi";
+import type { BallotMethod, VoteChoice } from "@shared/governanceEngine";
+
+export interface BallotVote {
+  name: string;
+  choice: VoteChoice;
+  weight: number;
+  castAt: string;
+}
+
+export interface BallotSilent {
+  name: string;
+  weight: number;
+}
+
+export interface BallotObjection {
+  id: string;
+  by: string;
+  text: string;
+  status: "open" | "integrated" | "concern" | "withdrawn";
+  rulingNote: string | null;
+  ruledAt: string | null;
+  createdAt: string;
+}
+
+export interface Ballot {
+  id: string;
+  subjectType: string;
+  subjectRef: string;
+  title: string;
+  docMarkdown: string;
+  method: BallotMethod;
+  weightMode: "equal" | "token" | "custom";
+  weightToken: string | null;
+  unityPct: number;
+  quorumPct: number;
+  totalWeight: number;
+  electorateCount: number;
+  opensAt: string;
+  closesAt: string;
+  status: "open" | "passed" | "failed" | "no_quorum" | "withdrawn";
+  outcomeNote: string | null;
+  closedBy: string | null;
+  closedAt: string | null;
+  tallies: { yesW: number; noW: number; abstainW: number };
+  unity: number;
+  quorum: number;
+  votes: BallotVote[];
+  silent: BallotSilent[];
+  objections: BallotObjection[];
+  myVote: { choice: VoteChoice; reason: string | null } | null;
+  /** Null means the viewer is outside this electorate. Zero means inside it,
+   *  holding no weight, which is a different and much louder fact. */
+  myWeight: number | null;
+}
+
+export interface Standing {
+  mode: "equal" | "token" | "custom";
+  token: string | null;
+  tokenName: string | null;
+  eligible: boolean;
+  weight: number;
+  why: string;
+  history: Array<{
+    id: number;
+    userId: string;
+    oldWeight: number | null;
+    newWeight: number;
+    actorUserId: string;
+    note: string;
+    at: string;
+  }>;
+}
+
+export interface ProposalDraft {
+  id: string;
+  wizardType: string;
+  payload: Record<string, unknown>;
+  stepIndex: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WizardFacts {
+  conductable: string[];
+  draftCap: number;
+  supportThreshold: number;
+  mayOpenBallot: boolean;
+}
+
+const headers = (): Record<string, string> => {
+  const t = authToken();
+  return { "Content-Type": "application/json", ...(t ? { Authorization: `Bearer ${t}` } : {}) };
+};
+
+export type Answer<T> = { ok: true; data: T } | { ok: false; error: string };
+
+/**
+ * One shape for every call, so no caller has to remember whether a route
+ * answers `error` or `message`, and so a network failure and a refusal reach
+ * the page as the same kind of thing: a sentence to show a person.
+ */
+async function call<T>(path: string, init?: RequestInit): Promise<Answer<T>> {
+  try {
+    const res = await fetch(path, { headers: headers(), ...init });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      const error =
+        body?.message ??
+        body?.error ??
+        (res.status === 404 ? "That is not here" : "Something went wrong. Try again");
+      // The module-off answer is a real state, not an error to apologise for.
+      return { ok: false, error: error === "module_disabled" ? "This village has not turned on governance" : String(error) };
+    }
+    return { ok: true, data: body as T };
+  } catch {
+    return { ok: false, error: "Nothing answered. Check your connection and try again" };
+  }
+}
+
+export const fetchBallots = () => call<Ballot[]>("/api/governance/ballots");
+export const fetchBallot = (id: string) => call<Ballot>(`/api/governance/ballots/${encodeURIComponent(id)}`);
+export const fetchStanding = () => call<Standing>("/api/governance/standing");
+export const fetchWizardFacts = () => call<WizardFacts>("/api/governance/wizard");
+
+export const castVote = (id: string, choice: VoteChoice, reason?: string) =>
+  call<{ success: true; choice: VoteChoice; ballot: Ballot | null }>(
+    `/api/governance/ballots/${encodeURIComponent(id)}/vote`,
+    { method: "POST", body: JSON.stringify({ choice, ...(reason ? { reason } : {}) }) },
+  );
+
+export const fileObjection = (id: string, text: string) =>
+  call<{ success: true; id: string }>(`/api/governance/ballots/${encodeURIComponent(id)}/objections`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  });
+
+export const ruleObjection = (id: string, objectionId: string, ruling: string, note: string) =>
+  call<{ success: true }>(
+    `/api/governance/ballots/${encodeURIComponent(id)}/objections/${encodeURIComponent(objectionId)}/rule`,
+    { method: "POST", body: JSON.stringify({ ruling, note }) },
+  );
+
+export interface CloseResult {
+  success: true;
+  outcome: "passed" | "failed" | "no_quorum";
+  unity: number;
+  quorum: number;
+  tallies: { yesW: number; noW: number; abstainW: number };
+  applied: string[];
+  held: string | null;
+  ballot: Ballot;
+}
+
+export const closeBallot = (id: string, outcomeNote: string) =>
+  call<CloseResult>(`/api/governance/ballots/${encodeURIComponent(id)}/close`, {
+    method: "POST",
+    body: JSON.stringify({ outcomeNote }),
+  });
+
+export const fetchDrafts = () => call<{ cap: number; drafts: ProposalDraft[] }>("/api/governance/drafts");
+
+export const saveDraft = (input: {
+  id?: string | null;
+  wizardType: string;
+  payload: Record<string, unknown>;
+  stepIndex: number;
+}) =>
+  call<{ success: true; draft: ProposalDraft; created: boolean }>("/api/governance/drafts", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const deleteDraft = (id: string) =>
+  call<{ success: true }>(`/api/governance/drafts/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/** Publish a finished wizard payload to its subject's own route. */
+export const publishProposal = (path: string, body: Record<string, unknown>) =>
+  call<any>(path, { method: "POST", body: JSON.stringify(body) });

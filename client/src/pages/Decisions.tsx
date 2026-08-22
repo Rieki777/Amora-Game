@@ -1,0 +1,255 @@
+/**
+ * DECISIONS: what the village is deciding, right now.
+ *
+ * The review that commissioned this lane named the trap by name: `/governance`
+ * is a beautiful static explainer of how decisions get made, and a governance
+ * interface that looks like it makes the engine's rigor read as paperwork. So
+ * this page is the opposite of that page. It explains nothing. It shows live
+ * ballots with running clocks and filling bars, it says which ones are waiting
+ * on YOU, and everything a member needs to know about the machinery is
+ * attached to the decision it applies to.
+ *
+ * The order on the page is the order of a member's attention:
+ *
+ *   1. Waiting on you       open, in your electorate, unvoted. Usually empty,
+ *                           and that emptiness is a good thing to be able to
+ *                           see at a glance.
+ *   2. Awaiting a human     the period ended and nobody has closed it. This is
+ *                           the state the engine deliberately creates, because
+ *                           closing is a human act, and a page that did not
+ *                           surface it would leave decisions rotting.
+ *   3. Being decided        everything else that is open.
+ *   4. Decided              the record, most recent first, each one carrying
+ *                           the human sentence it closed with.
+ *
+ * Your own standing sits in the rail: how much you weigh and why. Weights are
+ * power, and power a member cannot find is the thing the constitution's new
+ * law was written against.
+ */
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "wouter";
+import { PenLine, Scale } from "lucide-react";
+import Layout from "@/components/Layout";
+import ModuleGate from "@/components/modules/ModuleGate";
+import { useModule, useModules } from "@/modules/ModuleProvider";
+import { useAuth } from "@/contexts/AuthContext";
+import { BreathingLoader, MoonProgress } from "@/components/natural";
+import InfoTip from "@/components/InfoTip";
+import DecisionCard from "@/components/governance/DecisionCard";
+import MyStanding from "@/components/governance/MyStanding";
+import { fetchBallots, fetchStanding, type Ballot, type Standing } from "@/components/governance/governanceApi";
+import { quorumPctOf } from "@shared/governanceEngine";
+
+export default function Decisions() {
+  const { user } = useAuth();
+  const modules = useModules();
+  const governance = useModule("governance");
+
+  const [ballots, setBallots] = useState<Ballot[] | null>(null);
+  const [standing, setStanding] = useState<Standing | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!governance || !user) return;
+    let alive = true;
+    (async () => {
+      const [b, s] = await Promise.all([fetchBallots(), fetchStanding()]);
+      if (!alive) return;
+      if (b.ok) setBallots(b.data);
+      else setProblem(b.error);
+      if (s.ok) setStanding(s.data);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [governance, user]);
+
+  const groups = useMemo(() => {
+    const all = ballots ?? [];
+    const now = Date.now();
+    const open = all.filter((b) => b.status === "open");
+    const expired = open.filter((b) => Date.parse(b.closesAt) <= now);
+    const running = open.filter((b) => Date.parse(b.closesAt) > now);
+    return {
+      mine: running.filter((b) => b.myWeight !== null && !b.myVote),
+      awaitingClose: expired,
+      running: running.filter((b) => !(b.myWeight !== null && !b.myVote)),
+      decided: all.filter((b) => b.status !== "open"),
+    };
+  }, [ballots]);
+
+  if (modules.loaded && !governance) return <ModuleGate moduleId="governance" name="Decisions" />;
+
+  return (
+    <Layout>
+      <section className="bg-teal-band text-white py-10">
+        <div className="container max-w-6xl px-4">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <span className="text-amber-on-band text-sm font-medium uppercase tracking-widest">The village decides</span>
+              <h1 className="mt-1 font-display text-3xl font-bold sm:text-4xl">Decisions</h1>
+              <p className="mt-2 max-w-2xl text-white/85 leading-relaxed">
+                Every vote this village is holding, and every one it has held. Votes stay changeable until they close,
+                and nothing closes on a timer.
+              </p>
+            </div>
+            <Link
+              href="/propose"
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-white px-5 font-semibold text-teal-band hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-teal-band"
+            >
+              <PenLine className="w-4 h-4" aria-hidden="true" />
+              Start a proposal
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <div className="container max-w-6xl px-4 py-8">
+        {!user ? (
+          <div className="rounded-xl border border-stone-200 bg-white p-8 text-center">
+            <h2 className="font-display text-2xl font-bold text-stone-900">Sign in to see what is being decided</h2>
+            <p className="mx-auto mt-2 max-w-md text-stone-600 leading-relaxed">
+              Votes here carry names, so the page opens for members.
+            </p>
+            <Link
+              href="/login?next=%2Fdecisions"
+              className="mt-5 inline-flex min-h-[44px] items-center rounded-lg bg-teal-deep px-5 font-semibold text-white hover:bg-teal-deep-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2"
+            >
+              Sign in
+            </Link>
+          </div>
+        ) : ballots === null ? (
+          <div className="flex justify-center py-16">
+            <BreathingLoader label="Reading the village's decisions" />
+          </div>
+        ) : (
+          <div className="lg:grid lg:grid-cols-[1fr_20rem] lg:gap-8">
+            <div className="min-w-0 space-y-10">
+              {problem && (
+                <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-coral">
+                  {problem}
+                </p>
+              )}
+
+              {ballots.length === 0 && (
+                <div className="rounded-xl border-2 border-dashed border-stone-300 p-8 text-center">
+                  <h2 className="text-lg font-bold text-stone-900">Nothing is being decided right now</h2>
+                  <p className="mx-auto mt-2 max-w-md text-stone-600 leading-relaxed">
+                    That is a real state, not an empty page. When somebody takes a proposal to a vote, it appears here
+                    with a clock on it.
+                  </p>
+                  <Link
+                    href="/propose"
+                    className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-teal-deep px-5 font-semibold text-white hover:bg-teal-deep-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2"
+                  >
+                    <PenLine className="w-4 h-4" aria-hidden="true" />
+                    Start one
+                  </Link>
+                </div>
+              )}
+
+              <Group
+                title="Waiting on you"
+                blurb="You are on the roll for these and have not voted yet."
+                ballots={groups.mine}
+                emptyNote={ballots.length > 0 ? "You have voted in everything that is open to you." : null}
+              />
+              <Group
+                title="Waiting to be closed"
+                blurb="The voting period ended. Nothing here closes itself: a person has to close it and say what the village decided."
+                ballots={groups.awaitingClose}
+              />
+              <Group title="Being decided" blurb="Open, and still taking votes." ballots={groups.running} />
+              <Group
+                title="What the village has decided"
+                blurb="The record. Each one carries the sentence it closed with."
+                ballots={groups.decided}
+              />
+            </div>
+
+            <aside className="mt-10 space-y-6 lg:mt-0">
+              {standing && <MyStanding standing={standing} />}
+              <TurnoutCard ballots={ballots} />
+              <div className="rounded-xl border border-stone-200 bg-white p-4">
+                <h3 className="flex items-center gap-2 text-base font-bold text-stone-900">
+                  <Scale className="w-4 h-4 text-teal-deep" aria-hidden="true" />
+                  How this works
+                  <InfoTip
+                    tip="A proposal gathers support first. Once it has enough, someone opens a ballot, which freezes who may vote and how much each vote weighs."
+                    label="How a decision travels"
+                  />
+                </h3>
+                <p className="mt-2 text-sm text-stone-600 leading-relaxed">
+                  Thresholds and weights freeze the moment a ballot opens, so nothing anyone changes later can rewrite a
+                  vote in flight.
+                </p>
+                <Link
+                  href="/governance"
+                  className="mt-3 inline-flex min-h-[44px] items-center text-sm font-semibold text-teal-deep hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+                >
+                  Read how the village governs
+                </Link>
+              </div>
+            </aside>
+          </div>
+        )}
+      </div>
+    </Layout>
+  );
+}
+
+function Group({
+  title,
+  blurb,
+  ballots,
+  emptyNote,
+}: {
+  title: string;
+  blurb: string;
+  ballots: Ballot[];
+  emptyNote?: string | null;
+}) {
+  if (ballots.length === 0 && !emptyNote) return null;
+  return (
+    <section>
+      <h2 className="font-display text-xl font-bold text-stone-900">{title}</h2>
+      <p className="mt-0.5 text-sm text-stone-600 leading-relaxed">{blurb}</p>
+      {ballots.length === 0 ? (
+        <p className="mt-3 rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm text-stone-600">{emptyNote}</p>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {ballots.map((b) => (
+            <DecisionCard key={b.id} ballot={b} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * How much of the village has been showing up, drawn as the moon.
+ *
+ * `MoonProgress` is the platform's one progress vocabulary, so a turnout
+ * figure uses it rather than inventing a second ring two components away. The
+ * percent travels in the accessible name and again in the caption, which is
+ * the component's own rule about a shape never being a readout on its own.
+ */
+function TurnoutCard({ ballots }: { ballots: Ballot[] }) {
+  const decided = ballots.filter((b) => b.status !== "open");
+  if (decided.length === 0) return null;
+  const average =
+    decided.reduce((sum, b) => sum + quorumPctOf(b.tallies, b.totalWeight), 0) / decided.length;
+  return (
+    <div className="rounded-xl border border-stone-200 bg-white p-4">
+      <h3 className="text-base font-bold text-stone-900">How much the village turns out</h3>
+      <div className="mt-3 flex items-center gap-4">
+        <MoonProgress value={average / 100} size={64} label="Average turnout across closed votes" />
+        <p className="text-sm text-stone-600 leading-relaxed">
+          Across {decided.length} closed {decided.length === 1 ? "vote" : "votes"}, an average of{" "}
+          {Math.round(average)}% of the village's weight has spoken.
+        </p>
+      </div>
+    </div>
+  );
+}
