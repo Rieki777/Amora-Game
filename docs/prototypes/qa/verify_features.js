@@ -1058,27 +1058,201 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   ok(amd.blankRefused && amd.sanitiser.ok && amd.sanitiser.phases,
     `vocabulary: nothing the editor writes can be dropped whole by the site (${amd.sanitiser.key})`);
 
-  /* D1.2 on a phone: the two-finger pinch, in its own pocket context */
+  /* D1.2 on a phone: the gestures, driven by TRUSTED touch input.
+   *
+   * WHAT THIS REPLACED, AND WHY IT HAD TO GO. The block that stood here
+   * dispatched `el.dispatchEvent(new TouchEvent(...))` from inside the page and
+   * asserted that cam.z had fallen. It was green every day for weeks against a
+   * map that travelled twice as far as the finger under a one-finger drag and
+   * slid 133 world px sideways under a pinch that should have translated
+   * nothing at all. Three reasons, each fatal on its own:
+   *
+   *   1. The events were UNTRUSTED. A synthetic TouchEvent runs the page's own
+   *      listeners and stops there: the browser's gesture arbitration never
+   *      engages, touch-action is never consulted, and no pointer events are
+   *      generated. The defect was a second drag implementation reading the
+   *      pointer stream, so the test could not reach it even in principle.
+   *   2. Only z was asserted. cam.x and cam.y were never read, so the drift
+   *      passed in silence -- computed, applied, never printed.
+   *   3. It loads the artifact directly, so the shell's iframe was out of reach.
+   *
+   * CDP Input.dispatchTouchEvent is trusted input: the browser generates the
+   * pointer stream, arbitrates the gesture, and honours touch-action.
+   *
+   * WHAT IT STILL CANNOT COVER, so nobody cites it for more than it is. This is
+   * Chromium and Chromium does not implement iOS pinch-to-zoom-the-page, so
+   * nothing below proves the browser stops claiming the gesture on an iPhone.
+   * The artifact is loaded directly, so the iframe seam in LivingMap.tsx is
+   * still outside reach. Both of those need a real device. qa/_probe_touch_nav.js
+   * is the paired before/after measurement that produced the numbers quoted here.
+   */
   const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, deviceScaleFactor: 3 } /* no isMobile: this Chromium reports innerWidth 4x the CSS viewport with it on */);
   const ppage = await pctx.newPage();
   const pperr = []; ppage.on('pageerror', e => pperr.push(String(e)));
+  /* The Welcome Walk flies the camera, and a camera in flight is not a camera
+     you can measure. The gesture hint is deliberately NOT pre-dismissed: it is
+     under test below. */
+  await ppage.addInitScript(() => { try { localStorage.setItem('amora-walk-done', '1'); } catch (_) {} });
   await ppage.goto(FILE + '#hud=pocket'); await ppage.waitForTimeout(1600);
   if (await ppage.evaluate(() => document.body.classList.contains('intro'))) await ppage.click('#enterBtn');
   await ppage.waitForTimeout(2600);
-  const poc = await ppage.evaluate(() => {
-    const el = document.getElementById('scene');
-    const T = (t, pts) => el.dispatchEvent(new TouchEvent(t, {
-      bubbles: true, cancelable: true,
-      touches: pts.map((p, i) => new Touch({ identifier: i, target: el, clientX: p[0], clientY: p[1] }))
-    }));
-    cam.z = 1.4; clampCam(); const z0 = cam.z;
-    T('touchstart', [[100, 400], [300, 400]]);
-    T('touchmove', [[197, 400], [203, 400]]);  // 200 apart squeezed to 6: a pinch that asks for far more than the floor allows
-    const z1 = cam.z; T('touchend', []);
-    return { pocket: document.body.classList.contains('pocket'), z0, z1, floor: minZoom() };
+
+  const pcdp = await pctx.newCDPSession(ppage);
+  const ptouch = (t, pts) => pcdp.send('Input.dispatchTouchEvent',
+    { type: t, touchPoints: pts.map((p, i) => ({ x: p[0], y: p[1], id: i })) });
+  /* Two frames: the camera write is batched into a rAF, and one frame can return
+     before a flush scheduled from inside the same touchmove has run. */
+  const psettle = () => ppage.evaluate(() => new Promise(r =>
+    requestAnimationFrame(() => requestAnimationFrame(() => r(1)))));
+  const pcam = () => ppage.evaluate(() => ({ x: cam.x, y: cam.y, z: cam.z }));
+  const preset = () => ppage.evaluate(() => {
+    cam.z = 1; cam.x = 900; cam.y = 640; cam.vx = cam.vy = 0; travel = null; clampCam();
+    return { x: cam.x, y: cam.y, z: cam.z };
   });
-  ok(poc.pocket && poc.z1 < poc.z0, `D1.2: the pocket pinch is wired at all (${poc.z0} -> ${poc.z1})`);
-  ok(Math.abs(poc.z1 - poc.floor) < 1e-9, `D1.2: a hard pinch out reaches the same fit floor on a phone (${poc.z1.toFixed(4)})`);
+  const pdrag = async (from, to, steps) => {
+    await ptouch('touchStart', [from]);
+    for (let i = 1; i <= steps; i++) {
+      await ptouch('touchMove', [[from[0] + (to[0] - from[0]) * i / steps, from[1] + (to[1] - from[1]) * i / steps]]);
+      await ppage.waitForTimeout(16);
+    }
+    await psettle(); const c = await pcam(); await ptouch('touchEnd', []); return c;
+  };
+  /* One pinch, expressed as the half-distance the fingers start and end at, about
+     a midpoint that does not move. A midpoint that does not move is what makes
+     "the camera must not translate" a claim with a right answer. */
+  const ppinch = async (mx, my, h0, h1, steps) => {
+    await ptouch('touchStart', [[mx - h0, my], [mx + h0, my]]);
+    for (let i = 1; i <= steps; i++) {
+      const h = h0 + (h1 - h0) * i / steps;
+      await ptouch('touchMove', [[mx - h, my], [mx + h, my]]);
+      await ppage.waitForTimeout(16);
+    }
+    await psettle(); const c = await pcam(); await ptouch('touchEnd', []); return c;
+  };
+
+  const pgeo = await ppage.evaluate(() => {
+    const sc = document.getElementById('scene');
+    return {
+      pocket: document.body.classList.contains('pocket'),
+      hit: document.elementFromPoint(195, 420) === sc,
+      ta: getComputedStyle(sc).touchAction,
+      /* The centre screenToWorld() is written around, read from the page rather
+         than assumed. Getting this wrong by 2 px turns correct anchoring into a
+         failing drift assertion, because a correctly anchored pinch about a point
+         2 px off centre MUST move the camera by 2 world px. */
+      cx: sc.width / (2 * DPR), cy: sc.height / (2 * DPR),
+    };
+  });
+  ok(pgeo.pocket && pgeo.hit, 'D1.2: the pocket profile is on and #scene is what a touch at 195,420 lands on');
+  ok(pgeo.ta === 'none', `D1.2: the map canvas declares its own touch-action (${pgeo.ta})`);
+
+  /* GAIN. The camera must move exactly as far as the finger asked, in world px.
+     Read with the finger still down, so no momentum is folded into the number.
+     Before the pointerType guard: 200.00 for a 100 px drag, every rep. */
+  const g0 = await preset();
+  const g1 = await pdrag([pgeo.cx, 420], [pgeo.cx - 100, 420], 10);
+  const gain = (g1.x - g0.x) / 100;
+  ok(Math.abs(gain - 1) < 0.06,
+    `D1.2: a 100 px one-finger drag moves the camera 100 world px and not a multiple of it (gain x${gain.toFixed(2)})`);
+  ok(Math.abs(g1.y - g0.y) < 1,
+    `D1.2: a flat drag does not drag the camera sideways (${(g1.y - g0.y).toFixed(2)} world px)`);
+
+  /* TRANSLATION. A pinch whose midpoint sits on the screen centre and never
+     moves must not move the camera. Before: +133.12 world px, every rep, and
+     +985 to +1247 once the momentum the pointer path had loaded landed. */
+  const c0 = await preset();
+  const c1 = await ppinch(pgeo.cx, pgeo.cy, 100, 50, 10);
+  ok(Math.abs(c1.z - 0.5) < 0.02, `D1.2: a pinch from 200 px to 100 px halves the zoom (${c1.z.toFixed(3)})`);
+  ok(Math.abs(c1.x - c0.x) < 1 && Math.abs(c1.y - c0.y) < 1,
+    `D1.2: a pinch centred on the screen centre translates nothing (${(c1.x - c0.x).toFixed(2)}, ${(c1.y - c0.y).toFixed(2)} world px)`);
+
+  /* ANCHOR. A pinch about an off-centre midpoint must keep the land that was
+     under the fingers under the fingers. Reported in screen px, because screen
+     px is what a thumb feels. Before: 62.48. Nothing tested this at all. */
+  const ax = pgeo.cx - 90, ay = 500;
+  await preset();
+  const anch0 = await ppage.evaluate(p => screenToWorld(p[0], p[1]), [ax, ay]);
+  await ppinch(ax, ay, 100, 60, 10);
+  const anch1 = await ppage.evaluate(p => ({ w: screenToWorld(p[0], p[1]), z: cam.z }), [ax, ay]);
+  const adrift = Math.hypot(anch1.w[0] - anch0[0], anch1.w[1] - anch0[1]) * anch1.z;
+  ok(adrift < 2, `D1.2: a pinch off centre keeps the land under the fingers (${adrift.toFixed(2)} screen px of drift)`);
+
+  /* THE CEILING. The pocket pinch used to stop at 2.6 while clampCam and travelTo
+     went to 3.2, so a finger could not reach the zoom a tapped building flies to. */
+  await preset();
+  const hard = await ppinch(pgeo.cx, 420, 20, 90, 10);
+  const ceil = await ppage.evaluate(() => {
+    const s = { x: cam.x, y: cam.y, z: cam.z };
+    cam.z = 99; clampCam(); const m = cam.z;
+    cam.x = s.x; cam.y = s.y; cam.z = s.z; return m;
+  });
+  ok(Math.abs(hard.z - ceil) < 1e-6,
+    `D1.2: a hard pinch in reaches the same ceiling clampCam and travelTo obey (${hard.z.toFixed(2)} against ${ceil.toFixed(2)})`);
+
+  /* THE FLOOR. This is the one assertion the old block got right, and it is kept
+     because it guards real arithmetic. It is driven by trusted input now. */
+  await ppage.evaluate(() => { cam.z = 1.4; cam.x = 900; cam.y = 640; cam.vx = cam.vy = 0; travel = null; clampCam(); });
+  const fl = await ppinch(200, 400, 100, 4, 8);
+  const floor = await ppage.evaluate(() => minZoom());
+  ok(Math.abs(fl.z - floor) < 1e-9, `D1.2: a hard pinch out reaches the same fit floor on a phone (${fl.z.toFixed(4)})`);
+
+  /* D1.4 — the non-gesture path. SC 2.5.1 Pointer Gestures is Level A and its
+     Understanding document's worked example is a map with plus/minus buttons;
+     SC 2.5.7 adds the pan and rules out keyboard-only equivalence in as many
+     words. This is conformance, not polish. */
+  const pnav = await ppage.evaluate(() => {
+    const ids = ['pnIn', 'pnOut', 'pnUp', 'pnDown', 'pnLeft', 'pnRight'];
+    const missing = ids.filter(i => !document.getElementById(i));
+    /* Return the whole shape even when nothing is there. A gate that throws on a
+       missing control reports one failure and hides the four behind it. */
+    if (missing.length) return { missing, small: ids, named: ids, tagged: false, shown: false,
+      z0: 0, zIn: 0, zOut: 0, x0: 0, xR: 0, y0: 0, yD: 0 };
+    const els = ids.map(i => document.getElementById(i));
+    const small = els.filter(e => { const r = e.getBoundingClientRect(); return r.width < 24 || r.height < 24; }).map(e => e.id);
+    const named = els.filter(e => !(e.getAttribute('aria-label') || '').trim()).map(e => e.id);
+    const tagged = els.every(e => e.tagName === 'BUTTON');
+    cam.z = 1; cam.x = 900; cam.y = 640; cam.vx = cam.vy = 0; travel = null; clampCam();
+    const z0 = cam.z; document.getElementById('pnIn').click(); const zIn = cam.z;
+    document.getElementById('pnOut').click(); const zOut = cam.z;
+    const x0 = cam.x; document.getElementById('pnRight').click(); const xR = cam.x;
+    const y0 = cam.y; document.getElementById('pnDown').click(); const yD = cam.y;
+    return { missing, small, named, tagged, z0, zIn, zOut, x0, xR, y0, yD,
+      shown: getComputedStyle(document.getElementById('pnav')).display !== 'none' };
+  });
+  ok(pnav.missing.length === 0 && pnav.shown,
+    `D1.4: the pocket chrome carries zoom and pan controls (${pnav.missing.length ? 'missing ' + pnav.missing.join(',') : 'all six, shown'})`);
+  ok(pnav.small.length === 0 && pnav.named.length === 0 && pnav.tagged,
+    `D1.4: every control is a real button, clears 24 px and carries a name (${pnav.small.concat(pnav.named).join(',') || 'all six pass'})`);
+  ok(pnav.zIn > pnav.z0 && pnav.zOut < pnav.zIn && pnav.xR > pnav.x0 && pnav.yD > pnav.y0,
+    `D1.4: one pointer zooms and pans with no gesture at all (z ${pnav.z0} to ${pnav.zIn.toFixed(2)} to ${pnav.zOut.toFixed(2)})`);
+
+  /* D1.5 — the hint, and the first READ of WGATE this file has ever had. The two
+     lines have been in WALK_SEED since the walk was written and have never once
+     been shown; WGATE, the object built to notice that somebody has panned or
+     pinched, was written in five places and read in none. */
+  await ppage.waitForTimeout(900);
+  const hint = await ppage.evaluate(() => {
+    const b = document.getElementById('ghint');
+    const seed = k => ((window.WALK_SEED || []).find(w => w && w.gesture === k) || {}).gate_hint;
+    let remembered = false; try { remembered = !!localStorage.getItem('amora-gestures-seen'); } catch (_) {}
+    return {
+      present: !!b,
+      pan: b ? document.getElementById('ghintPan').textContent : null,
+      pinch: b ? document.getElementById('ghintPinch').textContent : null,
+      seedPan: seed('pan'), seedPinch: seed('pinch'),
+      gates: { pan: !!(window.WGATE || {}).pan, pinch: !!(window.WGATE || {}).pinch },
+      lit: b ? b.classList.contains('on') : false,
+      blocks: b ? getComputedStyle(b).pointerEvents : null,
+      remembered,
+    };
+  });
+  ok(hint.present && hint.pan === hint.seedPan && hint.pinch === hint.seedPinch && !!hint.seedPan,
+    `D1.5: the hint says the words the walk already carried, read from the seed and never copied`);
+  ok(hint.blocks === 'none', `D1.5: the hint does not take the taps the land is waiting for (${hint.blocks})`);
+  ok(hint.gates.pan && hint.gates.pinch, 'D1.5: panning and pinching latch WGATE, which nothing used to read');
+  ok(!hint.lit && hint.remembered,
+    'D1.5: the hint lets itself out the moment both gates latch, and does not come back');
+
   const plab = await ppage.evaluate(() => {
     const shown = () => { syncBanners(); return SCENE.districts.filter(d => bEls['d_' + d.id].style.display !== 'none').length; };
     cam.z = minZoom(); cam.x = W / 2; cam.y = H / 2; clampCam(); const atFloor = shown();
