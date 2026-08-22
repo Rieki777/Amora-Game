@@ -117,8 +117,15 @@ BREAKER_EDITS = [
 ]
 
 
-def apply(path, edits, label):
+def apply(path, edits, label, guard=None):
+    # Guard added on the 2026-08-22 replay onto main a897583: the regeneration
+    # rebuilds the ARTIFACT from main's bytes, while these qa files ride the
+    # rebase already carrying I6b and the moved breaker row. A file that
+    # already holds them is left alone; the marker checks below still read it.
     s = io.open(path, encoding="utf-8").read()
+    if guard is not None and guard in s:
+        print("skip %s (already present)" % label)
+        return s
     for i, (find, repl) in enumerate(edits, 1):
         n = s.count(find)
         if n != 1:
@@ -129,8 +136,8 @@ def apply(path, edits, label):
     return s
 
 
-suite = apply(SUITE, SUITE_EDITS, "suite")
-breaker = apply(BREAKER, BREAKER_EDITS, "breaker")
+suite = apply(SUITE, SUITE_EDITS, "suite", guard="`I6b: LAYER ONE.")
+breaker = apply(BREAKER, BREAKER_EDITS, "breaker", guard='["I6b"]),')
 
 for m in ("`I6b: LAYER ONE.", "window.__SEEN2 = [];", "handed: (window.__SEEN2 || []).join(",
           "const EXPECTED = 82;", "-> I6b, and I5 and J3b as"):

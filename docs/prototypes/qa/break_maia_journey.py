@@ -89,8 +89,15 @@ BREAKS = [
     # records that the dock lost a control it wrote. Those are layer two doing
     # its job, and requiring them would make this row red for something that is
     # not the escaping.
+    #
+    # THE ANCHOR NAMES escj, NOT escja, since the 2026-08-22 regeneration onto
+    # main a897583. PR #29 escaped this call site first and spelled its
+    # JS-grammar escape escj (the stronger one: it also closes \r, \n and the
+    # U+2028/9 separators), so h6's escja edit guard-skips in its favor and
+    # escj is what the artifact carries. The mutation is the same experiment:
+    # swap the JS-grammar escape for the entity-only one and watch I6b.
     ("the claim attribute loses its JS escape",
-     ("<a onclick=\"claimQuest('${escja(best.q)}','${escja(nm)}')\">",
+     ("<a onclick=\"claimQuest('${escj(best.q)}','${escj(nm)}')\">",
       "<a onclick=\"claimQuest('${escq(best.q)}','${escq(nm)}')\">"),
      ["I6b"]),
 

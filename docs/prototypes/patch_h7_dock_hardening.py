@@ -40,6 +40,15 @@ ART = os.path.join(os.path.dirname(os.path.abspath(__file__)), "grounds-v0.html"
 s = io.open(ART, encoding="utf-8").read()
 before = len(s)
 
+# Re-run guard, added on the 2026-08-22 replay onto main a897583: a second run
+# used to re-find edit 1's anchor (its replacement keeps the anchor as a
+# prefix) and then abort on edit 2's, which is a refusal where the rest of the
+# set skips. safeHref and the stripped-recorder exist only once this file has
+# run, so together they are the fingerprint of a finished application.
+if "function safeHref(u){" in s and "window.MSAY_STRIPPED=[];" in s:
+    print("H7 dock hardening: skip, already applied")
+    sys.exit(0)
+
 EDITS = []
 
 # ---- 1. safeHref, beside the rest of the escaping family ------------------

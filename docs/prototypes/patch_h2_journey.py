@@ -94,10 +94,10 @@ function playJourney(id){const j=jById(id);if(!j)return;
   if(!stops.length){toast('No steps of this journey have a place yet. The Loom awaits.');return}
   const skipped=j.steps.length-stops.length;
   JWALK={id,i:0};setHash('#/journey/'+id);
-  maiaSay(`<b>${j.name}</b>. Walking ${stops.length} of ${j.steps.length} steps${skipped?` (${skipped} not yet placed; drag them on the Loom)`:''}. <b>Esc</b> ends the walk.`);
+  maiaSay(`<b>${escq(j.name)}</b>. Walking ${stops.length} of ${j.steps.length} steps${skipped?` (${skipped} not yet placed; drag them on the Loom)`:''}. <b>Esc</b> ends the walk.`);
   const step=()=>{if(!JWALK||JWALK.id!==id)return;
     if(JWALK.i>=stops.length){JWALK=null;
-      maiaSay(`The walk ends here. The full <b>${j.name}</b> lives at <a href="${siteHref(SITE_ROUTES[id]||'/')}" target="_blank" rel="noopener">${SITE_ROUTES[id]||'/'}</a>. Two doors, one journey.`);
+      maiaSay(`The walk ends here. The full <b>${escq(j.name)}</b> lives at <a href="${siteHref(SITE_ROUTES[id]||'/')}" target="_blank" rel="noopener">${SITE_ROUTES[id]||'/'}</a>. Two doors, one journey.`);
       setHash('');return}
     const x=stops[JWALK.i];const s=BY[x.st.at];
     travelTo(s.x,s.y,1.25,()=>{
@@ -108,7 +108,7 @@ function playJourney(id){const j=jById(id);if(!j)return;
       if(!JWALK||JWALK.id!==id)return;
       /* Maia is the PRESENTER; the words stay village content, so `t` and the
          optional `body` are printed as they were written. */
-      maiaSay(`<b>${x.st.stage?x.st.stage+': ':''}${x.st.t}</b> at ${s.name}`+
+      maiaSay(`<b>${x.st.stage?escq(x.st.stage)+': ':''}${escq(x.st.t)}</b> at ${escq(s.name)}`+
         (x.st.body?`<div style="margin-top:3px">${x.st.body}</div>`:'')+
         `<div class="jrow"><button class="btn" onclick="jNext()">▸ next</button>`+
         `<button class="btn ghostbtn" onclick="jEnd()">✕ end the walk</button>`+

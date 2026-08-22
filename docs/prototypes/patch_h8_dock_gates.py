@@ -208,8 +208,15 @@ ART_NEW = """   sites in this file writes any of them. <button> is deliberately 
    five handlers this file writes rather than trusting the element. */"""
 
 
-def patch(path, edits, label):
+def patch(path, edits, label, final=None):
+    """`final` names a string that only the finished file carries (h9/h10
+    renumber this patch's own insertions, so the NEW text cannot be the
+    guard). Present == the committed file is already past this patch: leave
+    it alone and skip its marker check."""
     s = io.open(path, encoding="utf-8").read()
+    if final is not None and final in s:
+        print("skip  %s (already final: carries %r)" % (label, final))
+        return None
     for i, (find, repl) in enumerate(edits, 1):
         n = s.count(find)
         if n != 1:
@@ -221,8 +228,10 @@ def patch(path, edits, label):
 
 
 suite = patch(SUITE, [(J5_ANCHOR, NEW_CHECKS), (HDR_OLD, HDR_NEW),
-                      (EXPECTED_OLD, EXPECTED_NEW)], "suite")
-breaker = patch(BREAKER, [(BRK_ANCHOR, BRK_NEW)], "breaker")
+                      (EXPECTED_OLD, EXPECTED_NEW)], "suite",
+              final="const EXPECTED = 82;")
+breaker = patch(BREAKER, [(BRK_ANCHOR, BRK_NEW)], "breaker",
+                final="the sign-in href goes back to escq")
 art = patch(ART, [(ART_OLD, ART_NEW)], "artifact")
 
 for label, text, markers in (
@@ -235,6 +244,8 @@ for label, text, markers in (
                           "the sign-in href goes back to escq"]),
     ("artifact", art, ["MSAY_ON_OK below is the rule for attributes"]),
 ):
+    if text is None:
+        continue  # skipped as already-final above; the suite run itself is the proof
     missing = [m for m in markers if m not in text]
     if missing:
         sys.exit("ABORT: %s applied but not present: %s" % (label, missing))

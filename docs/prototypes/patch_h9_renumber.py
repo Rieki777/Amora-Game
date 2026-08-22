@@ -85,8 +85,15 @@ BREAKER_EDITS = [
 ]
 
 
-def apply(path, edits, label):
+def apply(path, edits, label, guard=None):
+    # Guard added on the 2026-08-22 replay onto main a897583: the regeneration
+    # rebuilds the ARTIFACT from main's bytes, while these qa files ride the
+    # rebase already renumbered. A file that already reads the new names is
+    # left alone, and the stale/fresh sweeps below still run against it.
     s = io.open(path, encoding="utf-8").read()
+    if guard is not None and guard in s:
+        print("skip %s (already renumbered)" % label)
+        return s
     for find, want, repl in edits:
         n = s.count(find)
         if n != want:
@@ -98,8 +105,9 @@ def apply(path, edits, label):
     return s
 
 
-suite = apply(SUITE, [e for e in SUITE_EDITS if e[1] == 1], "suite")
-breaker = apply(BREAKER, BREAKER_EDITS, "breaker")
+suite = apply(SUITE, [e for e in SUITE_EDITS if e[1] == 1], "suite",
+              guard="const jrec = await page.evaluate")
+breaker = apply(BREAKER, BREAKER_EDITS, "breaker", guard='["J6b"]),')
 
 # The old names must be gone from every place that PRINTS or EXPECTS one.
 for stale in ("`J6: nothing the dock", "`J7: the element itself", "`J7b: and no live",

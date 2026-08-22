@@ -224,8 +224,8 @@ CARD_OLD = """function nextWalk(){clearTimeout(WTMR);const steps=walkSteps();WID
   travelTo(sBY.x,sBY.y,1.3,()=>{
     const wc=$('walkCard');
     const choice=st.gesture==='choice';
-    wc.innerHTML=`<h5>${st.title}</h5><p>${st.body}</p>
-      ${(!choice&&st.gesture&&st.gesture!=='none')?`<div class="wgate">✋ ${st.gate_hint||st.gesture}</div>`:''}
+    wc.innerHTML=`<h5>${escq(st.title)}</h5><p>${escq(st.body)}</p>
+      ${(!choice&&st.gesture&&st.gesture!=='none')?`<div class="wgate">✋ ${escq(st.gate_hint||st.gesture)}</div>`:''}
       ${choice?`<div class="wrow" style="flex-wrap:wrap">
         <button class="btn" onclick="claimQuest('Welcome Ambassador','the Welcome Lodge');endWalk(true)">⚑ Claim a first quest</button>
         <button class="btn" onclick="evRSVP('e1');endWalk(true)">✦ Join tonight’s feast</button>
