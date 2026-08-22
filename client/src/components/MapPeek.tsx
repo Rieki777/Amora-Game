@@ -72,7 +72,7 @@ export default function MapPeek() {
           </h2>
           <p className="text-muted-foreground max-w-xl mx-auto">
             Every building traces to something true: a funded build, a claimed quest, a
-            filled seat. Open the map and walk it.
+            filled role. Open the map and walk it.
           </p>
         </div>
 

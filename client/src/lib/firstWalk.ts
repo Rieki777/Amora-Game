@@ -75,9 +75,9 @@ export const WALK_STEPS: WalkStep[] = [
   {
     id: "find-open-seat",
     needs: ["map"],
-    title: "Find a seat nobody holds",
+    title: "Find a role nobody holds",
     todo: "The dashed circles on the map are open calls. Click one.",
-    teaches: "The map shows the shape of the village and the gaps in it, so an empty seat is an invitation.",
+    teaches: "The map shows the shape of the village and the gaps in it, so an open role is an invitation.",
     href: "/map",
     cta: "Open the map",
   },

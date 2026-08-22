@@ -184,7 +184,7 @@ export default function Circles() {
               members: heldBy.length
                 ? Array.from(new Set(heldBy)).join(", ")
                 : seats.length
-                  ? `${seats.length} seat${seats.length === 1 ? "" : "s"}, none held yet`
+                  ? `${seats.length} role${seats.length === 1 ? "" : "s"}, none held yet`
                   : "",
             } as CircleEntry;
           }),
@@ -218,7 +218,7 @@ export default function Circles() {
               The team organizes in circles, each with a clear domain, real authority within it, and a double link back to the General Coordinating Circle. Circles collaborate, and we win together.
             </p>
             <Link href="/roles" className="inline-flex items-center gap-2 px-6 py-3 bg-sage text-white rounded-lg hover:bg-sage/90 transition-colors font-medium">
-              View Roles & Open Seats
+              View Open Roles
               <ArrowRight className="w-4 h-4" />
             </Link>
           </motion.div>

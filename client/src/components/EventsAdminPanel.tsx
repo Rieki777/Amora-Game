@@ -652,7 +652,7 @@ export default function EventsAdminPanel({ password }: { password: string }) {
           <h3 className="font-semibold text-gray-900 mb-1">The weekly brief</h3>
           <p className="text-sm text-gray-500 mb-4">
             Once a week, on the evening you pick here in village time, every member gets one digest: arrivals
-            and departures, meals and gatherings, the moon and the season, open seats, new quests. Written by a
+            and departures, meals and gatherings, the moon and the season, open roles, new quests. Written by a
             template from the village's own records, no AI spend, and each member can turn theirs off.
           </p>
           <div className="flex items-end gap-3 flex-wrap">

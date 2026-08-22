@@ -93,7 +93,7 @@ export function VisionGhosts({ layout, drafts }: { layout: NestedLayout; drafts:
           <text x={g.x} y={g.y + 3} textAnchor="middle" fontSize={9} className="fill-teal-deep pointer-events-none">
             +
           </text>
-          <title>{`${g.label}: a seat this vision would create`}</title>
+          <title>{`${g.label}: a role this vision would create`}</title>
         </g>
       ))}
     </g>

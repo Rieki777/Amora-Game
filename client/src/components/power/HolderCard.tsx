@@ -123,7 +123,7 @@ export default function HolderCard({
 
       <div className="text-xs text-muted-foreground space-y-1 mb-3">
         <p>
-          {seat.holderCount} of {seat.seats} seat{seat.seats === 1 ? "" : "s"} held
+          {seat.holderCount} of {seat.seats} held
           {term && <span className="ml-2 text-amber-700">{term}</span>}
         </p>
         {howChosenLine && <p>Next holder: {howChosenLine.toLowerCase()}</p>}
@@ -153,7 +153,7 @@ export default function HolderCard({
               type="button"
               onClick={() => onPickPerson?.(h.userId ?? h.name ?? "", h.name)}
               className="flex items-center gap-1.5 text-xs bg-muted text-foreground pl-1 pr-2 py-1 rounded-full hover:bg-muted/70"
-              aria-label={`Show every seat ${h.name ?? "this person"} holds`}
+              aria-label={`Show every role ${h.name ?? "this person"} holds`}
             >
               {h.avatar ? (
                 <img src={h.avatar} alt="" className="w-5 h-5 rounded-full object-cover" />
@@ -179,7 +179,7 @@ export default function HolderCard({
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={3}
-              placeholder="Why this seat calls to you (optional)"
+              placeholder="Why this role calls to you (optional)"
               className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background"
             />
             <div className="flex gap-2">
@@ -197,7 +197,7 @@ export default function HolderCard({
             onClick={() => setRaising(true)}
             className="inline-flex items-center gap-2 text-sm bg-amber/90 text-teal-deep rounded-lg px-4 py-2 font-semibold"
           >
-            <Hand className="w-4 h-4" aria-hidden="true" /> This seat is open, raise your hand
+            <Hand className="w-4 h-4" aria-hidden="true" /> This role is open, raise your hand
           </button>
         )
       ) : contactable && data.viewer.viewPeople ? (

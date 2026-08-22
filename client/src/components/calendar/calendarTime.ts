@@ -261,7 +261,7 @@ export function kindLabel(kind: CalendarItem["kind"]): string {
     case "season": return "Season";
     case "sky": return "Sky";
     case "cycle-mark": return "Cycle";
-    case "seat-term": return "Seat";
+    case "seat-term": return "Role";
     case "call": return "Call";
     case "loan-due": return "Loan due";
     case "notice-end": return "Notice";

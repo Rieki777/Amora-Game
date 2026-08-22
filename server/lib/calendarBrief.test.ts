@@ -50,7 +50,10 @@ describe("renderWeeklyBrief (pure)", () => {
     expect(mixed!.text).toContain("Fix the pump");
     expect(mixed!.text).toContain("Openings for you");
     expect(mixed!.text).not.toContain("sky");
-    expect(mixed!.text).not.toContain("Open seats");
+    // The malformed openSeats section must be DROPPED. This heading is the
+    // one renderWeeklyBrief prints for a well-formed section (renamed from
+    // "Open seats" in the R5 copy pass), so the assertion stays load-bearing.
+    expect(mixed!.text).not.toContain("Open roles");
     expect(mixed!.html).toContain("<h3");
   });
 

@@ -96,7 +96,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/introductions": "Introductions",
   "/feed": "Village feed",
   "/map": "Village map",
-  "/map/circles": "Circles and seats",
+  "/map/circles": "Circles and roles",
   "/events": "What is on",
   "/first-walk": "Meet your village",
   "/stay": "Stays",

@@ -356,7 +356,7 @@ function Suggestions({
     <section className="rounded-xl border border-border bg-card p-4 space-y-3">
       <h2 className="font-display text-lg font-bold text-foreground">You could offer</h2>
       <p className="text-xs text-muted-foreground">
-        Drawn from your skills, seats, badges and finished quests. Nothing is posted unless you confirm it.
+        Drawn from your skills, roles, badges and finished quests. Nothing is posted unless you confirm it.
       </p>
       <ul className="space-y-2">
         {suggestions.map((s) => (

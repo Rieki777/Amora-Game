@@ -45,7 +45,7 @@ type Draft = { id: string; kind: string; payload: { eventId: string; status: str
 
 const SCOPE_WORDS: Record<string, string> = {
   "calendar.read": "read the calendar",
-  "directory.read": "read circles, seats and the people you may already see",
+  "directory.read": "read circles, roles and the people you may already see",
   "me.read": "read your own profile and your RSVPs",
   "rsvp.write": "answer a gathering, after your yes",
   "intents.write": "post what you seek or offer, after your yes",

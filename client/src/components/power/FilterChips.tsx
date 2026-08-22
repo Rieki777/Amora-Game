@@ -47,8 +47,8 @@ export default function FilterChips({
 }) {
   return (
     <div className="flex items-center gap-1.5 flex-wrap" data-power-filters role="group" aria-label="Filters">
-      <Chip on={filters.open} label="Open seats" onToggle={() => onChange({ ...filters, open: !filters.open })} />
-      {signedIn && <Chip on={filters.mine} label="My seats" onToggle={() => onChange({ ...filters, mine: !filters.mine })} />}
+      <Chip on={filters.open} label="Open roles" onToggle={() => onChange({ ...filters, open: !filters.open })} />
+      {signedIn && <Chip on={filters.mine} label="My roles" onToggle={() => onChange({ ...filters, mine: !filters.mine })} />}
       <Chip on={filters.expiring} label="Ending soon" onToggle={() => onChange({ ...filters, expiring: !filters.expiring })} />
       <label className="text-xs text-muted-foreground flex items-center gap-1">
         <span className="sr-only">One circle</span>

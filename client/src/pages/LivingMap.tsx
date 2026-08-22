@@ -617,7 +617,7 @@ export default function LivingMap() {
             present here.
           </p>
           <p className="text-muted-foreground">
-            The village's circles and seats are on the{" "}
+            The village's circles and roles are on the{" "}
             <a href="/map/circles" className="underline underline-offset-2 hover:text-foreground">
               org view
             </a>

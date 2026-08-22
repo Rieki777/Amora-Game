@@ -58,7 +58,7 @@ const ICONS: Record<string, React.ElementType> = {
 
 const statusBadge: Record<RoleStatus, { label: string; className: string }> = {
   filled: { label: "Filled", className: "bg-sage/15 text-sage border border-sage/30" },
-  open: { label: "Open Seat", className: "bg-amber/15 text-amber-700 border border-amber/40" },
+  open: { label: "Open Role", className: "bg-amber/15 text-amber-700 border border-amber/40" },
   forming: { label: "Forming", className: "bg-teal/15 text-teal-deep border border-teal/30" },
   partial: { label: "Partially Filled", className: "bg-gold/20 text-amber-800 border border-gold/40" },
 };
@@ -202,7 +202,7 @@ export default function Roles() {
             id: String(r.id ?? `role-${i}`),
             name: String(r.name ?? "Untitled role"),
             circleId: r.circleId ?? null,
-            group: String(circleById.get(r.circleId)?.name ?? "Unplaced seats"),
+            group: String(circleById.get(r.circleId)?.name ?? "Unplaced roles"),
             status: normalizeStatus(r.state),
             holders: (r.holders ?? []).map((h: any) => h.name).filter(Boolean),
             holderNote: (r.holders ?? []).map((h: any) => h.note).filter(Boolean).join(" "),

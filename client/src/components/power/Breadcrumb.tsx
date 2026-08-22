@@ -37,8 +37,8 @@ export default function Breadcrumb({
 }) {
   const chain = ancestorChain(circles, focusId);
   const filterWords = [
-    filters.open ? "open seats" : null,
-    filters.mine ? "my seats" : null,
+    filters.open ? "open roles" : null,
+    filters.mine ? "my roles" : null,
     filters.expiring ? "ending soon" : null,
     filters.person ? "one person" : null,
     filters.circle ? "one circle" : null,
