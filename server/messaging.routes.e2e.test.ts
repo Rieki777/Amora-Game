@@ -57,6 +57,7 @@ let pool: mysql.Pool;
 let founderToken = "";
 let anaToken = "";
 let anaId = "";
+let benToken = "";
 let benId = "";
 /** Deliberately never advanced: the capability refusal needs a fresh member. */
 let caraToken = "";
@@ -153,6 +154,7 @@ beforeAll(async () => {
   anaToken = ana.token;
   anaId = ana.id;
   const ben = await register("Ben Cole", "ben");
+  benToken = ben.token;
   benId = ben.id;
   const cara = await register("Cara Diaz", "cara");
   caraToken = cara.token;
@@ -385,5 +387,111 @@ describe.skipIf(!DB_CONFIGURED)("messaging routes: the gate and the 404 posture"
     const back = await call("GET", "/api/messages", undefined, anaToken);
     expect(back.status).toBe(200);
     expect(back.json?.conversations?.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * A REPORT ON A PRIVATE MESSAGE REACHES A HUMAN.
+   *
+   * The flag button, the store, the queue and the resolution have all existed
+   * since messaging shipped, and the last two had no caller in the client: a
+   * member reporting harassment got a success path into nothing. This pins the
+   * whole run, end to end, and pins the two limits the Admin queue is built
+   * around, because a later change that widened either of them would make the
+   * surface show a moderator more of a private conversation than the report is
+   * about.
+   */
+  it("carries a report on a private message to a moderator and back", async () => {
+    const opened = await call("POST", "/api/messages/direct", { userId: benId }, anaToken);
+    expect(opened.status).toBe(200);
+    const id = String(opened.json?.id);
+
+    const line = await call("POST", `/api/messages/${id}/messages`, { body: "you should not be here" }, benToken);
+    expect(line.status, "Ben can write in his own direct thread").toBe(200);
+    const messageId = String(line.json?.id);
+
+    const flagged = await call(
+      "POST",
+      `/api/messages/${id}/messages/${messageId}/report`,
+      { reason: "This has happened three times now." },
+      anaToken,
+    );
+    expect(flagged.status).toBe(200);
+    expect(flagged.json?.fresh, "the first flag is a new report").toBe(true);
+    // Once per person per message. The second press is accepted and stores
+    // nothing, so a member pressing twice never doubles the queue.
+    const twice = await call(
+      "POST",
+      `/api/messages/${id}/messages/${messageId}/report`,
+      { reason: "still happening" },
+      anaToken,
+    );
+    expect(twice.status).toBe(200);
+    expect(twice.json?.fresh).toBe(false);
+
+    // The queue is admin only. A member who can read the conversation still
+    // cannot read the moderation view of it.
+    expect((await call("GET", "/api/admin/messages/reports", undefined, anaToken)).status).toBe(401);
+
+    const queue = await call("GET", "/api/admin/messages/reports");
+    expect(queue.status).toBe(200);
+    const mine = (queue.json ?? []).filter((r: any) => r.messageId === messageId);
+    expect(mine, "one report, however many times it was pressed").toHaveLength(1);
+    const report = mine[0];
+    expect(report.body).toBe("you should not be here");
+    expect(report.reason).toBe("This has happened three times now.");
+    expect(report.reporter).toBe("Ana Ruiz");
+    expect(report.status).toBe("open");
+    expect(report.conversationKind).toBe("direct");
+    expect(report.deleted).toBe(false);
+
+    // THE TWO LIMITS THE ADMIN QUEUE IS BUILT AROUND.
+    //
+    // The author is an id and never a name, and the payload carries no other
+    // line from the thread. A moderator judges the reported message, and a
+    // private conversation stays private around it. Asserting the SHAPE, so
+    // a later widening of the payload fails here and gets argued about.
+    expect(report.authorId).toBe(benId);
+    expect(Object.keys(report).sort()).toEqual([
+      "at", "authorId", "body", "conversationId", "conversationKind", "conversationName",
+      "deleted", "id", "messageId", "reason", "reporter", "status",
+    ]);
+    // A direct thread has no name to carry, which is what keeps the queue
+    // from printing the two people in it.
+    expect(report.conversationName).toBeNull();
+
+    // Resolving: admin only, one of two words, and exactly once.
+    expect((await call("PUT", `/api/admin/messages/reports/${report.id}`, { status: "resolved" }, anaToken)).status).toBe(401);
+    expect((await call("PUT", `/api/admin/messages/reports/${report.id}`, { status: "ignored" })).status).toBe(400);
+    expect((await call("PUT", `/api/admin/messages/reports/${report.id}`, { status: "resolved" })).status).toBe(200);
+    // Pressed again it finds no OPEN report and says so. The queue hides its
+    // buttons on a handled card for exactly this reason.
+    expect((await call("PUT", `/api/admin/messages/reports/${report.id}`, { status: "resolved" })).status).toBe(404);
+
+    const open = await call("GET", "/api/admin/messages/reports?status=open");
+    expect((open.json ?? []).some((r: any) => r.id === report.id)).toBe(false);
+    const resolved = await call("GET", "/api/admin/messages/reports?status=resolved");
+    expect((resolved.json ?? []).some((r: any) => r.id === report.id)).toBe(true);
+    // An unknown status word reads as `open` instead of leaking another tab.
+    const junk = await call("GET", "/api/admin/messages/reports?status=everything");
+    expect((junk.json ?? []).some((r: any) => r.id === report.id)).toBe(false);
+  });
+
+  it("shows a moderator a tombstone when the author deleted the line first", async () => {
+    // The race a moderation queue always loses: the author takes the message
+    // down before anyone reads the report. The row survives, the body does
+    // not, and the queue has to say which of the two happened.
+    const opened = await call("POST", "/api/messages/direct", { userId: benId }, anaToken);
+    const id = String(opened.json?.id);
+    const line = await call("POST", `/api/messages/${id}/messages`, { body: "said in anger" }, benToken);
+    const messageId = String(line.json?.id);
+    expect((await call("POST", `/api/messages/${id}/messages/${messageId}/report`, { reason: "cruel" }, anaToken)).status).toBe(200);
+    expect((await call("DELETE", `/api/messages/${id}/messages/${messageId}`, undefined, benToken)).status).toBe(200);
+
+    const queue = await call("GET", "/api/admin/messages/reports");
+    const report = (queue.json ?? []).find((r: any) => r.messageId === messageId);
+    expect(report, "a report outlives the message it is about").toBeTruthy();
+    expect(report.deleted).toBe(true);
+    expect(report.body, "a tombstone carries no text").toBe("");
+    expect(report.reason, "the reporter's words are all that is left").toBe("cruel");
   });
 });

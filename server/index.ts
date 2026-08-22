@@ -18942,6 +18942,109 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
   });
 
   /**
+   * The pool's configuration, judged before anything settles. Returns the
+   * refusal in plain words, or null when the pool is safe to release.
+   *
+   * One function, two readers: the close fails loud on it, and the preview
+   * below prints it. When these were two copies an admin could only learn
+   * about a misconfigured pool by pressing the button that releases value,
+   * which is the one moment a surprise is least welcome.
+   */
+  function cyclePoolProblem(poolSize: number, poolToken: string): string | null {
+    if (!(poolSize > 0)) return null;
+    const def = tokenDef(poolToken);
+    if (!def) return `gratitude.pool_token "${poolToken}" is not a registered token`;
+    if (def.governance !== "platform") {
+      return `${poolToken} is ${def.governance}-governed and cannot be minted by the pool`;
+    }
+    if (poolToken === "gratitude") {
+      return "The pool cannot pay the recognition token itself: recognition is the signal, the pool is the value";
+    }
+    return null;
+  }
+
+  /**
+   * What a close would settle, read before anyone presses it.
+   *
+   * Settlement releases value and is deliberately a human act
+   * (server/lib/scheduler.ts), so the human has to be able to read the
+   * settlement first: which finished lunations are still unsettled, who would
+   * be credited, and what each share of the pool comes to. Reads only, writes
+   * nothing.
+   *
+   * It splits with the SAME pure functions the close uses, from the same
+   * eligibility set, so the preview and the deed cannot drift apart.
+   *
+   * A lunation a previous close already persisted a split for is shown FROM
+   * that persisted split, because the sticky-split rule below means a retry
+   * pays from what was persisted. Recomputing it here would show an admin
+   * numbers the button will not honour.
+   *
+   * Names are first names, exactly what the public settlement report already
+   * carries. No emails, no ids.
+   */
+  app.get("/api/admin/cycles/pending", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const poolSize = numberVar("gratitude.pool_per_cycle") as number;
+    const poolToken = String(stringVar("gratitude.pool_token"));
+
+    const cycles: CycleRecord[] = await cyclesRepo.all();
+    const entries: any[] = await gratitudeRepo.all();
+    const dists: DistributionRecord[] = await distributionsRepo.all();
+    const allMembers = await members.all();
+    const nameOf = (id: string) => firstName(allMembers.find((u: any) => u.id === id)?.name ?? "Member");
+    const eligible = await eligibleSenderIds();
+
+    const due = dueCycles(cycles, entries, new Date()).map((cycle) => {
+      const persisted = dists.filter((d) => d.cycleId === cycle.id);
+      const totals = settleCycle(entries, cycle.id, eligible);
+      const totalEligible = totals.reduce((n, t) => n + t.receivedEligible, 0);
+      const shares = persisted.length > 0
+        ? persisted.map((d) => ({
+            name: nameOf(d.userId),
+            received: Number(d.received) || 0,
+            distinctSenders: Number(d.distinctSenders) || 0,
+            credited: Number(d.credited ?? 0),
+          }))
+        : totals.map((t) => ({
+            name: nameOf(t.userId),
+            received: t.received,
+            distinctSenders: t.distinctSenders,
+            credited: poolSize > 0 && totalEligible > 0
+              ? Math.floor((t.receivedEligible / totalEligible) * poolSize)
+              : 0,
+          }));
+      return {
+        id: cycle.id,
+        cycleNumber: cycle.cycleNumber,
+        startsAt: cycle.startsAt,
+        endsAt: cycle.endsAt,
+        recipients: shares.length,
+        received: shares.reduce((n, s) => n + s.received, 0),
+        credited: shares.reduce((n, s) => n + s.credited, 0),
+        // The token a persisted split was priced in beats the current
+        // setting: that is the one the retry will actually pay.
+        token: persisted.find((d) => d.poolToken)?.poolToken ?? poolToken,
+        fromPersistedSplit: persisted.length > 0,
+        shares: shares.sort((a, b) => b.credited - a.credited || b.received - a.received),
+      };
+    });
+
+    // No copy of the open lunation here on purpose: `GET /api/game/cycle`
+    // already answers that, with the moon phase, and a desk reading two
+    // sources for one fact is a desk waiting to disagree with itself.
+    res.json({
+      pool: {
+        size: poolSize,
+        token: poolToken,
+        tokenName: tokenDef(poolToken)?.name ?? poolToken,
+        problem: cyclePoolProblem(poolSize, poolToken),
+      },
+      due,
+    });
+  });
+
+  /**
    * Close every finished lunation that is not yet settled. Explicitly admin
    * triggered rather than a timer, keeping regen-civics' operating rule that
    * nothing mutates on a schedule (its cron deliberately does NOT close
@@ -18967,20 +19070,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
      */
     const poolSize = numberVar("gratitude.pool_per_cycle") as number;
     const poolToken = String(stringVar("gratitude.pool_token"));
-    if (poolSize > 0) {
-      // Fail loud BEFORE closing anything: a misconfigured pool should stop
-      // the admin here, not half-settle a lunation.
-      const def = tokenDef(poolToken);
-      if (!def) {
-        return res.status(400).json({ error: `gratitude.pool_token "${poolToken}" is not a registered token` });
-      }
-      if (def.governance !== "platform") {
-        return res.status(400).json({ error: `${poolToken} is ${def.governance}-governed and cannot be minted by the pool` });
-      }
-      if (poolToken === "gratitude") {
-        return res.status(400).json({ error: "The pool cannot pay the recognition token itself: recognition is the signal, the pool is the value" });
-      }
-    }
+    // Fail loud BEFORE closing anything: a misconfigured pool should stop
+    // the admin here, not half-settle a lunation. Same judgement the preview
+    // above prints, so the desk warns about it before the press.
+    const poolProblem = cyclePoolProblem(poolSize, poolToken);
+    if (poolProblem) return res.status(400).json({ error: poolProblem });
 
     const cycles: CycleRecord[] = await cyclesRepo.all();
     const entries: any[] = await gratitudeRepo.all();

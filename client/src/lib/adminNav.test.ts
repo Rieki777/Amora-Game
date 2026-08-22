@@ -80,7 +80,35 @@ describe("adminNav", () => {
     expect(TAB_MODULE["intents-admin"]).toBe("introductions");
   });
 
-  it("the mapping is exactly the ruled thirteen", () => {
+  it("hides the DM report queue while messaging is off, and shows it when it is on", () => {
+    // The queue reads /api/admin/messages/reports, which mounts behind
+    // requireModule("messaging"): with the module off the tab would load a
+    // module_disabled body and render an empty queue over live reports.
+    const withGroups = [
+      ...groups,
+      { title: "Reports", items: [{ key: "message-reports", label: "Message Reports" }] },
+    ];
+    const hidden = filterNavByModules(withGroups, {} as Record<string, ModuleLifecycle>);
+    expect(hidden.flatMap((g) => g.items.map((i) => i.key))).not.toContain("message-reports");
+
+    const shown = filterNavByModules(withGroups, { messaging: "members" } as Record<string, ModuleLifecycle>);
+    const item = shown.flatMap((g) => g.items).find((i) => i.key === "message-reports");
+    expect(item?.badge).toBe("members");
+  });
+
+  it("leaves the settlement desk unmapped, because gratitude is core", () => {
+    // Cycle close hangs off /api/admin/cycles, which is behind no
+    // requireModule: gratitude is one of the four core modules and cannot be
+    // switched off, so a mapping here would be a gate that never opens.
+    expect(TAB_MODULE["cycles"]).toBeUndefined();
+    const out = filterNavByModules(
+      [{ title: "The Game", items: [{ key: "cycles", label: "Cycle Close" }] }],
+      {} as Record<string, ModuleLifecycle>,
+    );
+    expect(out[0].items.map((i) => i.key)).toEqual(["cycles"]);
+  });
+
+  it("the mapping is exactly the ruled fourteen", () => {
     expect(TAB_MODULE).toEqual({
       "circles-map": "map",
       "events-admin": "events",
@@ -93,6 +121,7 @@ describe("adminNav", () => {
       "calls-admin": "automation",
       products: "commerce",
       "forum-moderation": "forum",
+      "message-reports": "messaging",
       "resources-admin": "resources",
       "intents-admin": "introductions",
     });

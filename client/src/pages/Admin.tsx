@@ -1,8 +1,16 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen, ToggleLeft } from "lucide-react";
+import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, MessageSquare, Moon, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen, ToggleLeft } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { linesToList, listToLines } from "@/lib/questBoard";
+import {
+  CLOSE_CONSEQUENCES, closeReport, settlementBlocked, settlementIntent,
+  type OpenCycle, type PendingSettlement,
+} from "@/lib/settlement";
+import {
+  canAct, DISCLOSURE_NOTE, emptyQueueLine, reportedLine, reportPlace,
+  type MessageReport, type ReportStatus,
+} from "@/lib/messageReports";
 import { ALL_CAPABILITIES } from "@shared/capabilities";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
@@ -228,6 +236,150 @@ function ForumModerationTab({ password }: { password: string }) {
 }
 
 /**
+ * Direct-message reports, which went into a void.
+ *
+ * Members have always been able to flag a line in a private conversation
+ * (`Messages.tsx`), the server has always stored it, and the queue that reads
+ * those rows plus the route that resolves one have had no caller anywhere in
+ * the client. So somebody reporting harassment got a success path into
+ * nothing, and the platform never told them otherwise.
+ *
+ * Built to match the forum queue above on purpose: the same status chips, the
+ * same card, the same two verbs. A moderator learns one pattern.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT SHOW. Private correspondence is the whole
+ * difference from the forum queue. The server hands over one message body and
+ * the thread it sat in, and that is all this renders: no surrounding lines, no
+ * author name, no link into the conversation. A direct thread is never named,
+ * because its name is the two people in it. The card says so out loud, so a
+ * moderator knows they are judging one line and not a thread.
+ */
+function MessageReportsTab({ password }: { password: string }) {
+  const [status, setStatus] = useState<ReportStatus>("open");
+  const [reports, setReports] = useState<MessageReport[] | null>(null);
+  const [busy, setBusy] = useState<string>("");
+
+  const load = useCallback(() => {
+    setReports(null);
+    fetch(`${API_BASE}/admin/messages/reports?status=${status}`, { headers: authHeaders(password) })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => setReports(Array.isArray(rows) ? rows : []))
+      .catch(() => setReports([]));
+  }, [password, status]);
+  useEffect(load, [load]);
+
+  const resolve = async (id: string, next: "resolved" | "dismissed", okMsg: string) => {
+    setBusy(id);
+    try {
+      const res = await fetch(`${API_BASE}/admin/messages/reports/${id}`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ status: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(refusal(data, "That report could not be updated."));
+      toast.success(okMsg);
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || "That report could not be updated.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-display font-bold text-gray-900">Message Reports</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Lines members have flagged inside private conversations. {DISCLOSURE_NOTE}
+        </p>
+      </div>
+
+      <div className="flex gap-2">
+        {(["open", "resolved", "dismissed"] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatus(s)}
+            aria-pressed={status === s}
+            className={`text-sm rounded-lg px-3 py-1.5 border capitalize transition-colors ${
+              status === s
+                ? "bg-[#2D5A5A] text-white border-[#2D5A5A]"
+                : "bg-white text-gray-600 border-gray-200 hover:border-[#2D5A5A]/40"
+            }`}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {reports === null && <p className="text-sm text-gray-400">Loading…</p>}
+      {reports?.length === 0 && (
+        <p className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-xl p-6">
+          {emptyQueueLine(status)}
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {(reports ?? []).map((r) => {
+          const line = reportedLine(r);
+          return (
+            <div key={r.id} className="bg-white border border-gray-100 rounded-xl p-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="font-medium text-gray-900 break-words">{reportPlace(r)}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Reported by {r.reporter} · {new Date(r.at).toLocaleDateString()}
+                  </p>
+                </div>
+                {r.deleted && (
+                  <span className="text-xs font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-full px-2.5 py-1 shrink-0">
+                    Deleted by its author
+                  </span>
+                )}
+              </div>
+
+              <blockquote
+                className={`mt-3 border-l-2 pl-3 text-sm break-words ${
+                  line.present ? "border-gray-300 text-gray-800" : "border-gray-200 text-gray-500 italic"
+                }`}
+              >
+                {line.text}
+              </blockquote>
+
+              {r.reason && (
+                <p className="text-sm text-gray-600 mt-2 break-words">
+                  Why they flagged it: "{r.reason}"
+                </p>
+              )}
+
+              {canAct(r) && (
+                <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-50">
+                  <button
+                    disabled={busy === r.id}
+                    onClick={() => void resolve(r.id, "resolved", "Marked handled")}
+                    className="text-xs text-[#2D5A5A] border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-40"
+                  >
+                    Handled
+                  </button>
+                  <button
+                    disabled={busy === r.id}
+                    onClick={() => void resolve(r.id, "dismissed", "Dismissed")}
+                    className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-40"
+                  >
+                    Nothing wrong here
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
  * The admin nav, as data.
  *
  * It used to be ~11k characters of hand-copied <button> blocks, which is why
@@ -253,6 +405,9 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         { key: "submissions", label: "All Forms", icon: Inbox },
         { key: "feedback", label: "Feedback", icon: HelpCircle },
         { key: "forum-moderation", label: "Moderation", icon: Users2 },
+        // Beside the forum queue on purpose: the same job, the same card, and
+        // the two are the only places a flag from a member ever lands.
+        { key: "message-reports", label: "Message Reports", icon: MessageSquare },
         { key: "products", label: "Payments", icon: Handshake },
       ],
     },
@@ -315,6 +470,10 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         { key: "intents-admin", label: "Introductions", icon: Handshake },
         { key: "tokens", label: "Tokens", icon: Coins },
         { key: "ledger", label: "Ledger", icon: BarChart3 },
+        // With the other economy desks, and after the Ledger on purpose: this
+        // is the one admin act that releases value, so it sits where a founder
+        // has just been reading what the ledger holds.
+        { key: "cycles", label: "Cycle Close", icon: Moon },
         { key: "variables", label: "Game Mechanics", icon: Activity },
         { key: "season", label: "Season", icon: Circle },
       ],
@@ -7694,6 +7853,299 @@ function TokensTab({ password }: { password: string }) {
   );
 }
 
+// ── Cycle close: settlement, which is a human act ────────────────────────────
+
+/**
+ * THE SETTLEMENT DESK, which had no surface at all.
+ *
+ * `POST /api/admin/cycles/close` shipped with the lunar economy and has had
+ * no caller anywhere in the client since, so the only way to settle a
+ * lunation was curl. Everything that runs at close was unreachable with it:
+ * the value pool, the health snapshot that can only ever be taken at the
+ * boundary, the earned-badge re-evaluation, and every governance proposal
+ * whose author was told it applies at the next cycle close. Meanwhile the
+ * member's dashboard counts down to a moment nobody could reach.
+ *
+ * No timer may press this (`server/lib/scheduler.ts`): settlement releases
+ * value and is deliberately a human act. So the desk reads the settlement out
+ * first, asks once in plain words, and then reports what actually happened,
+ * which includes reporting a second press as the nothing that it is.
+ */
+function CyclesTab({ password }: { password: string }) {
+  const [openCycle, setOpenCycle] = useState<OpenCycle | null>(null);
+  const [pending, setPending] = useState<PendingSettlement | null>(null);
+  const [history, setHistory] = useState<any[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [confirming, setConfirming] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [outcome, setOutcome] = useState<{ settled: boolean; headline: string; lines: string[] } | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Three reads, one desk: what is open now, what a close would settle,
+      // and what every past settlement came to.
+      const [cycle, preview, dists] = await Promise.all([
+        fetch(`${API_BASE}/game/cycle`).then((r) => (r.ok ? r.json() : null)),
+        fetch(`${API_BASE}/admin/cycles/pending`, { headers: authHeaders(password) })
+          .then((r) => (r.ok ? r.json() : null)),
+        fetch(`${API_BASE}/game/cycle/distributions`).then((r) => (r.ok ? r.json() : [])),
+      ]);
+      setOpenCycle(cycle);
+      setPending(preview);
+      setHistory(Array.isArray(dists) ? dists : []);
+    } catch {
+      setPending(null);
+    }
+    setLoading(false);
+  }, [password]);
+  useEffect(() => { void load(); }, [load]);
+
+  const day = (iso: string | undefined) => (iso ? new Date(iso).toLocaleDateString() : "");
+  const intent = settlementIntent(pending);
+  const blocked = settlementBlocked(pending);
+  const due = pending?.due ?? [];
+  const poolName = pending?.pool.tokenName ?? "";
+
+  const settle = async () => {
+    setClosing(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/cycles/close`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(refusal(data, "The close was refused."));
+      // The server's own answer decides the words. A 200 carrying `closed: 0`
+      // is the double press, and it must never read as a settlement.
+      setOutcome(closeReport(data, poolName || String(pending?.pool.token ?? "")));
+      setConfirming(false);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || "The close was refused.");
+    } finally {
+      setClosing(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Cycle Close</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Settling a lunation records what the village acknowledged and releases the
+            value pool that follows it. A person does this, never a timer, so read the
+            settlement below before you press anything.
+          </p>
+        </div>
+        <button
+          onClick={() => void load()}
+          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 text-gray-600 hover:bg-gray-50 shrink-0"
+        >
+          Re-read
+        </button>
+      </div>
+
+      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
+        <div className="space-y-6">
+          {outcome && (
+            <div className={`rounded-xl border px-4 py-3 ${outcome.settled ? "border-emerald-200 bg-emerald-50" : "border-gray-200 bg-gray-50"}`}>
+              <p className={`font-semibold ${outcome.settled ? "text-emerald-900" : "text-gray-800"}`}>{outcome.headline}</p>
+              <ul className="mt-1 space-y-0.5">
+                {outcome.lines.map((line, i) => (
+                  <li key={i} className={`text-sm ${outcome.settled ? "text-emerald-800" : "text-gray-600"}`}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="border border-gray-200 rounded-xl p-4">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">The open lunation</p>
+              {openCycle ? (
+                <>
+                  <p className="text-lg font-semibold text-gray-900 mt-1">Lunation {openCycle.cycleNumber}</p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Opened {day(openCycle.startsAt)}, closes {day(openCycle.endsAt)}.
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    {openCycle.daysRemaining} {openCycle.daysRemaining === 1 ? "day" : "days"} left.
+                    {openCycle.moonPhaseName ? ` The moon is ${String(openCycle.moonPhaseName).toLowerCase()}.` : ""}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-2">
+                    A lunation settles once it has ended. This one is still running.
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-500 mt-1">The open lunation could not be read.</p>
+              )}
+            </div>
+
+            <div className="border border-gray-200 rounded-xl p-4">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">The value pool</p>
+              {pending ? (
+                <>
+                  <p className="text-lg font-semibold text-gray-900 mt-1">
+                    {pending.pool.size.toLocaleString()} {pending.pool.tokenName}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Split across everyone acknowledged that lunation, in proportion to what
+                    they received. Set by gratitude.pool_per_cycle in Game Mechanics.
+                  </p>
+                  {pending.pool.problem && (
+                    <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2">
+                      {pending.pool.problem}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-red-600 mt-1">The settlement preview could not be read.</p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="font-semibold text-gray-900 mb-2">What a close would settle</h3>
+            {due.length === 0 ? (
+              <p className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-xl p-6">
+                Nothing is due. Every finished lunation is already settled.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {due.map((c) => (
+                  <div key={c.id} className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="px-4 py-2.5 bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="font-medium text-gray-900">Lunation {c.cycleNumber}</p>
+                      <p className="text-xs text-gray-500">
+                        {day(c.startsAt)} to {day(c.endsAt)} · {c.recipients} {c.recipients === 1 ? "member" : "members"} · {c.credited.toLocaleString()} {c.token}
+                      </p>
+                    </div>
+                    {c.fromPersistedSplit && (
+                      <p className="text-xs text-amber-800 bg-amber-50 border-b border-amber-200 px-4 py-2">
+                        An earlier close already wrote this split. A retry pays from that record,
+                        and anything already paid pays once.
+                      </p>
+                    )}
+                    <table className="w-full text-sm">
+                      <thead className="text-left text-xs text-gray-500">
+                        <tr className="border-t border-gray-100">
+                          <th className="px-4 py-2">Member</th>
+                          <th className="px-4 py-2">Received</th>
+                          <th className="px-4 py-2">From</th>
+                          <th className="px-4 py-2">Would be credited</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {c.shares.map((s, i) => (
+                          <tr key={`${c.id}-${i}`} className="border-t border-gray-100">
+                            <td className="px-4 py-2 text-gray-900">{s.name}</td>
+                            <td className="px-4 py-2 text-gray-600">{s.received}</td>
+                            <td className="px-4 py-2 text-gray-600">
+                              {s.distinctSenders} {s.distinctSenders === 1 ? "person" : "people"}
+                            </td>
+                            <td className="px-4 py-2 text-gray-900">{s.credited.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        {c.shares.length === 0 && (
+                          <tr className="border-t border-gray-100">
+                            <td colSpan={4} className="px-4 py-3 text-gray-500">
+                              Nobody was acknowledged in this lunation. Closing it only moves the clock on.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {confirming ? (
+            <div className="border-2 border-[#2D5A5A] rounded-xl p-4 bg-white">
+              <p className="font-semibold text-gray-900">Close what is due</p>
+              <ul className="mt-2 space-y-1">
+                {intent.map((line, i) => (
+                  <li key={i} className="text-sm text-gray-700">{line}</li>
+                ))}
+              </ul>
+              <p className="text-xs text-gray-500 uppercase tracking-wide mt-4">And this happens with it</p>
+              <ul className="mt-1 space-y-1 list-disc ml-5">
+                {CLOSE_CONSEQUENCES.map((line) => (
+                  <li key={line} className="text-sm text-gray-600">{line}</li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap gap-2 mt-4">
+                <button
+                  disabled={closing || blocked}
+                  onClick={() => void settle()}
+                  className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 hover:bg-[#234747] disabled:opacity-40"
+                >
+                  {closing ? "Settling..." : "Yes, settle it"}
+                </button>
+                <button
+                  disabled={closing}
+                  onClick={() => setConfirming(false)}
+                  className="text-sm border border-gray-200 text-gray-600 rounded-lg px-4 py-2 hover:bg-gray-50 disabled:opacity-40"
+                >
+                  Not yet
+                </button>
+              </div>
+              {blocked && (
+                <p className="text-xs text-red-700 mt-2">
+                  Fix the pool setting in Game Mechanics first. The server refuses this close.
+                </p>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => { setOutcome(null); setConfirming(true); }}
+              disabled={!pending}
+              className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 hover:bg-[#234747] disabled:opacity-40"
+            >
+              Close what is due
+            </button>
+          )}
+
+          <div>
+            <h3 className="font-semibold text-gray-900 mb-2">Settlements on record</h3>
+            {(history ?? []).length === 0 ? (
+              <p className="text-sm text-gray-500">No lunation has been settled yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {(history ?? []).slice(0, 6).map((c: any) => (
+                  <div key={c.id} className="border border-gray-200 rounded-xl px-4 py-3">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="font-medium text-gray-900">Lunation {c.cycleNumber}</p>
+                      <p className="text-xs text-gray-500">Closed {day(c.closedAt)}</p>
+                    </div>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {(c.totals ?? []).length} {(c.totals ?? []).length === 1 ? "member" : "members"} acknowledged
+                      {(c.totals ?? []).some((t: any) => t.credited > 0)
+                        ? `, ${(c.totals ?? []).reduce((n: number, t: any) => n + (Number(t.credited) || 0), 0).toLocaleString()} released`
+                        : ""}
+                      .
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1 break-words">
+                      {(c.totals ?? []).map((t: any) => `${t.name} ${t.received}`).join(" · ")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-gray-400 mt-3">
+              This is the report the founders carry to Hypha, where the project's real
+              value is governed. It is public, and it carries first names only.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Ledger reconciliation (S9): the invariants, on demand ────────────────────
 
 function LedgerTab({ password }: { password: string }) {
@@ -9247,6 +9699,7 @@ export default function Admin() {
           {activeTab === "integrations" && <IntegrationsTab password={password} />}
           {activeTab === "feedback" && <FeedbackAdminTab password={password} />}
           {activeTab === "forum-moderation" && <ForumModerationTab password={password} />}
+          {activeTab === "message-reports" && <MessageReportsTab password={password} />}
           {activeTab === "products" && <ProductsAdminTab password={password} />}
           {activeTab === "investor-vault" && <InvestorVaultTab password={password} />}
           {activeTab === "training-modules" && <TrainingModulesTab password={password} />}
@@ -9273,6 +9726,7 @@ export default function Admin() {
           {activeTab === "intents-admin" && <IntentsAdminTab password={password} />}
           {activeTab === "tokens" && <TokensTab password={password} />}
           {activeTab === "ledger" && <LedgerTab password={password} />}
+          {activeTab === "cycles" && <CyclesTab password={password} />}
           {activeTab === "variables" && <VariablesTab password={password} />}
           {activeTab === "season" && <SeasonTab password={password} />}
           {activeTab === "settings" && <SettingsTab password={password} />}
