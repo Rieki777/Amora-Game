@@ -1199,7 +1199,49 @@ const ok = (c, n) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fails++
   /* D1.4 — the non-gesture path. SC 2.5.1 Pointer Gestures is Level A and its
      Understanding document's worked example is a map with plus/minus buttons;
      SC 2.5.7 adds the pan and rules out keyboard-only equivalence in as many
-     words. This is conformance, not polish. */
+     words. This is conformance, not polish.
+
+     THE CLUSTER NOW HAS TWO STATES, and this block asserts both. D1.2 above
+     drove real pans and real pinches through trusted touch input, which is the
+     demonstration that folds the controls down into their seed, so this arrives
+     with them already folded. That ordering is load-bearing rather than lucky:
+     it is the only place in this suite where the fold can be observed happening
+     for the reason it is supposed to happen.
+
+     A FOLDED CONTROL IS ONE TAP AWAY. A HIDDEN ONE IS A REGRESSION. So the seed
+     is held to the same bar as the six it opens: a real button, 44 px, named,
+     and reachable from the keyboard while folded. Then it is opened, and every
+     assertion this gate has always made about the six runs unchanged. */
+  const seed0 = await ppage.evaluate(() => {
+    const s = document.getElementById('pnSeed'), box = document.getElementById('pnav');
+    const body = document.getElementById('pnavCtl');
+    if (!s || !box || !body) return { there: false, folded: false, tag: '', w: 0, h: 0, name: '', focusable: false };
+    const r = s.getBoundingClientRect();
+    return {
+      there: true, tag: s.tagName, w: r.width, h: r.height,
+      name: (s.getAttribute('aria-label') || '').trim(),
+      expanded: s.getAttribute('aria-expanded'),
+      folded: box.classList.contains('folded') || box.classList.contains('fold'),
+      focusable: s.tagName === 'BUTTON' && !s.disabled,
+    };
+  });
+  ok(seed0.there && seed0.folded,
+    `D1.4: panning and pinching fold the cluster down into its seed (${seed0.there ? (seed0.folded ? 'folded' : 'still open') : 'no seed'})`);
+  ok(seed0.tag === 'BUTTON' && seed0.w >= 44 && seed0.h >= 44 && !!seed0.name && seed0.focusable,
+    `D1.4: and the seed is a real 44 px control with a name (${Math.round(seed0.w)}x${Math.round(seed0.h)}, "${seed0.name}")`);
+  await ppage.focus('#pnSeed').catch(() => {});
+  const seedFocus = await ppage.evaluate(() => document.activeElement && document.activeElement.id);
+  ok(seedFocus === 'pnSeed', `D1.4: the seed takes keyboard focus while folded (${seedFocus || 'nothing focused'})`);
+  await ppage.click('#pnSeed').catch(() => {});
+  await ppage.waitForTimeout(800);
+  const seed1 = await ppage.evaluate(() => ({
+    folded: document.getElementById('pnav').classList.contains('folded'),
+    expanded: document.getElementById('pnSeed').getAttribute('aria-expanded'),
+    shown: getComputedStyle(document.getElementById('pnavCtl')).display !== 'none',
+  }));
+  ok(!seed1.folded && seed1.shown && seed1.expanded === 'true',
+    `D1.4: tapping it blooms the controls back (folded=${seed1.folded}, aria-expanded=${seed1.expanded})`);
+
   const pnav = await ppage.evaluate(() => {
     const ids = ['pnIn', 'pnOut', 'pnUp', 'pnDown', 'pnLeft', 'pnRight'];
     const missing = ids.filter(i => !document.getElementById(i));

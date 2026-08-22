@@ -40,7 +40,7 @@
  */
 import Layout from "@/components/Layout";
 import ModuleGate from "@/components/modules/ModuleGate";
-import { ArrowLeft } from "lucide-react";
+import { DoorOpen } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -87,6 +87,29 @@ async function probeGrounds(): Promise<{ presence: Presence; url: string }> {
   }
 }
 
+/**
+ * THE ARTIFACT'S OWN PROFILE TEST, COPIED EXACTLY.
+ *
+ * The artifact decides between its pocket and desk layouts with
+ * `('ontouchstart' in window) && Math.min(innerWidth, innerHeight) < 820`, with
+ * a `#hud=pocket` or `#hud=desk` hash overriding it (grounds-v0.html, the
+ * `HUD_PROFILE` block). The shell and the artifact share one window, so the
+ * shell can evaluate the identical expression and reach the identical answer
+ * without a handshake to get out of step with.
+ *
+ * It decides ONE thing: whether the artifact is drawing the exit door itself,
+ * in its own bottom bar. When it is, the shell draws none, because two doors
+ * with one name is what this whole change is undoing. If the answer is ever
+ * wrong it errs toward the shell drawing one, which is the safe direction: an
+ * extra escape is untidy and no escape strands somebody.
+ */
+function pocketProfile(): boolean {
+  if (typeof window === "undefined") return false;
+  const forced = /hud=(pocket|desk)/.exec(window.location.hash || "");
+  if (forced) return forced[1] === "pocket";
+  return "ontouchstart" in window && Math.min(window.innerWidth, window.innerHeight) < 820;
+}
+
 export default function LivingMap() {
   const modules = useModules();
   const mapModule = useModule("map");
@@ -95,6 +118,20 @@ export default function LivingMap() {
   const [presence, setPresence] = useState<Presence>("checking");
   /** The URL the manifest names, hashed and immutable where available. */
   const [groundsUrl, setGroundsUrl] = useState<string>(GROUNDS);
+  /** Whether the artifact is carrying the exit door itself. See pocketProfile. */
+  const [pocket, setPocket] = useState<boolean>(pocketProfile);
+
+  useEffect(() => {
+    const read = () => setPocket(pocketProfile());
+    window.addEventListener("resize", read);
+    window.addEventListener("orientationchange", read);
+    window.addEventListener("hashchange", read);
+    return () => {
+      window.removeEventListener("resize", read);
+      window.removeEventListener("orientationchange", read);
+      window.removeEventListener("hashchange", read);
+    };
+  }, []);
 
   /**
    * The hash the map opens on, captured once. Reading it during render on
@@ -609,26 +646,35 @@ export default function LivingMap() {
   return (
     <div className="fixed inset-0 z-50 h-[100dvh] w-screen overflow-hidden bg-background">
       {/*
-       * THE WAY OUT, drawn by the SHELL.
+       * THE DOOR OUT, drawn by the SHELL, and only where the artifact has none.
        *
-       * App mode hands the whole viewport to a four-megabyte artifact this
-       * file does not own and may not edit. The artifact carries its own exit
-       * controls, but they are laid out for a desk: on a phone they render
-       * off-screen, so a visitor arriving from the top nav or the landing hero
-       * had no in-app way back at all. The browser gesture is not a substitute,
-       * because a pannable canvas can swallow the swipe (round-2 QA, V-H2).
+       * App mode hands the whole viewport to a five-megabyte artifact. On a
+       * phone the artifact's own exit controls used to render off-screen, so
+       * this button existed to give app mode any way out at all. Two things
+       * about it were wrong and the founder found both.
        *
-       * So the escape lives OUT here, above the frame, where no artifact
-       * layout can push it off-screen and no artifact rewrite can remove it.
-       * It runs `exitApp`, the same single path the browser Back button and
-       * the artifact's own `{type:'exit'}` message run, so the three cannot
-       * disagree about what leaving means.
+       * IT WAS PARKED ON THE BUILD BUTTON. It sat at top-left, 44px down and
+       * 12px in; the artifact's `#buildBtn` sits at top:52px left:14px. Those
+       * are the same corner, and because the shell is its own stacking context
+       * this button's `z-10` beat the artifact's `z-index:33` whatever the
+       * numbers said. A founder who could edit the map could not reach the
+       * control that lets him. The same overlay also covered a place panel.
        *
-       * The offsets are measured, not guessed. The artifact's own top strip
-       * (`#vitals`) is 35px tall at 390 and at 1280, so 44px clears it at every
-       * viewport; `max()` against the safe-area inset means a notched phone
-       * pushes the control further down rather than tucking it under the
-       * notch. The floor is a literal rather than the inset alone because some
+       * IT WAS CALLED "Back to the village". The map IS the village, so that
+       * described leaving as arriving. The artifact's pocket drawer has always
+       * called `exitMap()` "Leave the map", and that is now the only name this
+       * door has in either file.
+       *
+       * SO IT MOVED TO THE BOTTOM, which clears the top-left corner outright
+       * and puts an escape in the half of a phone a thumb can reach. On the
+       * pocket profile the artifact now carries the door itself, as a cell in
+       * its own bottom bar, so this one stands down entirely rather than
+       * shipping two doors with one name. On a desk the artifact makes room:
+       * `body.embed` lifts `#minimapWrap` and the build bar's floor out of the
+       * bottom-left corner, because the artifact is the only thing that knows
+       * where the artifact's chrome is.
+       *
+       * `max()` against the safe-area insets with a literal floor, because some
        * iOS cases report the inset as 0 (the same trap MobileFab documents).
        *
        * `z-10` reads oddly next to the shell's `z-50` and is correct: the
@@ -638,19 +684,19 @@ export default function LivingMap() {
        * Not rendered in the `absent` branch, which already offers this exact
        * way out inline and would otherwise carry two controls with one name.
        */}
-      {presence !== "absent" && (
+      {presence !== "absent" && !pocket && (
         <button
           type="button"
           onClick={exitApp}
-          aria-label="Back to the village"
-          className="fixed z-10 inline-flex items-center gap-2 min-h-[44px] min-w-[44px] px-4 py-2 text-sm rounded-lg border border-border bg-background/95 text-foreground shadow-sm backdrop-blur-sm hover:bg-muted"
+          aria-label="Leave the map"
+          className="fixed z-10 inline-flex items-center gap-2 min-h-[44px] min-w-[44px] px-4 py-2 text-sm rounded-lg border border-border bg-background/95 text-foreground shadow-sm backdrop-blur-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           style={{
-            top: "max(env(safe-area-inset-top, 0px), 44px)",
+            bottom: "max(env(safe-area-inset-bottom, 0px), 12px)",
             left: "max(env(safe-area-inset-left, 0px), 12px)",
           }}
         >
-          <ArrowLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
-          Back to the village
+          <DoorOpen className="w-4 h-4 shrink-0" aria-hidden="true" />
+          Leave the map
         </button>
       )}
 
