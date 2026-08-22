@@ -414,10 +414,13 @@ delivery is an explicit dispatch step after a fresh insert, never a side
 effect; preferences are one typed, junk-tolerant model
 (`resolveNotifyPrefs`). `DAILY_EMAIL_CAP = 20` per rolling 24 h — over the
 cap the in-app row still exists, only the email drops. Cadence per type
-(`emailCadenceFor`, 69–96): quests/roles/mentions/replies immediate by
-preference, gratitude/stage daily, `thread_activity` in-app only,
-`payments_alert` and `restorative_intake` always immediate, unknown types
-in-app only. The daily digest job batches unread, never-emailed rows from
+(`emailCadenceFor`; read the switch, the line numbers here drifted twice):
+quests/roles/mentions/replies immediate by preference, gratitude/stage/
+`feedback` daily, `thread_activity` in-app only, `payments_alert`,
+`restorative_intake`, `moderation` and `submission_status` always immediate,
+unknown types in-app only. `quest_submitted` rides the member's quest
+preference, because work arriving for consent is the same conversation as
+consent read from the steward's side. The daily digest job batches unread, never-emailed rows from
 the last 3 days. `emailed_at` is stamped even when the provider quietly
 declined — a late retry email surprises more than a missed one. Tombstones
 and claim-pending accounts (no `passwordHash`) get no email.
