@@ -40,7 +40,7 @@
  */
 import Layout from "@/components/Layout";
 import ModuleGate from "@/components/modules/ModuleGate";
-import { DoorOpen } from "lucide-react";
+import { DoorOpen, Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -131,6 +131,93 @@ export default function LivingMap() {
       window.removeEventListener("orientationchange", read);
       window.removeEventListener("hashchange", read);
     };
+  }, []);
+
+  /**
+   * THE ZOOM THE MAP DOES NOT OWN.
+   *
+   * The artifact has its own pan and its own pinch, and both are its business.
+   * What strands a person is the BROWSER's page zoom sitting on top of them:
+   * `client/index.html` ships `maximum-scale=5`, so a pinch that misses the
+   * canvas scales the whole document instead, and the map's own gestures then
+   * move a picture that is already magnified. Nothing inside the iframe can
+   * see that, let alone undo it: `visualViewport` describes the top-level
+   * page, and the artifact is not the top-level page. So the shell watches it.
+   *
+   * 1.05 and not 1: `visualViewport.scale` reports fractional values on a
+   * device-pixel-ratio boundary and during the settle after an orientation
+   * change, and a control that blinks on at 1.0001 is noise. A person who has
+   * genuinely zoomed is well past five per cent.
+   *
+   * `scroll` as well as `resize`, because panning WITHIN a zoomed page fires
+   * only scroll, and the control has to keep its place on the glass.
+   */
+  const [zoom, setZoom] = useState<{ scale: number; left: number; top: number }>(
+    { scale: 1, left: 0, top: 0 },
+  );
+
+  useEffect(() => {
+    const vv = typeof window === "undefined" ? null : window.visualViewport;
+    if (!vv) return;
+    let raf = 0;
+    const read = () => {
+      raf = 0;
+      setZoom({ scale: vv.scale, left: vv.offsetLeft, top: vv.offsetTop });
+    };
+    /* One read per frame. A pinch reports at the rate of the hardware and this
+       sets React state; without the frame gate a two-finger gesture schedules
+       a render per touch sample. */
+    const on = () => { if (!raf) raf = requestAnimationFrame(read); };
+    read();
+    vv.addEventListener("resize", on);
+    vv.addEventListener("scroll", on);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      vv.removeEventListener("resize", on);
+      vv.removeEventListener("scroll", on);
+    };
+  }, []);
+
+  /**
+   * Put the page back to life size, and SAY SO WHEN THE BROWSER REFUSES.
+   *
+   * There is no API that sets `visualViewport.scale`. The one technique that
+   * exists is to pin `maximum-scale=1` for a moment, which makes the current
+   * zoom illegal so the engine drops it, then put the original back.
+   *
+   * IT DOES NOT WORK EVERYWHERE, AND THIS WAS MEASURED RATHER THAN ASSUMED.
+   * Driven at 390x844 with a genuine `Input.synthesizePinchGesture` to scale
+   * 3, four variants of the technique were tried and every one left the page
+   * at 3: restoring on the next frame, holding `maximum-scale=1` for 350 ms,
+   * adding `user-scalable=no`, replacing the whole meta element, and scrolling
+   * to the origin first. It is documented to work on iOS Safari and it
+   * provably does not work on this engine.
+   *
+   * So the button TRIES, and if the scale has not come down 600 ms later it
+   * stops claiming and tells the person the gesture that will. A control that
+   * silently does nothing is worse than no control, and the founder's
+   * complaint here was being stranded without knowing why.
+   *
+   * THE RESTORE IS NOT TIDINESS. Leaving `maximum-scale=1` in place would take
+   * pinch zoom away from the whole site permanently, which is what WCAG 1.4.4
+   * exists to stop, and it would take it from the people who need it most. It
+   * is restored on a timer that runs whatever else happens.
+   */
+  const [zoomStuck, setZoomStuck] = useState(false);
+
+  const resetZoom = useCallback(() => {
+    const meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) return;
+    const original = meta.getAttribute("content") || "";
+    meta.setAttribute(
+      "content",
+      "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover",
+    );
+    window.setTimeout(() => meta.setAttribute("content", original), 350);
+    window.setTimeout(() => {
+      const vv = window.visualViewport;
+      setZoomStuck(!!vv && vv.scale > 1.05);
+    }, 600);
   }, []);
 
   /**
@@ -697,6 +784,46 @@ export default function LivingMap() {
         >
           <DoorOpen className="w-4 h-4 shrink-0" aria-hidden="true" />
           Leave the map
+        </button>
+      )}
+
+      {/*
+        * RESET VIEW, and it appears only when there is something to reset.
+        *
+        * The map owns its own pan and its own pinch. This answers the zoom the
+        * map does not own and cannot see: the browser magnifying the whole
+        * page underneath it, which leaves a person dragging a picture that is
+        * already blown up with no way back that is theirs to find.
+        *
+        * PINNED TO THE VISUAL VIEWPORT, NOT THE LAYOUT ONE. `position:fixed`
+        * is fixed to the LAYOUT viewport, so on a zoomed page it sits wherever
+        * the layout put it, which is frequently off the glass. Offsetting by
+        * `offsetLeft`/`offsetTop` puts it on the part of the page a person can
+        * actually see, and the counter-scale keeps it the same physical size
+        * as the zoom climbs instead of growing into a slab.
+        *
+        * `top`, because the artifact owns the bottom of a phone: #pbar is its
+        * bar, and the merged panel now hinges off the same edge.
+        */}
+      {presence === "present" && zoom.scale > 1.05 && (
+        <button
+          type="button"
+          onClick={resetZoom}
+          aria-label={zoomStuck ? "Pinch the page to put it back" : "Reset view"}
+          className="fixed z-20 inline-flex items-center gap-2 min-h-[44px] px-4 py-2 text-sm rounded-full border border-border bg-background/95 text-foreground shadow-md backdrop-blur-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          style={{
+            left: `${zoom.left + 12}px`,
+            top: `${zoom.top + 12}px`,
+            /* Counter-scaled so it stays the size it was drawn at instead of
+               growing into a slab as the zoom climbs. Its LAYOUT box shrinks
+               and its physical size on the glass does not, which is the size a
+               thumb is measured against. */
+            transform: `scale(${1 / zoom.scale})`,
+            transformOrigin: "top left",
+          }}
+        >
+          <Minimize2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+          {zoomStuck ? "Pinch to put the page back" : "Reset view"}
         </button>
       )}
 
