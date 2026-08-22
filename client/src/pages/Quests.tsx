@@ -190,8 +190,7 @@ export default function Quests() {
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-4">
               Quests are how you contribute to the village and earn {currencyName}, our
               way of acknowledging every contribution. Every quest builds
-              relationships, regenerates the land, and grows the community's
-              collective score.
+              relationships, regenerates the land, and grows the village.
             </p>
             <ExamplesBanner moduleId="quests" noun="quest" />
             <p className="text-sm text-muted-foreground mb-8">
