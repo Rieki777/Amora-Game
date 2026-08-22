@@ -94,6 +94,12 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
       return p.gratitudeEmail;
     case "quest_consented":
     case "quest_declined":
+    // Work arriving for consent is the same conversation as consent itself,
+    // read from the steward's side, so it rides the same preference and needs
+    // no new knob. The default is IMMEDIATE, which is the point: this is the
+    // step the whole loop stalls on, and a digest tomorrow means a member who
+    // finished work today waits a day for anyone to know.
+    case "quest_submitted":
       return p.questsEmail;
     case "role_appointed":
     // A mandate running out is the same conversation as being appointed to it,
@@ -118,6 +124,17 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
       return "off"; // the relay already sent its own email with Reply-To
     case "stage_advanced":
       return "daily"; // fixed: celebratory, never urgent
+    // Triage on a bug or an idea a member sent in. Welcome news, never
+    // urgent news: the member is not blocked on hearing it, and a village
+    // clearing a backlog of forty items in one sitting would otherwise send
+    // forty emails. The digest collapses that run into one line each.
+    case "feedback":
+      return "daily";
+    // A decision on something the member applied for, offered, or raised a
+    // hand for. Immediate on purpose: this is the answer they have been
+    // waiting weeks for, and it only ever fires on a real transition.
+    case "submission_status":
+      return "immediate";
     case "payments_alert":
       return "immediate"; // ops: sig-fails and disputes cannot wait for a digest
     case "restorative_intake":

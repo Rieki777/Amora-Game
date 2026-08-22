@@ -970,6 +970,10 @@ function SubmissionsTab({ password }: { password: string }) {
       const data = await res.json();
       if (!res.ok) throw new Error();
       if (data.rewarded) toast.success("Accepted. The member was welcomed into the game.");
+      // Whether the person who sent this heard about the move. Members hear;
+      // a public form filled in by a stranger has no account to reach, and a
+      // founder who knows which is which can pick up the phone.
+      else if (data.notified) toast.success("Status updated. The person who sent it has been told.");
       else toast.success("Status updated");
       load();
     } catch { toast.error("Could not update status"); }
@@ -9504,8 +9508,13 @@ function FeedbackAdminTab({ password }: { password: string }) {
       headers: authHeaders(password, { "Content-Type": "application/json" }),
       body: JSON.stringify({ status }),
     });
-    if (res.ok) load();
-    else toast.error("Could not update");
+    if (!res.ok) return toast.error("Could not update");
+    // A member who reported something now hears about the move. Items from
+    // the public form carry no account, so those stay quiet, and the founder
+    // can see which happened.
+    const data = await res.json().catch(() => ({}));
+    if (data?.notified) toast.success("Saved. The member who reported it has been told.");
+    load();
   };
 
   const STATUSES = ["new", "seen", "planned", "done", "declined"];

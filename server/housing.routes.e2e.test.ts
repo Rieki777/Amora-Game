@@ -796,6 +796,74 @@ describe.skipIf(!DB_CONFIGURED)("housing routes: the guards nothing was testing"
     expect((await call("PUT", `/api/housing/reservations/${one.id}/status`, { body: { status: "contacted" } })).status).toBe(200);
   });
 
+  it("writes to the person when their request moves, and only when it moves", async () => {
+    /*
+     * SWEEP (the incomplete loop). This route called setReservationStatus and
+     * answered {ok:true}. The CREATE route two screens up had already promised
+     * this person that "someone from the founding team will read it and get in
+     * touch", and the moment that promise came due was the silent one.
+     *
+     * WHY EMAIL. The person who filled in the public form usually has no
+     * account: `user_id` is nullable and the form takes a name, an address and
+     * a phone number. The notify spine keys on a member id, so an in-app row
+     * would be one nobody can ever open. The create route already answers this
+     * family by email, so this follows it.
+     *
+     * WHAT STANDS IN FOR A DEDUPE KEY, since a raw send has none: only a real
+     * transition writes. RESEND_SKIP counts the sends, and `notified` is the
+     * same fact said back to the founder's panel.
+     */
+    const askEmail = `moves-${PORT}@example.test`;
+    const made = await call("POST", "/api/housing/reservations", {
+      body: { homeType: "casita", name: "Rowan Ask", email: askEmail, structureKey: "moveKey" },
+      token: null,
+      ip: "10.6.0.1",
+    });
+    expect(made.status).toBe(200);
+    await settle(1200); // let the create route's own sends land and be counted
+
+    // `contacted` is a founder recording a conversation they already had.
+    // A letter saying "we have contacted you" arrives after the human one it
+    // describes, so this move stays quiet.
+    const quiet = resendAttempts();
+    const contacted = await call("PUT", `/api/housing/reservations/${made.json.id}/status`, { body: { status: "contacted" } });
+    expect(contacted.status).toBe(200);
+    expect(contacted.json.notified, "a founder's own filing is not news").toBe(false);
+    await settle(600);
+    expect(resendAttempts() - quiet, "nothing was sent").toBe(0);
+
+    // Holding a home for somebody is the thing they have been waiting on.
+    const beforeHold = resendAttempts();
+    const reserved = await call("PUT", `/api/housing/reservations/${made.json.id}/status`, { body: { status: "reserved" } });
+    expect(reserved.status).toBe(200);
+    expect(reserved.json.notified, "a home held for you reaches you").toBe(true);
+    await waitUntil("the reserved letter to leave", () => resendAttempts() - beforeHold >= 1);
+    await settle(400);
+    expect(resendAttempts() - beforeHold, "one letter, to the person who asked").toBe(1);
+
+    // Re-selecting the status a row already holds is a mis-click. It answers
+    // 200 (the reservation plainly exists, which the old affectedRows check
+    // reported as 404) and sends nothing.
+    const beforeRepeat = resendAttempts();
+    const repeat = await call("PUT", `/api/housing/reservations/${made.json.id}/status`, { body: { status: "reserved" } });
+    expect(repeat.status, "an unchanged status is not a missing reservation").toBe(200);
+    expect(repeat.json.notified).toBe(false);
+    await settle(600);
+    expect(resendAttempts() - beforeRepeat, "one letter per move, however many times the dropdown fires").toBe(0);
+
+    // Closing a request reaches them too: silence there reads as a home still
+    // on the way.
+    const beforeClose = resendAttempts();
+    const withdrawn = await call("PUT", `/api/housing/reservations/${made.json.id}/status`, { body: { status: "withdrawn" } });
+    expect(withdrawn.json.notified).toBe(true);
+    await waitUntil("the closing letter to leave", () => resendAttempts() - beforeClose >= 1);
+    await settle(400);
+    expect(resendAttempts() - beforeClose).toBe(1);
+
+    // And a reservation that does not exist is still a 404.
+    expect((await call("PUT", "/api/housing/reservations/hres-ghost/status", { body: { status: "reserved" } })).status).toBe(404);
+  });
+
   it("counts a home against a hamlet only once someone is actually reserved", async () => {
     /*
      * Only `reserved` consumes a home, so an unanswered enquiry never

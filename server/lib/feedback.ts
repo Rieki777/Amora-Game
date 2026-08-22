@@ -36,6 +36,53 @@ export function feedbackFingerprint(kind: string, title: string, detail: string)
   return createHash("sha256").update(normalized).digest("hex").slice(0, 40);
 }
 
+/**
+ * WHAT A MEMBER HEARS WHEN THEIR BUG OR IDEA IS TRIAGED.
+ *
+ * Pure, so the judgement is testable without a database. Null means say
+ * nothing, which is what `new` means: it is where every item starts, and
+ * moving one back to it is a founder correcting their own filing.
+ *
+ * `seen`, `planned`, `done` and `declined` are the queue's labels, and none
+ * of the four words below is one of them. A member reported a broken thing;
+ * they are owed a sentence in their own language about their own report,
+ * never a status code from somebody's admin panel.
+ *
+ * `declined` is written plainly and kindly. A village that quietly drops
+ * ideas teaches members to stop sending them, and a soft non-answer costs
+ * more trust than a clear no.
+ */
+export function feedbackStatusNotice(
+  status: string,
+  kind: string,
+): { headline: string; line: string } | null {
+  const thing = kind === "idea" ? "idea" : "report";
+  switch (status) {
+    case "seen":
+      return {
+        headline: `Someone read your ${thing}`,
+        line: `A steward has your ${thing} in hand. Nothing is promised yet, and it is no longer sitting unopened.`,
+      };
+    case "planned":
+      return {
+        headline: kind === "idea" ? "Your idea is on the list to build" : "Your report is on the list to fix",
+        line: "It has a place in the work now. There is no date on it yet.",
+      };
+    case "done":
+      return {
+        headline: kind === "idea" ? "Your idea has been built" : "What you reported has been fixed",
+        line: "Have a look, and send it back in if it is still wrong.",
+      };
+    case "declined":
+      return {
+        headline: `We are leaving your ${thing} where it is`,
+        line: "A steward read it and decided against taking it forward for now. Thank you for sending it, and please keep sending them.",
+      };
+    default:
+      return null;
+  }
+}
+
 export async function recordFeedback(
   pool: Pool,
   input: FeedbackInput,

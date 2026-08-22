@@ -58,6 +58,8 @@ import {
   listReservations,
   publicEntries as housingPublicEntries,
   readAvailabilityPatch,
+  reservationById,
+  reservationStatusNotice,
   setAvailability as setHousingAvailability,
   setReservationStatus,
 } from "./lib/housing";
@@ -400,7 +402,8 @@ import {
   signDocument,
   signingKey,
 } from "./lib/villageExport";
-import { recordFeedback, relayFeedback } from "./lib/feedback";
+import { feedbackStatusNotice, recordFeedback, relayFeedback } from "./lib/feedback";
+import { submissionStatusNotice } from "./lib/submissionNotices";
 import { addPeer, discoverPeer, peerSharedItems, SHARED_ITEM_TYPES, syncPeers } from "./lib/network";
 import {
   campaignKey,
@@ -3120,6 +3123,39 @@ async function notifyAdmins(type: string, title: string, dedupeKey: string, link
   for (const a of admins) {
     await notify({ userId: a.id, type, title, link, dedupeKey: `${dedupeKey}:${a.id}` });
   }
+}
+
+/**
+ * Everyone who may consent to finished quest work.
+ *
+ * Decided by THE ONE GATE, exactly as `consentActor` decides it for the
+ * consent routes and as `GET /api/admin/quest-claims` decides who may read
+ * the queue. Anything narrower would ring a set of people who differ from the
+ * set who can act, and the whole reason `quest.consent` exists as a
+ * capability is that a village should not need its founder awake to release
+ * recognition.
+ *
+ * Cost: admins short-circuit before any query, so a village whose only
+ * consenters are its founders pays nothing. Everyone else costs the same two
+ * reads `capabilityCtx` costs on any authenticated request, and a quest is
+ * submitted at human pace. One member's gate blowing up must never stop the
+ * rest hearing, so each is tried on its own.
+ */
+async function questConsentRecipients(): Promise<string[]> {
+  const out: string[] = [];
+  for (const m of await members.all()) {
+    if (!m?.id) continue;
+    if (m.role === "admin" || m.role === "founder") {
+      out.push(m.id);
+      continue;
+    }
+    try {
+      if (hasCapability("quest.consent", await capabilityCtx(m))) out.push(m.id);
+    } catch (e) {
+      console.error("[quests] could not read the consent gate for a member", e);
+    }
+  }
+  return out;
 }
 
 /**
@@ -6078,6 +6114,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const idx = submissions.findIndex((s) => s.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
     const wasAccepted = submissions[idx].status === "accepted";
+    const before = String(submissions[idx].status ?? "");
     submissions[idx].status = status;
     let rewarded = false;
     if (status === "accepted" && !wasAccepted && submissions[idx].type === "work-with-us") {
@@ -6085,7 +6122,45 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       if (rewarded) submissions[idx].rewarded = true;
     }
     await submissionsRepo.replaceAll(submissions);
-    res.json({ success: true, rewarded });
+
+    /*
+     * SWEEP (the incomplete loop). This route moves an application, an offer
+     * of work, a proposed quest or a raised hand from one end of a pipeline
+     * to the other, and the person who sent it learned nothing. A raised hand
+     * could be accepted and the member find out by noticing their own name on
+     * the map.
+     *
+     * WHO IT REACHES. Only a submission carrying a member id. The public form
+     * takes these from strangers, whose row has an address and no account, so
+     * the honest reach of the notify spine here is members. Writing to a
+     * stranger's typed address is an email path with its own consent
+     * question, and it is named in the PR body instead of guessed at.
+     *
+     * WHAT IT SAYS. `submissionStatusNotice` holds the words, in the language
+     * of the thing they actually did. The pipeline's own vocabulary stays in
+     * the admin panel: nobody outside it should have to learn that their
+     * offer to hold a seat is now "in-conversation".
+     *
+     * THE KEY is (submission, status): one word per landing place, so a
+     * founder correcting a mis-click, or walking a row back and forward, does
+     * not tell the same person twice. Statuses nobody needs to hear about
+     * return null and ring nothing.
+     */
+    let notified = false;
+    const submitterId = submissions[idx].userId ? String(submissions[idx].userId) : "";
+    const notice = before === status ? null : submissionStatusNotice(String(submissions[idx].type ?? ""), status, submissions[idx].data);
+    if (submitterId && notice) {
+      await notify({
+        userId: submitterId,
+        type: "submission_status",
+        title: notice.headline,
+        body: notice.line,
+        link: "/profile",
+        dedupeKey: `submission:${String(submissions[idx].id)}:${status}`,
+      });
+      notified = true;
+    }
+    res.json({ success: true, rewarded, notified });
   });
 
   // Admin: Export Submissions as CSV
@@ -11798,9 +11873,51 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     if (!["new", "seen", "planned", "done", "declined"].includes(status)) {
       return res.status(400).json({ error: "unknown status" });
     }
-    const [r] = await getPool().query<any>("UPDATE feedback_items SET status = ? WHERE id = ?", [status, req.params.id]);
-    if (!(r as any).affectedRows) return res.status(404).json({ error: "no such item" });
-    res.json({ success: true });
+    /*
+     * SWEEP (the incomplete loop). Triage moved and the member who reported
+     * the problem was never told, so the honest answer to "did anyone see
+     * this?" was "open the admin panel and find out", which is exactly the
+     * door they do not have.
+     *
+     * Read first, for three reasons: to know WHO to write to, to know
+     * whether the status actually moved, and because MySQL counts CHANGED
+     * rows, so re-selecting the status an item already held reported zero
+     * affected rows and answered 404 for an item that plainly exists.
+     */
+    const [[before]] = await getPool().query<any[]>(
+      "SELECT id, kind, title, status, submitted_by FROM feedback_items WHERE id = ? LIMIT 1",
+      [req.params.id],
+    );
+    if (!before) return res.status(404).json({ error: "no such item" });
+    if (String(before.status) === status) return res.json({ success: true, notified: false });
+    await getPool().query("UPDATE feedback_items SET status = ? WHERE id = ?", [status, req.params.id]);
+
+    /*
+     * The public form takes feedback from strangers too, and `submitted_by`
+     * is null for those. There is no address on the row and no account to
+     * put a notification in, so an anonymous report stays anonymous.
+     *
+     * The key is (item, status): one word per item per landing place, so a
+     * founder who sets "planned" twice, or walks an item back and forward
+     * again, rings once. It says the member's OWN title back to them,
+     * because a village clearing a backlog produces a run of these and
+     * "your report" alone would not tell them which.
+     */
+    const notice = feedbackStatusNotice(status, String(before.kind ?? "bug"));
+    let notified = false;
+    if (before.submitted_by && notice) {
+      const title = String(before.title ?? "").slice(0, 120);
+      await notify({
+        userId: String(before.submitted_by),
+        type: "feedback",
+        title: `${notice.headline}: ${title}`,
+        body: notice.line,
+        link: "/profile",
+        dedupeKey: `feedback:${String(before.id)}:${status}`,
+      });
+      notified = true;
+    }
+    res.json({ success: true, notified });
   });
 
   /**
@@ -17205,9 +17322,75 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!isReservationStatus(status)) {
       return res.status(400).json({ error: "Unknown status" });
     }
-    const moved = await setReservationStatus(getPool(), String(req.params.id), status);
-    if (!moved) return res.status(404).json({ error: "No such reservation" });
-    res.json({ ok: true });
+    /*
+     * SWEEP (the incomplete loop). This route moved somebody's request for a
+     * home and told them nothing. The CREATE route two screens up promised
+     * them "someone from the founding team will read it and get in touch",
+     * and this is the moment that promise comes due.
+     *
+     * WHY A RAW EMAIL AND NOT THE NOTIFY SPINE. The spine keys on a member
+     * id, and the person who filled in the reservation form is usually not a
+     * member of anything yet: `housing_reservations.user_id` is nullable and
+     * the public form fills in a name, an email and a phone number. An
+     * in-app notification for somebody with no account is a row nobody can
+     * ever read. The create route already answers this family by email, so
+     * this follows it rather than opening a second pattern beside it.
+     *
+     * WHAT STANDS IN FOR A DEDUPE KEY. Reading the row FIRST and comparing:
+     * only a real transition sends, so a founder nudging the dropdown back
+     * and forth, or a double-fired change event, cannot mail the same person
+     * twice about the same move. It also repairs a quirk of the old shape:
+     * MySQL counts CHANGED rows, so re-selecting the status a row already
+     * held reported zero affected rows and this route answered 404 for a
+     * reservation that plainly exists.
+     */
+    const before = await reservationById(getPool(), String(req.params.id));
+    if (!before) return res.status(404).json({ error: "No such reservation" });
+    if (before.status === status) return res.json({ ok: true, notified: false });
+    // Compare-and-set on the status we read, so two founders moving the same
+    // row at the same moment cannot both believe they made the transition and
+    // both write to the person. The loser answers as a no-op.
+    if (!(await setReservationStatus(getPool(), before.id, status, before.status))) {
+      return res.json({ ok: true, notified: false });
+    }
+
+    // Asked before the hamlet lookup, because two of the four statuses say
+    // nothing and a silent move should cost no reads.
+    let notice = reservationStatusNotice(status, {
+      name: before.name,
+      homeType: before.homeType,
+      hamlet: null,
+    });
+    if (notice && before.structureKey) {
+      // The founder's own name for the hamlet, because somebody reading this
+      // on a phone knows "Ridge Hamlet North" and has no reason to recognise
+      // "ridgeA". Falls back to the key, exactly as the create route does.
+      const row = (await housingRows(getPool()).catch(() => []))
+        .find((r) => r.structureKey === before.structureKey);
+      notice = reservationStatusNotice(status, {
+        name: before.name,
+        homeType: before.homeType,
+        hamlet: row?.label || before.structureKey,
+      });
+    }
+    if (notice) {
+      void sendResendEmail({
+        to: [before.email],
+        subject: notice.subject,
+        html:
+          `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;background:#f9fafb;padding:24px;color:#1f2937">` +
+          `<div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">` +
+          `<div style="background:#2D5A5A;color:#fff;padding:22px 24px"><div style="font-size:20px;font-weight:700">${escapeHtml(notice.heading)}</div></div>` +
+          `<div style="padding:22px 24px;line-height:1.6">` +
+          notice.body.map((p) => `<p>${escapeHtml(p)}</p>`).join("") +
+          `<p style="color:#6b7280;font-size:13px;margin-top:20px">The team</p>` +
+          `</div></div></body></html>`,
+      }).catch((err) => console.error("[housing] reservation status email failed", err));
+    }
+    // The founder sees whether the applicant was written to. A status move
+    // that quietly mails somebody, and one that quietly does not, used to
+    // look identical from the panel.
+    res.json({ ok: true, notified: !!notice });
   });
 
   /**
@@ -18233,6 +18416,38 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       c.note = note ?? "";
       c.submittedAt = new Date().toISOString();
     });
+    /*
+     * SWEEP (the incomplete loop). The claim moved to `submitted` and the
+     * route returned. Nobody who can consent was told, so a member who
+     * finished work waited on a steward happening to open a panel, and the
+     * one step that releases value in this game is the step that stalled.
+     *
+     * KEYED ON THE CLAIM, suffixed per recipient: each consenter is summoned
+     * once for this piece of work, and a member who resubmits a corrected
+     * link (the route accepts a second submit on an already-submitted claim)
+     * does not ring the same steward again. The dedupe key is the guarantee,
+     * not the caller's care.
+     *
+     * The doer is skipped when they can consent themselves. Nobody needs
+     * summoning to work they just handed in.
+     *
+     * WHAT IT CARRIES: who and which quest, both of which the recipient can
+     * already read in the queue, and nothing the member wrote. The note and
+     * the artifact link are the member's own account of their work and belong
+     * behind the gate, not on a lock screen.
+     */
+    const questTitle = String(active.questTitle ?? "a quest");
+    for (const recipientId of await questConsentRecipients()) {
+      if (recipientId === user.id) continue;
+      await notify({
+        userId: recipientId,
+        type: "quest_submitted",
+        title: `${firstName(user.name)} submitted work on ${questTitle}`,
+        body: "Read what they did and consent when you are ready. Value moves when a steward says so.",
+        link: "/admin?tab=quest-claims",
+        dedupeKey: `quest-submission:${active.id}:${recipientId}`,
+      });
+    }
     res.json(updated);
   });
 
