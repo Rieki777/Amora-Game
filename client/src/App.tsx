@@ -245,6 +245,9 @@ const StewardRights = lazyPage(() => import("./pages/StewardRights"));
 const ResidentRights = lazyPage(() => import("./pages/ResidentRights"));
 const Training = lazyPage(() => import("./pages/Training"));
 const Governance = lazyPage(() => import("./pages/Governance"));
+const Decisions = lazyPage(() => import("./pages/Decisions"));
+const Decision = lazyPage(() => import("./pages/Decision"));
+const Propose = lazyPage(() => import("./pages/Propose"));
 const Visit = lazyPage(() => import("./pages/Visit"));
 const GratitudeWall = lazyPage(() => import("./pages/GratitudeWall"));
 const WorkWithUs = lazyPage(() => import("./pages/WorkWithUs"));
@@ -373,6 +376,14 @@ function Router() {
       <Route path="/resident-rights" component={ResidentRights} />
       <Route path="/training" component={Training} />
       <Route path="/governance" component={Governance} />
+      {/* The live surfaces sit BESIDE the explainer, never inside it: /governance
+          says how the village decides, /decisions shows what it is deciding.
+          The list route is declared before the detail route for the same reason
+          /profile/characters precedes /profile/:handle — wouter takes the first
+          match, and a :id above the list would swallow it. */}
+      <Route path="/decisions" component={Decisions} />
+      <Route path="/decisions/:id" component={Decision} />
+      <Route path="/propose" component={Propose} />
       <Route path="/visit" component={Visit} />
       <Route path="/gratitude" component={GratitudeWall} />
       <Route path="/work-with-us" component={WorkWithUs} />

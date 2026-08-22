@@ -157,6 +157,17 @@ import {
   weightTokenProblem,
   type WeightModeSnapshot,
 } from "./lib/governanceWeights";
+// Aliased on import: `server/lib/drafts.ts` (the assistant's draft-and-confirm
+// queue) already owns the bare names in this file, and two unrelated features
+// both called "drafts" is exactly the collision the design's own note warned
+// about when it named this module `proposalDrafts.ts`.
+import {
+  CONDUCTABLE_TYPES,
+  DRAFT_CAP,
+  deleteDraft as deleteProposalDraft,
+  draftsOf as proposalDraftsOf,
+  saveDraft as saveProposalDraft,
+} from "./lib/proposalDrafts";
 import {
   dialsForMethod,
   quorumPctOf,
@@ -20877,6 +20888,24 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const tallies = await talliesFor(pool, b.id);
     const votes = await votesFor(pool, b.id);
     const objections = b.method === "consent" ? await objectionsFor(pool, b.id) : [];
+    // The frozen roll, so a page can answer "who may vote" and not only "who
+    // did" (lane G2). Voted members are already in `votes`; these are the ones
+    // who have not spoken, which is what turns a quorum bar from a percentage
+    // into a list of people the village is still waiting on.
+    const [rollRows] = await pool.query<any[]>(
+      "SELECT e.user_id, e.weight FROM ballot_electorate e " +
+        "LEFT JOIN ballot_votes v ON v.ballot_id = e.ballot_id AND v.user_id = e.user_id " +
+        "WHERE e.ballot_id = ? AND v.user_id IS NULL ORDER BY e.weight DESC, e.user_id",
+      [b.id],
+    );
+    const myWeightRow = viewerId
+      ? (
+          await pool.query<any[]>("SELECT weight FROM ballot_electorate WHERE ballot_id = ? AND user_id = ?", [
+            b.id,
+            viewerId,
+          ])
+        )[0][0]
+      : null;
     const names = new Map<string, string>();
     const nameOf = async (id: string) => {
       if (!names.has(id)) {
@@ -20923,7 +20952,16 @@ Send an empty drafts array when you are still listening. A role payload is {name
           createdAt: o.createdAt,
         })),
       ),
+      // Who has not spoken yet, from the same frozen roll the weights come
+      // from. Silence is a fact about a live decision, so it is on the record
+      // beside the votes rather than left as a number to subtract.
+      silent: await Promise.all(
+        rollRows.map(async (r: any) => ({ name: await nameOf(String(r.user_id)), weight: Number(r.weight) })),
+      ),
       myVote: viewerId ? await voteOf(pool, b.id, viewerId) : null,
+      // The viewer's own frozen weight: null means they are outside this
+      // electorate, and 0 means they are inside it holding nothing.
+      myWeight: myWeightRow ? Number(myWeightRow.weight) : null,
     };
   }
 
@@ -21311,6 +21349,100 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const userId = String(req.query.userId ?? "").trim() || undefined;
     res.json(await weightHistory(getPool(), userId));
+  });
+
+  // ── The wizard's surfaces (round 5, lane G2) ──────────────────────────────
+  //
+  // Two reads and two writes, all inside requireModule("governance") with the
+  // rest of the engine: a member's own standing before they vote, and the
+  // server-side drafts that let a half-written proposal survive the browser
+  // that typed it.
+
+  /**
+   * MY standing, in my own words: whether I may vote, how much I weigh, and
+   * WHY I weigh that. Custom-mode weight is allocated power, so this answer
+   * carries the member's own slice of the append-only trail rather than
+   * leaving them to find their first name in the village-wide list.
+   */
+  app.get("/api/governance/standing", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const snapshot = weightModeNow();
+    const ctx = await capabilityCtx(user);
+    const eligible = hasCapability("ballot.vote", ctx);
+    const weights = await weightsFor(getPool(), [String(user.id)], snapshot);
+    const weight = weights.get(String(user.id)) ?? 0;
+    const tokenName = snapshot.token ? tokenDef(snapshot.token)?.name ?? snapshot.token : null;
+    const why =
+      snapshot.mode === "equal"
+        ? "Every member who may vote weighs the same here. One person, one vote."
+        : snapshot.mode === "token"
+          ? `Your weight is your balance of ${tokenName ?? "the village's chosen token"} at the moment a ballot opens, and it freezes there for that vote.`
+          : "The stewards allocate weight one member at a time, and every change carries a reason. Yours is below.";
+    res.json({
+      mode: snapshot.mode,
+      token: snapshot.token,
+      tokenName,
+      eligible,
+      weight,
+      why,
+      // The member's own history, never the village's: the village-wide trail
+      // already has its own route, and this one answers "why me".
+      history: snapshot.mode === "custom" ? await weightHistory(getPool(), String(user.id), 50) : [],
+    });
+  });
+
+  /**
+   * What the wizard may offer. The type step reads this rather than assuming,
+   * so a member never walks five steps toward a publish route that this
+   * deployment has not mounted yet.
+   */
+  app.get("/api/governance/wizard", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ctx = await capabilityCtx(user);
+    res.json({
+      conductable: CONDUCTABLE_TYPES,
+      draftCap: DRAFT_CAP,
+      supportThreshold: Math.max(0, numberVar("governance.proposal_support_threshold")),
+      // What happens after publish, so the review step can say it plainly
+      // instead of the wizard implying the vote starts on the button.
+      mayOpenBallot: hasCapability("proposal.open", ctx),
+    });
+  });
+
+  /** My unfinished proposals, most recently touched first. */
+  app.get("/api/governance/drafts", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    res.json({ cap: DRAFT_CAP, drafts: await proposalDraftsOf(getPool(), String(user.id)) });
+  });
+
+  /**
+   * Save-and-leave, and every autosave before it. A body with an `id` updates
+   * that draft when the caller owns it; without one it creates, up to the cap.
+   */
+  app.post("/api/governance/drafts", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const result = await saveProposalDraft(getPool(), {
+      id: req.body?.id ? String(req.body.id) : null,
+      userId: String(user.id),
+      wizardType: String(req.body?.wizardType ?? ""),
+      payload: req.body?.payload,
+      stepIndex: Number(req.body?.stepIndex ?? 0),
+    });
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    res.json({ success: true, draft: result.draft, created: result.created });
+  });
+
+  /** Discard a draft, or clear it once its proposal exists. */
+  app.delete("/api/governance/drafts/:id", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const gone = await deleteProposalDraft(getPool(), req.params.id, String(user.id));
+    if (!gone) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
   });
 
   /**

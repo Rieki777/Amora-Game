@@ -1,0 +1,267 @@
+/**
+ * CONSENT MODE: an objection is a contribution.
+ *
+ * Sociocracy 3.0's distinction, which the engine carries as rows: an
+ * OBJECTION reveals a consequence or a risk the village would rather avoid,
+ * and it blocks. A CONCERN is a worry that cannot be backed by reasoning or
+ * evidence enough to qualify, and it does not block; it is recorded beside the
+ * decision and rides into the review of whatever the decision produced.
+ *
+ * The design ruling this file answers to: filing an objection should feel like
+ * contributing. Everything here follows from that.
+ *
+ *  - The invitation reads as an invitation. "Say what you see" rather than
+ *    "block this proposal", because the person with the objection is usually
+ *    the person who noticed something, and the interface should not make them
+ *    feel like an obstacle for noticing.
+ *  - An objection is shown with its author's name and its full text, at the
+ *    same weight as the proposal itself. It is not a footnote under a bar.
+ *  - Every ruling is shown WITH ITS REASONING, because the engine requires a
+ *    note on every ruling and the whole value of that requirement is that
+ *    somebody reads it. A facilitator who has to write down why they set an
+ *    objection aside is a facilitator who thinks about it.
+ *  - "Concern" is never rendered as a downgrade. It is a real outcome: the
+ *    village heard it, it does not block, and it travels with the agreement.
+ */
+import { useState } from "react";
+import { CheckCircle2, Hand, MessageSquareWarning, Undo2 } from "lucide-react";
+import InfoTip from "@/components/InfoTip";
+import type { BallotObjection } from "./governanceApi";
+
+const STATUS: Record<
+  BallotObjection["status"],
+  { label: string; blurb: string; chip: string; icon: typeof Hand }
+> = {
+  open: {
+    label: "Standing",
+    blurb: "This is unruled, and while it stands the decision cannot carry.",
+    chip: "bg-amber-light text-gold",
+    icon: Hand,
+  },
+  integrated: {
+    label: "Upheld",
+    blurb: "The village accepted this. The proposal has to change and come back.",
+    chip: "bg-red-50 text-coral",
+    icon: MessageSquareWarning,
+  },
+  concern: {
+    label: "Recorded as a concern",
+    blurb: "Heard and kept. It does not block, and it travels with the decision to its review.",
+    chip: "bg-stone-100 text-stone-700",
+    icon: CheckCircle2,
+  },
+  withdrawn: {
+    label: "Withdrawn",
+    blurb: "The person who raised it took it back.",
+    chip: "bg-stone-100 text-stone-600",
+    icon: Undo2,
+  },
+};
+
+const RULINGS: Array<{ id: string; label: string; help: string }> = [
+  { id: "integrated", label: "Uphold it", help: "The proposal must change. This ballot closes and a new one carries the amended version." },
+  { id: "concern", label: "Record as a concern", help: "It does not block. It stays attached to the decision and surfaces at its review." },
+  { id: "withdrawn", label: "Withdraw it", help: "For when the person who raised it no longer holds it." },
+];
+
+export default function ObjectionPanel({
+  objections,
+  canFile,
+  canRule,
+  busy,
+  onFile,
+  onRule,
+}: {
+  objections: BallotObjection[];
+  /** In the electorate, and the ballot is still open. */
+  canFile: boolean;
+  /** Holds proposal.decide, or is an admin. */
+  canRule: boolean;
+  busy: boolean;
+  onFile: (text: string) => Promise<void>;
+  onRule: (objectionId: string, ruling: string, note: string) => Promise<void>;
+}) {
+  const [text, setText] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [rulingFor, setRulingFor] = useState<string | null>(null);
+  const [ruling, setRuling] = useState("concern");
+  const [note, setNote] = useState("");
+
+  const standing = objections.filter((o) => o.status === "open").length;
+
+  const file = async () => {
+    if (!text.trim()) {
+      setProblem("An objection is its reasoning. Say what consequence or risk you see.");
+      return;
+    }
+    setProblem(null);
+    await onFile(text.trim());
+    setText("");
+  };
+
+  const rule = async (id: string) => {
+    if (!note.trim()) {
+      setProblem("Every ruling carries its reasoning. Say why.");
+      return;
+    }
+    setProblem(null);
+    await onRule(id, ruling, note.trim());
+    setRulingFor(null);
+    setNote("");
+  };
+
+  return (
+    <section className="rounded-xl border border-stone-200 bg-white p-4">
+      <h3 className="flex items-center gap-2 text-base font-bold text-stone-900">
+        <Hand className="w-4 h-4 text-teal-deep" aria-hidden="true" />
+        Objections
+        <InfoTip
+          tip="An objection names a consequence the village should avoid. Only an objection blocks a consent decision. A worry without reasoning behind it is recorded as a concern instead."
+          label="What an objection is"
+        />
+      </h3>
+      <p className="mt-1 text-sm text-stone-600 leading-relaxed">
+        {standing === 0
+          ? "Nothing stands in the way of this decision right now."
+          : `${standing} ${standing === 1 ? "objection stands" : "objections stand"}, and this cannot carry while ${standing === 1 ? "it does" : "they do"}.`}
+      </p>
+
+      {objections.length > 0 && (
+        <ul className="mt-4 space-y-4">
+          {objections.map((o) => {
+            const s = STATUS[o.status];
+            const Icon = s.icon;
+            return (
+              <li key={o.id} className="rounded-lg border border-stone-200 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-stone-900">{o.by}</span>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${s.chip}`}>
+                    <Icon className="w-3 h-3" aria-hidden="true" />
+                    {s.label}
+                  </span>
+                  <span className="text-xs text-stone-500">
+                    {new Date(o.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  </span>
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-sm text-stone-800 leading-relaxed">{o.text}</p>
+                <p className="mt-1.5 text-xs text-stone-500">{s.blurb}</p>
+
+                {o.rulingNote && (
+                  <div className="mt-2 border-l-2 border-stone-300 pl-3">
+                    <p className="text-xs font-semibold text-stone-700">Why it was ruled that way</p>
+                    <p className="text-sm text-stone-700 leading-relaxed">{o.rulingNote}</p>
+                  </div>
+                )}
+
+                {canRule && o.status === "open" && (
+                  <div className="mt-3">
+                    {rulingFor === o.id ? (
+                      <div className="space-y-2">
+                        <fieldset>
+                          <legend className="text-sm font-medium text-stone-800">How does this land?</legend>
+                          <div className="mt-1.5 space-y-1.5">
+                            {RULINGS.map((r) => (
+                              <label key={r.id} className="flex min-h-[44px] items-start gap-2 rounded-lg border border-stone-200 p-2 has-[:checked]:border-teal-deep">
+                                <input
+                                  type="radio"
+                                  name={`ruling-${o.id}`}
+                                  value={r.id}
+                                  checked={ruling === r.id}
+                                  onChange={() => setRuling(r.id)}
+                                  className="mt-1 accent-teal-deep"
+                                />
+                                <span>
+                                  <span className="block text-sm font-medium text-stone-900">{r.label}</span>
+                                  <span className="block text-xs text-stone-600 leading-relaxed">{r.help}</span>
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </fieldset>
+                        <label htmlFor={`note-${o.id}`} className="block text-sm font-medium text-stone-800">
+                          Your reasoning, for the record
+                        </label>
+                        <textarea
+                          id={`note-${o.id}`}
+                          rows={3}
+                          value={note}
+                          maxLength={2000}
+                          onChange={(e) => setNote(e.target.value)}
+                          className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => rule(o.id)}
+                            className="min-h-[44px] rounded-lg bg-teal-deep px-4 text-sm font-semibold text-white hover:bg-teal-deep-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2 disabled:opacity-60"
+                          >
+                            Record the ruling
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRulingFor(null)}
+                            className="min-h-[44px] rounded-lg border border-stone-300 px-4 text-sm font-medium text-stone-700 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+                          >
+                            Not now
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRulingFor(o.id);
+                          setRuling("concern");
+                          setNote("");
+                        }}
+                        className="min-h-[44px] rounded-lg border border-stone-300 px-4 text-sm font-medium text-stone-700 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+                      >
+                        Test this objection
+                      </button>
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {canFile && (
+        <div className="mt-4 border-t border-stone-100 pt-4">
+          <label htmlFor="new-objection" className="block text-sm font-semibold text-stone-900">
+            Say what you see
+          </label>
+          <p className="mt-0.5 text-xs text-stone-600 leading-relaxed">
+            Naming a risk early is one of the more useful things anyone does here. You do not have to vote no to raise
+            one, and raising one is not a vote.
+          </p>
+          <textarea
+            id="new-objection"
+            rows={3}
+            value={text}
+            maxLength={2000}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="If we do this in the wet season the track will not carry the load, and we lose the deliveries."
+            className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={file}
+            className="mt-2 min-h-[44px] rounded-lg bg-teal-deep px-5 text-sm font-semibold text-white hover:bg-teal-deep-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2 disabled:opacity-60"
+          >
+            Raise it
+          </button>
+        </div>
+      )}
+
+      {problem && (
+        <p role="alert" className="mt-2 text-sm font-medium text-coral">
+          {problem}
+        </p>
+      )}
+    </section>
+  );
+}
