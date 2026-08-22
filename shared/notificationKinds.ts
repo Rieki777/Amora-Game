@@ -141,6 +141,17 @@ export const NOTIFICATION_KINDS: Record<string, NotificationKind> = {
     many: "{n} cycles settled with a share for you.",
     celebrate: true,
   },
+  /**
+   * 0092: one member sent another member credits. Never celebrated: at a
+   * farmers market this is dozens of small notices a week, and celebration
+   * that arrives every time is the wallpaper the ration exists to prevent.
+   */
+  wallet: {
+    group: "economy",
+    blurb: "Somebody sent you credits, and they are in your balance now.",
+    many: "{n} people sent you credits.",
+    celebrate: false,
+  },
   exchange: {
     group: "economy",
     blurb: "An exchange order settled, and what you bought is in your wallet.",
