@@ -99,17 +99,28 @@ const readCam = page => page.evaluate(() => ({ x: cam.x, y: cam.y, z: cam.z }));
 const settle = page => page.evaluate(() => new Promise(r =>
   requestAnimationFrame(() => requestAnimationFrame(() => r(1)))));
 
-/* Is a way back into the walk actually on the screen? Visible means painted and
-   inside the viewport, never merely present in the DOM. */
+/* Is a way back into the walk actually on the screen, and would a finger reach
+   it? Visible means painted, inside the viewport, and ON TOP.
+   THE OCCLUSION TEST IS HERE BECAUSE ITS ABSENCE PASSED A COVERED BUTTON. The
+   first version of this checked display, opacity and the rectangle, and reported
+   a clean PASS on a resume control that Maia's own sheet was sitting on:
+   elementFromPoint at its centre returned #maiaText, and a real tap did nothing
+   at all. A control that is painted and unreachable is the exact shape of a
+   green that means nothing, so the button is now asked whether the browser would
+   deliver it the tap. */
 const resumeSeen = page => page.evaluate(() => {
   const el = document.getElementById('gresume');
   if (!el) return { present: false, seen: false, why: 'no #gresume in the document' };
-  const cs = getComputedStyle(el), r = el.getBoundingClientRect();
-  const seen = cs.display !== 'none' && cs.visibility !== 'hidden' && Number(cs.opacity) > 0.05 &&
+  const go = document.getElementById('gresumeGo') || el;
+  const cs = getComputedStyle(el), r = el.getBoundingClientRect(), g = go.getBoundingClientRect();
+  const painted = cs.display !== 'none' && cs.visibility !== 'hidden' && Number(cs.opacity) > 0.05 &&
     r.width >= 44 && r.height >= 24 && r.top >= 0 && r.bottom <= innerHeight &&
     r.left >= 0 && r.right <= innerWidth;
+  const at = painted ? document.elementFromPoint(g.x + g.width / 2, g.y + g.height / 2) : null;
+  const onTop = !!(at && (at === go || go.contains(at) || at.closest('#gresume')));
   return {
-    present: true, seen,
+    present: true, seen: painted && onTop, painted, onTop,
+    covered: (painted && !onTop) ? (at ? (at.id || at.tagName) : 'nothing') : null,
     label: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60),
     box: { w: Math.round(r.width), h: Math.round(r.height), t: Math.round(r.top) },
   };
@@ -253,7 +264,7 @@ const pickTargets = page => page.evaluate(() => {
       res[kind].push({
         walking,
         dx: later.x - stopped.x, dy: later.y - stopped.y, dz: later.z - stopped.z,
-        resume: !!rs.seen, present: !!rs.present, label: rs.label || '',
+        resume: !!rs.seen, present: !!rs.present, label: rs.label || '', covered: rs.covered || null,
         live: await P.page.evaluate(() => (typeof JWALK!=='undefined'&&!!JWALK)),
       });
       await P.ctx.close();
@@ -272,7 +283,8 @@ const pickTargets = page => page.evaluate(() => {
     ok(DDX < 1 && DDY < 1 && DDZ < 0.01,
       `${kind}: the camera stopped where it was and nothing moved it later (${f2(DDX)}, ${f2(DDY)}, ${f2(DDZ)})`);
     ok(a.every(x => !x.live), `${kind}: and the walk is not still running underneath`);
-    ok(a.every(x => x.resume), `${kind}: a visible way back in after the cancel (${a[0].label || 'absent'})`);
+    ok(a.every(x => x.resume),
+      `${kind}: a visible way back in after the cancel, and a finger would reach it (${a[0].label || 'absent'}${a.find(x => x.covered) ? ', covered by ' + a.find(x => x.covered).covered : ''})`);
   }
 
   await browser.close();

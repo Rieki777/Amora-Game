@@ -2438,7 +2438,15 @@ const GUIDE={
   stop(why){if(!GUIDE.on)return false;
     GUIDE.on=false;GUIDE.why=why||'hand';GUIDE.clear();
     if(travel&&travel.guide)travel=null;      // stop where it is; the promise dies with it
-    window.jHalt&&jHalt(GUIDE.why==='hand');  // a hand keeps her sheet; a button closes it
+    /* THE SHEET GOES, whichever way the walk ended, and the first draft of
+       this kept it open on a gesture so she could say where the way back in
+       was. MEASURED: document.elementFromPoint on the centre of the resume
+       button returned #maiaText. Her sheet is a full-width bottom tenant and
+       it was sitting on the one control the brief asks to be visible. She
+       still says the line, still speaks it, and it is still in her log; what
+       she does not do is hold the bottom of the screen after somebody has
+       just taken the map back. */
+    window.jHalt&&jHalt(false);
     if(GUIDE.why==='hand'&&window.maiaSay)
       maiaSay('You have the map. I stopped the walk right here; tap <b>Resume the walk</b> whenever you want to carry on.');
     window.guideAffordance&&guideAffordance();
@@ -7072,11 +7080,11 @@ function jSheetOff(){if(JSHEET){document.body.classList.remove('msheet');JSHEET=
    own copy of this and neither could be reached from a touch handler.
    Idempotent: a second call with no walk running is a no-op, which is what
    lets jEnd keep its own body without posting a second abandoned row.
-   keepSheet is the difference between a hand and a button. A drag is the
-   person taking the CAMERA, and she may still speak, so her sheet stays and
-   she says where the way back in is. `Stay here` and Escape are the person
-   ending the conversation, so the sheet goes and the phone gets its screen
-   back, which is the behaviour D7 has always asserted. */
+   keepSheet exists for a caller that wants her sheet left up. Nothing passes
+   true today and the reason is measured: a sheet left up on a phone covers
+   the bottom band, and the bottom band is where the way back into the walk
+   lives. D7 has always asserted that ending a walk gives the phone its
+   screen back, and a gesture is an ending like any other. */
 function jHalt(keepSheet){
   clearTimeout(JTMR);
   if(!JWALK)return false;
