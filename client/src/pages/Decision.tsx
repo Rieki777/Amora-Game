@@ -26,7 +26,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "wouter";
-import { ArrowLeft, FileText, Info } from "lucide-react";
+import { ArrowLeft, FileText, Scale } from "lucide-react";
 import type { VoteChoice } from "@shared/governanceEngine";
 import Layout from "@/components/Layout";
 import ModuleGate from "@/components/modules/ModuleGate";
@@ -312,7 +312,7 @@ export default function Decision() {
             {standing && <MyStanding standing={standing} />}
             <div className="rounded-xl border border-stone-200 bg-white p-4">
               <h3 className="flex items-center gap-2 text-base font-bold text-stone-900">
-                <Info className="w-4 h-4 text-teal-deep" aria-hidden="true" />
+                <Scale className="w-4 h-4 text-teal-deep" aria-hidden="true" />
                 This vote's own rules
               </h3>
               <dl className="mt-2 space-y-2 text-sm">
