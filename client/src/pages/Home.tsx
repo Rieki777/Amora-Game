@@ -3,7 +3,7 @@ import BuildProgress from "@/components/BuildProgress";
 import SeasonBanner from "@/components/SeasonBanner";
 import VillagePulse from "@/components/VillagePulse";
 import MapPeek from "@/components/MapPeek";
-import { useBrandImages } from "@/lib/gameApi";
+import { altOr, useBrandImages } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -93,7 +93,7 @@ export default function Home() {
               fetchPriority=high it queues behind every other image on the page. */}
           <Image
             src={brand.hero || HERO_IMAGE}
-            alt="Aerial view over Amora's jungle canopy to the Pacific coastline at Dominicalito"
+            alt={altOr(brand.heroAlt, "The village and the land around it")}
             priority
             className="w-full h-full"
           />

@@ -101,7 +101,20 @@ export function Image({
       style={{ aspectRatio: String(ratio) }}
     >
       {empty ? (
-        <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/50">
+        /*
+         * THE ACCESSIBLE NAME SURVIVES THE FAILURE.
+         *
+         * The placeholder used to be an `aria-hidden` mark inside a plain div,
+         * so a hero whose URL 404s went from "Morning fog over the ridge above
+         * the village" to nothing at all in a screen reader. That is the worst
+         * moment to lose the description: a sighted visitor sees a grey box and
+         * knows something is missing, and a blind visitor is told nothing is
+         * there. An empty `alt` still means decorative and stays silent.
+         */
+        <div
+          className="absolute inset-0 flex items-center justify-center text-muted-foreground/50"
+          {...(alt ? { role: "img", "aria-label": alt } : {})}
+        >
           {fallback ?? (
             // A quiet mark, not an error. Reads as "nothing here yet".
             <svg
