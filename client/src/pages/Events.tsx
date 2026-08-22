@@ -294,7 +294,7 @@ export default function Events() {
     <Layout>
       <section className="py-10 bg-gradient-to-b from-teal-deep/5 to-background">
         <div className="container text-center">
-          <h1 className="font-display text-4xl font-bold text-foreground mb-3">What is on</h1>
+          <h1 className="font-display text-4xl font-bold text-foreground mb-3">Village Calendar</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
             The village's calendar: twelve months and the moons of the year, side by side, and everything dated in one place.
           </p>
