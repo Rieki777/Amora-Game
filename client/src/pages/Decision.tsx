@@ -248,17 +248,22 @@ export default function Decision() {
               />
             )}
 
-            {/* The close beat. Offered whenever the ballot is open, because who
-                may close and when is the engine's judgment, not this page's:
-                the route answers with a sentence saying who may, and that
-                sentence is more useful than a hidden button. */}
-            {open && user && !closing && (
+            {/* THE CLOSE BEAT, offered to whoever could plausibly take it.
+                Who may close is `facilitator || (expired && proposer)`, and
+                the client can settle only half of that: `mayDecide` comes from
+                standing, and whether this viewer proposed the subject does
+                not. So before the period ends, where only a facilitator may
+                close, the section is hidden from everyone else; once it ends,
+                it is offered with the sentence naming who may, because the
+                proposer is somebody and hiding it from them would leave the
+                decision waiting forever. */}
+            {open && user && !closing && (expired || !!standing?.mayDecide) && (
               <section className="rounded-xl border border-stone-200 bg-stone-50 p-4">
                 <h2 className="text-base font-bold text-stone-900">Closing this</h2>
                 <p className="mt-1 text-sm text-stone-600 leading-relaxed">
                   {expired
                     ? "The voting period has ended and this is waiting for a person. Its proposer, anyone who may decide proposals, or an admin can close it."
-                    : "Before the period ends, only someone who may decide proposals can close it early."}{" "}
+                    : "The period is still running, and closing it early is yours to do as someone who decides proposals."}{" "}
                   Closing always means writing what the village decided.
                 </p>
                 <button
