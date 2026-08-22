@@ -47,7 +47,7 @@ describe.skipIf(!configured)("a night paid in village credits", () => {
     new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
 
   const member = async (id: string, token: string, amount: number) => {
-    await pool.query(
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)",
       [id, id, `${id}@example.test`, "h"],
     );
@@ -64,8 +64,8 @@ describe.skipIf(!configured)("a night paid in village credits", () => {
 
   /** An ACTIVE stay, snapshot at `rate` of `token`, arriving `days` ago. */
   const stay = async (id: string, userId: string, token: string, rate: number, days: number) => {
-    await pool.query("INSERT IGNORE INTO accommodations (id, name, capacity) VALUES ('acc-1','Cabin',2)");
-    await pool.query(
+    await pool.query("INSERT IGNORE INTO accommodations (id, name, capacity) VALUES ('acc-1','Cabin',2)"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "INSERT INTO stays (id, user_id, accommodation_id, status, arrive_on, autopay, rate_snapshot_credits, rate_snapshot_token, audience_snapshot) " +
         "VALUES (?,?, 'acc-1', 'active', ?, 1, ?, ?, 'guest')",
       [id, userId, dateStr(-days), rate, token],
@@ -79,7 +79,7 @@ describe.skipIf(!configured)("a night paid in village credits", () => {
 
   beforeAll(async () => {
     db = await provisionTestDb();
-    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 6 });
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 6 }); // module-review-ok: the S5 scratch-schema harness pool, the ballots.test.ts shape
     await loadTokenRegistry(pool);
     // A fresh schema seeds gratitude, amora, voice and credits. `stay-credit`
     // is registered at BOOT by the stays module, not by a migration, so a
@@ -96,20 +96,20 @@ describe.skipIf(!configured)("a night paid in village credits", () => {
     // Variables come from the table, so the reset is a table reset plus a
     // reload. Leaving one case's grace window set would make the next case
     // pass or fail for a reason it never states.
-    await pool.query("DELETE FROM game_variables");
+    await pool.query("DELETE FROM game_variables"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     await loadVariables(pool);
-    await pool.query("DELETE FROM stays");
-    await pool.query("DELETE FROM token_ledger");
-    await pool.query("DELETE FROM token_balances");
-    await pool.query("DELETE FROM users");
+    await pool.query("DELETE FROM stays"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM token_ledger"); // module-review-ok: scratch-schema teardown between cases, not a ledger write: value only ever moves here through postTransfer
+    await pool.query("DELETE FROM token_balances"); // module-review-ok: scratch-schema teardown between cases, not a ledger write: value only ever moves here through postTransfer
+    await pool.query("DELETE FROM users"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
   });
 
   it("defaults an old row to stay credits, so nothing that existed changes", async () => {
     // The column default is the whole migration-safety story: every stay that
     // existed before 0092 pays exactly what it paid yesterday.
     await member("u-1", STAY_CREDIT, 30);
-    await pool.query("INSERT IGNORE INTO accommodations (id, name, capacity) VALUES ('acc-1','Cabin',2)");
-    await pool.query(
+    await pool.query("INSERT IGNORE INTO accommodations (id, name, capacity) VALUES ('acc-1','Cabin',2)"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "INSERT INTO stays (id, user_id, accommodation_id, status, arrive_on, autopay, rate_snapshot_credits, audience_snapshot) " +
         "VALUES ('s-old','u-1','acc-1','active', ?, 1, 5, 'guest')",
       [dateStr(-2)],

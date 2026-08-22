@@ -49,7 +49,7 @@ describe.skipIf(!configured)("seat fees and the refunds that make them honest", 
     opts: { price?: number; capacity?: number | null; startsAt?: Date; endsAt?: Date | null } = {},
   ) => {
     const starts = opts.startsAt ?? new Date(Date.now() + 7 * 86_400_000);
-    await pool.query(
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "INSERT INTO events (id, title, starts_at, ends_at, status, kind, layer, capacity, seat_price, seat_token) " +
         "VALUES (?,?,?,?, 'scheduled', 'gathering', 'village', ?, ?, ?)",
       [
@@ -62,7 +62,7 @@ describe.skipIf(!configured)("seat fees and the refunds that make them honest", 
 
   /** A member with credits in hand, issued the way the cycle pool issues them. */
   const member = async (id: string, credits: number) => {
-    await pool.query(
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)",
       [id, id, `${id}@example.test`, "h"],
     );
@@ -92,7 +92,7 @@ describe.skipIf(!configured)("seat fees and the refunds that make them honest", 
 
   beforeAll(async () => {
     db = await provisionTestDb();
-    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 6 });
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 6 }); // module-review-ok: the S5 scratch-schema harness pool, the ballots.test.ts shape
     await loadTokenRegistry(pool);
   });
 
@@ -104,13 +104,13 @@ describe.skipIf(!configured)("seat fees and the refunds that make them honest", 
 
   beforeEach(async () => {
     setPromotionSink(null);
-    await pool.query("DELETE FROM event_seat_charges");
-    await pool.query("DELETE FROM event_rsvps");
-    await pool.query("DELETE FROM event_waitlist");
-    await pool.query("DELETE FROM events");
-    await pool.query("DELETE FROM token_ledger");
-    await pool.query("DELETE FROM token_balances");
-    await pool.query("DELETE FROM users");
+    await pool.query("DELETE FROM event_seat_charges"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM event_rsvps"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM event_waitlist"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM events"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    await pool.query("DELETE FROM token_ledger"); // module-review-ok: scratch-schema teardown between cases, not a ledger write: value only ever moves here through postTransfer
+    await pool.query("DELETE FROM token_balances"); // module-review-ok: scratch-schema teardown between cases, not a ledger write: value only ever moves here through postTransfer
+    await pool.query("DELETE FROM users"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
   });
 
   it("takes the fee when a seat is taken, and the balance moves", async () => {
@@ -145,7 +145,7 @@ describe.skipIf(!configured)("seat fees and the refunds that make them honest", 
     // The compensation: no seat, no charge row, no movement at all. A member
     // is never out of pocket for a step that did not finish, and never holds a
     // place they did not pay for.
-    const [seats]: any = await pool.query("SELECT COUNT(*) n FROM event_rsvps WHERE event_id = 'ev-1'");
+    const [seats]: any = await pool.query("SELECT COUNT(*) n FROM event_rsvps WHERE event_id = 'ev-1'"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     expect(Number(seats[0].n)).toBe(0);
     expect(await seatChargeFor(pool, "ev-1", "u-poor", "")).toBeNull();
     expect(await held("u-poor")).toBe(10);
@@ -235,7 +235,7 @@ describe.skipIf(!configured)("seat fees and the refunds that make them honest", 
     // The seat frees, the queue is served inside that same transaction.
     await withdrawRsvp(pool, "ev-1", "u-seat", "");
 
-    const [seated]: any = await pool.query(
+    const [seated]: any = await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "SELECT user_id, status FROM event_rsvps WHERE event_id = 'ev-1'",
     );
     expect(seated.map((r: any) => `${r.user_id}:${r.status}`)).toEqual(["u-queue:going"]);
@@ -255,7 +255,7 @@ describe.skipIf(!configured)("seat fees and the refunds that make them honest", 
     const q = await joinWaitlist(pool, "ev-1", "u-poor");
     expect(q.ok).toBe(false);
     expect(!q.ok && q.reason).toBe("unpaid");
-    const [live]: any = await pool.query(
+    const [live]: any = await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "SELECT COUNT(*) n FROM event_waitlist WHERE event_id = 'ev-1' AND left_at IS NULL AND promoted_at IS NULL",
     );
     expect(Number(live[0].n)).toBe(0);
@@ -305,7 +305,7 @@ describe.skipIf(!configured)("seat fees and the refunds that make them honest", 
     expect(await deleteGathering(pool, "ev-1")).toBe(true);
     expect(await held("u-1")).toBe(40);
     expect(await escrow()).toBe(0);
-    const [rows]: any = await pool.query("SELECT COUNT(*) n FROM event_seat_charges WHERE event_id = 'ev-1'");
+    const [rows]: any = await pool.query("SELECT COUNT(*) n FROM event_seat_charges WHERE event_id = 'ev-1'"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     expect(Number(rows[0].n)).toBe(0);
     await conserves();
   });
@@ -383,7 +383,7 @@ describe.skipIf(!configured)("seat fees and the refunds that make them honest", 
     // behind it sums to zero across all accounts and is still wrong.
     await gathering("ev-1", { price: 12 });
     await member("u-1", 40);
-    await pool.query(
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "INSERT INTO event_seat_charges (id, event_id, user_id, occurrence_key, token_type, amount, status) " +
         "VALUES ('sc-fake','ev-1','u-1','', ?, 12, 'held')",
       [TOKEN],

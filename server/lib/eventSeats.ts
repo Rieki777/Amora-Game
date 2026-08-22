@@ -166,14 +166,14 @@ export async function chargeForPlace(
     if (existing) {
       previous = existing;
       const seq = existing.chargeSeq + 1;
-      await conn.query(
+      await conn.query( // module-review-ok: event_seat_charges' one enumerable home (the ballots.ts pattern; no cache sits above it)
         "UPDATE event_seat_charges SET status = 'held', charge_seq = ?, token_type = ?, amount = ?, settled_at = NULL WHERE id = ?",
         [seq, price.tokenType, price.amount, existing.id],
       );
       claimed = { ...existing, status: "held", chargeSeq: seq, tokenType: price.tokenType, amount: price.amount };
     } else {
       const id = newId();
-      await conn.query(
+      await conn.query( // module-review-ok: event_seat_charges' one enumerable home (the ballots.ts pattern; no cache sits above it)
         "INSERT INTO event_seat_charges (id, event_id, user_id, occurrence_key, token_type, amount, status, charge_seq) " +
           "VALUES (?,?,?,?,?,?, 'held', 1)",
         [id, eventId, userId, occurrenceKey, price.tokenType, price.amount],
@@ -194,9 +194,9 @@ export async function chargeForPlace(
 
   const undo = async () => {
     if (wasNew) {
-      await pool.query("DELETE FROM event_seat_charges WHERE id = ? AND status = 'held'", [claimed.id]);
+      await pool.query("DELETE FROM event_seat_charges WHERE id = ? AND status = 'held'", [claimed.id]); // module-review-ok: event_seat_charges' one enumerable home (the ballots.ts pattern; no cache sits above it)
     } else if (previous) {
-      await pool.query(
+      await pool.query( // module-review-ok: event_seat_charges' one enumerable home (the ballots.ts pattern; no cache sits above it)
         "UPDATE event_seat_charges SET status = ?, charge_seq = ?, token_type = ?, amount = ?, settled_at = ? WHERE id = ? AND status = 'held'",
         [previous.status, previous.chargeSeq, previous.tokenType, previous.amount, new Date(), claimed.id],
       );

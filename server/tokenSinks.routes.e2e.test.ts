@@ -82,7 +82,7 @@ async function call(
   opts: { body?: unknown; token?: string | null } = {},
 ): Promise<Answer> {
   const token = opts.token === undefined ? founderToken : opts.token;
-  const res = await fetch(BASE + route, {
+  const res = await fetch(BASE + route, { // module-review-ok: the test client dialling the built server on localhost, as every e2e suite does
     method,
     headers: {
       "Content-Type": "application/json",
@@ -144,7 +144,7 @@ beforeAll(async () => {
   }
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-sinks-"));
   testDb = await provisionTestDb();
-  pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 });
+  pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: the e2e harness against the scratch schema, as every e2e suite holds
 
   child = spawn(process.execPath, [DIST], {
     env: {
@@ -169,7 +169,7 @@ beforeAll(async () => {
       throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s. Output:\n${logs.join("")}`);
     }
     try {
-      const res = await fetch(`${BASE}/health`);
+      const res = await fetch(`${BASE}/health`); // module-review-ok: the boot poll against the local test server
       if (res.ok) break;
     } catch { /* not up yet */ }
     await settle(400);

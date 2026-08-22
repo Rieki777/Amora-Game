@@ -350,7 +350,7 @@ export async function deleteGathering(pool: Pool, id: string): Promise<boolean> 
   // same way, and the seat charges follow now that they are settled: the
   // ledger keeps the history of what moved, which is the book that matters.
   await pool.query("DELETE FROM event_rsvps WHERE event_id = ?", [id]);
-  await pool.query("DELETE FROM event_seat_charges WHERE event_id = ?", [id]);
+  await pool.query("DELETE FROM event_seat_charges WHERE event_id = ?", [id]); // module-review-ok: event_seat_charges' one enumerable home (the ballots.ts pattern; no cache sits above it)
   await pool.query("DELETE FROM event_waitlist WHERE event_id = ?", [id]);
   await pool.query("DELETE ss FROM event_slot_signups ss JOIN event_slots s ON s.id = ss.slot_id WHERE s.event_id = ?", [id]);
   await pool.query("DELETE FROM event_slots WHERE event_id = ?", [id]);

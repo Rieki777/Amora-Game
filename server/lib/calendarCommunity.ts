@@ -272,7 +272,7 @@ export async function joinWaitlist(
     `Queue place: ${eventId}${queued.occ ? ` (${queued.occ})` : ""}`,
   );
   if (!charge.ok) {
-    await pool.query(
+    await pool.query( // module-review-ok: event_waitlist's own compensation, in the file that owns the table (the ballots.ts pattern)
       "UPDATE event_waitlist SET left_at = NOW() WHERE event_id = ? AND user_id = ? AND occurrence_key = ? AND promoted_at IS NULL AND left_at IS NULL",
       [eventId, userId, queued.occ],
     );
