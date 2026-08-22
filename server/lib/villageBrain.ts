@@ -364,10 +364,48 @@ export async function brainEtag(pool: Pool): Promise<string> {
   return `W/"brain-${(b as any).revs}-${(b as any).n}-${(r as any).n}"`;
 }
 
-/** The index, capped for the prompt. 400 tokens is the always-present budget. */
-export async function briefIndexForPrompt(pool: Pool, maxTokens = 400): Promise<string> {
-  const [filled, records] = await Promise.all([briefAll(pool, "admin"), recordSummaries(pool)]);
-  return capMarkdown(renderIndexMarkdown(filled, records, "admin"), maxTokens);
+/**
+ * The index, capped for the prompt. 400 tokens is the always-present budget.
+ *
+ * The audience is a PARAMETER and it defaults to `admin` only because the
+ * founder-facing Setup Studio was the first caller. Any surface a member or a
+ * stranger reaches passes `"member"`, which is what makes the audience column
+ * mean something: the index names sections, and the admin-audience section
+ * names alone (`legal`, `constraints`, `people`, `economy`) tell an outsider
+ * what a village keeps private. Passing the wrong one leaks the shape of the
+ * secret without leaking the secret, which is still a leak.
+ */
+export async function briefIndexForPrompt(
+  pool: Pool,
+  maxTokens = 400,
+  audience: BriefAudience = "admin",
+): Promise<string> {
+  const [filled, records] = await Promise.all([briefAll(pool, audience), recordSummaries(pool)]);
+  return capMarkdown(renderIndexMarkdown(filled, records, audience), maxTokens);
+}
+
+/**
+ * The village's own words about itself, for a prompt a STRANGER reaches.
+ *
+ * Member-audience sections only, confirmed only, capped. Two rules ride with
+ * that and both are about honesty rather than secrecy:
+ *
+ *  - `status = proposed` is the guide's draft guess at what the village would
+ *    say. Reading a guess back to a stranger as the village's own words is the
+ *    same class of error as publishing the platform's exit terms under a
+ *    village's name, so an unconfirmed section is left out.
+ *  - example rows never appear, which `briefAll` already enforces.
+ *
+ * An empty return is the honest answer for a fork that has written nothing:
+ * callers append nothing rather than saying the village stands for anything.
+ */
+export async function briefForPublicPrompt(pool: Pool, maxTokens = 700): Promise<string> {
+  const rows = (await briefAll(pool, "member")).filter((b) => b.status === "confirmed" && b.body.trim());
+  if (!rows.length) return "";
+  const body = rows
+    .map((b) => `### ${b.title}\n${b.body.trim()}`)
+    .join("\n\n");
+  return capMarkdown(body, maxTokens);
 }
 
 // ── Writes ───────────────────────────────────────────────────────────────────

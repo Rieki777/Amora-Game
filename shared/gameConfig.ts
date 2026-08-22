@@ -129,6 +129,36 @@ export interface GameConfig {
     heartLogo: string;
     /** Browser tab icon, swapped in client-side once config loads. */
     favicon: string;
+    /*
+     * ALT TEXT, one optional key per image above.
+     *
+     * The Setup Wizard has collected these nine values since it shipped, and
+     * `PUT /api/admin/brand` blind-spread them into storage, so a founder typed
+     * a description, saved, reloaded the wizard and saw it come back. Nothing
+     * else in the system knew the keys existed: `mergedConfig()` REBUILDS
+     * `images` from named keys, so every one was dropped before
+     * `/api/game/config` serialized, and no `img alt` read them. A labelled
+     * accessibility control that discards what a founder types is worse than
+     * no control, because it also records the work as done.
+     *
+     * Optional on purpose. An absent value inherits the platform default alt
+     * text at the render site; an empty string is a deliberate "this image is
+     * decorative" and is passed through as one.
+     *
+     * EIGHT keys, not nine. `favicon` is a `<link rel="icon">`, never an
+     * `<img>`, and a browser tab icon is named by the page title: there is no
+     * attribute for alt text to become. The wizard says so where the field
+     * used to be, because offering the control and dropping the value is the
+     * failure this block exists to end.
+     */
+    heroAlt?: string;
+    investorHeroAlt?: string;
+    residentHeroAlt?: string;
+    stewardHeroAlt?: string;
+    prosperityHeroAlt?: string;
+    masterPlanHeroAlt?: string;
+    logoAlt?: string;
+    heartLogoAlt?: string;
   };
   paths: GamePath[];
   /** The progression ladder, in order. First stage is the default. */

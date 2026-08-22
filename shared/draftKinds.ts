@@ -41,11 +41,23 @@ export interface RolePayload {
   sortOrder?: number;
 }
 
+/**
+ * The circle lifecycle, in one place.
+ *
+ * `circles.status` is a MySQL enum and the store writes circles with
+ * `replaceAll`, which is a DELETE-all plus a re-INSERT of every row inside one
+ * transaction. A value outside the enum therefore rolls back the WHOLE table,
+ * so the admin dropdown, the draft validator and the edit route all read this
+ * array instead of each carrying their own copy of the triple.
+ */
+export const CIRCLE_STATUSES = ["active", "forming", "dormant"] as const;
+export type CircleStatus = (typeof CIRCLE_STATUSES)[number];
+
 export interface CirclePayload {
   name: string;
   purpose: string;
   parentCircleId?: string | null;
-  status?: "active" | "forming" | "dormant";
+  status?: CircleStatus;
 }
 
 /** An RSVP the assistant proposed and the member has not yet confirmed. */

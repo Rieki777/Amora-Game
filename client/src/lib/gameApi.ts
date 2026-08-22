@@ -19,6 +19,36 @@ export interface BrandImages {
   logo?: string;
   heartLogo?: string;
   favicon?: string;
+  /*
+   * The alt text the Setup Wizard collects, now on the wire.
+   *
+   * Undefined means the village never typed one, so a render site uses its own
+   * default sentence. An empty string is a deliberate "decorative" and must
+   * reach the `alt` attribute as an empty string, so every read site uses
+   * `altOr(...)` below and never `||`.
+   *
+   * `favicon` has no entry here on purpose: a browser tab icon is a
+   * `<link rel="icon">` and carries no alt text at all.
+   */
+  heroAlt?: string;
+  investorHeroAlt?: string;
+  residentHeroAlt?: string;
+  stewardHeroAlt?: string;
+  prosperityHeroAlt?: string;
+  masterPlanHeroAlt?: string;
+  logoAlt?: string;
+  heartLogoAlt?: string;
+}
+
+/**
+ * The village's alt text for an image, or the page's own default.
+ *
+ * `||` would be wrong here and quietly so: it turns a deliberate `alt=""` back
+ * into a sentence a screen reader then announces over a decorative picture.
+ * Only an ABSENT value inherits.
+ */
+export function altOr(value: string | undefined, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
 }
 
 export interface PublicGameConfig {

@@ -65,7 +65,18 @@ export default function Team() {
           return {
             name: card?.name ?? p.name,
             role: p.seats.join(" · "),
-            circle: card?.circle ?? p.circle,
+            /*
+             * THE LIVE CIRCLE NAME WINS OVER THE CARD'S.
+             *
+             * These two were the other way around, so a founder who renamed a
+             * circle in Admin, Org Chart watched /circles and /roles update and
+             * /team keep printing the old name, out of the same team-card store
+             * the banner above that editor says the public pages no longer
+             * read. The card still supplies what a seat row has no place for, a
+             * portrait and a bio, and it fills in the circle only for somebody
+             * whose seat sits in none.
+             */
+            circle: p.circle ?? card?.circle,
             bio: card?.bio,
             photo: card?.photo,
           };

@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { useBrandImages } from "@/lib/gameApi";
+import { altOr, useBrandImages } from "@/lib/gameApi";
 import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
 import { useState, useEffect } from "react";
@@ -241,7 +241,7 @@ export default function ResidentJourney() {
         <div className="absolute inset-0 z-0">
           <motion.img
             src={brand.residentHero || RESIDENT_IMAGE}
-            alt="Amora home"
+            alt={altOr(brand.residentHeroAlt, "A home in the village")}
             className="w-full h-full object-cover"
             initial={{ scale: 1.1 }}
             animate={{ scale: 1 }}

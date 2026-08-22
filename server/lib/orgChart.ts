@@ -568,9 +568,21 @@ export function describeOrgChange(before: OrgRole | null, after: Partial<OrgRole
   if (after.aim !== undefined && after.aim !== before.aim) lines.push("aim rewritten");
   if (after.domain !== undefined && after.domain !== before.domain) lines.push("domain rewritten");
   if (after.accountabilities !== undefined) {
-    const a = before.accountabilities.length;
-    const b = after.accountabilities.length;
-    if (a !== b) lines.push(`accountabilities: ${a} -> ${b}`);
+    const a = before.accountabilities;
+    const b = after.accountabilities;
+    // Counting only was enough while nothing could edit the text: the only way
+    // a list changed was an item arriving or leaving. Now that the admin form
+    // sends the list, rewriting an accountability without changing how many
+    // there are is an ordinary edit, and a journal that stayed silent about it
+    // would leave the seat's own history missing the change people argue over.
+    if (a.length !== b.length) lines.push(`accountabilities: ${a.length} -> ${b.length}`);
+    else if (a.some((s, i) => s !== b[i])) lines.push("accountabilities rewritten");
+  }
+  // Editable from the admin form since this lane; before that it could only be
+  // written by the assistant's draft-publish path, and a whyItMatters-only edit
+  // produced no journal line at all because `changes.length` gates the write.
+  if (after.whyItMatters !== undefined && (after.whyItMatters ?? "") !== (before.whyItMatters ?? "")) {
+    lines.push("why this seat matters rewritten");
   }
   if (after.active !== undefined) say(after.active ? "reopened" : "rested", before.active, after.active);
   if (after.recruiting !== undefined) say("recruiting", before.recruiting, after.recruiting);

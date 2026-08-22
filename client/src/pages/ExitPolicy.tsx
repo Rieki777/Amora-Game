@@ -105,6 +105,22 @@ export default function ExitPolicy() {
               <p className="font-semibold text-foreground text-sm">If the village asks someone to leave</p>
             </div>
             <p className="text-sm text-muted-foreground">{policy?.involuntary?.process}</p>
+            {(policy?.involuntary?.decidingCircle || policy?.involuntary?.appealCircle) && (
+              <dl className="mt-3 pt-3 border-t border-border space-y-1">
+                {policy?.involuntary?.decidingCircle && (
+                  <div className="text-sm">
+                    <dt className="inline font-medium text-foreground">Decided by: </dt>
+                    <dd className="inline text-muted-foreground">{policy.involuntary.decidingCircle.name}</dd>
+                  </div>
+                )}
+                {policy?.involuntary?.appealCircle && (
+                  <div className="text-sm">
+                    <dt className="inline font-medium text-foreground">Appeals go to: </dt>
+                    <dd className="inline text-muted-foreground">{policy.involuntary.appealCircle.name}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
           </div>
 
           <div className="bg-card border border-border rounded-xl p-5">

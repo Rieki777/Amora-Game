@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { exponentOf, formatMoney } from "@shared/money";
+import { ResourcesRoutingEditor } from "@/components/admin/ModuleConfigPanels";
 
 interface Rule {
   id: string;
@@ -518,6 +519,9 @@ export default function ResourcesAdminPanel({ password }: { password: string }) 
           Save the labels
         </button>
       </section>
+
+      {/* ── Routing and visibility: two config keys with no control until now ── */}
+      <ResourcesRoutingEditor password={password} />
 
       {/* ── Measured, read only ── */}
       {data.measured && (data.measured.fiat.length > 0 || data.measured.tokens.length > 0) && (

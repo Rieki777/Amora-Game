@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { useBrandImages } from "@/lib/gameApi";
+import { altOr, useBrandImages } from "@/lib/gameApi";
 import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
 import InvestorSummary from "@/components/InvestorSummary";
@@ -278,7 +278,7 @@ export default function InvestorJourney() {
         <div className="absolute inset-0 z-0">
           <motion.img
             src={brand.investorHero || INVESTOR_IMAGE}
-            alt="Sustainable luxury development"
+            alt={altOr(brand.investorHeroAlt, "The land and the buildings on it")}
             className="w-full h-full object-cover"
             initial={{ scale: 1.1 }}
             animate={{ scale: 1 }}

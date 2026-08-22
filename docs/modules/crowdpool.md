@@ -39,7 +39,7 @@ weights each need's delivered fraction by its estimated value.
 
 ## Config shape
 
-Module config (`module_settings`, edited from Admin -> Modules):
+Module config (`module_settings`, edited from Admin -> The Game -> Crowdpool):
 
 ```json
 {

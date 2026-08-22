@@ -108,11 +108,16 @@ describe("adminNav", () => {
     expect(out[0].items.map((i) => i.key)).toEqual(["cycles"]);
   });
 
-  it("the mapping is exactly the ruled fourteen", () => {
+  it("the mapping is exactly the ruled fifteen", () => {
     expect(TAB_MODULE).toEqual({
       "circles-map": "map",
       "events-admin": "events",
       "tools-admin": "tools",
+      // The crowdpool shipped with its linked campaigns in module config and
+      // no admin surface at all, so a founder could enable the module and the
+      // server would report "no campaigns linked" with nothing they could do
+      // about it. The tab hides with the module, like every other one here.
+      "crowdpool-admin": "crowdpool",
       "stays-admin": "stays",
       "exchange-admin": "exchange",
       "badges-admin": "badges",
