@@ -100,6 +100,10 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
     // step the whole loop stalls on, and a digest tomorrow means a member who
     // finished work today waits a day for anyone to know.
     case "quest_submitted":
+    // Somebody flagged themselves at risk or stuck on work they took on.
+    // Same preference, same reasoning: asking for help must not cost a week,
+    // and a steward who turned quest emails off has said what they want.
+    case "quest_help":
       return p.questsEmail;
     case "role_appointed":
     // A mandate running out is the same conversation as being appointed to it,

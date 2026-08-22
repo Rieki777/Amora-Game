@@ -10842,6 +10842,25 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (!stay) return res.status(404).json({ error: "Not found" });
     const to = req.body?.cancel ? "cancelled" : "ended";
     await getPool().query("UPDATE stays SET status = ? WHERE id = ?", [to, stay.id]);
+    /*
+     * SWEEP (the incomplete loop). `/activate` twenty lines up tells the guest
+     * their stay is on. This end of the same pair told them nothing, so a stay
+     * could be cancelled under somebody who is packing for it.
+     *
+     * Keyed on the stay AND the landing status, the same grammar `/activate`
+     * uses, so a re-ended stay rings once and an end after a cancel is its
+     * own word.
+     */
+    await notify({
+      userId: stay.userId,
+      type: "stays",
+      title: to === "cancelled" ? "Your stay has been cancelled" : "Your stay has been closed out",
+      body: to === "cancelled"
+        ? "Nothing further will be charged against it. Talk to the village if this is wrong."
+        : "Nights stop posting now. Anything still owed is settled with the village.",
+      link: "/stay",
+      dedupeKey: `stay:${stay.id}:${to}`,
+    });
     res.json({ success: true, status: to });
   });
 
@@ -11005,11 +11024,36 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
 
   app.post("/api/admin/payments/suspensions/:id/lift", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const [[suspension]] = await getPool().query<any[]>(
+      "SELECT id, user_id FROM payment_suspensions WHERE id = ? AND lifted_at IS NULL LIMIT 1",
+      [req.params.id],
+    );
     const [r] = await getPool().query<any>(
       "UPDATE payment_suspensions SET lifted_at = NOW(), lifted_by = ? WHERE id = ? AND lifted_at IS NULL",
       [adminActor(req)?.id ?? null, req.params.id],
     );
     if (!(r as any).affectedRows) return res.status(404).json({ error: "No open suspension with that id" });
+    /*
+     * SWEEP (the incomplete loop). A suspension locks a member out of paying
+     * and booking. Lifting it gave them everything back and told them nothing,
+     * so the only way to discover you were reinstated was to try the thing
+     * that had been refusing you.
+     *
+     * `payments_alert` on the member's side of the same event class the ops
+     * alerts use: immediate, because somebody who has been locked out should
+     * not learn tomorrow. The WHERE clause only matches an OPEN suspension,
+     * and the key carries the row, so a second press rings nothing.
+     */
+    if (suspension?.user_id) {
+      await notify({
+        userId: String(suspension.user_id),
+        type: "payments_alert",
+        title: "Your payments are open again",
+        body: "The hold on your account has been lifted. Booking and paying work as before.",
+        link: "/wallet",
+        dedupeKey: `suspension:${String(suspension.id)}:lifted`,
+      });
+    }
     res.json({ success: true });
   });
 
@@ -18521,6 +18565,34 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     if (!r.affectedRows) {
       return res.status(404).json({ error: "No open claim of yours with that id" });
     }
+    /*
+     * SWEEP (the incomplete loop). This handler's own comment says the point
+     * of collecting the signal is that a steward SEES it, and the only place
+     * it landed was a queue somebody had to think to open. A member typing
+     * "stuck" is asking for help, and asking for help must not cost a week.
+     *
+     * Only the two flags that mean trouble ring. Clearing the flag, and
+     * saying "on track", are the member reassuring the village and need no
+     * summons. The key carries the claim AND the value, so re-saying the same
+     * thing with a longer note rings once, and going from at_risk to stuck is
+     * its own word.
+     *
+     * WHAT IT CARRIES: the quest and the flag, never the note. The note is
+     * how somebody describes being stuck, which is the most private sentence
+     * on the whole screen, and the queue behind the gate holds it.
+     */
+    if (value === "at_risk" || value === "stuck") {
+      const claim: any = (await claimsRepo.forUser(user.id)).find((c) => c.id === req.params.id);
+      const questTitle = String(claim?.questTitle ?? "a quest");
+      await notifyAdmins(
+        "quest_help",
+        value === "stuck"
+          ? `${firstName(user.name)} is stuck on ${questTitle}`
+          : `${firstName(user.name)} flagged a wobble on ${questTitle}`,
+        `quest-confidence:${req.params.id}:${value}`,
+        "/admin?tab=quest-claims",
+      );
+    }
     res.json({ success: true });
   });
 
@@ -22100,6 +22172,28 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       actorUserId: actor?.id ?? null,
       entityType: "org_role", entityRef: req.params.id, audience: "admin",
     });
+    /*
+     * SWEEP (the incomplete loop). Seating somebody is an appointment, and
+     * POST /api/admin/roles/:id/holders has told the appointee since F5. This
+     * route, which does the same thing to the org chart's own seats, wrote an
+     * admin-audience journal line and left the person to notice their own name
+     * on the map. Same type and same words, because it is the same act.
+     *
+     * A documented holder has no account to reach, so only a seated MEMBER
+     * hears. Keyed on the seating row, so a member seated again a season later
+     * is told again.
+     */
+    if (req.body?.userId && r.assignmentId) {
+      await notify({
+        userId: String(req.body.userId),
+        type: "role_appointed",
+        title: `You were seated as ${role.name}`,
+        body: role.aim ? String(role.aim).slice(0, 140) : null,
+        link: "/map/circles",
+        actorUserId: actor?.id ?? null,
+        dedupeKey: `org-seat:${r.assignmentId}`,
+      });
+    }
     res.json({ success: true });
   });
 

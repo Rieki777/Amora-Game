@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { Bell, Download, ShieldOff } from "lucide-react";
 import { authToken, clearAuthToken } from "@/lib/gameApi";
+import { actionError } from "@/lib/actionOutcome";
 
 const CADENCES: Record<string, Array<{ v: string; label: string }>> = {
   questsEmail: [
@@ -55,6 +56,12 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
   const [confirming, setConfirming] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  /**
+   * Its own slot, beside the switch it is about. The panel's other `error`
+   * lives with the export and delete controls at the foot of the card, and a
+   * refused consent change has to be readable where the finger just was.
+   */
+  const [contactNote, setContactNote] = useState("");
   /** Set only when an outside store did not confirm. Holds the redirect open. */
   const [farewell, setFarewell] = useState("");
 
@@ -71,13 +78,29 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
       .catch(() => {});
   }, []);
 
-  const saveContactable = (next: boolean) => {
-    setContactable(next);
-    fetch("/api/game/preferences", {
+  /*
+   * SWEEP (the incomplete loop). This is a CONSENT switch: it decides whether
+   * other members may reach you through the relay. It moved the switch first
+   * and swallowed every answer, so a member turning contact off saw it turn
+   * off, the server never heard, and the messages kept coming with the screen
+   * insisting they had opted out.
+   *
+   * The switch now follows the answer instead of leading it, and a refusal
+   * puts it back where it was and says so.
+   */
+  const saveContactable = async (next: boolean) => {
+    setContactNote("");
+    const res = await fetch("/api/game/preferences", {
       method: "PUT",
       headers: headers(),
       body: JSON.stringify({ contactable: next }),
-    }).catch(() => {});
+    }).catch(() => null);
+    const wrong = actionError({ ok: !!res?.ok, error: null });
+    if (wrong) {
+      setContactNote(`${wrong} Your contact setting is unchanged.`);
+      return;
+    }
+    setContactable(next);
   };
 
   const save = (patch: Record<string, any>) => {
@@ -158,11 +181,14 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
       )}
 
       {contactable !== null && (
-        <label className="flex items-center gap-2 text-sm text-gray-700 mb-4">
-          <input type="checkbox" checked={contactable} onChange={(e) => saveContactable(e.target.checked)} />
-          Contactable through the Village Map
-          <span className="text-xs text-gray-600">(role holders only; senders see a relay, never your email)</span>
-        </label>
+        <div className="mb-4">
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={contactable} onChange={(e) => saveContactable(e.target.checked)} />
+            Contactable through the Village Map
+            <span className="text-xs text-gray-600">(role holders only; senders see a relay, never your email)</span>
+          </label>
+          {contactNote && <p role="alert" className="text-xs text-red-600 mt-1">{contactNote}</p>}
+        </div>
       )}
 
       <div className="border-t border-gray-100 pt-4 space-y-3">
