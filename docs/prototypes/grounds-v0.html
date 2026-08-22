@@ -583,7 +583,7 @@
     border:1px solid #8a6a33;border-radius:7px;color:#f2e7c6;font-size:11px;line-height:1.45;padding:7px 10px;
     pointer-events:none;opacity:0;transition:opacity .15s;box-shadow:0 6px 18px rgba(0,0,0,.5)}
   #tip.show{opacity:1}
-  #vdrop{position:absolute;top:46px;z-index:46;width:288px;display:none;flex-direction:column;gap:7px;
+  #vdrop{position:absolute;top:var(--band-t-vdrop,46px);z-index:46;width:288px;display:none;flex-direction:column;gap:7px;
     background:linear-gradient(180deg,rgba(24,17,9,.97),rgba(17,12,6,.97));border:1px solid #8a6a33;border-radius:10px;
     color:var(--parch);box-shadow:0 10px 30px rgba(0,0,0,.6);padding:11px 13px;font-size:12px}
   #vdrop.show{display:flex}
@@ -649,6 +649,44 @@
   #walkCard .wrow{display:flex;gap:8px;align-items:center}
   #walkCard .wrow .btn{font-size:11px;padding:5px 12px}
   #walkCard .wn{margin-left:auto;font-size:10px;color:#8a7347}
+
+  /* ---------- HELP — the village talking, and the way to each conversation ----------
+     A BAND TENANT, so `bottom` is published, never authored: --band-b-help
+     carries the same fallback the toast column uses on this edge, which is
+     where this would sit if the band block ever died.
+     Capped at 42vh and the LIST scrolls, not the sheet: an uncapped sheet is a
+     tenant whose height is the number of threads, and the band would spend the
+     whole screen on it and clamp the walk card into the tab bar. */
+  #help{position:fixed;left:8px;right:8px;bottom:var(--band-b-help,calc(70px + env(safe-area-inset-bottom,0px)));
+    z-index:57;display:none;flex-direction:column;max-height:min(42vh,var(--band-b-help-max,42vh));
+    background:linear-gradient(180deg,rgba(26,19,11,.985),rgba(16,11,6,.99));
+    border:1px solid #8a6a33;border-radius:14px;color:var(--parch);
+    box-shadow:0 12px 34px rgba(0,0,0,.6);overflow:hidden}
+  #help.show{display:flex}
+  .help-head{display:flex;align-items:baseline;gap:8px;padding:10px 14px 8px;border-bottom:1px solid #4a3a22;flex:0 0 auto}
+  .help-head h4{font-variant:small-caps;letter-spacing:.18em;font-weight:normal;color:var(--gold-b);font-size:12px}
+  .help-sub{font-size:10px;color:#8f855f;font-style:italic}
+  .help-close{margin-left:auto;appearance:none;background:none;border:none;color:var(--gold);
+    font-family:inherit;font-size:15px;line-height:1;cursor:pointer;padding:0 2px}
+  /* min-height:0 is load-bearing, not tidiness. A flex child's default
+     min-height is `auto`, which refuses to shrink below its content, and an
+     overflow-y list inside a capped flex column then grows past its cap with
+     its lower rows simply unreachable. Chromium resolves this one without the
+     line; the phone this item was raised on is not Chromium. */
+  .help-list{overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1 1 auto;min-height:0}
+  .help-row{border-bottom:1px solid rgba(138,106,51,.28);padding:9px 14px;cursor:pointer}
+  .help-row:last-child{border-bottom:none}
+  .help-t{display:flex;gap:9px;align-items:flex-start}
+  .help-t b{font-weight:normal;color:var(--parch);font-size:12.5px;line-height:1.35}
+  .help-m{display:block;color:#8f855f;font-size:10.5px;margin-top:2px;line-height:1.4}
+  .help-ex,.help-go{display:none}
+  .help-row.open{background:rgba(60,46,26,.5)}
+  .help-row.open .help-ex{display:block;font-size:11.5px;color:#d8cba2;line-height:1.45;margin:7px 0 0 25px}
+  .help-row.open .help-go{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px 25px}
+  .help-go .btn{font-size:11px;padding:4px 11px}
+  .help-work{flex:0 0 auto;padding:9px 14px;border-top:1px solid #4a3a22;background:rgba(60,46,26,.35);
+    font-size:11.5px;color:#d8cba2;display:flex;align-items:center;gap:9px}
+  .help-work .btn{margin-left:auto;font-size:11px;padding:4px 11px}
   @media (prefers-reduced-motion:reduce){
     .bseal,.aseal .arim,#loomWires .lw.staged,#orgSvg .ovac,.poi.talk{animation:none!important}
     #pdrawer,#panel,#walkCard{transition:none!important}}
@@ -904,6 +942,7 @@
  <button id="pbAttn"><b><svg viewBox="0 0 24 24" aria-hidden="true"><path class="ln" d="M6.3 3.9v16.4"/><path class="sol" d="M6.3 5.1h11.6l-3.1 3.5 3.1 3.5H6.3z"/></svg></b>help<span class="pbadge" id="pbBadge">0</span></button>
  <button id="pbMore"><b><svg viewBox="0 0 24 24" aria-hidden="true"><path class="ln" d="M4.4 7.3q7.6-1 15.2 0M4.4 12q7.6-1 15.2 0M4.4 16.7q7.6-1 15.2 0"/></svg></b>more</button>
 </div>
+<div id="help"></div>
 <div id="pdrawer"></div>
 <div id="walkCard"></div>
 <div id="orgmap">
@@ -6052,11 +6091,25 @@ const BAND_SLOT = {
   top:{floor:'vitals',pad:6,gap:6,tenants:[
     {id:'draftBar',  v:'--band-t-draft'},
     {id:'restoreBar',v:'--band-t-restore'},
-    {id:'toasts',    v:'--band-t-toasts',only:'desk'}]},
+    {id:'toasts',    v:'--band-t-toasts',only:'desk'},
+    /* LAST, and that is the whole argument for where it sits. The three
+       above are bars the reader did not summon; this one opens under the
+       finger that tapped a vital and closes on the next tap anywhere else.
+       Placed last, an open dropdown moves nothing but itself, and a closed
+       one leaves this band bit-for-bit what it was. Measured before this
+       line existed: tip 43..75 over vdrop 46..193 on a phone from ONE tap,
+       and a desk toast at 42..70 sitting on the same dropdown. */
+    {id:'vdrop',     v:'--band-t-vdrop'}]},
   /* Pocket only. On a desk #maia is a card docked in the right corner and
      #pbar is not drawn at all, so there is no shared bottom edge to arbitrate
      and moving anything there would be a change nothing measured asked for. */
   bottom:{floor:'pbar',only:'pocket',pad:10,gap:8,tenants:[
+    /* FIRST, because it opens under the thumb that asked for it. Order in a
+       band is priority and the slot nearest the floor is the one that never
+       moves, so the sheet the reader just summoned gets it and the rest of
+       the stack yields upward. Closed, this tenant clears its property and
+       every other tenant lands where it landed before. */
+    {id:'help',    v:'--band-b-help',max:'--band-b-help-max'},
     {id:'maia',    v:'--band-b-maia'},
     {id:'walkCard',v:'--band-b-walk'},
     {id:'toasts',  v:'--band-b-toasts',only:'pocket'}]},
@@ -6090,13 +6143,58 @@ let BAND_BOX={top:null,bottom:null},BAND_SIG='',bandWarned=false;
 function bandPlace(B,key,pocket,pad,gap,limit){
   const set={},clear=[];
   if((B.only==='pocket'&&!pocket)||(B.only==='desk'&&pocket)){
-    for(const t of B.tenants)clear.push(t.v);
+    for(const t of B.tenants){clear.push(t.v);if(t.max)clear.push(t.max)}
     return {set,clear,box:null,base:0,over:0}}
   const fl=document.getElementById(B.floor);
-  /* A hidden floor is a zero floor. #pbar is display:none off pocket (:606) and
-     the band then starts at the screen edge instead of 60px up from it. */
+  /* A FLOOR THAT IS PRESENT BUT NOT MEASURABLE IS NOT A FLOOR AT ZERO, and the
+     difference is a dropdown sitting on top of the bar it hangs from. With the
+     floor unmeasurable this used to fall through to base=0 and place the first
+     tenant at base+pad = 6px. MEASURED by hiding #vitals for exactly one pass
+     and putting it straight back: 1920x1080 published 52px settled and 6px
+     forced, 1280x800 42 and 6, 390x844 41 and 6, against a bar whose bottom is
+     46, 36 and 35. It is not a frame of flicker either — nothing schedules a
+     corrective pass, so a run of verify_help_l8.js caught it 2 times in 5 with
+     the dropdown still at 6px when the sheet was read.
+     PUBLISH NOTHING RATHER THAN A GUESS. Every band var is read as
+     var(--name,<fallback>) and none is read bare, so a cleared band leaves each
+     overlay where the CSS alone puts it: #vdrop at 46px, which clears the bar
+     on all three. The next pass with a measurable floor publishes the truth.
+     THE OLD RULE SURVIVES WHERE IT WAS RIGHT. Its comment described a floor
+     that is GONE on this profile — #pbar off pocket — and that case never
+     reaches here: `only` returns three lines above. A floor ELEMENT that does
+     not exist at all still means zero, because a fork that deleted the bar has
+     no edge to find, so this tests present-and-unmeasurable and not absence. */
+  if(fl&&!bandShown(fl)){
+    for(const t of B.tenants){clear.push(t.v);if(t.max)clear.push(t.max)}
+    return {set,clear,box:null,base:0,over:0}}
   const fr=bandShown(fl)?fl.getBoundingClientRect():null;
   const base=fr?(key==='bottom'?Math.round(innerHeight-fr.top):Math.round(fr.bottom)):0;
+  /* ROOM FOR A TENANT THAT CAN SHRINK. A tenant naming `max` is one whose
+     height is a request rather than a fact, and this publishes how much of
+     the band it may have. It PUBLISHES, it does not apply: the tenant's CSS
+     keeps its authored cap as the var() fallback, so a dead band block
+     leaves it the size it has always been.
+     MEASURED FROM THE OTHER TENANTS ONLY, and that is the line that stops it
+     chasing itself. Shrinking the sheet cannot change the number that shrank
+     it, so the pass after the shrink writes the same value, BAND_SIG is
+     unchanged and nothing schedules another layout. Two passes and it rests.
+     WHAT IT FIXES, measured through the real button with the walk card up as
+     it is for every first-time reader: #help asked for 42vh, which on a
+     landscape phone is 42% of the SHORT edge, and the walk card placed after
+     it was clamped down onto the sheet's own head. 844x390 help 164..328 vs
+     walkCard 41..184, and 20px of the sheet's title, subtitle and close
+     button sat under a z-58 welcome card; 667x375 lost 28px, 740x360 lost
+     37px, and body[data-band-overflow] read 22, 31 and 39 against 0 in
+     portrait. */
+  const seen=t=>!((t.only==='pocket'&&!pocket)||(t.only==='desk'&&pocket))
+    &&bandShown(document.getElementById(t.id));
+  for(const t of B.tenants){
+    if(!t.max)continue;
+    if(!seen(t)){clear.push(t.max);continue}
+    let taken=0;
+    for(const o of B.tenants)if(o!==t&&seen(o))
+      taken+=Math.round(document.getElementById(o.id).getBoundingClientRect().height)+gap;
+    set[t.max]=Math.max(0,limit-base-pad-taken)+'px'}
   let cur=base+pad,lo=null,hi=null,want=base+pad;
   for(const t of B.tenants){
     if((t.only==='pocket'&&!pocket)||(t.only==='desk'&&pocket)){clear.push(t.v);continue}
@@ -6184,7 +6282,7 @@ window.bandLayout=bandLayout;window.bandSoon=bandSoon;
 window.bandBox=function(which){const b=BAND_BOX[which];return b?{top:b.top,bottom:b.bottom}:null};
 
 (function bandWatch(){
-  const ids=['pbar','vitals','maia','walkCard','toasts','draftBar','restoreBar'];
+  const ids=['pbar','help','vitals','maia','walkCard','toasts','draftBar','restoreBar','vdrop'];
   const els=ids.map(i=>document.getElementById(i)).filter(Boolean);
   /* Height is the input this cannot guess: a toast column grows and shrinks as
      toasts arrive and expire (:3124), and the walk card is a different height at
@@ -6709,8 +6807,113 @@ if($('pbMap'))$('pbMap').onclick=()=>{const c=document.body.classList.contains('
   $('pbMap').firstElementChild.textContent=c?'🏞':'◎';hap(8);window.WGATE&&(WGATE.toggle=true)};
 if($('pbAsk'))$('pbAsk').onclick=()=>{document.body.classList.toggle('msheet');
   if(document.body.classList.contains('msheet')){$('maia').classList.remove('min');setTimeout(()=>$('maiaText').focus(),250)}hap(8)};
-if($('pbAttn'))$('pbAttn').onclick=()=>{$('attnBtn')&&$('attnBtn').click();hap(8)};
-setInterval(()=>{const b=$('pbBadge');if(b&&$('attnBadge'))b.textContent=$('attnBadge').textContent},3000);
+/* ---------- HELP — the village's conversations, and the way to each one (R14) ----------
+   WHAT THIS REPLACED, measured through the real handler at 390x844: #pbAttn
+   ran $('attnBtn').click(), the attention card filled with 442 chars of HTML,
+   and body.pocket hides its container with display:none!important (:601). The
+   button flew the camera somewhere and showed nothing, every time, under a
+   badge reading 20. Nothing visible is lost here because nothing was visible.
+
+   THE ROWS ARE BUILT WITH DATA ATTRIBUTES AND ONE DELEGATED LISTENER, not with
+   inline handlers carrying quest titles and place names into a JS string, which
+   is why no value here needs escj: escj is for a JS string inside a handler and
+   no handler is written. Element text and double-quoted attributes take escq.
+   escq is ESCAPE-ONLY (& < "), so an identifier written into data-id / data-at /
+   data-item comes back out of `dataset` byte-identical and the deep link
+   addresses the thread the reader tapped. Normalising an id here would quietly
+   address a different thread, so nothing normalises one; verify_help_l8.js
+   asserts the round trip byte for byte instead of trusting this sentence.
+
+   ONE FIELD, AND WHY ITS escq IS ONLY HYGIENE HERE. `t.replies` is an integer in
+   the seed. An earlier draft of this comment claimed it was a live stored-XSS
+   sink because restoreScene "maps replies:t.replies||0" and `||` only replaces a
+   falsy value, so any non-empty string would survive. That is NOT true on this
+   base: #29 coerces the field at import — :5089 maps `replies:Number(t.replies)||0`
+   — so a string a restored scene carries here comes back a number, and the door
+   surfaces #29 hardened (cvrow/loom/mrow) read it after that same coercion. The
+   security claim is therefore withdrawn: there is no reachable stored-XSS through
+   replies on this surface. escq(t.replies) below is kept as harmless hygiene over
+   a value that is already numeric, not as a fix for a live sink, and the gate
+   asserts the coercion (restoreScene returns a number) rather than selling this
+   escape as a vuln fix it is not. */
+(function helpSheet(){
+  const el=$('help');if(!el)return;
+  const threads=()=>(typeof SCENE!=='undefined'&&SCENE.threads)?SCENE.threads:[];
+  const placesOf=t=>(t.structures||[]).filter(k=>typeof BY!=='undefined'&&BY[k]);
+
+  function renderHelp(){
+    const rows=threads().map(t=>{
+      const homes=placesOf(t);
+      /* A thread may be addressed to more than one place, and two of the seed
+         threads are addressed to none. The row says which, and offers one link
+         per place rather than picking a winner the data did not pick. */
+      const where=homes.length?homes.map(k=>escq(nameOf(k))).join(' · '):'not pinned to a place yet';
+      const links=homes.length
+        ? homes.map(k=>'<button class="btn help-link" data-at="'+escq(k)+'" data-item="'+escq(itemAddr('talk',t))+'">take me to '+escq(nameOf(k))+' →</button>').join('')
+        : '<button class="btn help-link" data-forum="1">open the forum →</button>';
+      return '<div class="help-row" data-id="'+escq(t.id)+'">'
+        +'<div class="help-t"><span>💬</span><span><b>'+escq(t.title)+'</b>'
+        +'<small class="help-m">'+escq(t.author)+' · '+escq(t.replies)+' replies · '+escq(t.last)+' ago · '+where+'</small></span></div>'
+        +'<div class="help-ex">'+escq(t.ex||'')+'</div>'
+        +'<div class="help-go">'+links+'</div></div>'}).join('');
+    const work=(typeof attnItems==='function')?attnItems().length:0;
+    el.innerHTML='<div class="help-head"><h4>help</h4>'
+      +'<span class="help-sub">what the village is saying, and where</span>'
+      +'<button class="help-close" aria-label="close">✕</button></div>'
+      +'<div class="help-list">'+(rows||'<div class="help-row"><div class="help-t"><span>💬</span><span><b>Nobody has said anything yet.</b><small class="help-m">be the first voice</small></span></div></div>')+'</div>'
+      +'<div class="help-work"><span>⚑ <b>'+work+'</b> thing'+(work===1?'':'s')+' need hands</span>'
+      +'<button class="btn help-wall">Get Involved →</button></div>'}
+
+  /* ONE SHEET AT A TIME. The maia sheet, the drawer and this all hang off the
+     same 60px bar on a 390px screen; the band can only arbitrate what fits, and
+     three of them do not. */
+  function openHelp(){renderHelp();
+    document.body.classList.remove('msheet');
+    const dr=$('pdrawer');if(dr)dr.classList.remove('open');
+    el.classList.add('show');
+    if(typeof bandSoon==='function')bandSoon()}
+  function closeHelp(){el.classList.remove('show');
+    if(typeof bandSoon==='function')bandSoon()}
+  function toggleHelp(){el.classList.contains('show')?closeHelp():openHelp()}
+
+  el.addEventListener('click',e=>{
+    const t=e.target;if(!t||!t.closest)return;
+    const lk=t.closest('.help-link');
+    if(lk){e.stopPropagation();closeHelp();
+      /* The same call routeHash makes: it sets #/place/<key>?item=<addr>, opens
+         the door, and focusItem lights the row the comment came from. */
+      if(lk.dataset.forum){if(typeof openDoor==='function')openDoor('forum',{});return}
+      if(typeof openPanel==='function')openPanel(lk.dataset.at,0,lk.dataset.item);
+      return}
+    if(t.closest('.help-wall')){closeHelp();
+      const w=$('wall');if(w){w.classList.add('show');if(typeof buildWall==='function')buildWall()}return}
+    if(t.closest('.help-close')){closeHelp();return}
+    const row=t.closest('.help-row');
+    if(row){const was=row.classList.contains('open');
+      el.querySelectorAll('.help-row.open').forEach(r=>r.classList.remove('open'));
+      if(!was)row.classList.add('open');
+      hap(5)}});
+
+  /* Tap the land to put it away, the way the vital dropdown already does
+     (:5738). #pbAttn is excluded or its own click would reopen what this just
+     closed. */
+  document.addEventListener('pointerdown',e=>{
+    if(!el.classList.contains('show'))return;
+    const t=e.target;if(t&&t.closest&&(t.closest('#help')||t.closest('#pbAttn')))return;
+    closeHelp()},true);
+
+  if($('pbAttn'))$('pbAttn').onclick=()=>{toggleHelp();hap(8)};
+
+  /* THE BADGE COUNTS WHAT THE SHEET LISTS. It mirrored #attnBadge, which counts
+     open seats and urgent quests, over a button that opened neither of them.
+     The same 3s tick, because a live thread feed is the point of the surface. */
+  function helpBadge(){const b=$('pbBadge');if(!b)return;
+    const n=threads().length;b.textContent=String(n);b.style.display=n?'':'none'}
+  helpBadge();setInterval(helpBadge,3000);
+
+  window.openHelp=openHelp;window.closeHelp=closeHelp;window.toggleHelp=toggleHelp;
+  window.renderHelp=renderHelp;
+})();
 function renderDrawer(){const d=$('pdrawer');if(!d)return;
   d.innerHTML=`<h4>the village</h4><div class="pgrid">`+
    Object.keys(MODULES).map(k=>`<button class="pcell" data-pm="${k}">${MODULES[k].icon}<span>${MODULES[k].name.split(' · ')[0]}</span></button>`).join('')+
