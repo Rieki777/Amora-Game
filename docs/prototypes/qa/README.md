@@ -49,6 +49,42 @@ The `verify_*.js` files run on their own against one concern each, outside the
 
     source ./env.sh && node verify_doors.js
 
+`verify_mapact.js` (W1c) is the place panel's control gate. It opens `#panel`
+at two buildings, sweeps all four tabs for anything actionable, and holds every
+one of them to a 44px tap target in BOTH dimensions, a real `<button>`, a fill
+or a border that panel prose does not carry, a focus ring reached by pressing
+Tab, and a hover that answers. Then it runs the same sweep at 390x844 on the
+pocket profile, once more under `reducedMotion: 'reduce'` to prove no control
+transitions there, and once over `#moduleCard`, which draws RSVP too.
+
+Its first section is what makes the rest mean anything. A sweep that finds
+nothing reports exactly what a sweep where everything passed reports, so §0
+asserts a non-zero element count and then asserts that every KIND in the
+inventory was on screen: the four tabs, the close cross, RSVP, a door CTA, a
+module door, a conversation row, Claim this quest, Raise a hand, and the Enter
+tab's door row. A control that stops rendering fails §0 rather than passing §1
+by absence.
+
+Run it against a pre-W1c artifact and it reports 12 failures, which is the
+whole reason to have it:
+
+    GROUNDS_FILE="file:///.../pre-w1c.html" node verify_mapact.js  # 12 FAILURES
+    source ./env.sh && node verify_mapact.js                       # MAPACT: ALL GREEN
+
+Two notes on the pocket half, both of them the page being right rather than the
+gate being wrong. The pocket boot dismisses the intro card itself and opens the
+Welcome Walk, so there is no `#enterBtn` to click there and waiting for one is
+a 30-second timeout; and `#panelClose` is the LAST child of `#panel`, so a tab
+walk that starts on it leaves the panel on the first press and measures nothing
+at all.
+
+`verify_doorsink.js` needs a scene fixture that is not in the repo:
+`qa/amora-scene.json`, the founder's own export, which it then poisons field by
+field. A fresh worktree has no such file and the gate dies in `readFileSync`
+before its first check. Write one from the artifact under test first:
+
+    source ./env.sh && node _dump_scene.js "$PWD/amora-scene.json"
+
 `verify_skin_bridge.js` is the site lane's, and it checks the contract rather
 than the map: the site stores a skin through a sanitiser that rebuilds the
 object field by field, so any key `skinExport()` gains and the site has not is
