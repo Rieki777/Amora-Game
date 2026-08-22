@@ -789,6 +789,47 @@ export const MODULES: ModuleDef[] = [
     apiPrefixes: ["/api/network"],
   },
   {
+    id: "crowdpool",
+    tier: "included",
+    // The cache holds hub-public campaign content and the public names its
+    // feed already shows. No member of THIS village appears in it at all.
+    dataClass: "village-content",
+    group: "connect",
+    setup: "optional",
+    name: "Crowdpool",
+    description:
+      "The village's hub crowdpool, told in the living map's own language: a gold funding ring, a star lantern counting toward build day, a needs shelf with claim links to the hub, partner funders, and a ledger of arrivals. The game server reads the hub's public data and shows aggregates; every pledge happens on the hub itself.",
+    requires: [],
+    recommends: ["map"],
+    capabilities: [],
+    variableKeys: [],
+    apiPrefixes: ["/api/crowdpool"],
+    defaultConfig: { villageCampaigns: [] },
+    validateConfig: (c: any) => {
+      if (!c || typeof c !== "object") return "config must be an object";
+      const list = c.villageCampaigns;
+      if (list === undefined) return null; // an image-only config write stays valid
+      if (!Array.isArray(list)) {
+        return "villageCampaigns must be a list: [{ id or slug, hubBaseUrl optional }]";
+      }
+      const keys: string[] = [];
+      for (const e of list) {
+        if (!e || typeof e !== "object") return "each campaign must be an object";
+        const hasId = Number.isInteger(e.id) && e.id > 0;
+        const hasSlug = typeof e.slug === "string" && /^[a-z0-9][a-z0-9-]{0,79}$/.test(e.slug);
+        if (!hasId && !hasSlug) {
+          return "each campaign needs a numeric hub id or a lowercase slug";
+        }
+        if (e.hubBaseUrl !== undefined && !/^https:\/\/[^\s]+$/.test(String(e.hubBaseUrl))) {
+          return "hubBaseUrl must be an https address";
+        }
+        keys.push(typeof e.slug === "string" && e.slug ? e.slug : String(e.id));
+      }
+      if (new Set(keys).size !== keys.length) return "campaign slugs must be unique";
+      return null;
+    },
+  },
+  {
     id: "tools",
     tier: "included",
     dataClass: "member-pii",

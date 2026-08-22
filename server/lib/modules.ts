@@ -336,6 +336,7 @@ const READINESS_HINTS: Record<string, string> = {
   library: "Put one item on the shelves first",
   exchange: "List a token and post its price first",
   commerce: "Create one product first",
+  crowdpool: "Link one hub campaign first",
 };
 
 let readinessAttached = false;
@@ -368,6 +369,21 @@ export function attachModuleReadiness(getPool: () => Pool): void {
             "SELECT COUNT(*) n FROM accommodation_prices WHERE is_example = 0",
           );
           return { ready: Number(rooms.n) > 0 && Number(prices.n) > 0, hint };
+        } catch {
+          return { ready: false, hint };
+        }
+      };
+      continue;
+    }
+    if (def.id === "crowdpool") {
+      // The second custom reader, for the same reason as stays: the default
+      // check reads a module's own tables, and crowdpool has none. Its
+      // content is CONFIG (linked hub campaigns), so ready means at least one
+      // campaign is linked.
+      def.readiness = async () => {
+        try {
+          const cfg = moduleConfig<{ villageCampaigns?: unknown[] }>("crowdpool");
+          return { ready: (cfg?.villageCampaigns?.length ?? 0) > 0, hint };
         } catch {
           return { ready: false, hint };
         }

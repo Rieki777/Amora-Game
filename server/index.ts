@@ -374,6 +374,16 @@ import {
 import { recordFeedback, relayFeedback } from "./lib/feedback";
 import { addPeer, discoverPeer, peerSharedItems, SHARED_ITEM_TYPES, syncPeers } from "./lib/network";
 import {
+  campaignKey,
+  crowdpoolStatus,
+  getCampaign,
+  refreshAll as refreshCrowdpool,
+  snapshotExport as crowdpoolSnapshotExport,
+  snapshotImport as crowdpoolSnapshotImport,
+  type CrowdpoolConfig,
+  type CrowdpoolDeps,
+} from "./lib/crowdpool";
+import {
   loadShelves, modulesWithoutContracts, relevantSections, relevantSyntheses, sectionCitation, shelfDocs,
 } from "./lib/knowledge";
 import {
@@ -1059,6 +1069,21 @@ const mapVocabRepo = dbDocument(getPool(), MAP_VOCABULARY_DOC, DEFAULT_MAP_VOCAB
  */
 const mapWalkRepo = dbDocument(getPool(), MAP_WALK_DOC, {} as any);
 const workWithUsRepo = dbDocument(getPool(), "work-with-us", DEFAULT_WORK_WITH_US as any);
+// Crowdpool snapshots persist across reboots so a boot with the hub dark
+// still has its last morning's numbers to serve, age named. No new table:
+// the ruled v1 posture is memory plus an app_config document.
+const crowdpoolSnapshotsRepo = dbDocument(getPool(), "crowdpool-snapshots", {} as any);
+/** The crowdpool dialer is the house pinned dialer, nothing else. */
+const crowdpoolDeps: CrowdpoolDeps = {
+  fetchJson: (url, timeoutMs) => guardedFetchJson(url, timeoutMs),
+};
+/** The hub default is ONE founder-held game variable, never a literal here. */
+const crowdpoolHubBase = () => stringVar("governance.hub_url").replace(/\/+$/, "");
+/** The linked campaigns, tolerant of a config that only carries an image. */
+const crowdpoolRefs = (): CrowdpoolConfig => {
+  const cfg = moduleConfig<CrowdpoolConfig>("crowdpool");
+  return { villageCampaigns: Array.isArray(cfg?.villageCampaigns) ? cfg!.villageCampaigns : [] };
+};
 const visitConfigRepo = dbDocument(getPool(), "visit-config", DEFAULT_VISIT_CONFIG as any);
 const investorSummaryRepo = dbDocument(getPool(), "investor-summary", DEFAULT_INVESTOR_SUMMARY as any);
 const seasonRepo = dbDocument(getPool(), "season", GAME_CONFIG.season as any);
@@ -1199,7 +1224,12 @@ async function initStores(): Promise<void> {
     exitPolicyRepo.load(),
     dataMigrations.load(),
     loadVariables(getPool()),
+    crowdpoolSnapshotsRepo.load(),
   ]);
+  // Rehydrate the crowdpool cache from the persisted snapshots. Memory wins
+  // on a key that has already fetched, which at this point in boot is none.
+  const rehydrated = crowdpoolSnapshotImport(crowdpoolSnapshotsRepo.get() as any);
+  if (rehydrated) console.log(`[crowdpool] ${rehydrated} snapshot(s) rehydrated from app_config`);
   // S62: mint-or-read this deployment's permanent identity. Everything
   // cross-instance hangs off it, so it exists before any route serves.
   const identity = await ensureInstanceIdentity(getPool());
@@ -4103,6 +4133,21 @@ async function startServer() {
     if (effectiveLifecycle("network") === "off") return;
     const r = await syncPeers(getPool());
     if (r.synced + r.failed > 0) console.log(`[network] synced ${r.synced} peer(s), ${r.failed} failed`);
+  });
+
+  // The crowdpool warm sweep. Page requests refresh on their own 90s TTL;
+  // this keeps the snapshot no older than ten minutes while the hub answers,
+  // so the degrade path always has something recent to name. The scheduler's
+  // 15s first tick doubles as the boot-time warm, and the summary line it
+  // logs is the boot-time first-tick line.
+  registerJob("crowdpool-sync", 10 * 60 * 1000, async () => {
+    if (effectiveLifecycle("crowdpool") === "off") return "crowdpool module off";
+    const refs = crowdpoolRefs();
+    if (!refs.villageCampaigns.length) return "no campaigns linked";
+    const r = await refreshCrowdpool(crowdpoolDeps, refs, crowdpoolHubBase());
+    await crowdpoolSnapshotsRepo.put(crowdpoolSnapshotExport() as any);
+    console.log(`[crowdpool] sync: ${r.ok} fresh, ${r.failed} failed`);
+    return `${r.ok} campaign(s) fresh, ${r.failed} failed`;
   });
 
   registerJob("recording-rss", 6 * 60 * 60 * 1000, async () => {
@@ -11346,6 +11391,77 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       })),
     });
   });
+
+  // ── Crowdpool (lane CP): the hub bridge, read-only ─────────────────────────
+  //
+  // Every route mounts behind requireModule("crowdpool"): off is a 404, and
+  // the module ships off. The proxy itself lives in server/lib/crowdpool.ts;
+  // these handlers only pick the ref out of config and serve what the cache
+  // answers. Nothing here writes anything anywhere.
+  app.use("/api/crowdpool", requireModule("crowdpool"));
+
+  /** One card per linked campaign: the /campaigns page. */
+  app.get("/api/crowdpool/campaigns", async (_req, res) => {
+    const refs = crowdpoolRefs().villageCampaigns;
+    const campaigns: any[] = [];
+    for (const ref of refs) {
+      const served = await getCampaign(crowdpoolDeps, ref, crowdpoolHubBase());
+      if (!served) {
+        // Never synced and the hub is not answering: named, never invented.
+        campaigns.push({ key: campaignKey(ref), reachable: false, lastSyncAt: null });
+        continue;
+      }
+      const d = served.data;
+      campaigns.push({
+        key: campaignKey(ref),
+        slug: d.slug,
+        title: d.title,
+        projectName: d.projectName,
+        status: d.status,
+        currency: d.currency,
+        totalValue: d.totalValue,
+        pledgedTotal: d.pledgedTotal,
+        percentPledged: d.percentPledged,
+        percentDelivered: d.percentDelivered,
+        daysRemaining: d.daysRemaining,
+        endsAt: d.endsAt,
+        contributorsCount: d.contributorsCount,
+        imageUrl: d.imageUrl,
+        isDemo: d.isDemo,
+        reachable: true,
+        stale: served.stale,
+        lastSyncAt: served.lastSyncAt,
+      });
+    }
+    res.json({ campaigns });
+  });
+
+  /** The whole bridge page payload for one campaign. */
+  app.get("/api/crowdpool/campaign", async (req, res) => {
+    const slug = String(req.query.slug ?? "").trim();
+    const ref = crowdpoolRefs().villageCampaigns.find((r) => campaignKey(r) === slug);
+    if (!ref) return res.status(404).json({ error: "No campaign is linked under that name" });
+    const served = await getCampaign(crowdpoolDeps, ref, crowdpoolHubBase());
+    if (!served) {
+      return res.status(503).json({
+        error: "The hub is out of reach and no snapshot has been kept yet. Try again in a minute.",
+        key: slug,
+        lastSyncAt: null,
+      });
+    }
+    res.json({ campaign: served.data, stale: served.stale, lastSyncAt: served.lastSyncAt });
+  });
+
+  /** The admin's last-sync line: per-key stamps and the last refusal, raw. */
+  app.get("/api/admin/crowdpool/status", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    res.json({
+      configured: crowdpoolRefs().villageCampaigns.map(campaignKey),
+      hubBaseUrl: crowdpoolHubBase(),
+      campaigns: crowdpoolStatus(),
+    });
+  });
+  // ── End crowdpool zone ─────────────────────────────────────────────────────
 
   app.use("/api/network", requireModule("network"));
 

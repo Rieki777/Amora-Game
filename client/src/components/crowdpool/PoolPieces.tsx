@@ -1,0 +1,371 @@
+/**
+ * The crowdpool page's craft pieces (lane CP), drawn in the living map's own
+ * vocabulary: wood, parchment, gold, small-caps plaques. The colour tokens
+ * are the artifact's (`docs/prototypes/grounds-v0.html`, read-only): wood
+ * #241a10, gold #c9a25e, bright gold #ecd08a, parchment #f3e6c8, ink #241a10.
+ *
+ * The metaphors are the map's, reused on purpose and never reinvented: the
+ * funding structure "wears a gold ring showing the percent", reads
+ * "Gathering the pool" under half and "Under construction" above, the
+ * star-lantern burns brighter as the close comes near, sprites grow
+ * blueprint to wip to painted, and arrivals land as ripples.
+ *
+ * The capitals framework stays off this page by ruling: the nine capital
+ * types appear only as TINTS on needs tiles, never as the hub's segmented
+ * capital-stack widget.
+ */
+import { BookOpen, Coins, Hammer, Mountain, Package, Repeat, Sparkles, UserRound, type LucideIcon } from "lucide-react";
+
+// ── The nine capital tints ───────────────────────────────────────────────────
+// Hues chosen to sit on parchment; the hub's own hex accents belong to the
+// hub's design system, so these are the map's warm-palette cousins.
+export const CAPITAL_TINTS: Record<string, string> = {
+  material: "#8a6a33",
+  living: "#5c7a3a",
+  financial: "#a8862c",
+  social: "#a05c74",
+  cultural: "#7a5ca0",
+  spiritual: "#5f6fa8",
+  intellectual: "#3f7a8a",
+  experiential: "#b06f3a",
+  health: "#3f8a5f",
+};
+
+export const capitalTint = (capital: string): string => CAPITAL_TINTS[capital] ?? "#8a6a33";
+
+export const KIND_GLYPHS: Record<string, LucideIcon> = {
+  loan: Repeat,
+  role: UserRound,
+  shift: Hammer,
+  knowledge: BookOpen,
+  item: Package,
+  crypto: Coins,
+  land: Mountain,
+};
+
+export const kindGlyph = (kind: string): LucideIcon => KIND_GLYPHS[kind] ?? Sparkles;
+
+/** What a kind's claim means, in one plain word for the card corner. */
+export const KIND_LABELS: Record<string, string> = {
+  loan: "a loan",
+  role: "a role",
+  shift: "a work day",
+  knowledge: "know-how",
+  item: "goods",
+  crypto: "crypto",
+  land: "land",
+};
+
+// ── The phase label: the map's own words ─────────────────────────────────────
+
+export function phaseLabel(status: string, percentPledged: number): string {
+  if (status === "draft" || status === "pending_review") return "Waiting to open";
+  if (status === "funded") return "The pool is full";
+  if (status === "completed") return "Built into the village";
+  if (status === "cancelled" || status === "rejected") return "Closed";
+  return percentPledged < 50 ? "Gathering the pool" : "Under construction";
+}
+
+// ── Shared formatting ────────────────────────────────────────────────────────
+
+export function money(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `${Math.round(amount)} ${currency}`;
+  }
+}
+
+export function timeAgo(iso: string | null): string {
+  if (!iso) return "some time ago";
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(ms / 60_000);
+  if (min < 2) return "moments ago";
+  if (min < 60) return `${min} minutes ago`;
+  const hours = Math.floor(min / 60);
+  if (hours < 2) return "an hour ago";
+  if (hours < 24) return `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 2) return "yesterday";
+  return `${days} days ago`;
+}
+
+// ── The gold ring ────────────────────────────────────────────────────────────
+
+/**
+ * The funding meter, exactly the ring a structure on the map wears: pledged
+ * share as the outer gold arc, delivered share as a quieter inner arc so the
+ * promise can be seen running ahead of the walls. `ripple` increments when a
+ * new arrival lands and plays one expanding ring.
+ */
+export function GoldRing({
+  percentPledged,
+  percentDelivered,
+  label,
+  size = 220,
+  ripple = 0,
+}: {
+  percentPledged: number;
+  percentDelivered: number;
+  label: string;
+  size?: number;
+  ripple?: number;
+}) {
+  const r = 84;
+  const rIn = 70;
+  const c = 2 * Math.PI * r;
+  const cIn = 2 * Math.PI * rIn;
+  const pledged = Math.min(100, Math.max(0, percentPledged));
+  const delivered = Math.min(100, Math.max(0, percentDelivered));
+  return (
+    <div className="cp-ring-wrap" style={{ width: size, height: size }}>
+      <svg viewBox="0 0 200 200" width={size} height={size} role="img" aria-label={`${pledged} percent pledged, ${delivered} percent delivered`}>
+        <defs>
+          <linearGradient id="cp-gold" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#ecd08a" />
+            <stop offset="0.55" stopColor="#c9a25e" />
+            <stop offset="1" stopColor="#a37f42" />
+          </linearGradient>
+        </defs>
+        {ripple > 0 && (
+          <circle key={ripple} className="cp-ripple" cx="100" cy="100" r={r} fill="none" stroke="#ecd08a" strokeWidth="2" />
+        )}
+        <circle cx="100" cy="100" r={r} fill="none" stroke="rgba(201,162,94,.22)" strokeWidth="9" />
+        <circle
+          className="cp-arc"
+          cx="100" cy="100" r={r} fill="none"
+          stroke="url(#cp-gold)" strokeWidth="9" strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - pledged / 100)}
+          transform="rotate(-90 100 100)"
+        />
+        <circle cx="100" cy="100" r={rIn} fill="none" stroke="rgba(201,162,94,.14)" strokeWidth="5" />
+        <circle
+          className="cp-arc cp-arc-slow"
+          cx="100" cy="100" r={rIn} fill="none"
+          stroke="#8fd06a" strokeOpacity="0.75" strokeWidth="5" strokeLinecap="round"
+          strokeDasharray={cIn}
+          strokeDashoffset={cIn * (1 - delivered / 100)}
+          transform="rotate(-90 100 100)"
+        />
+        <text x="100" y="97" textAnchor="middle" className="cp-ring-pct">{pledged}%</text>
+        <text x="100" y="117" textAnchor="middle" className="cp-ring-sub">pooled</text>
+      </svg>
+      <div className="cp-ring-label">{label}</div>
+    </div>
+  );
+}
+
+/** The list page's small ring: one arc, the percent, nothing else. */
+export function MiniRing({ percent, size = 64 }: { percent: number; size?: number }) {
+  const r = 26;
+  const c = 2 * Math.PI * r;
+  const p = Math.min(100, Math.max(0, percent));
+  return (
+    <svg viewBox="0 0 64 64" width={size} height={size} role="img" aria-label={`${p} percent pooled`}>
+      <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(201,162,94,.25)" strokeWidth="5" />
+      <circle
+        cx="32" cy="32" r={r} fill="none" className="cp-arc"
+        stroke="#c9a25e" strokeWidth="5" strokeLinecap="round"
+        strokeDasharray={c} strokeDashoffset={c * (1 - p / 100)}
+        transform="rotate(-90 32 32)"
+      />
+      <text x="32" y="37" textAnchor="middle" className="cp-mini-pct">{p}%</text>
+    </svg>
+  );
+}
+
+// ── The star lantern ─────────────────────────────────────────────────────────
+
+/**
+ * The countdown, as the map draws it: a star-lantern that burns brighter as
+ * build day comes near. Intensity eases from a quarter-glow sixty days out to
+ * full at the close.
+ */
+export function StarLantern({ daysRemaining, endsAt }: { daysRemaining: number | null; endsAt: string | null }) {
+  const closed = daysRemaining === 0 && endsAt !== null && new Date(endsAt).getTime() < Date.now();
+  const glow = daysRemaining === null ? 0.35 : Math.max(0.25, Math.min(1, 1 - daysRemaining / 60));
+  const line =
+    daysRemaining === null
+      ? "No close is set"
+      : closed
+        ? "The pool has closed"
+        : daysRemaining === 0
+          ? "Closes today"
+          : daysRemaining === 1
+            ? "One day until the pool closes"
+            : `${daysRemaining} days until the pool closes`;
+  return (
+    <div className="cp-lantern" title={endsAt ? `Closes ${new Date(endsAt).toLocaleDateString()}` : undefined}>
+      <svg viewBox="0 0 48 64" width="44" height="58" aria-hidden="true">
+        <path d="M14 8 L34 8 L30 2 L18 2 Z" fill="#3a2b1a" stroke="#c9a25e" strokeWidth="1" />
+        <path d="M12 10 L36 10 L32 46 L16 46 Z" fill="rgba(36,26,15,.9)" stroke="#c9a25e" strokeWidth="1.4" />
+        <path
+          className="cp-lantern-star"
+          d="M24 16 L26.4 24.2 L34 24.2 L27.8 28.8 L30.2 36.4 L24 31.6 L17.8 36.4 L20.2 28.8 L14 24.2 L21.6 24.2 Z"
+          fill="#ecd08a"
+          style={{ opacity: 0.45 + glow * 0.55, filter: `drop-shadow(0 0 ${3 + glow * 9}px rgba(236,208,138,${0.35 + glow * 0.6}))` }}
+        />
+        <path d="M16 46 L32 46 L30 52 L18 52 Z" fill="#3a2b1a" stroke="#c9a25e" strokeWidth="1" />
+      </svg>
+      <div className="cp-lantern-line">{line}</div>
+    </div>
+  );
+}
+
+// ── The three-slot meter ─────────────────────────────────────────────────────
+
+/**
+ * wanted / claimed / delivered as one bar: delivered is solid (the walls),
+ * claimed is the ghost (spoken for, still travelling), the rest is open air.
+ */
+export function SlotMeter({
+  wanted, claimed, delivered, tint,
+}: {
+  wanted: number; claimed: number; delivered: number; tint: string;
+}) {
+  const total = Math.max(wanted, claimed, delivered, 1);
+  const dPct = Math.min(100, (delivered / total) * 100);
+  const cPct = Math.min(100, (Math.max(claimed, delivered) / total) * 100);
+  return (
+    <div className="cp-slots" role="img" aria-label={`${delivered} delivered, ${claimed} claimed, ${wanted} wanted`}>
+      <div className="cp-slots-track">
+        <div className="cp-slots-claimed" style={{ width: `${cPct}%`, background: tint }} />
+        <div className="cp-slots-delivered" style={{ width: `${dPct}%`, background: tint }} />
+      </div>
+      <div className="cp-slots-caption">
+        <span>{delivered} arrived</span>
+        <span>{Math.max(0, claimed - delivered)} spoken for</span>
+        <span>{wanted} wanted</span>
+      </div>
+    </div>
+  );
+}
+
+// ── The growth strip ─────────────────────────────────────────────────────────
+
+/**
+ * blueprint, wip, painted: the sprite ladder every structure on the map
+ * climbs, keyed here to the DELIVERED share, because walls are made of what
+ * arrived. Ships as stylized SVG; a painted sprite set is a named follow-up.
+ */
+export function GrowthStrip({ percentDelivered, percentPledged }: { percentDelivered: number; percentPledged: number }) {
+  const stage = percentDelivered >= 70 ? 2 : percentDelivered >= 15 ? 1 : 0;
+  const stages: Array<{ name: string; at: string }> = [
+    { name: "Blueprint", at: "the dream, drawn" },
+    { name: "Raising", at: "frames and scaffold" },
+    { name: "Painted", at: "walls, roof, door" },
+  ];
+  return (
+    <div className="cp-growth">
+      <div className="cp-growth-row">
+        {stages.map((s, i) => (
+          <div key={s.name} className={`cp-growth-cell ${i === stage ? "on" : i < stage ? "done" : ""}`}>
+            <HouseSprite stage={i} lit={i <= stage} />
+            <div className="cp-growth-name">{s.name}</div>
+            <div className="cp-growth-at">{s.at}</div>
+          </div>
+        ))}
+      </div>
+      <p className="cp-growth-note">
+        The ring holds the promise; the walls are what has arrived.
+        {percentPledged > percentDelivered
+          ? ` Right now the ring runs ahead: ${percentPledged}% pooled, ${percentDelivered}% delivered and standing.`
+          : ` Delivered work is keeping pace with the pool: ${percentDelivered}% standing.`}
+      </p>
+    </div>
+  );
+}
+
+function HouseSprite({ stage, lit }: { stage: number; lit: boolean }) {
+  const stroke = lit ? "#ecd08a" : "rgba(236,208,138,.35)";
+  if (stage === 0) {
+    return (
+      <svg viewBox="0 0 80 64" width="80" height="64" aria-hidden="true">
+        <g fill="none" stroke={stroke} strokeWidth="1.6" strokeDasharray="5 4">
+          <path d="M12 34 L40 12 L68 34" />
+          <rect x="18" y="34" width="44" height="22" />
+          <rect x="34" y="42" width="12" height="14" />
+        </g>
+      </svg>
+    );
+  }
+  if (stage === 1) {
+    return (
+      <svg viewBox="0 0 80 64" width="80" height="64" aria-hidden="true">
+        <g fill="none" stroke={stroke} strokeWidth="2">
+          <path d="M12 34 L40 12 L68 34" />
+          <rect x="18" y="34" width="44" height="22" />
+          <line x1="18" y1="45" x2="62" y2="45" />
+          <line x1="30" y1="34" x2="30" y2="56" />
+          <line x1="50" y1="34" x2="50" y2="56" />
+        </g>
+        <g stroke="rgba(201,162,94,.7)" strokeWidth="1.2">
+          <line x1="8" y1="60" x2="8" y2="26" />
+          <line x1="72" y1="60" x2="72" y2="26" />
+          <line x1="4" y1="30" x2="76" y2="30" />
+        </g>
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 80 64" width="80" height="64" aria-hidden="true">
+      <path d="M10 34 L40 10 L70 34 Z" fill="#8a5a3a" stroke="#ecd08a" strokeWidth="1.6" />
+      <rect x="18" y="34" width="44" height="22" fill="#e4d3ae" stroke="#ecd08a" strokeWidth="1.6" />
+      <rect x="34" y="42" width="12" height="14" fill="#3a2b1a" stroke="#c9a25e" strokeWidth="1.2" />
+      <rect x="23" y="39" width="8" height="8" fill="#9fd4ff" stroke="#c9a25e" strokeWidth="1" />
+      <rect x="49" y="39" width="8" height="8" fill="#9fd4ff" stroke="#c9a25e" strokeWidth="1" />
+    </svg>
+  );
+}
+
+// ── The page's scoped styles ─────────────────────────────────────────────────
+
+export function CrowdpoolStyles() {
+  return (
+    <style>{`
+      .cp-board{background:linear-gradient(180deg,#1c1309,#241a10 30%,#2a1f12);color:#f3e6c8;border-radius:18px;border:1px solid rgba(201,162,94,.35);overflow:hidden}
+      .cp-plaque{background:linear-gradient(180deg,#fdf3d7,#efdcae);border:1px solid #8a6a33;border-radius:10px;color:#241a10;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+      .cp-smallcaps{font-variant:small-caps;letter-spacing:.18em;color:#ecd08a;font-weight:400}
+      .cp-smallcaps-ink{font-variant:small-caps;letter-spacing:.14em;color:#4a3a26;font-weight:600}
+      .cp-ring-wrap{position:relative;margin:0 auto}
+      .cp-ring-pct{font-size:34px;font-weight:700;fill:#ecd08a}
+      .cp-ring-sub{font-size:11px;letter-spacing:.25em;fill:#c9a25e}
+      .cp-mini-pct{font-size:13px;font-weight:700;fill:#ecd08a}
+      .cp-arc{transition:stroke-dashoffset 1.4s cubic-bezier(.25,.8,.3,1)}
+      .cp-arc-slow{transition-duration:2s}
+      .cp-ring-label{text-align:center;margin-top:6px;font-variant:small-caps;letter-spacing:.2em;font-size:13px;color:#c9a25e}
+      .cp-ripple{animation:cp-ripple 1.6s ease-out 1;transform-origin:100px 100px}
+      @keyframes cp-ripple{from{opacity:.9;transform:scale(1)}to{opacity:0;transform:scale(1.28)}}
+      .cp-lantern{display:flex;flex-direction:column;align-items:center;gap:4px}
+      .cp-lantern-line{font-size:12px;color:#e4d3ae;letter-spacing:.06em;text-align:center}
+      .cp-slots-track{position:relative;height:10px;border-radius:6px;background:rgba(36,26,15,.15);border:1px solid rgba(138,106,51,.4);overflow:hidden}
+      .cp-slots-claimed{position:absolute;inset:0 auto 0 0;opacity:.32}
+      .cp-slots-delivered{position:absolute;inset:0 auto 0 0}
+      .cp-slots-caption{display:flex;justify-content:space-between;font-size:10.5px;color:#4a3a26;margin-top:3px;letter-spacing:.04em}
+      .cp-need{position:relative;padding:12px 14px 12px 16px;border-left-width:4px;border-left-style:solid}
+      .cp-need .cp-pin{position:absolute;top:8px;right:10px;font-size:10px;letter-spacing:.12em;color:#8a6a33;font-variant:small-caps}
+      .cp-ledger-line{animation:none}
+      .cp-ledger-line.arrival{animation:cp-arrive 1.2s ease-out 1}
+      @keyframes cp-arrive{from{opacity:0;transform:translateY(-6px);background:rgba(236,208,138,.28)}to{opacity:1;transform:none;background:transparent}}
+      .cp-growth-row{display:flex;gap:14px;justify-content:space-between}
+      .cp-growth-cell{flex:1;text-align:center;opacity:.45;padding:8px 4px;border-radius:10px;border:1px dashed rgba(201,162,94,.25)}
+      .cp-growth-cell.done{opacity:.8;border-style:solid}
+      .cp-growth-cell.on{opacity:1;border-style:solid;border-color:#ecd08a;background:rgba(236,208,138,.07);box-shadow:0 0 14px rgba(236,208,138,.12)}
+      .cp-growth-name{font-variant:small-caps;letter-spacing:.16em;font-size:12px;color:#ecd08a;margin-top:2px}
+      .cp-growth-at{font-size:10.5px;color:#c9a25e}
+      .cp-growth-note{font-size:12.5px;color:#e4d3ae;margin-top:10px;line-height:1.5}
+      .cp-stale{background:rgba(36,26,15,.85);border:1px solid rgba(201,162,94,.5);color:#e4d3ae;border-radius:10px;padding:10px 14px;font-size:13px}
+      @media (prefers-reduced-motion: reduce){
+        .cp-arc{transition:none}
+        .cp-ripple{animation:none;opacity:0}
+        .cp-ledger-line.arrival{animation:none}
+        .cp-lantern-star{filter:none}
+      }
+    `}</style>
+  );
+}
