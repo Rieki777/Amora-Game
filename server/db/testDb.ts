@@ -31,8 +31,12 @@
  * over two hours old is dropped (a crashed run's orphan), while a live
  * parallel run's schema, minutes old, is never touched.
  */
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import mysql from "mysql2/promise";
-import { applyPending } from "./migrate";
+import { applyPending, discoverMigrations, MIGRATIONS_DIR } from "./migrate";
+import { noteProvision } from "./provisioningReport";
 
 const RUN_STAMP = `${Math.floor(Date.now() / 1000)}_${process.pid}`;
 let provisionSeq = 0;
@@ -60,6 +64,364 @@ async function sweepStaleSchemas(admin: mysql.Connection): Promise<void> {
   }
 }
 
+/* ------------------------------------------------------------------------ *
+ * The template.
+ *
+ * Measured 2026-08-22: 88 migration files and 47 provisions in a full run, one
+ * full migration run each. That was about five minutes of every CI job spent
+ * replaying the same DDL forty-seven times, and it grew by that multiple with
+ * every migration anyone added. One PR-merge job was cancelled on the
+ * fifteen-minute cap while the push job for the same commit finished in 4m38s,
+ * so the headroom this spends is what makes runner variance fatal.
+ *
+ * MySQL has no `CREATE DATABASE ... TEMPLATE`, so the equivalent is built by
+ * hand: migrate ONCE into a template schema, then give each suite a copy made
+ * from that template's own `SHOW CREATE TABLE` plus a server-side row copy.
+ *
+ * What this keeps, all of it load-bearing:
+ *
+ *  - ISOLATION. Every suite still gets its own uniquely-named scratch schema
+ *    that nothing else writes to. The template is read-only once built.
+ *  - CLEANUP. `drop()` is unchanged, the two-hour sweep of crashed runs'
+ *    scratch schemas is unchanged, and templates get a sweep of their own.
+ *  - FIDELITY. The DDL is the server's own rendering of the migrated schema,
+ *    replayed on the same server, so nothing is translated between engines and
+ *    the local MariaDB and CI's MySQL each clone their own dialect exactly.
+ *    `server/db/harness.test.ts` asserts a clone is column-for-column and
+ *    index-for-index identical to a schema that ran the migrations itself.
+ *  - THE FAIL-LOUD SKIP. No TEST_DATABASE_URL still throws, and the suites
+ *    still skip on `testDbConfigured()`.
+ *
+ * The template's identity is the sha of every migration file's NAME and BYTES
+ * plus the collation asked for, so a new migration means a new template and a
+ * stale one can never be silently reused. That also lets the template survive
+ * between runs on a developer machine: the second run of the day pays nothing
+ * at all.
+ * ------------------------------------------------------------------------ */
+
+/** Templates outlive a run on purpose; this bounds how long. */
+const STALE_TEMPLATE_MS = 24 * 60 * 60 * 1000;
+
+let fingerprintCache: { key: string; files: string[] } | null = null;
+
+/** Migration set identity: names and bytes, so an edited file is a different set. */
+function migrationsFingerprint(): { key: string; files: string[] } {
+  if (fingerprintCache) return fingerprintCache;
+  const files = discoverMigrations();
+  const h = crypto.createHash("sha256");
+  for (const f of files) {
+    h.update(f);
+    h.update(fs.readFileSync(path.join(MIGRATIONS_DIR, f)));
+  }
+  fingerprintCache = { key: h.digest("hex").slice(0, 12), files };
+  return fingerprintCache;
+}
+
+function templateSchemaName(collation?: string): string {
+  const { key } = migrationsFingerprint();
+  const tag = collation ? collation.replace(/[^a-z0-9]/g, "").slice(0, 28) : "default";
+  return `village_tpl_${key}_${tag}`;
+}
+
+function schemaUrl(base: string, schema: string): string {
+  const u = new URL(base);
+  u.pathname = `/${schema}`;
+  return u.toString();
+}
+
+function createSchemaSql(schema: string, collation?: string): string {
+  return (
+    `CREATE DATABASE \`${schema}\` CHARACTER SET utf8mb4` + (collation ? ` COLLATE ${collation}` : "")
+  );
+}
+
+/**
+ * Ready means the ledger holds every migration on disk. That is the same
+ * question `applyPending` asks, so a template that crashed half-way reads as
+ * unready and is rebuilt instead of cloned into forty-three broken schemas.
+ */
+async function templateIsReady(
+  admin: mysql.Connection,
+  schema: string,
+  files: string[],
+): Promise<boolean> {
+  const [dbs] = await admin.query<any[]>(
+    "SELECT schema_name AS s FROM information_schema.schemata WHERE schema_name = ?",
+    [schema],
+  );
+  if (dbs.length === 0) return false;
+  try {
+    const [rows] = await admin.query<any[]>(
+      `SELECT filename FROM \`${schema}\`.\`_migrations_applied\``,
+    );
+    const done = new Set(rows.map((r) => String(r.filename)));
+    return files.every((f) => done.has(f));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Build the template under a named MySQL lock.
+ *
+ * The lock is what makes this safe with five agent lanes on one server and
+ * with vitest's own worker per file: whoever gets it builds, everyone else
+ * waits and then finds it ready. The lock is held by the admin CONNECTION, so
+ * a crashed builder releases it when its socket dies.
+ */
+async function buildTemplate(
+  admin: mysql.Connection,
+  base: string,
+  schema: string,
+  collation: string | undefined,
+  files: string[],
+): Promise<number> {
+  const [[got]] = await admin.query<any[]>("SELECT GET_LOCK(?, 600) AS ok", [schema]);
+  if (Number(got?.ok) !== 1) throw new Error(`could not take the template lock for ${schema}`);
+  try {
+    if (await templateIsReady(admin, schema, files)) return 0;
+    const t0 = Date.now();
+    await admin.query(`DROP DATABASE IF EXISTS \`${schema}\``);
+    await admin.query(createSchemaSql(schema, collation));
+    const conn = await mysql.createConnection({ uri: schemaUrl(base, schema), timezone: "Z" });
+    await conn.query("SET time_zone = '+00:00'");
+    const result = await applyPending(conn);
+    await conn.end();
+    if (result.failed) {
+      await admin.query(`DROP DATABASE IF EXISTS \`${schema}\``);
+      throw new Error(`test schema migration failed: ${result.failed}`);
+    }
+    const ms = Date.now() - t0;
+    noteProvision({ kind: "template", ms, migrations: files.length });
+    // eslint-disable-next-line no-console
+    console.log(
+      `[testDb] built template ${schema}: ${files.length} migrations in ${(ms / 1000).toFixed(1)}s ` +
+        `(${Math.round(ms / Math.max(files.length, 1))}ms per migration file). ` +
+        `Every suite in this run clones it.`,
+    );
+    return ms;
+  } finally {
+    await admin.query("SELECT RELEASE_LOCK(?)", [schema]);
+  }
+}
+
+interface SeededTable {
+  table: string;
+  /**
+   * The columns a copy may write. Generated columns are excluded, because
+   * `INSERT ... SELECT *` into one is an error, and `0049_org_roles.sql`
+   * already ships one (`org_role_assignments.active_holder_key`). No migration
+   * seeds that table today, so the only symptom would be a future migration
+   * quietly dropping this back onto the slow path.
+   *
+   * Generated-ness is read from `GENERATION_EXPRESSION`, never from `EXTRA`.
+   * MySQL 8 writes `DEFAULT_GENERATED` into `EXTRA` for every column with a
+   * DEFAULT clause, so an `EXTRA NOT LIKE '%GENERATED%'` filter would drop
+   * hundreds of ordinary columns on CI while staying invisible on the local
+   * MariaDB, which does not use that word at all.
+   */
+  columns: string[];
+}
+
+interface TemplateShape {
+  /** Bumped when the shape's format changes, so a cached file from before it is ignored. */
+  version: number;
+  /** One `SHOW CREATE TABLE` per base table, in the template's own dialect. */
+  ddl: string[];
+  /** Tables a migration put rows in. Everything else is copied as an empty shell. */
+  seeded: SeededTable[];
+}
+
+const SHAPE_VERSION = 2;
+
+const shapeCache = new Map<string, TemplateShape>();
+
+function shapeCachePath(schema: string): string {
+  return path.resolve(process.cwd(), "node_modules", ".cache", `${schema}.json`);
+}
+
+/** Forget a template's shape in this process and on disk, so the next read is fresh. */
+function forgetShape(schema: string): void {
+  shapeCache.delete(schema);
+  try {
+    fs.rmSync(shapeCachePath(schema), { force: true });
+  } catch {
+    /* the cache is an optimisation; a run without it is correct and slower */
+  }
+}
+
+/**
+ * Read the template's shape once. Cached in-process AND on disk, because
+ * vitest gives each test file its own worker, so without the disk half every
+ * one of the forty-odd workers would pay ninety round trips to learn the same
+ * unchanging answer. The cache key is the template name, which carries the
+ * migration-content hash, so a stale file cannot describe a different schema.
+ */
+async function captureTemplate(admin: mysql.Connection, schema: string): Promise<TemplateShape> {
+  const memo = shapeCache.get(schema);
+  if (memo) return memo;
+  const cacheFile = shapeCachePath(schema);
+  try {
+    const onDisk = JSON.parse(fs.readFileSync(cacheFile, "utf-8")) as TemplateShape;
+    if (
+      onDisk.version === SHAPE_VERSION &&
+      Array.isArray(onDisk.ddl) &&
+      Array.isArray(onDisk.seeded) &&
+      onDisk.ddl.length > 0
+    ) {
+      shapeCache.set(schema, onDisk);
+      return onDisk;
+    }
+  } catch {
+    /* no cache yet, or an unreadable one: read the server instead */
+  }
+
+  const [rows] = await admin.query<any[]>(
+    "SELECT TABLE_NAME AS n, TABLE_TYPE AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME",
+    [schema],
+  );
+  const other = rows.filter((r) => String(r.t) !== "BASE TABLE").map((r) => String(r.n));
+  if (other.length > 0) {
+    // Views, and anything else SHOW CREATE TABLE does not round-trip, would
+    // clone wrong and silently. Nothing in drizzle/ creates one today; if that
+    // changes, this throws and provisioning falls back to migrating in full.
+    throw new Error(`template ${schema} holds non-table objects: ${other.join(", ")}`);
+  }
+  const tables = rows.map((r) => String(r.n));
+  for (const t of tables) {
+    // Interpolated into DDL, which cannot take a placeholder.
+    if (!/^[A-Za-z0-9_$]+$/.test(t)) throw new Error(`refusing to build DDL from table name ${t}`);
+  }
+
+  const ddl: string[] = [];
+  for (const t of tables) {
+    const [[row]] = await admin.query<any[]>(`SHOW CREATE TABLE \`${schema}\`.\`${t}\``);
+    ddl.push(String(row["Create Table"]));
+  }
+  const [counts] = tables.length
+    ? await admin.query<any[]>(
+        tables
+          .map((t) => `SELECT '${t}' AS t, COUNT(*) AS c FROM \`${schema}\`.\`${t}\``)
+          .join(" UNION ALL "),
+      )
+    : [[] as any[]];
+  const withRows = new Set(counts.filter((r) => Number(r.c) > 0).map((r) => String(r.t)));
+
+  // Writable columns, in declaration order, for the tables that carry rows.
+  const [colRows] = await admin.query<any[]>(
+    "SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.COLUMNS " +
+      "WHERE TABLE_SCHEMA = ? AND (GENERATION_EXPRESSION IS NULL OR GENERATION_EXPRESSION = '') " +
+      "ORDER BY TABLE_NAME, ORDINAL_POSITION",
+    [schema],
+  );
+  const columnsByTable = new Map<string, string[]>();
+  for (const row of colRows as Array<{ t: string; c: string }>) {
+    const table = String(row.t);
+    if (!withRows.has(table)) continue;
+    const column = String(row.c);
+    // Interpolated into DDL, which cannot take a placeholder.
+    if (!/^[A-Za-z0-9_$]+$/.test(column)) {
+      throw new Error(`refusing to build DDL from column name ${table}.${column}`);
+    }
+    const list = columnsByTable.get(table) ?? [];
+    list.push(column);
+    columnsByTable.set(table, list);
+  }
+  // Array.from, never a spread: tsconfig.json omits `target`, which leaves
+  // `pnpm check` on the ES5 default where spreading a Set is TS2802. Only
+  // tsconfig.tests.json sets es2022, so a spread here typechecks in CI's
+  // "Typecheck tests" step and fails in the "Typecheck" step before it.
+  const seeded: SeededTable[] = Array.from(withRows)
+    .sort()
+    .map((table) => ({ table, columns: columnsByTable.get(table) ?? [] }));
+
+  const shape: TemplateShape = { version: SHAPE_VERSION, ddl, seeded };
+  shapeCache.set(schema, shape);
+  try {
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    const tmp = `${cacheFile}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(shape));
+    fs.renameSync(tmp, cacheFile); // atomic, so a concurrent reader sees whole JSON
+  } catch {
+    /* the cache is an optimisation; a run without it is correct and slower */
+  }
+  return shape;
+}
+
+/** Two round trips: every table's DDL, then every seeded table's rows. */
+async function cloneTemplate(
+  base: string,
+  template: string,
+  schema: string,
+  shape: TemplateShape,
+): Promise<void> {
+  // multipleStatements lives on THIS connection only, never on the one handed
+  // to a test: the whole point is to spend one round trip instead of ninety,
+  // and a test connection that accepts stacked statements is a footgun.
+  const bulk = await mysql.createConnection({
+    uri: schemaUrl(base, schema),
+    timezone: "Z",
+    multipleStatements: true,
+  });
+  try {
+    await bulk.query("SET time_zone = '+00:00'");
+    await bulk.query(["SET FOREIGN_KEY_CHECKS=0", ...shape.ddl, "SET FOREIGN_KEY_CHECKS=1"].join(";\n"));
+    if (shape.seeded.length > 0) {
+      await bulk.query(
+        shape.seeded
+          .map(({ table, columns }) => {
+            // Named columns, never `SELECT *`: a generated column refuses to be
+            // written, and `*` would carry one straight into the statement.
+            const list = columns.map((c) => `\`${c}\``).join(", ");
+            return `INSERT INTO \`${table}\` (${list}) SELECT ${list} FROM \`${template}\`.\`${table}\``;
+          })
+          .join(";\n"),
+      );
+    }
+  } finally {
+    await bulk.end();
+  }
+}
+
+/**
+ * Drop templates nobody has used for a day.
+ *
+ * A template is deliberately longer-lived than a run, so it needs its own
+ * sweep or a machine that sees eight worktrees accumulates a schema per
+ * migration-set forever. Two guards keep this from pulling a template out from
+ * under a live run: the one this process is about to use is skipped by name,
+ * and `IS_USED_LOCK` skips one a builder is holding. A clone that loses the
+ * race anyway falls back to migrating in full, which is slow and correct.
+ */
+async function sweepStaleTemplates(admin: mysql.Connection, keep: string): Promise<void> {
+  try {
+    const [rows] = await admin.query<any[]>(
+      "SELECT schema_name AS s FROM information_schema.schemata WHERE schema_name LIKE 'village\\_tpl\\_%'",
+    );
+    for (const row of rows as Array<{ s: string }>) {
+      const name = String(row.s);
+      if (name === keep) continue;
+      const [[held]] = await admin.query<any[]>("SELECT IS_USED_LOCK(?) AS who", [name]);
+      if (held?.who !== null && held?.who !== undefined) continue;
+      let staleSince = 0;
+      try {
+        const [[age]] = await admin.query<any[]>(
+          `SELECT UNIX_TIMESTAMP(MAX(applied_at)) AS t FROM \`${name}\`.\`_migrations_applied\``,
+        );
+        staleSince = Number(age?.t) * 1000;
+      } catch {
+        staleSince = 0; // no ledger at all: a half-built template, and nobody holds its lock
+      }
+      if (!Number.isFinite(staleSince) || Date.now() - staleSince > STALE_TEMPLATE_MS) {
+        await admin.query(`DROP DATABASE IF EXISTS \`${name}\``);
+        forgetShape(name);
+      }
+    }
+  } catch {
+    // Sweeping is hygiene, not a gate.
+  }
+}
+
 export interface TestDb {
   /** Connection URL pointing at the scratch schema (timezone-Z discipline is the caller's job via connect()). */
   url: string;
@@ -83,7 +445,15 @@ export interface ProvisionOptions {
   collation?: string;
 }
 
-/** Fresh scratch schema with every migration applied. */
+/**
+ * Fresh scratch schema with every migration applied.
+ *
+ * The schema arrives as a copy of a template that ran the migrations once for
+ * the whole run (see the block comment above). The copy is byte-for-byte the
+ * same schema the migrations produce, and `applyPending` below still runs on
+ * it, so this function's contract is unchanged: what comes back is a private
+ * schema at the head of the migration list.
+ */
 export async function provisionTestDb(opts: ProvisionOptions = {}): Promise<TestDb> {
   const base = process.env.TEST_DATABASE_URL;
   if (!base) throw new Error("TEST_DATABASE_URL is not set");
@@ -91,7 +461,10 @@ export async function provisionTestDb(opts: ProvisionOptions = {}): Promise<Test
   if (opts.collation && !/^[a-z0-9_]+$/.test(opts.collation)) {
     throw new Error(`refusing to build DDL from collation=${opts.collation}`);
   }
+  const startedAt = Date.now();
   const schema = nextSchemaName();
+  const { files } = migrationsFingerprint();
+  const template = templateSchemaName(opts.collation);
   const u = new URL(base);
   // Connect without a database first so we can drop/create the scratch one.
   const admin = await mysql.createConnection({
@@ -101,13 +474,38 @@ export async function provisionTestDb(opts: ProvisionOptions = {}): Promise<Test
     password: decodeURIComponent(u.password),
     timezone: "Z",
   });
-  await sweepStaleSchemas(admin);
-  await admin.query(`DROP DATABASE IF EXISTS \`${schema}\``);
-  await admin.query(
-    `CREATE DATABASE \`${schema}\` CHARACTER SET utf8mb4` +
-      (opts.collation ? ` COLLATE ${opts.collation}` : ""),
-  );
-  await admin.end();
+  let templateMs = 0;
+  let cloned = false;
+  try {
+    await sweepStaleSchemas(admin);
+    await sweepStaleTemplates(admin, template);
+    await admin.query(`DROP DATABASE IF EXISTS \`${schema}\``);
+    try {
+      if (!(await templateIsReady(admin, template, files))) {
+        templateMs = await buildTemplate(admin, base, template, opts.collation, files);
+      }
+      const shape = await captureTemplate(admin, template);
+      await admin.query(createSchemaSql(schema, opts.collation));
+      await cloneTemplate(base, template, schema, shape);
+      cloned = true;
+    } catch (err: any) {
+      // Every failure here is recoverable by doing the slow thing. A template
+      // swept out from under this call, a permissions quirk on
+      // information_schema, a view someone added: none of them are worth a red
+      // suite, and all of them are worth SAYING, because the whole point of
+      // the mechanism is the five minutes a silent fallback would spend.
+      forgetShape(template);
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[testDb] could not clone template ${template} (${err?.message}). ` +
+          `This schema is running all ${files.length} migrations itself, which is the slow path.`,
+      );
+      await admin.query(`DROP DATABASE IF EXISTS \`${schema}\``);
+      await admin.query(createSchemaSql(schema, opts.collation));
+    }
+  } finally {
+    await admin.end();
+  }
 
   u.pathname = `/${schema}`;
   const url = u.toString();
@@ -132,6 +530,21 @@ export async function provisionTestDb(opts: ProvisionOptions = {}): Promise<Test
     await conn.end();
     throw new Error(`test schema migration failed: ${result.failed}`);
   }
+  // A clone must leave `applyPending` with nothing to do. If it ever applies
+  // one, the template was behind the migrations on disk and the fingerprint
+  // that is supposed to make that impossible has a hole in it.
+  if (cloned && result.applied.length > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[testDb] the clone of ${template} was ${result.applied.length} migration(s) behind. ` +
+        `The template fingerprint is not covering something it should.`,
+    );
+  }
+  noteProvision({
+    kind: cloned ? "clone" : "full",
+    ms: Date.now() - startedAt - templateMs,
+    migrations: files.length,
+  });
   return {
     url,
     conn,

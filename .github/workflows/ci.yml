@@ -24,7 +24,24 @@ jobs:
           MYSQL_ROOT_PASSWORD: ci-test
         ports:
           - 3306:3306
+        # The datadir lives in RAM. Provisioning is almost entirely DDL (140
+        # CREATE TABLEs per scratch schema) and InnoDB fsyncs each one, so the
+        # runner's disk was setting the price of the thing this job spends most
+        # of its time on. A test database has nothing to survive a crash for.
+        #
+        # `--tmpfs` on the path the image declares as a volume replaces the
+        # anonymous volume Docker would otherwise create, so first boot
+        # initialises straight into memory. Nothing else about the container
+        # changes, and the health check still gates the job on it being up.
+        #
+        # The size is stated rather than left to the daemon, because `--tmpfs`
+        # has defaulted to 64 MB in some Docker versions and a datadir that
+        # small fails in a way that reads as a MySQL bug. tmpfs allocates only
+        # what is written, so 4g is a ceiling and not a reservation: a runner
+        # has 16 GB, one scratch schema is about 15 MB of tables, and at most a
+        # template and two or three scratch schemas exist at any moment.
         options: >-
+          --tmpfs /var/lib/mysql:rw,size=4g
           --health-cmd "mysqladmin ping -h localhost -pci-test"
           --health-interval 5s --health-timeout 3s --health-retries 20
     env:

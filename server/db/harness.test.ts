@@ -7,7 +7,9 @@
  * still runs the JSON-era suite); CI always provides one, so main is always
  * gated on this passing.
  */
+import mysql from "mysql2/promise";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { applyPending } from "./migrate";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./testDb";
 
 const configured = testDbConfigured();
@@ -69,6 +71,97 @@ describe.skipIf(!configured)("the test-database harness", () => {
     const [[now]] = await db.conn.query<any[]>("SELECT UNIX_TIMESTAMP(NOW()) AS s");
     expect(Math.abs(Number(now.s) * 1000 - Date.now())).toBeLessThan(60_000);
   });
+
+  /**
+   * The proof the template mechanism owes the suite.
+   *
+   * Provisioning stopped running 87 migrations per suite and started cloning a
+   * template that ran them once. Every other DB-backed test now trusts that a
+   * clone IS the migrated schema, so something has to check it against the
+   * thing it replaced instead of against itself. This provisions the slow way
+   * on purpose, by pointing the migration runner at a schema of its own, and
+   * compares the two column for column and index for index.
+   *
+   * It runs against whichever engine the run is on, which is the point: the
+   * DDL is the server's own `SHOW CREATE TABLE`, so MariaDB 12 locally and
+   * MySQL 8 in CI each get checked in their own dialect.
+   */
+  it("hands out a clone that is the same schema the migrations build", async () => {
+    // Named so the two-hour orphan sweep in testDb.ts can find it: it reads the
+    // epoch from the THIRD underscore-separated field, so the word has to come
+    // last. A hard crash between CREATE and the finally below would otherwise
+    // leave this schema on the server forever.
+    const control = `village_test_${Math.floor(Date.now() / 1000)}_${process.pid}_control`;
+    const base = String(process.env.TEST_DATABASE_URL);
+    const u = new URL(base);
+    const admin = await mysql.createConnection({
+      host: u.hostname,
+      port: Number(u.port || 3306),
+      user: decodeURIComponent(u.username),
+      password: decodeURIComponent(u.password),
+      timezone: "Z",
+    });
+    try {
+      await admin.query(`DROP DATABASE IF EXISTS \`${control}\``);
+      await admin.query(`CREATE DATABASE \`${control}\` CHARACTER SET utf8mb4`);
+      u.pathname = `/${control}`;
+      const conn = await mysql.createConnection({ uri: u.toString(), timezone: "Z" });
+      try {
+        await conn.query("SET time_zone = '+00:00'");
+        const applied = await applyPending(conn);
+        expect(applied.failed, "the control schema must migrate cleanly").toBeNull();
+
+        const shape = async (c: mysql.Connection, schema: string) => {
+          const [tables] = await c.query<any[]>(
+            "SELECT TABLE_NAME, ENGINE, TABLE_COLLATION, TABLE_TYPE FROM information_schema.TABLES " +
+              "WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME",
+            [schema],
+          );
+          const [cols] = await c.query<any[]>(
+            "SELECT TABLE_NAME, ORDINAL_POSITION, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA, COLLATION_NAME " +
+              "FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION",
+            [schema],
+          );
+          const [idx] = await c.query<any[]>(
+            "SELECT TABLE_NAME, INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME, INDEX_TYPE " +
+              "FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX",
+            [schema],
+          );
+          return { tables, cols, idx };
+        };
+
+        const mine = new URL(db.url).pathname.replace("/", "");
+        const fromClone = await shape(db.conn, mine);
+        const fromMigrations = await shape(conn, control);
+
+        expect(fromClone.tables.length, "the clone must carry every table").toBeGreaterThan(50);
+        expect(fromClone.tables).toEqual(fromMigrations.tables);
+        expect(fromClone.cols).toEqual(fromMigrations.cols);
+        expect(fromClone.idx).toEqual(fromMigrations.idx);
+
+        // Schema is half of it. Several migrations INSERT, and a clone that
+        // dropped their rows would leave every suite testing an empty registry.
+        const [seeded] = await conn.query<any[]>(
+          "SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'",
+          [control],
+        );
+        let compared = 0;
+        for (const row of seeded as Array<{ t: string }>) {
+          const [[a]] = await conn.query<any[]>(`SELECT COUNT(*) AS c FROM \`${control}\`.\`${row.t}\``);
+          if (Number(a.c) === 0) continue;
+          const [[b]] = await db.conn.query<any[]>(`SELECT COUNT(*) AS c FROM \`${row.t}\``);
+          expect(Number(b.c), `${row.t} row count`).toBe(Number(a.c));
+          compared += 1;
+        }
+        expect(compared, "some migration seeds rows; the clone must carry them").toBeGreaterThan(0);
+      } finally {
+        await conn.end();
+      }
+    } finally {
+      await admin.query(`DROP DATABASE IF EXISTS \`${control}\``);
+      await admin.end();
+    }
+  }, 180_000);
 
   it("round-trips a timestamp without timezone drift", async () => {
     // The rule 2.3 assertion: a Z-disciplined write reads back identical.

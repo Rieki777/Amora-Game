@@ -12,6 +12,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "measure:provisioning": "tsx scripts/measure-provisioning.mjs",
     "db:migrate": "tsx scripts/run-migration.ts --all",
     "db:status": "tsx scripts/run-migration.ts --status",
     "db:import": "tsx scripts/import-json-to-mysql.ts",
