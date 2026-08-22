@@ -54,12 +54,18 @@ export default function CalendarFeedCard({ signedIn }: { signedIn: boolean }) {
     setBusy(false);
   };
 
+  // SWEEP. mint() directly above handles a refusal and this did not, so a
+  // failed revoke said nothing at all. The member walks away believing the
+  // private address is dead while it is still serving their calendar to
+  // whoever holds the URL, which is the whole reason the button exists.
   const revoke = async () => {
     setBusy(true);
     try {
       const res = await fetch("/api/events/feed/token", { method: "DELETE", headers: headers() });
-      if (res.ok) { setMinted(null); load(); setNote("Your private address no longer works"); }
-    } catch { setNote("That did not work"); }
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setNote(d?.error ?? "That did not work, and the old address still works"); }
+      else { setMinted(null); load(); setNote("Your private address no longer works"); }
+    } catch { setNote("That did not work, and the old address still works"); }
     setBusy(false);
   };
 

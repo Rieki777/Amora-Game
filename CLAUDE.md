@@ -39,7 +39,13 @@ node scripts/check-image-budget.mjs    # shipped images: WebP, 400 KB each, fall
 so it is right on the day you run it. Prefer it to this block when the two disagree.
 
 Two CI budgets are shell steps rather than scripts, so nothing local reproduces them: main JS
-700 KB and total `dist/public` 6 MB, both measured after `pnpm build`.
+**700 KB** and total `dist/public` **6600 KB**, both measured after `pnpm build`. Read the
+numbers off `MAX_MAIN_JS_KB` and `MAX_TOTAL_DIST_KB` in `.github/workflows/ci.yml`, which is
+the authority: this block said 6 MB for as long as the ceiling was 6000, and stayed at 6 MB
+when `dbb4f9c` raised it to 6600 for the catalog art. Measured at `e1110bc`, `dist/public`
+is **6426 KB** and main JS is **503 KB**, so the real headroom is about **174 KB** on the
+total and roughly 197 KB on main — small enough that one unoptimised image spends it, and
+the fix is the uploads volume, never a bigger number here.
 
 Images are WebP. `scripts/check-image-budget.mjs` enforces it on `client/public`, and the
 exemptions are DERIVED, never typed: whatever `shared/gameConfig.ts` names as the favicon and

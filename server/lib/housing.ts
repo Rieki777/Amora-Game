@@ -542,14 +542,102 @@ export const RESERVATION_STATUSES = ["new", "contacted", "reserved", "withdrawn"
 export const isReservationStatus = (v: unknown): v is (typeof RESERVATION_STATUSES)[number] =>
   typeof v === "string" && (RESERVATION_STATUSES as readonly string[]).includes(v);
 
+/**
+ * `from` makes the write a compare-and-set, and the caller that passes it is
+ * the one that writes to a human afterwards. Two founders moving the same row
+ * to `reserved` at once would otherwise both read the old status, both see a
+ * real transition, and both send the letter. With `from` set, exactly one
+ * UPDATE matches and the loser is told nothing moved. It is optional so the
+ * plain callers keep their old behaviour.
+ */
 export async function setReservationStatus(
   pool: Pool,
   id: string,
   status: string,
+  from?: string,
 ): Promise<boolean> {
   const [r]: any = await pool.query(
-    "UPDATE housing_reservations SET status = ? WHERE id = ? AND village_id = ?",
-    [status, id, VILLAGE],
+    "UPDATE housing_reservations SET status = ? WHERE id = ? AND village_id = ?" +
+      (from === undefined ? "" : " AND status = ?"),
+    from === undefined ? [status, id, VILLAGE] : [status, id, VILLAGE, from],
   );
   return (r?.affectedRows ?? 0) > 0;
+}
+
+/**
+ * One reservation, or null. Exists so the status route can know WHO it is
+ * about and WHERE the row started before it moves it: `setReservationStatus`
+ * answers only whether a row changed, and "changed" is exactly the fact that
+ * decides whether a person hears from us.
+ */
+export async function reservationById(pool: Pool, id: string): Promise<ReservationRow | null> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT id, structure_key, home_type, name, email, phone, notes, arrived_from, status, user_id, created_at " +
+      "FROM housing_reservations WHERE id = ? AND village_id = ? LIMIT 1",
+    [id, VILLAGE],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: String(r.id),
+    structureKey: r.structure_key == null ? null : String(r.structure_key),
+    homeType: String(r.home_type),
+    name: String(r.name),
+    email: String(r.email),
+    phone: r.phone == null ? null : String(r.phone),
+    notes: r.notes == null ? null : String(r.notes),
+    arrivedFrom: r.arrived_from == null ? null : String(r.arrived_from),
+    status: String(r.status),
+    userId: r.user_id == null ? null : String(r.user_id),
+    createdAt: String(r.created_at),
+  };
+}
+
+/**
+ * WHAT THE PERSON WHO ASKED FOR A HOME HEARS WHEN THEIR REQUEST MOVES.
+ *
+ * Pure, so the judgement in it is testable without a database or a mail
+ * provider. Null means say nothing, and two of the four statuses mean exactly
+ * that:
+ *
+ *  - `new` is where every request starts. Moving one BACK to new is a founder
+ *    correcting their own filing, and the person who asked has no stake in it.
+ *  - `contacted` is a founder recording that they already reached out. The
+ *    email that would say "we have contacted you" arrives after the human one
+ *    it describes, and telling somebody about a conversation they are already
+ *    in is noise.
+ *
+ * The two that speak are the two the person is actually waiting on: a home
+ * held for them, and a request closed. Neither says the word "reserved" or
+ * "withdrawn" at them; those are the founder's filing labels, and this is a
+ * letter to a person.
+ */
+export function reservationStatusNotice(
+  status: string,
+  about: { name: string; homeType: string; hamlet?: string | null },
+): { subject: string; heading: string; body: string[] } | null {
+  const where = about.hamlet ? ` in ${about.hamlet}` : "";
+  if (status === "reserved") {
+    return {
+      subject: "A home is being held for you",
+      heading: "A home is being held for you",
+      body: [
+        `Hi ${about.name},`,
+        `We have set aside a ${about.homeType}${where} against your name. Someone from the founding team will be in touch about the deposit and the timing.`,
+        "Nothing has been taken from you yet, and holding a home is not the same as owning one.",
+      ],
+    };
+  }
+  if (status === "withdrawn") {
+    return {
+      subject: "Your reservation request is closed",
+      heading: "Your reservation request is closed",
+      body: [
+        `Hi ${about.name},`,
+        `We have closed your request for a ${about.homeType}${where}. No home is held for you and nothing is owed.`,
+        "If this is wrong, or if the timing has changed, write back and we will open it again.",
+      ],
+    };
+  }
+  return null;
 }

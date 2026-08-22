@@ -157,10 +157,15 @@ export default function CommunityCalendarCard({ signedIn }: { signedIn: boolean 
     setBusy(null);
   };
 
+  // SWEEP. The sibling of closeWindow and dropSlot, and the one the last pass
+  // missed: it said "You left the line." on the way out of the function, so a
+  // refused DELETE confirmed a departure that never happened and the member
+  // learns they are still on the list by being called up.
   const leaveQueue = async (g: CalendarItem) => {
     const occ = g.occurrenceKey ? `?occurrence=${g.occurrenceKey}` : "";
-    await fetch(`/api/events/${g.id}/waitlist${occ}`, { method: "DELETE", headers: headers() });
-    say("You left the line.");
+    const res = await fetch(`/api/events/${g.id}/waitlist${occ}`, { method: "DELETE", headers: headers() }).catch(() => null);
+    const wrong = actionError({ ok: !!res?.ok, error: null });
+    say(wrong ?? "You left the line.");
     load();
   };
 

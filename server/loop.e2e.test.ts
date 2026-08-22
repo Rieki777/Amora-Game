@@ -1478,6 +1478,21 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect((await api("POST", `/api/admin/org/roles/${seatId}/holders`, { displayName: "Mira", focus: "arrivals" }, founderToken)).status).toBe(200);
     // The same person cannot hold one seat twice while they still hold it.
     expect((await api("POST", `/api/admin/org/roles/${seatId}/holders`, { userId: doerId }, founderToken)).status).toBe(409);
+    /*
+     * SWEEP: and the person seated HEARS it. POST /api/admin/roles/:id/holders
+     * has told its appointee since F5; this route did the same thing to the
+     * org chart's own seats and wrote an admin-audience journal line, so a
+     * member found out by noticing their own name on the map.
+     *
+     * A documented holder has no account, so Mira above rings nobody, and the
+     * key is the seating row so the refused duplicate adds nothing.
+     */
+    const seatedBell = await api("GET", "/api/notifications", undefined, doerToken);
+    const seatedNotes = (seatedBell.json.notifications ?? []).filter(
+      (n: any) => n.type === "role_appointed" && String(n.title).includes("You were seated as"),
+    );
+    expect(seatedNotes, "one word per seating, and none for a documented holder").toHaveLength(1);
+    expect(seatedNotes[0].link).toBe("/map/circles");
 
     // Tier check: anonymous sees structure (counts), never names; a member
     // with map.viewPeople sees holders.
@@ -1519,6 +1534,39 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const handAlert = (handBell.json.notifications ?? []).find((n: any) => n.type === "submission");
     expect(handAlert, "a raised hand reaches the people who seat roles").toBeTruthy();
     expect(handAlert.link).toBe("/admin?tab=submissions");
+
+    /*
+     * SWEEP: and THE ANSWER COMES BACK. The pipeline moved a raised hand from
+     * one end to the other and the member who offered learned nothing, so
+     * being seated felt like noticing your own name on the map.
+     *
+     * The words are the member's, never the pipeline's: `reviewing` and
+     * `accepted` are filing labels for the founder's panel, and nobody
+     * outside it should have to learn them.
+     */
+    const handRow = subs.json.find((s: any) => s.data?.roleId === seatId);
+    const reviewing = await api("PUT", `/api/admin/submissions/${handRow.id}/status`, { status: "reviewing" }, founderToken);
+    expect(reviewing.status).toBe(200);
+    expect(reviewing.json.notified).toBe(true);
+    const seatBell = await api("GET", "/api/notifications", undefined, doerToken);
+    const seatNote = (seatBell.json.notifications ?? []).find((n: any) => n.type === "submission_status");
+    expect(seatNote, "the member who raised a hand hears that it moved").toBeTruthy();
+    expect(String(seatNote.title)).toContain("Someone is reading your offer to hold");
+    expect(String(seatNote.title).toLowerCase()).not.toContain("reviewing");
+    // Re-selecting the status a row already holds rings nothing.
+    expect((await api("PUT", `/api/admin/submissions/${handRow.id}/status`, { status: "reviewing" }, founderToken)).json.notified).toBe(false);
+    // A real move rings again, once, and says yes in plain words.
+    const accepted = await api("PUT", `/api/admin/submissions/${handRow.id}/status`, { status: "accepted" }, founderToken);
+    expect(accepted.json.notified).toBe(true);
+    const seatNotes = (await api("GET", "/api/notifications", undefined, doerToken)).json.notifications.filter(
+      (n: any) => n.type === "submission_status",
+    );
+    // Two rows, asserted as a SET: both land inside one second, so the
+    // ordering tie-break between them is not a fact worth depending on.
+    expect(seatNotes, "one word per submission per landing place").toHaveLength(2);
+    expect(seatNotes.some((n: any) => String(n.title).includes("Yes to your offer to hold"))).toBe(true);
+    // `new` is a founder correcting their own filing and reaches nobody.
+    expect((await api("PUT", `/api/admin/submissions/${handRow.id}/status`, { status: "new" }, founderToken)).json.notified).toBe(false);
 
     // The contact relay: opt-out is server-enforced, then a real relay lands
     // a notification (email is fire-and-forget without a key).
@@ -1896,6 +1944,31 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(activated.json.rateSnapshotCredits).toBe(2);
     expect(activated.json.audienceSnapshot).toBe("guest");
 
+    /*
+     * SWEEP: and the OTHER end of that pair speaks too. `/activate` told the
+     * guest their stay was on; `/end` moved the same row to ended or cancelled
+     * and told them nothing, so a stay could be cancelled under somebody who
+     * was packing for it. A throwaway second stay, so the one above keeps
+     * carrying the grace-debt and dispute assertions below.
+     */
+    const spare = await api("POST", "/api/stays/request", { accommodationId: accId, notes: "Second room." }, guestToken);
+    expect(spare.status).toBe(200);
+    const cancelled = await api("POST", `/api/admin/stays/${spare.json.id}/end`, { cancel: true }, founderToken);
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.json.status).toBe("cancelled");
+    const endBell = await api("GET", "/api/notifications", undefined, guestToken);
+    const endNotes = (endBell.json.notifications ?? []).filter(
+      (n: any) => n.type === "stays" && String(n.title).includes("cancelled"),
+    );
+    expect(endNotes, "a stay cancelled under somebody reaches them, once").toHaveLength(1);
+    // Pressing it again is the same landing place and rings nothing more.
+    expect((await api("POST", `/api/admin/stays/${spare.json.id}/end`, { cancel: true }, founderToken)).status).toBe(200);
+    expect(
+      ((await api("GET", "/api/notifications", undefined, guestToken)).json.notifications ?? []).filter(
+        (n: any) => n.type === "stays" && String(n.title).includes("cancelled"),
+      ),
+    ).toHaveLength(1);
+
     // Nightly posting catches up deterministically and idempotently: backdate
     // arrival three days, the button posts exactly three nights, then zero.
     await testDb.conn.query("UPDATE stays SET arrive_on = (CURRENT_DATE - INTERVAL 3 DAY), last_posted_on = NULL WHERE id = ?", [stayId]);
@@ -1940,6 +2013,20 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // …and lifting it restores the path (to the honest 503: no Stripe key here).
     expect((await api("POST", `/api/admin/payments/suspensions/${suspension.id}/lift`, {}, founderToken)).status).toBe(200);
     expect((await api("POST", "/api/stays/checkout", { accommodationId: accId, nights: 1 }, guestToken)).status).toBe(503);
+    /*
+     * SWEEP: and the member HEARS it. A suspension locks somebody out of
+     * paying and booking, and lifting it handed everything back in silence, so
+     * the only way to discover you were reinstated was to try the thing that
+     * had been refusing you.
+     */
+    const liftBell = await api("GET", "/api/notifications", undefined, guestToken);
+    const lifted = (liftBell.json.notifications ?? []).find(
+      (n: any) => n.type === "payments_alert" && String(n.title).includes("open again"),
+    );
+    expect(lifted, "a reinstated member is told they are reinstated").toBeTruthy();
+    // The UPDATE only matches an OPEN suspension, so a second press is a 404
+    // and rings nothing.
+    expect((await api("POST", `/api/admin/payments/suspensions/${suspension.id}/lift`, {}, founderToken)).status).toBe(404);
 
     // ── Purchase limits aggregate over EVERY paid charge, module-blind. The
     // manual payment path (server derives credits from the posted rate) adds
@@ -1972,6 +2059,60 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const wClaim = await api("POST", `/api/game/quests/${wq.json.id}/claim`, {}, doerToken);
     expect(wClaim.status).toBe(200);
     await api("POST", `/api/game/quests/${wq.json.id}/submit`, { note: "Beds rebuilt, drip lines in." }, doerToken);
+    /*
+     * SWEEP: and SUBMITTING RINGS. This is the sharpest silence in the game.
+     * The claim moved to `submitted` and the route returned, so the one act
+     * that releases value waited on a steward opening a panel on a hunch.
+     *
+     * The recipients are decided by the same gate the consent route uses, so
+     * a founder is one. The alert carries who and which quest, and none of
+     * what the member wrote: the note and the artifact link stay behind the
+     * gate.
+     */
+    const submitBell = await api("GET", "/api/notifications", undefined, founderToken);
+    const submitAlert = (submitBell.json.notifications ?? []).find(
+      (n: any) => n.type === "quest_submitted" && String(n.title).includes("Rebuild the garden beds"),
+    );
+    expect(submitAlert, "finished work reaches the people who can consent to it").toBeTruthy();
+    expect(submitAlert.link).toBe("/admin?tab=quest-claims");
+    expect(String(submitAlert.title) + String(submitAlert.body ?? "")).not.toContain("drip lines");
+    // A second submit on the same claim is a correction, and correcting a link
+    // must not summon the same steward twice.
+    await api("POST", `/api/game/quests/${wq.json.id}/submit`, { note: "Beds rebuilt, drip lines in, gate rehung." }, doerToken);
+    const submitBellAgain = await api("GET", "/api/notifications", undefined, founderToken);
+    expect(
+      (submitBellAgain.json.notifications ?? []).filter(
+        (n: any) => n.type === "quest_submitted" && String(n.title).includes("Rebuild the garden beds"),
+      ),
+      "one summons per claim, however many times the work is resubmitted",
+    ).toHaveLength(1);
+    /*
+     * SWEEP: and ASKING FOR HELP RINGS. The confidence flag's own handler says
+     * the point of collecting the signal is that a steward SEES it, and the
+     * only place it landed was a queue somebody had to think to open. A member
+     * typing "stuck" is asking for help, and asking must not cost a week.
+     */
+    expect((await api("PUT", `/api/game/quest-claims/${wClaim.json.id}/confidence`,
+      { confidence: "stuck", note: "The drip fittings do not match the header." }, doerToken)).status).toBe(200);
+    const helpBell = await api("GET", "/api/notifications", undefined, founderToken);
+    const helpNote = (helpBell.json.notifications ?? []).find((n: any) => n.type === "quest_help");
+    expect(helpNote, "a member who says they are stuck reaches a steward").toBeTruthy();
+    expect(String(helpNote.title)).toContain("is stuck on Rebuild the garden beds");
+    // The note is how somebody describes being stuck. It stays in the queue
+    // behind the gate and never rides a lock screen.
+    expect(String(helpNote.title) + String(helpNote.body ?? "")).not.toContain("drip fittings");
+    // Saying the same thing again with more words rings once.
+    expect((await api("PUT", `/api/game/quest-claims/${wClaim.json.id}/confidence`,
+      { confidence: "stuck", note: "Still stuck, waiting on parts." }, doerToken)).status).toBe(200);
+    expect(
+      ((await api("GET", "/api/notifications", undefined, founderToken)).json.notifications ?? []).filter((n: any) => n.type === "quest_help"),
+      "one summons per claim per flag",
+    ).toHaveLength(1);
+    // Clearing the flag is reassurance, and reassurance summons nobody.
+    expect((await api("PUT", `/api/game/quest-claims/${wClaim.json.id}/confidence`, { confidence: "" }, doerToken)).status).toBe(200);
+    expect(
+      ((await api("GET", "/api/notifications", undefined, founderToken)).json.notifications ?? []).filter((n: any) => n.type === "quest_help"),
+    ).toHaveLength(1);
     const doerCreditsBefore = (await api("GET", "/api/game/ledger", undefined, doerToken)).json.balances["stay-credit"]?.balance ?? 0;
     const consent = await api("POST", `/api/admin/quest-claims/${wClaim.json.id}/consent`, { approve: true, amount: 10 }, founderToken);
     expect(consent.status).toBe(200);
@@ -3394,7 +3535,36 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const mine = queue.items.find((i: any) => i.title === "Loop test idea");
     expect(mine).toBeTruthy();
     expect(mine.status).toBe("new");
-    expect((await api("PUT", `/api/admin/feedback/${mine.id}`, { status: "planned" }, founderToken)).status).toBe(200);
+    const triaged = await api("PUT", `/api/admin/feedback/${mine.id}`, { status: "planned" }, founderToken);
+    expect(triaged.status).toBe(200);
+    /*
+     * SWEEP: and TRIAGE SPEAKS. The status moved and the member who sent the
+     * idea learned nothing, so "did anyone see this?" had no answer short of
+     * the admin panel they cannot open.
+     *
+     * It says their own title back, because a village clearing a backlog
+     * produces a run of these, and it speaks in their language: "planned" is
+     * the queue's word and never reaches them.
+     */
+    expect(triaged.json.notified).toBe(true);
+    const fbBell = await api("GET", "/api/notifications", undefined, peerToken);
+    const fbNote = (fbBell.json.notifications ?? []).find((n: any) => n.type === "feedback");
+    expect(fbNote, "the member who sent an idea learns it was read").toBeTruthy();
+    expect(String(fbNote.title)).toContain("Loop test idea");
+    expect(String(fbNote.title)).toContain("on the list to build"); // an idea, in its own words
+    expect(String(fbNote.title).toLowerCase()).not.toContain("planned");
+    // Setting the same status again is a founder's mis-click, not news. It
+    // answers 200 (the item plainly exists) and rings nothing.
+    const again = await api("PUT", `/api/admin/feedback/${mine.id}`, { status: "planned" }, founderToken);
+    expect(again.status).toBe(200);
+    expect(again.json.notified).toBe(false);
+    expect(
+      (await api("GET", "/api/notifications", undefined, peerToken)).json.notifications.filter((n: any) => n.type === "feedback"),
+      "one word per item per landing place",
+    ).toHaveLength(1);
+    // A missing item is still a 404, which is the case the old affectedRows
+    // check conflated with an unchanged one.
+    expect((await api("PUT", "/api/admin/feedback/fb-nope", { status: "seen" }, founderToken)).status).toBe(404);
 
     // ── S67: federation — module-gated, explicit publishing, guarded peers. ──
     expect((await api("GET", "/api/network/published")).status).toBe(404); // off = invisible

@@ -704,19 +704,26 @@ export async function seatHolder(
   pool: Pool,
   orgRoleId: string,
   h: { userId?: string | null; displayName?: string | null; focus?: string | null; note?: string | null; seasonId?: string | null; termEndsAt?: Date | null; grantedBy?: string | null },
-): Promise<{ ok: boolean; reason?: string }> {
+  /**
+   * `assignmentId` is returned so the caller can key a notification on THIS
+   * seating. Keying on the seat and the person instead would mean somebody
+   * seated, unseated and seated again a season later hears about it once,
+   * which is the same grammar the member-role appointment already uses.
+   */
+): Promise<{ ok: boolean; reason?: string; assignmentId?: string }> {
   const kind = h.userId ? "member" : "documented";
   if (kind === "documented" && !String(h.displayName ?? "").trim()) {
     return { ok: false, reason: "A documented holder needs a name" };
   }
   const holderKey = h.userId ? String(h.userId) : documentedKey(String(h.displayName));
+  const assignmentId = newId("orgasg");
   try {
     await pool.query(
       `INSERT INTO org_role_assignments
          (id, org_role_id, holder_kind, user_id, display_name, holder_key, focus, note, season_id, term_ends_at, granted_by)
        VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        newId("orgasg"),
+        assignmentId,
         orgRoleId,
         kind,
         h.userId ?? null,
@@ -729,7 +736,7 @@ export async function seatHolder(
         h.grantedBy ?? null,
       ],
     );
-    return { ok: true };
+    return { ok: true, assignmentId };
   } catch (e: any) {
     // The unique key is on (seat, active holder key), so this is the one
     // collision it exists to catch.

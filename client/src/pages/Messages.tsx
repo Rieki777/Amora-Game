@@ -19,6 +19,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { toast } from "sonner";
 import { reportFeedback } from "@/lib/reportFeedback";
+import { actionError } from "@/lib/actionOutcome";
 import {
   ArrowLeft, Bell, BellOff, Crown, Flag, LogOut, Pencil, Plus, Search, Send, Trash2,
   UserMinus, UserPlus, Users, X,
@@ -546,10 +547,30 @@ function ThreadView({ id }: { id: string }) {
     }
   };
 
+  /*
+   * SWEEP (the incomplete loop). One helper, six call sites, and the boolean
+   * dropped at every one of them. Handing a conversation on, removing a
+   * member and deleting a message all sit behind a confirm dialog, so a
+   * refusal read as "I pressed yes and the screen did not change" on exactly
+   * the acts where being wrong matters most. A throw here was an unhandled
+   * rejection on top.
+   *
+   * The word is said HERE rather than at the six call sites: two of them
+   * already read the boolean to decide where to navigate, and neither said
+   * anything either, so one place covers all eight paths and cannot drift.
+   * Success stays silent on purpose. The thread reloads and the member can
+   * see it, which is the rule this helper was already following.
+   */
   const act = async (path: string, init: RequestInit) => {
-    const res = await fetch(`/api/messages/${id}${path}`, { headers: headers(), ...init });
-    if (res.ok) load(false);
-    return res.ok;
+    const res = await fetch(`/api/messages/${id}${path}`, { headers: headers(), ...init }).catch(() => null);
+    const said = res ? (await res.clone().json().catch(() => ({})))?.error ?? null : null;
+    const wrong = actionError({ ok: !!res?.ok, error: said });
+    if (wrong) {
+      toast.error(wrong);
+      return false;
+    }
+    load(false);
+    return true;
   };
 
   /**

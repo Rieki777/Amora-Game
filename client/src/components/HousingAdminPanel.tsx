@@ -118,6 +118,8 @@ export default function HousingAdminPanel({ password }: { password: string }) {
   const [phase, setPhase] = useState(INITIAL_PHASE);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  /** Said back after a status move that wrote to the person who asked. */
+  const [sent, setSent] = useState("");
   const [newKey, setNewKey] = useState("");
   /*
    * Saving was invisible for a second reason once the list stopped
@@ -216,6 +218,7 @@ export default function HousingAdminPanel({ password }: { password: string }) {
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {sent && <p className="text-sm text-emerald-700">{sent}</p>}
 
       <div className="flex gap-2">
         <input
@@ -410,14 +413,21 @@ export default function HousingAdminPanel({ password }: { password: string }) {
                       // without the message that snap-back looks like the
                       // dropdown ignoring the founder.
                       setError("");
+                      setSent("");
                       const r = await fetch(`/api/housing/reservations/${res.id}/status`, {
                         method: "PUT",
                         headers: { ...auth, "Content-Type": "application/json" },
                         body: JSON.stringify({ status: e.target.value }),
                       });
+                      const data = await r.json().catch(() => ({}));
                       if (!r.ok) {
-                        const data = await r.json().catch(() => ({}));
                         setError(`${res.name}: ${data?.error || "That status did not save."}`);
+                      } else if (data?.notified) {
+                        // Two of these four moves write to the person who
+                        // asked. A founder holding a home for somebody should
+                        // know the letter went, so they do not send a second
+                        // one by hand.
+                        setSent(`${res.name} has been emailed.`);
                       }
                       void load();
                     }}

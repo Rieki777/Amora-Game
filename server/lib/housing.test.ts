@@ -14,6 +14,7 @@ import {
   openHomes,
   publicEntries,
   readAvailabilityPatch,
+  reservationStatusNotice,
   setAvailability,
 } from "./housing";
 
@@ -666,5 +667,52 @@ describe("taken against total, across a patch and the row it lands on", () => {
   it("says nothing about a pair where either side is unset", () => {
     expect(exceedsTotal({ taken: 4 }, before(null, null))).toBe(false);
     expect(exceedsTotal({ total: null }, before(10, 4))).toBe(false);
+  });
+});
+
+/**
+ * The letter the person who asked for a home receives when their request
+ * moves. Pure, so the two judgements in it (which statuses speak, and in
+ * whose vocabulary) are provable without a mail provider.
+ */
+describe("reservationStatusNotice", () => {
+  const rowan = { name: "Rowan", homeType: "casita", hamlet: "Ridge Hamlet North" };
+
+  it("says nothing about a founder's own filing", () => {
+    expect(reservationStatusNotice("new", rowan)).toBeNull();
+  });
+
+  it("says nothing when a founder records a conversation they already had", () => {
+    expect(reservationStatusNotice("contacted", rowan)).toBeNull();
+  });
+
+  it("tells somebody a home is being held, and where", () => {
+    const notice = reservationStatusNotice("reserved", rowan)!;
+    expect(notice).toBeTruthy();
+    expect(notice.body.join(" ")).toContain("casita in Ridge Hamlet North");
+    expect(notice.body.join(" ")).toContain("Rowan");
+  });
+
+  it("tells somebody their request is closed", () => {
+    const notice = reservationStatusNotice("withdrawn", rowan)!;
+    expect(notice.subject.toLowerCase()).toContain("closed");
+    expect(notice.body.join(" ")).toContain("nothing is owed");
+  });
+
+  it("never says the founder's filing word at the person", () => {
+    for (const status of ["reserved", "withdrawn"]) {
+      const notice = reservationStatusNotice(status, rowan)!;
+      const whole = `${notice.subject} ${notice.heading} ${notice.body.join(" ")}`.toLowerCase();
+      expect(whole, `${status} leaked into the letter`).not.toContain(status);
+    }
+  });
+
+  it("drops the hamlet clause when no hamlet was chosen", () => {
+    const notice = reservationStatusNotice("reserved", { name: "Ivy", homeType: "villa", hamlet: null })!;
+    expect(notice.body.join(" ")).toContain("a villa against your name");
+  });
+
+  it("refuses to speak for a status it does not know", () => {
+    expect(reservationStatusNotice("maybe", rowan)).toBeNull();
   });
 });
