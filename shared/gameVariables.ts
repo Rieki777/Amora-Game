@@ -361,9 +361,12 @@ export const VARIABLES: VariableDef[] = [
     choices: VOICE_WEIGHTING_CHOICES.map((c) => ({ ...c })),
   },
   {
+    // The KEY is forever; the label moved to "proposer bar" language when the
+    // on-site engine landed, because the bar gates proposing wherever the
+    // binding vote happens, on-site or on Hypha.
     key: "governance.hypha_threshold",
     category: "Governance",
-    label: "Earned recognition to qualify as a proposer",
+    label: "The proposer bar: earned recognition to propose",
     description:
       "Earned recognition a member needs before they can OPEN mechanics proposals and sponsor others' drafts (below it, they can still draft; a qualified member's sponsorship opens a draft). The base posture is 0: any member may propose. Raise it to ask for earned standing first. Admins and founders always qualify.",
     type: "integer",
@@ -443,6 +446,116 @@ export const VARIABLES: VariableDef[] = [
     min: 0,
     max: 365,
     unit: "days",
+  },
+
+  // ── Governance: the on-site decision engine (round 5, lane G1) ────────────
+  //
+  // Ring placement per GOV_DESIGN section 7. The weight dials are FOUNDER
+  // ring: how voting power is assigned is constitutional in spirit, a founder
+  // decision, never a dial a majority flips mid-game to entrench itself. The
+  // conduct dials (unity, quorum, durations, default method) are Ring 2, and
+  // every one of them is protected mid-vote by the ballot snapshot rule
+  // instead of cycle timing.
+  {
+    key: "governance.weight_mode",
+    category: "Governance",
+    label: "How voting weight is assigned",
+    ring: "founder",
+    description:
+      "What one member's vote weighs on an on-site ballot. Equal gives every eligible member the same single vote. Token weighs votes by each member's balance of the weight token at the moment a ballot opens. Custom weighs votes by the allocation table you keep under Voting weights, where a member with no allocation weighs zero. Whatever you choose, each ballot freezes the weights when it opens, and every allocation change is on a permanent record any member can read.",
+    type: "choice",
+    default: "equal",
+    choices: [
+      { value: "equal", label: "One person, one vote", hint: "Every eligible member weighs the same." },
+      { value: "token", label: "Token balance", hint: "Weight is each member's balance of the weight token when the ballot opens." },
+      { value: "custom", label: "Custom allocation", hint: "Weight comes from the allocation table. No allocation means no weight." },
+    ],
+  },
+  {
+    key: "governance.weight_token",
+    category: "Governance",
+    label: "The weight token",
+    ring: "founder",
+    description:
+      "Which token weighs votes when the weight mode is token. Only tokens this platform itself governs can be chosen: a token governed on Hypha is a display-only mirror here, and a ballot may never make this platform a second source of truth for it. The default is the recognition token, which nobody can buy, so weight in the default posture is earned appreciation.",
+    type: "text",
+    default: "gratitude",
+  },
+  {
+    key: "governance.unity_pct",
+    category: "Governance",
+    label: "Unity needed to pass",
+    description:
+      "Of the votes cast for or against, the share that must be in favor for a ballot run on the village's own dials to pass. Abstentions help a ballot reach quorum and take no side here. 100 asks for consensus in effect; the Hypha surface this inherits from runs at 80.",
+    type: "percentage",
+    default: "80",
+    min: 50,
+    max: 100,
+    unit: "%",
+  },
+  {
+    key: "governance.quorum_pct",
+    category: "Governance",
+    label: "Quorum needed to count",
+    description:
+      "The share of the electorate's total voting weight that must show up, counting abstentions, before a ballot's outcome counts at all. Below this the ballot closes as no quorum, whatever the votes said. Each ballot freezes this number when it opens.",
+    type: "percentage",
+    default: "20",
+    min: 1,
+    max: 100,
+    unit: "%",
+  },
+  {
+    key: "governance.vote_days",
+    category: "Governance",
+    label: "How long a ballot stays open",
+    description:
+      "Days between a ballot opening and its votes locking. Votes can be changed freely until then. After the period ends the ballot waits for a human to close it and record the outcome; nothing executes on a timer.",
+    type: "integer",
+    default: "7",
+    min: 1,
+    max: 30,
+    unit: "days",
+  },
+  {
+    key: "governance.consent_window_days",
+    category: "Governance",
+    label: "How long a consent window stays open",
+    description:
+      "Days an objection window runs on a consent ballot. A consent decision passes when the window has ended, participation met quorum, and no objection still stands open. Objections are ruled by a facilitator, and every ruling is attributed and explained on the record.",
+    type: "integer",
+    default: "7",
+    min: 1,
+    max: 30,
+    unit: "days",
+  },
+  {
+    key: "governance.default_method",
+    category: "Governance",
+    label: "How village-wide ballots decide",
+    description:
+      "The method a village-wide ballot uses when nothing more specific applies. Your own dials use the unity and quorum settings above. Majority means more than half of the votes cast carries it. Consensus means everyone who takes a side agrees. Consent means a decision passes when nobody sustains a reasoned objection. Hypha keeps the shipped loop: proposals go to your Hypha space for the binding vote.",
+    type: "choice",
+    default: "custom",
+    choices: [
+      { value: "custom", label: "This village's own dials", hint: "Uses the unity and quorum settings above." },
+      { value: "majority", label: "Majority", hint: "More than half of the votes cast carries it." },
+      { value: "consensus", label: "Consensus", hint: "Everyone who takes a side agrees." },
+      { value: "consent", label: "Consent", hint: "Passes when no reasoned objection stands." },
+      { value: "hypha", label: "Decide on Hypha", hint: "The shipped loop: the binding vote happens in your Hypha space." },
+    ],
+  },
+  {
+    key: "membership.vouch_threshold",
+    category: "Governance",
+    label: "Vouches to admit a member",
+    description:
+      "How many standing members must vouch for an applicant before membership completes on its own. 0 keeps vouching off and admission stays whatever your current process is. Vouching comes from contributors and up, a member may never vouch for themself, and every vouch is on the record.",
+    type: "integer",
+    default: "0",
+    min: 0,
+    max: 20,
+    unit: "vouches",
   },
 
   // ── Tokens: read from Base, governed on Hypha ──────────────────────────────

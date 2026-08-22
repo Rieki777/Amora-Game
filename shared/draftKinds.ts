@@ -156,4 +156,6 @@ export const CAPABILITY_CONSEQUENCE: Record<Capability, string> = {
   "event.rsvp": "say they are coming to a gathering",
   "event.manage": "put gatherings on the village calendar, edit them, and cancel them",
   "org.declare": "declare the village's shape and how any circle decides",
+  "ballot.vote": "vote on the village's own ballots",
+  "member.vouch": "vouch for applicants at the membrane",
 };

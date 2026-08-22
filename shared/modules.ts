@@ -922,6 +922,34 @@ export const MODULES: ModuleDef[] = [
     ],
     apiPrefixes: ["/api/intents"],
   },
+  {
+    id: "governance",
+    tier: "included",
+    dataClass: "member-pii",
+    group: "know-and-decide",
+    setup: "none",
+    name: "Governance",
+    description:
+      "The village decides on-site: staged proposals go to weighted ballots with frozen electorates, votes stay changeable until a human closes with a stated outcome, and passed mechanics changes apply through the one amendment ledger. Off keeps the shipped Hypha loop exactly as it is.",
+    // Nothing hard-required: a ballot needs members and a subject, and the
+    // mechanics loop it extends is core machinery. OFF is the fork-safe
+    // default (absent row = off, house rule): hundreds of forks inherit the
+    // shipped Hypha/manual loop unchanged until a founder turns this on.
+    requires: [],
+    recommends: ["forum"],
+    capabilities: ["ballot.vote", "member.vouch"],
+    variableKeys: [
+      "governance.weight_mode",
+      "governance.weight_token",
+      "governance.unity_pct",
+      "governance.quorum_pct",
+      "governance.vote_days",
+      "governance.consent_window_days",
+      "governance.default_method",
+      "membership.vouch_threshold",
+    ],
+    apiPrefixes: ["/api/governance", "/api/admin/governance"],
+  },
 ];
 
 export const MODULES_BY_ID: Record<string, ModuleDef> = Object.fromEntries(

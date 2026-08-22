@@ -46,11 +46,27 @@ export const CONSTITUTION: ConstitutionLaw[] = [
       "Tokens the village issues freely (rewards, comps) can never be swapped into tokens that people bought with real money. The test is structural: it is about where tokens came from, and no privilege level overrides it.",
     enforcedBy: "server/lib/exchange.ts: faucet-issued tokens are permanently unswappable",
   },
+  // Amended for the on-site governance engine (R44, GOV_DESIGN section 7):
+  // the law's scope narrowed from all governance to hypha-governed TOKENS,
+  // because the village can now conduct binding decisions here. The final
+  // sentence is flagged for the founder's reading.
   {
     title: "What Hypha governs, this game only displays",
     plain:
-      "Equity and voice live on the village's Hypha DAO. This platform reads and displays them and links you there; it never mints, moves, or prices them. Formal decisions bind on Hypha. The game is where the village senses and prepares.",
+      "Tokens governed on the village's Hypha DAO, equity and voice among them, live on Base. This platform reads and displays them and links you there; it never mints, moves, or prices them. A decision the village conducts here binds here, on the record; what the village keeps on Hypha binds on Hypha.",
     enforcedBy: "server/lib/ledger.ts: hypha-governed tokens are refused from the ledger entirely",
+  },
+  {
+    title: "A vote is counted against the day it opened",
+    plain:
+      "When a ballot opens, its thresholds, its electorate and every voter's weight freeze inside it. No later change to any setting, allocation or balance rewrites a vote, open or closed. What you were asked, and what your voice weighed, is permanent from the moment the asking began.",
+    enforcedBy: "the ballots snapshot columns (drizzle/0089) + server/lib/ballots.test.ts",
+  },
+  {
+    title: "Voting weight is on the record",
+    plain:
+      "Whatever weight mode the village runs, every member can see how voting weight is assigned, and every change to an assigned weight is a permanent record carrying who changed it and why. Weight is power, and this game holds no hidden power.",
+    enforcedBy: "governance_weight_changes (drizzle/0089), append-only, member-readable",
   },
   {
     title: "One gate decides every permission",

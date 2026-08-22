@@ -4784,4 +4784,168 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
     await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
   });
+
+  /*
+   * G1: THE ON-SITE GOVERNANCE ENGINE (round 5). The design's own harm
+   * metric, asserted end to end: a village declares a decision method and
+   * the platform CONDUCTS it — stage, support, open, three members vote, a
+   * human closes with a stated outcome, and THE ONE APPLY runs, with zero
+   * manual SQL anywhere in the section. Plus the snapshot law at route
+   * level: dials moved mid-ballot change nothing about the outcome, and the
+   * module-off default leaves the shipped Hypha loop byte-identical.
+   */
+  it("G1: with the governance module off, the shipped Hypha loop is the behavior", async () => {
+    // The module ships OFF (absent row = off): every engine route is a 404.
+    const dark = await api("GET", "/api/governance/ballots", undefined, founderToken);
+    expect(dark.status).toBe(404);
+    expect(dark.json.error).toBe("module_disabled");
+
+    // And the shipped loop is untouched: a proposal still goes to Hypha.
+    const proposal = await api("POST", "/api/game/mechanics/proposals", {
+      title: "Longer sensing, decided on Hypha",
+      rationale: "The village asked for more time to weigh in before votes.",
+      changes: [{ key: "governance.sensing_days", to: "9" }],
+    }, founderToken);
+    expect(proposal.status, JSON.stringify(proposal.json)).toBe(200);
+    expect(proposal.json.status).toBe("open");
+    const toHypha = await api("POST", `/api/game/mechanics/proposals/${proposal.json.id}/to-hypha`, {}, founderToken);
+    expect(toHypha.status).toBe(200);
+    const listed = await api("GET", "/api/game/mechanics/proposals");
+    expect(listed.json.find((p: any) => p.id === proposal.json.id)?.status).toBe("to_hypha");
+  });
+
+  it("G1: stage, support, open, vote, human close, THE ONE APPLY — no SQL touched", async () => {
+    // Turn the engine on. Everything below runs through the product.
+    const enable = await api("PUT", "/api/admin/modules/governance/lifecycle", { lifecycle: "public" }, founderToken);
+    expect(enable.status, JSON.stringify(enable.json)).toBe(200);
+
+    // Three members arrive and are recognized as members (the electorate
+    // rung): the admin stage grant is the product's own path.
+    const voters: Array<{ token: string; id: string }> = [];
+    for (const who of ["ada", "bao", "cyn"]) {
+      const reg = await api("POST", "/api/auth/register", {
+        email: `${who}-gov-${PORT}@example.test`,
+        password: "LoopTest123!",
+        name: `${who} Voter`,
+        paths: ["resident"],
+      });
+      expect(reg.status).toBe(200);
+      const granted = await api("PUT", `/api/admin/players/${reg.json.user.id}/stage`, { stageId: "member" }, founderToken);
+      expect(granted.status, JSON.stringify(granted.json)).toBe(200);
+      voters.push({ token: reg.json.token, id: reg.json.user.id });
+    }
+
+    // STAGE: a proposal enters sensing. The village asks for two supporters.
+    await api("PUT", "/api/admin/variables/governance.proposal_support_threshold", { value: "2" }, founderToken);
+    const proposal = await api("POST", "/api/game/mechanics/proposals", {
+      title: "Longer sensing, decided by the village itself",
+      rationale: "Quiet people need more days to be heard before a vote.",
+      changes: [{ key: "governance.sensing_days", to: "10" }],
+    }, founderToken);
+    expect(proposal.status, JSON.stringify(proposal.json)).toBe(200);
+    const proposalId = proposal.json.id;
+
+    // SUPPORT: below the bar, the ballot refuses to open.
+    const s1 = await api("POST", `/api/game/mechanics/proposals/${proposalId}/support`, {}, voters[0].token);
+    expect(s1.status).toBe(200);
+    const early = await api("POST", `/api/governance/mechanics/${proposalId}/open-ballot`, {}, founderToken);
+    expect(early.status).toBe(409);
+    expect(String(early.json.error)).toContain("2 supporter(s)");
+    const s2 = await api("POST", `/api/game/mechanics/proposals/${proposalId}/support`, {}, voters[1].token);
+    expect(s2.json.supports).toBe(2);
+
+    // OPEN: one transaction snapshots dials, electorate and weights, flips
+    // the proposal to onsite_vote, and freezes the document.
+    const opened = await api("POST", `/api/governance/mechanics/${proposalId}/open-ballot`, {}, founderToken);
+    expect(opened.status, JSON.stringify(opened.json)).toBe(200);
+    const ballot = opened.json.ballot;
+    expect(ballot.status).toBe("open");
+    expect(ballot.method).toBe("custom");
+    expect(ballot.unityPct).toBe(80);
+    expect(ballot.quorumPct).toBe(20);
+    expect(ballot.weightMode).toBe("equal");
+    expect(ballot.electorateCount).toBeGreaterThanOrEqual(4); // founder + the three, at least
+    expect(ballot.docMarkdown).toContain(`[gm:${proposalId}]`);
+    const flipped = await api("GET", "/api/game/mechanics/proposals");
+    expect(flipped.json.find((p: any) => p.id === proposalId)?.status).toBe("onsite_vote");
+
+    // A second open is a no-op: the flipped subject status refuses it here,
+    // and the open_key index catches the true race (proven in ballots.test.ts).
+    const doubleOpen = await api("POST", `/api/governance/mechanics/${proposalId}/open-ballot`, {}, founderToken);
+    expect(doubleOpen.status).toBe(409);
+    expect(String(doubleOpen.json.error)).toContain("onsite vote");
+
+    // VOTE: three members, the founder, and the doer (a contributor by
+    // consented work, so past the member rung). One change of mind proves
+    // the upsert; a stranger to the electorate is refused. Four yes against
+    // one no is unity 80 exactly: the frozen bar, to the decimal.
+    expect((await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "no" }, voters[0].token)).status).toBe(200);
+    expect((await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "yes" }, voters[0].token)).status).toBe(200);
+    expect((await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "yes" }, voters[1].token)).status).toBe(200);
+    expect((await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "yes" }, voters[2].token)).status).toBe(200);
+    expect((await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "yes" }, founderToken)).status).toBe(200);
+    expect((await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "no" }, doerToken)).status).toBe(200);
+
+    const outsider = await api("POST", "/api/auth/register", {
+      email: `outsider-gov-${PORT}@example.test`, password: "LoopTest123!", name: "Arrived After", paths: ["resident"],
+    });
+    const refused = await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "yes" }, outsider.json.token);
+    expect(refused.status).toBe(409);
+    expect(String(refused.json.error)).toContain("froze");
+
+    // THE SNAPSHOT LAW, at route level: the village raises both dials
+    // mid-ballot to values that would sink this vote if anything read live.
+    await api("PUT", "/api/admin/variables/governance.unity_pct", { value: "100" }, founderToken);
+    await api("PUT", "/api/admin/variables/governance.quorum_pct", { value: "100" }, founderToken);
+
+    // CLOSE: a human act with a required outcome note.
+    const noteless = await api("POST", `/api/governance/ballots/${ballot.id}/close`, {}, founderToken);
+    expect(noteless.status).toBe(400);
+    expect(String(noteless.json.error)).toContain("note is required");
+    const closed = await api("POST", `/api/governance/ballots/${ballot.id}/close`, {
+      outcomeNote: "Four yes against one no. The village wants the longer sensing window.",
+    }, founderToken);
+    expect(closed.status, JSON.stringify(closed.json)).toBe(200);
+    // Frozen dials pass it: unity is 4 of 5 sides taken, exactly the frozen
+    // 80, and turnout clears the frozen 20. The LIVE dials now demand
+    // 100/100, which this vote meets on neither bar — so a pass here IS the
+    // snapshot law holding at route level.
+    expect(closed.json.outcome).toBe("passed");
+    expect(closed.json.tallies).toMatchObject({ yesW: 4, noW: 1, abstainW: 0 });
+    expect(closed.json.unity).toBe(80);
+    expect(closed.json.held).toBeNull();
+    // THE ONE APPLY ran, from the close, with no SQL in sight.
+    expect(closed.json.applied).toContain("governance.sensing_days");
+
+    // The variable moved for real, served by the game itself.
+    const rules = await api("GET", "/api/game/rules");
+    expect(rules.json.governance.sensingDays).toBe(10);
+
+    // The proposal is applied, and the amendment ledger's newest row carries
+    // the governance source and the ballot reference: every amendment points
+    // at its vote.
+    const after = await api("GET", "/api/game/mechanics/proposals");
+    expect(after.json.find((p: any) => p.id === proposalId)?.status).toBe("applied");
+    const history = await api("GET", "/api/game/mechanics/history");
+    const amendment = history.json.find((h: any) => h.key === "governance.sensing_days" && h.source === "governance");
+    expect(amendment, "a governance-sourced amendment row exists").toBeTruthy();
+    expect(String(amendment.proposalRef)).toContain(`gm:${proposalId}`);
+    expect(String(amendment.proposalRef)).toContain(`bal:${ballot.id}`);
+
+    // The closed ballot is the record: outcome note, closer, locked votes.
+    const record = await api("GET", `/api/governance/ballots/${ballot.id}`, undefined, voters[0].token);
+    expect(record.json.status).toBe("passed");
+    expect(record.json.outcomeNote).toContain("longer sensing");
+    expect(record.json.votes.length).toBe(5);
+    const lateVote = await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "no" }, voters[1].token);
+    expect(lateVote.status).toBe(409);
+    // And a second close changes nothing.
+    const reclose = await api("POST", `/api/governance/ballots/${ballot.id}/close`, { outcomeNote: "Again." }, founderToken);
+    expect(reclose.status).toBe(409);
+
+    // The member-visible weight record answers, mode and trail on the record.
+    const weights = await api("GET", "/api/governance/weights", undefined, voters[2].token);
+    expect(weights.status).toBe(200);
+    expect(weights.json.mode).toBe("equal");
+  });
 });

@@ -39,7 +39,9 @@ export type Capability =
   | "mechanics.propose" // propose a change to the game's own rules (Game Mechanics)
   | "event.rsvp" // say you are coming to a gathering
   | "event.manage" // put a gathering on the village calendar, edit or cancel it
-  | "org.declare"; // declare how the village and its circles hold power (0083)
+  | "org.declare" // declare how the village and its circles hold power (0083)
+  | "ballot.vote" // cast a vote on an on-site ballot (round 5 governance engine)
+  | "member.vouch"; // vouch for an applicant at the membrane (round 5)
 
 /**
  * The canonical list, as a VALUE: badge validation and unlock diffs iterate
@@ -68,6 +70,8 @@ export const ALL_CAPABILITIES: Capability[] = [
   "event.rsvp",
   "event.manage",
   "org.declare",
+  "ballot.vote",
+  "member.vouch",
 ];
 
 /**
@@ -105,6 +109,14 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   // something on the village calendar is an appointment, granted by a role or
   // a badge, never reached by climbing.
   "event.rsvp": "guest",
+  // Voting opens where talking opens: membership is the electorate. The
+  // ballot electorate builder reads this THROUGH the one gate, so a warning
+  // badge's deny suspends voting (Gate E order preserved) and a role or
+  // badge can still grant it below the rung.
+  "ballot.vote": "member",
+  // Vouching is vouching FROM standing: a member who has contributed speaks
+  // for an applicant with something behind the word.
+  "member.vouch": "contributor",
   // `map.edit` and `map.publish` are deliberately absent for the same reason,
   // and the second one matters more than the first. The map is the village's
   // front door: a stage rung would hand the land's shape to everyone who

@@ -222,7 +222,21 @@ export interface ProposalRow {
   rationale: string;
   changeSet: ProposedChange[];
   proposerUserId: string;
-  status: "draft" | "open" | "withdrawn" | "to_hypha" | "passed_claimed" | "passed_verified" | "failed" | "applied";
+  /** `onsite_vote` and `passed_onsite` are the governance module's on-site
+   *  siblings of `to_hypha` and `passed_verified` (GOV_DESIGN 2.6). */
+  status:
+    | "draft"
+    | "open"
+    | "withdrawn"
+    | "to_hypha"
+    | "onsite_vote"
+    | "passed_claimed"
+    | "passed_verified"
+    | "passed_onsite"
+    | "failed"
+    | "applied";
+  /** The conducting on-site ballot, once one opened (0089). */
+  ballotId: string | null;
   hyphaRef: string | null;
   /** The numeric on-chain proposal id, linked when the founder pastes the
    *  Hypha proposal URL back. Verified outcomes match by THIS — real chain
@@ -244,6 +258,7 @@ export function rowToProposal(r: RowDataPacket): ProposalRow {
     changeSet: Array.isArray(raw) ? raw : [],
     proposerUserId: String(r.proposer_user_id),
     status: r.status,
+    ballotId: r.ballot_id ?? null,
     hyphaRef: r.hypha_ref ?? null,
     hyphaProposalId: r.hypha_proposal_id ?? null,
     hyphaProposalUrl: r.hypha_proposal_url ?? null,
