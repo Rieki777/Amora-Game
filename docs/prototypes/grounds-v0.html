@@ -4297,7 +4297,7 @@ function openPanel(key,tab,item){const s=BY[key];if(!s){toast('That place is no 
   if(item)setHash('#/place/'+key+'?item='+item); // the badge you tapped, in the address bar
   $('panelHead').innerHTML=`<h2>${escq(s.name)}</h2><div class="sub">${s.circle?escq(s.circle)+' circle':'needs a steward'} · ${STATE_LABEL[s.state]}${s.fund?` · pool ${Math.round(s.fund*100)}%`:''}</div>
     <span class="statepill">${s.event?('✦ '+escq(s.event)):escq(phaseName(s.phase))}</span>`;
-  const tabs=['Overview','Quests here','Seats here','Enter →'];
+  const tabs=['Overview','Quests here','Seats here','Photos','Enter →'];
   $('tabs').innerHTML=tabs.map((t,i)=>`<button data-i="${i}">${t}</button>`).join('');
   [...$('tabs').children].forEach(b=>b.onclick=()=>renderTab(+b.dataset.i));
   renderTab(tab||0);maiaContext(s);if(item)focusItem(item)}
@@ -4346,7 +4346,14 @@ function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].
   if(i===2)body.innerHTML=st.length?st.map(x=>`<div class="seatrow" data-item="${escq(itemAddr('seat',x))}"><div class="nm"><b>${escq(x.s)}</b><span>${escq(x.c)} circle · ${escq(x.note)}</span></div>
     <button class="btn" onclick="toast('Intro drafted. The ${escj(x.c)} circle will hear from you. (Prototype; the real form lives at /roles.)')">Raise a hand</button></div>`).join('')
     :`<p>All seats filled here. Beautiful problem.</p>`;
-  if(i===3)body.innerHTML=((s.modules&&s.modules.length)?s.modules.map((m,mi)=>`<button class="doorbtn" onclick="openDoorHere(${mi})"><span><b>${escq(doorLabel(m))}</b><br><span>${escq(doorRoute(m))}</span></span><span class="arr">➤</span></button>`).join(''):`<p>No doors here yet. The founder opens them in build mode.</p>`)+
+  if(i===3){const ph=(window.PLACE_PHOTOS||{})[s.key]||[];
+    /* Member-authored text reaching HTML for the first time in this file:
+       alt, caption and the contributor's name all go through escq. */
+    const card=p=>`<figure style="margin:0 0 12px;border:1px solid #c8ab6f;border-radius:9px;overflow:hidden;background:#fdf6e0"><img src="${escq(p.thumbUrl||p.url)}" alt="${escq(p.alt||'')}" loading="lazy" style="display:block;width:100%;height:auto"><figcaption style="padding:6px 8px;font-size:11.5px;color:#6b4d1e">${p.caption?`${escq(p.caption)}<br>`:''}<span style="color:#8a7347">${escq(p.by||'')}</span></figcaption></figure>`;
+    body.innerHTML=(ph.length?ph.map(card).join(''):`<p>Nobody has photographed this place yet. Every other number on this map is something a person could have typed from anywhere; a photograph is somebody who stood here.</p>`)+
+      `<button class="doorbtn" onclick="openDoor('Photographs',{route:'/places',label:'Photographs'})"><span><b>Photographs</b><br><span>/places</span></span><span class="arr">➤</span></button>`+
+      `<div class="lastv">Adding one, flagging one, or asking for a photograph of yourself to come down all happen through that door.</div>`}
+  if(i===4)body.innerHTML=((s.modules&&s.modules.length)?s.modules.map((m,mi)=>`<button class="doorbtn" onclick="openDoorHere(${mi})"><span><b>${escq(doorLabel(m))}</b><br><span>${escq(doorRoute(m))}</span></span><span class="arr">➤</span></button>`).join(''):`<p>No doors here yet. The founder opens them in build mode.</p>`)+
     `<div class="lastv">Every door is also a page. The same room, reachable from the menu or from the land.</div>`}
 $('panelClose').onclick=()=>{$('panel').classList.remove('open');panelKey=null;setHash('')};
 function claimQuest(q,at){
@@ -7041,7 +7048,7 @@ function siteHref(route){return (window.SITE_BASE||'')+route}
    qa/verify_door_routes.js re-derives it and fails when this list rots.
    NOT `SITE_ROUTES`: that name is taken at :4504 by the journey map, and a
    second const of the same name kills this whole script block in silence. */
-const SITE_PAGES=['/','/admin','/admin/mint','/badges','/circles','/co-creators-guide','/contribute','/events','/exit-policy','/feed','/feedback','/first-walk','/forgot-password','/forum','/game-mechanics','/good-neighbor','/governance','/gratitude','/housing','/how-we-create','/introductions','/investor','/journey-to-launch','/library','/login','/love-letter','/map','/map/circles','/master-plan','/messages','/modules','/network','/opportunities','/profile','/profile/characters','/project-history','/propose-quest','/prosperity','/quests','/register','/reserve','/resident','/resident-rights','/roles','/seasonal-festivals','/set-password','/stay','/steward','/steward-rights','/team','/tokens','/tools','/training','/village-health','/visit','/wallet','/work-with-us'];
+const SITE_PAGES=['/','/admin','/admin/mint','/badges','/campaigns','/circles','/co-creators-guide','/contribute','/decisions','/events','/exit-policy','/feed','/feedback','/first-walk','/forgot-password','/forum','/game-mechanics','/good-neighbor','/governance','/gratitude','/housing','/how-we-create','/introductions','/investor','/journey-to-launch','/library','/login','/love-letter','/map','/map/circles','/master-plan','/messages','/modules','/network','/opportunities','/places','/profile','/profile/characters','/project-history','/propose','/propose-quest','/prosperity','/quests','/register','/reserve','/resident','/resident-rights','/roles','/seasonal-festivals','/set-password','/stay','/steward','/steward-rights','/team','/tokens','/tools','/training','/village-health','/visit','/wallet','/work-with-us'];
 window.SITE_PAGES=SITE_PAGES;
 /* WHAT COMES BACK IS THE CANONICAL PATH, and that is a security property, not
    a convenience. The membership test strips ? and # FIRST, so `/gratitude`
@@ -8570,6 +8577,14 @@ addEventListener('message',e=>{try{
   if(d.type==='promise-result'&&d.id&&(d.kind==='rsvp'||d.kind==='claim'))promiseResult(d);
   /* D8. `hand` is the village saying who is holding this map; `scene-result`
      answers a draft-save, a publish or a restore. */
+  /* The village's own photographs, keyed by structure. Absent means the
+     map draws the door and nothing else, the same rule the walk and the
+     scene follow. Re-renders only when the open panel is the place that
+     changed, so a push never yanks a reader off the tab they are on. */
+  if(d.type==='photos'&&d.places&&typeof d.places==='object'){
+    window.PLACE_PHOTOS=d.places;
+    if(typeof panelKey!=='undefined'&&panelKey&&$('panel').classList.contains('open')&&
+       [...$('tabs').children].findIndex(b=>b.classList.contains('on'))===3)renderTab(3)}
   if(d.type==='hand')applyHand(d);
   /* L5. WHO IS PLAYING, and what the village says about its seats.
 

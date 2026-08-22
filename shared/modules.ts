@@ -460,7 +460,7 @@ export const MODULES: ModuleDef[] = [
       "The living org chart: circles, the roles that orbit them, who holds each seat, which seats are open calls, plus a concierge that routes 'I want to help with X' to the right person.",
     requires: [],
     recommends: [],
-    capabilities: ["map.viewPeople", "map.contact"],
+    capabilities: ["map.viewPeople", "map.contact", "map.photograph", "map.curatePhotos"],
     variableKeys: [
       "map.public_structure",
       "map.concierge_enabled",
@@ -469,8 +469,13 @@ export const MODULES: ModuleDef[] = [
       "map.show_quests",
       "map.vacant_highlight",
       "map.contact_retention_days",
+      "map.photo_max_mb",
+      "map.photos_per_place",
+      "map.photos_per_member_daily",
+      "map.photo_report_hide_threshold",
+      "map.photo_tombstone_days",
     ],
-    apiPrefixes: ["/api/map", "/api/circles"],
+    apiPrefixes: ["/api/map", "/api/circles", "/api/places", "/api/admin/places"],
   },
   {
     id: "resources",

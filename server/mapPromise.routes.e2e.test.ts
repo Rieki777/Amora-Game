@@ -158,6 +158,29 @@ describe.skipIf(!DB_CONFIGURED)("a promise made on the map", () => {
     expect(r.json.count).toBe(1);
   });
 
+  it("says a priced gathering asks for credits, and never that it is closed", async () => {
+    /*
+     * 0092 put a price on a seat and this route refuses to spend it through a
+     * one-tap lantern, which is right. For one release it refused as `closed`,
+     * and a member who was perfectly welcome read that the door was shut. The
+     * artifact carries copy for `paid` now, so the refusal says the true
+     * thing and carries the way to the room that prints the fee.
+     */
+    await pool.query( // module-review-ok: a fixture on the scratch schema this suite provisioned
+      "INSERT INTO events (id, title, starts_at, status, map_key, seat_price, seat_token) VALUES (?,?,?,'scheduled',?,?,?)",
+      ["ev-priced", "Solstice supper", new Date(Date.now() + 864e5), "e-priced", 25, "credits"],
+    );
+    const r = await promise("rsvp", "e-priced", true);
+    expect(r.json.ok).toBe(false);
+    expect(r.json.state).toBe("off");
+    expect(r.json.reason, "a seat with a price is not a closed door").toBe("paid");
+    expect(r.json.href, "the refusal names the remedy and carries the way to it").toBe("/events");
+    expect(r.json.count).toBe(0);
+    // Nothing moved: a refusal that charged would be the defect this guards.
+    const [seats] = await pool.query<any[]>("SELECT COUNT(*) n FROM event_seat_charges WHERE event_id = 'ev-priced'"); // module-review-ok: a readback on the scratch schema this suite provisioned
+    expect(Number(seats[0].n)).toBe(0);
+  });
+
   it("is idempotent, so a repeated yes is still yes", async () => {
     const again = await promise("rsvp", "e1", true);
     expect(again.json.ok).toBe(true);

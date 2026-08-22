@@ -36,6 +36,13 @@ export type PromiseKind = (typeof PROMISE_KINDS)[number];
  *                fixes nothing; a steward has to open it.
  * - `closed`     the village has this switched off, or the thing is not
  *                taking answers, or it is a standing example.
+ * - `paid`       the gathering asks for credits at the door. A member could
+ *                walk in; a ONE-TAP lantern with no price beside it is what
+ *                cannot say yes for them. Separate from `closed` because the
+ *                remedy is different and because calling it closed was false
+ *                to somebody who was welcome: the door to open is the
+ *                gathering itself, where the fee is printed before anybody
+ *                agrees to it, and `href` carries it.
  * - `full`       capacity.
  * - `not-here`   this village has never brought the scene across, so the row
  *                does not exist and never did. THE DEFAULT STATE OF A FRESH
@@ -45,7 +52,7 @@ export type PromiseKind = (typeof PROMISE_KINDS)[number];
  * - `error`      anything else. The map says so plainly and reverts.
  */
 export const PROMISE_REASONS = [
-  "anonymous", "not-yet", "closed", "full", "not-here", "gone", "error",
+  "anonymous", "not-yet", "closed", "paid", "full", "not-here", "gone", "error",
 ] as const;
 export type PromiseReason = (typeof PROMISE_REASONS)[number];
 
@@ -72,7 +79,7 @@ export interface PromiseResult {
   reason?: PromiseReason;
   /** Authoritative going-count for a gathering. The map's own number yields. */
   count?: number;
-  /** Where to send someone, for `anonymous`. */
+  /** Where to send someone: the way in for `anonymous`, the gathering for `paid`. */
   href?: string;
 }
 

@@ -38,6 +38,8 @@ export type Capability =
   | "map.contact" // reach a role holder through the contact relay
   | "map.edit" // enter build mode and keep a draft of the land
   | "map.publish" // push a draft onto the live map everyone sees
+  | "map.photograph" // add a photograph of a place to the village record
+  | "map.curatePhotos" // take a photograph down, pin a place's lead shot, work the queue
   | "feed.announce" // post announcements to the village feed (role-only)
   | "stay.member_rate" // book accommodation at the member price, not the guest one
   | "exchange.buy" // buy listed tokens for fiat
@@ -67,6 +69,8 @@ export const ALL_CAPABILITIES: Capability[] = [
   "map.contact",
   "map.edit",
   "map.publish",
+  "map.photograph",
+  "map.curatePhotos",
   "feed.announce",
   "stay.member_rate",
   "exchange.buy",
@@ -110,6 +114,8 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "map.contact": "Reach a role holder through the contact relay",
   "map.edit": "Draft changes to the land in build mode",
   "map.publish": "Publish a draft onto the live map",
+  "map.photograph": "Add a photograph to a place on the map",
+  "map.curatePhotos": "Take a photograph down and choose a place's lead shot",
   "feed.announce": "Post announcements to the village feed",
   "stay.member_rate": "Book a stay at the member price",
   "exchange.buy": "Buy listed tokens",
@@ -178,6 +184,25 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   // Vouching is vouching FROM standing: a member who has contributed speaks
   // for an applicant with something behind the word.
   "member.vouch": "contributor",
+  // Contributing a photograph opens where talking opens. Rye asked for this
+  // to work "like a google maps listing where the community can upload
+  // photos", and in this village the community is its members. A photograph
+  // is also the one contribution that proves somebody was physically on the
+  // land, so the rung that means "you have joined" is the honest one for it.
+  //
+  // Being a stage unlock rather than an appointment buys the property that
+  // matters for a public gallery: a warning badge's deny suspends posting
+  // pictures, because the deny beats stage (Gate E). A village that wants a
+  // narrower door moves the rung, sets it to "none" and grants by role or
+  // badge, or leaves it here.
+  "map.photograph": "member",
+  // `map.curatePhotos` is deliberately absent, and it is the R54 key on this
+  // surface. Taking somebody's photograph off the village's map is a power
+  // that WOULD have been an admin check, and an admin check is scaffolding a
+  // village cannot inherit. As a capability it reaches three ways: a role a
+  // founder appoints, a badge, or admin. Nobody climbs to it, because
+  // deciding what stays in the village's record is an appointment and not a
+  // reward for doing enough quests.
   // `map.edit` and `map.publish` are deliberately absent for the same reason,
   // and the second one matters more than the first. The map is the village's
   // front door: a stage rung would hand the land's shape to everyone who

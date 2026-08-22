@@ -884,6 +884,75 @@ export const VARIABLES: VariableDef[] = [
     unit: "days",
   },
 
+  // ── Photographs of a place (0093) ────────────────────────────────────────
+  //
+  // Five dials, all of them read. A village decides how many pictures its map
+  // holds, how big each one may be, how fast one member may fill it, when the
+  // village's own reports take a picture down on their own, and how long a
+  // removed photograph's record is kept before it is forgotten.
+  {
+    key: "map.photo_max_mb",
+    category: "Village map",
+    label: "Largest photograph a member may upload",
+    description:
+      "Measured on the file that arrives. The browser shrinks a picture to WebP before it is sent, so a phone photo usually lands far under this; the ceiling is what stops an untouched original from spending the whole volume. At 1 the pipeline still accepts a prepared phone photo. At 25 one picture can cost 25 MB of the uploads volume, and /health reports what the photographs are using.",
+    type: "integer",
+    default: "8",
+    min: 1,
+    max: 25,
+    unit: "MB",
+    ring: "founder",
+  },
+  {
+    key: "map.photos_per_place",
+    category: "Village map",
+    label: "Photographs one place may hold",
+    description:
+      "Counts the pictures currently on a place, so a takedown frees a slot. 0 means no place accepts a photograph and the upload control is gone from every gallery. At 500 one place can hold five hundred pictures and its gallery pages through them.",
+    type: "integer",
+    default: "60",
+    min: 0,
+    max: 500,
+    unit: "photos",
+  },
+  {
+    key: "map.photos_per_member_daily",
+    category: "Village map",
+    label: "Photographs one member may add per day",
+    description:
+      "Counted across every place over the last 24 hours. 0 closes contribution for everyone, whatever their stage or role. At 200 one member can add two hundred pictures in a day.",
+    type: "integer",
+    default: "12",
+    min: 0,
+    max: 200,
+    unit: "photos",
+  },
+  {
+    key: "map.photo_report_hide_threshold",
+    category: "Village map",
+    label: "Reports that hide a photograph on their own",
+    description:
+      "Distinct members flagging one picture. Once this many have, it leaves the gallery and waits for a curator, who can put it back. 0 means the village's reports never hide anything by themselves and a curator acts on every one. A person asking for a photograph OF THEMSELVES to come down is a different act and never waits for this number: one is always enough.",
+    type: "integer",
+    default: "3",
+    min: 0,
+    max: 50,
+    unit: "reports",
+  },
+  {
+    key: "map.photo_tombstone_days",
+    category: "Village map",
+    label: "Keep the record of a removed photograph for",
+    description:
+      "A photograph taken down loses its file immediately. What stays is the record of the takedown, so a curator can still see what they decided and which report it answered. The daily sweep forgets that record after this many days. 0 keeps it forever.",
+    type: "integer",
+    default: "180",
+    min: 0,
+    max: 3650,
+    unit: "days",
+    ring: "founder",
+  },
+
   // ── Events (0059; visible in Admin only while the module is non-off) ─────
   //
   // Three knobs, and all three are READ. A registered variable nothing reads
