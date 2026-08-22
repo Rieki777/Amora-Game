@@ -18,14 +18,14 @@ Every claim below was read off the code in this worktree, not off a design doc.
 
 ## 1. A badge can grant a capability, and the grant is real
 
-The one gate is `hasCapability` (`shared/capabilities.ts:156`). Its order of
+The one gate is `hasCapability` (`shared/capabilities.ts:163`). Its order of
 authority is five lines:
 
 ```
-178  if (ctx.isAdmin) return true;
-179  if ((ctx.badgeDenies ?? []).includes(cap)) return false;
-180  if (ctx.roleCapabilities.includes(cap)) return true;
-181  if ((ctx.badgeCapabilities ?? []).includes(cap)) return true;
+185  if (ctx.isAdmin) return true;
+186  if ((ctx.badgeDenies ?? []).includes(cap)) return false;
+187  if (ctx.roleCapabilities.includes(cap)) return true;
+188  if ((ctx.badgeCapabilities ?? []).includes(cap)) return true;
      ... stage unlock ...
 ```
 
@@ -62,7 +62,7 @@ by one layer, not a live hole.
 
 ## 3. A deny beats a grant, including a role grant
 
-Line 179 sits above both line 180 and line 181, so a warning badge's deny beats
+Line 186 sits above both line 187 and line 188, so a warning badge's deny beats
 a role appointment and a stage unlock, and only `isAdmin` outranks it. That
 ordering is asserted directly in `shared/capabilities.test.ts`, which is a
 truth table rather than a sample:
@@ -149,7 +149,7 @@ like this:
 > by admin typo
 
 **That sentence is no longer true.** Round 5 added `ballot.vote` and
-`member.vouch` to the union (`shared/capabilities.ts:43-44`), and the ballot
+`member.vouch` to the union (`shared/capabilities.ts:52-53`), and the ballot
 electorate is built by running the one gate over every sign-in-able member
 (`server/index.ts:20420-20431`). A granted badge carrying `ballot.vote` puts
 its holder in the electorate. `member.vouch` decides who gets through the
