@@ -93,6 +93,12 @@ export function evaluateBallot(input: EvaluateInput): BallotOutcome {
  *   null     no ballot: the named decider records the outcome themselves
  *            (lead/elders/founder decides, do-ocracy), or the mode is not in
  *            v1 (delegated), or the village wrote its own word (other).
+ *
+ * `custom` is not a `DecidesById` and is here anyway, because the SETTING this
+ * reads from (`governance.default_method`) offers it: a circle says how it
+ * decides in the vocabulary of shared/power.ts, and a village says how its
+ * village-wide ballots decide in that vocabulary plus "this village's own
+ * dials". One function answers both, which is the point of it existing.
  */
 export function methodForDecidesBy(id: DecidesById | string): BallotMethod | "hypha" | null {
   switch (id) {
@@ -102,11 +108,32 @@ export function methodForDecidesBy(id: DecidesById | string): BallotMethod | "hy
       return "consensus";
     case "consent":
       return "consent";
+    case "custom":
+      return "custom";
     case "hypha":
       return "hypha";
     default:
       return null;
   }
+}
+
+/**
+ * The method a VILLAGE-WIDE ballot conducts, given `governance.default_method`.
+ *
+ * Every route that opens a village-wide ballot resolves the method through
+ * here, so there is one rule and not one per route. The route that opened the
+ * first ballot carried its own copy of this list inline, and a second route
+ * (advisory) would have carried a third: two copies of one rule disagree
+ * eventually, and in governance a disagreement about the method is a
+ * disagreement about what passing means.
+ *
+ * Anything unrecognised falls to `custom`, which is the village's own unity
+ * and quorum dials. That is the conservative answer: a stored value nobody
+ * recognises should decide by the numbers the village actually set, never by
+ * a preset those numbers were never checked against.
+ */
+export function villageBallotMethod(setting: string): BallotMethod | "hypha" {
+  return methodForDecidesBy(String(setting ?? "")) ?? "custom";
 }
 
 export interface MethodDials {

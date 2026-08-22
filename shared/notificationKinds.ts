@@ -97,6 +97,31 @@ export const NOTIFICATION_KINDS: Record<string, NotificationKind> = {
     many: "{n} votes closed without passing.",
     celebrate: false,
   },
+  // Its own kind, and this is not a nicety. Too few answering is a different
+  // fact from the village saying no, and while a missed quorum fired
+  // `ballot_failed` the line under it read "The village said no" about a vote
+  // that had settled nothing.
+  ballot_no_quorum: {
+    group: "decisions",
+    blurb: "Too few of the roll answered for this to settle anything. The question stands, and it can be asked again.",
+    many: "{n} votes closed with too few answering to settle them.",
+    celebrate: false,
+  },
+  ballot_withdrawn: {
+    group: "decisions",
+    blurb: "A vote you were on the roll for was called off before it closed. Nothing was decided, and the reason is on the record.",
+    many: "{n} votes were called off.",
+    celebrate: false,
+  },
+  // An advisory vote reaches a real verdict and executes nothing, so it takes
+  // its own kind and stays out of `ballot_carried`, which is one of the four
+  // that earn a celebration.
+  ballot_advisory_closed: {
+    group: "decisions",
+    blurb: "An advisory vote closed. It records what the village would decide, and nothing changed on its own.",
+    many: "{n} advisory votes closed.",
+    celebrate: false,
+  },
   ballot_expired: {
     group: "decisions",
     blurb: "A voting window ran out with nobody closing it. Closing is a human act, so the ballot waits for one.",

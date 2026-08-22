@@ -9,6 +9,7 @@ import {
   dialsForMethod,
   evaluateBallot,
   methodForDecidesBy,
+  villageBallotMethod,
   quorumPctOf,
   unityPctOf,
 } from "./governanceEngine";
@@ -105,6 +106,7 @@ describe("decidesBy presets", () => {
     expect(methodForDecidesBy("majority")).toBe("majority");
     expect(methodForDecidesBy("consensus")).toBe("consensus");
     expect(methodForDecidesBy("consent")).toBe("consent");
+    expect(methodForDecidesBy("custom")).toBe("custom");
     expect(methodForDecidesBy("hypha")).toBe("hypha");
   });
 
@@ -112,6 +114,31 @@ describe("decidesBy presets", () => {
     for (const id of ["lead_decides", "elders_decide", "founder_decides", "do_ocracy", "delegated", "other"]) {
       expect(methodForDecidesBy(id)).toBeNull();
     }
+  });
+
+  /*
+   * The route that opened the first ballot carried its own inline copy of the
+   * method list while this function sat exported and uncalled. Two copies of
+   * one rule disagree eventually, and a disagreement about the method is a
+   * disagreement about what passing MEANS. These cases pin the one rule that
+   * both village-wide open routes now read.
+   */
+  it("resolves every setting `governance.default_method` can hold", () => {
+    expect(villageBallotMethod("majority")).toBe("majority");
+    expect(villageBallotMethod("consensus")).toBe("consensus");
+    expect(villageBallotMethod("consent")).toBe("consent");
+    expect(villageBallotMethod("custom")).toBe("custom");
+    expect(villageBallotMethod("hypha")).toBe("hypha");
+  });
+
+  it("falls to the village's own dials for anything it does not recognise", () => {
+    // The conservative direction: a stored value nobody recognises decides by
+    // the numbers the village actually set, never by a preset those numbers
+    // were never checked against.
+    for (const stored of ["", "lead_decides", "delegated", "other", "MAJORITY", "sortition"]) {
+      expect(villageBallotMethod(stored), stored).toBe("custom");
+    }
+    expect(villageBallotMethod(undefined as unknown as string)).toBe("custom");
   });
 
   it("presets fix what the method's sentence fixes and take the rest from the village", () => {

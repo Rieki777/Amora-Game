@@ -25,6 +25,7 @@ import {
   ruleObjection,
   standingObjectionCount,
   talliesFor,
+  withdrawBallot,
   type OpenBallotInput,
 } from "./ballots";
 import { setWeight, weightsFor, weightChangeProblem, allWeights } from "./governanceWeights";
@@ -345,5 +346,137 @@ describe.skipIf(!configured)("ballots (MySQL)", () => {
     expect(b?.outcomeNote).toContain("abstention");
     expect(b?.closedBy).toBe("u-proposer");
     expect(b?.openKey).toBe(`mechanics:gmp-record:${opened.ballot.id}`);
+  });
+
+  /*
+   * WITHDRAWAL. 0089 declared `status='withdrawn'` and the decision page
+   * renders it; no route ever wrote it, so a member who opened a vote in
+   * error had no way out while the interface implied there was one.
+   *
+   * The rule these cases pin is the one that is not obvious: a withdrawal
+   * costs other people's cast votes, and cast votes are the one thing in this
+   * engine belonging to somebody other than the opener. So an opener may call
+   * off a ballot nobody has answered, and once one vote stands it takes a
+   * facilitator.
+   */
+  it("withdrawal: the opener may call off a vote nobody has answered yet", async () => {
+    const opened = await openOne({ subjectRef: "gmp-withdraw-clean" });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+
+    expect((await withdrawBallot(pool, {
+      ballotId: opened.ballot.id, withdrawnBy: "u-proposer", reason: "", withdrawerMayDiscardVotes: false,
+    })) as any).toMatchObject({ ok: false });
+
+    const gone = await withdrawBallot(pool, {
+      ballotId: opened.ballot.id,
+      withdrawnBy: "u-proposer",
+      reason: "Opened against the wrong draft. Reopening on the right one.",
+      withdrawerMayDiscardVotes: false,
+    });
+    expect(gone.ok).toBe(true);
+    if (!gone.ok) return;
+    expect(gone.votesDiscarded).toBe(0);
+
+    const b = await ballotById(pool, opened.ballot.id);
+    expect(b?.status).toBe("withdrawn");
+    expect(b?.closedBy).toBe("u-proposer");
+    expect(b?.outcomeNote).toContain("wrong draft");
+    // Nothing was decided: the record carries no outcome word at all.
+    expect(["passed", "failed", "no_quorum"]).not.toContain(b?.status);
+    // And the subject is free again straight away, which is the same open_key
+    // rewrite a close does.
+    expect(b?.openKey).toBe(`mechanics:gmp-withdraw-clean:${opened.ballot.id}`);
+    const again = await openOne({ subjectRef: "gmp-withdraw-clean" });
+    expect(again.ok, "a withdrawn subject takes a fresh ballot immediately").toBe(true);
+    // A NEW ballot with its own freeze, never the withdrawn one resumed.
+    if (again.ok) expect(again.ballot.id).not.toBe(opened.ballot.id);
+  });
+
+  it("withdrawal: once a vote stands, discarding it takes a facilitator", async () => {
+    const opened = await openOne({ subjectRef: "gmp-withdraw-voted" });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    await castVote(pool, opened.ballot.id, "u-a", "yes");
+
+    const refused = await withdrawBallot(pool, {
+      ballotId: opened.ballot.id,
+      withdrawnBy: "u-proposer",
+      reason: "Changed my mind about asking.",
+      withdrawerMayDiscardVotes: false,
+    });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error).toContain("already voted");
+    expect((await ballotById(pool, opened.ballot.id))?.status).toBe("open");
+
+    const done = await withdrawBallot(pool, {
+      ballotId: opened.ballot.id,
+      withdrawnBy: "u-b",
+      reason: "The proposal it names was superseded this morning.",
+      withdrawerMayDiscardVotes: true,
+    });
+    expect(done.ok).toBe(true);
+    if (done.ok) expect(done.votesDiscarded).toBe(1);
+  });
+
+  it("withdrawal is a guarded single transition, like the close", async () => {
+    const opened = await openOne({ subjectRef: "gmp-withdraw-race" });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const first = await withdrawBallot(pool, {
+      ballotId: opened.ballot.id, withdrawnBy: "u-proposer", reason: "Asked too early.", withdrawerMayDiscardVotes: false,
+    });
+    expect(first.ok).toBe(true);
+    const second = await withdrawBallot(pool, {
+      ballotId: opened.ballot.id, withdrawnBy: "u-b", reason: "Asked too early.", withdrawerMayDiscardVotes: true,
+    });
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.error).toContain("already withdrawn");
+
+    // And a CLOSED ballot is never withdrawable: an outcome the village
+    // reached is not something anybody gets to take back.
+    const decided = await openOne({ subjectRef: "gmp-withdraw-closed" });
+    expect(decided.ok).toBe(true);
+    if (!decided.ok) return;
+    await castVote(pool, decided.ballot.id, "u-a", "yes");
+    await castVote(pool, decided.ballot.id, "u-b", "yes");
+    await expire(decided.ballot.id);
+    expect((await closeBallot(pool, {
+      ballotId: decided.ballot.id, closedBy: "u-proposer",
+      outcomeNote: "Two of three in favour, and quorum was met.", closerMayCloseEarly: false,
+    })).ok).toBe(true);
+    const late = await withdrawBallot(pool, {
+      ballotId: decided.ballot.id, withdrawnBy: "u-b", reason: "Second thoughts.", withdrawerMayDiscardVotes: true,
+    });
+    expect(late.ok).toBe(false);
+    expect((await ballotById(pool, decided.ballot.id))?.status).toBe("passed");
+  });
+
+  /*
+   * The no-quorum distinction at the engine's own level. The close route used
+   * to write `failed` on the subject for BOTH of these, so this pins that the
+   * two outcomes are genuinely different rows and not one word with two
+   * spellings.
+   */
+  it("a ballot that misses quorum closes as no_quorum, never as failed", async () => {
+    const opened = await openOne({ subjectRef: "gmp-quiet-week", quorumPct: 60 });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    // One of three votes YES: unity is a perfect 100, quorum is 33 of 60.
+    await castVote(pool, opened.ballot.id, "u-a", "yes");
+    await expire(opened.ballot.id);
+    const closed = await closeBallot(pool, {
+      ballotId: opened.ballot.id,
+      closedBy: "u-proposer",
+      outcomeNote: "One member voted, and the village asks for more than that.",
+      closerMayCloseEarly: false,
+    });
+    expect(closed.ok).toBe(true);
+    if (!closed.ok) return;
+    expect(closed.outcome).toBe("no_quorum");
+    // Everyone who did vote was in favour, which is exactly why calling this
+    // a rejection was false.
+    expect(closed.unity).toBe(100);
+    expect((await ballotById(pool, opened.ballot.id))?.status).toBe("no_quorum");
   });
 });

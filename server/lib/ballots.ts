@@ -46,7 +46,6 @@ export interface BallotRow {
   subjectType: string;
   subjectRef: string;
   openKey: string;
-  circleId: string | null;
   title: string;
   docMarkdown: string;
   method: BallotMethod;
@@ -74,7 +73,6 @@ export function rowToBallot(r: RowDataPacket): BallotRow {
     subjectType: String(r.subject_type),
     subjectRef: String(r.subject_ref),
     openKey: String(r.open_key),
-    circleId: r.circle_id ?? null,
     title: String(r.title),
     docMarkdown: String(r.doc_markdown),
     method: r.method as BallotMethod,
@@ -120,7 +118,6 @@ export async function ballotsFor(pool: Pool, subjectType: string, subjectRef: st
 export interface OpenBallotInput {
   subjectType: string;
   subjectRef: string;
-  circleId?: string | null;
   title: string;
   docMarkdown: string;
   method: BallotMethod;
@@ -167,16 +164,15 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
   try {
     await conn.beginTransaction();
     await conn.query( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
-      "INSERT INTO ballots (id, subject_type, subject_ref, open_key, circle_id, title, doc_markdown, method, " +
+      "INSERT INTO ballots (id, subject_type, subject_ref, open_key, title, doc_markdown, method, " +
         "weight_mode, weight_token, unity_pct, quorum_pct, total_weight, electorate_count, opened_by, " +
         "opens_at, closes_at, status) " +
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, NOW(), DATE_ADD(NOW(), INTERVAL ? DAY), 'open')",
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, NOW(), DATE_ADD(NOW(), INTERVAL ? DAY), 'open')",
       [
         id,
         input.subjectType,
         input.subjectRef,
         openKey,
-        input.circleId ?? null,
         input.title.slice(0, 200),
         input.docMarkdown,
         input.method,
@@ -454,6 +450,85 @@ export async function closeBallot(pool: Pool, input: CloseBallotInput): Promise<
     unity: unityPctOf(tallies),
     quorum: quorumPctOf(tallies, ballot.totalWeight),
   };
+}
+
+/** How many votes stand on a ballot. Cheap, and it decides who may withdraw. */
+export async function voteCount(pool: Pool, ballotId: string): Promise<number> {
+  const [[row]] = await pool.query<any[]>(
+    "SELECT COUNT(*) AS n FROM ballot_votes WHERE ballot_id = ?",
+    [ballotId],
+  );
+  return Number(row.n);
+}
+
+export interface WithdrawBallotInput {
+  ballotId: string;
+  withdrawnBy: string;
+  /** Required, same posture as an outcome note: a cancellation is a record. */
+  reason: string;
+  /**
+   * True when the withdrawer holds proposal.decide or is an admin. Only they
+   * may withdraw a ballot people have already voted on.
+   */
+  withdrawerMayDiscardVotes: boolean;
+}
+
+export type WithdrawBallotResult =
+  | { ok: true; ballot: BallotRow; votesDiscarded: number }
+  | { ok: false; error: string; alreadyClosed?: BallotRow };
+
+/**
+ * Call a ballot off (0089 declared `status='withdrawn'` and gave it UI
+ * treatment; no route ever wrote it, so a vote opened in error had no way out
+ * and the interface implied one).
+ *
+ * A withdrawal is a close that decides NOTHING. It takes the same guarded
+ * single transition the close takes, records who and when and why in the same
+ * three columns the decision page already reads, and rewrites `open_key` so
+ * the subject is free for a fresh ballot immediately. It never evaluates,
+ * never executes, and never writes an outcome: `status='withdrawn'` is its own
+ * fact and reads as neither passed nor failed.
+ *
+ * WHO MAY, and the reason the rule is not just "whoever opened it": a
+ * withdrawal throws away votes that members already cast, and cast votes are
+ * the one thing in this engine that belongs to somebody other than the opener.
+ * So an opener may call off a ballot NOBODY HAS ANSWERED YET, which is the
+ * opened-in-error case this exists for, and once even one vote stands the act
+ * needs a proposal.decide holder or an admin. `votesDiscarded` comes back so
+ * the caller can say in words what the withdrawal cost.
+ */
+export async function withdrawBallot(pool: Pool, input: WithdrawBallotInput): Promise<WithdrawBallotResult> {
+  const reason = String(input.reason ?? "").trim().slice(0, 4000);
+  if (!reason) {
+    return { ok: false, error: "Calling off a vote records why, in a human sentence. The reason is required" };
+  }
+  const ballot = await ballotById(pool, input.ballotId);
+  if (!ballot) return { ok: false, error: "No such ballot" };
+  if (ballot.status !== "open") {
+    return {
+      ok: false,
+      error: `This ballot is already ${ballot.status.replace("_", " ")}, so there is nothing to call off`,
+      alreadyClosed: ballot,
+    };
+  }
+  const votes = await voteCount(pool, ballot.id);
+  if (votes > 0 && !input.withdrawerMayDiscardVotes) {
+    return {
+      ok: false,
+      error: `${votes} member(s) have already voted on this. Discarding votes that are already cast takes a proposal.decide holder or an admin. Close it and record the outcome instead`,
+    };
+  }
+  const [result] = await pool.query<any>(
+    "UPDATE ballots SET status='withdrawn', outcome_note=?, closed_by=?, closed_at=NOW(), " +
+      "open_key=CONCAT(open_key, ':', id) WHERE id=? AND status='open'",
+    [reason, input.withdrawnBy, ballot.id],
+  );
+  if (Number(result.affectedRows) === 0) {
+    const current = await ballotById(pool, ballot.id);
+    return { ok: false, error: "Someone else closed this ballot first", alreadyClosed: current ?? undefined };
+  }
+  const withdrawn = await ballotById(pool, ballot.id);
+  return { ok: true, ballot: withdrawn!, votesDiscarded: votes };
 }
 
 /** A member's own vote, for honest ballot pages. */

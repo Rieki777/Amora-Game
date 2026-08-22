@@ -147,9 +147,12 @@ import {
   openBallot,
   rowToBallot,
   ruleObjection,
+  standingObjectionCount,
   talliesFor,
   voteOf,
   votesFor,
+  withdrawBallot,
+  type BallotRow,
 } from "./lib/ballots";
 import {
   allWeights,
@@ -165,6 +168,7 @@ import {
 // both called "drafts" is exactly the collision the design's own note warned
 // about when it named this module `proposalDrafts.ts`.
 import {
+  ADVISORY_TYPES,
   CONDUCTABLE_TYPES,
   DRAFT_CAP,
   deleteDraft as deleteProposalDraft,
@@ -172,10 +176,13 @@ import {
   saveDraft as saveProposalDraft,
 } from "./lib/proposalDrafts";
 import {
+  BALLOT_METHODS,
   dialsForMethod,
   quorumPctOf,
   unityPctOf,
+  villageBallotMethod,
   type BallotMethod,
+  type BallotOutcome,
 } from "../shared/governanceEngine";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
@@ -20925,7 +20932,35 @@ Send an empty drafts array when you are still listening. A role payload is {name
     );
   }
 
-  const serveProposal = async (p: any, backers: Map<string, { supports: number; sponsors: string[] }>) => {
+  /**
+   * The status of the last ballot each of these proposals went to, keyed by
+   * proposal id. One query for the whole list.
+   *
+   * A PROPOSAL AT `open` HOLDING A BALLOT ID IS A PROPOSAL THAT WENT TO A VOTE
+   * AND CAME BACK, and until this shipped there was no way to tell it from one
+   * that had never been. The two ways back are `no_quorum` (too few of the
+   * village voted, which settles nothing) and `withdrawn` (the vote was called
+   * off), and they are different facts that deserve different words. The
+   * status is served rather than inferred so no surface has to guess which.
+   */
+  async function lastBallotStatuses(proposals: any[]): Promise<Map<string, string>> {
+    const ids = proposals.map((p) => p.ballotId).filter((id): id is string => !!id);
+    const out = new Map<string, string>();
+    if (ids.length === 0) return out;
+    const [rows] = await getPool().query<any[]>("SELECT id, status FROM ballots WHERE id IN (?)", [ids]);
+    const byBallot = new Map(rows.map((r) => [String(r.id), String(r.status)]));
+    for (const p of proposals) {
+      const status = p.ballotId ? byBallot.get(String(p.ballotId)) : undefined;
+      if (status) out.set(String(p.id), status);
+    }
+    return out;
+  }
+
+  const serveProposal = async (
+    p: any,
+    backers: Map<string, { supports: number; sponsors: string[] }>,
+    lastBallot: Map<string, string> = new Map(),
+  ) => {
     const proposer = await members.byId(p.proposerUserId);
     const b = backers.get(p.id) ?? { supports: 0, sponsors: [] };
     return {
@@ -20933,6 +20968,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
       title: p.title,
       rationale: p.rationale,
       status: p.status,
+      // The vote this proposal last went to, and how that vote ended.
+      ballotId: p.ballotId ?? null,
+      lastBallotStatus: lastBallot.get(String(p.id)) ?? null,
       hyphaRef: p.hyphaRef,
       hyphaProposalId: p.hyphaProposalId ?? null,
       hyphaProposalUrl: p.hyphaProposalUrl ?? null,
@@ -20967,7 +21005,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
     );
     const proposals = rows.map(rowToProposal);
     const backers = await backerCounts(getPool(), proposals.map((p) => p.id));
-    res.json(await Promise.all(proposals.map((p) => serveProposal(p, backers))));
+    const lastBallot = await lastBallotStatuses(proposals);
+    res.json(await Promise.all(proposals.map((p) => serveProposal(p, backers, lastBallot))));
   });
 
   /** The viewer's own standing + which proposals they already back. */
@@ -21561,12 +21600,190 @@ Send an empty drafts array when you are still listening. A role payload is {name
     return rung;
   }
 
+  /**
+   * What a close DOES, per subject type, and the ONE place that question is
+   * answered.
+   *
+   * This was a single `if (b.subjectType === "mechanics")` inside the close
+   * route, which is fine while there is one subject and wrong the moment
+   * there are two: the same fact (does closing this change anything?) is
+   * needed by the ballot payloads as well, and a second copy of it in
+   * serveBallot would have been a second opinion about whether a member's
+   * vote binds. Two copies of one rule disagree eventually, and here the
+   * disagreement lands on somebody who thinks they decided something.
+   *
+   * A subject type that is NOT a key here conducts a real decision and
+   * executes nothing. That is the property that lets a village hold an
+   * advisory vote on the real engine, with the real frozen roll and the real
+   * weights, and read the real answer without the answer doing anything.
+   * Absence is also the fail-safe direction, so a subject type added by a
+   * later lane cannot execute something by accident.
+   */
+  interface CloseRouting {
+    /** Variable keys the close actually changed. */
+    applied: string[];
+    /** Why nothing was applied, in the member's words, or null. */
+    held: string | null;
+    /** Told about this outcome already, so the roll's line skips them. */
+    proposerTold: string | null;
+  }
+
+  const SUBJECT_CLOSERS: Record<
+    string,
+    (b: BallotRow, outcome: BallotOutcome, outcomeNote: string, actorId: string) => Promise<CloseRouting>
+  > = {
+    /*
+     * Mechanics (GOV_DESIGN 2.6). Every step is a guarded update or an
+     * idempotent apply, so a crash partway heals on the admin apply path
+     * instead of corrupting.
+     */
+    mechanics: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+      const p = await proposalById(getPool(), b.subjectRef);
+      if (!p || p.status !== "onsite_vote") return out;
+
+      if (outcome === "passed") {
+        await getPool().query(
+          "UPDATE mechanics_proposals SET status = 'passed_onsite' WHERE id = ? AND status = 'onsite_vote'",
+          [p.id],
+        );
+        const fresh = await proposalById(getPool(), p.id);
+        if (!fresh) return out;
+        if (!boolVar("governance.auto_apply_enabled")) {
+          out.held = "auto-apply is off";
+          // This branch tells the ADMINS and says nothing to the proposer, so
+          // proposerTold stays null and the roll's line is their word on it.
+          await notifyAdmins(
+            "governance",
+            `Passed on-site but auto-apply is off. Apply by hand: ${p.title}`,
+            `gmp:${p.id}:frozen`,
+          );
+          return out;
+        }
+        if (changeSetWaitsForCycleClose(fresh.changeSet)) {
+          out.held = "applies at next cycle close";
+          out.proposerTold = p.proposerUserId;
+          await notify({
+            userId: p.proposerUserId,
+            type: "governance",
+            title: `Passed. Your proposal applies at the next cycle close: ${p.title}`,
+            link: proposalLink(p.id),
+            dedupeKey: `gmp:${p.id}:verified-waiting`,
+          });
+          return out;
+        }
+        // applyMechanicsProposal tells the proposer "Your proposal was
+        // applied" on its own, which is why this counts as told.
+        out.proposerTold = p.proposerUserId;
+        const applyResult = await applyMechanicsProposal(fresh, actorId);
+        out.applied = applyResult.applied;
+        if (applyResult.failed.length > 0) {
+          await notifyAdmins(
+            "governance",
+            `A ballot-passed proposal could not fully apply: ${p.title} (${applyResult.failed.length} change(s) refused)`,
+            `gmp:${p.id}:apply-failed`,
+          );
+        }
+        return out;
+      }
+
+      if (outcome === "no_quorum") {
+        /*
+         * TOO FEW OF US WERE HERE IS NOT THE VILLAGE SAYING NO.
+         *
+         * This branch used to be folded into the one below, so a ballot that
+         * missed quorum wrote `status='failed'` on its subject: a village of
+         * forty where six people voted killed a proposal it had never
+         * actually answered, and its author started again from a blank form
+         * because of a quiet week. The engine had the distinction right the
+         * whole time (evaluateBallot checks quorum FIRST, for every method);
+         * the close route threw it away one line later.
+         *
+         * So the proposal goes back to `open`, which is exactly where it
+         * stood before the ballot: its backers are untouched in
+         * mechanics_proposal_backers, its rationale and change set are
+         * untouched in its own row, and the open-ballot route accepts `open`.
+         * Nothing is re-authored and no supporter is asked twice.
+         *
+         * THE SNAPSHOT LAW IS NOT BENT BY THIS. The ballot that missed quorum
+         * stays closed and immutable at `no_quorum` forever, with its own
+         * frozen roll, dials and weights. Going again means a NEW ballot with
+         * a NEW freeze, taken at whatever the village's dials and weights are
+         * on the day it opens. Nothing here resumes anything.
+         *
+         * `ballot_id` deliberately keeps pointing at the ballot that missed.
+         * A proposal sitting at `open` while holding a ballot id is the
+         * readable difference between one that has never been to a vote and
+         * one that has been and come back.
+         */
+        await getPool().query(
+          "UPDATE mechanics_proposals SET status = 'open' WHERE id = ? AND status = 'onsite_vote'",
+          [p.id],
+        );
+        out.proposerTold = p.proposerUserId;
+        await notify({
+          userId: p.proposerUserId,
+          type: "governance",
+          title: `Too few of the village voted: ${p.title}`,
+          body: "Your proposal is back with the others, holding its supporters and every word you wrote. It can go to a vote again whenever the village is more gathered.",
+          link: proposalLink(p.id),
+          actorUserId: actorId,
+          // Keyed on the BALLOT: the same proposal can miss quorum twice, and
+          // the proposer has to hear about the second one too.
+          dedupeKey: `bal:${b.id}:no-quorum:proposer`,
+        });
+        return out;
+      }
+
+      await getPool().query(
+        "UPDATE mechanics_proposals SET status = 'failed' WHERE id = ? AND status = 'onsite_vote'",
+        [p.id],
+      );
+      out.proposerTold = p.proposerUserId;
+      await notify({
+        userId: p.proposerUserId,
+        type: "governance",
+        title: `The village vote did not pass: ${p.title}`,
+        body: outcomeNote,
+        link: proposalLink(p.id),
+        actorUserId: actorId,
+        dedupeKey: `gmp:${p.id}:failed`,
+      });
+      return out;
+    },
+  };
+
+  /**
+   * Whether closing this ballot changes anything by itself.
+   *
+   * Read straight off the table above, so "this vote binds" and "this vote is
+   * conducted and then executed" are the same sentence and cannot drift.
+   * Whether a vote counts for something is the one question a governance
+   * surface must never guess at.
+   */
+  const ballotBinds = (subjectType: string): boolean =>
+    Object.prototype.hasOwnProperty.call(SUBJECT_CLOSERS, subjectType);
+
+  /**
+   * Objections standing between a ballot and passing, from the SAME function
+   * the close route evaluates with (`standingObjectionCount`: `open` plus
+   * `integrated`, because an upheld objection means the proposal must change).
+   *
+   * It is in the payload because a surface that counted for itself got it
+   * wrong: a consent ballot whose objection had been UPHELD showed "nothing
+   * stands in the way" while the close route was about to fail it. A number
+   * the server states is a number no client can disagree with.
+   */
+  const standingObjectionsOf = async (b: { id: string; method: string }): Promise<number> =>
+    b.method === "consent" ? await standingObjectionCount(getPool(), b.id) : 0;
+
   /** A ballot as the page reads it: tallies, bars, votes on the record. */
   async function serveBallot(b: any, viewerId?: string) {
     const pool = getPool();
     const tallies = await talliesFor(pool, b.id);
     const votes = await votesFor(pool, b.id);
     const objections = b.method === "consent" ? await objectionsFor(pool, b.id) : [];
+    const standingObjections = await standingObjectionsOf(b);
     // The frozen roll, so a page can answer "who may vote" and not only "who
     // did" (lane G2). Voted members are already in `votes`; these are the ones
     // who have not spoken, which is what turns a quorum bar from a percentage
@@ -21597,6 +21814,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
       id: b.id,
       subjectType: b.subjectType,
       subjectRef: b.subjectRef,
+      // Whether closing this changes anything by itself. False is a real
+      // decision that executes nothing, and a member is owed that fact
+      // BEFORE they vote, never after.
+      binding: ballotBinds(b.subjectType),
       title: b.title,
       docMarkdown: b.docMarkdown,
       method: b.method,
@@ -21620,6 +21841,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
       votes: await Promise.all(
         votes.map(async (v) => ({ name: await nameOf(v.userId), choice: v.choice, weight: v.weight, castAt: v.castAt })),
       ),
+      // The count the EVALUATOR uses, stated rather than left to be derived
+      // from the list beside it. Zero on every method but consent.
+      standingObjections,
       objections: await Promise.all(
         objections.map(async (o) => ({
           id: o.id,
@@ -21675,11 +21899,16 @@ Send an empty drafts array when you are still listening. A role payload is {name
         threshold,
       });
     }
-    const methodRaw = stringVar("governance.default_method");
-    if (methodRaw === "hypha") {
+    // One rule for which method a village-wide ballot conducts, held in
+    // shared/governanceEngine and read by every route that opens one. This
+    // route used to carry its own inline copy of the list beside an exported
+    // function nothing called, which is two copies of one rule waiting to
+    // disagree about what passing means.
+    const conducts = villageBallotMethod(stringVar("governance.default_method"));
+    if (conducts === "hypha") {
       return res.status(409).json({ error: "This village decides mechanics on Hypha. Use Take to Hypha, or change governance.default_method first" });
     }
-    const method = (["majority", "custom", "consensus", "consent"].includes(methodRaw) ? methodRaw : "custom") as BallotMethod;
+    const method: BallotMethod = conducts;
     const dials = dialsForMethod(method, {
       unityPct: Math.max(0, numberVar("governance.unity_pct")),
       quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
@@ -21787,12 +22016,22 @@ Send an empty drafts array when you are still listening. A role payload is {name
         )
       : [[]];
     const row = mine[0];
+    /*
+     * A CARD ON A CONSENT BALLOT SAYS "OBJECTIONS DECIDE THIS ONE" AND HAD NO
+     * WAY TO SAY WHETHER ONE STANDS. The list payload carried no objection
+     * information at all, so a member read the rule and was shown nothing
+     * about the only fact that settles the answer. One indexed COUNT, and
+     * only on consent ballots, buys the card the sentence it was missing.
+     */
+    const standingObjections = await standingObjectionsOf(b);
     return {
       id: b.id,
       subjectType: b.subjectType,
       subjectRef: b.subjectRef,
+      binding: ballotBinds(b.subjectType),
       title: b.title,
       method: b.method,
+      standingObjections,
       weightMode: b.weightMode,
       unityPct: b.unityPct,
       quorumPct: b.quorumPct,
@@ -21922,89 +22161,40 @@ Send an empty drafts array when you are still listening. A role payload is {name
         ballot: result.alreadyClosed ? await serveBallot(result.alreadyClosed) : undefined,
       });
     }
-    await addActivity("governance", `A village vote closed ${result.outcome === "passed" ? "passed" : "without passing"}: ${b.title}`, {
-      actorUserId: user.id,
-      entityType: "ballot",
-      entityRef: b.id,
-    });
-
-    // Outcome routing, mechanics only in this lane (GOV_DESIGN 2.6). Every
-    // step is a guarded update or an idempotent apply, so a crash between
-    // close and here heals on the admin apply path rather than corrupting.
-    let applied: string[] = [];
-    let held: string | null = null;
     /*
-     * Whoever has ALREADY been told about this outcome in words specific to
-     * their proposal, so the roll's line does not arrive underneath it saying
-     * the same thing in general terms. Two rows for one event, sitting next to
-     * each other in the same Decisions group, is exactly the noise that makes
-     * a bell not worth opening.
-     *
-     * Left null in the auto-apply-off branch on purpose: that branch tells the
-     * ADMINS and says nothing to the proposer, so the roll's line is the only
-     * word they would get and they should have it.
+     * The village's own record of the moment. Three outcomes and three
+     * sentences, because "without passing" said the same thing about a
+     * village that answered no and a village that barely turned up, and only
+     * one of those is a verdict on the question.
      */
-    let proposerTold: string | null = null;
-    if (b.subjectType === "mechanics") {
-      const p = await proposalById(getPool(), b.subjectRef);
-      if (p && p.status === "onsite_vote") {
-        if (result.outcome === "passed") {
-          await getPool().query(
-            "UPDATE mechanics_proposals SET status = 'passed_onsite' WHERE id = ? AND status = 'onsite_vote'",
-            [p.id],
-          );
-          const fresh = await proposalById(getPool(), p.id);
-          if (fresh) {
-            if (!boolVar("governance.auto_apply_enabled")) {
-              held = "auto-apply is off";
-              await notifyAdmins(
-                "governance",
-                `Passed on-site but auto-apply is off. Apply by hand: ${p.title}`,
-                `gmp:${p.id}:frozen`,
-              );
-            } else if (changeSetWaitsForCycleClose(fresh.changeSet)) {
-              held = "applies at next cycle close";
-              proposerTold = p.proposerUserId;
-              await notify({
-                userId: p.proposerUserId,
-                type: "governance",
-                title: `Passed. Your proposal applies at the next cycle close: ${p.title}`,
-                link: proposalLink(p.id),
-                dedupeKey: `gmp:${p.id}:verified-waiting`,
-              });
-            } else {
-              // applyMechanicsProposal tells the proposer "Your proposal was
-              // applied" on its own, which is why this counts as told.
-              proposerTold = p.proposerUserId;
-              const applyResult = await applyMechanicsProposal(fresh, user.id);
-              applied = applyResult.applied;
-              if (applyResult.failed.length > 0) {
-                await notifyAdmins(
-                  "governance",
-                  `A ballot-passed proposal could not fully apply: ${p.title} (${applyResult.failed.length} change(s) refused)`,
-                  `gmp:${p.id}:apply-failed`,
-                );
-              }
-            }
-          }
-        } else {
-          await getPool().query(
-            "UPDATE mechanics_proposals SET status = 'failed' WHERE id = ? AND status = 'onsite_vote'",
-            [p.id],
-          );
-          proposerTold = p.proposerUserId;
-          await notify({
-            userId: p.proposerUserId,
-            type: "governance",
-            title: `The village vote did not pass: ${p.title}`,
-            body: result.ballot.outcomeNote,
-            link: proposalLink(p.id),
-            actorUserId: user.id,
-            dedupeKey: `gmp:${p.id}:failed`,
-          });
-        }
-      }
-    }
+    await addActivity(
+      "governance",
+      result.outcome === "passed"
+        ? `A village vote carried: ${b.title}`
+        : result.outcome === "no_quorum"
+          ? `A village vote closed with too few voting to settle it: ${b.title}`
+          : `A village vote closed without passing: ${b.title}`,
+      { actorUserId: user.id, entityType: "ballot", entityRef: b.id },
+    );
+
+    /*
+     * Outcome routing, through the subject table (SUBJECT_CLOSERS above).
+     * Every step inside it is a guarded update or an idempotent apply, so a
+     * crash partway heals on the admin apply path instead of corrupting. A
+     * subject type with no entry lands here with nothing to route, which is
+     * how an advisory vote closes: outcome recorded, roll told, nothing done.
+     *
+     * `proposerTold` is whoever has ALREADY been told about this outcome in
+     * words specific to their subject, so the roll's line does not arrive
+     * underneath it saying the same thing in general terms. Two rows for one
+     * event, side by side in the same Decisions group, is exactly the noise
+     * that makes a bell not worth opening.
+     */
+    const routeClose = SUBJECT_CLOSERS[b.subjectType];
+    const routing: CloseRouting = routeClose
+      ? await routeClose(b, result.outcome, result.ballot.outcomeNote ?? "", user.id)
+      : { applied: [], held: null, proposerTold: null };
+    const { applied, held, proposerTold } = routing;
     /*
      * The roll hears the outcome, once, keyed on the ballot. Everyone who was
      * asked is told what the answer was, INCLUDING the people who did not
@@ -22019,15 +22209,48 @@ Send an empty drafts array when you are still listening. A role payload is {name
      * the same reason the open path is not: a village-wide roll is one insert
      * per member, and notifyRoll catches its own failures.
      */
+    const binds = ballotBinds(b.subjectType);
+    /*
+     * THE KIND CARRIES THE MEANING, and it has to, because the bell groups,
+     * batches and rations celebration by KIND and never by title.
+     *
+     * `ballot_failed` used to fire for a missed quorum, and that kind's blurb
+     * reads "The village said no." So fix 1's defect was living in the bell as
+     * well as in the subject's status column: the title said one thing and the
+     * line underneath it said the opposite.
+     *
+     * `ballot_carried` is one of the four kinds that earn a celebration. An
+     * advisory vote must never reach it. Somebody shown the moment reserved
+     * for a decision, who finds out later that the village changed nothing, is
+     * worse off than somebody who never voted.
+     *
+     * The ternary stays INLINE on the property. `shared/notificationKinds.test.ts`
+     * reads the produced types out of this source by brace-matching the object
+     * literal and splitting it on top-level commas, and it has no idea what a
+     * comment is: a block comment sitting inside these braces splits on its own
+     * prose and hides every literal in the value below it.
+     */
     void notifyRoll(b, {
-      type: result.outcome === "passed" ? "ballot_carried" : "ballot_failed",
-      title:
-        result.outcome === "passed"
-          ? `Carried: ${b.title}`
+      type: !binds
+        ? "ballot_advisory_closed"
+        : result.outcome === "passed"
+          ? "ballot_carried"
           : result.outcome === "no_quorum"
-            ? `Closed without quorum: ${b.title}`
-            : `Did not pass: ${b.title}`,
-      body: result.ballot.outcomeNote,
+            ? "ballot_no_quorum"
+            : "ballot_failed",
+      title:
+        result.outcome === "no_quorum"
+          ? `Closed without quorum: ${b.title}`
+          : result.outcome === "passed"
+            ? binds
+              ? `Carried: ${b.title}`
+              : `The village would have said yes: ${b.title}`
+            : binds
+              ? `Did not pass: ${b.title}`
+              : `The village would have said no: ${b.title}`,
+      body: binds
+        ? result.ballot.outcomeNote
+        : `${result.ballot.outcomeNote ?? ""}\n\nThis was an advisory vote. Nothing changed on its own.`.trim(),
       keySuffix: "outcome",
       except: [proposerTold],
     });
@@ -22035,6 +22258,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     res.json({
       success: true,
       outcome: result.outcome,
+      binding: binds,
       unity: result.unity,
       quorum: result.quorum,
       tallies: result.tallies,
@@ -22042,6 +22266,220 @@ Send an empty drafts array when you are still listening. A role payload is {name
       held,
       ballot: await serveBallot(result.ballot, user.id),
     });
+  });
+
+  /**
+   * Call a ballot off (0089 declared `status='withdrawn'`, the decision page
+   * renders it, and nothing ever wrote it: a member who opened a vote in
+   * error had no way out while the interface implied there was one).
+   *
+   * A withdrawal decides NOTHING. It never evaluates, never executes, and
+   * never touches an outcome, and it frees the subject for a fresh ballot
+   * straight away. What it costs is other people's cast votes, which is why
+   * the opener may only call off a ballot nobody has answered yet and a
+   * proposal.decide holder or an admin is needed once even one vote stands
+   * (`withdrawBallot`, server/lib/ballots.ts, holds that rule).
+   */
+  app.post("/api/governance/ballots/:id/withdraw", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const b = await ballotById(getPool(), req.params.id);
+    if (!b) return res.status(404).json({ error: "Not found" });
+    const ctx = await capabilityCtx(user);
+    const isFacilitator = hasCapability("proposal.decide", ctx);
+    if (user.id !== b.openedBy && !isFacilitator) {
+      return res.status(403).json({
+        error: "Calling off a vote is for whoever opened it, a proposal.decide holder, or an admin",
+      });
+    }
+    const result = await withdrawBallot(getPool(), {
+      ballotId: b.id,
+      withdrawnBy: user.id,
+      reason: String(req.body?.reason ?? req.body?.outcomeNote ?? ""),
+      withdrawerMayDiscardVotes: isFacilitator,
+    });
+    if (!result.ok) {
+      return res.status(result.alreadyClosed ? 409 : 400).json({
+        error: result.error,
+        ballot: result.alreadyClosed ? await serveBallot(result.alreadyClosed) : undefined,
+      });
+    }
+    /*
+     * The subject goes back exactly where it stood before the ballot opened,
+     * for the same reason a missed quorum sends it back: a vote that never
+     * happened is not an answer, and the author should not have to re-author
+     * anything. Guarded on `onsite_vote` so a proposal somebody else moved in
+     * the meantime is left alone.
+     */
+    if (b.subjectType === "mechanics") {
+      await getPool().query(
+        "UPDATE mechanics_proposals SET status = 'open' WHERE id = ? AND status = 'onsite_vote'",
+        [b.subjectRef],
+      );
+    }
+    await addActivity("governance", `A village vote was called off: ${b.title}`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: b.id,
+    });
+    // The roll was told this vote was open and is owed the fact that it is
+    // not. Not awaited, like every other roll-wide ring on this surface.
+    void notifyRoll(b, {
+      type: "ballot_withdrawn",
+      title: `Called off: ${b.title}`,
+      body: result.ballot.outcomeNote,
+      keySuffix: "withdrawn",
+      except: [user.id],
+    });
+    res.json({
+      success: true,
+      votesDiscarded: result.votesDiscarded,
+      ballot: await serveBallot(result.ballot, user.id),
+    });
+  });
+
+  /**
+   * AN ADVISORY VOTE: the village asks itself something and finds out what it
+   * would decide, on the real engine, without the answer doing anything.
+   *
+   * The point of it is confidence and not capability. A village that has not
+   * yet handed its ballots any binding power can still freeze a real
+   * electorate, weigh real votes by its real dials, watch its own quorum
+   * arrive or not arrive, and read the answer. Then it knows what taking the
+   * binding power would feel like before it takes it, which is the only part
+   * of the handover that cannot be built for anyone.
+   *
+   * It costs one route because the engine was already capable of it:
+   * `subject_type` carries no constraint, `openBallot` snapshots whatever it
+   * is handed, and a subject type absent from SUBJECT_CLOSERS closes cleanly
+   * and executes nothing. Everything about the conduct is identical to a
+   * binding ballot, deliberately: practising on a softer engine would teach a
+   * village something that is not true about its own.
+   *
+   * NOTHING HERE ARGUES WITH THE VILLAGE'S DIALS. The quorum it must reach is
+   * the quorum the village set, whatever that is, and the surface states it
+   * and stops.
+   */
+  app.post("/api/governance/advisory", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ctx = await capabilityCtx(user);
+    if (!hasCapability("proposal.open", ctx)) {
+      return res.status(403).json({ error: "Opening a vote for the whole village is for a proposal.open holder" });
+    }
+    const question = String(req.body?.question ?? req.body?.title ?? "").trim().slice(0, 200);
+    if (question.length < 10) {
+      return res.status(400).json({ error: "Ask the question in a full sentence. The whole village reads this one line" });
+    }
+    const detail = String(req.body?.detail ?? "").trim().slice(0, 20000);
+    /*
+     * Which KIND of decision the village is practising, when it is
+     * practising one. Any wizard type outside CONDUCTABLE_TYPES, or nothing
+     * at all for a question of the village's own. It is recorded in the
+     * document and nowhere else: an advisory vote has no subject row to point
+     * at, which is precisely why it is available before the executors land.
+     */
+    const aboutRaw = String(req.body?.about ?? "").trim();
+    const about = (ADVISORY_TYPES as readonly string[]).includes(aboutRaw) ? aboutRaw : "";
+
+    /*
+     * One at a time, per member. An advisory vote rings the whole frozen roll
+     * when it opens and again when it closes, and somebody with a list of
+     * questions would spend a village's whole attention before it answered
+     * the first one. This is a bell rule and not a judgment about how much a
+     * member should ask.
+     */
+    const [[mine]] = await getPool().query<any[]>(
+      "SELECT COUNT(*) AS n FROM ballots WHERE subject_type = 'advisory' AND status = 'open' AND opened_by = ?",
+      [user.id],
+    );
+    if (Number(mine?.n ?? 0) > 0) {
+      return res.status(409).json({ error: "You have an advisory vote still running. Let the village answer that one first" });
+    }
+
+    /*
+     * The village's own method, unless the caller names another. Practising
+     * with consent one moon and majority the next is most of what an advisory
+     * vote is FOR, so the choice is offered here where it is not offered on a
+     * binding ballot. A village that decides mechanics on Hypha still holds
+     * its advisory votes here, on its own dials, because an advisory vote has
+     * no chain leg to degrade to.
+     */
+    const asked = String(req.body?.method ?? "").trim();
+    const villageMethod = villageBallotMethod(stringVar("governance.default_method"));
+    const method: BallotMethod = (BALLOT_METHODS as readonly string[]).includes(asked)
+      ? (asked as BallotMethod)
+      : villageMethod === "hypha"
+        ? "custom"
+        : villageMethod;
+    const dials = dialsForMethod(method, {
+      unityPct: Math.max(0, numberVar("governance.unity_pct")),
+      quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
+    });
+    const snapshot = weightModeNow();
+    if (snapshot.mode === "token") {
+      const problem = weightTokenProblem(snapshot.token ?? "");
+      if (problem) return res.status(409).json({ error: problem });
+    }
+    const electorate = await buildElectorate();
+
+    /*
+     * The document, composed here so the non-binding fact is in the frozen
+     * snapshot itself and not only in a payload field a client may or may not
+     * render. Plain lines, because the decision page shows this text as it is
+     * written.
+     */
+    const doc = [
+      `# ${question}`,
+      "",
+      "An advisory vote. The village records what it would decide, and closing it changes nothing on its own.",
+      about ? `The kind of decision being practised: ${about.replace(/_/g, " ")}.` : "",
+      "",
+      `Asked by ${firstName(user.name)} on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+      detail,
+      "",
+    ]
+      .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+      .join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: "advisory",
+      subjectRef: `adv-${crypto.randomUUID().slice(0, 12)}`,
+      title: question,
+      docMarkdown: doc,
+      method,
+      weightMode: snapshot.mode,
+      weightToken: snapshot.token,
+      unityPct: dials.unityPct,
+      quorumPct: dials.quorumPct,
+      durationDays: Math.max(
+        1,
+        numberVar(method === "consent" ? "governance.consent_window_days" : "governance.vote_days"),
+      ),
+      openedBy: user.id,
+      electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    // Plainly what happened, and nothing about the village that asked. A
+    // village of two years sounding out a hard question is doing the same act
+    // as a village of two weeks finding its feet, and a feed line that called
+    // either one of them a beginner would be wrong about one of them.
+    await addActivity("governance", `An advisory vote opened: ${question}`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `An advisory vote is open: ${question}`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}. This one records what the village would decide, and it changes nothing on its own.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
   });
 
   /**
@@ -22206,6 +22644,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const ctx = await capabilityCtx(user);
     res.json({
       conductable: CONDUCTABLE_TYPES,
+      // The kinds this village can put to a NON-BINDING vote today: every
+      // type the executors have not reached yet. A type step reading both
+      // lists can offer a practice vote where it used to offer a locked card,
+      // which turns four dead ends into four ways to find out what the
+      // village already agrees about.
+      advisory: ADVISORY_TYPES,
+      mayOpenAdvisory: hasCapability("proposal.open", ctx),
       draftCap: DRAFT_CAP,
       supportThreshold: Math.max(0, numberVar("governance.proposal_support_threshold")),
       // What happens after publish, so the review step can say it plainly

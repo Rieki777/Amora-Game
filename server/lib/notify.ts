@@ -142,6 +142,9 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
     case "ballot_closing":
     case "ballot_carried":
     case "ballot_failed":
+    case "ballot_no_quorum":
+    case "ballot_withdrawn":
+    case "ballot_advisory_closed":
     case "ballot_expired":
       return p.governanceEmail;
     // A lunation's pool landed in somebody's wallet. Fixed daily for the
