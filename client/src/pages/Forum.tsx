@@ -15,6 +15,8 @@ import { Calendar, ExternalLink, Flag, Gavel, Lock, MapPin, MessageCircle, Pin, 
 import { Image } from "@/components/Image";
 import { ExampleChip, ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
 import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
+import { toast } from "sonner";
+import { REPORT_FAILED, reportFeedback } from "@/lib/reportFeedback";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -293,6 +295,43 @@ function ThreadView({ id }: { id: string }) {
       .finally(() => setBusy(false));
   };
 
+  /**
+   * Reporting does not go through act().
+   *
+   * act() prints "Done." into the shared status slot at the FOOT of the
+   * thread, which on a long thread is several screens from the flag the
+   * member pressed, and "Done." says nothing about what a report sets in
+   * motion. A report is the one action here where the whole value to the
+   * member is knowing it landed and that somebody will come back to them.
+   * The example refusal keeps its inline slot, since that one belongs beside
+   * the control that was refused.
+   */
+  const report = async () => {
+    if (busy) return;
+    setBusy(true);
+    setStatus("");
+    setRefusal(null);
+    try {
+      const r = await fetch(`/api/forum/threads/${id}/report`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ severity: "soft" }),
+      });
+      const { ok, data, refusal: refused } = await readRefusal(r);
+      if (refused) {
+        setRefusal({ where: "actions", message: refused });
+        return;
+      }
+      const said = reportFeedback({ ok, status: r.status, error: data?.message ?? data?.error ?? null });
+      if (said.tone === "success") toast.success(said.message);
+      else toast.error(said.message);
+    } catch {
+      toast.error(REPORT_FAILED);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const saveEdit = (kind: "threads" | "replies", postId: string) => {
     if (busy) return;
     setBusy(true);
@@ -470,7 +509,7 @@ function ThreadView({ id }: { id: string }) {
                 <button onClick={() => act(`/api/forum/threads/${id}/subscribe`, {})} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
                   <Bell className="w-3.5 h-3.5" /> Follow
                 </button>
-                <button onClick={() => act(`/api/forum/threads/${id}/report`, { severity: "soft" })} className="inline-flex items-center gap-1 text-muted-foreground hover:text-red-500">
+                <button onClick={() => void report()} className="inline-flex items-center gap-1 text-muted-foreground hover:text-red-500">
                   <Flag className="w-3.5 h-3.5" /> Report
                 </button>
               </div>

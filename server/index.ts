@@ -3115,11 +3115,34 @@ function notify(input: Parameters<typeof insertNotification>[1]) {
  * suffixed per recipient so "each admin hears it once" and "the event fires
  * once" stay separate concerns.
  */
-async function notifyAdmins(type: string, title: string, dedupeKey: string): Promise<void> {
+async function notifyAdmins(type: string, title: string, dedupeKey: string, link = "/admin"): Promise<void> {
   const admins = (await members.all()).filter((u: any) => u.role === "admin" || u.role === "founder");
   for (const a of admins) {
-    await notify({ userId: a.id, type, title, link: "/admin", dedupeKey: `${dedupeKey}:${a.id}` });
+    await notify({ userId: a.id, type, title, link, dedupeKey: `${dedupeKey}:${a.id}` });
   }
+}
+
+/**
+ * The last step of a report: the person who raised it hears that a human
+ * looked. Both report paths call this, so a member learns the same way
+ * wherever they flagged something.
+ *
+ * WHAT IT DELIBERATELY WITHHOLDS. It says the report was read and closed and
+ * stops there. "Resolved" and "dismissed" produce the same sentence on
+ * purpose: the difference between them is a judgement about another member,
+ * and telling a reporter which way it went hands them a verdict on somebody
+ * else. The key carries the report id, and the update that triggers it only
+ * ever fires on a row that was still open, so this arrives exactly once.
+ */
+function notifyReportReviewed(reporterId: string, reportId: string, where: "forum" | "message") {
+  return notify({
+    userId: reporterId,
+    type: "moderation",
+    title: "Your report has been reviewed",
+    body: "A steward read what you flagged and closed the report. What follows stays between them and the person involved.",
+    link: where === "forum" ? "/forum" : "/messages",
+    dedupeKey: `${where}-report:${reportId}:reviewed`,
+  });
 }
 
 /**
@@ -7604,6 +7627,23 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         }
       }
     }
+    /*
+     * The people who can act hear about it. Before this the queue existed and
+     * nothing rang, so time to first look was whatever a steward's browsing
+     * habits happened to be.
+     *
+     * The alert carries no content and no names: what was flagged, by whom,
+     * and what it said are all in the queue behind an admin gate, and a
+     * notification row is read on a lock screen. One stable key per
+     * (report, admin), and the reporter can only file once per post, so a
+     * retried insert is a no-op.
+     */
+    await notifyAdmins(
+      "moderation",
+      severity === "hard" ? "A serious report on a forum post is waiting for review" : "A forum post was flagged for review",
+      `forum-report:${thread.id}:${replyId}:${user.id}`,
+      "/admin?tab=forum-moderation",
+    );
     res.json({ success: true });
   });
 
@@ -7682,10 +7722,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
      */
     const [rows] = await getPool().query<any[]>(
       "SELECT r.id, r.thread_id, r.reply_id, r.severity, r.reason, r.status, r.created_at, " +
+        "r.resolved_at, ru.name AS resolved_by_name, " +
         "t.title AS thread_title, t.hidden_at, u.name AS reporter_name " +
         "FROM forum_reports r " +
         "LEFT JOIN forum_threads t ON t.id = r.thread_id " +
         "LEFT JOIN users u ON u.id = r.reporter_id " +
+        "LEFT JOIN users ru ON ru.id = r.resolved_by " +
         "WHERE r.status = ? ORDER BY r.created_at DESC LIMIT 200",
       [status],
     );
@@ -7702,6 +7744,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       alreadyHidden: !!r.hidden_at,
       reporter: r.reporter_name ?? "a member",
       at: new Date(r.created_at).toISOString(),
+      // Written since the queue shipped and read by nobody. Who closed a
+      // report and when is the only record of the decision, and a steward
+      // reopening a handled card needs to know whose call they are revisiting.
+      // The id can be null (a password-only admin has no member row), so the
+      // name falls back to a role.
+      resolvedBy: r.resolved_at ? (r.resolved_by_name ?? "a steward") : null,
+      resolvedAt: r.resolved_at ? new Date(r.resolved_at).toISOString() : null,
     })));
   });
 
@@ -7709,11 +7758,15 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const status = String(req.body?.status ?? "");
     if (!["resolved", "dismissed"].includes(status)) return res.status(400).json({ error: "status must be resolved or dismissed" });
+    // Read the reporter BEFORE the update, so the person who raised this can
+    // be told it was looked at.
+    const [[before]] = await getPool().query<any[]>("SELECT reporter_id FROM forum_reports WHERE id = ?", [req.params.id]);
     const [r]: any = await getPool().query(
       "UPDATE forum_reports SET status = ?, resolved_by = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'",
       [status, adminActor(req)?.id ?? null, req.params.id],
     );
     if (!r.affectedRows) return res.status(404).json({ error: "No open report with that id" });
+    if (before?.reporter_id) await notifyReportReviewed(String(before.reporter_id), req.params.id, "forum");
     res.json({ success: true });
   });
 
@@ -8176,6 +8229,22 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         entityRef: found.conversation.id,
         audience: "admin",
       });
+      /*
+       * And the people who can act are told. The Pulse event above is a trail
+       * an admin has to go looking for; this is the one that arrives.
+       *
+       * PRIVACY. The alert names nobody and quotes nothing. A report inside a
+       * private thread is the case where a notification preview on a locked
+       * phone would leak the most, so the line says a report is waiting and
+       * the queue behind the admin gate holds everything else. Only a FRESH
+       * report rings, so a member pressing the flag twice cannot ring twice.
+       */
+      await notifyAdmins(
+        "moderation",
+        "A reported message is waiting for review",
+        `message-report:${String(req.params.messageId)}:${user.id}`,
+        "/admin?tab=message-reports",
+      );
     }
     res.json({ success: true, fresh: outcome.fresh });
   });
@@ -8192,11 +8261,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       : "open";
     const [rows] = await getPool().query<any[]>(
       "SELECT r.id, r.conversation_id, r.message_id, r.reporter_id, r.reason, r.status, r.created_at, " +
+        "r.resolved_at, ru.name AS resolved_by_name, " +
         "m.body, m.author_id, m.deleted_at, c.kind, c.name, u.name AS reporter_name " +
         "FROM message_reports r " +
         "LEFT JOIN messages m ON m.id = r.message_id " +
         "LEFT JOIN conversations c ON c.id = r.conversation_id " +
         "LEFT JOIN users u ON u.id = r.reporter_id " +
+        "LEFT JOIN users ru ON ru.id = r.resolved_by " +
         "WHERE r.status = ? ORDER BY r.created_at DESC LIMIT 100",
       [status],
     );
@@ -8214,6 +8285,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         reason: r.reason,
         status: r.status,
         at: new Date(r.created_at).toISOString(),
+        // The steward who closed it, and when. Written since the queue
+        // shipped and read by nobody until now. A password-only admin leaves
+        // a null id, so the name falls back to a role.
+        resolvedBy: r.resolved_at ? (r.resolved_by_name ?? "a steward") : null,
+        resolvedAt: r.resolved_at ? new Date(r.resolved_at).toISOString() : null,
       })),
     );
   });
@@ -8224,11 +8300,15 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (!["resolved", "dismissed"].includes(status)) {
       return res.status(400).json({ error: "status must be resolved or dismissed" });
     }
+    // Read the reporter BEFORE the update, so the person who raised this can
+    // be told it was looked at.
+    const [[before]] = await getPool().query<any[]>("SELECT reporter_id FROM message_reports WHERE id = ?", [req.params.id]);
     const [r]: any = await getPool().query(
       "UPDATE message_reports SET status = ?, resolved_by = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'",
       [status, adminActor(req)?.id ?? null, req.params.id],
     );
     if (!r.affectedRows) return res.status(404).json({ error: "No open report with that id" });
+    if (before?.reporter_id) await notifyReportReviewed(String(before.reporter_id), req.params.id, "message");
     res.json({ success: true });
   });
 
@@ -8595,6 +8675,19 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       entityRef: role.id,
       audience: "admin",
     });
+    /*
+     * SWEEP (the incomplete loop). A raised hand wrote a row into the
+     * stewards' inbox and an admin-audience Pulse entry, and rang nobody. A
+     * member offering to hold a seat then waits on somebody opening a panel.
+     * The submission id is the key, so each application is its own summons
+     * and a retried POST that stored nothing rings nothing.
+     */
+    await notifyAdmins(
+      "submission",
+      `${firstName(user.name)} raised a hand for ${role.name}`,
+      `role-application:${entry.id}`,
+      "/admin?tab=submissions",
+    );
     res.json({ success: true });
   });
 
@@ -13667,6 +13760,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
     }
     const r = await settleLoan(getPool(), { loanId: loan.id, outcome: "cancelled" });
     if (!r.ok) return res.status(500).json({ error: r.error });
+    // SWEEP. Reserve rings the stewards and return rings the stewards; cancel
+    // was the one transition in the family that did not, so an item quietly
+    // came free and the shelf list was the only place that knew.
+    await notifyAdmins("library", `${user.name ?? "A member"} cancelled a reservation, the item is free again`, `loan:${loan.id}:cancelled`);
     res.json({ success: true, released: r.released });
   });
 
@@ -13857,8 +13954,20 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.post("/api/admin/library/loans/:id/pickup", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    // Read the borrower before the transition: this is the moment a due date
+    // comes into existence, and the person who owes it back was never told.
+    const loan = await libraryLoanById(getPool(), req.params.id);
     const r = await markPickedUp(getPool(), req.params.id, adminActor(req)?.id ?? null);
     if (!r.ok) return res.status(409).json({ error: r.error });
+    if (loan) {
+      await notify({
+        userId: loan.userId,
+        type: "library",
+        title: `The loan is open, and it is due back on ${r.dueOn}`,
+        link: "/library",
+        dedupeKey: `loan:${loan.id}:picked-up`,
+      });
+    }
     res.json({ success: true, dueOn: r.dueOn });
   });
 

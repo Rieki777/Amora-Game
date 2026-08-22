@@ -453,8 +453,33 @@ describe.skipIf(!DB_CONFIGURED)("messaging routes: the gate and the 404 posture"
     expect(report.authorId).toBe(benId);
     expect(Object.keys(report).sort()).toEqual([
       "at", "authorId", "body", "conversationId", "conversationKind", "conversationName",
-      "deleted", "id", "messageId", "reason", "reporter", "status",
+      "deleted", "id", "messageId", "reason", "reporter", "resolvedAt", "resolvedBy", "status",
     ]);
+    // Open, so nobody has closed it and the queue says so.
+    expect(report.resolvedBy).toBeNull();
+    expect(report.resolvedAt).toBeNull();
+
+    /*
+     * THE REPORT RANG SOMEBODY. This is the half that was missing: the row
+     * landed in the queue and no human was told it existed, so time to first
+     * look was however often an admin happened to open the panel.
+     */
+    const adminInbox = await call("GET", "/api/notifications");
+    const alerts = (adminInbox.json?.notifications ?? []).filter((n: any) => n.type === "moderation");
+    expect(alerts, "the admin hears once, however many times the flag was pressed").toHaveLength(1);
+    expect(alerts[0].link, "and it lands on the queue, not the admin front door").toBe("/admin?tab=message-reports");
+    /*
+     * THE PRIVACY LINE. A notification is read on a lock screen, so the alert
+     * carries the fact of a report and nothing else: not the reported words,
+     * not the author, not the reporter, not the thread. Asserted against the
+     * WHOLE row, so a later "helpful" body or actor stamp fails here.
+     */
+    const said = `${alerts[0].title} ${alerts[0].body ?? ""}`;
+    for (const leak of ["you should not be here", "This has happened three times now.", "Ana", "Ruiz", "Ben", "Cole", id]) {
+      expect(said, `the alert must not carry ${leak}`).not.toContain(leak);
+    }
+    expect(alerts[0].body, "no body at all is the safest body").toBeNull();
+    expect(alerts[0].actorUserId, "and the reporter is not stamped on it either").toBeNull();
     // A direct thread has no name to carry, which is what keeps the queue
     // from printing the two people in it.
     expect(report.conversationName).toBeNull();
@@ -470,7 +495,41 @@ describe.skipIf(!DB_CONFIGURED)("messaging routes: the gate and the 404 posture"
     const open = await call("GET", "/api/admin/messages/reports?status=open");
     expect((open.json ?? []).some((r: any) => r.id === report.id)).toBe(false);
     const resolved = await call("GET", "/api/admin/messages/reports?status=resolved");
-    expect((resolved.json ?? []).some((r: any) => r.id === report.id)).toBe(true);
+    const closed = (resolved.json ?? []).find((r: any) => r.id === report.id);
+    expect(closed, "a handled report moves tabs, it does not vanish").toBeTruthy();
+    // Written on every close since the queue shipped and read by nobody. The
+    // founder resolved this one, so the queue can name them.
+    expect(closed.resolvedBy).toBe("Messaging Founder");
+    expect(Date.parse(closed.resolvedAt), "and when").toBeGreaterThan(0);
+
+    /*
+     * AND THE LOOP CLOSES WHERE IT STARTED. Ana reported; Ana is told it was
+     * reviewed. Before this the resolve route wrote three columns and
+     * answered `{ success: true }` to the moderator alone.
+     */
+    const anaInbox = await call("GET", "/api/notifications", undefined, anaToken);
+    const backToAna = (anaInbox.json?.notifications ?? []).filter((n: any) => n.type === "moderation");
+    expect(backToAna, "the reporter hears exactly once").toHaveLength(1);
+    expect(backToAna[0].title).toBe("Your report has been reviewed");
+    expect(backToAna[0].link).toBe("/messages");
+    /*
+     * WHAT IT REFUSES TO TELL HER. A reporter learns that a human looked and
+     * closed it. Whether the other member was warned, muted or found to have
+     * done nothing wrong is a judgement about somebody else, and handing it
+     * to the reporter turns a moderation queue into a verdict feed. The word
+     * "dismissed" is as much a disclosure as "removed" is.
+     */
+    const toHer = `${backToAna[0].title} ${backToAna[0].body ?? ""}`.toLowerCase();
+    for (const verdict of ["dismissed", "resolved", "removed", "warned", "ben", "cole"]) {
+      expect(toHer, `the reporter must not be told "${verdict}"`).not.toContain(verdict);
+    }
+
+    // Ben, who wrote the reported line, is told nothing by this route at all.
+    const benInbox = await call("GET", "/api/notifications", undefined, benToken);
+    expect(
+      (benInbox.json?.notifications ?? []).filter((n: any) => n.type === "moderation"),
+      "being reported is not a notification the platform sends",
+    ).toHaveLength(0);
     // An unknown status word reads as `open` instead of leaking another tab.
     const junk = await call("GET", "/api/admin/messages/reports?status=everything");
     expect((junk.json ?? []).some((r: any) => r.id === report.id)).toBe(false);

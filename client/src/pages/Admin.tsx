@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, MessageSquare, Moon, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen, ToggleLeft } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import {
   canAct, DISCLOSURE_NOTE, emptyQueueLine, reportedLine, reportPlace,
   type MessageReport, type ReportStatus,
 } from "@/lib/messageReports";
+import { resolutionLine } from "@/lib/reportFeedback";
 import { ALL_CAPABILITIES } from "@shared/capabilities";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
@@ -39,6 +40,24 @@ const FORM_TYPES = ["work-with-us", "quest-proposal", "visit-inquiry", "membersh
 
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
   return { Authorization: `Bearer ${password}`, ...extra };
+}
+
+/**
+ * One locale decision for the moderation queues, so a card and the line under
+ * it never disagree about how a date looks.
+ */
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString();
+}
+
+/**
+ * Who closed a report, and when. Both moderation queues render it, so the
+ * forum and the message queue stay one pattern for a moderator.
+ */
+function ResolutionNote({ report }: { report: { status: string; resolvedBy?: string | null; resolvedAt?: string | null } }) {
+  const line = resolutionLine(report, shortDate);
+  if (!line) return null;
+  return <p className="text-xs text-gray-500 mt-2">{line}</p>;
 }
 
 /**
@@ -165,6 +184,9 @@ function ForumModerationTab({ password }: { password: string }) {
                   {r.replyId ? " · on a reply" : ""}
                 </p>
                 {r.reason && <p className="text-sm text-gray-600 mt-2 break-words">"{r.reason}"</p>}
+                {/* Who closed it and when. Written on every close since the
+                    queue shipped, and read by nobody until now. */}
+                <ResolutionNote report={r} />
               </div>
               {r.alreadyHidden && (
                 <span className="text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1 shrink-0">
@@ -352,6 +374,8 @@ function MessageReportsTab({ password }: { password: string }) {
                   Why they flagged it: "{r.reason}"
                 </p>
               )}
+
+              <ResolutionNote report={r} />
 
               {canAct(r) && (
                 <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-50">

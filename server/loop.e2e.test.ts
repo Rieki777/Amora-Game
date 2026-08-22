@@ -1512,6 +1512,13 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(hand.status).toBe(200);
     const subs = await api("GET", "/api/admin/submissions?type=role-application", undefined, founderToken);
     expect(subs.json.some((s: any) => s.data?.roleId === seatId)).toBe(true);
+    // SWEEP: and it RINGS. The row and an admin-audience Pulse entry were all
+    // it wrote, so a member offering to hold a seat waited on somebody
+    // opening a panel.
+    const handBell = await api("GET", "/api/notifications", undefined, founderToken);
+    const handAlert = (handBell.json.notifications ?? []).find((n: any) => n.type === "submission");
+    expect(handAlert, "a raised hand reaches the people who seat roles").toBeTruthy();
+    expect(handAlert.link).toBe("/admin?tab=submissions");
 
     // The contact relay: opt-out is server-enforced, then a real relay lands
     // a notification (email is fire-and-forget without a key).
@@ -2304,12 +2311,27 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const cancelled = await api("POST", `/api/library/loans/${reserved.json.loanId}/cancel`, {}, peerToken);
     expect(cancelled.status).toBe(200);
     expect(cancelled.json.released).toBe(25);
+    // SWEEP: reserve rang the stewards and return rang the stewards; cancel
+    // was the one transition in the family that told nobody the shelf had
+    // changed.
+    const libBell = await api("GET", "/api/notifications", undefined, founderToken);
+    expect(
+      (libBell.json.notifications ?? []).some((n: any) => n.type === "library" && String(n.title).includes("cancelled a reservation")),
+      "a cancelled reservation reaches the stewards",
+    ).toBe(true);
     expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(300);
 
     // Full circle: reserve → pickup → return → settle closed with DEFAULT
     // fees: computed wear = 5% of 100 = 5, zero damage, 20 released.
     const loan2 = await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, peerToken);
-    expect((await api("POST", `/api/admin/library/loans/${loan2.json.loanId}/pickup`, {}, founderToken)).status).toBe(200);
+    const pickedUp = await api("POST", `/api/admin/library/loans/${loan2.json.loanId}/pickup`, {}, founderToken);
+    expect(pickedUp.status).toBe(200);
+    // SWEEP: pickup is the moment a due date comes into existence, and the
+    // person who owes the item back was the one party not told.
+    const dueBell = await api("GET", "/api/notifications", undefined, peerToken);
+    const dueNote = (dueBell.json.notifications ?? []).find((n: any) => n.type === "library" && String(n.title).includes("due back"));
+    expect(dueNote, "the borrower learns the date they are held to").toBeTruthy();
+    expect(String(dueNote.title)).toContain(String(pickedUp.json.dueOn));
     expect((await api("POST", `/api/library/loans/${loan2.json.loanId}/return`, {}, peerToken)).status).toBe(200);
     const settled = await api("POST", `/api/admin/library/loans/${loan2.json.loanId}/settle`, { outcome: "closed" }, founderToken);
     expect(settled.status).toBe(200);
@@ -4020,7 +4042,52 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       expect(r).toHaveProperty("threadTitle");
       expect(r).toHaveProperty("reporter");
       expect(r).toHaveProperty("alreadyHidden");
+      // Written on every close since this shipped and read by nobody. Open
+      // rows carry the pair as nulls, so the queue can say "nobody yet".
+      expect(r.resolvedBy).toBeNull();
+      expect(r.resolvedAt).toBeNull();
     }
+
+    // ── And the reporting loop closes at both ends. ──
+    //
+    // The queue existed; nothing rang, and nothing came back. A report sat
+    // until an admin happened to open this panel, and the member who filed it
+    // never learned whether anyone had looked.
+    const modBell = await api("GET", "/api/notifications", undefined, founderToken);
+    const modAlerts = (modBell.json.notifications ?? []).filter((n: any) => n.type === "moderation");
+    expect(modAlerts.length, "a report rings the people who can act").toBeGreaterThan(0);
+    expect(modAlerts.every((n: any) => n.link === "/admin?tab=forum-moderation")).toBe(true);
+    // The alert is a summons, and the content lives behind the admin gate it
+    // points at. A notification is read on a lock screen.
+    expect(modAlerts.every((n: any) => n.body === null), "no content rides along").toBe(true);
+    // Nor the title of anything that was reported: the queue holds that, and
+    // it is checked against the real titles rather than a guessed word.
+    for (const r of reports.json) {
+      const title = String(r.threadTitle ?? "");
+      if (title.length < 4) continue;
+      expect(modAlerts.every((n: any) => !String(n.title).includes(title)), `the alert must not name "${title}"`).toBe(true);
+    }
+
+    const peerReport = reports.json.find((r: any) => r.reporter === peer.name);
+    expect(peerReport, "the peer's soft report is in the open queue").toBeTruthy();
+    expect((await api("PUT", `/api/admin/forum/reports/${peerReport.id}`, { status: "resolved" }, founderToken)).status).toBe(200);
+    const closedQueue = await api("GET", "/api/admin/forum/reports?status=resolved", undefined, founderToken);
+    const closed = (closedQueue.json ?? []).find((r: any) => r.id === peerReport.id);
+    expect(closed.resolvedBy, "the queue now says who closed it").toBe(founder.name);
+    expect(Date.parse(closed.resolvedAt), "and when").toBeGreaterThan(0);
+
+    const peerBellAfter = await api("GET", "/api/notifications", undefined, peerToken);
+    const backToPeer = (peerBellAfter.json.notifications ?? []).filter((n: any) => n.type === "moderation");
+    expect(backToPeer, "the member who reported is told a human looked").toHaveLength(1);
+    expect(backToPeer[0].title).toBe("Your report has been reviewed");
+    expect(backToPeer[0].link).toBe("/forum");
+    // Reviewed and closed, and no further. Which way it went is a judgement
+    // about another member, and the same sentence ships for both words.
+    const toPeer = `${backToPeer[0].title} ${backToPeer[0].body ?? ""}`.toLowerCase();
+    for (const verdict of ["dismissed", "resolved", "hidden", "removed", "warned"]) {
+      expect(toPeer, `the reporter must not be told "${verdict}"`).not.toContain(verdict);
+    }
+
     await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
     await api("PUT", "/api/admin/modules/feed/lifecycle", { lifecycle: "off" }, founderToken);
   });
