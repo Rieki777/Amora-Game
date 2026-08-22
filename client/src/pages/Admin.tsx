@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, MessageSquare, Moon, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen, ToggleLeft } from "lucide-react";
+import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, MessageSquare, Moon, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen, ToggleLeft, Scale } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { linesToList, listToLines } from "@/lib/questBoard";
@@ -36,6 +36,8 @@ import MapVocabularyPanel from "@/components/admin/MapVocabularyPanel";
 import EventsAdminPanel from "@/components/EventsAdminPanel";
 import ResourcesAdminPanel from "@/components/power/ResourcesAdminPanel";
 import { CrowdpoolAdminTab, ForumCategoriesEditor, ToolsCategoriesEditor } from "@/components/admin/ModuleConfigPanels";
+import VotingWeightsPanel from "@/components/admin/VotingWeightsPanel";
+import RelationsEditor from "@/components/admin/RelationsEditor";
 import HousingAdminPanel from "@/components/HousingAdminPanel";
 import WalkEditorPanel from "@/components/WalkEditorPanel";
 import { ExampleChip, ExamplesBanner, forgetExamplesCache, RETIRES_WITH } from "@/components/ExamplesBanner";
@@ -492,6 +494,13 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         // The sociocratic org chart. Distinct from "Game Roles" above, which
         // edits permission groups; this is the seats people actually hold.
         { key: "org-chart", label: "Org Chart", icon: Users2 },
+        // The allocation table `governance.weight_mode` promises by name: its
+        // Custom option says weight comes from "the allocation table you keep
+        // under Voting weights", and until this tab the table's only writers
+        // were two routes nothing in the browser called. It rides
+        // TAB_MODULE's governance mapping, so a village with the engine off
+        // never sees it.
+        { key: "governance-weights", label: "Voting Weights", icon: Scale },
         // Season patterns and the retrospective. Separate from the Season
         // tab's dates: this is what a season CARRIES, not when it runs.
         { key: "seasons-patterns", label: "Season Shapes", icon: Calendar },
@@ -4849,6 +4858,18 @@ function OrgChartTab({ password }: { password: string }) {
             </p>
           </div>
         )}
+
+        {/*
+          THE LINKS BETWEEN THE NODES ABOVE, and the second door this lane owed.
+
+          `POST /api/admin/org/relations` and its DELETE sibling had no caller
+          anywhere in the browser while `RelationLines.tsx` drew the rows on
+          the Power Map, so a live renderer could only ever draw nothing. It
+          sits here because the circles and seats it joins are the ones a
+          person has just been editing, and it reads them from the same `/api/org`
+          payload this tab already holds instead of fetching them twice.
+        */}
+        <RelationsEditor password={password} circles={circles} roles={roles} />
       </div>
     </div>
   );
@@ -10184,6 +10205,7 @@ export default function Admin() {
           {activeTab === "modules" && <ModulesTab password={password} />}
           {activeTab === "housing" && <HousingAdminPanel password={password} />}
           {activeTab === "org-chart" && <OrgChartTab password={password} />}
+          {activeTab === "governance-weights" && <VotingWeightsPanel password={password} onOpenTab={setActiveTab} />}
           {activeTab === "brain" && <VillageBrainTab password={password} />}
           {activeTab === "drafts" && <DraftQueueTab password={password} />}
           {activeTab === "seasons-patterns" && <SeasonPatternsTab password={password} />}

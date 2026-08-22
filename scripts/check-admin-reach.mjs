@@ -86,22 +86,28 @@ const STANDING_ORPHANS = {
    * further down, which offered a founder no way to remove a pulse line that
    * did not start with curl.
    */
-  "PUT /api/admin/governance/weights/:userId":
-    "Voting weight has no admin surface, and the variable's own description promises one: `governance.weight_mode` " +
-    "offers Custom and says weight comes from 'the allocation table you keep under Voting weights'. Under custom " +
-    "mode an absent row weighs ZERO, so these two routes are the only thing standing between a village that picks " +
-    "Custom and a ballot no quorum can ever carry. This is a surface missing its screen. It is not a deletion.",
-  "POST /api/admin/governance/weights/bulk": "The bulk half of the same missing screen. See above.",
+  /*
+   * `PUT /api/admin/governance/weights/:userId` and
+   * `POST /api/admin/governance/weights/bulk` came off this list by WIRING.
+   * The screen the variable promised by name is Admin, The Game, Voting
+   * Weights (`client/src/components/admin/VotingWeightsPanel.tsx`): the
+   * member table, the bulk pass, the required reason, the standing count of
+   * members holding no weight, and the append-only trail. `openBallot`'s
+   * refusal already said "Allocate weight before opening a ballot"; there is
+   * now somewhere to do it.
+   */
   "POST /api/admin/org/drafts": "The assistant's org-draft flow has no admin surface.",
   "POST /api/admin/org/drafts/:id/changes": "The assistant's org-draft flow has no admin surface.",
   "PUT /api/admin/org/drafts/:id/vision": "The assistant's org-draft flow has no admin surface.",
   "POST /api/admin/org/drafts/:id/publish": "The assistant's org-draft flow has no admin surface.",
   "POST /api/admin/org/drafts/:id/revert": "The assistant's org-draft flow has no admin surface.",
-  "POST /api/admin/org/relations":
-    "Circle-to-circle relations are stored and DRAWN: `GET /api/map` serves them, `RelationLines.tsx` draws them as " +
-    "chords on the Power Map, and no form writes them. Deleting this would leave a live renderer that can only ever " +
-    "draw nothing, which is the VisionLayer shape. A door is owed, not a deletion.",
-  "DELETE /api/admin/org/relations/:id": "Same drawn feature, and this is the only way to undo a link. Also a door owed.",
+  /*
+   * `POST /api/admin/org/relations` and `DELETE /api/admin/org/relations/:id`
+   * came off this list by WIRING too. The door the entries called owed is
+   * `client/src/components/admin/RelationsEditor.tsx`, mounted at the foot of
+   * the Org Chart tab beside the circles and seats a link joins, so
+   * `RelationLines.tsx` now draws rows a founder wrote.
+   */
   "POST /api/admin/exchange/reconcile":
     "An operator command for a stuck settlement. The scheduler runs it hourly and this is the manual override, so it may well belong in ALLOWED. Decide, then move it.",
   "POST /api/admin/library/sweep": "Scheduler-owned, with a by-hand override. Same decision as the reconcile above.",

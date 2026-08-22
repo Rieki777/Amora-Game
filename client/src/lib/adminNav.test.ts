@@ -108,7 +108,7 @@ describe("adminNav", () => {
     expect(out[0].items.map((i) => i.key)).toEqual(["cycles"]);
   });
 
-  it("the mapping is exactly the ruled fifteen", () => {
+  it("the mapping is exactly the ruled sixteen", () => {
     expect(TAB_MODULE).toEqual({
       "circles-map": "map",
       "events-admin": "events",
@@ -129,6 +129,10 @@ describe("adminNav", () => {
       "message-reports": "messaging",
       "resources-admin": "resources",
       "intents-admin": "introductions",
+      // The voting-weight allocation table. Every weight route sits behind
+      // app.use("/api/admin/governance", requireModule("governance")), so the
+      // tab hides with the engine instead of offering a form that 404s.
+      "governance-weights": "governance",
     });
   });
 
