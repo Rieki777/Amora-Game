@@ -62,6 +62,7 @@ export default function Layout({ children }: LayoutProps) {
   const staysModule = moduleOn("stays");
   const toolsModule = moduleOn("tools");
   const healthModule = moduleOn("health");
+  const mapModule = moduleOn("map");
 
   // A click anywhere else closes the account menu. Without this the only way
   // out was to click the trigger again, and the menu covered the page beneath.
@@ -562,6 +563,13 @@ export default function Layout({ children }: LayoutProps) {
                   <li>
                     <Link href="/tools" className="text-white hover:underline transition-colors text-sm block py-1.5">
                       Village Tools
+                    </Link>
+                  </li>
+                )}
+                {mapModule && (
+                  <li>
+                    <Link href="/places" className="text-white hover:underline transition-colors text-sm block py-1.5">
+                      Places, Photographed
                     </Link>
                   </li>
                 )}

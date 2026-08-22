@@ -445,3 +445,59 @@ markdown adds "Decides by: consent."
 (assign / skip / open call), then every circle without a method, then the
 shape, ending at "publish structure to the network?". Assignment posts to the
 existing seating endpoint, so it stays a dated row.
+
+## Photographs of a place (round 5, 0093)
+
+Rye: "sprite cards to accept photos but we should also make this like a google
+maps listing where the community can upload photos". A place stops being a
+drawing with facts attached and becomes a place people have photographed.
+
+**Why it earns its schema.** Every other number on this map is something a
+person could have typed from anywhere. A photograph is somebody standing on
+the land with a camera, so attribution and the date it was taken are columns,
+not decoration.
+
+**Tables** (`drizzle/0093_place_photos.sql`): `place_photos` keyed on the map's
+own `structure_key` (0062 doctrine, no FK: structures live inside the published
+scene JSON, so there is nothing to reference), and `place_photo_reports` with
+two kinds, `concern` and `subject`.
+
+**Two capabilities** (`shared/capabilities.ts`): `map.photograph` unlocks at
+the `member` rung, so a warning badge's deny suspends posting pictures;
+`map.curatePhotos` has no rung at all and arrives by role, badge or admin,
+because deciding what stays in the village's record is an appointment. The
+curator's queue lives at `/api/places/reports` and NOT under `/api/admin`,
+which is the R54 claim: a curator who is not an admin can work it, and the
+e2e suite proves it with a badge-granted curator holding nothing else.
+
+**Five dials** (`shared/gameVariables.ts`, all read):
+`map.photo_max_mb`, `map.photos_per_place`, `map.photos_per_member_daily`,
+`map.photo_report_hide_threshold`, `map.photo_tombstone_days`.
+
+**The subject's own right.** A person may ask for a photograph of themselves to
+come down, and it needs no capability, waits for no threshold and is not
+governed by a dial a village can switch off. Filing hides the picture in the
+same call AND suppresses the file, so `/api/uploads/<name>` stops answering:
+a hidden row whose bytes stay fetchable by anyone holding the address is the
+whole of what the person was asking to stop. A curator then restores it or
+takes it down for good.
+
+**Location data.** `server/lib/placePhotos.ts` re-encodes through sharp and
+then READS THE ENCODED BYTES BACK, throwing before anything reaches the volume
+if any metadata survived. `server/lib/placePhotos.test.ts` builds a JPEG with a
+real GPS IFD, proves the fixture carries it, and asserts the output does not;
+`server/placePhotos.routes.e2e.test.ts` repeats the proof against the file the
+running server wrote.
+
+**Volume.** Photographs are stamped `place-<stamp>.webp` with a
+`.thumb.webp` beside them, so `/health` reports `uploads.photoFiles` and
+`uploads.photoMb` beside the totals from the same directory walk. The daily
+retention sweep forgets a takedown's tombstone after
+`map.photo_tombstone_days` and unlinks any file the takedown failed to remove,
+skipping every filename a live photograph still points at.
+
+**Surfaces.** `/places` (the shelf, plus the curator's queue) and
+`/places/:key` (one place), both rendering
+`client/src/components/places/PlaceGallery.tsx`. The Living Map's place panel
+mounts that same component in a Photos tab; see the round 5 handoff note for
+whether that tab has landed.

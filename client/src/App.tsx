@@ -134,6 +134,9 @@ const PAGE_TITLES: Record<string, string> = {
   // page, so the pair costs two lines and no route can fall through them.
   "/campaigns": "Our raisings",
   "/campaign": "Crowdpool",
+  // One line covers the shelf and every place, by the same longest-prefix
+  // rule the module library uses above.
+  "/places": "Places, photographed",
   "/admin": "Village settings",
 };
 
@@ -214,6 +217,8 @@ const ResidentJourney = lazyPage(() => import("./pages/ResidentJourney"));
 const ProsperityJourney = lazyPage(() => import("./pages/ProsperityJourney"));
 const LoveLetter = lazyPage(() => import("./pages/LoveLetter"));
 const Circles = lazyPage(() => import("./pages/Circles"));
+const Places = lazyPage(() => import("./pages/Places"));
+const PlacePhotos = lazyPage(() => import("./pages/PlacePhotos"));
 const Quests = lazyPage(() => import("./pages/Quests"));
 const QuestDetail = lazyPage(() => import("./pages/QuestDetail"));
 const ProposeQuest = lazyPage(() => import("./pages/ProposeQuest"));
@@ -328,6 +333,12 @@ function Router() {
           relay and raise-your-hand, which read live data behind the
           capability gate and have no equivalent in the artifact. */}
       <Route path="/map" component={LivingMap} />
+      {/* The photographs of the land, beside the map rather than inside it.
+          The list route is declared before the detail route for the reason
+          /decisions gives: wouter takes the first match, and a :key above the
+          shelf would swallow it. */}
+      <Route path="/places" component={Places} />
+      <Route path="/places/:key" component={PlacePhotos} />
       <Route path="/map/circles" component={VillageMap} />
       <Route path="/events" component={Events} />
       <Route path="/first-walk" component={FirstWalk} />

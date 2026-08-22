@@ -33,6 +33,27 @@ import {
 import { isPromiseKind, type PromiseReason, type PromiseResult } from "../shared/mapPromise";
 import { goingCountFor, missingReason, rowByMapKey } from "./lib/mapPromise";
 import {
+  ALT_TEXT_MAX,
+  CAPTION_MAX,
+  REASON_MAX,
+  altTextProblem,
+  captionProblem,
+  isPhotoMimeType,
+  orderPhotos,
+  remainingForPlace,
+  takenOnProblem,
+} from "../shared/placePhotos";
+import {
+  LocationDataSurvived,
+  isPhotoFile,
+  isSuppressedUpload,
+  loadSuppressed,
+  suppressUploads,
+  unsuppressUploads,
+  writePhoto,
+} from "./lib/placePhotos";
+import * as placePhotosRepo from "./repos/placePhotos";
+import {
   SCENE_BODY_LIMIT,
   changeSummary,
   sceneProblem,
@@ -3237,13 +3258,13 @@ async function questConsentRecipients(): Promise<string[]> {
  * else. The key carries the report id, and the update that triggers it only
  * ever fires on a row that was still open, so this arrives exactly once.
  */
-function notifyReportReviewed(reporterId: string, reportId: string, where: "forum" | "message") {
+function notifyReportReviewed(reporterId: string, reportId: string, where: "forum" | "message" | "place") {
   return notify({
     userId: reporterId,
     type: "moderation",
     title: "Your report has been reviewed",
     body: "A steward read what you flagged and closed the report. What follows stays between them and the person involved.",
-    link: where === "forum" ? "/forum" : "/messages",
+    link: where === "forum" ? "/forum" : where === "place" ? "/places" : "/messages",
     dedupeKey: `${where}-report:${reportId}:reviewed`,
   });
 }
@@ -3361,6 +3382,41 @@ async function runRetentionSweep(): Promise<string> {
     "DELETE FROM payments_log WHERE handled_at IS NOT NULL AND at < (NOW() - INTERVAL 400 DAY) LIMIT 5000",
   );
   if (pl.affectedRows) parts.push(`${pl.affectedRows} payment log row(s)`);
+  /*
+   * 0093: photographs that were taken down long enough ago to forget.
+   *
+   * The FILE is unlinked at the moment of the takedown, so this is the
+   * backstop for the case where that unlink failed and the tombstone for the
+   * decision itself. Without this pass every removed photograph would leave
+   * its bytes on the volume forever, which is the exact defect the submission
+   * sweep above exists to close.
+   *
+   * `liveFilenames` is asked first and it is not defensive padding: a file
+   * that a photograph which has NOT been removed still points at must never
+   * be deleted because a tombstone happened to name it too.
+   */
+  const tombDays = numberVar("map.photo_tombstone_days");
+  if (tombDays > 0) {
+    const old = await placePhotosRepo.tombstonesOlderThan(getPool(), tombDays);
+    if (old.length) {
+      const live = await placePhotosRepo.liveFilenames(getPool());
+      for (const row of old) {
+        for (const address of [row.url, row.thumbUrl]) {
+          if (!address) continue;
+          const name = path.basename(address);
+          if (live.has(name)) continue;
+          try {
+            fs.unlinkSync(path.join(UPLOADS_DIR, name));
+          } catch {
+            /* already unlinked at takedown, which is the normal case */
+          }
+        }
+      }
+      const gone = await placePhotosRepo.deletePhotoRows(getPool(), old.map((r) => r.id));
+      unsuppressUploads(old.flatMap((r) => [r.url, r.thumbUrl]));
+      if (gone) parts.push(`${gone} removed photograph(s)`);
+    }
+  }
   return parts.length ? `swept ${parts.join(", ")}` : "nothing due";
 }
 
@@ -3960,6 +4016,24 @@ async function startServer() {
    * cannot fail is indistinguishable from a guard that passes.
    */
   assertVoiceSecret();
+
+  /*
+   * 0093: the photographs the uploads route must refuse.
+   *
+   * AFTER `initStores`, for the same reason `assertVoiceSecret` is: the pool
+   * has to exist. Loaded once, then kept current by every write path that
+   * hides, restores or removes a photograph. A village with none pays one
+   * query returning nothing.
+   *
+   * A failure here must not stop the server booting, and it must not be
+   * silent either: the consequence of an empty set is that a hidden picture
+   * is served again, so the log says so in as many words.
+   */
+  try {
+    loadSuppressed(await placePhotosRepo.suppressedFilenames(getPool()));
+  } catch (e) {
+    console.error("[places] could not load the suppressed photograph list; hidden pictures may still be served by URL until the next restart", e);
+  }
 
   // S17: the scheduler host — one mechanism, DB-claimed jobs. It closes NO
   // cycles and rolls NO seasons (both stay human/compute-on-read by design).
@@ -6147,17 +6221,36 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // uploaded file's own name, which the reference scan could not see, so
     // the sweep would have deleted live cap tables. Measurement first;
     // deletion only behind the amendments in docs/DESIGN_TOKENS_SPEC.md §A1.
-    let uploads: { files: number; mb: number } | undefined;
+    //
+    // 0093 splits the community's photographs out of that total, and the
+    // reason is that they changed what this gauge is FOR. Until now the
+    // volume only moved when a founder pressed a button, so a number that
+    // climbed was a founder's own doing. Member uploads grow it without
+    // anybody watching, so the operational question is no longer "how full"
+    // but "how full, and how much of it is the part that grows on its own".
+    // Every writer stamps its own filename prefix, so the split costs one
+    // comparison inside a walk this probe already does and no query at all.
+    let uploads: { files: number; mb: number; photoFiles: number; photoMb: number } | undefined;
     try {
       const entries = fs.readdirSync(UPLOADS_DIR, { withFileTypes: true });
       let bytes = 0;
       let files = 0;
+      let photoBytes = 0;
+      let photoFiles = 0;
       for (const e of entries) {
         if (!e.isFile()) continue;
         files += 1;
-        try { bytes += fs.statSync(path.join(UPLOADS_DIR, e.name)).size; } catch { /* raced a delete */ }
+        let size = 0;
+        try { size = fs.statSync(path.join(UPLOADS_DIR, e.name)).size; } catch { /* raced a delete */ }
+        bytes += size;
+        if (isPhotoFile(e.name)) { photoFiles += 1; photoBytes += size; }
       }
-      uploads = { files, mb: Math.round(bytes / (1024 * 1024)) };
+      uploads = {
+        files,
+        mb: Math.round(bytes / (1024 * 1024)),
+        photoFiles,
+        photoMb: Math.round(photoBytes / (1024 * 1024)),
+      };
     } catch { /* volume not mounted yet: report nothing rather than a zero that reads as healthy */ }
     res.json({ status: "ok", build: BUILD_MARKER, timestamp: new Date().toISOString(), uploads });
   });
@@ -17205,6 +17298,18 @@ Send an empty drafts array when you are still listening. A role payload is {name
   };
   app.get("/api/uploads/:filename", async (req, res) => {
     const safe = path.basename(req.params.filename);
+    /*
+     * 0093: a photograph that is hidden or taken down stops being served
+     * here, not only in the galleries.
+     *
+     * This route has no gate on it and answers one year immutable, so hiding
+     * a row alone left the bytes fetchable forever by anybody holding the
+     * address. For a picture somebody asked to have taken down, that gap WAS
+     * the failure. An in-memory set, loaded at boot and updated by the same
+     * function that writes each row, so the hottest read on the server pays a
+     * hash lookup and never a query.
+     */
+    if (isSuppressedUpload(safe)) return res.status(404).json({ error: "Not found" });
     const filePath = path.join(UPLOADS_DIR, safe);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Not found" });
     const ext = path.extname(safe).toLowerCase();
@@ -18290,6 +18395,462 @@ Send an empty drafts array when you are still listening. A role payload is {name
       console.error("[map/promise]", err);
       return reply({ ok: false, state: revert, reason: "error" });
     }
+  });
+
+  /*
+   * ── PHOTOGRAPHS OF A PLACE (0093) ──────────────────────────────────────
+   *
+   * Rye asked for the map to work "like a google maps listing where the
+   * community can upload photos". Everything below is that, and three of its
+   * decisions are worth reading before changing any of them.
+   *
+   * 1. THE GATE IS HERE, AND IT IS A CAPABILITY, NEVER AN ADMIN CHECK.
+   *    Taking somebody's photograph off the village's map is the kind of
+   *    power that becomes `isAdmin(req)` by default, and an admin check is
+   *    scaffolding a village cannot inherit (R54). `map.curatePhotos` reaches
+   *    admins through step 1 of the one gate and reaches a role holder or a
+   *    badge holder without one. That is also why the queue lives at
+   *    `/api/places/reports` and not under `/api/admin`: a curator who is not
+   *    an admin has to be able to open it.
+   *
+   * 2. AUTHORISE BEFORE MULTER. A gate behind the parser still lets any
+   *    caller make the server write to the village's shared volume as fast
+   *    as it can send, which on a small mounted disk is one anonymous script
+   *    away from a village that can no longer receive anything.
+   *
+   * 3. THE STRIP IS ENFORCED, NOT ASSUMED. `writePhoto` reads the encoded
+   *    bytes back and throws if any metadata survived, so a photograph whose
+   *    coordinates could not be removed never reaches the volume at all.
+   *    See server/lib/placePhotos.ts for why that is a runtime check and not
+   *    a comment about sharp's defaults.
+   */
+  app.use("/api/places", requireModule("map"));
+
+  /** Same scope column the 0069+ tables carry, and the same value. */
+  const PLACE_VILLAGE = "local";
+
+  /** What this member may do with the village's photographs, asked once per request. */
+  async function photoHand(req: express.Request): Promise<{ user: any | null; canContribute: boolean; canCurate: boolean }> {
+    const user = await authedUser(req);
+    if (!user) return { user: null, canContribute: false, canCurate: false };
+    const ctx = await capabilityCtx(user);
+    return {
+      user,
+      canContribute: hasCapability("map.photograph", ctx),
+      canCurate: hasCapability("map.curatePhotos", ctx),
+    };
+  }
+
+  /**
+   * Everyone who may act on a report about a photograph.
+   *
+   * Decided by THE ONE GATE, the same way `questConsentRecipients` decides
+   * who may release recognition. A queue that rings a different set of people
+   * from the set who can act on it is a queue with a wait built into it.
+   */
+  async function photoCuratorRecipients(): Promise<string[]> {
+    const out: string[] = [];
+    for (const m of await members.all()) {
+      if (!m?.id) continue;
+      if (m.role === "admin" || m.role === "founder") {
+        out.push(m.id);
+        continue;
+      }
+      try {
+        if (hasCapability("map.curatePhotos", await capabilityCtx(m))) out.push(m.id);
+      } catch (e) {
+        console.error("[places] could not read the curate gate for a member", e);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Built per request, because the size ceiling is a dial the village turns.
+   * A multer instance fixes its limit at construction, so one built at boot
+   * would keep enforcing whatever the number was when the process started.
+   */
+  function placePhotoUpload() {
+    return multer({
+      storage: multer.memoryStorage(),
+      limits: { fileSize: Math.max(1, numberVar("map.photo_max_mb")) * 1024 * 1024, files: 1 },
+      fileFilter: (_req, file, cb) => {
+        if (isPhotoMimeType(file.mimetype)) cb(null, true);
+        else cb(new Error("Send a JPG, PNG, WebP, AVIF or HEIC picture."));
+      },
+    }).single("photo");
+  }
+
+  /**
+   * Who may read the village's photographs.
+   *
+   * The same pair the map itself uses: a signed-in member always, and an
+   * anonymous visitor only while `map.public_structure` is on. A village that
+   * has turned its map away from strangers has turned its photographs away
+   * too, because a picture of the land says more about where the land is than
+   * a circle diagram does.
+   */
+  async function photoViewer(req: express.Request) {
+    const viewer = await authedUser(req);
+    if (!viewer && !boolVar("map.public_structure")) return null;
+    return viewer ?? false;
+  }
+
+  /** The places that have photographs, with the one picture each leads with. */
+  app.get("/api/places", async (req, res) => {
+    if ((await photoViewer(req)) === null) return res.status(401).json({ error: "auth_required" });
+    const hand = await photoHand(req);
+    res.json({
+      places: await placePhotosRepo.placesWithPhotos(getPool(), PLACE_VILLAGE),
+      canContribute: hand.canContribute,
+      canCurate: hand.canCurate,
+      openReports: hand.canCurate ? await placePhotosRepo.openReportCount(getPool()) : 0,
+      perPlace: numberVar("map.photos_per_place"),
+    });
+  });
+
+  /**
+   * The curator's queue. Capability-gated and outside `/api/admin` on purpose.
+   *
+   * A member can flag a photograph, and this is where that flag arrives. It
+   * has a browser surface (`/places`, the Reports panel) and the same people
+   * who can open it are the people the notification rings, so a report goes
+   * to somebody who can act on it and the reporter hears when it closes.
+   */
+  app.get("/api/places/reports", async (req, res) => {
+    const hand = await photoHand(req);
+    if (!hand.user) return res.status(401).json({ error: "auth_required" });
+    if (!hand.canCurate) return res.status(403).json({ error: "Reading this queue needs the capability to curate the village's photographs" });
+    const status = ["open", "resolved", "dismissed"].includes(String(req.query.status)) ? (String(req.query.status) as any) : "open";
+    res.json({ reports: await placePhotosRepo.listReports(getPool(), status), status });
+  });
+
+  /** Close one report. The person who raised it hears that somebody looked. */
+  app.put("/api/places/reports/:id", async (req, res) => {
+    const hand = await photoHand(req);
+    if (!hand.user) return res.status(401).json({ error: "auth_required" });
+    if (!hand.canCurate) return res.status(403).json({ error: "Closing a report needs the capability to curate the village's photographs" });
+    const status = String(req.body?.status ?? "");
+    if (!["resolved", "dismissed"].includes(status)) return res.status(400).json({ error: "status must be resolved or dismissed" });
+    const before = await placePhotosRepo.reporterOf(getPool(), req.params.id);
+    const closed = await placePhotosRepo.closeReport(getPool(), req.params.id, status as "resolved" | "dismissed", hand.user.id);
+    if (!closed) return res.status(404).json({ error: "No open report with that id" });
+    if (before?.reporterId) await notifyReportReviewed(before.reporterId, req.params.id, "place");
+    res.json({ success: true });
+  });
+
+  /** One place's gallery, ordered the way shared/placePhotos.ts explains. */
+  app.get("/api/places/:key/photos", async (req, res) => {
+    if ((await photoViewer(req)) === null) return res.status(401).json({ error: "auth_required" });
+    const key = sanitiseMapKey(req.params.key);
+    if (!key) return res.status(404).json({ error: "Not found" });
+    const hand = await photoHand(req);
+    // A curator sees hidden rows, because deciding whether to put one back
+    // means looking at it. Nobody else does.
+    const rows = await placePhotosRepo.photosForPlace(getPool(), PLACE_VILLAGE, key, { includeHidden: hand.canCurate });
+    const perPlace = numberVar("map.photos_per_place");
+    const live = rows.filter((r) => !r.hiddenAt).length;
+    res.json({
+      structureKey: key,
+      photos: orderPhotos(rows),
+      canContribute: hand.canContribute,
+      canCurate: hand.canCurate,
+      // The viewer's own id, so a contributor's takedown control renders
+      // without a second request and without the client guessing.
+      viewerId: hand.user?.id ?? null,
+      signedIn: !!hand.user,
+      perPlace,
+      remaining: remainingForPlace(live, perPlace),
+      maxMb: numberVar("map.photo_max_mb"),
+      altTextMax: ALT_TEXT_MAX,
+      captionMax: CAPTION_MAX,
+    });
+  });
+
+  app.post("/api/places/:key/photos", async (req, res) => {
+    // Rule 2 in the header: every refusal below happens before multer writes
+    // a single byte.
+    const hand = await photoHand(req);
+    if (!hand.user) return res.status(401).json({ error: "auth_required", message: "Sign in to add a photograph" });
+    if (!hand.canContribute) {
+      return res.status(403).json({ error: "Adding a photograph opens at the member stage, or with a role or badge that grants it" });
+    }
+    const key = sanitiseMapKey(req.params.key);
+    if (!key) return res.status(400).json({ error: "That is not a place on this map" });
+
+    const perPlace = numberVar("map.photos_per_place");
+    const held = await placePhotosRepo.countForPlace(getPool(), PLACE_VILLAGE, key);
+    if (remainingForPlace(held, perPlace) <= 0) {
+      return res.status(409).json({ error: `This place holds ${held} photographs, and the village's limit is ${perPlace}.` });
+    }
+    const perDay = numberVar("map.photos_per_member_daily");
+    const mine = await placePhotosRepo.countByContributorSince(getPool(), hand.user.id, 24);
+    if (mine >= perDay) {
+      return res.status(429).json({ error: `You have added ${mine} photographs today, and the village's daily limit is ${perDay}.` });
+    }
+
+    placePhotoUpload()(req, res, async (err: any) => {
+      try {
+        if (err) {
+          const tooBig = err?.code === "LIMIT_FILE_SIZE";
+          return res.status(400).json({
+            error: tooBig
+              ? `That picture is over the village's limit of ${numberVar("map.photo_max_mb")} MB.`
+              : err.message || "Upload failed",
+          });
+        }
+        if (!req.file) return res.status(400).json({ error: "Missing file" });
+
+        const altProblem = altTextProblem(req.body?.altText);
+        if (altProblem) return res.status(400).json({ error: altProblem });
+        const capProblem = captionProblem(req.body?.caption ?? null);
+        if (capProblem) return res.status(400).json({ error: capProblem });
+        const takenRaw = typeof req.body?.takenOn === "string" && req.body.takenOn.trim() ? req.body.takenOn.trim() : null;
+        const takenProblem = takenOnProblem(takenRaw);
+        if (takenProblem) return res.status(400).json({ error: takenProblem });
+
+        const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        let encoded;
+        try {
+          encoded = await writePhoto(req.file.buffer, UPLOADS_DIR, stamp);
+        } catch (e) {
+          if (e instanceof LocationDataSurvived) {
+            // The one failure here that is about somebody's safety. Loud in
+            // the log, refused to the uploader, and nothing on the volume.
+            console.error("[places] refused an upload whose metadata survived the strip", e.markers);
+            return res.status(500).json({ error: "That picture kept its metadata through the re-encode, so it was not stored." });
+          }
+          console.error("[places] could not read an uploaded file as a picture", e);
+          return res.status(400).json({ error: "That file could not be read as a picture." });
+        }
+
+        const id = `pph-${stamp}`;
+        await placePhotosRepo.insertPhoto(getPool(), {
+          id,
+          villageId: PLACE_VILLAGE,
+          structureKey: key,
+          url: `/api/uploads/${encoded.filename}`,
+          thumbUrl: encoded.thumbFilename ? `/api/uploads/${encoded.thumbFilename}` : null,
+          altText: String(req.body.altText).trim(),
+          caption: typeof req.body?.caption === "string" && req.body.caption.trim() ? req.body.caption.trim() : null,
+          takenOn: takenRaw,
+          width: encoded.width,
+          height: encoded.height,
+          bytes: encoded.bytes,
+          contributorId: hand.user.id,
+        });
+        const stored = await placePhotosRepo.photoById(getPool(), id);
+        res.json({ success: true, photo: stored });
+      } catch (e) {
+        console.error("[places] upload failed after the parser", e);
+        res.status(500).json({ error: "That did not save. Try again in a moment." });
+      }
+    });
+  });
+
+  /** Pin the picture a place leads with, or clear the pin and lead with the newest. */
+  app.put("/api/places/:key/hero", async (req, res) => {
+    const hand = await photoHand(req);
+    if (!hand.user) return res.status(401).json({ error: "auth_required" });
+    if (!hand.canCurate) return res.status(403).json({ error: "Choosing a place's lead photograph needs the capability to curate them" });
+    const key = sanitiseMapKey(req.params.key);
+    if (!key) return res.status(404).json({ error: "Not found" });
+    const photoId = req.body?.photoId == null ? null : String(req.body.photoId);
+    if (photoId) {
+      const target = await placePhotosRepo.photoById(getPool(), photoId);
+      if (!target || target.structureKey !== key || target.removedAt || target.hiddenAt) {
+        return res.status(404).json({ error: "No live photograph here with that id" });
+      }
+    }
+    await placePhotosRepo.setHero(getPool(), PLACE_VILLAGE, key, photoId);
+    res.json({ success: true, heroId: photoId });
+  });
+
+  /**
+   * A member flags a photograph.
+   *
+   * Signed in, and nothing more. Reporting is as open as looking: a member who
+   * can see a picture on the village's map can say it should not be there.
+   * Enough distinct members saying so hides it pending review, which is the
+   * forum's rule and the village acting on its own record.
+   */
+  app.post("/api/places/photo/:id/report", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to report" });
+    const photo = await placePhotosRepo.photoById(getPool(), req.params.id);
+    if (!photo || photo.removedAt) return res.status(404).json({ error: "Not found" });
+    const reason = String(req.body?.reason ?? "").slice(0, REASON_MAX) || null;
+    try {
+      await placePhotosRepo.insertReport(getPool(), {
+        id: `pr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        villageId: PLACE_VILLAGE,
+        photoId: photo.id,
+        reporterId: user.id,
+        kind: "concern",
+        reason,
+      });
+    } catch (e: any) {
+      if (e?.code === "ER_DUP_ENTRY") return res.json({ success: true, fresh: false });
+      throw e;
+    }
+    const threshold = numberVar("map.photo_report_hide_threshold");
+    let hidden = false;
+    if (threshold > 0 && (await placePhotosRepo.openConcernReporters(getPool(), photo.id)) >= threshold) {
+      hidden = await placePhotosRepo.hidePhoto(getPool(), photo.id, "community", "hidden by the village's own reports");
+      if (hidden) suppressUploads([photo.url, photo.thumbUrl]);
+    }
+    // The people who can act hear about it, carrying no content and no names.
+    for (const recipient of await photoCuratorRecipients()) {
+      await notify({
+        userId: recipient,
+        type: "moderation",
+        title: "A photograph on the map was flagged for review",
+        link: "/places",
+        dedupeKey: `place-photo-report:${photo.id}:${user.id}:${recipient}`,
+      });
+    }
+    res.json({ success: true, fresh: true, hidden });
+  });
+
+  /**
+   * "That is a photograph of me. Take it down."
+   *
+   * ── THIS ONE IS NOT A VOTE AND IT DOES NOT WAIT ────────────────────────
+   *
+   * R56 says an interface states what is true and gets out of the way, and
+   * that a village sets its own dials. This is one of the two narrow
+   * exceptions, and the reason is that it protects a PERSON from a
+   * consequence they can neither see coming nor undo: their face on a public
+   * map of a rural land project. That is not the village choosing something
+   * for itself.
+   *
+   * So three properties hold here that hold nowhere else in this file:
+   *
+   *  - NO CAPABILITY. Any account may file one. A warning badge's deny
+   *    suspends posting pictures and never touches this, because the deny is
+   *    about what somebody may add to the village and this is about their own
+   *    image.
+   *  - NO THRESHOLD. One person is enough. `map.photo_report_hide_threshold`
+   *    is not read on this path, and a village setting it to 0 does not turn
+   *    this off.
+   *  - THE PICTURE GOES DARK IMMEDIATELY, and the bytes go with it: the
+   *    filename joins the suppression set, so the address stops answering as
+   *    well as leaving the gallery. Hiding the row alone would have left the
+   *    file fetchable forever by anyone holding the link, which is exactly
+   *    what the person was asking to stop.
+   *
+   * A curator then decides between putting it back and taking it down for
+   * good. While nobody has decided, it stays hidden, and the default sitting
+   * with the person is the point.
+   *
+   * WHAT THIS DOES NOT REACH, stated plainly: a person with no account here.
+   * Filing needs a session, so somebody photographed at a gathering who never
+   * joined has to reach the village another way. Opening it to anonymous
+   * callers would make one unauthenticated request enough to darken any
+   * picture on the map, with nobody to ask about it afterwards.
+   */
+  app.post("/api/places/photo/:id/subject-request", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to ask for a photograph of you to come down" });
+    const photo = await placePhotosRepo.photoById(getPool(), req.params.id);
+    if (!photo || photo.removedAt) return res.status(404).json({ error: "Not found" });
+    const reason = String(req.body?.reason ?? "").slice(0, REASON_MAX) || null;
+    let fresh = true;
+    try {
+      await placePhotosRepo.insertReport(getPool(), {
+        id: `pr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        villageId: PLACE_VILLAGE,
+        photoId: photo.id,
+        reporterId: user.id,
+        kind: "subject",
+        reason,
+      });
+    } catch (e: any) {
+      if (e?.code === "ER_DUP_ENTRY") fresh = false;
+      else throw e;
+    }
+    // Hide on every call, fresh or repeated. A second press from somebody who
+    // can still see the picture must not answer "already filed" and leave it
+    // up, and a curator may have restored it since.
+    await placePhotosRepo.hidePhoto(getPool(), photo.id, "subject", "a person asked for their own image to come down");
+    suppressUploads([photo.url, photo.thumbUrl]);
+    if (fresh) {
+      for (const recipient of await photoCuratorRecipients()) {
+        await notify({
+          userId: recipient,
+          type: "moderation",
+          title: "Someone asked for a photograph of themselves to come down",
+          link: "/places",
+          dedupeKey: `place-photo-subject:${photo.id}:${user.id}:${recipient}`,
+        });
+      }
+    }
+    res.json({ success: true, fresh, hidden: true });
+  });
+
+  /** Take a photograph out of the galleries, reversibly. */
+  app.post("/api/places/photo/:id/hide", async (req, res) => {
+    const hand = await photoHand(req);
+    if (!hand.user) return res.status(401).json({ error: "auth_required" });
+    if (!hand.canCurate) return res.status(403).json({ error: "Hiding a photograph needs the capability to curate the village's photographs" });
+    const photo = await placePhotosRepo.photoById(getPool(), req.params.id);
+    if (!photo || photo.removedAt) return res.status(404).json({ error: "Not found" });
+    const reason = String(req.body?.reason ?? "").slice(0, 200) || null;
+    const done = await placePhotosRepo.hidePhoto(getPool(), photo.id, hand.user.id, reason);
+    if (done) suppressUploads([photo.url, photo.thumbUrl]);
+    res.json({ success: true, hidden: true });
+  });
+
+  /** Put it back. The bytes start answering again in the same call. */
+  app.post("/api/places/photo/:id/restore", async (req, res) => {
+    const hand = await photoHand(req);
+    if (!hand.user) return res.status(401).json({ error: "auth_required" });
+    if (!hand.canCurate) return res.status(403).json({ error: "Restoring a photograph needs the capability to curate the village's photographs" });
+    const photo = await placePhotosRepo.photoById(getPool(), req.params.id);
+    if (!photo || photo.removedAt) return res.status(404).json({ error: "Not found" });
+    const done = await placePhotosRepo.restorePhoto(getPool(), photo.id);
+    if (done) unsuppressUploads([photo.url, photo.thumbUrl]);
+    res.json({ success: true, restored: done });
+  });
+
+  /**
+   * Take a photograph down for good. The file is unlinked in this call.
+   *
+   * Two people can do it: a curator, and the person who took it. A member
+   * withdrawing their own photograph is not moderation and should never have
+   * needed anybody's permission.
+   *
+   * The row survives as a tombstone so a resolved report still names something
+   * real; `map.photo_tombstone_days` decides when the daily sweep forgets it.
+   */
+  app.delete("/api/places/photo/:id", async (req, res) => {
+    const hand = await photoHand(req);
+    if (!hand.user) return res.status(401).json({ error: "auth_required" });
+    const photo = await placePhotosRepo.photoById(getPool(), req.params.id);
+    if (!photo || photo.removedAt) return res.status(404).json({ error: "Not found" });
+    const mine = photo.contributorId === hand.user.id;
+    if (!hand.canCurate && !mine) {
+      return res.status(403).json({ error: "Taking down someone else's photograph needs the capability to curate them" });
+    }
+    const done = await placePhotosRepo.removePhoto(getPool(), photo.id, hand.user.id);
+    if (done) {
+      suppressUploads([photo.url, photo.thumbUrl]);
+      for (const address of [photo.url, photo.thumbUrl]) {
+        if (!address) continue;
+        try {
+          fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(address)));
+        } catch {
+          /* already gone, or never written: the takedown still stands */
+        }
+      }
+      // A takedown answers every open report on the picture, and everybody who
+      // raised one hears that somebody looked.
+      const reporters = await placePhotosRepo.closeReportsForPhoto(getPool(), photo.id, hand.user.id);
+      for (const reporterId of reporters) {
+        await notifyReportReviewed(reporterId, `${photo.id}:removed`, "place");
+      }
+    }
+    res.json({ success: true, removed: done });
   });
 
   /*

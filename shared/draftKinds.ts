@@ -156,6 +156,8 @@ export const CAPABILITY_CONSEQUENCE: Record<Capability, string> = {
   "map.contact": "reach role holders through the contact relay",
   "map.edit": "reshape the land in build mode, as a draft nobody else sees yet",
   "map.publish": "put a drafted map in front of every visitor",
+  "map.photograph": "add photographs of a place to the village's own record of it",
+  "map.curatePhotos": "take any member's photograph off the map and pin the shot a place leads with",
   "feed.announce": "post announcements to the whole village feed",
   "stay.member_rate": "book accommodation at the member price",
   "exchange.buy": "buy listed tokens with money",
