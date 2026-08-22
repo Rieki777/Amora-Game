@@ -349,13 +349,13 @@ export const VARIABLES: VariableDef[] = [
     unit: "members",
   },
 
-  // ── Governance: the informal step before Hypha ────────────────────────────
+  // ── Governance: sensing, which runs before a ballot wherever the vote binds ─
   {
     key: "governance.voice_weighting",
     category: "Governance",
     label: "How sensing is weighted",
     description:
-      "This app is the informal, sense-making step. Formal decisions bind on Hypha, where Voice does the weighting. Choose whether the informal step gives everyone an equal voice, or previews the Hypha outcome by mirroring Voice holdings.",
+      "Sensing gathers support before a ballot opens. Choose whether it gives everyone an equal voice, or mirrors Voice holdings so you can see how a weighted vote would land. Where the binding vote itself happens, here or on your DAO, is decided by the governance module and its own weight setting.",
     type: "choice",
     default: "equal",
     choices: VOICE_WEIGHTING_CHOICES.map((c) => ({ ...c })),

@@ -19,6 +19,13 @@ export interface ConstitutionLaw {
   plain: string;
   /** Where the code enforces it — for the curious and the auditors. */
   enforcedBy: string;
+  /**
+   * An optional recommendation shown beside the law. It is NOT part of the law:
+   * a law binds every fork, a recommendation is advice this platform offers and
+   * any village may change or drop. Kept here because this file is the copy home
+   * and the live copy editor edits copy.
+   */
+  note?: { text: string; href: string };
 }
 
 export const CONSTITUTION: ConstitutionLaw[] = [
@@ -46,15 +53,27 @@ export const CONSTITUTION: ConstitutionLaw[] = [
       "Tokens the village issues freely (rewards, comps) can never be swapped into tokens that people bought with real money. The test is structural: it is about where tokens came from, and no privilege level overrides it.",
     enforcedBy: "server/lib/exchange.ts: faucet-issued tokens are permanently unswappable",
   },
-  // Amended for the on-site governance engine (R44, GOV_DESIGN section 7):
-  // the law's scope narrowed from all governance to hypha-governed TOKENS,
-  // because the village can now conduct binding decisions here. The final
-  // sentence is flagged for the founder's reading.
+  // Amended for the on-site governance engine (R44/R49). The old law said
+  // "Formal decisions bind on Hypha", which had no enforcement behind it and
+  // stopped being true the day a village could conduct a binding vote here.
+  // It is now two laws: this one holds the RECORD and the token rule its
+  // enforcedBy actually enforces, and the next one holds where a decision binds.
   {
-    title: "What Hypha governs, this game only displays",
+    title: "Your record is yours, and you choose how it becomes formal",
     plain:
-      "Tokens governed on the village's Hypha DAO, equity and voice among them, live on Base. This platform reads and displays them and links you there; it never mints, moves, or prices them. A decision the village conducts here binds here, on the record; what the village keeps on Hypha binds on Hypha.",
-    enforcedBy: "server/lib/ledger.ts: hypha-governed tokens are refused from the ledger entirely",
+      "Every village keeps its own record here: what was decided, who decided it, and when. How that record becomes formal is the village's choice: a blockchain, legal documents, or both. Tokens governed on a chain live on that chain, and this platform reads them, displays them, and links you out to them. It never mints, moves, or prices them.",
+    enforcedBy: "server/lib/ledger.ts: chain-governed tokens are refused from the ledger entirely",
+    note: {
+      text: "We recommend our partner Hypha for recording on Base, Coinbase's blockchain.",
+      href: "https://hypha.earth",
+    },
+  },
+  {
+    title: "The village decides where its decisions bind",
+    plain:
+      "A village can hold its votes here, or keep its formal record somewhere else. A vote held here binds here and stays on the record, with the count and the reasoning kept. A village that keeps its record elsewhere gets a game that prepares the decision and carries it there, and never one that claims to have made it.",
+    enforcedBy:
+      "server/lib/ballots.ts: a ballot freezes its rule at open and closes by a human act; shared/modules.ts: the governance module ships off, so a village that never turns it on keeps its record where it always was",
   },
   {
     title: "A vote is counted against the day it opened",
