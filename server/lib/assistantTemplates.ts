@@ -246,7 +246,7 @@ export function renderWeeklyBrief(input: unknown): RenderedBrief | null {
       const names = Array.isArray(seats.names) ? seats.names.filter((n: unknown) => typeof n === "string") : [];
       const total = Number(seats.count);
       const listed = names.slice(0, 5).join(", ");
-      push("Open seats", [
+      push("Open roles", [
         listed
           ? `${total} ${plural(total, "role needs", "roles need")} someone: ${listed}${total > names.length ? `, and ${total - names.length} more` : ""}.`
           : `${total} ${plural(total, "role needs", "roles need")} someone.`,
@@ -317,7 +317,7 @@ export const RENDERERS: Record<string, Renderer> = {
     if (!r) return null;
     const total = r.rows.length + r.more;
     if (total === 0) {
-      return out("seats.vacant", "No roles are defined in this village yet, so no seats are waiting.");
+      return out("seats.vacant", "No roles are defined in this village yet, so none are waiting.");
     }
     const empty = r.rows.filter((x) => Number(x.holders ?? 0) === 0);
     const names = field(empty, "role");

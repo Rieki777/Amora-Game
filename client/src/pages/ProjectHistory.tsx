@@ -1222,7 +1222,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
     const lines = [
       `Cycle ${cycle.cycleNumber} settlement (closed ${cycle.closedAt ? new Date(cycle.closedAt).toLocaleDateString() : "date not recorded"})`,
       ...cycle.totals.map((t: any) =>
-        `${t.name}: ${t.received} received (${t.receivedHearts} hearts + ${t.receivedAcks} acknowledgments) from ${t.distinctSenders} member(s)` +
+        `${t.name}: ${t.received} received (${t.receivedHearts} gratitude + ${t.receivedAcks} acknowledgments) from ${t.distinctSenders} member(s)` +
         (t.credited ? ` → ${t.credited} ${cycle.poolToken ?? ""} credited` : ""),
       ),
       `Pool released: ${cycle.poolCredited} ${cycle.poolToken ?? ""}`,
@@ -1258,7 +1258,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
         <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wide mb-1">Cycle settlement report</h3>
         <p className="text-xs text-stone-400 mb-4">
           Closed lunations only. A member's share of the open cycle is unknowable before close, on purpose.
-          Hearts and written acknowledgments are never blended into one number.
+          Gratitude and written acknowledgments are never blended into one number.
         </p>
         {data.settlement.length === 0 && <p className="text-sm text-stone-400 italic">No cycle has closed yet.</p>}
         <div className="space-y-5">
@@ -1278,7 +1278,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
                 <table className="w-full text-sm">
                   <thead><tr className="text-left text-xs text-stone-400">
                     <th className="py-1 pr-3">Member</th><th className="py-1 pr-3">Received</th>
-                    <th className="py-1 pr-3">Hearts</th><th className="py-1 pr-3">Acks</th>
+                    <th className="py-1 pr-3">Gratitude</th><th className="py-1 pr-3">Acks</th>
                     <th className="py-1 pr-3">From</th><th className="py-1 pr-3">Credited</th>
                   </tr></thead>
                   <tbody>

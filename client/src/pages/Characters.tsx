@@ -339,7 +339,7 @@ export default function Characters() {
                     <p className="mt-2 text-sm text-gray-600">Looking.</p>
                   ) : paths.roles.length === 0 ? (
                     <p className="mt-2 text-sm text-gray-700">
-                      No seats carry this tag yet. Every seat is still open to you.
+                      No roles carry this tag yet. Every role is still open to you.
                     </p>
                   ) : (
                     <ul className="mt-2 space-y-2">

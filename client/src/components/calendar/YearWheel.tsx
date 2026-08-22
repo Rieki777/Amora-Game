@@ -139,7 +139,7 @@ export default function YearWheel({ year, timezone, anchor, hemisphere, monthNam
             <g key={s.which}>
               <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={T.sun} strokeWidth="2.5" strokeDasharray="3 2" />
               <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fontSize="7.5" fill={T.brand} opacity="0.9">
-                {s.label === "Equal Day & Night" ? "Equal" : s.label === "Longest Day" ? "Longest" : "Shortest"}
+                {s.label === "Equal Day & Night" ? "Equinox" : "Solstice"}
               </text>
             </g>
           );

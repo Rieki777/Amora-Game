@@ -84,7 +84,7 @@ export default function WalletCard() {
           href="/tokens"
           className="text-sm font-medium text-teal-deep hover:underline flex items-center gap-1 shrink-0"
         >
-          Village exchange
+          The Exchange
           <ArrowRight className="w-4 h-4" />
         </Link>
       </div>

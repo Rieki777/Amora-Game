@@ -143,7 +143,7 @@ export default function SearchBar({
             aria-expanded={hits.length > 0}
             aria-controls="power-search-hits"
             aria-activedescendant={hits.length ? `power-hit-${active}` : undefined}
-            aria-label="Find a seat, a circle, or a person"
+            aria-label="Find a role, a circle, or a person"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);

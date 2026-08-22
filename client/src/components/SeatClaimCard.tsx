@@ -82,7 +82,7 @@ export default function SeatClaimCard() {
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(d?.error ?? "That seat could not be confirmed");
+        toast.error(d?.error ?? "That role could not be confirmed");
         return;
       }
       toast.success(`${s.roleName} is yours`);
@@ -95,11 +95,11 @@ export default function SeatClaimCard() {
   return (
     <div className="rounded-xl border border-sage/40 bg-sage/5 p-4 mb-6">
       <p className="text-sm font-medium text-foreground mb-1">
-        {seats.length === 1 ? "A seat is recorded under your name" : "Some seats are recorded under your name"}
+        {seats.length === 1 ? "A role is recorded under your name" : "Some roles are recorded under your name"}
       </p>
       <p className="text-xs text-muted-foreground mb-3">
         The village wrote these down before you had an account here. Confirming
-        one links it to you, and the seat keeps everything it already knew.
+        one links it to you, and the role keeps everything it already knew.
       </p>
       <div className="space-y-2">
         {seats.map((s) => (

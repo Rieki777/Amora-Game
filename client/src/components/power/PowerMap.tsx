@@ -162,7 +162,7 @@ export default function PowerMap({
     const c = byId.get(focusId);
     const seats = data.roles.filter((r) => r.circleId === focusId);
     const open = seats.filter((r) => r.vacant).length;
-    return `Now inside ${c?.name ?? focusId}, ${seats.length} seat${seats.length === 1 ? "" : "s"}${open ? `, ${open} open` : ""}`;
+    return `Now inside ${c?.name ?? focusId}, ${seats.length} role${seats.length === 1 ? "" : "s"}${open ? `, ${open} open` : ""}`;
   }, [focusId, byId, data.roles]);
 
   // Arrow keys walk siblings (spec 11): the circles sharing a parent.
@@ -361,7 +361,7 @@ export default function PowerMap({
                     role="button"
                     tabIndex={interactive ? 0 : -1}
                     pointerEvents={interactive ? undefined : "none"}
-                    aria-label={`${seat?.name ?? rp.id}, a seat in ${c?.name ?? "this circle"}, ${words}. Press Enter to open it`}
+                    aria-label={`${seat?.name ?? rp.id}, a role in ${c?.name ?? "this circle"}, ${words}. Press Enter to open it`}
                     onClick={(e: ReactMouseEvent) => {
                       // A tap on a seat NEVER moves the camera (spec 1).
                       e.stopPropagation();
@@ -427,7 +427,7 @@ export default function PowerMap({
               className="cursor-pointer focus:outline-none"
               role="button"
               tabIndex={0}
-              aria-label={`${seat?.name ?? rp.id}, a village-wide seat, ${words}. Press Enter to open it`}
+              aria-label={`${seat?.name ?? rp.id}, a village-wide role, ${words}. Press Enter to open it`}
               onClick={(e: ReactMouseEvent) => {
                 e.stopPropagation();
                 onSelect({ kind: "role", id: rp.id });

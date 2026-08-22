@@ -89,7 +89,7 @@ export const NAV: readonly NavEntry[] = [
       { href: "/circles", label: "Circles" },
       { href: "/roles", label: "Roles" },
       { href: "/gratitude", label: "Gratitude" },
-      { href: "/events", label: "What's On", module: "events" },
+      { href: "/events", label: "Events", module: "events" },
       { href: "/seasonal-festivals", label: "Seasonal Festivals" },
       { href: "/feedback", label: "Share Feedback" },
     ],
@@ -98,12 +98,12 @@ export const NAV: readonly NavEntry[] = [
     label: "Village",
     items: [
       // The map itself is a top-level entry now; this is the org view.
-      { href: "/map/circles", label: "Circles & Seats", module: "map" },
+      { href: "/map/circles", label: "Circles & Roles", module: "map" },
       { href: "/stay", label: "Stay", module: "stays" },
       { href: "/library", label: "Library", module: "library" },
       { href: "/tools", label: "Tools", module: "tools" },
       { href: "/village-health", label: "Health", module: "health" },
-      { href: "/tokens", label: "Tokens", module: "exchange" },
+      { href: "/tokens", label: "The Exchange", module: "exchange" },
       { href: "/housing", label: "Housing" },
       { href: "/network", label: "Village Network", module: "network" },
       { href: "/contribute", label: "Contribute", module: "commerce" },

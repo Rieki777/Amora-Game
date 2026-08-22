@@ -96,8 +96,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/introductions": "Introductions",
   "/feed": "Village feed",
   "/map": "Village map",
-  "/map/circles": "Circles and seats",
-  "/events": "What is on",
+  "/map/circles": "Circles and roles",
+  "/events": "Village Calendar",
   "/first-walk": "Meet your village",
   "/stay": "Stays",
   "/library": "Material library",
@@ -112,8 +112,8 @@ const PAGE_TITLES: Record<string, string> = {
   // and what a member sees; /wallet stays mounted because Stripe return URLs
   // and order notifications already carry it (server/index.ts), and a member's
   // own balances now also live in a Wallet section on their profile.
-  "/tokens": "Tokens",
-  "/wallet": "Tokens",
+  "/tokens": "The Exchange",
+  "/wallet": "The Exchange",
   "/profile": "My profile",
   "/login": "Sign in",
   "/set-password": "Choose a password",
