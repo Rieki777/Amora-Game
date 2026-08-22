@@ -44,7 +44,7 @@ async function call(
   body?: unknown,
   token = founderToken,
 ): Promise<{ status: number; json: any }> {
-  const res = await fetch(BASE + route, {
+  const res = await fetch(BASE + route, { // module-review-ok: the test client dialing the server under test on localhost
     method,
     headers: {
       "Content-Type": "application/json",
@@ -62,7 +62,7 @@ beforeAll(async () => {
   }
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-crowdpool-"));
   testDb = await provisionTestDb();
-  pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 });
+  pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: the e2e harness scratch-schema pool, the routes-suite shape
 
   child = spawn(process.execPath, [DIST], {
     env: {
@@ -72,10 +72,10 @@ beforeAll(async () => {
       DATA_DIR: dataDir,
       DATABASE_URL: testDb.url,
       ADMIN_PASSWORD: ADMIN,
-      AUTH_TOKEN_SECRET: "crowdpool-routes-token-secret",
+      AUTH_TOKEN_SECRET: "crowdpool-routes-token-secret", // module-review-ok: a throwaway value for the spawned scratch server, never a real credential
       RESEND_API_KEY: "",
       ANTHROPIC_API_KEY: "",
-      STRIPE_WEBHOOK_SECRET: "whsec_crowdpoolroutes",
+      STRIPE_WEBHOOK_SECRET: "whsec_crowdpoolroutes", // module-review-ok: a throwaway value for the spawned scratch server, never a real credential
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -89,7 +89,7 @@ beforeAll(async () => {
       throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s. Output:\n${logs.join("")}`);
     }
     try {
-      const res = await fetch(`${BASE}/health`);
+      const res = await fetch(`${BASE}/health`); // module-review-ok: the boot probe against the spawned test server
       if (res.ok) break;
     } catch {
       /* not up yet */

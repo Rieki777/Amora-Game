@@ -367,7 +367,7 @@ describe("fetchCampaignBundle against a live local fixture", () => {
     const deps: CrowdpoolDeps = {
       now: () => NOW,
       async fetchJson(url: string, timeoutMs: number) {
-        const r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+        const r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) }); // module-review-ok: the fixture dialer under test; production injects guardedFetchJson
         if (!r.ok) throw new Error(String(r.status));
         return r.json();
       },
