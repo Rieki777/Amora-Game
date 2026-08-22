@@ -29,7 +29,7 @@ async function section(id: string, body: string, confirmedBy: string | null) {
 describe.skipIf(!configured)("the brief a stranger's guide may read (MySQL)", () => {
   beforeAll(async () => {
     db = await provisionTestDb();
-    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 8 });
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 8 }); // module-review-ok: the suite's own pool onto the scratch schema it provisioned
   });
 
   afterAll(async () => {
