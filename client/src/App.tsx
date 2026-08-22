@@ -124,6 +124,10 @@ const PAGE_TITLES: Record<string, string> = {
   // One line covers the shelf and every detail page: keys match by longest
   // prefix, so /modules/stays reads as the library too.
   "/modules": "Module Library",
+  // Longest-prefix matching makes /campaigns win over /campaign for the list
+  // page, so the pair costs two lines and no route can fall through them.
+  "/campaigns": "Our raisings",
+  "/campaign": "Crowdpool",
   "/admin": "Village settings",
 };
 
@@ -255,6 +259,8 @@ const VillageHealth = lazyPage(() => import("./pages/VillageHealth"));
 const ExitPolicy = lazyPage(() => import("./pages/ExitPolicy"));
 const Modules = lazyPage(() => import("./pages/Modules"));
 const ModuleDetail = lazyPage(() => import("./pages/ModuleDetail"));
+const Crowdpool = lazyPage(() => import("./pages/Crowdpool"));
+const CrowdpoolCampaign = lazyPage(() => import("./pages/CrowdpoolCampaign"));
 
 /**
  * Shown while a page chunk arrives. Deliberately quiet: on a slow link this
@@ -304,6 +310,10 @@ function Router() {
           names. */}
       <Route path="/modules" component={Modules} />
       <Route path="/modules/:id" component={ModuleDetail} />
+      {/* The crowdpool bridge: the list of raisings, then one campaign told
+          in the map's language. Both behind ModuleGate("crowdpool"). */}
+      <Route path="/campaigns" component={Crowdpool} />
+      <Route path="/campaign/:slug" component={CrowdpoolCampaign} />
       {/* The geographic map is what /map means now. The nested-circles org
           view keeps its own address: it holds the concierge, the contact
           relay and raise-your-hand, which read live data behind the
