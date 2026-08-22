@@ -578,6 +578,75 @@
   #skin{position:absolute;right:14px;top:96px;width:330px;z-index:48;display:none;flex-direction:column;gap:9px;
     background:linear-gradient(180deg,rgba(24,17,9,.97),rgba(17,12,6,.97));border:1px solid #6b5430;border-radius:10px;
     color:var(--parch);box-shadow:0 10px 30px rgba(0,0,0,.6);padding:13px 15px 15px}
+  /* THE TAIL THAT RAN UNDER THE TASKBAR. The panel was anchored at top 96
+     with no ceiling and no scroll of its own, so on any window shorter than
+     the panel its last rows fell past the bottom of the glass and could not
+     be reached at all. NO TASKBAR HEIGHT IS ASSUMED ANYWHERE HERE: dvh is
+     the browser reporting what is actually visible, which covers a desk with
+     a taskbar, a phone whose address bar comes and goes, and this file
+     inside the site's iframe, without guessing at any of them. The vh line
+     above it is the floor for an engine with no dvh. 120 leaves the 96 px
+     the panel starts at plus a hand's breadth under it. */
+  #skin{max-height:calc(100vh - 120px);max-height:calc(100dvh - 120px);
+    overflow-y:auto;overscroll-behavior:contain}
+  /* THE THEME PANEL, NOW A SECTION OF THIS ONE. #themePanel is moved into
+     #maskLook at boot with a single appendChild, so every control keeps the
+     element, the listener and the state it already had. Two id selectors
+     outrank both `#themePanel` and `#themePanel.show`, so its own floating
+     geometry is simply overruled while it is nested. */
+  /* THE PICKER IS A LIST. `.swrow` is one flex line with flex:1 on each
+     child, which was right for seven one-word chips and is wrong for seven
+     swatches carrying a colour trio, a name and a sentence: at 330 px each
+     came out around 40 px wide, and on a 390 px sheet the line ran off the
+     right edge. MEASURED: elementFromPoint at a swatch's own centre
+     returned null, because the centre was not on the glass. The look is
+     the theme panel's own .swatchbtn, restored here because `#skin .swb`
+     is the more specific selector and was overruling it. */
+  #skin #skTheme{flex-direction:column;align-items:stretch;gap:6px}
+  #skin #skTheme .swb{flex:0 0 auto;width:100%;display:flex;align-items:center;gap:10px;
+    min-height:44px;padding:8px 10px;text-align:left;font-size:11px;
+    background:rgba(236,208,138,.06);border:1px solid rgba(201,162,94,.4);
+    border-radius:8px;color:var(--parch)}
+  #skin #skTheme .swb.on{border-color:var(--gold-b);background:rgba(236,208,138,.14)}
+  #skin #skTheme .swb b{font-variant:small-caps;letter-spacing:.1em;font-weight:normal;font-size:12.5px}
+  #skin #skTheme .swb small{display:block;font-size:10px;color:#b9af8f}
+  #skin #maskLook{display:flex;flex-direction:column;gap:9px}
+  #skin #themePanel{position:static;top:auto;right:auto;width:auto;z-index:auto;display:flex;
+    background:none;border:none;border-radius:0;box-shadow:none;padding:0}
+  /* A CONTROL THAT EXISTS TWICE IS HIDDEN, NEVER DELETED. Live code and the
+     QA suites reach into both copies by id, and the pairs are two-way bound
+     already, so the hidden half keeps working and keeps agreeing. */
+  #skin .srow[data-dup],#skin .customrow[data-dup]{display:none}
+  /* R53 IN A SELECTOR. Above this line a control changes one person's view.
+     Below it a control changes the village's own record, and only a builder
+     sees it. */
+  /* THE TIE THAT LOST. `#skin [data-village]` and `#skin .srow` are both
+     (0,1,1,0) and the .srow rule is declared six hundred lines further
+     down, so it won and the village's own words stayed on screen for
+     everybody. MEASURED with body.can-edit off: 58, 95, 170 and 45 px of
+     rows that a member must never see. Naming the class alongside the
+     attribute settles it on specificity instead of on source order, which
+     is the only tiebreak that cannot be undone by an edit somewhere else
+     in the sheet. */
+  #skin .srow[data-village],#skin [data-village]{display:none}
+  body.can-edit #skin .srow[data-village],body.can-edit #skin [data-village]{display:flex}
+  #skin #skSave,#skin #skReset{display:none}
+  body.can-edit #skin #skSave,body.can-edit #skin #skReset{display:inline-block}
+  #skin .vhead{flex-direction:column;gap:2px;margin-top:6px;padding-top:9px;
+    border-top:1px solid rgba(201,162,94,.3)}
+  #skin .vhead b{font-variant:small-caps;letter-spacing:.14em;font-weight:normal;
+    font-size:11px;color:var(--gold)}
+  #skin .vhead small{font-size:10px;color:#8f855f;line-height:1.4}
+  /* THE WAY OUT, IN THE HEADER, AT THE SIZE A THUMB NEEDS. The theme panel
+     had no close control of any kind and this one had a bare glyph in a
+     row a member never sees. */
+  #skin h3{display:flex;align-items:center;gap:8px}
+  #skin #skX,#wall #wallX{margin-left:auto;flex:0 0 44px;min-width:44px;min-height:44px;
+    appearance:none;-webkit-appearance:none;background:none;border:none;cursor:pointer;
+    color:var(--parch);font-family:inherit;font-size:16px;line-height:1;opacity:.75}
+  #skin #skX:hover,#wall #wallX:hover{opacity:1}
+  #skin #skX:focus-visible,#wall #wallX:focus-visible{outline:2px solid var(--gold-b);outline-offset:2px}
+  #wall h3{display:flex;align-items:center;gap:8px}
   #skin.show{display:flex}
   #skin h3{font-variant:small-caps;font-weight:normal;letter-spacing:.18em;color:var(--gold-b);font-size:13.5px}
   #skin .sub{font-size:10.5px;color:#b9af8f;line-height:1.45;margin-top:-4px}
@@ -836,7 +905,50 @@
 
 
   /* ---------- POCKET profile — the village in your hand ---------- */
-  body.pocket :is(#dock,#mapSel,#wallBtn,#loomBtn,#buildBtn,#minimapWrap,#attention,#themeBtn,#dayBtn,#layers,#skin,#buildBar){display:none!important}
+  /* #skin LEAVES THIS LIST AND #themeBtn STAYS ON IT, and that pairing is
+     the whole answer to "how do I edit map settings on mobile". Deleting
+     both would have put a 330 px panel anchored at right:14px top:96px onto
+     a 390 px screen, which is why they were hidden in the first place. The
+     panel gets a real pocket form below instead. #themeBtn is a desk button
+     anchored at right:356px with nowhere to stand here, so the pocket door
+     is a cell in the drawer, where every other way in already lives. */
+  body.pocket :is(#dock,#mapSel,#wallBtn,#loomBtn,#buildBtn,#minimapWrap,#attention,#themeBtn,#dayBtn,#layers,#buildBar){display:none!important}
+  /* THE SHEET, and it is the one this document already uses: #panel,
+     #moduleCard and #pdrawer all hinge off the bottom edge on the same
+     300 ms curve. Following it costs nothing and means a person who has
+     opened one of those has already learned this one.
+     THE FLOOR CLEARS #pbar AND THE HOME INDICATOR. The bottom bar is 60 px
+     plus its own safe-area padding and sits at z-index 60; a sheet whose
+     last row ends under it is the same defect as the tail under the
+     taskbar, one screen smaller. */
+  /* THE SHEET ENDS WHERE THE BAR BEGINS. It used to be `bottom:0` with a
+     padding that cleared its last row, which meant every row that scrolled
+     into the bottom 60 px was underneath #pbar (z-index 60) with nothing to
+     show for it. MEASURED: #skLbl reported visible, correctly sized and
+     fully opaque while elementFromPoint at its centre returned #pbAttn.
+     Resting the sheet's own floor on the bar's ceiling is the whole fix,
+     and 72% keeps the vitals strip and a strip of land in view above it. */
+  body.pocket #skin{display:flex;position:fixed;left:0;right:0;top:auto;bottom:-110%;
+    width:auto;height:72%;max-height:none;z-index:59;
+    border:none;border-top:2px solid #8a6a33;border-radius:16px 16px 0 0;
+    padding:12px 16px 16px;
+    overflow-y:auto;overscroll-behavior:contain;
+    transition:bottom .3s cubic-bezier(.2,.8,.3,1)}
+  body.pocket #skin.show{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
+  /* Every control in the sheet is a thumb target, including the ones the
+     desk draws at 26 px. */
+  body.pocket #skin .srow{min-height:44px}
+  /* NAMED ON THE CONTROL, NOT ON THE ROW. The first two passes said
+     `.srow input[type=color]` and missed the three wells inside the nested
+     theme panel's .customrow, which measured 30x24 on a phone. */
+  body.pocket #skin input[type=color]{width:56px;height:44px}
+  body.pocket #skin .srow input[type=range],body.pocket #skin .customrow input[type=range]{height:44px}
+  /* EVERY WAY INTO THE MAP ON A PHONE IS IN THIS DRAWER and every cell in
+     it was 40 px. Measured, not estimated. */
+  #pdrawer .pcell{min-height:44px}
+  body.pocket #skin .swb,body.pocket #skin .chip,body.pocket #skin .swatchbtn{min-height:44px}
+  body.pocket #skin select{min-height:44px}
+  @media (prefers-reduced-motion:reduce){body.pocket #skin{transition:none}}
   body.pocket #vitals .vital small{display:none}
   /* A pinch that lands a few pixels high, on the strip instead of the land,
      is still a pinch at the map. These two bars sit over the canvas and take
@@ -1265,13 +1377,18 @@
 </div>
 <div id="roleKey"><span class="role-k role-open"></span>open<span class="role-k role-part"></span>part filled<span class="role-k role-full"></span>full</div>
 <button id="dayBtn" title="Time of day">☀</button>
-<button id="themeBtn">✦ Theme</button>
+<!-- ONE DOOR. It used to open #themePanel and only that; it opens the whole
+     room now. The name changed with it: "Theme" described a third of what is
+     behind it, and the panel behind it is about how the village looks to the
+     person pressing it. -->
+<button id="themeBtn">✦ Your view</button>
 <div id="themePanel">
-  <h4>Map themes · your land, your language</h4>
-  <div id="themeList"></div>
+  <!-- The theme picker moved to #skTheme, which now renders these same rich
+       swatches and carries BOTH class names, so this host is gone and
+       `.swatchbtn` resolves to exactly one set of buttons again. -->
   <h4 style="margin-top:4px">Icon style</h4>
   <div style="display:flex;gap:6px;flex-wrap:wrap;row-gap:5px"><button class="chip" data-im="auto">✦ Auto</button><button class="chip" data-im="flat">Emblems</button><button class="chip" data-im="iso">Isometric</button><button class="chip on" data-im="painted">Painted</button></div>
-  <div class="customrow"><span style="width:44px;font-size:10px;color:#b9af8f;font-variant:small-caps">scale</span><input type="range" id="gScale" min="50" max="300" value="100" style="flex:1;accent-color:var(--gold)"><b id="gScaleV" style="width:34px;text-align:right;font-size:10.5px;font-weight:normal">100%</b></div>
+  <div class="customrow" data-dup="1"><span style="width:44px;font-size:10px;color:#b9af8f;font-variant:small-caps">scale</span><input type="range" id="gScale" min="50" max="300" value="100" style="flex:1;accent-color:var(--gold)"><b id="gScaleV" style="width:34px;text-align:right;font-size:10.5px;font-weight:normal">100%</b></div>
   <h4 style="margin-top:4px">Terrain</h4>
   <div style="display:flex;gap:6px"><button class="chip on" data-tm="sat">Satellite</button><button class="chip" data-tm="paint" id="tmPaint" style="display:none">Painted</button><button class="chip" data-tm="vector">Vector</button></div>
   <div id="paintCtl" style="display:none;flex-direction:column;gap:5px">
@@ -1302,7 +1419,10 @@
  <button data-m="library" data-tip="Material Library. Borrow with a deposit, wear quoted up front. · /library"></button>
  <button data-m="journeys" data-tip="Journeys. Walk a path on the land, visitor to resident."></button>
  <button data-m="events" data-tip="Events. The lanterns burn brighter as the day comes near."></button>
- <button data-m="admin" data-tip="Make this map yours. Theme, accent, labels, mist. · /admin?tab=setup"></button>
+ <!-- This opens Village Settings on the site, so it says Village Settings.
+      It carried the panel's name and its four field names while opening
+      something else, which is how one room came to have three doors. -->
+ <button data-m="admin" data-tip="Village Settings. The village's own colours and words, the record every view is drawn from. · /admin?tab=setup"></button>
 </div>
 <div id="vdrop"></div>
 <div id="pbar">
@@ -1345,26 +1465,46 @@
  <svg id="orgSvg" viewBox="0 0 1600 1050" preserveAspectRatio="xMidYMid meet"></svg>
 </div>
 <div id="skin">
- <h3>✂ Make this map yours</h3>
- <div class="sub">The map's page of <b>Make This Yours</b>. Blank keeps Amora's answer as the suggestion; whatever you set here travels with the map.</div>
+ <h3>✦ Your view of the village<button id="skX" type="button" aria-label="Close">✕</button></h3>
+ <!-- THE FIRST SENTENCE IS THE DESIGN LAW. "This is just a mask how people
+      prefer to look at their village." A person opening this needs to know
+      before they touch anything that they cannot break the village with it,
+      and the sentence has to feel like an invitation instead of a notice. -->
+ <div class="sub">Everything here changes how the map looks to you, and to nobody else. The land, the buildings and the boundaries stay exactly where they are.</div>
+ <div class="srow"><span class="slbl">building size</span><input type="range" id="skGS" min="50" max="300" value="100"><b id="skGSV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">100%</b></div>
  <div class="srow"><span class="slbl">land theme</span><span class="swrow" id="skTheme"></span></div>
- <div class="srow"><span class="slbl">your land, in words</span><input type="text" id="skWords" placeholder="e.g. volcanic coast, mango gold"></div>
+ <!-- WHERE THE THEME PANEL LANDS, and the position is the merge. Its icon
+      styles, terrain chips, paint dials, palette and the words field belong
+      directly under the theme picker, because they are the same decision
+      made in more detail. The dressing rows below it stay below it. -->
+ <div id="maskLook"></div>
+ <div class="srow" data-dup="1"><span class="slbl">your land, in words</span><input type="text" id="skWords" placeholder="e.g. volcanic coast, mango gold"></div>
  <div class="srow"><span class="slbl">accent</span><input type="color" id="skAccent" value="#e8a13c"><span class="amv">Amora's value: #e8a13c</span></div>
  <div class="srow"><span class="slbl">parchment</span><input type="color" id="skParch" value="#f3e6c8"><span class="amv">Amora's value: #f3e6c8</span></div>
  <div class="srow"><span class="slbl">label size</span><input type="range" id="skLbl" min="80" max="130" value="100"><b id="skLblV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">100%</b></div>
  <div class="srow"><span class="slbl">label style</span><select id="skLabelStyle"><option value="ribbon">ribbon · dark plate, parchment letters</option><option value="tablet">tablet · gold plaque, etched</option></select></div>
  <div class="srow"><span class="slbl">flow marks</span><select id="skFlow"><option value="glyph">a mark for every kind</option><option value="gold">one golden orb</option><option value="medium">a coloured dot</option></select></div>
- <div class="srow"><span class="slbl">icon style</span><select id="skIcon"><option value="auto">auto · emblems far, painted near</option><option value="painted">painted sprites</option><option value="iso">isometric emblems</option></select></div>
+ <div class="srow" data-dup="1"><span class="slbl">icon style</span><select id="skIcon"><option value="auto">auto · emblems far, painted near</option><option value="painted">painted sprites</option><option value="iso">isometric emblems</option></select></div>
  <div class="srow"><span class="slbl">dream mist</span><label style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#d8cba2;cursor:pointer"><input type="checkbox" id="skMist"> soft mist over unbuilt land <span class="amv">off = clean site map</span></label></div>
  <div class="srow"><span class="slbl">village pulse</span><label style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#d8cba2;cursor:pointer"><input type="checkbox" id="skGlow" checked> buildings shimmer when their conversations move</label></div>
- <div class="srow"><span class="slbl">map scale</span><input type="range" id="skGS" min="50" max="300" value="100"><b id="skGSV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">100%</b></div>
- <div class="srow"><span class="slbl">paint brush</span><input type="range" id="skBrush" min="0" max="100" value="100"><b id="skBrushV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">100%</b></div>
- <div class="srow"><span class="slbl">paint palette</span><input type="range" id="skPal" min="0" max="100" value="30"><b id="skPalV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">30%</b></div>
- <div class="srow"><span class="slbl">terrain</span><select id="skTerr"><option value="sat">satellite</option><option value="paint">painted</option><option value="vector">vector</option></select></div>
- <div class="srow" style="align-items:flex-start"><span class="slbl">zone words</span><span id="skVocab" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></span></div>
- <div class="srow" style="align-items:flex-start"><span class="slbl">flow types</span><span id="skMedia" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></span></div>
- <div class="srow" style="align-items:flex-start"><span class="slbl">phase names</span><span id="skPhases" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></span></div>
- <div class="srow" style="font-size:10px;color:#8f855f">painterly brush &amp; palette dials live under the terrain switch; they save into the same skin</div>
+ <!-- The size dial moved to the top of the panel, above the fold on a phone.
+      It is the control the founder asked for by name and it was the
+      eleventh row. -->
+ <div class="srow" data-dup="1"><span class="slbl">paint brush</span><input type="range" id="skBrush" min="0" max="100" value="100"><b id="skBrushV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">100%</b></div>
+ <div class="srow" data-dup="1"><span class="slbl">paint palette</span><input type="range" id="skPal" min="0" max="100" value="30"><b id="skPalV" style="font-weight:normal;font-size:11px;width:36px;text-align:right">30%</b></div>
+ <div class="srow" data-dup="1"><span class="slbl">terrain</span><select id="skTerr"><option value="sat">satellite</option><option value="paint">painted</option><option value="vector">vector</option></select></div>
+ <!-- EVERYTHING BELOW HERE IS THE SHARED RECORD, and a member never sees it.
+      Renaming a zone, a flow type or a phase changes the words on everyone's
+      map, which is a builder's act by the same law that keeps buildings and
+      boundaries in build mode. -->
+ <div class="srow vhead" data-village="1"><b>The village's own words</b><small>These are the shared record. Saving them changes what everyone sees.</small></div>
+ <div class="srow" data-village="1" style="align-items:flex-start"><span class="slbl">zone words</span><span id="skVocab" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></span></div>
+ <div class="srow" data-village="1" style="align-items:flex-start"><span class="slbl">flow types</span><span id="skMedia" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></span></div>
+ <div class="srow" data-village="1" style="align-items:flex-start"><span class="slbl">phase names</span><span id="skPhases" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></span></div>
+ <!-- The note that used to stand here sent a person to a second set of paint
+      dials under the terrain switch. There is one set now, it sits under the
+      terrain chips in this same panel, and it appears only when there is
+      paint on the land. -->
  <div style="display:flex;gap:8px;margin-top:3px">
   <button class="btn" id="skSave" style="font-size:11px;padding:5px 13px">Save map skin</button>
   <button class="btn ghostbtn" id="skReset" style="font-size:11px;padding:5px 13px">Reset to Amora</button>
@@ -1376,7 +1516,7 @@
 <div id="buildBar"><h3>Build mode · the founder's hand</h3><div id="palette"></div>
   <div id="buildFoot"><button class="chip" id="drawBtn">✎ Draw</button><button class="chip" id="spriteBtn">✦ Sprites</button><button class="chip" id="boundBtn">◇ Boundary</button><button class="chip" id="resolverBtn">⌖ Address a quest</button><button class="chip" id="skinBtn">✂ Make it yours</button><button class="chip" id="pubBtn">⚿ Public land</button><button class="chip" id="undoBtn">↩ Undo</button><button class="chip" id="exportBtn">⤓ Export scene</button><button class="chip" id="pubChip">⇧ Publish</button></div></div>
 <div id="ghostPoi"></div>
-<div id="wall"><h3>Get Involved · find somewhere to help</h3><div id="wallList" ></div></div>
+<div id="wall"><h3>Get Involved · find somewhere to help<button id="wallX" type="button" aria-label="Close">✕</button></h3><div id="wallList" ></div></div>
 <div id="loom">
  <div id="loomHead">
   <h3>⧉ The Loom</h3><span class="sub">every thread between work and place. Drag a ◉ grip onto a place at left, then Save</span>
@@ -2206,6 +2346,12 @@ function bakePainted(){if(paintReady||!satPlate)return;
       T2.B[i]=Math.max(0,Math.min(1, 0.0497*l10-0.2439*m10+1.2045*s10))*255}
     paintT=mk(T2);
     paintReady=true;buildPaintMix();
+    /* The tools were revealed by the terrain click handler and nowhere else,
+       so the answer was read once, at click time. A bake finishing after the
+       switch was thrown left the dials hidden with paint on the land. This
+       block is in an earlier <script> than syncPaintTools, so it is reached
+       through window and guarded; the terrain switch syncs anyway. */
+    if(window.syncPaintTools)window.syncPaintTools();
     const cchip=document.getElementById('tmPaint');if(cchip)cchip.style.display='';
     const ctl=document.getElementById('paintCtl');if(ctl&&terrainMode==='paint')ctl.style.display='flex';
   }catch(err){console.warn('painterly bake failed',err)}},60)}
@@ -2557,6 +2703,41 @@ cv.addEventListener('dblclick',e=>{window.GUIDE&&GUIDE.hand('tap');const[wx,wy]=
   for(const id of ['vitals','pbar','pnav']){const s=document.getElementById(id);if(!s)continue;
     for(const t of ['gesturestart','gesturechange','gestureend'])
       s.addEventListener(t,e=>{if(e.cancelable)e.preventDefault()},{passive:false})}})();
+/* THE BUILDING A FINGER IS AIMING AT, which is not the same box as the one
+   that used to take the tap. MEASURED at 390x844 with trusted touch input,
+   19 painted buildings on screen: the median building showed 75x66 px of
+   art and offered a 45x45 hit box, 17 px of it standing clear above the box
+   altogether. 42% of the building a person could see was pressable and the
+   roof, which is what anybody aims at, was dead. The sprite is
+   pointer-events:none, so a tap on it fell through to the canvas, and
+   hitStruct measures a radius around the ANCHOR in world space and does not
+   know the art stands above it.
+   THE SPRITE STAYS TRANSPARENT TO POINTERS, deliberately. Turning it on was
+   one CSS word and would have cost the map its pan: touchNav is bound to
+   #scene, so a finger landing on a building would never reach it and a drag
+   begun on a roof would move nothing. Testing the rendered art HERE, on the
+   click that already falls through, keeps the pan and opens the door.
+   RECTS, NOT ARITHMETIC: the sprite's box is height, a bottom offset, a
+   translate and the camera's own transform, and asking the browser is the
+   only reading that cannot drift from what was painted. It runs on a click
+   and never on a frame. Nearest centre wins where art overlaps, so the
+   building whose middle is closest to the thumb is the one that opens.
+   CALLED ONLY FROM THE CLICK PATH. updateHover runs on every pointermove
+   and a rect per building per move forces a layout flush on a five megabyte
+   document; .poi already carries cursor:pointer over its own box. */
+function hitArt(px,py){
+  if(typeof pEls==='undefined')return null;
+  let best=null,bd=1e9;
+  for(const k in pEls){const el=pEls[k],s=BY[k];if(!el||!s)continue;
+    if(mode==='now'&&s.state==='blueprint'&&(typeof buildMode==='undefined'||!buildMode))continue;
+    for(const a of el.querySelectorAll('.sprite,.sprite-wip')){
+      if(getComputedStyle(a).display==='none')continue;
+      const r=a.getBoundingClientRect();
+      if(!r.width||px<r.left||px>r.right||py<r.top||py>r.bottom)continue;
+      const d=(px-(r.left+r.width/2))**2+(py-(r.top+r.height/2))**2;
+      if(d<bd){bd=d;best=s}}}
+  return best}
+window.hitArt=hitArt;
 function hitStruct(px,py){const[wx,wy]=screenToWorld(px,py);let best=null,bd=1e9;
   for(const f of SCENE.features){if(f.kind!=='structure-area'||!f.owner)continue;
     const s=BY[f.owner];if(!s)continue;
@@ -2572,7 +2753,10 @@ cv.addEventListener('click',e=>{if(Math.abs(cam.vx)+Math.abs(cam.vy)>1.5)return;
      still happens, because it answers the tap. */
   window.GUIDE&&GUIDE.hand('tap');
   if(typeof boundaryMode!=='undefined'&&boundaryMode&&buildMode)return; // the line owns clicks in boundary mode
-  const s=hitStruct(e.clientX,e.clientY);if(s)(typeof buildMode!=='undefined'&&buildMode?openInspect:openPanel)(s.key)});
+  /* The art first, then the wider radius. A tap that landed on a building's
+     roof used to reach here and find nothing, because the roof is outside
+     every box hitStruct measures. */
+  const s=hitArt(e.clientX,e.clientY)||hitStruct(e.clientX,e.clientY);if(s)(typeof buildMode!=='undefined'&&buildMode?openInspect:openPanel)(s.key)});
 
 /* ---------- ambient state ---------- */
 let dayPhase=0.25; // 0 dawn → .5 noon →  1.5 dusk → 2 night (we use 0..2 cycle displayed)
@@ -3140,6 +3324,13 @@ const PROMISE_WHY={
   'not-yet':'Your account cannot take this one yet. A steward can open it for you.',
   full:'That one is full. The door stays open for the next.',
   closed:'That is not open to anyone right now.',
+  /* A SEAT WITH A PRICE IS NOT A CLOSED DOOR, and saying so was false to a
+     member who could have walked in. The map's lantern is one tap on a
+     building with no cost anywhere near it, so the route refuses to spend
+     credits through it, which is right and stays. server/index.ts sends
+     `closed` for this today and says why in its own comment: the reason
+     had no copy here to send. It has copy now. */
+  paid:'That gathering asks for credits at the door, so one tap cannot say yes to it.',
   /* The map ships a sample village. Until someone imports the scene the site
      has no row for any of it, and that is the ordinary state of a fresh fork
      rather than something going wrong. */
@@ -3160,6 +3351,15 @@ function promiseResult(d){
     return}
   if(p.undo)p.undo();
   toast(PROMISE_WHY[d.reason]||PROMISE_WHY.error);
+  /* ONWARD, NOT A DEAD END. Same shape as the anonymous case below: the
+     refusal names the remedy and carries the way to it. The route's own
+     href when it sends one, and the Events room when it does not, because
+     that is the door in this product that prints a seat price before
+     anybody agrees to it. */
+  if(d.reason==='paid')
+    maiaSay(`This one has a price on its seat, so a single tap will not spend your credits. `+
+      `<a href="${safeHref(d.href||'/events')}" target="_blank" rel="noopener">Open the gathering</a>`+
+      ` and you will see what a seat costs before you say yes.`);
   if(d.reason==='anonymous'&&d.href)
     maiaSay(`That one is kept against your name, so it needs a name. <a href="${safeHref(d.href)}" target="_blank" rel="noopener">Sign in</a> and tap it again; nothing is lost.`);
 }
@@ -4194,6 +4394,7 @@ $('dayBtn').onclick=()=>{dayAuto=false;dayPhase=(dayPhase<0.5)?1.45:(dayPhase<1.
 
 /* wall */
 $('wallBtn').onclick=()=>{$('wall').classList.toggle('show');buildWall()};
+if($('wallX'))$('wallX').onclick=()=>$('wall').classList.remove('show');
 function wallGo(k,tab){if(!k||!BY[k])return;buildMode?openInspect(k):openPanel(k,tab)}
 function buildWall(){
   const stranded=SCENE.structures.filter(s=>s.stranded);
@@ -4209,16 +4410,24 @@ function buildWall(){
   SCENE.quests.map(x=>`<div class="wallrow" ${x.at&&BY[x.at]?`onclick="wallGo('${escj(x.at)}',1)"`:''}><b>⚑ ${escq(x.q)}</b><span>${x.at&&BY[x.at]?escq(BY[x.at].name)+' · ':'Quest Board · not yet placed · '}${escq(x.r)}</span></div>`).join('')}
 
 /* theme panel */
-(function(){const list=$('themeList');
+/* The rich swatches this built now come out of renderSkinThemes(), into the
+   merged panel's own theme row, so this host no longer exists and this
+   block stands down. Kept rather than deleted because a scene published
+   before the merge can still be opened in a file that has it. */
+(function(){const list=$('themeList');if(!list)return;
   Object.values(THEMES).forEach(t=>{const b=document.createElement('button');
     b.className='swatchbtn'+(t===THEME?' on':'');b.dataset.k=t.label;
     b.innerHTML=`<span class="dots"><i style="background:${t.v['--t-surface']}"></i><i style="background:${t.v['--t-ring']}"></i><i style="background:${t.v['--t-accent']}"></i></span><span><b>${t.label}</b><small>${t.sub}</small></span>`;
     b.onclick=()=>applyTheme(t,`Theme: <b>${t.label}</b>. Same land, same truth, new language. Every emblem, ring, and crown just re-inked itself.`);
     list.appendChild(b)})})();
-$('themeBtn').onclick=()=>$('themePanel').classList.toggle('show');
+/* ONE ROOM, REACHED FROM ONE BUTTON. #themePanel is moved inside #skin the
+   first time either is opened, and the two `show` classes are kept in step
+   from here on so that anything still asking whether the theme panel is
+   open gets a true answer about the room it now lives in. */
+$('themeBtn').onclick=()=>toggleMask();
 document.querySelectorAll('[data-tm]').forEach(b=>b.onclick=()=>{terrainMode=b.dataset.tm;mmDirty=true;
   document.querySelectorAll('[data-tm]').forEach(x=>x.classList.toggle('on',x===b));
-  $('paintCtl').style.display=(terrainMode==='paint'&&paintReady)?'flex':'none';
+  syncPaintTools();
   toast(terrainMode==='sat'?'Satellite. Your actual land, graded into the theme.':
        terrainMode==='paint'?'Painted. Your satellite in brushstrokes; nothing moves, only the paint.':
        'Vector floor. The drawn land every village gets on day one.')});
@@ -4631,7 +4840,12 @@ addEventListener('keydown',e=>{
   if(k==='t'||k==='T')startTour();
   if(k==='v'||k==='V')setMode(mode==='now'?'vision':'now');
   if(k==='w'||k==='W'){$('wall').classList.toggle('show');buildWall()}
-  if(k==='Escape'){$('panel').classList.remove('open');panelKey=null;$('module').classList.remove('show');$('attnCard').classList.remove('show');closeInspect();$('resolver')&&$('resolver').classList.remove('show')}
+  /* The merged panel and the Wall join the line. Both could be opened and
+     neither could be closed by the key every other pane answers to; the
+     theme panel had no close control of any kind. This handler returns
+     early on INPUT, TEXTAREA and SELECT twenty lines up, so Escape while
+     somebody is typing a theme into the panel never reaches here. */
+  if(k==='Escape'){$('panel').classList.remove('open');panelKey=null;$('module').classList.remove('show');$('attnCard').classList.remove('show');closeInspect();$('resolver')&&$('resolver').classList.remove('show');window.closeMask&&closeMask();$('wall')&&$('wall').classList.remove('show')}
   clampCam()});
 
 /* ---------- build mode: the founder's hand (layout editor) ---------- */
@@ -7218,10 +7432,75 @@ document.addEventListener('keydown',e=>{if(e.key!=='Escape'||!JWALK)return;
 /* ---------- the skin step: Make This Yours, for the land ---------- */
 const SKIN={theme:'Emerald Atlas',words:'',accent:null,parch:null,lbl:100,mist:false,glow:true,
   flow_style:'glyph',label_style:'ribbon'};window.SKIN=SKIN; // 'glyph'|'gold'|'medium' · 'ribbon'|'tablet'
-function openSkin(){$('skin').classList.add('show');renderSkinThemes()}
+/* THE ONE PLACE THE PAINT DIALS ARE ANSWERED. Called from the terrain
+   switch, from the moment a bake completes, and once at boot, so the
+   question is asked wherever either half of the answer can change.
+   The `painted` OPTION goes with them: offering a terrain the file cannot
+   draw yet is the same defect one step earlier, and #tmPaint already hid
+   itself for exactly this reason. */
+function syncPaintTools(){
+  const ready=(typeof paintReady!=='undefined')&&paintReady;
+  const on=ready&&(typeof terrainMode!=='undefined')&&terrainMode==='paint';
+  const pc=$('paintCtl');if(pc)pc.style.display=on?'flex':'none';
+  const tp=$('tmPaint');if(tp)tp.style.display=ready?'':'none';
+  const st=$('skTerr'),op=st&&st.querySelector('option[value="paint"]');
+  if(op)op.hidden=!ready}
+window.syncPaintTools=syncPaintTools;
+/* THE MASK: what one person prefers to see, kept in their own browser.
+   R53, in the founder's words: "this is just a mask how people prefer to
+   look at their village". It is not the village's skin, it is never
+   published, and it never becomes an entry in the shared edit log. */
+const MASK_KEY='amora-map-mask';
+function maskRead(){try{return JSON.parse(localStorage.getItem(MASK_KEY)||'{}')||{}}catch(_){return{}}}
+function maskWrite(p){try{const m=maskRead();Object.assign(m,p);
+  localStorage.setItem(MASK_KEY,JSON.stringify(m))}catch(_){}}
+window.maskRead=maskRead;window.maskWrite=maskWrite;
+/* ONE ROOM. The move is a single appendChild and it is what makes merging a
+   panel into another panel safe in a file this size: every control keeps
+   the element it was built on, the listener that was bound to it and the
+   state it holds. Nothing is re-implemented, so nothing can disagree. */
+function maskMount(){const h=$('maskLook'),tp=$('themePanel');
+  if(h&&tp&&tp.parentNode!==h)h.appendChild(tp);return h}
+function openMask(){maskMount();
+  /* ONE SHEET AT A TIME, the rule #help already keeps: the drawer, the help
+     sheet and this all hang off the same 60 px bar on a 390 px screen, and
+     a control underneath another sheet is a control nobody can press. */
+  if(document.body.classList.contains('pocket')){
+    const dr=$('pdrawer');if(dr)dr.classList.remove('open');
+    if(window.closeHelp)closeHelp();
+    document.body.classList.remove('msheet')}
+  $('skin').classList.add('show');
+  /* OPEN AT THE TOP. The panel scrolls its own tail now, so it also KEPT a
+     scroll position: read to the bottom, close, open again, and you
+     arrived below the header with no heading, no first sentence and no way
+     out in view. MEASURED on the desk: #skX at 44x44, fully styled, and
+     elementFromPoint at its centre returned null because it sat above the
+     panel's own top edge. */
+  $('skin').scrollTop=0;
+  const tp=$('themePanel');if(tp)tp.classList.add('show');
+  renderSkinThemes();syncPaintTools();
+  if(window.hap)hap(8)}
+function closeMask(){$('skin').classList.remove('show');
+  const tp=$('themePanel');if(tp)tp.classList.remove('show')}
+function toggleMask(){$('skin').classList.contains('show')?closeMask():openMask()}
+window.openMask=openMask;window.closeMask=closeMask;window.toggleMask=toggleMask;
+/* The old name is the one the module card and verify_doors call. */
+function openSkin(){openMask()}
 window.openSkin=openSkin;
-function renderSkinThemes(){$('skTheme').innerHTML=Object.values(THEMES).map(t=>
-  `<button class="swb${THEME.label===t.label?' on':''}" data-t="${t.label}">${t.label}</button>`).join('');
+/* THE ONE THEME PICKER, carrying both panels' markup and both their class
+   names. The merged room had two: plain buttons here and richer swatches
+   with colour dots and a description in the theme panel. This row keeps the
+   dots and the description, and keeps `swb` AND `swatchbtn` AND `data-t` AND
+   `data-k`, so applyTheme's on-flag sweep, the door suite's
+   `#skTheme .swb[data-t=...]` and the matrix's `.swatchbtn:nth-of-type(N)`
+   all still land on the same buttons. */
+function renderSkinThemes(){const h=$('skTheme');if(!h)return;
+  h.innerHTML=Object.values(THEMES).map(t=>
+  `<button class="swb swatchbtn${THEME.label===t.label?' on':''}" data-t="${t.label}" data-k="${t.label}">`+
+  `<span class="dots"><i style="background:${t.v['--t-surface']}"></i>`+
+  `<i style="background:${t.v['--t-ring']}"></i>`+
+  `<i style="background:${t.v['--t-accent']}"></i></span>`+
+  `<span><b>${t.label}</b><small>${t.sub}</small></span></button>`).join('');
   $('skTheme').querySelectorAll('.swb').forEach(b=>b.onclick=()=>{const t=Object.values(THEMES).find(x=>x.label===b.dataset.t);
     if(t){SKIN.theme=t.label;SKIN.words='';$('skWords').value='';applyTheme(t);applySkinOverrides();renderSkinThemes()}})}
 function applySkinOverrides(){
@@ -7273,8 +7552,11 @@ if($('skFlow'))$('skFlow').onchange=()=>{SKIN.flow_style=$('skFlow').value;
 if($('skLabelStyle'))$('skLabelStyle').onchange=()=>{SKIN.label_style=$('skLabelStyle').value;applyDress();
   logEdit('label-style','skin',{to:SKIN.label_style});toast('Labels: '+$('skLabelStyle').selectedOptions[0].textContent+'.')};
 applyDress();
-$('skinBtn').onclick=()=>$('skin').classList.toggle('show')&&renderSkinThemes()||renderSkinThemes();
-$('skClose').onclick=()=>$('skin').classList.remove('show');
+/* A builder already in build mode keeps a chip to the same room. Two doors
+   to one panel is the fix; three doors to two panels was the complaint. */
+$('skinBtn').onclick=()=>toggleMask();
+$('skClose').onclick=()=>closeMask();
+if($('skX'))$('skX').onclick=()=>closeMask();
 $('skWords').addEventListener('change',()=>{const v=$('skWords').value.trim();if(!v)return;
   SKIN.words=v;SKIN.theme=null;applyTheme(themeFromWords(v));applySkinOverrides();renderSkinThemes();
   toast('A theme grown from your words. Save makes it yours.')});
@@ -7493,12 +7775,27 @@ window.GSCALE=1;
 function setGScale(v,quiet){window.GSCALE=v/100;document.documentElement.style.setProperty('--gScale',v/100);
   ['gScale','skGS'].forEach(id=>{const el=$(id);if(el&&+el.value!==v)el.value=v});
   const gv=$('gScaleV');if(gv)gv.textContent=v+'%';const sv=$('skGSV');if(sv)sv.textContent=v+'%';
-  mmDirty=true;if(!quiet)logEdit('skin','map',{global_scale:v/100})}
+  /* THE MASK, NOT THE RECORD. Every drag of this used to write an entry in
+     the village's shared edit log and nothing at all in the browser, so a
+     personal preference became a shared fact AND was thrown away on reload.
+     R53 says this dial changes how big the houses look TO YOU. It is kept
+     in this browser and it is kept for good. The village's own skin export
+     still carries global_scale untouched, because publishing a skin is a
+     different act from a person choosing how big to see the houses. */
+  mmDirty=true;if(!quiet&&window.maskWrite)maskWrite({scale:v})}
 window.setGScale=setGScale;
 $('gScale').oninput=()=>setGScale(+$('gScale').value,true);
 $('gScale').onchange=()=>setGScale(+$('gScale').value);
 $('skGS').oninput=()=>setGScale(+$('skGS').value,true);
 $('skGS').onchange=()=>setGScale(+$('skGS').value);
+/* PUT THE MASK BACK ON. Quiet, so restoring what this browser already chose
+   is not itself recorded as a choice. Clamped to the dial's own range so a
+   hand-edited or corrupted value cannot leave somebody on a map they cannot
+   read and cannot fix. */
+(function maskBoot(){const m=maskRead();
+  const v=Math.round(+m.scale);
+  if(v>=50&&v<=300&&v!==100)setGScale(v,true);
+  syncPaintTools()})();
 /* the wizard shows every dial — same handlers, two homes, one truth */
 $('skBrush').oninput=()=>{$('pBrush').value=$('skBrush').value;$('pBrush').dispatchEvent(new Event('input'));$('skBrushV').textContent=$('skBrush').value+'%'};
 $('skPal').oninput=()=>{$('pPal').value=$('skPal').value;$('pPal').dispatchEvent(new Event('input'));$('skPalV').textContent=$('skPal').value+'%'};
@@ -7850,7 +8147,7 @@ window.bandBox=function(which){const b=BAND_BOX[which];return b?{top:b.top,botto
        cannot resurrect an older wording. */
     iScale:'Size only changes how large this place stands on the map, from half to double.',
     gScale:'Everything larger or smaller together. Icons and their names move as one.',
-    skGS:'Everything larger or smaller together. Icons and their names move as one.',
+    skGS:'How large the buildings stand on your screen. Yours alone, and it keeps.',
     pBrush:'How much paint sits over the satellite. Zero is the bare land.',
     pPal:'How far the colours lean toward the painted palette.',
     skBrush:'How much paint sits over the satellite. Zero is the bare land.',
@@ -7859,7 +8156,9 @@ window.bandBox=function(which){const b=BAND_BOX[which];return b?{top:b.top,botto
     skMist:'Soft mist over the unbuilt south. Off keeps the site map clean.',
     skGlow:'Buildings shimmer when their conversations move. Sample feed for now.',
     dayBtn:'Turn the hour. The land keeps its own light.',
-    themeBtn:'Themes, icon styles, terrain and the one big scale dial.'};
+    skX:'Close this and go back to the land.',
+    wallX:'Close this and go back to the land.',
+    themeBtn:'How the village looks to you. Size, theme, terrain and the words on the land.'};
   for(const id in TIPS){const el=document.getElementById(id);if(el){el.setAttribute('data-tip',TIPS[id]);el.removeAttribute('title')}}
   document.querySelectorAll('#themePanel [title],#skin [title],#dock [title]').forEach(el=>{
     el.setAttribute('data-tip',el.getAttribute('title'));el.removeAttribute('title')})})();
@@ -8516,13 +8815,15 @@ function renderDrawer(){const d=$('pdrawer');if(!d)return;
     <button class="pcell" data-pa="wall">⚑ <span>Get Involved</span></button>
     <button class="pcell" data-pa="loom">⧉ <span>The Loom (view)</span></button>
     <button class="pcell" data-pa="walk">➹ <span>Take the walk again</span></button>
+    <button class="pcell" data-pa="mask">✦ <span>Your view</span></button>
     <button class="pcell" data-pa="exit">⏏ <span>Leave the map</span></button></div>
-   <div style="font-size:10px;color:#8f855f;margin-top:10px">building and rewiring live on the desktop map. Here the land is yours to wander.</div>`;
+   <div style="font-size:10px;color:#8f855f;margin-top:10px">the look of the map is yours to set here. Building and rewiring live on the desktop map.</div>`;
   d.querySelectorAll('[data-pm]').forEach(b=>b.onclick=()=>{d.classList.remove('open');openDoor(b.dataset.pm,{});hap(8)});
   d.querySelectorAll('[data-pa]').forEach(b=>b.onclick=()=>{d.classList.remove('open');const a=b.dataset.pa;hap(8);
     if(a==='wall'){$('wall').classList.add('show');buildWall()}
     if(a==='loom')openLoom();
     if(a==='walk')startWalk(true);
+    if(a==='mask')openMask();
     if(a==='exit')exitMap()})}
 if($('pbMore'))$('pbMore').onclick=()=>{renderDrawer();$('pdrawer').classList.toggle('open');hap(8)};
 /* THE DOOR OUT, IN THE BOTTOM PANEL WHERE A THUMB ALREADY IS. It used to be
