@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { useGameConfig, authToken } from "@/lib/gameApi";
 import { useAuth } from "@/contexts/AuthContext";
+import { useFocusTarget } from "@/lib/useFocusTarget";
 
 interface MechanicsVariable {
   key: string;
@@ -224,6 +225,11 @@ export default function GameMechanics() {
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [problems, setProblems] = useState<Array<{ key: string; problem: string }>>([]);
+
+  // A notification about a proposal lands ON the proposal. The dependency is
+  // the list length because the target arrives with the fetch, not with the
+  // first paint.
+  useFocusTarget([proposals.length]);
 
   const loadProposals = useCallback(() => {
     fetch("/api/game/mechanics/proposals")
@@ -586,7 +592,14 @@ export default function GameMechanics() {
                     // the server answers an honest 403 for anyone else.
                     const status = STATUS_COPY[p.status];
                     return (
-                      <div key={p.id} className="bg-white rounded-xl border border-stone-200 p-4">
+                      <div
+                        key={p.id}
+                        // The anchor a notification lands on. `scroll-mt-24`
+                        // keeps it out from under the sticky header, which is
+                        // SC 2.4.11 and not a preference.
+                        id={`proposal-${p.id}`}
+                        className="bg-white rounded-xl border border-stone-200 p-4 scroll-mt-24 focus:outline-none"
+                      >
                         <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                           <h3 className="font-semibold text-stone-900">{p.title}</h3>
                           <span className={`text-xs px-2 py-0.5 rounded-full ${status.cls}`}>{status.label}</span>

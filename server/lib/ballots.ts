@@ -480,3 +480,60 @@ export async function votesFor(pool: Pool, ballotId: string) {
     castAt: iso(r.cast_at),
   }));
 }
+
+// ── Who to tell, and when (round 5, lane NOTIFY) ─────────────────────────────
+//
+// The engine froze an electorate at open and then told nobody. A vote opened,
+// ran its window and closed, and the only member who ever heard about it in
+// the bell was the proposer. These three readers are what the notification
+// spine needs to reach the people a ballot is actually asking.
+//
+// All three read the FROZEN roll (`ballot_electorate`), never a live member
+// list, for the same reason every other evaluation does: the people asked are
+// the people who were asked, and somebody who joined yesterday was not.
+
+/** Everyone on the frozen roll. */
+export async function electorateOf(pool: Pool, ballotId: string): Promise<string[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT user_id FROM ballot_electorate WHERE ballot_id = ?",
+    [ballotId],
+  );
+  return rows.map((r) => String(r.user_id));
+}
+
+/**
+ * On the roll, and still owes an answer. A LEFT JOIN and not a NOT IN: a
+ * ballot with no votes at all makes `NOT IN (empty)` behave differently
+ * across engines, and this shape reads the same everywhere.
+ */
+export async function awaitingVote(pool: Pool, ballotId: string): Promise<string[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT e.user_id FROM ballot_electorate e " +
+      "LEFT JOIN ballot_votes v ON v.ballot_id = e.ballot_id AND v.user_id = e.user_id " +
+      "WHERE e.ballot_id = ? AND v.user_id IS NULL",
+    [ballotId],
+  );
+  return rows.map((r) => String(r.user_id));
+}
+
+/**
+ * Open ballots whose window shuts inside `hours`, and open ballots whose
+ * window already shut. The second set is not a failure: closing is a human
+ * act by design, so an expired-but-open ballot is a ballot waiting for a
+ * person, and somebody has to be told which person.
+ */
+export async function ballotsNeedingAttention(
+  pool: Pool,
+  hours: number,
+): Promise<{ closingSoon: BallotRow[]; pastWindow: BallotRow[] }> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT * FROM ballots WHERE status = 'open' AND closes_at <= (NOW() + INTERVAL ? HOUR) ORDER BY closes_at",
+    [Math.max(1, Math.floor(hours))],
+  );
+  const now = Date.now();
+  const all = rows.map(rowToBallot);
+  return {
+    closingSoon: all.filter((b) => Date.parse(b.closesAt) > now),
+    pastWindow: all.filter((b) => Date.parse(b.closesAt) <= now),
+  };
+}

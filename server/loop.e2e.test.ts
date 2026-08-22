@@ -1369,11 +1369,40 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const doerBell = await api("GET", "/api/notifications", undefined, doerToken);
     expect(doerBell.json.notifications.map((n: any) => n.type)).toContain("quest_consented");
 
-    // Anonymous is refused; mark-all-read zeroes the badge.
+    // Anonymous is refused.
     expect((await api("GET", "/api/notifications")).status).toBe(401);
+
+    /*
+     * SEEN IS NOT READ. The bell used to mark everything read the moment it
+     * opened, so a member who glanced at it lost the record of what they had
+     * actually dealt with.
+     *
+     * Opening quiets the BADGE (unseen) and leaves every row's read state
+     * exactly where it was. Unseen is a subset of unread by construction, so
+     * this is also the assertion that it can never exceed it.
+     */
+    const before = await api("GET", "/api/notifications", undefined, peerToken);
+    expect(before.json.unseenCount).toBeGreaterThan(0);
+    expect(before.json.unseenCount).toBeLessThanOrEqual(before.json.unreadCount);
+    expect((await api("POST", "/api/notifications/seen", {}, peerToken)).status).toBe(200);
+    const seen = await api("GET", "/api/notifications", undefined, peerToken);
+    expect(seen.json.unseenCount, "opening the bell quiets the badge").toBe(0);
+    expect(seen.json.unreadCount, "and marks nothing read").toBe(before.json.unreadCount);
+    // The cheap poll answers the same three facts as the full read.
+    const pulse = await api("GET", "/api/notifications?count=1", undefined, peerToken);
+    expect(pulse.json.unseenCount).toBe(0);
+    expect(pulse.json.unreadCount).toBe(before.json.unreadCount);
+    expect(pulse.json.notifications, "the poll builds no list").toBeUndefined();
+    expect(String(pulse.json.latestAt)).toBe(String(before.json.notifications[0].at));
+
+    // Mark-all-read is the explicit act, and it says how many it touched.
     const marked = await api("POST", "/api/notifications/read", {}, peerToken);
     expect(marked.status).toBe(200);
+    expect(marked.json.marked).toBe(before.json.unreadCount);
     expect((await api("GET", "/api/notifications", undefined, peerToken)).json.unreadCount).toBe(0);
+    // The rows are still THERE. Read is a display state and never a deletion.
+    expect((await api("GET", "/api/notifications", undefined, peerToken)).json.notifications.length)
+      .toBe(before.json.notifications.length);
 
     // Prefs: junk writes echo back as validated defaults; real writes stick.
     const junk = await api("PUT", "/api/profile/prefs", { notify: { gratitudeEmail: "hourly", nonsense: 1 } }, peerToken);
@@ -5230,6 +5259,33 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(record.json.status).toBe("passed");
     expect(record.json.outcomeNote).toContain("longer sensing");
     expect(record.json.votes.length).toBe(5);
+
+    /*
+     * THE ROLL HEARS IT. The engine used to freeze an electorate and tell it
+     * nothing: a vote could open, run its window and close with the proposer
+     * as the only member who ever saw it.
+     *
+     * Both notices fire WITHOUT an await, because a trace must never hold up
+     * the deed it traces, so this reads with a short bounded wait instead of
+     * assuming the inserts beat the response. Twenty reads and no sleeps: each
+     * one is a real round trip, which is all the yielding this needs.
+     */
+    let rollNotes: any[] = [];
+    for (let i = 0; i < 20; i++) {
+      const bell = await api("GET", "/api/notifications", undefined, voters[2].token);
+      rollNotes = (bell.json.notifications ?? []).filter((n: any) =>
+        String(n.link ?? "").includes(`proposal-${proposalId}`),
+      );
+      if (rollNotes.some((n: any) => n.type === "ballot_carried")) break;
+    }
+    const rollTypes = rollNotes.map((n: any) => n.type);
+    expect(rollTypes, "a voter on the roll heard the vote open").toContain("ballot_opened");
+    expect(rollTypes, "and heard what the village decided").toContain("ballot_carried");
+    // The outcome note travels with it, so the bell carries the reasoning and
+    // not only the verdict.
+    expect(String(rollNotes.find((n: any) => n.type === "ballot_carried")?.body)).toContain("longer sensing");
+    // And the link lands on the proposal itself, not the top of the page.
+    expect(String(rollNotes[0].link)).toContain("/game-mechanics?focus=proposal-");
     const lateVote = await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "no" }, voters[1].token);
     expect(lateVote.status).toBe(409);
     // And a second close changes nothing.

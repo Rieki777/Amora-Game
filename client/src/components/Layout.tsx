@@ -5,6 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModules } from "@/modules/ModuleProvider";
 import NotificationBell from "@/components/NotificationBell";
+import NotificationToasts from "@/components/NotificationToasts";
 import { altOr, useGameConfig } from "@/lib/gameApi";
 import { NAV, ACCOUNT_MENU, isGroup, type NavLink, type NavGroup } from "@/config/nav";
 import MobileTabBar, { isBareRoute } from "./mobile/MobileTabBar";
@@ -645,6 +646,11 @@ export default function Layout({ children }: LayoutProps) {
 
       <MobileTabBar />
       <MobileFab />
+      {/* ONCE, deliberately. The bell above renders twice (desktop bar, mobile
+          bar) and CSS hides one of them; React mounts both. The celebration
+          surface and the page's single polite live region live here so a
+          member never sees the same moment twice. */}
+      {user && <NotificationToasts />}
     </div>
   );
 }
