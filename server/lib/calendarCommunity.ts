@@ -23,6 +23,7 @@ import {
   type SlotKind,
 } from "../../shared/gatherings";
 import { cleanRecurrence, iso } from "./calendar";
+import { chargeForPlace, refundPlace } from "./eventSeats";
 
 const newId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -155,8 +156,12 @@ export async function promoteForCapacityChange(pool: Pool, eventId: string): Pro
 // ── Joining and leaving the queue ────────────────────────────────────────────
 
 export type JoinWaitlistOutcome =
-  | { ok: true; position: number; waiting: number; duplicate: boolean }
-  | { ok: false; reason: "not_found" | "not_open" | "not_full" | "already_going" };
+  | { ok: true; position: number; waiting: number; duplicate: boolean; charged?: number; tokenType?: string | null }
+  /**
+   * 0092: `unpaid` carries a sentence, because a queue that costs credits has
+   * to say what it costs and what the balance was.
+   */
+  | { ok: false; reason: "not_found" | "not_open" | "not_full" | "already_going" | "unpaid"; message?: string };
 
 /**
  * Queue for a seat. Refused unless the gathering is genuinely full right now,
@@ -170,6 +175,8 @@ export async function joinWaitlist(
   userId: string,
   occurrenceKey?: string,
 ): Promise<JoinWaitlistOutcome> {
+  /** Filled by the queue transaction, acted on once it has closed. */
+  let queued: { occ: string; position: number; waiting: number; duplicate: boolean } | null = null;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -236,22 +243,63 @@ export async function joinWaitlist(
       [eventId, occ, eventId, occ, me.created_at, me.created_at, me.id],
     );
     await conn.commit();
-    return { ok: true, position: Number(pos.ahead ?? 1), waiting: Number(pos.waiting ?? 1), duplicate };
+    queued = { occ, position: Number(pos.ahead ?? 1), waiting: Number(pos.waiting ?? 1), duplicate };
   } catch (err) {
     await conn.rollback();
     throw err;
   } finally {
     conn.release();
   }
+
+  if (!queued) throw new Error("joinWaitlist: the queue transaction closed without a result");
+
+  /*
+   * 0092: A QUEUE POSITION IS A PLACE, AND A PLACE COSTS WHAT IT COSTS.
+   *
+   * Charging here rather than at promotion is the whole reason a paid
+   * gathering can have a waitlist at all. `promoteWaitlist` writes a `going`
+   * answer with nobody present to agree to a charge, and it runs inside a
+   * transaction that cannot post to the ledger. Taking the fee when somebody
+   * chooses to queue means promotion moves no money, and leaving the queue
+   * gives it all back.
+   *
+   * Same order as the seat: claim the place, then take the money, then
+   * compensate. A refused charge steps the person back out of the queue, so
+   * nobody holds a position they did not pay for.
+   */
+  const charge = await chargeForPlace(
+    pool, eventId, userId, queued.occ,
+    `Queue place: ${eventId}${queued.occ ? ` (${queued.occ})` : ""}`,
+  );
+  if (!charge.ok) {
+    await pool.query( // module-review-ok: event_waitlist's own compensation, in the file that owns the table (the ballots.ts pattern)
+      "UPDATE event_waitlist SET left_at = NOW() WHERE event_id = ? AND user_id = ? AND occurrence_key = ? AND promoted_at IS NULL AND left_at IS NULL",
+      [eventId, userId, queued.occ],
+    );
+    return { ok: false, reason: "unpaid", message: charge.error };
+  }
+  return {
+    ok: true, position: queued.position, waiting: queued.waiting, duplicate: queued.duplicate,
+    charged: charge.duplicate ? 0 : charge.charged, tokenType: charge.tokenType,
+  };
 }
 
-/** Step out of the queue. Frees no seat, so it promotes nobody. */
+/**
+ * Step out of the queue. Frees no seat, so it promotes nobody.
+ *
+ * 0092: it does return the fee. Standing down from a queue you paid to stand
+ * in is the "money for a seat nobody got" case in its purest form, and
+ * `refundPlace` is idempotent at the claim and at the ledger key, so pressing
+ * it twice refunds once.
+ */
 export async function leaveWaitlist(pool: Pool, eventId: string, userId: string, occurrenceKey = ""): Promise<boolean> {
   const [res] = await pool.query<any>(
     "UPDATE event_waitlist SET left_at = NOW() WHERE event_id = ? AND user_id = ? AND occurrence_key = ? AND promoted_at IS NULL AND left_at IS NULL",
     [eventId, userId, occurrenceKey],
   );
-  return Number(res?.affectedRows ?? 0) > 0;
+  const left = Number(res?.affectedRows ?? 0) > 0;
+  if (left) await refundPlace(pool, eventId, userId, occurrenceKey, "You left the queue");
+  return left;
 }
 
 /**

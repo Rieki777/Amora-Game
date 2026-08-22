@@ -151,6 +151,10 @@ export default function CommunityCalendarCard({ signedIn }: { signedIn: boolean 
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) say(d?.error ?? "That did not work");
+      // 0092: a queue place at a priced gathering costs what a seat costs, so
+      // it says so. The alternative is a member finding the movement in their
+      // ledger and having to work out what it was for.
+      else if (d?.charged > 0) say(`You are number ${d.position} in line. ${d.charged} ${d.tokenName} held, returned if you leave or it comes off.`);
       else say(`You are number ${d.position} in line.`);
       load();
     } catch { say("That did not work"); }
@@ -165,7 +169,10 @@ export default function CommunityCalendarCard({ signedIn }: { signedIn: boolean 
     const occ = g.occurrenceKey ? `?occurrence=${g.occurrenceKey}` : "";
     const res = await fetch(`/api/events/${g.id}/waitlist${occ}`, { method: "DELETE", headers: headers() }).catch(() => null);
     const wrong = actionError({ ok: !!res?.ok, error: null });
-    say(wrong ?? "You left the line.");
+    const d = res?.ok ? await res.json().catch(() => ({})) : {};
+    // 0092: naming the refund is the whole point of getting the refund right.
+    const back = d?.refunded > 0 ? ` ${d.refunded} ${d.tokenName} back.` : "";
+    say(wrong ?? `You left the line.${back}`);
     load();
   };
 
@@ -356,6 +363,9 @@ export default function CommunityCalendarCard({ signedIn }: { signedIn: boolean 
                           <span className="text-muted-foreground"> {new Date(g.startsAt).toLocaleDateString()}</span>
                           {typeof g.waitlistCount === "number" && g.waitlistCount > 0 && (
                             <span className="text-muted-foreground"> ({g.waitlistCount} waiting)</span>
+                          )}
+                          {(g.seatPrice ?? 0) > 0 && (
+                            <span className="text-teal-deep"> {g.seatPrice} {g.seatTokenName ?? g.seatToken}</span>
                           )}
                         </span>
                         {g.myWaitlistPosition ? (

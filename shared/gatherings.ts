@@ -102,6 +102,14 @@ export interface Gathering {
   waitlistCount?: number | null;
   /** 0088: this viewer's place in that queue, 1-based; null when not queued. */
   myWaitlistPosition?: number | null;
+  /**
+   * 0092: what a place costs, in whole units of `seatToken`. 0 is free, which
+   * is what a gathering is unless somebody prices it.
+   */
+  seatPrice?: number;
+  /** The token that price is in, and the village's own word for it. */
+  seatToken?: string | null;
+  seatTokenName?: string | null;
 }
 
 // ── 0088: structured slots — what a gathering asks people to bring or hold ──

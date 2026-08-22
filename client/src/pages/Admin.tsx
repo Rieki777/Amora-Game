@@ -5498,6 +5498,14 @@ function StaysAdminTab({ password }: { password: string }) {
   const [loading, setLoading] = useState(true);
   const [roomForm, setRoomForm] = useState({ name: "", description: "", capacity: 1 });
   const [priceDraft, setPriceDraft] = useState<Record<string, any>>({});
+  /**
+   * 0092: which of the village's own tokens each room is priced in, keyed by
+   * room. Held per room because a village may run more than one credit token
+   * and a lodge and a bunkhouse can honestly take different ones.
+   */
+  const [villageToken, setVillageToken] = useState<Record<string, string>>({});
+  /** 0092: which token each pending stay is about to be activated in. */
+  const [activateToken, setActivateToken] = useState<Record<string, string>>({});
   const [manual, setManual] = useState({ userId: "", accommodationId: "", nights: "", amountUsd: "" });
   const [grant, setGrant] = useState({ userId: "", credits: "", note: "", kind: "comp" });
   const [players, setPlayers] = useState<any[]>([]);
@@ -5538,6 +5546,18 @@ function StaysAdminTab({ password }: { password: string }) {
     }
   };
 
+  /**
+   * 0092: the payable tokens this deployment issues, and the one a room is
+   * already priced in.
+   *
+   * READ FROM THE ROOM'S OWN POSTED PRICES rather than from a default, so
+   * opening the panel on a room somebody priced last month shows that price
+   * instead of quietly offering to replace it with a different token's.
+   */
+  const payableTokens: Array<{ slug: string; name: string }> = data?.payableTokens ?? [];
+  const firstPricedVillageToken = (acc: any): string | undefined =>
+    payableTokens.map((t) => t.slug).find((slug) => acc.prices?.[slug]);
+
   const addRoom = async () => {
     if (!roomForm.name.trim()) return toast.error("Name the room");
     const d = await post("/admin/stays/accommodations", roomForm);
@@ -5561,6 +5581,26 @@ function StaysAdminTab({ password }: { password: string }) {
     if (cm) prices.push({ tokenType: "stay-credit", audience: "member", amountMinor: Math.floor(cm) });
     if (ug) prices.push({ tokenType: "usd", audience: "guest", amountMinor: Math.round(ug * 100) });
     if (um) prices.push({ tokenType: "usd", audience: "member", amountMinor: Math.round(um * 100) });
+    /*
+     * 0092: THE VILLAGE'S OWN CREDITS, alongside stay credits and usd.
+     *
+     * This is the sink that gives the cycle pool's token somewhere to go: a
+     * guest pays for a night in the same credits gratitude routed to them.
+     * Either accepted, never a rate between the two, so the room simply posts
+     * a price in each and the stay is activated in one of them.
+     *
+     * The PUT deactivates every posted price for the room and re-inserts what
+     * it is sent, so an unchanged rate has to travel too. `val` reads the
+     * stored figure as its fallback, which is what keeps a price somebody did
+     * not touch from being switched off.
+     */
+    const vSlug = villageToken[acc.id] ?? firstPricedVillageToken(acc) ?? payableTokens[0]?.slug ?? "";
+    if (vSlug) {
+      const vg = val("vg", acc.prices?.[vSlug]?.guest);
+      const vm = val("vm", acc.prices?.[vSlug]?.member);
+      if (vg) prices.push({ tokenType: vSlug, audience: "guest", amountMinor: Math.floor(vg) });
+      if (vm) prices.push({ tokenType: vSlug, audience: "member", amountMinor: Math.floor(vm) });
+    }
     const d = await post(`/admin/stays/accommodations/${acc.id}/prices`, { prices }, "PUT");
     if (d) { toast.success("Prices posted"); setPriceDraft((p) => ({ ...p, [acc.id]: {} })); load(); }
   };
@@ -5651,6 +5691,16 @@ function StaysAdminTab({ password }: { password: string }) {
                   { k: "cm", label: "Credits/night (member)", cur: a.prices?.["stay-credit"]?.member },
                   { k: "ug", label: "USD/night (guest)", cur: a.prices?.usd?.guest != null ? a.prices.usd.guest / 100 : undefined },
                   { k: "um", label: "USD/night (member)", cur: a.prices?.usd?.member != null ? a.prices.usd.member / 100 : undefined },
+                  ...(payableTokens.length
+                    ? (() => {
+                        const slug = villageToken[a.id] ?? firstPricedVillageToken(a) ?? payableTokens[0].slug;
+                        const name = payableTokens.find((t) => t.slug === slug)?.name ?? slug;
+                        return [
+                          { k: "vg", label: `${name}/night (guest)`, cur: a.prices?.[slug]?.guest },
+                          { k: "vm", label: `${name}/night (member)`, cur: a.prices?.[slug]?.member },
+                        ];
+                      })()
+                    : []),
                 ].map(({ k, label, cur }) => (
                   <label key={k} className="text-xs text-gray-500">
                     {label}
@@ -5664,6 +5714,24 @@ function StaysAdminTab({ password }: { password: string }) {
                   </label>
                 ))}
               </div>
+              {/* 0092: which of the village's tokens the last two fields are
+                  about. Only rendered when the village has more than one, so a
+                  deployment with a single credit token sees a plain price
+                  field and no question it does not have. */}
+              {payableTokens.length > 1 && !a.isExample && (
+                <label className="mt-2 block text-xs text-gray-500">
+                  Which village token
+                  <select
+                    value={villageToken[a.id] ?? firstPricedVillageToken(a) ?? payableTokens[0].slug}
+                    onChange={(e) => setVillageToken((v) => ({ ...v, [a.id]: e.target.value }))}
+                    className={`${inputCls} w-full mt-1`}
+                  >
+                    {payableTokens.map((t) => (
+                      <option key={t.slug} value={t.slug}>{t.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {a.isExample ? (
                 <p className="mt-2 text-xs text-amber-700">
                   A standing example. Its posted rates are here to show what the
@@ -5717,7 +5785,13 @@ function StaysAdminTab({ password }: { password: string }) {
                   <td className="py-2 pr-3 font-medium text-gray-900">{s.userName}</td>
                   <td className="py-2 pr-3 text-gray-600">{(data?.accommodations ?? []).find((a: any) => a.id === s.accommodationId)?.name ?? s.accommodationId}</td>
                   <td className="py-2 pr-3">{s.status}</td>
-                  <td className="py-2 pr-3">{s.rateSnapshotCredits ?? "-"}{s.audienceSnapshot ? ` (${s.audienceSnapshot})` : ""}</td>
+                  {/* 0092: the rate means nothing without the token it is in,
+                      now that a night can be paid in either. */}
+                  <td className="py-2 pr-3">
+                    {s.rateSnapshotCredits ?? "-"}
+                    {s.rateSnapshotCredits ? ` ${s.rateTokenName ?? s.rateSnapshotToken}` : ""}
+                    {s.audienceSnapshot ? ` (${s.audienceSnapshot})` : ""}
+                  </td>
                   <td className={`py-2 pr-3 ${s.balance < 0 ? "text-red-600 font-semibold" : ""}`}>{s.balance}</td>
                   <td className="py-2 pr-3">{s.nightsRemaining ?? "-"}</td>
                   <td className="py-2 pr-3">
@@ -5727,11 +5801,31 @@ function StaysAdminTab({ password }: { password: string }) {
                     </button>
                   </td>
                   <td className="py-2 text-right space-x-2 whitespace-nowrap">
+                    {/* 0092: activation is the snapshot moment, and it now
+                        snapshots WHICH token as well as how much. The desk picks
+                        from the rates the room actually posts, so a steward can
+                        never activate a stay against a price that does not
+                        exist. */}
                     {(s.status === "requested" || s.status === "active") && (
-                      <button onClick={async () => { const d = await post(`/admin/stays/${s.id}/activate`); if (d) { toast.success(`Active at ${d.rateSnapshotCredits}/night (${d.audienceSnapshot})`); load(); } }}
+                      <>
+                      <select
+                        value={activateToken[s.id] ?? "stay-credit"}
+                        onChange={(e) => setActivateToken((v) => ({ ...v, [s.id]: e.target.value }))}
+                        className="text-xs border border-gray-200 rounded px-1.5 py-0.5 mr-1"
+                      >
+                        {Object.keys((data?.accommodations ?? []).find((a: any) => a.id === s.accommodationId)?.prices ?? { "stay-credit": {} })
+                          .filter((slug) => slug !== "usd")
+                          .map((slug) => (
+                            <option key={slug} value={slug}>
+                              {payableTokens.find((t) => t.slug === slug)?.name ?? (slug === "stay-credit" ? "Stay Credits" : slug)}
+                            </option>
+                          ))}
+                      </select>
+                      <button onClick={async () => { const d = await post(`/admin/stays/${s.id}/activate`, { tokenType: activateToken[s.id] ?? "stay-credit" }); if (d) { toast.success(`Active at ${d.rateSnapshotCredits}/night (${d.audienceSnapshot})`); load(); } }}
                         className="text-xs text-[#2D5A5A] font-medium hover:underline">
                         {s.status === "active" ? "Re-rate" : "Activate"}
                       </button>
+                      </>
                     )}
                     {s.status !== "ended" && s.status !== "cancelled" && (
                       <button onClick={async () => { if (!window.confirm("End this stay?")) return; const d = await post(`/admin/stays/${s.id}/end`); if (d) load(); }}
@@ -7904,6 +7998,31 @@ function TokensTab({ password }: { password: string }) {
    * switch that does not, is how somebody hides a token believing they have
    * frozen it.
    */
+  /**
+   * 0092: open or close member-to-member sending on one token.
+   *
+   * The server refuses by KIND, so recognition can never be opened from here.
+   * The control is rendered only where the server would say yes, and the
+   * refusal is surfaced verbatim when a stale panel tries anyway.
+   */
+  const setSending = async (t: any, transferable: boolean) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/tokens/${t.slug}`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ transferable }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(refusal(data, "failed"));
+      toast.success(
+        transferable
+          ? `Members can send ${t.name} to each other`
+          : `${t.name} stays put. Balances are untouched`,
+      );
+      load();
+    } catch (e: any) { toast.error(e?.message || "Could not change sending"); }
+  };
+
   const setActive = async (t: any, active: boolean) => {
     try {
       const res = await fetch(`${API_BASE}/admin/tokens/${t.slug}`, {
@@ -8017,7 +8136,31 @@ function TokensTab({ password }: { password: string }) {
                         {t.governance === "platform" ? "platform" : "Hypha (read-only)"}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 text-gray-600">{t.transferable ? "yes" : "no"}</td>
+                    <td className="px-4 py-2.5">
+                      {/* 0092: sending is a switch now, and only on a credit
+                          token this platform governs. Recognition shows the
+                          reason instead of a control, because a dead switch
+                          reads as a bug and a stated rule reads as a rule. */}
+                      {t.governance === "platform" && t.kind === "credit" && !t.isExample
+                        && t.slug !== "stay-credit" && t.slug !== "library-credit" ? (
+                        <button
+                          type="button"
+                          onClick={() => setSending(t, !t.transferable)}
+                          aria-pressed={!!t.transferable}
+                          className={`min-h-9 text-xs rounded-full px-3 py-1.5 border ${
+                            t.transferable
+                              ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-[#2D5A5A]/30"
+                              : "bg-gray-100 text-gray-600 border-gray-300"
+                          }`}
+                        >
+                          {t.transferable ? "yes" : "no"}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-400">
+                          {t.kind === "recognition" ? "never" : "no"}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5">
                       {t.governance === "platform" && !t.isExample ? (
                         <button

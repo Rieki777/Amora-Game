@@ -244,7 +244,16 @@ export default function ProfileJourney() {
               {ledger.entries.slice(0, 12).map((e: any, i: number) => (
                 <div key={i} className="flex items-center justify-between gap-3 text-sm border border-gray-100 rounded-lg px-3 py-2">
                   <div className="min-w-0">
-                    <span className="text-gray-800">{prettySource(e.source)}</span>
+                    <span className="text-gray-800">
+                      {prettySource(e.source)}
+                      {/* 0092: a send names the other person. Without it the
+                          line reads as a bare number with a caption and no
+                          counterpart, on the one surface whose job is to make
+                          a balance explainable. */}
+                      {e.withName && (
+                        <span className="text-gray-500">{e.amount < 0 ? ` to ${e.withName}` : ` from ${e.withName}`}</span>
+                      )}
+                    </span>
                     {e.description && (
                       <span className="block text-xs text-gray-400 truncate">{e.description}</span>
                     )}

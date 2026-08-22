@@ -45,6 +45,7 @@ import {
   type CalendarViewer,
 } from "./calendar";
 import { firePromotionSink, promoteForCapacityChange, promoteWaitlist } from "./calendarCommunity";
+import { chargeForPlace, heldSeatValue, refundAllPlaces, refundPlace } from "./eventSeats";
 
 const newId = () => `ev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -72,6 +73,12 @@ export interface GatheringInput {
    * post-to-my-layer route sets it to the author; admin surfaces leave it.
    */
   ownerUserId?: string | null;
+  /**
+   * 0092: what a place costs, and in what. 0 is free and is the default for
+   * everything, so a village that never prices a gathering sees no change.
+   */
+  seatPrice?: number | null;
+  seatToken?: string | null;
 }
 
 export interface ListOptions {
@@ -166,6 +173,22 @@ const cleanUrl = (v: unknown): string | null => {
   if (t.startsWith("/") && !t.startsWith("//")) return t;
   try { return new URL(t).protocol === "https:" ? t : null; } catch { return null; }
 };
+/**
+ * 0092: a seat price is an amount AND a token, or it is nothing.
+ *
+ * Either half alone is a gathering that looks priced and charges nobody, or
+ * charges an amount of something unnamed. Collapsing to free is the honest
+ * reading of an incomplete form, and the route validator refuses the
+ * half-filled version out loud before it gets here, so this is the second
+ * line rather than the only one.
+ */
+function cleanSeat(price: unknown, token: unknown): { price: number; token: string | null } {
+  const amount = Math.max(0, Math.trunc(Number(price) || 0));
+  const slug = typeof token === "string" ? token.trim() : "";
+  if (amount <= 0 || !slug) return { price: 0, token: null };
+  return { price: amount, token: slug.slice(0, 32) };
+}
+
 const cleanColour = (v: unknown): string | null =>
   typeof v === "string" && /^#[0-9a-fA-F]{3,8}$/.test(v.trim()) ? v.trim() : null;
 
@@ -176,12 +199,14 @@ export async function createGathering(
 ): Promise<CalendarItem> {
   const id = newId();
   const recurrence = input.recurrence ? cleanRecurrence(input.recurrence) : null;
+  const seat = cleanSeat(input.seatPrice, input.seatToken);
   await pool.query(
     `INSERT INTO events
       (id, title, description, starts_at, ends_at, location_text, structure_keys,
        visit_type_id, capacity, status, attendance_mode, online_url, created_by,
-       kind, layer, all_day, recurrence, link, colour, owner_user_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       kind, layer, all_day, recurrence, link, colour, owner_user_id,
+       seat_price, seat_token)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       input.title,
@@ -205,6 +230,8 @@ export async function createGathering(
       cleanUrl(input.link),
       cleanColour(input.colour),
       input.ownerUserId ?? null,
+      seat.price,
+      seat.token,
     ],
   );
   return (await getGathering(pool, id))!;
@@ -243,10 +270,54 @@ export async function updateGathering(
   }
   if (patch.link !== undefined) put("link", cleanUrl(patch.link));
   if (patch.colour !== undefined) put("colour", cleanColour(patch.colour));
+  /*
+   * 0092: price and token move TOGETHER or not at all. Writing one without the
+   * other is how a gathering ends up with an amount and no token (free, per
+   * `seatPriceFor`) or a token and no amount, and a half-set price is a
+   * refusal a host would never see. `cleanSeat` collapses both to zero when
+   * either is missing.
+   *
+   * Re-pricing never re-rates anybody: `event_seat_charges` snapshots the
+   * amount at the moment a place is taken, so a raised fee applies to the next
+   * person through the door and to nobody already inside.
+   */
+  if (patch.seatPrice !== undefined || patch.seatToken !== undefined) {
+    const seat = cleanSeat(patch.seatPrice, patch.seatToken);
+    put("seat_price", seat.price);
+    put("seat_token", seat.token);
+  }
 
   if (!sets.length) return getGathering(pool, id);
   params.push(id);
   await pool.query(`UPDATE events SET ${sets.join(", ")} WHERE id = ?`, params);
+  /*
+   * 0092: A GATHERING THAT STOPS HAPPENING GIVES THE SEAT FEES BACK.
+   *
+   * Cancelling never touched `event_rsvps` and sent nothing, which was fine
+   * while an answer was only an answer. Once a seat costs credits, the same
+   * edit leaves members paid for a room that will not open, and nothing else
+   * in the system would ever have looked at it again: `settleFinishedSeats`
+   * skips anything not scheduled or postponed, so the money would have rested
+   * in escrow permanently.
+   *
+   * `draft` counts too. Un-publishing takes the gathering off the calendar as
+   * completely as cancelling it, and a member cannot answer a draft, so
+   * holding their fee against it would be holding it against nothing.
+   *
+   * Idempotent: a second save re-reads an empty set of held charges and posts
+   * nothing.
+   */
+  if (patch.status !== undefined) {
+    const next = cleanStatus(patch.status, "draft");
+    if (next === "cancelled" || next === "draft") {
+      const reason = next === "cancelled" ? "The gathering was cancelled" : "The gathering was taken off the calendar";
+      try {
+        await refundAllPlaces(pool, id, reason);
+      } catch (e) {
+        console.error("[seats] refund on status change failed (edit saved)", e);
+      }
+    }
+  }
   // 0088: a raised (or removed) capacity means seats exist that the queue is
   // owed. The promotion takes its own transaction and the same events-row
   // lock as every other seat path; a lowered capacity promotes nobody
@@ -262,10 +333,24 @@ export async function updateGathering(
 }
 
 export async function deleteGathering(pool: Pool, id: string): Promise<boolean> {
-  // RSVPs go with it. They are answers to a question that no longer exists,
-  // and there is no ledger value here to preserve. The queue and the slots
-  // (0088) are answers of the same kind and go the same way.
+  /*
+   * 0092: REFUND BEFORE ANYTHING IS DELETED.
+   *
+   * This function used to say "there is no ledger value here to preserve", and
+   * that was true right up until a seat cost credits. Deleting the rows first
+   * would destroy the only record of who was owed what, and the ledger legs
+   * would sit in escrow pointing at an event id that no longer resolves.
+   *
+   * The refund runs first and the charge rows go last, so a crash anywhere in
+   * between leaves rows that a retry can still refund from.
+   */
+  await refundAllPlaces(pool, id, "The gathering was deleted");
+  // RSVPs go with it. They are answers to a question that no longer exists.
+  // The queue and the slots (0088) are answers of the same kind and go the
+  // same way, and the seat charges follow now that they are settled: the
+  // ledger keeps the history of what moved, which is the book that matters.
   await pool.query("DELETE FROM event_rsvps WHERE event_id = ?", [id]);
+  await pool.query("DELETE FROM event_seat_charges WHERE event_id = ?", [id]); // module-review-ok: event_seat_charges' one enumerable home (the ballots.ts pattern; no cache sits above it)
   await pool.query("DELETE FROM event_waitlist WHERE event_id = ?", [id]);
   await pool.query("DELETE ss FROM event_slot_signups ss JOIN event_slots s ON s.id = ss.slot_id WHERE s.event_id = ?", [id]);
   await pool.query("DELETE FROM event_slots WHERE event_id = ?", [id]);
@@ -274,8 +359,13 @@ export async function deleteGathering(pool: Pool, id: string): Promise<boolean> 
 }
 
 export type RsvpOutcome =
-  | { ok: true; status: RsvpStatus; goingCount: number; duplicate: boolean }
-  | { ok: false; reason: "not_found" | "not_open" | "full" };
+  | { ok: true; status: RsvpStatus; goingCount: number; duplicate: boolean; charged?: number; tokenType?: string | null }
+  /**
+   * `unpaid` carries its own sentence because only the ledger knows what the
+   * fee was and what the balance is, and "409" tells a member nothing they can
+   * act on.
+   */
+  | { ok: false; reason: "not_found" | "not_open" | "full" | "unpaid"; message?: string };
 
 /**
  * Answer a gathering.
@@ -304,6 +394,13 @@ export async function rsvp(
   occurrenceKey?: string,
 ): Promise<RsvpOutcome> {
   const wanted: RsvpStatus = RSVP_STATUSES.includes(status) ? status : "going";
+  /**
+   * Filled by the seat transaction and acted on AFTER it closes. The fee has
+   * to post through `postTransfer`, which opens its own transaction and takes
+   * its own locks; running it while this connection still holds the events row
+   * would nest one under the other.
+   */
+  let seated: { occ: string; takingSeat: boolean; freedSeat: boolean; goingCount: number; duplicate: boolean } | null = null;
   const conn: PoolConnection = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -369,13 +466,62 @@ export async function rsvp(
     await conn.commit();
     // Notify only once the promotion is real. Never throws.
     await firePromotionSink(promoted);
-    return { ok: true, status: wanted, goingCount: nextGoing, duplicate: prior?.status === wanted };
+    seated = { occ, takingSeat, freedSeat, goingCount: nextGoing, duplicate: prior?.status === wanted };
   } catch (err) {
     await conn.rollback();
     throw err;
   } finally {
     conn.release();
   }
+
+  // Unreachable: every path out of the block above either returns or fills
+  // this in. Stated rather than asserted away, because a `!` here would be the
+  // one line that hides a future edit dropping the assignment.
+  if (!seated) throw new Error("rsvp: the seat transaction closed without a result");
+  const { occ, takingSeat, freedSeat, goingCount, duplicate } = seated;
+
+  /*
+   * 0092: THE SEAT FIRST, THEN THE FEE.
+   *
+   * This follows the library's borrow path exactly: claim the thing, then take
+   * the money, and COMPENSATE if the money refuses.
+   *
+   * The ordering avoids the expensive failure. Charging first and seating
+   * second means a crash in between leaves a member paid for a seat they do
+   * not have, with nothing pointing at the money. Seating first means a crash
+   * leaves a free seat, which is a discrepancy somebody can see and fix, and
+   * which nobody is out of pocket for.
+   *
+   * A member already holding a paid place (they queued, then were promoted)
+   * charges nothing here: the fee is held against the PLACE, and they have
+   * been holding one all along.
+   */
+  if (takingSeat) {
+    const charge = await chargeForPlace(
+      pool, eventId, userId, occ,
+      `Seat: ${eventId}${occ ? ` (${occ})` : ""}`,
+    );
+    if (!charge.ok) {
+      // Hand the seat straight back. Compensating, never a rollback: the
+      // transaction above is committed and the queue may already have been
+      // told. withdrawRsvp takes the same lock and serves the queue again.
+      await withdrawRsvp(pool, eventId, userId, occ);
+      return { ok: false, reason: "unpaid", message: charge.error };
+    }
+    return {
+      ok: true, status: wanted, goingCount, duplicate,
+      charged: charge.duplicate ? 0 : charge.charged, tokenType: charge.tokenType,
+    };
+  }
+  /*
+   * An answer moving OFF `going` gave the place up, so the fee comes back.
+   * Idempotent at both layers, so a double tap refunds once and a retry of a
+   * crashed refund finishes it.
+   */
+  if (freedSeat) {
+    await refundPlace(pool, eventId, userId, occ, "You changed your answer");
+  }
+  return { ok: true, status: wanted, goingCount, duplicate };
 }
 
 export interface RsvpRow {
@@ -429,6 +575,7 @@ export async function listRsvps(pool: Pool, eventId: string, occurrenceKey?: str
  * used to be would have freed seats the queue never heard about.
  */
 export async function withdrawRsvp(pool: Pool, eventId: string, userId: string, occurrenceKey = ""): Promise<boolean> {
+  let gaveUpPlace = false;
   const conn: PoolConnection = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -444,15 +591,30 @@ export async function withdrawRsvp(pool: Pool, eventId: string, userId: string, 
     }
     await conn.query("DELETE FROM event_rsvps WHERE id = ?", [prior.id]);
     const promoted = event && prior.status === "going" ? await promoteWaitlist(conn, eventId, occurrenceKey) : [];
+    gaveUpPlace = prior.status === "going";
     await conn.commit();
     await firePromotionSink(promoted);
-    return true;
   } catch (err) {
     await conn.rollback();
     throw err;
   } finally {
     conn.release();
   }
+  /*
+   * 0092: the seat is gone, so the fee comes back. OUTSIDE the transaction for
+   * the same reason the charge is: `postTransfer` opens its own.
+   *
+   * `refundPlace` is safe on a free gathering, on a place that was never
+   * charged, and on one already refunded, so this call needs no condition of
+   * its own beyond "they were holding a seat". That is what makes the retry
+   * story true: pressing cancel twice refunds exactly once, because the second
+   * press loses the atomic claim and re-posts a ledger key that already
+   * landed.
+   */
+  if (gaveUpPlace) {
+    await refundPlace(pool, eventId, userId, occurrenceKey, "You took your answer back");
+  }
+  return true;
 }
 
 /**
@@ -515,11 +677,28 @@ export async function eventsOpenState(pool: Pool): Promise<{ count: number; desc
     "SELECT COUNT(*) AS n FROM events WHERE status = 'scheduled' AND removed_at IS NULL AND kind IN ('gathering','festival') AND starts_at >= UTC_TIMESTAMP()",
   );
   const count = Number(row?.n ?? 0);
-  return {
-    count,
-    description:
+  /*
+   * 0092: held seat fees are open ECONOMIC state, which is the kind
+   * `openStateCheck` exists for. Switching the calendar off with members'
+   * credits inside the escrow account would strand them behind a 404, and
+   * "settle first" is the rule the invariant states.
+   */
+  const held = await heldSeatValue(pool);
+  const parts: string[] = [];
+  if (count) {
+    parts.push(
       count === 1
         ? "1 gathering is still on the calendar. Cancel it or let it pass before turning events off."
         : `${count} gatherings are still on the calendar. Cancel them or let them pass before turning events off.`,
+    );
+  }
+  if (held.count) {
+    parts.push(
+      `${held.count} seat fee(s) worth ${held.amount} are still held in escrow. Cancel those gatherings to refund them, or let them happen.`,
+    );
+  }
+  return {
+    count: count + held.count,
+    description: parts.join(" ") || "Nothing is outstanding.",
   };
 }

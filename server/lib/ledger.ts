@@ -649,6 +649,17 @@ export interface MemberLedgerEntry {
   sourceRef?: string;
   description?: string;
   at: string;
+  /**
+   * The OTHER account on this row, from the member's side. A faucet or a
+   * system vault for most lines, and another member's account for a
+   * peer-to-peer send.
+   *
+   * Read from the row and never from `sourceRef`: `sourceRef` points at
+   * whatever the posting module thought was interesting, so on a send it holds
+   * the same id for both halves of the pair and naming a counterpart from it
+   * tells the receiver they sent themselves money.
+   */
+  counterAccount: string;
 }
 
 /** A member's movements, newest first, signed from their perspective. */
@@ -663,6 +674,7 @@ export async function entriesForMember(pool: Pool, userId: string): Promise<Memb
     id: String(r.id),
     tokenType: String(r.token_type),
     amount: String(r.to_account) === acct ? Number(r.amount) : -Number(r.amount),
+    counterAccount: String(r.to_account) === acct ? String(r.from_account) : String(r.to_account),
     source: String(r.source),
     sourceRef: r.source_ref ?? undefined,
     description: r.description ?? undefined,
@@ -728,9 +740,26 @@ export interface InvariantReport {
  *  5. No non-faucet account is ILLEGALLY negative — negative is legal only
  *     where the account has a debit from an ALLOW_NEGATIVE_SOURCES source
  *     (grace-night burn, payment reversal); anything else refuses boot.
+ *  6. NO RECOGNITION, EQUITY OR VOICE TOKEN IS MARKED TRANSFERABLE. Only
+ *     credit tokens are ever sent between members. This one is here because
+ *     the wrong value shipped and sat unread: 0006 seeded `gratitude` with
+ *     transferable = 1, no surface read the column, and the row was harmless
+ *     for eighty-five migrations. The member-to-member send surface reads it,
+ *     so a flag nobody could see became a flag that hands recognition around.
+ *     0092 corrects the data; this refuses to serve if it ever comes back,
+ *     whether from a seed, a restore, or an admin route that forgets to ask.
  */
 export async function checkLedgerInvariants(pool: Pool): Promise<InvariantReport> {
   const problems: string[] = [];
+
+  const [sendable] = await pool.query<RowDataPacket[]>(
+    "SELECT slug, kind FROM tokens WHERE transferable = 1 AND kind <> 'credit'",
+  );
+  for (const r of sendable) {
+    problems.push(
+      `${r.kind} token "${r.slug}" is marked transferable: only credit tokens are ever sent between members`,
+    );
+  }
 
   const [hypha] = await pool.query<RowDataPacket[]>(
     "SELECT l.token_type, COUNT(*) n FROM token_ledger l JOIN tokens t ON t.slug = l.token_type " +

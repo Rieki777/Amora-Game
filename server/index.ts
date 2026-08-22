@@ -198,6 +198,14 @@ import {
   TREASURY,
 } from "./lib/ledger";
 import type { TransferGuard } from "./lib/ledger";
+import {
+  mayToggleTransferable,
+  priceRefusal,
+  sendRefusal,
+  sendableTokens,
+  spendSurfacesFor,
+} from "./lib/spending";
+import { seatChargeFor, seatEscrowDrift, seatPriceFor, settleFinishedSeats } from "./lib/eventSeats";
 import { allowanceFor, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
 import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
@@ -3249,7 +3257,11 @@ function notifyReportReviewed(reporterId: string, reportId: string, where: "foru
 function stayPostingHooks() {
   const today = new Date().toISOString().slice(0, 10);
   return {
-    onLowBalance: async (stay: { id: string; userId: string }, nightsLeft: number) => {
+    onLowBalance: async (stay: { id: string; userId: string; rateSnapshotToken?: string }, nightsLeft: number) => {
+      // 0092: a stay can be paid in the village's own credits, so the nudge
+      // names the token this guest is actually spending. `tokenDef` is the
+      // village's own word for it, which is the only word the guest has seen.
+      const payName = tokenDef(stay.rateSnapshotToken ?? STAY_CREDIT)?.name ?? "stay credits";
       // S5 (Wave 1): the nudge names actual doors, not a category of door.
       // "Pick up a quest" is advice; "Fix the pump house (30 gratitude)" is
       // a plan for tomorrow morning.
@@ -3266,7 +3278,7 @@ function stayPostingHooks() {
       await notify({
         userId: stay.userId,
         type: "stays",
-        title: nightsLeft > 0 ? `Your stay credits cover ${nightsLeft} more night(s)` : "Your stay credits have run out",
+        title: nightsLeft > 0 ? `Your ${payName} cover ${nightsLeft} more night(s)` : `Your ${payName} have run out`,
         body: `Top up, pick up a work-exchange quest, or talk to the stewards.${questLines}`,
         link: questLines ? "/quests" : "/stay",
         dedupeKey: `stay:${stay.id}:lowbal:${today}`,
@@ -4130,6 +4142,25 @@ async function startServer() {
   registerJob("library-sweep", 24 * 60 * 60 * 1000, async () => {
     if (effectiveLifecycle("library") === "off") return;
     await runLibrarySweep();
+  });
+
+  /*
+   * 0092: seat fees for gatherings that have HAPPENED move from escrow to the
+   * treasury.
+   *
+   * Without this the escrow only ever fills: every fee ever taken would rest
+   * there forever and no host would be paid, which is a dead end shaped
+   * exactly like the one this whole change exists to close. A day of grace
+   * past the end time, so a host cancelling late still cancels into a refund.
+   *
+   * Deliberately NOT gated on the module lifecycle. `openStateCheck` refuses
+   * to switch events off while a fee is held, so this cannot run against a
+   * disabled module in the ordinary case; skipping it on a disabled one would
+   * strand any fee that did slip through.
+   */
+  registerJob("seat-fee-settle", 6 * 60 * 60 * 1000, async () => {
+    const r = await settleFinishedSeats(getPool());
+    if (r.settled) console.log(`[seats] ${r.settled} seat fee(s) settled to the treasury, ${r.amount} total`);
   });
 
   async function runLibrarySweep(): Promise<{ settled: number; overdue: number; stalled: number }> {
@@ -5631,6 +5662,11 @@ async function startServer() {
         const code = outcome.reason === "not_found" ? 404 : 409;
         const message =
           outcome.reason === "not_found" ? "Not found"
+          // 0092: an agent answering a priced gathering spends its holder's
+          // credits, so the refusal has to reach the holder in words. Charging
+          // through this door and not saying so is the shape of surprise an
+          // agent surface can least afford.
+          : outcome.reason === "unpaid" ? (outcome.message ?? "Your balance does not cover a place here")
           : outcome.reason === "full" ? "This gathering is full"
           : "This gathering is not taking answers";
         return res.status(code).json({ error: message, reason: outcome.reason });
@@ -5862,7 +5898,14 @@ async function startServer() {
       const outcome = await rsvp(getPool(), eventId, user.id, status, `member-draft:${draft.id}`, occurrenceKey);
       if (!outcome.ok) {
         const code = outcome.reason === "not_found" ? 404 : 409;
-        return res.status(code).json({ error: outcome.reason === "not_found" ? "Not found" : outcome.reason === "full" ? "This gathering is full" : "This gathering is not taking answers", reason: outcome.reason });
+        // 0092: `unpaid` first, because it is the only refusal here that names
+        // a number the member can act on.
+        const why =
+          outcome.reason === "not_found" ? "Not found"
+          : outcome.reason === "unpaid" ? (outcome.message ?? "Your balance does not cover a place here")
+          : outcome.reason === "full" ? "This gathering is full"
+          : "This gathering is not taking answers";
+        return res.status(code).json({ error: why, reason: outcome.reason });
       }
       await decideMemberDraft(getPool(), user.id, draft.id, "confirmed", eventId);
       if (!outcome.duplicate) {
@@ -9867,6 +9910,27 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (body.colour !== undefined && body.colour !== null && body.colour !== "" && !/^#[0-9a-fA-F]{3,8}$/.test(String(body.colour))) {
       return "Colour must be a hex value like #2D5A5A";
     }
+    /*
+     * 0092: the seat fee. Both halves or neither, and the token has to be one
+     * this village can actually charge.
+     *
+     * The half-filled form is refused out loud here rather than collapsed
+     * silently in `cleanSeat`, because a host who typed 12 and forgot to pick
+     * the token has to learn that from the form and not from a gathering that
+     * quietly turned out to be free.
+     */
+    const wantsPrice = body.seatPrice !== undefined && body.seatPrice !== null && body.seatPrice !== "";
+    const wantsToken = body.seatToken !== undefined && body.seatToken !== null && body.seatToken !== "";
+    if (wantsPrice) {
+      const n = Number(body.seatPrice);
+      if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) return "A seat fee is a whole number, or zero for free";
+      if (n > 0 && !wantsToken) return "Pick which token the seat fee is paid in";
+    }
+    if (wantsToken) {
+      if (!wantsPrice || Number(body.seatPrice) <= 0) return "Set the seat fee, or clear the token to make it free";
+      const refusal = priceRefusal(String(body.seatToken));
+      if (refusal) return refusal;
+    }
     return null;
   }
 
@@ -10297,6 +10361,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       const code = outcome.reason === "not_found" ? 404 : 409;
       const message =
         outcome.reason === "not_found" ? "Not found"
+        // 0092: a refused seat fee explains itself. The ledger is the only
+        // thing that knows what was asked and what was held, so the sentence
+        // travels up from there instead of being guessed at here.
+        : outcome.reason === "unpaid" ? (outcome.message ?? "Your balance does not cover a place here")
         : outcome.reason === "full" ? "This gathering is full"
         : "This gathering is not taking answers";
       return res.status(code).json({ error: message, reason: outcome.reason });
@@ -10321,7 +10389,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         audience: "admin",
       });
     }
-    res.json({ success: true, status: outcome.status, goingCount: outcome.goingCount });
+    // 0092: what was taken travels back with the answer, so the page can say
+    // "12 Village Credits" instead of leaving a member to find the movement in
+    // their ledger later.
+    res.json({
+      success: true, status: outcome.status, goingCount: outcome.goingCount,
+      charged: outcome.charged ?? 0,
+      tokenName: outcome.tokenType ? (tokenDef(outcome.tokenType)?.name ?? outcome.tokenType) : null,
+    });
   });
 
   app.delete("/api/events/:id/rsvp", async (req, res) => {
@@ -10333,7 +10408,22 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // 0088: the withdraw is transactional in the library now, and a freed
     // seat serves the waitlist inside that same transaction.
     const removed = await withdrawRsvp(getPool(), req.params.id, user.id, occ);
-    res.json({ success: true, removed });
+    /*
+     * 0092: the refund happens inside withdrawRsvp, and the number reported
+     * here is WHAT MOVED ON THIS CALL, gated on `removed`.
+     *
+     * Reading the settled charge row unconditionally looked more direct and
+     * was wrong in the one case that matters: pressing cancel twice found the
+     * same released row both times and said "12 credits back" twice, for one
+     * refund. The row says what the place cost; `removed` says whether this
+     * call is the one that gave the place up.
+     */
+    const back = removed ? await seatChargeFor(getPool(), req.params.id, user.id, occ) : null;
+    res.json({
+      success: true, removed,
+      refunded: back?.status === "released" ? back.amount : 0,
+      tokenName: back ? (tokenDef(back.tokenType)?.name ?? back.tokenType) : null,
+    });
   });
 
   /**
@@ -10363,6 +10453,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         outcome.reason === "not_found" ? "Not found"
         : outcome.reason === "not_open" ? "This gathering is not taking answers"
         : outcome.reason === "already_going" ? "You already have a seat"
+        // 0092: a place in the queue costs what a seat costs, and is returned
+        // in full the moment you leave it or the gathering comes off.
+        : outcome.reason === "unpaid" ? (outcome.message ?? "Your balance does not cover a place in the queue")
         : "There are seats open. Answer the gathering instead";
       return res.status(code).json({ error: message, reason: outcome.reason });
     }
@@ -10376,7 +10469,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         audience: "admin",
       });
     }
-    res.json({ success: true, position: outcome.position, waiting: outcome.waiting });
+    res.json({
+      success: true, position: outcome.position, waiting: outcome.waiting,
+      charged: outcome.charged ?? 0,
+      tokenName: outcome.tokenType ? (tokenDef(outcome.tokenType)?.name ?? outcome.tokenType) : null,
+    });
   });
 
   app.delete("/api/events/:id/waitlist", async (req, res) => {
@@ -10386,7 +10483,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       ? req.query.occurrence
       : "";
     const removed = await leaveWaitlist(getPool(), req.params.id, user.id, occ);
-    res.json({ success: true, removed });
+    // Same rule as the withdraw above: report what moved on THIS call, so a
+    // second press says nothing came back, because nothing did.
+    const back = removed ? await seatChargeFor(getPool(), req.params.id, user.id, occ) : null;
+    res.json({
+      success: true, removed,
+      refunded: back?.status === "released" ? back.amount : 0,
+      tokenName: back ? (tokenDef(back.tokenType)?.name ?? back.tokenType) : null,
+    });
   });
 
   /**
@@ -10504,7 +10608,20 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       upcomingDays: 3650,
       pastVisibleDays: 3650,
     });
-    res.json({ events: list, timezone: villageTimezone() });
+    /*
+     * 0092: the tokens a seat fee may be posted in, from the same firewall the
+     * validator uses. Sent WITH the calendar rather than fetched from
+     * /api/admin/tokens, because that route is admin-only and a host who holds
+     * event.manage and not admin would otherwise get an empty list and a
+     * "Free" option that looks like the village's only choice.
+     */
+    res.json({
+      events: list,
+      timezone: villageTimezone(),
+      payableTokens: allTokens()
+        .filter((t) => priceRefusal(t.slug) === null)
+        .map((t) => ({ slug: t.slug, name: t.name })),
+    });
   });
 
   /**
@@ -10742,12 +10859,26 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     let mine: any = null;
     if (viewer) {
       const balance = await balanceOf(getPool(), memberAccount(viewer.id), STAY_CREDIT);
+      // 0092: a room can post its nightly price in the village's own credits as
+      // well as in stay credits, so "nights remaining" has to be read against
+      // the token the stay was ACTIVATED in. Reading it against stay credits
+      // for every stay is how a guest paying credits would have been told they
+      // had zero nights left while their balance sat untouched.
+      const held = await balancesFor(getPool(), memberAccount(viewer.id));
       const stays = await staysForUser(getPool(), viewer.id);
       mine = {
         balance,
+        balances: Object.fromEntries(
+          Object.entries(held)
+            .filter(([slug]) => tokenDef(slug)?.active !== false)
+            .map(([slug, n]) => [slug, { name: tokenDef(slug)?.name ?? slug, balance: n }]),
+        ),
         stays: stays.map((s) => ({
           ...s,
-          nightsRemaining: s.status === "active" ? nightsRemaining(balance, s.rateSnapshotCredits) : null,
+          nightsRemaining:
+            s.status === "active"
+              ? nightsRemaining(held[s.rateSnapshotToken] ?? 0, s.rateSnapshotCredits)
+              : null,
         })),
       };
     }
@@ -10860,11 +10991,15 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const withNames = [];
     for (const s of stays) {
       const u = await members.byId(s.userId);
-      const balance = await balanceOf(getPool(), memberAccount(s.userId), STAY_CREDIT);
+      // 0092: read the balance of the token THIS stay pays in. The desk's
+      // "nights left" column is what a steward acts on, so it has to be about
+      // the money the guest is actually spending.
+      const balance = await balanceOf(getPool(), memberAccount(s.userId), s.rateSnapshotToken || STAY_CREDIT);
       withNames.push({
         ...s,
         userName: u?.name ?? "(anonymized)",
         balance,
+        rateTokenName: tokenDef(s.rateSnapshotToken)?.name ?? s.rateSnapshotToken,
         nightsRemaining: s.status === "active" ? nightsRemaining(balance, s.rateSnapshotCredits) : null,
       });
     }
@@ -10885,7 +11020,20 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       const activeStays = activeByAcc.get(a.id) ?? 0;
       return { ...a, activeStays, overCapacity: activeStays > a.capacity };
     });
-    res.json({ accommodations: accommodationsWithLoad, stays: withNames, purchases });
+    /*
+     * 0092: the tokens a room may post a nightly rate in, from the same
+     * firewall the prices route enforces. The desk needs the village's own
+     * word for each one, because a select showing raw slugs is how a steward
+     * prices a room in something they cannot name.
+     */
+    res.json({
+      accommodations: accommodationsWithLoad,
+      stays: withNames,
+      purchases,
+      payableTokens: allTokens()
+        .filter((t) => t.slug !== STAY_CREDIT && priceRefusal(t.slug) === null)
+        .map((t) => ({ slug: t.slug, name: t.name })),
+    });
   });
 
   app.post("/api/admin/stays/accommodations", async (req, res) => {
@@ -10933,8 +11081,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     }
     const prices: any[] = Array.isArray(req.body?.prices) ? req.body.prices : [];
     for (const p of prices) {
-      if (![STAY_CREDIT, "usd"].includes(String(p?.tokenType))) {
-        return res.status(400).json({ error: `Prices are posted in ${STAY_CREDIT} or usd` });
+      // 0092: usd, stay credits, or any credit token this village issues. The
+      // last of those is what gives the cycle pool's token somewhere to go.
+      // `priceRefusal` is the same firewall the seat fee uses, so recognition
+      // can never become a nightly rate by either door.
+      const slug = String(p?.tokenType ?? "");
+      if (slug !== "usd") {
+        const refusal = priceRefusal(slug);
+        if (refusal) return res.status(400).json({ error: refusal });
       }
       if (!["guest", "member"].includes(String(p?.audience))) return res.status(400).json({ error: "Audience is guest or member" });
       if (!(Number(p?.amountMinor) > 0)) return res.status(400).json({ error: "Amounts must be positive" });
@@ -10966,23 +11120,40 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const audience = ["guest", "member"].includes(req.body?.audience)
       ? (req.body.audience as "guest" | "member")
       : await stayAudienceFor(guest);
-    const rate = await priceFor(getPool(), stay.accommodationId, STAY_CREDIT, audience);
+    /*
+     * 0092: WHICH TOKEN, decided here, snapshot here, for the same reason the
+     * rate is. Either accepted, never a rate between them: the room posts a
+     * price per token and the stay is activated in exactly one of them.
+     *
+     * Defaults to stay credits when the caller says nothing, so every existing
+     * caller and every existing test activates exactly what it activated
+     * before. A token the room posts no price for is refused by name, because
+     * "no rate" and "wrong token" are different mistakes and an admin can only
+     * fix the one they are told about.
+     */
+    const wantedToken = String(req.body?.tokenType ?? "").trim() || STAY_CREDIT;
+    if (wantedToken !== STAY_CREDIT) {
+      const refusal = priceRefusal(wantedToken);
+      if (refusal) return res.status(400).json({ error: refusal });
+    }
+    const rate = await priceFor(getPool(), stay.accommodationId, wantedToken, audience);
     if (!rate || rate <= 0) {
-      return res.status(409).json({ error: "Post a stay-credit rate for this room before activating" });
+      const name = tokenDef(wantedToken)?.name ?? wantedToken;
+      return res.status(409).json({ error: `Post a ${name} rate for this room before activating` });
     }
     await getPool().query(
-      "UPDATE stays SET status = 'active', rate_snapshot_credits = ?, audience_snapshot = ?, " +
+      "UPDATE stays SET status = 'active', rate_snapshot_credits = ?, rate_snapshot_token = ?, audience_snapshot = ?, " +
         "arrive_on = COALESCE(arrive_on, CURRENT_DATE) WHERE id = ?",
-      [rate, audience, stay.id],
+      [rate, wantedToken, audience, stay.id],
     );
     await notify({
       userId: stay.userId,
       type: "stays",
-      title: `Your stay is active, ${rate} credit(s) per night`,
+      title: `Your stay is active, ${rate} ${tokenDef(wantedToken)?.name ?? wantedToken} per night`,
       link: "/stay",
       dedupeKey: `stay:${stay.id}:activated`,
     });
-    res.json({ success: true, rateSnapshotCredits: rate, audienceSnapshot: audience });
+    res.json({ success: true, rateSnapshotCredits: rate, rateSnapshotToken: wantedToken, audienceSnapshot: audience });
   });
 
   /** End or cancel. NEVER automatic — ending a stay is a human act. */
@@ -11355,6 +11526,36 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         return dated.length > 0
           ? { state: "ok" as const, detail: `${dated.length} season${dated.length === 1 ? "" : "s"} on the calendar` }
           : { state: "missing" as const, detail: "No dated seasons: cycles and settlement have no calendar to hang from" };
+      },
+      /*
+       * 0092: does the token the gratitude pool pays actually buy anything?
+       *
+       * READ FROM LIVE ROWS, never from module lifecycles. "The stays module
+       * is on" proves nothing about whether one room asks for this token, and
+       * a check written that way would have reported healthy against the exact
+       * dead end it exists to catch.
+       *
+       * A pool of zero is not a dead end, it is a village that chose to let
+       * recognition stay a signal on its own, so it reads ok and says so.
+       */
+      "pool-token-spendable": async () => {
+        const poolSize = numberVar("gratitude.pool_per_cycle") as number;
+        const slug = String(stringVar("gratitude.pool_token") ?? "").trim();
+        if (!(poolSize > 0)) {
+          return { state: "ok" as const, detail: "The cycle pool is off, so recognition is a signal on its own" };
+        }
+        const def = tokenDef(slug);
+        if (!def) {
+          return { state: "missing" as const, detail: `The pool is set to pay "${slug}", which is not a token this village issues` };
+        }
+        const surfaces = await spendSurfacesFor(getPool(), slug);
+        if (!surfaces.length) {
+          return {
+            state: "missing" as const,
+            detail: `${def.name} is paid out every cycle and nothing accepts it. Price a room or a gathering in it, or open member sending on it`,
+          };
+        }
+        return { state: "ok" as const, detail: `${def.name} is spendable: ${surfaces.map((f) => f.detail).join(", ")}` };
       },
       // Both of these were already machine-observable and simply never asked.
       "session-secret": () =>
@@ -14071,6 +14272,143 @@ Send an empty drafts array when you are still listening. A role payload is {name
       onchain,
       economicsEnabled,
       hypha: resolveHyphaLinks(stringVar),
+      // 0092: which of the tokens in that ledger can be sent to another
+      // member. Derived from the registry, so a village that has not opened
+      // sending gets an empty list and the page shows no form at all.
+      sendable: sendableTokens().map((t) => ({ slug: t.slug, name: t.name })),
+    });
+  });
+
+  /**
+   * SEND CREDITS TO ANOTHER MEMBER. The farmers-market path.
+   *
+   * The founder's framing is the specification: gratitude routes the pool, and
+   * separately "users can spend them with each other". This is that, and it is
+   * the sink that needs no admin to post anything, which is why it is also what
+   * makes the launch check pass on a fresh fork.
+   *
+   * ONE `postTransfer` between two member accounts, and deliberately not
+   * `postTransferPair`. A pair is TWO legs in one transaction and exists for a
+   * swap, where a member gives one token and receives a different one. A send
+   * is one token moving one way: `postTransfer` already writes it as a single
+   * double-entry row inside one transaction, with the overdraft check under the
+   * same lock. Using a pair here would mean fabricating a second leg that
+   * represents nothing, and `postTransferPair` refuses two legs sharing a key
+   * anyway. The invariant is "all movement through postTransfer or
+   * postTransferPair", and this is the first of those.
+   *
+   * A SENDER WITHOUT THE BALANCE FAILS LOUDLY. `allowNegative` is absent, so
+   * the ledger recomputes the sender's balance inside the transaction, sees it
+   * below zero, and rolls the whole thing back. Only faucets go negative, and a
+   * member is not a faucet.
+   */
+  app.post("/api/wallet/send", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
+    if (await overLimit(`wallet-send:${user.id}`, 30, 24 * 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "That is a lot of sending for one day. Pick it up tomorrow" });
+    }
+    const { to, toEmail, tokenType, amount, note } = req.body ?? {};
+
+    const slug = String(tokenType ?? "").trim();
+    const refusal = sendRefusal(slug);
+    if (refusal) return res.status(400).json({ error: refusal });
+
+    const n = Math.trunc(Number(amount) || 0);
+    if (n <= 0) return res.status(400).json({ error: "How much are you sending?" });
+
+    /*
+     * WHO IT IS FOR: an email the sender typed, or an id an API caller holds.
+     *
+     * The email path is the one members use and it matches
+     * `/api/game/gratitude/send`, which has taken a typed address since the
+     * beginning. That is deliberate rather than lazy: a picker needs a member
+     * DIRECTORY endpoint, and a list of everyone's names and ids readable by
+     * anyone signed in is a privacy surface with its own question to answer.
+     * Typing the address of the person in front of you at the market answers
+     * none of it.
+     */
+    const typedEmail = String(toEmail ?? "").trim();
+    const recipient = typedEmail
+      ? await members.byEmail(typedEmail)
+      : (String(to ?? "").trim() ? await members.byId(String(to).trim()) : null);
+    if (!typedEmail && !String(to ?? "").trim()) return res.status(400).json({ error: "Who is it for?" });
+    if (!recipient) return res.status(404).json({ error: "No member here has that address" });
+    if (recipient.id === user.id) {
+      return res.status(400).json({ error: "That is your own account. Sending to yourself moves nothing" });
+    }
+    // A standing example is a demonstration, not a person, and paying one
+    // would put real credits into a row the example sweep deletes.
+    if (isExampleUser(recipient)) {
+      return res.status(409).json({ error: "That is a standing example, not a member. Credits go to real people" });
+    }
+
+    /*
+     * The note is what makes a line in someone's ledger mean something a month
+     * later. Optional, because a send between two people who just spoke needs
+     * no caption, and capped at the ledger column's own width.
+     */
+    const message = String(note ?? "").trim().slice(0, 180);
+
+    /*
+     * IDEMPOTENCY IS THE CLIENT'S NONCE, not a server-generated id.
+     *
+     * A key minted here would be unique per REQUEST, which makes a retried
+     * request a second payment: exactly the failure the ledger's unique index
+     * exists to prevent, reintroduced by the one caller that had the chance to
+     * prevent it. The client sends one nonce per tap of the button. A caller
+     * that sends none gets a fresh key and no retry protection, which is the
+     * honest default for a caller that did not ask for any.
+     */
+    const nonce = String(req.body?.clientNonce ?? "").trim().slice(0, 64)
+      || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    const r = await postTransfer(getPool(), {
+      from: memberAccount(user.id),
+      to: memberAccount(recipient.id),
+      tokenType: slug,
+      amount: n,
+      source: "member_send",
+      // The counterpart, so each side's ledger line can name the other person.
+      sourceRef: recipient.id,
+      description: message || undefined,
+      idempotencyKey: `send:${user.id}:${nonce}`,
+    });
+    if (!r.ok) {
+      // The ledger's own sentence names the token and the balance, which is
+      // more than this handler knows. 409, because the request was well formed
+      // and the state refused it.
+      return res.status(409).json({ error: r.error ?? "That send did not go through" });
+    }
+    if (!r.duplicate) {
+      await notify({
+        userId: recipient.id,
+        type: "wallet",
+        title: `${user.name ?? "Someone"} sent you ${n} ${tokenDef(slug)?.name ?? slug}`,
+        body: message || undefined,
+        link: "/gratitude",
+        // One notification per send, keyed on the movement's own key, so a
+        // retried request rings once for the same reason it pays once.
+        dedupeKey: `send:${user.id}:${nonce}`,
+      });
+      await recordEvent(getPool(), {
+        kind: "member_send",
+        text: `sent ${n} ${tokenDef(slug)?.name ?? slug} to another member`,
+        actorUserId: user.id,
+        entityType: "token",
+        entityRef: slug,
+        // Who paid whom is between them and the stewards, the same judgement
+        // the RSVP route makes about who is in a room on a given evening.
+        audience: "admin",
+      });
+    }
+    res.json({
+      success: true,
+      duplicate: r.duplicate,
+      sent: n,
+      tokenName: tokenDef(slug)?.name ?? slug,
+      to: recipient.name ?? null,
+      balance: await balanceOf(getPool(), memberAccount(user.id), slug),
     });
   });
 
@@ -15633,12 +15971,27 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // identical collision, reached by typing the name in the first time.
     const createClash = tokenNameClash(String(name).trim(), cleanSlug);
     if (createClash) return res.status(409).json({ error: createClash });
+    /*
+     * 0092: `transferable` used to ride straight off the body with no
+     * cross-check against `kind`, so this route could create a transferable
+     * RECOGNITION token, which the constitution forbids and which the send
+     * surface would then honour. Both doors ask the same question now.
+     */
+    const cleanKind = ["recognition", "equity", "voice", "credit"].includes(kind) ? kind : "credit";
+    const wantsSending = !!transferable;
+    if (wantsSending) {
+      const blocked = mayToggleTransferable({
+        slug: cleanSlug, name: String(name).trim(), kind: cleanKind,
+        governance: "platform", transferable: true, decimals: 0, active: true,
+      });
+      if (blocked) return res.status(409).json({ error: blocked });
+    }
     await registerToken(getPool(), {
       slug: cleanSlug,
       name: String(name).trim().slice(0, 120),
-      kind: ["recognition", "equity", "voice", "credit"].includes(kind) ? kind : "credit",
+      kind: cleanKind,
       governance: "platform",
-      transferable: !!transferable,
+      transferable: wantsSending,
     });
     // The village minting its own token is the moment the example market has
     // done its job: real tokens replace the demonstration.
@@ -15672,8 +16025,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const body = req.body ?? {};
     const wantsName = Object.prototype.hasOwnProperty.call(body, "name");
     const wantsActive = Object.prototype.hasOwnProperty.call(body, "active");
-    if (!wantsName && !wantsActive) {
-      return res.status(400).json({ error: "Send a name, an active flag, or both" });
+    const wantsTransferable = Object.prototype.hasOwnProperty.call(body, "transferable");
+    if (!wantsName && !wantsActive && !wantsTransferable) {
+      return res.status(400).json({ error: "Send a name, an active flag, a sending flag, or any of them" });
     }
 
     if (wantsName) {
@@ -15692,6 +16046,26 @@ Send an empty drafts array when you are still listening. A role payload is {name
       // entry, and the reverse — silently freezing an economy from a display
       // switch — is the one that cannot be undone.
       await getPool().query("UPDATE tokens SET active = ? WHERE slug = ?", [body.active === true ? 1 : 0, slug]);
+    }
+    /*
+     * 0092: THE VILLAGE'S OWN SWITCH FOR MEMBER-TO-MEMBER SENDING.
+     *
+     * `transferable` was writable only at CREATE, from an unvalidated body
+     * field, and the rename route refused to touch it precisely so a rename
+     * could not rewrite policy by accident. Now that a surface reads the
+     * column, a village needs a way to close sending it opened, and a way to
+     * open it on a token created before there was a surface.
+     *
+     * `mayToggleTransferable` is the firewall and it refuses by KIND: only a
+     * credit token this platform governs can ever be flipped, so recognition
+     * cannot be opened here, by an admin, by a typo, or by a future caller
+     * that forgets to ask. The boot invariant proves the same thing from the
+     * data side every morning.
+     */
+    if (wantsTransferable) {
+      const blocked = mayToggleTransferable(def);
+      if (blocked) return res.status(409).json({ error: blocked });
+      await getPool().query("UPDATE tokens SET transferable = ? WHERE slug = ?", [body.transferable === true ? 1 : 0, slug]);
     }
     await loadTokenRegistry(getPool());
     res.json({ success: true, token: tokenDef(slug) });
@@ -15774,7 +16148,19 @@ Send an empty drafts array when you are still listening. A role payload is {name
    */
   app.get("/api/admin/ledger/reconciliation", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    const invariants = await checkLedgerInvariants(getPool());
+    const core = await checkLedgerInvariants(getPool());
+    /*
+     * 0092: the seat escrow's own reconciliation, folded into the same list.
+     *
+     * Conservation says every token's balances sum to zero, and that stays
+     * true whether or not `sys:event-escrow` holds the right amount: a fee
+     * charged and never recorded, or recorded and never charged, is a
+     * DISTRIBUTION error the global sum cannot see. Comparing the account
+     * against the sum of open charges is what catches it, which is the same
+     * check the library runs over its own escrow.
+     */
+    const drift = await seatEscrowDrift(getPool());
+    const invariants = { ok: core.ok && drift.length === 0, problems: [...core.problems, ...drift] };
     const [systems] = await getPool().query<any[]>(
       "SELECT a.id, a.label, a.faucet, tb.token_type, tb.balance FROM ledger_accounts a " +
         "LEFT JOIN token_balances tb ON tb.account_id = a.id WHERE a.kind = 'system' ORDER BY a.id, tb.token_type",
@@ -17802,6 +18188,25 @@ Send an empty drafts array when you are still listening. A role payload is {name
         }
         if (!hasCapability("event.rsvp", await capabilityCtx(user))) {
           return reply({ ok: false, state: "off", reason: "not-yet" });
+        }
+        /*
+         * 0092: A ONE-TAP LANTERN NEVER SPENDS CREDITS.
+         *
+         * Every other door to `rsvp()` shows the fee before it takes it: the
+         * calendar card carries `seatPrice`, the agent surface echoes the whole
+         * request back for confirmation, and the assistant draft is confirmed by
+         * hand. A map lantern is one tap on a building with no price anywhere
+         * near it, so charging through it would be the one surprise charge in
+         * the build.
+         *
+         * Refused as `closed`, which is the nearest existing reason and is
+         * deliberately not a new one: the map's copy table lives inside the
+         * generated artifact another lane owns, and a reason with no copy reads
+         * worse than a reason that is merely imprecise. The remedy is the same
+         * either way, which is to open the gathering.
+         */
+        if (await seatPriceFor(pool, row.id)) {
+          return reply({ ok: false, state: "off", reason: "closed", count: await goingCountFor(pool, row.id) });
         }
         const outcome = await rsvp(pool, row.id, user.id, "going");
         if (!outcome.ok) {
@@ -20057,6 +20462,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // a separate token (ReGen model), a member's ledger view must show every
     // token they hold, each with its registry display name.
     const entries = await entriesForMember(getPool(), user.id);
+    /*
+     * 0092: the names on both sides of a send, looked up once for the whole
+     * page. One query for the set instead of one per line, because a busy
+     * market week is a lot of lines.
+     *
+     * A member who has since deleted their account resolves to null, which is
+     * what the tombstone means and is the same answer `listRsvps` gives.
+     */
+    const sendPeers = Array.from(
+      new Set(
+        entries
+          .filter((e) => e.source === "member_send" && e.counterAccount.startsWith("mem:"))
+          .map((e) => e.counterAccount.slice(4)),
+      ),
+    );
+    const sendNames = new Map<string, string | null>();
+    for (const id of sendPeers) sendNames.set(id, (await members.byId(id))?.name ?? null);
     const summed = await balanceOf(getPool(), memberAccount(user.id), "gratitude");
     const raw = await balancesFor(getPool(), memberAccount(user.id));
     const balances: Record<string, { name: string; balance: number }> = {};
@@ -20091,6 +20513,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
         sourceRef: e.sourceRef,
         description: e.description,
         at: e.at,
+        // 0092: a member-to-member send names the other person. Without this a
+        // send reads as a bare number with a note and no counterpart, which is
+        // the least explainable line in a view whose whole job is to make a
+        // balance explainable. Resolved from `sourceRef`, which the send route
+        // sets to the other member's id.
+        ...(e.source === "member_send" && e.counterAccount.startsWith("mem:")
+          ? { withName: sendNames.get(e.counterAccount.slice(4)) ?? null }
+          : {}),
       })),
     });
   });
