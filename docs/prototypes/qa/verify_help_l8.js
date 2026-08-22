@@ -209,6 +209,20 @@ async function waitVar(page, name, ms = 6000) {
 
 async function waitDock(page, ms = 9000) {
   try {
+    /* THE WALK NO LONGER STARTS ITSELF, which is why this wait began timing out
+       on nineteen checks at once. The pocket boot used to call startWalk(false)
+       700ms after load and fly the camera through eight places nobody had asked
+       to see; the map now offers the walk and waits to be asked. The STATE this
+       sweep is about has not changed at all, and is still exactly what the
+       comment above says: a first-time reader with the band's other tenant up.
+       So the sweep asks for that state the way a reader does, through the same
+       function the visible "Take the walk" button calls, and then goes on to
+       assert it. A timeout still returns false and still takes every check
+       below red, so this is not the assertion waiting for itself. */
+    await page.evaluate(() => {
+      if (typeof JWALK !== 'undefined' && JWALK) return;
+      if (typeof startWalk === 'function') startWalk(true);
+    }).catch(() => {});
     await page.waitForFunction(() => {
       if (!document.body.classList.contains('msheet')) return false;
       const m = document.getElementById('maia');

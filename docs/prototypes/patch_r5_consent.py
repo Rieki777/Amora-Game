@@ -469,11 +469,22 @@ src = edit(
     guard="  window.jEnd=()=>{clearTimeout(JTMR);GUIDE.stop('end');")
 
 src = edit(
-    src, "Escape goes through the one cancel path",
-    "document.addEventListener('keydown',e=>{if(e.key==='Escape'&&JWALK){clearTimeout(JTMR);\n",
-    "document.addEventListener('keydown',e=>{if(e.key==='Escape'&&JWALK){clearTimeout(JTMR);"
-    "GUIDE.stop('escape');\n",
-    guard="if(e.key==='Escape'&&JWALK){clearTimeout(JTMR);GUIDE.stop('escape');")
+    src, "Escape ends the walk through the one ender",
+    "document.addEventListener('keydown',e=>{if(e.key==='Escape'&&JWALK){clearTimeout(JTMR);\n"
+    "  const logged=!!JWALK.log,at=JWALK.i;JWALK=null;tourI=-1;jSheetOff();mvStop();\n"
+    "  if(logged&&typeof endWalk==='function')endWalk(false,at);\n"
+    "  maiaSay('The walk ends here. Wander wherever you like.');setHash('')}},true);\n",
+    "/* ESCAPE ENDS THE WALK THROUGH THE ONE ENDER. It used to keep a private copy\n"
+    "   of everything jEnd does, and the first draft of this lane put GUIDE.stop in\n"
+    "   front of that copy, which then read JWALK.log off a JWALK the stop had\n"
+    "   already nulled. verify_doors caught it the same hour as a page error:\n"
+    "   TypeError: Cannot read properties of null (reading 'log'). jHalt clears the\n"
+    "   timer, closes the sheet, drops the address and posts the abandoned row\n"
+    "   exactly once, so there is nothing here left to repeat. */\n"
+    "document.addEventListener('keydown',e=>{if(e.key!=='Escape'||!JWALK)return;\n"
+    "  clearTimeout(JTMR);GUIDE.stop('escape');jHalt(false);mvStop();\n"
+    "  maiaSay('The walk ends here. Wander wherever you like.')},true);\n",
+    guard="/* ESCAPE ENDS THE WALK THROUGH THE ONE ENDER.")
 
 # -------------------------------------------------------------- 4. the markup
 
