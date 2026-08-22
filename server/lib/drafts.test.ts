@@ -26,7 +26,7 @@ const rolePayload = (over: Record<string, unknown> = {}) => ({
 
 describe("escalation is the real gate", () => {
   it("flags capabilities no existing role already grants", () => {
-    const esc = computeEscalations(["forum.post", "exchange.manage"], ["forum.post", "quest.propose"]);
+    const esc = computeEscalations(["forum.post", "exchange.manage"], ["forum.post", "quest.consent"]);
     expect(esc.map((e) => e.capability)).toEqual(["exchange.manage"]);
   });
 
@@ -98,7 +98,7 @@ describe("a draft cannot exceed its author", () => {
       checkDraft({
         kind: "role",
         payload: rolePayload({ capabilities: ["forum.post"] }),
-        proposerHolds: ["forum.post", "quest.propose"],
+        proposerHolds: ["forum.post", "quest.consent"],
       }),
     ).toEqual({ ok: true });
   });

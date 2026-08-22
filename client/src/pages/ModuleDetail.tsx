@@ -40,6 +40,13 @@ interface AdminModule {
   name: string;
   core: boolean;
   lifecycle: string;
+  /**
+   * What is actually being SERVED, which differs from `lifecycle` when a
+   * module is demoted for a missing dependency. The catalog withholds a
+   * village's own card image on this value, so anything explaining that
+   * has to read it and not the configured one.
+   */
+  served: string;
   legalReview: boolean;
   dataClass: string;
   setup: "none" | "optional" | "required";
@@ -199,6 +206,23 @@ function AdminPanel({ id }: { id: string }) {
         <p className="text-xs text-muted-foreground mb-2">
           Your own picture for this module's card, or the platform art when unset.
         </p>
+        {/*
+          * The catalog withholds a village's own art below the `members` rung
+          * (server/index.ts, GET /api/modules/catalog): custom art on a staged
+          * module would whisper what a village is trying out, which is the
+          * quiet that preview exists to keep. An admin passes that check, so
+          * the hero above shows the upload back to the one person it is
+          * hidden from, and the rule lived only in a server comment and an
+          * e2e assertion. Say it on the surface that sets the picture.
+          */}
+        {hasVillageImage && !m.core && (m.served === "off" || m.served === "preview") && (
+          <p className="text-xs text-muted-foreground mb-2">
+            You are the only one seeing it. While this module is {m.served === "off" ? "off" : "in preview"},
+            members and visitors get the platform art, so your own picture never hints at what the village is
+            trying out. Yours appears for everyone once the module is live for members.
+            {m.served !== m.lifecycle && " That is what is being served right now, whatever this is configured as, because the module is missing something it requires."}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <label className="inline-flex items-center min-h-[44px] px-4 rounded-lg border border-border text-sm font-medium cursor-pointer bg-background hover:bg-muted">
             {busy ? "Working…" : "Upload a picture"}

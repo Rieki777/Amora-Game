@@ -4986,8 +4986,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
     // CORE capabilities are untouched. The four core modules are always
     // public through effectiveLifecycle and cannot be disabled at all.
-    expect(off.me, "a core module's capability survives").toContain("quest.propose");
-    expect(off.me).toContain("quest.consent");
+    expect(off.me, "a core module's capability survives").toContain("quest.consent");
 
     // Turning it back on restores it: this filters the VIEW, never the grant.
     await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "public" }, founderToken);

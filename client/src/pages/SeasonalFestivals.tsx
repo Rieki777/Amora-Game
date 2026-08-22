@@ -28,6 +28,17 @@ export default function SeasonalFestivals() {
   const fmt = (d: string) =>
     new Date(d + "T00:00:00").toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
 
+  /**
+   * A season's dates. `endsOn` is allowed to be EMPTY, which means open-ended:
+   * it runs until somebody starts the next one, which is what a founding
+   * season does. Formatting that empty string produced "Invalid Date" on the
+   * page, so say the true thing instead.
+   */
+  const span = (s: any) =>
+    s.endsOn ? `${fmt(s.startsOn)} to ${fmt(s.endsOn)}` : `${fmt(s.startsOn)} onward, until the next season starts`;
+
+  const currentGoals = ((season?.current?.goals ?? []) as any[]).filter((g) => String(g?.text ?? "").trim());
+
   return (
     <Layout>
       <section className="py-12 bg-gradient-to-b from-teal-deep/5 to-background">
@@ -50,10 +61,25 @@ export default function SeasonalFestivals() {
                 <p className="text-xs font-semibold uppercase tracking-widest text-teal-deep">Now</p>
               </div>
               <p className="font-display text-xl font-bold text-foreground">{season.current.name}</p>
-              {season.current.goal && <p className="text-sm text-muted-foreground mt-1">{season.current.goal}</p>}
-              <p className="text-xs text-muted-foreground mt-2">
-                {fmt(season.current.startsOn)} to {fmt(season.current.endsOn)}
-              </p>
+              {/*
+                * `focus` is the season's description. This read `season.current.goal`
+                * for its whole life, a key SeasonEntry has never had (the fields are
+                * theme, focus, and goals[]), so the line silently never rendered. The
+                * page types the payload as `any`, which is why tsc never said so.
+                */}
+              {season.current.focus && (
+                <p className="text-sm text-muted-foreground mt-1">{season.current.focus}</p>
+              )}
+              {currentGoals.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {currentGoals.map((g: any, i: number) => (
+                    <li key={i} className="text-sm text-muted-foreground">
+                      {g.done ? "Done: " : ""}{g.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-xs text-muted-foreground mt-2">{span(season.current)}</p>
             </div>
           )}
 
@@ -62,20 +88,26 @@ export default function SeasonalFestivals() {
               <CalendarDays className="w-4 h-4 text-teal-deep" />
               <p className="font-semibold text-foreground text-sm">The year's turning</p>
             </div>
-            {(season?.seasons ?? []).filter((s: any) => s.startsOn && s.endsOn).length === 0 ? (
+            {/*
+              * Filtered on `startsOn` alone. Requiring `endsOn` too dropped every
+              * open-ended season, which is exactly what a founding season is, so
+              * the village that had only ever declared one was told its calendar
+              * "hasn't been set yet".
+              */}
+            {(season?.seasons ?? []).filter((s: any) => s.startsOn).length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 The season calendar hasn't been set yet. It lives with the stewards.
               </p>
             ) : (
               <ul className="space-y-3">
                 {(season?.seasons ?? [])
-                  .filter((s: any) => s.startsOn && s.endsOn)
+                  .filter((s: any) => s.startsOn)
                   .sort((a: any, b: any) => a.startsOn.localeCompare(b.startsOn))
                   .map((s: any) => (
                     <li key={s.id ?? s.name} className="border border-border rounded-lg px-4 py-3">
                       <p className="text-sm font-medium text-foreground">{s.name}</p>
-                      {s.goal && <p className="text-xs text-muted-foreground mt-0.5">{s.goal}</p>}
-                      <p className="text-xs text-muted-foreground mt-1">{fmt(s.startsOn)} to {fmt(s.endsOn)}</p>
+                      {s.focus && <p className="text-xs text-muted-foreground mt-0.5">{s.focus}</p>}
+                      <p className="text-xs text-muted-foreground mt-1">{span(s)}</p>
                     </li>
                   ))}
               </ul>

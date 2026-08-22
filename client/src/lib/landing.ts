@@ -12,14 +12,24 @@
  * than a welcome page they have already read. Nobody is routed there now
  * unless they went and asked for it.
  *
- * The machinery is kept whole rather than deleted, because the map becoming
- * home is still where this is going. Re-enabling is one line: restore the
- * visit-count branch at the end of chooseLanding.
+ * The DECISION is kept whole, because the map becoming home is still where
+ * this is going. The surfaces around it are not: while the switch is off,
+ * NOTHING IN THE PRODUCT WRITES A PREFERENCE. The one control that did
+ * (`LandingToggle` on the map page) could never render, because the only
+ * preference it offered to undo was one nothing set, so it and `setPreference`
+ * are both gone. `getPreference` therefore returns null for every member
+ * today, and the preference branches below are the shape of the restore
+ * rather than live behaviour.
+ *
+ * Turning this back on is two things, and both are needed or the first one
+ * traps people: restore the visit-count branch at the end of chooseLanding,
+ * AND give a member a way to choose, on the page they get sent to.
  *
  * The rules that stay true either way:
  *
  *   - An EXPLICIT choice always wins, in both directions and forever. Someone
- *     who says "give me the welcome page" gets it on visit five hundred.
+ *     who says "give me the welcome page" gets it on visit five hundred. No
+ *     surface offers that choice while the switch is off.
  *   - It never routes anyone to a module they cannot see. The map is an
  *     optional module; a village can run without it, and a visitor below its
  *     lifecycle rank must not be bounced into a page that will refuse them.
@@ -102,13 +112,15 @@ export function getVisits(): number {
   return Number.parseInt(read(VISITS_KEY) ?? "0", 10) || 0;
 }
 
+/**
+ * A member's explicit choice, if one was ever stored. Nothing writes this key
+ * while the automatic switch is off, so today this answers null for everyone.
+ * It stays because it is the read half of the restore, and because a value
+ * left in a browser from an older build must still be honoured.
+ */
 export function getPreference(): LandingPreference {
   const raw = read(PREFERENCE_KEY);
   return raw === "home" || raw === "map" ? raw : null;
-}
-
-export function setPreference(choice: LandingChoice): void {
-  write(PREFERENCE_KEY, choice);
 }
 
 /**
