@@ -8,10 +8,18 @@
 import Layout from "@/components/Layout";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
+import { useModule } from "@/modules/ModuleProvider";
 import { CalendarDays, Sparkles } from "lucide-react";
 
 export default function SeasonalFestivals() {
   const [season, setSeason] = useState<any>(null);
+  /**
+   * The calendar is the other half of this page: seasons say WHEN the year
+   * turns, the calendar says what is dated inside them. Gated, because the
+   * events module ships off and its page renders NotFound until a village
+   * turns it on.
+   */
+  const eventsModule = useModule("events");
 
   useEffect(() => {
     fetch("/api/season").then((r) => (r.ok ? r.json() : null)).then(setSeason).catch(() => {});
@@ -78,6 +86,12 @@ export default function SeasonalFestivals() {
               <Link href="/quests" className="text-teal-deep font-medium hover:underline">Quests</Link>{" "}
               or say hello through{" "}
               <Link href="/work-with-us" className="text-teal-deep font-medium hover:underline">Work With Us</Link>.
+              {eventsModule && (
+                <>
+                  {" "}Everything already dated sits on the{" "}
+                  <Link href="/events" className="text-teal-deep font-medium hover:underline">Village Calendar</Link>.
+                </>
+              )}
             </p>
           </div>
         </div>

@@ -52,9 +52,15 @@ export default function Layout({ children }: LayoutProps) {
   const navEntries = NAV.filter((e) => (isGroup(e) ? groupItems(e).length > 0 : visible(e)));
   const accountItems = ACCOUNT_MENU.filter(visible);
 
-  // Footer-only modules.
+  // Footer-only modules. A gated footer link would be a dead end on a fresh
+  // fork, because every one of these pages renders NotFound with its module
+  // off and every optional module ships off.
   const commerceModule = moduleOn("commerce");
   const networkModule = moduleOn("network");
+  const crowdpoolModule = moduleOn("crowdpool");
+  const staysModule = moduleOn("stays");
+  const toolsModule = moduleOn("tools");
+  const healthModule = moduleOn("health");
 
   // A click anywhere else closes the account menu. Without this the only way
   // out was to click the trigger again, and the menu covered the page beneath.
@@ -495,6 +501,15 @@ export default function Layout({ children }: LayoutProps) {
                     </Link>
                   </li>
                 )}
+                {/* The health dashboard had one door in the whole client, the
+                    Village menu, and a menu reshuffle would have taken it. */}
+                {healthModule && (
+                  <li>
+                    <Link href="/village-health" className="text-white hover:underline transition-colors text-sm block py-1.5">
+                      Village Health
+                    </Link>
+                  </li>
+                )}
               </ul>
             </div>
 
@@ -521,6 +536,31 @@ export default function Layout({ children }: LayoutProps) {
                   <li>
                     <Link href="/contribute" className="text-white hover:underline transition-colors text-sm block py-1.5">
                       Contribute
+                    </Link>
+                  </li>
+                )}
+                {/* Three module pages that lived behind exactly one menu entry
+                    each. The footer is the second door: it is on every page, it
+                    survives a nav reshuffle, and it costs a fork nothing when
+                    the module is off. */}
+                {crowdpoolModule && (
+                  <li>
+                    <Link href="/campaigns" className="text-white hover:underline transition-colors text-sm block py-1.5">
+                      Our Raisings
+                    </Link>
+                  </li>
+                )}
+                {staysModule && (
+                  <li>
+                    <Link href="/stay" className="text-white hover:underline transition-colors text-sm block py-1.5">
+                      Stay With Us
+                    </Link>
+                  </li>
+                )}
+                {toolsModule && (
+                  <li>
+                    <Link href="/tools" className="text-white hover:underline transition-colors text-sm block py-1.5">
+                      Village Tools
                     </Link>
                   </li>
                 )}

@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
+import { ExampleChip } from "@/components/ExamplesBanner";
 import { Users } from "lucide-react";
 import InfoTip from "@/components/InfoTip";
 import { CrowdpoolStyles, MiniRing, money, phaseLabel, timeAgo } from "@/components/crowdpool/PoolPieces";
@@ -34,6 +35,12 @@ interface CampaignCard {
   daysRemaining?: number | null;
   contributorsCount?: number;
   imageUrl?: string | null;
+  /**
+   * The hub's seeded-campaign flag. `/api/crowdpool/campaigns` has served it
+   * since the module shipped and this card neither typed it nor showed it, so
+   * a demo raising's ring and backer count read as this village's own.
+   */
+  isDemo?: boolean;
   reachable: boolean;
   stale?: boolean;
   lastSyncAt?: string | null;
@@ -94,7 +101,10 @@ export default function Crowdpool() {
                 <div className="flex items-center gap-5">
                   <MiniRing percent={c.percentPledged ?? 0} />
                   <div className="min-w-0 flex-1">
-                    <h2 className="font-display text-xl font-bold" style={{ color: "#f3e6c8" }}>{c.title}</h2>
+                    <h2 className="font-display text-xl font-bold" style={{ color: "#f3e6c8" }}>
+                      {c.title}
+                      {c.isDemo && <ExampleChip className="ml-2 align-middle" />}
+                    </h2>
                     <p className="text-xs mt-0.5 cp-smallcaps">{phaseLabel(c.status ?? "active", c.percentPledged ?? 0)}</p>
                     <p className="text-sm mt-1.5" style={{ color: "#e4d3ae" }}>
                       {money(c.pledgedTotal ?? 0, c.currency ?? "USD")} of {money(c.totalValue ?? 0, c.currency ?? "USD")} pooled

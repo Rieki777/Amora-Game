@@ -37,6 +37,7 @@ export default function Forum() {
 
 function ThreadList() {
   const { user } = useAuth();
+  const feedModule = useModule("feed");
   const [categories, setCategories] = useState<any[]>([]);
   const [threads, setThreads] = useState<any[]>([]);
   const [category, setCategory] = useState("");
@@ -90,6 +91,16 @@ function ThreadList() {
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Village Forum</h1>
           <p className="text-muted-foreground">Conversations, questions, and the decisions we make together.</p>
+          {/* The feed is the other lens over this same table (RETIRES_WITH in
+              ExamplesBanner says so), and it had one door in the whole client.
+              Gated: the feed module ships off and its page 404s until a village
+              turns it on. */}
+          {feedModule && (
+            <p className="text-sm text-muted-foreground mt-2">
+              For the day to day of it, open the{" "}
+              <Link href="/feed" className="text-teal-deep font-medium hover:underline">Village Feed</Link>.
+            </p>
+          )}
           <ExamplesBanner moduleId="forum" noun="thread" />
         </div>
       </section>

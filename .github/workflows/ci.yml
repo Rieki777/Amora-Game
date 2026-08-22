@@ -123,6 +123,24 @@ jobs:
         # resolving it here would make a correct document a red gate.
         run: node scripts/check-doc-links.mjs
 
+      - name: Route reachability
+        # Every gate above this line asks whether a page WORKS. This one asks
+        # whether it can be REACHED.
+        #
+        # /campaigns shipped mounted, titled, module-gated, tested and correct,
+        # and the only link to it in the whole client sat on /campaign/:slug,
+        # which is itself only reachable from /campaigns. A closed loop, address
+        # bar only, and green everywhere.
+        #
+        # So: two independent doors per route, one entrance allowed by name with
+        # the reason written next to it. The route list is derived from the
+        # router by scripts/qa/routes.mjs, so a page added tomorrow is measured
+        # tomorrow, and the count of route-shaped strings the scanner could not
+        # classify is printed even when it is zero.
+        #
+        # Before the build, with the other guards: it reads source files.
+        run: node scripts/check-route-reachability.mjs
+
       - name: Image budget
         # Format, per-file size, and a total that may only fall.
         #

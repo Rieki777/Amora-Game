@@ -107,6 +107,14 @@ export const NAV: readonly NavEntry[] = [
       { href: "/housing", label: "Housing" },
       { href: "/network", label: "Village Network", module: "network" },
       { href: "/contribute", label: "Contribute", module: "commerce" },
+      /**
+       * The crowdpool bridge. It shipped with no entry here and none in the
+       * footer, so the only link to /campaigns in the whole client sat on the
+       * campaign page, which is reachable only from /campaigns: a closed loop
+       * with no door from outside it. It sits next to Contribute because both
+       * answer "how do I put something in".
+       */
+      { href: "/campaigns", label: "Our Raisings", module: "crowdpool" },
     ],
   },
   {

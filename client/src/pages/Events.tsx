@@ -18,6 +18,7 @@
 import Layout from "@/components/Layout";
 import ModuleGate from "@/components/modules/ModuleGate";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
 import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, MapPin, Users, Video } from "lucide-react";
@@ -314,6 +315,17 @@ export default function Events() {
             </p>
           )}
           {payload && <p className="mt-2 text-xs text-muted-foreground">{zoneNote(timezone)}</p>}
+          {/* The season page is what this calendar sits inside, and it is
+              ungated core content, so this link is safe on every fork. It is
+              also the second door onto /seasonal-festivals, which lived behind
+              one menu entry. */}
+          <p className="mt-3 text-xs text-muted-foreground">
+            The turnings that shape this year are on the{" "}
+            <Link href="/seasonal-festivals" className="text-teal-deep font-medium hover:underline">
+              Seasonal Festivals
+            </Link>{" "}
+            page.
+          </p>
         </div>
       </section>
 
