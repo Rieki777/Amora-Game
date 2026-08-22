@@ -13,6 +13,15 @@
  * be answerable. Its met state is carried by the check mark and the sentence,
  * which is what the accessibility rule asks for anyway.
  *
+ * WHY THESE ARE BARS AND NOT MOONS. `MoonProgress` is the platform's one
+ * progress vocabulary and the contract gives it "any completion display"
+ * (docs/modules/natural-interface.md). Neither of these is a completion
+ * display. Each is a value read against a THRESHOLD, and the threshold is the
+ * information: 62% means nothing here until you can see where 80% sits. A disc
+ * has nowhere to put that line, and two discs side by side would lose the one
+ * fact this widget exists to carry. Where this module does show completion it
+ * uses the moon, on the Decisions page's turnout card.
+ *
  * ACCESSIBILITY. Each bar is a `progressbar` with aria-valuenow and an
  * accessible name that already contains the number and the verdict, so a
  * screen reader never has to infer anything from a colour or a shape. The
