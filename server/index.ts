@@ -135,10 +135,13 @@ import {
 } from "./lib/mechanics";
 import { buildMechanicsHandoff, extractMechanicsMarker } from "./lib/hypha-bridge";
 import {
+  awaitingVote,
   ballotById,
   ballotsFor,
+  ballotsNeedingAttention,
   castVote,
   closeBallot,
+  electorateOf,
   fileObjection,
   objectionsFor,
   openBallot,
@@ -336,6 +339,7 @@ import { canSeeTool } from "../shared/toolsVisibility";
 import {
   insertNotification,
   markNotificationsRead,
+  notificationPulse,
   notificationsFor,
   resolveNotifyPrefs,
   runNotificationDigest,
@@ -3141,6 +3145,16 @@ function notify(input: Parameters<typeof insertNotification>[1]) {
 }
 
 /**
+ * How far ahead a ballot's "your vote is still owed" notice fires.
+ *
+ * Set against the EMAIL cadence, never against attention. Governance email
+ * defaults to a daily digest, so a notice two days out still reaches somebody
+ * with a day left to act on it. A shorter window lets the digest arrive after
+ * the vote closed, which is a reminder that exists to look busy.
+ */
+const BALLOT_CLOSING_NOTICE_HOURS = 48;
+
+/**
  * S32 ops rider: one alert to EVERY admin/founder. The shared dedupeKey is
  * suffixed per recipient so "each admin hears it once" and "the event fires
  * once" stay separate concerns.
@@ -4200,6 +4214,59 @@ async function startServer() {
       if (r.fresh) told += 1;
     }
     if (told > 0) console.log(`[org] ${told} holder(s) told their term is ending or has ended`);
+  });
+
+  /**
+   * THE ONE NUDGE A VOTE IS ALLOWED, and the one reminder its closer gets.
+   *
+   * Two facts, one sweep, and both of them are about a loop that has stalled
+   * rather than about engagement:
+   *
+   *  - CLOSING SOON, sent ONLY to people on the roll who have not answered.
+   *    Somebody who already voted hears nothing, forever: they did the thing,
+   *    and pinging them again would be nagging with extra steps. The dedupe
+   *    key is per ballot per member, so this fires ONCE however many times the
+   *    job runs inside the window.
+   *
+   *  - PAST ITS WINDOW, sent to whoever opened it. Closing is a human act by
+   *    design and nothing auto-executes at expiry, which means an expired
+   *    ballot is a ballot waiting for a specific person, and that person is
+   *    the only one who needs telling.
+   *
+   * FORTY-EIGHT HOURS is chosen against the email cadence and not against
+   * anybody's attention. Governance email defaults to a daily digest, so a
+   * notice two days out still reaches a member with a day left to act on it.
+   * A shorter window would let the digest arrive after the vote closed, which
+   * is a reminder that exists to look busy.
+   *
+   * Hourly is how often it ASKS. The keys make a hundred runs equal to one.
+   */
+  registerJob("ballot-watch", 60 * 60 * 1000, async () => {
+    if (effectiveLifecycle("governance") === "off") return;
+    const { closingSoon, pastWindow } = await ballotsNeedingAttention(getPool(), BALLOT_CLOSING_NOTICE_HOURS);
+    let nudged = 0;
+    for (const b of closingSoon) {
+      const owing = await awaitingVote(getPool(), b.id);
+      if (!owing.length) continue;
+      nudged += await notifyRoll(b, {
+        type: "ballot_closing",
+        title: `Your vote is still owed: ${b.title}`,
+        body: `Voting closes ${new Date(b.closesAt).toLocaleDateString()}. Quorum is counted against everyone on the roll, so an abstention is an answer too.`,
+        keySuffix: "closing",
+        roll: owing,
+      });
+    }
+    for (const b of pastWindow) {
+      await notify({
+        userId: b.openedBy,
+        type: "ballot_expired",
+        title: `The voting window closed on ${b.title}`,
+        body: "Nothing happens on its own here. Someone has to close it and write down what the village decided.",
+        link: ballotLink(b),
+        dedupeKey: `bal:${b.id}:expired`,
+      });
+    }
+    if (nudged > 0) console.log(`[governance] ${nudged} member(s) reminded that a vote is waiting on them`);
   });
 
   /**
@@ -15849,7 +15916,15 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.get("/api/notifications", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
-    res.json(await notificationsFor(getPool(), user.id));
+    // `?count=1` is the poll: unread count and the newest timestamp from one
+    // indexed pass, no list built. The bell asks this every twenty-five
+    // seconds while a member is on the page and only fetches the list when
+    // the timestamp moves, which is how the poll got shorter AND cheaper.
+    const seenAt = (user as any)?.prefs?.notify?.seenAt ?? null;
+    if (String(req.query.count ?? "") === "1") {
+      return res.json(await notificationPulse(getPool(), user.id, seenAt));
+    }
+    res.json(await notificationsFor(getPool(), user.id, 50, seenAt));
   });
 
   app.post("/api/notifications/read", async (req, res) => {
@@ -15858,6 +15933,29 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : undefined;
     const marked = await markNotificationsRead(getPool(), user.id, ids);
     res.json({ success: true, marked });
+  });
+
+  /**
+   * SEEN, which is not read.
+   *
+   * Opening the bell quiets the badge and changes nothing else: every row
+   * keeps its own read state, so a member who glanced at the panel still
+   * knows what they have and have not dealt with. Collapsing the two is the
+   * documented antipattern (docs/NOTIFICATION_RESEARCH.md part 1 section 2),
+   * and this used to do exactly that, marking everything read on open.
+   *
+   * The cursor is ONE timestamp in the member's prefs blob. No column, no
+   * migration, and unseen is computed as a subset of unread, so something
+   * already dealt with can never come back as new.
+   */
+  app.post("/api/notifications/seen", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const at = new Date().toISOString();
+    await members.update(user.id, (u: any) => {
+      u.prefs = { ...(u.prefs ?? {}), notify: { ...(u.prefs?.notify ?? {}), seenAt: at } };
+    });
+    res.json({ success: true, seenAt: at });
   });
 
   app.get("/api/profile/prefs", async (req, res) => {
@@ -18842,7 +18940,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
           type: "quest_declined",
           title: `Your claim on "${declined.questTitle}" was released`,
           body: "The claim was declined or cleared. The quest is open again.",
-          link: "/quests",
+          // The quest itself, not the board it sits on. A member reading this
+          // wants to see the thing they were working on.
+          link: `/quests/${declined.questId}`,
           // The real actor, admin or steward: adminActor() only populates for
           // password/admin callers, so a steward's decision was anonymous.
           actorUserId: actor.userId,
@@ -19041,7 +19141,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
         title: multiplier === 1
           ? `Your quest was consented: ${consented.questTitle} (+${payout})`
           : `Your quest was consented: ${consented.questTitle} (+${payout}, including your badge bonus)`,
-        link: "/profile",
+        link: `/quests/${consented.questId}`,
         // The real actor, admin or steward (see the declines branch above).
         actorUserId: actor.userId,
         dedupeKey: `quest:${consented.id}:consented`,
@@ -19711,6 +19811,43 @@ Send an empty drafts array when you are still listening. A role payload is {name
       const record: CycleRecord = { ...cycle, status: "closed", closedAt: new Date().toISOString() };
       await cyclesRepo.upsert(record);
       closed.push(record);
+
+      /*
+       * THE SETTLEMENT REACHES THE PEOPLE IT SETTLED FOR.
+       *
+       * A close moved real value into member wallets and told nobody. The
+       * activity line said "a lunar cycle closed, N members were
+       * acknowledged", which is the village hearing about it and not the
+       * member hearing what they got, and the wallet just quietly held more
+       * than it had.
+       *
+       * AFTER the upsert on purpose: this fires about a cycle that IS closed,
+       * and the distribution rows it reads were persisted before any value
+       * moved (the sticky split above). The dedupe key is per cycle per
+       * member, so a re-run of a partially settled close credits nothing
+       * twice and tells nobody twice either.
+       *
+       * Only members who actually received recognition. Somebody who received
+       * none is not owed a notice saying so.
+       */
+      for (const d of persisted) {
+        const received = Number(d.received ?? 0);
+        if (received <= 0) continue;
+        const share = Number(d.credited ?? 0);
+        const senders = Number(d.distinctSenders ?? 0);
+        const shareToken = (d as any).poolToken ?? poolToken;
+        await notify({
+          userId: d.userId,
+          type: "cycle_settled",
+          title:
+            share > 0
+              ? `Cycle ${cycle.cycleNumber} settled, and ${share} ${tokenDef(shareToken)?.name ?? shareToken} came to you`
+              : `Cycle ${cycle.cycleNumber} settled`,
+          body: `${received} recognition from ${senders} ${senders === 1 ? "person" : "people"} this lunation.`,
+          link: share > 0 ? "/wallet" : "/gratitude",
+          dedupeKey: `cycle:${cycle.id}:settled:${d.userId}`,
+        });
+      }
 
       // S49: freeze this lunation's health snapshot IN the close — the only
       // moment these point-in-time facts are true (F13: unrecoverable
@@ -20463,7 +20600,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       type: "governance",
       title: `${firstName(user.name)} sponsored your proposal, it is now open`,
       body: p.title,
-      link: "/game-mechanics",
+      link: proposalLink(p.id),
       actorUserId: user.id,
       dedupeKey: `gmp:${p.id}:sponsored`,
     });
@@ -20677,7 +20814,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
         type: "governance",
         title: `Your proposal was applied: ${p.title}`,
         body: failed.length ? `${applied.length} change(s) applied; ${failed.length} could not be (see the ledger).` : null,
-        link: "/game-mechanics",
+        link: proposalLink(p.id),
         actorUserId: actor,
         dedupeKey: `gmp:${p.id}:applied`,
       });
@@ -20775,7 +20912,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       await notify({
         userId: p.proposerUserId, type: "governance",
         title: `The vote did not pass: ${p.title}`,
-        link: "/game-mechanics", dedupeKey: `gmp:${p.id}:failed`,
+        link: proposalLink(p.id), dedupeKey: `gmp:${p.id}:failed`,
       });
       void recordEvent(getPool(), {
         kind: "audit", text: `gmp:failed:${p.id}`, entityType: "mechanics_proposal", entityRef: p.id, audience: "admin",
@@ -20804,7 +20941,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       await notify({
         userId: p.proposerUserId, type: "governance",
         title: `Verified. Your proposal applies at the next cycle close: ${p.title}`,
-        link: "/game-mechanics", dedupeKey: `gmp:${p.id}:verified-waiting`,
+        link: proposalLink(p.id), dedupeKey: `gmp:${p.id}:verified-waiting`,
       });
       return res.json({ received: true, status: "passed_verified", held: "applies at next cycle close" });
     }
@@ -20880,6 +21017,79 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const snapshot = weightModeNow();
     const weights = await weightsFor(getPool(), eligible.map((u: any) => String(u.id)), snapshot);
     return eligible.map((u: any) => ({ userId: String(u.id), weight: weights.get(String(u.id)) ?? 0 }));
+  }
+
+  /**
+   * Where a notice about a ballot should LAND: on the ballot.
+   *
+   * This pointed at the proposal card on /game-mechanics until the decision
+   * surface existed, because a notice has to land on something a member can
+   * actually see. /decisions/:id is now that thing and it is strictly better:
+   * the vote widget, the clock, the frozen roll and the close beat are all on
+   * it, so every one of the five decision notices lands where its reader can
+   * act on it.
+   *
+   * A STALE LINK IS NEVER AN ERROR STATE, and that is the property this
+   * function exists to protect. A withdrawn ballot renders the decision page's
+   * own "No such decision" card with a way through to /decisions, and the
+   * notification row itself renders and clears from its stored text without
+   * ever resolving the ballot. A notice outlives the thing it points at.
+   */
+  function ballotLink(b: { id: string }): string {
+    return `/decisions/${b.id}`;
+  }
+
+  /**
+   * Where a notice about a mechanics PROPOSAL should land: on the card, and
+   * not on the top of a page holding forty of them. `?focus=` is honoured by
+   * client/src/lib/useFocusTarget.ts, which scrolls to it, moves focus to it
+   * and marks it. A proposal that is gone is simply not found and the page
+   * still works, which is the same rule ballotLink is held to.
+   */
+  function proposalLink(proposalId: string): string {
+    return `/game-mechanics?focus=proposal-${proposalId}`;
+  }
+
+  /**
+   * Ring a ballot's FROZEN roll.
+   *
+   * The engine snapshotted an electorate at open and then told nobody it
+   * existed. A vote could open, run its whole window and close with the
+   * proposer as the only member who ever saw it in their bell, which is a
+   * quorum rule and no way to meet it.
+   *
+   * The roll and not the member list, for the same reason every evaluation
+   * reads the roll: the people asked are the people who were asked. `except`
+   * carries whoever just acted, because telling somebody what they themselves
+   * just did is the fastest way to teach them to ignore the bell.
+   */
+  async function notifyRoll(
+    b: { id: string },
+    input: { type: string; title: string; body?: string | null; keySuffix: string; except?: Array<string | null | undefined>; roll?: string[] },
+  ): Promise<number> {
+    let rung = 0;
+    try {
+      const roll = input.roll ?? (await electorateOf(getPool(), b.id));
+      const skip = new Set((input.except ?? []).filter((x): x is string => !!x));
+      for (const userId of roll) {
+        if (skip.has(userId)) continue;
+        await notify({
+          userId,
+          type: input.type,
+          title: input.title,
+          body: input.body ?? null,
+          link: ballotLink(b),
+          dedupeKey: `bal:${b.id}:${input.keySuffix}:u${userId}`,
+        });
+        rung += 1;
+      }
+    } catch (e) {
+      // A trace that failed never fails the deed it is a trace OF, and this
+      // one is called without an await from two request handlers, so a throw
+      // here would be an unhandled rejection rather than a 500.
+      console.error(`[governance] telling the roll about ballot ${b.id} failed (the ballot stands)`, e);
+    }
+    return rung;
   }
 
   /** A ballot as the page reads it: tallies, bars, votes on the record. */
@@ -21056,9 +21266,24 @@ Send an empty drafts array when you are still listening. A role payload is {name
       userId: p.proposerUserId,
       type: "governance",
       title: `Your proposal went to the village vote: ${p.title}`,
-      link: "/game-mechanics",
+      link: ballotLink(result.ballot),
       actorUserId: user.id,
       dedupeKey: `bal:${result.ballot.id}:opened`,
+    });
+    // Everyone the ballot is actually asking. The roll came back from
+    // buildElectorate a moment ago and is what openBallot froze, so it is
+    // passed in instead of read back out of the table.
+    // Deliberately NOT awaited. A village-wide roll is one insert per member,
+    // and on a hosted database that is a round trip each: blocking the
+    // proposer's request on two hundred of them would time the request out to
+    // deliver a trace. notifyRoll catches its own failures.
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is deciding: ${p.title}`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}. Your voice is on the roll for this one.`,
+      keySuffix: "open",
+      except: [p.proposerUserId, user.id],
+      roll: electorate.map((e) => e.userId),
     });
     res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
   });
@@ -21239,6 +21464,18 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // close and here heals on the admin apply path rather than corrupting.
     let applied: string[] = [];
     let held: string | null = null;
+    /*
+     * Whoever has ALREADY been told about this outcome in words specific to
+     * their proposal, so the roll's line does not arrive underneath it saying
+     * the same thing in general terms. Two rows for one event, sitting next to
+     * each other in the same Decisions group, is exactly the noise that makes
+     * a bell not worth opening.
+     *
+     * Left null in the auto-apply-off branch on purpose: that branch tells the
+     * ADMINS and says nothing to the proposer, so the roll's line is the only
+     * word they would get and they should have it.
+     */
+    let proposerTold: string | null = null;
     if (b.subjectType === "mechanics") {
       const p = await proposalById(getPool(), b.subjectRef);
       if (p && p.status === "onsite_vote") {
@@ -21258,14 +21495,18 @@ Send an empty drafts array when you are still listening. A role payload is {name
               );
             } else if (changeSetWaitsForCycleClose(fresh.changeSet)) {
               held = "applies at next cycle close";
+              proposerTold = p.proposerUserId;
               await notify({
                 userId: p.proposerUserId,
                 type: "governance",
                 title: `Passed. Your proposal applies at the next cycle close: ${p.title}`,
-                link: "/game-mechanics",
+                link: proposalLink(p.id),
                 dedupeKey: `gmp:${p.id}:verified-waiting`,
               });
             } else {
+              // applyMechanicsProposal tells the proposer "Your proposal was
+              // applied" on its own, which is why this counts as told.
+              proposerTold = p.proposerUserId;
               const applyResult = await applyMechanicsProposal(fresh, user.id);
               applied = applyResult.applied;
               if (applyResult.failed.length > 0) {
@@ -21282,18 +21523,46 @@ Send an empty drafts array when you are still listening. A role payload is {name
             "UPDATE mechanics_proposals SET status = 'failed' WHERE id = ? AND status = 'onsite_vote'",
             [p.id],
           );
+          proposerTold = p.proposerUserId;
           await notify({
             userId: p.proposerUserId,
             type: "governance",
             title: `The village vote did not pass: ${p.title}`,
             body: result.ballot.outcomeNote,
-            link: "/game-mechanics",
+            link: proposalLink(p.id),
             actorUserId: user.id,
             dedupeKey: `gmp:${p.id}:failed`,
           });
         }
       }
     }
+    /*
+     * The roll hears the outcome, once, keyed on the ballot. Everyone who was
+     * asked is told what the answer was, INCLUDING the people who did not
+     * vote: a decision binds them either way, and finding out later from
+     * somebody else is how a village stops trusting its own process.
+     *
+     * `no_quorum` is worded as its own thing and never folded into "did not
+     * pass". Too few people answered is a different fact from the village
+     * saying no, and it is the one an electorate can act on.
+     *
+     * AFTER the routing above, so `proposerTold` is settled. Not awaited, for
+     * the same reason the open path is not: a village-wide roll is one insert
+     * per member, and notifyRoll catches its own failures.
+     */
+    void notifyRoll(b, {
+      type: result.outcome === "passed" ? "ballot_carried" : "ballot_failed",
+      title:
+        result.outcome === "passed"
+          ? `Carried: ${b.title}`
+          : result.outcome === "no_quorum"
+            ? `Closed without quorum: ${b.title}`
+            : `Did not pass: ${b.title}`,
+      body: result.ballot.outcomeNote,
+      keySuffix: "outcome",
+      except: [proposerTold],
+    });
+
     res.json({
       success: true,
       outcome: result.outcome,

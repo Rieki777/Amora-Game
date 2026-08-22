@@ -62,11 +62,31 @@ export interface NotifyPrefs {
    */
   messagesEmail: "immediate" | "daily" | "off";
   /**
+   * Governance (round 5, lane NOTIFY): a vote opened, a vote closing with
+   * your answer still owed, a vote carried or failed, a proposal you raised
+   * moving a step. ONE preference for the whole family, defaulting to DAILY.
+   *
+   * Daily and not immediate on purpose. A ballot's window is measured in
+   * days, so a digest tomorrow still leaves time to vote, and a village that
+   * opens four ballots in an afternoon would otherwise send four emails to
+   * everybody on the roll. The one nudge that is genuinely time-shaped, the
+   * closing-soon notice, fires 48 hours out precisely so a daily digest still
+   * arrives in time to be acted on.
+   */
+  governanceEmail: "immediate" | "daily" | "off";
+  /**
    * The weekly brief (L5b): the whole digest, in-app, email and agent inbox
    * together. One switch, default on, because the brief is the village
    * saying what the week holds and off must be one honest click.
    */
   weeklyBrief: "on" | "off";
+  /**
+   * The in-app celebration surface. Nothing to do with email: this is the
+   * moment that shows up on the page when one of the four rare things
+   * happens (shared/notificationKinds.ts holds the ration). Default on, off
+   * in one click, and the notification itself lands either way.
+   */
+  celebrations: "on" | "off";
 }
 
 /** Junk-tolerant, field-by-field: a malformed blob degrades to defaults. */
@@ -82,7 +102,9 @@ export function resolveNotifyPrefs(prefs: any): NotifyPrefs {
     mentionsEmail: pick(n.mentionsEmail, ["immediate", "daily", "off"], "immediate"),
     repliesEmail: pick(n.repliesEmail, ["immediate", "daily", "off"], "immediate"),
     messagesEmail: pick(n.messagesEmail, ["immediate", "daily", "off"], "immediate"),
+    governanceEmail: pick(n.governanceEmail, ["immediate", "daily", "off"], "daily"),
     weeklyBrief: pick(n.weeklyBrief, ["on", "off"], "on"),
+    celebrations: pick(n.celebrations, ["on", "off"], "on"),
   };
 }
 
@@ -111,6 +133,22 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
     // does not want this one either, and it needs no new knob to say so.
     case "term_expiring":
       return p.rolesEmail;
+    // Governance, the whole family on one preference. `governance` moved off
+    // the silent default here: a proposer whose proposal was sponsored,
+    // voted on, applied or refused was getting an in-app row and nothing
+    // else, which is a week of silence on the thing they raised.
+    case "governance":
+    case "ballot_opened":
+    case "ballot_closing":
+    case "ballot_carried":
+    case "ballot_failed":
+    case "ballot_expired":
+      return p.governanceEmail;
+    // A lunation's pool landed in somebody's wallet. Fixed daily for the
+    // same reason stage_advanced is: welcome, never urgent, and nobody is
+    // blocked waiting to hear it.
+    case "cycle_settled":
+      return "daily";
     case "mention":
       return p.mentionsEmail;
     case "forum_reply":
@@ -401,18 +439,48 @@ export async function runWeeklyBrief(deps: NotifyDeps, opts: RunWeeklyBriefOpts)
 
 // ── Reads ────────────────────────────────────────────────────────────────────
 
-export async function notificationsFor(pool: Pool, userId: string, limit = 50) {
+/**
+ * SEEN IS NOT READ, and the badge counts the first one.
+ *
+ * Three states, which is what every notification product that has thought
+ * about this converged on (Knock and Novu name them identically; the argument
+ * is in docs/NOTIFICATION_RESEARCH.md part 1 section 2):
+ *
+ *   UNSEEN  the member has not even looked at the bell since it arrived.
+ *           THIS is what the badge counts.
+ *   SEEN    the panel was opened, so the badge goes quiet. Nothing is
+ *           destroyed and the row still reads as unread.
+ *   READ    the member went to the thing, or pressed Mark all read.
+ *
+ * Collapsing seen into read is the antipattern: a member who glances at the
+ * bell loses the record of what they had actually dealt with. Keeping them
+ * apart costs one timestamp, held in the member's prefs blob so it needs no
+ * column and no migration, and it is what stops a permanent number sitting on
+ * a bell that nobody can clear without pretending to have read things.
+ *
+ * Unseen is a SUBSET of unread, deliberately: something already dealt with can
+ * never come back as new.
+ */
+function unseenClause(seenAt: unknown): { sql: string; params: unknown[] } {
+  if (!seenAt) return { sql: "COUNT(CASE WHEN is_read = 0 THEN 1 END)", params: [] };
+  return { sql: "COUNT(CASE WHEN is_read = 0 AND created_at > ? THEN 1 END)", params: [new Date(String(seenAt))] };
+}
+
+export async function notificationsFor(pool: Pool, userId: string, limit = 50, seenAt?: unknown) {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT id, type, title, body, link, is_read, actor_user_id, created_at FROM notifications " +
       "WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
     [userId, Math.max(1, Math.min(200, limit))],
   );
+  const unseen = unseenClause(seenAt);
   const [[unread]] = await pool.query<any[]>(
-    "SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND is_read = 0",
-    [userId],
+    `SELECT COUNT(CASE WHEN is_read = 0 THEN 1 END) AS n, ${unseen.sql} AS unseen ` +
+      "FROM notifications WHERE user_id = ?",
+    [...unseen.params, userId],
   );
   return {
     unreadCount: Number(unread?.n ?? 0),
+    unseenCount: Number(unread?.unseen ?? 0),
     notifications: rows.map((r) => ({
       id: String(r.id),
       type: String(r.type),
@@ -423,6 +491,31 @@ export async function notificationsFor(pool: Pool, userId: string, limit = 50) {
       actorUserId: r.actor_user_id ?? null,
       at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     })),
+  };
+}
+
+/**
+ * The cheap read behind the poll: how many are unread, and when the newest
+ * one landed. ONE indexed pass over this member's rows, no list built and no
+ * body columns touched.
+ *
+ * This is what let the bell poll four times as often for less work than it
+ * cost before. The client asks this every twenty-five seconds while somebody
+ * is actually on the page, and only fetches the list when `latestAt` moves or
+ * the panel opens.
+ */
+export async function notificationPulse(pool: Pool, userId: string, seenAt?: unknown) {
+  const unseen = unseenClause(seenAt);
+  const [[row]] = await pool.query<any[]>(
+    `SELECT COUNT(CASE WHEN is_read = 0 THEN 1 END) AS unread, ${unseen.sql} AS unseen, MAX(created_at) AS latest ` +
+      "FROM notifications WHERE user_id = ?",
+    [...unseen.params, userId],
+  );
+  const latest = row?.latest ?? null;
+  return {
+    unreadCount: Number(row?.unread ?? 0),
+    unseenCount: Number(row?.unseen ?? 0),
+    latestAt: latest === null ? null : latest instanceof Date ? latest.toISOString() : String(latest),
   };
 }
 

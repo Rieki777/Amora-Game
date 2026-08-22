@@ -38,6 +38,11 @@ const CADENCES: Record<string, Array<{ v: string; label: string }>> = {
     { v: "daily", label: "Daily digest" },
     { v: "off", label: "In-app only" },
   ],
+  governanceEmail: [
+    { v: "immediate", label: "Right away" },
+    { v: "daily", label: "Daily digest" },
+    { v: "off", label: "In-app only" },
+  ],
 };
 
 const LABELS: Record<string, string> = {
@@ -47,6 +52,7 @@ const LABELS: Record<string, string> = {
   mentionsEmail: "Someone mentions you",
   repliesEmail: "Replies to your threads",
   messagesEmail: "New messages",
+  governanceEmail: "Votes and proposals",
 };
 
 export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void }) {
@@ -179,6 +185,26 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
           ))}
         </div>
       )}
+
+      {/* Nothing to do with email. This is the moment that appears on the page
+          when one of the four rare things happens: a stage crossed, a vote
+          carried, a cycle settled, a quest consented. The notice itself lands
+          in the bell either way, so turning this off loses no information. */}
+      <label className="flex items-start gap-2 text-sm text-gray-700 mb-4">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={prefs.celebrations !== "off"}
+          disabled={saving}
+          onChange={(e) => save({ celebrations: e.target.checked ? "on" : "off" })}
+        />
+        <span>
+          Mark the rare moments on screen
+          <span className="block text-xs text-gray-600">
+            A stage crossed, a vote carried, a cycle settled, a quest consented. Four things, no sound.
+          </span>
+        </span>
+      </label>
 
       {contactable !== null && (
         <div className="mb-4">

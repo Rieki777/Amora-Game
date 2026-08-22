@@ -1042,3 +1042,26 @@ button, a, [role="button"], input, textarea, select, summary {
   transform-origin: 50px 50px;
   animation: nat-ripple-spread var(--nat-dur, 1s) ease-out var(--nat-delay, 0s) both;
 }
+
+/*
+ * ARRIVING FROM A NOTIFICATION.
+ *
+ * The mark a deep link leaves on the thing it brought you to
+ * (client/src/lib/useFocusTarget.ts). Colour and outline only, nothing that
+ * moves: WCAG's definition of motion animation excludes "changes in color,
+ * blurring, or opacity that do not alter perceived size, shape, or position",
+ * so this is safe under reduce-motion as written and needs no branch.
+ *
+ * The outline is what carries it for anyone who cannot see the tint, so both
+ * are present and neither is decoration on top of the other.
+ */
+.focus-arrival {
+  outline: 2px solid var(--primary, #2d5a5a);
+  outline-offset: 3px;
+  background-color: color-mix(in srgb, var(--primary, #2d5a5a) 7%, transparent);
+  transition: outline-color 400ms ease, background-color 400ms ease;
+}
+
+.focus-arrival:focus {
+  outline: 2px solid var(--primary, #2d5a5a);
+}
