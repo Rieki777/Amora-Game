@@ -242,6 +242,41 @@ cycle pool refuses to pay the recognition token (a fail-loud 400 if
 `gratitude.pool_token` is misconfigured); Admin → Ledger reconciliation
 shows conservation at zero for every token.
 
+### Where the value token can be SPENT (0092)
+
+The pool pays real value, so the value token needs somewhere to go. A fork
+that never opens one of these ships a village where a member does the work,
+gets thanked, receives a number, and there it ends. **Journey to Launch
+BLOCKS on this** (`pool-token-spendable`), and the check reads live rows: a
+module being switched on proves nothing.
+
+Three doors, any one of which satisfies it:
+
+- **Nights.** Admin → Stays → a room's posted prices now takes a rate in the
+  village's own credits beside stay credits and usd. A stay is ACTIVATED in
+  one token (the desk picks it beside the Activate button) and that choice is
+  snapshot with the rate. Either accepted, never a rate between the two:
+  nothing converts one token into the other, because buying stay credits with
+  village credits would turn a faucet-issued token into a purchased one.
+- **Seats.** Admin → Calendar → a gathering carries a seat fee and a token.
+  The fee is held in `sys:event-escrow` from the moment somebody takes a place
+  (a seat OR a queue position) and returned in full on every way out:
+  withdrawing, changing the answer, leaving the queue, the gathering being
+  cancelled or taken off the calendar. A gathering that HAPPENS releases its
+  fees to `sys:treasury` on the `seat-fee-settle` job, a day after it ends.
+- **Each other.** Admin → Tokens → the `sending` switch opens member-to-member
+  transfers on a token; members send from their own profile. **On by default
+  for the seeded `credits` token**, which is why a stock fork passes the check
+  with nothing configured. The switch exists only on credit-kind platform
+  tokens: recognition is never sendable, the admin route refuses to open it by
+  kind, and a boot invariant refuses to serve a database where a recognition,
+  equity or voice token is marked transferable.
+
+Seeded by 0092, no env var and no manual step: the `sys:event-escrow` ledger
+account, `credits` becoming transferable, and every recognition/equity/voice
+token being set non-transferable (0006 seeded `gratitude` as transferable and
+nothing had ever read the column).
+
 ## Integrations
 
 - Hypha (DHO config): set `hypha.org_url` (v3 S13) — every governance

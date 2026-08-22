@@ -27,6 +27,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Pool, RowDataPacket } from "mysql2/promise";
+import { tokenDef } from "./ledger";
 import {
   AUTHORED_KINDS,
   CALENDAR_KINDS,
@@ -154,6 +155,9 @@ export interface CalendarRow {
   removedAt: Date | null;
   /** When the row last changed; the .ics feed's SEQUENCE comes from it. */
   updatedAt: Date;
+  /** 0092: what a place at this gathering costs. 0 means free. */
+  seatPrice: number;
+  seatToken: string | null;
 }
 
 export function rowToCalendarRow(r: RowDataPacket): CalendarRow {
@@ -184,6 +188,8 @@ export function rowToCalendarRow(r: RowDataPacket): CalendarRow {
     externalUid: r.external_uid ?? null,
     removedAt: r.removed_at ? (r.removed_at instanceof Date ? r.removed_at : new Date(r.removed_at)) : null,
     updatedAt: r.updated_at instanceof Date ? r.updated_at : new Date(r.updated_at ?? Date.now()),
+    seatPrice: Math.max(0, Math.trunc(Number(r.seat_price ?? 0))),
+    seatToken: r.seat_token ?? null,
   };
 }
 
@@ -533,6 +539,14 @@ function toItem(o: Occurrence, counts: Map<string, RsvpCount>, now: Date, viewer
     occurrenceKey: o.occurrenceKey,
     external: r.externalSourceId && r.externalUid ? { sourceId: r.externalSourceId, uid: r.externalUid } : null,
     ...(r.removedAt ? { removed: true } : {}),
+    // 0092: the price rides on every read, so a member sees what a place costs
+    // on the same card that offers it. The village's own word for the token
+    // comes from the registry here rather than at each route, because there
+    // are five reads of this shape and five decorations would be four chances
+    // to ship a card saying "12 credits" in a village that renamed them.
+    seatPrice: r.seatPrice,
+    seatToken: r.seatPrice > 0 ? r.seatToken : null,
+    seatTokenName: r.seatPrice > 0 && r.seatToken ? (tokenDef(r.seatToken)?.name ?? r.seatToken) : null,
   };
 }
 

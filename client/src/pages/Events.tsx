@@ -94,6 +94,8 @@ export default function Events() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  /** 0092: what a seat fee just did. Value moving deserves its own line. */
+  const [notice, setNotice] = useState<string | null>(null);
 
   const timezone = payload?.timezone ?? "UTC";
   const anchor = payload?.anchor ?? DEFAULT_ANCHOR;
@@ -134,6 +136,7 @@ export default function Events() {
     const key = `${item.id}:${item.occurrenceKey}`;
     setBusy(key);
     setProblem(null);
+    setNotice(null);
     try {
       const res = await fetch(`/api/events/${item.id}/rsvp`, {
         method: "POST",
@@ -144,7 +147,12 @@ export default function Events() {
       // The server owns capacity, so its refusal is the truth. Showing the
       // reason beats a button that silently does nothing.
       if (!res.ok) setProblem(body?.error ?? "That did not work");
-      else reload();
+      else {
+        // 0092: say what moved. A seat fee taken with no word about it is the
+        // one thing a member would find out later, in their ledger.
+        if (body?.charged > 0) setNotice(`${body.charged} ${body.tokenName} held for your place.`);
+        reload();
+      }
     } catch { setProblem("That did not work"); }
     setBusy(null);
   };
@@ -191,6 +199,13 @@ export default function Events() {
     const key = `${g.id}:${g.occurrenceKey}`;
     return (
       <div className="flex items-center gap-2 mt-3 flex-wrap">
+        {/* 0092: what a place costs, beside the button that takes it. A price
+            a member reads only after the charge is a surprise charge. */}
+        {(g.seatPrice ?? 0) > 0 && (
+          <span className="text-xs font-medium text-teal-deep bg-teal-deep/10 rounded-lg px-2 py-1">
+            {g.seatPrice} {g.seatTokenName ?? g.seatToken}
+          </span>
+        )}
         {(["going", "maybe", "declined"] as RsvpStatus[]).map((s) => {
           const mine = g.myRsvp === s;
           // A full gathering still accepts maybe and declined: only a new
@@ -212,6 +227,9 @@ export default function Events() {
           );
         })}
         <InfoTip tip="A full gathering only blocks a new I'm coming. Maybe and can't make it always go through, and a freed place goes to whoever has waited longest." label="How answering works" />
+        {(g.seatPrice ?? 0) > 0 && (
+          <InfoTip tip="A place here costs credits, held from the moment you take it. Change your answer, leave the queue, or see the gathering come off the calendar, and every one of them gives it straight back." label="How the seat fee works" />
+        )}
       </div>
     );
   };
@@ -331,6 +349,9 @@ export default function Events() {
 
       <section className="py-6 bg-background">
         <div className="container max-w-4xl">
+          {notice && (
+            <p role="status" className="mb-4 text-sm text-teal-deep bg-teal-deep/10 border border-teal-deep/20 rounded-lg px-3 py-2">{notice}</p>
+          )}
           {problem && (
             <p className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{problem}</p>
           )}

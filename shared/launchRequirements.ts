@@ -216,6 +216,32 @@ const PLATFORM_REQUIREMENTS: LaunchRequirement[] = [
     fixAt: "/admin?tab=season",
     fixLabel: "Open Seasons",
   },
+  {
+    id: "pool-token-spendable",
+    group: "modules",
+    title: "Give the pool's token somewhere to go",
+    /*
+     * THE GUARD THAT STOPS A DEAD END COMING BACK.
+     *
+     * A fork could set a pool size, name a token, distribute it every lunation
+     * and ship with nothing that token buys. The earn side was complete and
+     * the spend side did not exist, so a member did the work, got thanked, and
+     * received a number. Nothing in the build noticed, because nothing in the
+     * build had ever been asked to.
+     *
+     * Blocking on purpose. A village that has not decided where its value goes
+     * has not finished designing its economy, and finding that out after the
+     * first settlement means telling people their credits are worth nothing
+     * yet. The check passes on a stock fork, because member-to-member sending
+     * is open on the village credits by default, so this blocks only a village
+     * that deliberately closed every door.
+     */
+    why: "The cycle pool pays real value. If nothing accepts that token, a member does the work, gets thanked, receives a number, and there it ends. Price a room or a gathering in it, or let members send it to each other.",
+    severity: "blocking",
+    checkKey: "pool-token-spendable",
+    fixAt: "/admin?tab=tokens",
+    fixLabel: "Open the token registry",
+  },
 
   // ── Reach: the real-world acts only a human can do ───────────────────────
   {

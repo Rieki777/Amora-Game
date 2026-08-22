@@ -1,4 +1,5 @@
 /**
+/**
  * Stays v1 (S30-S31): accommodation paid in STAY CREDITS — a real platform
  * token, minted and burned through the same postTransfer discipline as
  * everything else. Stays owns ZERO ledger DDL:
@@ -17,9 +18,32 @@
  *
  * Stays are NEVER auto-ended: running out of credits stops the posting and
  * alerts humans; ending a stay is a human act about a human situation.
+ *
+ * ── 0092: A NIGHT CAN ALSO BE PAID IN THE VILLAGE'S OWN CREDITS ──────────────
+ *
+ * The relationship between the two is EITHER ACCEPTED, never a rate. A room
+ * posts a price per token and a stay is activated in exactly one of them, which
+ * is snapshot beside the rate in `rate_snapshot_token`. Nothing converts.
+ *
+ * A conversion is the one shape that had to be refused, and it is worth writing
+ * down because it is the obvious design. "Buy stay credits with village
+ * credits" would take a token issued by the cycle-pool faucet and turn it into
+ * a token that is also sold for money at /api/stays/checkout. That is a path
+ * from a faucet-issued token into a purchased one, which is the taint rule the
+ * exchange enforces from the other direction, reached by a side door. A choice
+ * of currency at the door creates no such path: the two tokens never touch, and
+ * the ledger sees two independent burns.
+ *
+ * Everything else about a night is unchanged, deliberately, because the grace
+ * window is already correct and it is the same window whichever token pays:
+ * `stay_night` stays the source, `allowNegative` stays on inside grace, and
+ * `checkLedgerInvariants` already asks its negative-balance question per
+ * (account, token), so a member in grace on credits is legal for exactly the
+ * same reason a member in grace on stay credits is.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { ledgerEntryExists, MINT_FAUCET, memberAccount, postTransfer, registerToken, tokenDef } from "./ledger";
+import { spendSinkFor } from "./spending";
 import { numberVar } from "./variables";
 
 export const STAY_CREDIT = "stay-credit";
@@ -70,6 +94,12 @@ export interface StayRow {
   arriveOn: string | null;
   autopay: boolean;
   rateSnapshotCredits: number | null;
+  /**
+   * WHICH token that rate is in, snapshot at the same moment for the same
+   * reason. Defaults to stay credits at the column level, so every stay that
+   * existed before 0092 pays exactly what it paid yesterday.
+   */
+  rateSnapshotToken: string;
   audienceSnapshot: "guest" | "member" | null;
   lastPostedOn: string | null;
   notes: string | null;
@@ -91,6 +121,7 @@ function rowToStay(r: RowDataPacket): StayRow {
     arriveOn: toIsoDate(r.arrive_on),
     autopay: !!r.autopay,
     rateSnapshotCredits: r.rate_snapshot_credits == null ? null : Number(r.rate_snapshot_credits),
+    rateSnapshotToken: String(r.rate_snapshot_token ?? STAY_CREDIT),
     audienceSnapshot: r.audience_snapshot ?? null,
     lastPostedOn: toIsoDate(r.last_posted_on),
     notes: r.notes ?? null,
@@ -218,12 +249,17 @@ export interface PostNightsResult {
  */
 export async function postNightsForStay(pool: Pool, stay: StayRow, todayUtc: string): Promise<PostNightsResult> {
   const rate = stay.rateSnapshotCredits ?? 0;
+  // The token this stay was activated in, and the account a spend of it lands
+  // in. One snapshot read, so a night cannot be charged in one token and
+  // credited to another token's sink.
+  const token = stay.rateSnapshotToken || STAY_CREDIT;
+  const sink = spendSinkFor(token);
   const owed = nightsOwed(stay, todayUtc);
   const graceFloor = -(Math.max(0, numberVar("stay.grace_nights")) * rate);
   const readBalance = async (): Promise<number> => {
     const [b] = await pool.query<RowDataPacket[]>(
       "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = ?",
-      [memberAccount(stay.userId), STAY_CREDIT],
+      [memberAccount(stay.userId), token],
     );
     return Number(b[0]?.balance ?? 0);
   };
@@ -235,8 +271,8 @@ export async function postNightsForStay(pool: Pool, stay: StayRow, todayUtc: str
     if (balance - rate < graceFloor) return { posted, stopped: true, balance };
     const result = await postTransfer(pool, {
       from: memberAccount(stay.userId),
-      to: MINT_FAUCET,
-      tokenType: STAY_CREDIT,
+      to: sink,
+      tokenType: token,
       amount: rate,
       source: "stay_night",
       sourceRef: stay.id,

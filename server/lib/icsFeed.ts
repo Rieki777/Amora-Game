@@ -363,6 +363,12 @@ export function itemsToRows(items: CalendarItem[]): CalendarRow[] {
     externalUid: i.external?.uid ?? null,
     removedAt: null,
     updatedAt: new Date(0),
+    // 0092: a seat fee is a fact about the gathering and the .ics feed carries
+    // no offers, so it travels as free. Stated rather than defaulted, because
+    // a calendar file that quietly implied a price would be worse than one
+    // that says nothing.
+    seatPrice: 0,
+    seatToken: null,
   }));
 }
 

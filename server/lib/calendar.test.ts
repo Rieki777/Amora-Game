@@ -55,6 +55,10 @@ const baseRow = (over: Partial<CalendarRow> = {}): CalendarRow => ({
   externalUid: null,
   removedAt: null,
   updatedAt: new Date("2026-08-01T00:00:00Z"),
+  // 0092: a gathering carries a seat fee. Free is what every fixture here
+  // is about, and stating it beats letting the type drift optional.
+  seatPrice: 0,
+  seatToken: null,
   ...over,
 });
 

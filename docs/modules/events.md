@@ -179,3 +179,51 @@ with the full HTML for those the daily cap and their prefs allow, and one
 agent listens, every non-ok reason tolerated in silence. Each member's
 opt-out is `notify.weeklyBrief` on their profile prefs, switchable inside
 the brief panel at `/events?brief=`.
+
+## Seat fees (0092)
+
+A gathering can ask for the village's own credits. `events.seat_price` and
+`events.seat_token` on the row; 0 is free and is what every gathering is
+until a host prices one. Only a credit-kind platform token can be a price:
+recognition is refused by name at the validator, the same separation the
+cycle pool's guard enforces at close.
+
+**A PLACE is charged, and a place is a seat OR a queue position.**
+`promoteWaitlist` writes a `going` answer with nobody present to agree to a
+charge, and it runs inside a transaction that cannot post to the ledger. So
+the fee is taken when somebody takes a place, promotion moves no money
+because the money is already held, and it comes back whole if the place
+never becomes a seat.
+
+**The order is the seat first, then the fee**, the same shape the library's
+borrow path uses. `postTransfer` owns its own transaction and cannot join the
+one holding the events-row lock, so the seat commits, the fee posts, and a
+refused fee COMPENSATES by handing the seat straight back. Charging first
+would leave a crash between the two with a member paid for a seat they do not
+have; this way a crash leaves a free seat, which somebody can see and fix.
+
+**Every exit refunds, idempotently at two layers.** An atomic claim on
+`event_seat_charges` decides the terminal exactly once; the keyed ledger leg
+posts whether or not this caller won the claim, because the loser's job is to
+finish a winner that may have crashed in between. So a retried cancel refunds
+once, and a crashed refund is completed by the next attempt rather than lost.
+Withdrawing, answering anything other than `going`, leaving the queue, the
+gathering being cancelled, and the gathering being taken back to draft all
+come through it. `deleteGathering` refunds BEFORE it deletes anything, which
+retires the "there is no ledger value here to preserve" comment it used to
+carry.
+
+Money rests in `sys:event-escrow`, which is NOT a faucet, so a refund can only
+ever pay out what somebody paid in. `seatEscrowDrift` compares that account
+against the sum of open charges and rides in the admin reconciliation payload:
+conservation alone cannot see a fee charged and never recorded, because that
+still sums to zero. Held fees are open state, so `openStateCheck` refuses to
+switch the module off over them. A gathering that HAPPENED releases its fees
+to `sys:treasury` on the `seat-fee-settle` job, a day after its end time.
+
+**The Living Map one-tap promise refuses a priced gathering.** Every other
+door shows the fee first: the calendar card carries `seatPrice`, the agent
+surface echoes the request back for confirmation, and an assistant draft is
+confirmed by hand. A lantern is one tap on a building with no price near it.
+It answers `closed`, deliberately not a new reason, because the map's copy
+table lives inside the generated artifact.

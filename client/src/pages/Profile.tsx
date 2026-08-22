@@ -7,6 +7,7 @@ import ProfileSheet from "@/components/ProfileSheet";
 import ProfileHero from "@/components/ProfileHero";
 import OnchainCard from "@/components/OnchainCard";
 import WalletCard from "@/components/WalletCard";
+import SendTokensCard from "@/components/SendTokensCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -138,6 +139,14 @@ export default function Profile() {
                 is off. The village exchange itself stays on /tokens. */}
             <div className="mb-8">
               <WalletCard />
+            </div>
+
+            {/* 0092: sending credits to another member. Not module-gated: a
+                village running only the core four still has credits arriving
+                from the cycle pool, and this is where they can go. Renders
+                nothing when the village has no sendable token. */}
+            <div className="mb-8">
+              <SendTokensCard />
             </div>
 
             {/* S47: on-chain holdings — renders nothing until the village

@@ -36,6 +36,10 @@ const EMPTY = {
   allDay: false,
   repeat: "none",
   link: "",
+  // 0092: what a place costs. Blank or zero is free, which is every gathering
+  // until a host decides otherwise.
+  seatPrice: "",
+  seatToken: "",
 };
 type Form = typeof EMPTY;
 
@@ -115,6 +119,9 @@ export default function EventsAdminPanel({ password }: { password: string }) {
   const [briefPreview, setBriefPreview] = useState<{ subject: string; html: string } | null>(null);
   const [briefBusy, setBriefBusy] = useState(false);
 
+  /** 0092: which tokens a seat fee may be posted in, from the server's own firewall. */
+  const [payableTokens, setPayableTokens] = useState<Array<{ slug: string; name: string }>>([]);
+
   const auth = { Authorization: `Bearer ${password}` };
 
   const load = useCallback(async () => {
@@ -127,6 +134,7 @@ export default function EventsAdminPanel({ password }: { password: string }) {
       setModuleOff(false);
       setEvents(data.events ?? []);
       setTimezone(data.timezone ?? "");
+      setPayableTokens(Array.isArray(data.payableTokens) ? data.payableTokens : []);
     } catch { toast.error("Could not load the calendar"); setEvents([]); }
   }, [password]);
 
@@ -235,6 +243,10 @@ export default function EventsAdminPanel({ password }: { password: string }) {
       // Blank means uncapped. "" would be read as a number by a less careful
       // server, and 0 is a real cap meaning nobody.
       capacity: form.capacity === "" ? null : Number(form.capacity),
+      // Both halves travel together. The server refuses one without the other
+      // out loud, which is what a host needs to hear.
+      seatPrice: form.seatPrice === "" ? 0 : Number(form.seatPrice),
+      seatToken: form.seatToken || null,
       status: form.status,
       attendanceMode: form.attendanceMode,
       onlineUrl: form.onlineUrl.trim() || null,
@@ -285,6 +297,8 @@ export default function EventsAdminPanel({ password }: { password: string }) {
       allDay: Boolean(g.allDay),
       repeat: recurrenceToRepeat(g.recurrence),
       link: g.link ?? "",
+      seatPrice: g.seatPrice ? String(g.seatPrice) : "",
+      seatToken: g.seatToken ?? "",
     });
   };
 
@@ -406,6 +420,31 @@ export default function EventsAdminPanel({ password }: { password: string }) {
               placeholder="blank = no limit" className={input} />
             {/* The distinction the whole capacity path turns on. */}
             <p className="text-[11px] text-gray-400 mt-0.5">Blank means no limit. 0 means nobody.</p>
+          </div>
+          {/* 0092: a gathering that asks for credits. Held from the moment
+              somebody takes a place, and returned in full on every way out:
+              changing their answer, leaving the queue, or this gathering
+              being cancelled or taken off the calendar. */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor="ev-seat-price">
+              Seat fee
+            </label>
+            <div className="flex gap-2">
+              <input id="ev-seat-price" type="number" min={0} step={1} value={form.seatPrice}
+                onChange={(e) => setForm({ ...form, seatPrice: e.target.value })}
+                placeholder="0" className={input} />
+              <select value={form.seatToken}
+                onChange={(e) => setForm({ ...form, seatToken: e.target.value })}
+                className={input}>
+                <option value="">Free</option>
+                {payableTokens.map((t) => (
+                  <option key={t.slug} value={t.slug}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              Held when somebody takes a place, returned whenever they give it up.
+            </p>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor="ev-keys">

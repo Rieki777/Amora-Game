@@ -189,3 +189,37 @@ The full slide vision plus operations (2 sessions, after Phase 3 lands): schedul
 - Which visit types bundle lodging into the visit price vs pay-separately-via-stays? The visitTypeId link supports both; per-visit-type decision is Rye's
 - Weekly/monthly discounted rates: representable later as additional audience rows or a duration-tier column on accommodation_prices — worth deferring until a real long-stay exists?
 - Does the deposit-for-damages concept (adjacent to slide 33's library health mechanic) belong in stays v2 or in the material library module where the slide put it?
+
+## Paying a night in village credits (0092)
+
+A room posts a nightly rate per token, and `accommodation_prices.token_type`
+now takes any credit-kind platform token beside `stay-credit` and `usd`. A
+stay is ACTIVATED in exactly one of them and the choice is snapshot in
+`stays.rate_snapshot_token` beside the rate, for the same reason the rate is:
+catch-up posting stays deterministic and a price edit mid-stay re-rates
+nobody.
+
+**EITHER ACCEPTED, never a rate between them.** Nothing converts one token
+into the other, and the design that had to be refused is the obvious one:
+"buy stay credits with village credits" would take a token issued by the
+cycle-pool faucet and make it into a token that is also sold for money at
+`/api/stays/checkout`. That is a path from a faucet-issued token into a
+purchased one. That is the taint rule `server/lib/ledger.ts` enforces from
+the other end, reached by a side door. A choice of currency at the door creates no such
+path: the two tokens never touch and the ledger sees two independent burns.
+
+Everything else about a night is unchanged, deliberately. `stay_night` is
+still the source, `allowNegative` is still on inside the grace window, and
+`checkLedgerInvariants` already asks its negative-balance question per
+(account, token), so a member in grace on credits is legal for exactly the
+reason a member in grace on stay credits is. What DOES follow the token is
+the sink: stay credits retire into `sys:mint`, whose negative balance is the
+outstanding stay-credit supply, and every other token lands in
+`sys:treasury`. Paying village credits back into `sys:cycle-pool` would
+redefine that faucet's negative balance from "released to date" into
+"outstanding", which several surfaces read.
+
+`stay.credits_transferable` is untouched and still refused at the variables
+route: a stay credit is a claim on a specific night, and the e-money question
+its description names has not changed. Member-to-member sending opens on the
+village's own credits, never on a module's voucher.

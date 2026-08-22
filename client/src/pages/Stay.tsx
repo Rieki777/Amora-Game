@@ -92,6 +92,25 @@ export default function Stay() {
   };
 
   const audience = data?.audience ?? "guest";
+  /**
+   * 0092: every nightly rate a room posts that is neither stay credits nor
+   * money, with the village's own name for each token.
+   *
+   * Derived from the room's posted prices and the balances the payload already
+   * carries, so a village that renamed its credits sees its own word here with
+   * nothing extra to configure. Written as a helper rather than inline because
+   * "the prices that are not the two we already handle" is a rule, and a rule
+   * spelled out once is a rule that stays true when a third one appears.
+   */
+  const villagePrices = (a: any): Array<{ slug: string; name: string; amount: number }> =>
+    Object.entries(a.prices ?? {})
+      .filter(([slug]) => slug !== "stay-credit" && slug !== "usd")
+      .map(([slug, tiers]: [string, any]) => ({
+        slug,
+        name: data?.mine?.balances?.[slug]?.name ?? slug,
+        amount: Number(tiers?.[audience] ?? tiers?.guest ?? 0),
+      }))
+      .filter((v) => v.amount > 0);
 
   return (
     <Layout>
@@ -168,6 +187,14 @@ export default function Stay() {
                       <p className="text-sm text-foreground">
                         {credit ? <><b>{credit}</b> credit(s)/night</> : <span className="text-muted-foreground">rate coming soon</span>}
                         {money ? <span className="text-muted-foreground"> · {usd(money)}/night</span> : null}
+                        {/* 0092: a room can also post a nightly rate in the
+                            village's own credits, which is where the cycle
+                            pool's value finally buys something. Either
+                            accepted, never a rate between them: the stewards
+                            activate the stay in one of the two. */}
+                        {villagePrices(a).map((v) => (
+                          <span key={v.slug} className="text-muted-foreground"> · {v.amount} {v.name}/night</span>
+                        ))}
                         {tiered && audience === "member" && (
                           <span className="ml-1 text-[10px] bg-teal-deep/10 text-teal-deep px-1.5 py-0.5 rounded-full">member rate</span>
                         )}
