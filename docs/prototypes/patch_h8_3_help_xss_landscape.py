@@ -4,35 +4,28 @@ L8 / R16 — TWO THINGS R14 SHIPPED WRONG, both found by a reviewer, both closed
 here with a gate that goes red when the fix is removed.
 
 -------------------------------------------------------------------------- 1
-A STORED-XSS SINK IN renderHelp, IN THE ONE FIELD THE COMMENT ABOVE IT
-PROMISED WAS SAFE.
+renderHelp's escq(t.replies) IS HYGIENE, NOT A VULN FIX — RE-STATED ONTO #29.
 
-R14's header said "Every value that reaches the reader goes through escq". It
-was true of six of the seven. `t.replies` went into innerHTML raw:
+An earlier version of this patch (derived against def4b18 / #19) claimed a live
+stored-XSS sink here: `t.replies` went into innerHTML raw as
 
     +escq(t.author)+' · '+t.replies+' replies · '+escq(t.last)+' ago · '
 
-In the seed `replies` is an integer, which is why it read as safe and why every
-manual pass over the sheet looked clean. It stops being an integer the moment a
-scene is restored. restoreScene (:4971) maps it straight across at :5001:
+and the argument was that restoreScene mapped it straight across (`replies:
+t.replies||0`, `||0` only replacing a falsy value), so a non-empty string a
+stranger authored would survive whole and run on every open of the sheet.
 
-    replies:t.replies||0
+THAT CLAIM DOES NOT HOLD ON THIS BASE. The lane's real parent is #29, which
+coerces the field at restore. restoreScene (:5089) maps
 
-`||0` only replaces a FALSY value, so any non-empty string survives whole. Three
-callers feed restoreScene a scene a stranger can author: the autosaved scene
-(:5040), a draft restore (:6213), and a scene pushed over the shell bridge
-(:6229). So the payload is stored, and it runs on every open of the sheet from
-then on, not once.
+    replies:Number(t.replies)||0
 
-MEASURED, through restoreScene and a real touch tap on #pbAttn at 390x844,
-before this patch:
-
-    replies = '<img src=x onerror="window.__XSS=1">'
-    -> #help contains 1 injected <img>, window.__XSS === 1
-    -> the sheet renders "· replies ·" with the payload GONE from the text
-
-After: 0 injected nodes, __XSS undefined, and the payload is on screen as the
-literal text it always was.
+so a string a restored scene carries in `replies` comes back a NUMBER, and the
+door surfaces #29 hardened (cvrow/loom/mrow) all read it after that coercion.
+There is no reachable stored-XSS through replies on this surface. The one-line
+edit below wrapping it in escq is kept only as harmless hygiene over a value
+that is already numeric; the gate asserts the coercion (restoreScene returns a
+number), and does NOT sell this escape as a fix for a sink that is not open.
 
 THE RULE THE ESCAPING LANE SET, applied here without inventing a variant:
 element text and double-quoted attributes take escq; escj is for a JS string
@@ -82,53 +75,33 @@ number is ~562px against a 354px cap, so min() picks 42vh and every byte of that
 band is what it was before this patch.
 
 -------------------------------------------------------------------------- 3
-WHAT THIS PATCH DOES NOT CLOSE, measured rather than assumed, so the next lane
-inherits a number instead of a hunch.
+WHAT THIS PATCH DOES NOT CLOSE. Two LAYOUT limitations remain, pinned below. The
+SECURITY half of this section is WITHDRAWN: an earlier draft, derived against
+def4b18 / #19, listed five open escaping sinks and told the next lane to chase
+them. The lane's real parent is #29, which already closed every one. The true
+reachable count through these surfaces is 0. They are recorded here only so the
+next lane does not go looking for a fix that already shipped.
 
-RE-DERIVED ON THE CURRENT BASE. Every line number in this file was re-grepped
-after the rebase onto def4b18 and two were wrong: restoreScene's replies map is
-:5001 (it was cited as :4998, which lands on questKey), and the vital dropdown's
-tap-away that patch_h8_2's shipped comment points at is :5738, not :5283, which
-lands on SITE_ROUTES. Both are corrected. The three below re-grepped clean.
-
-THE SAME ESCAPING DEFECT IS LIVE ON THREE OTHER SURFACES, and they are older
-than this lane. `t.title`, `t.author`, `t.replies` and `t.last` go into
-innerHTML raw at :3485 (the place panel Overview .cvrow, whose data-item and
-onclick are unescaped attributes as well), :5154 (the Loom .lcard, likewise
-data-conn) and :5375 (the door sample .mrow). All three read the same
-SCENE.threads this sheet reads, so the same stored payload reaches them.
-Driven one surface per page through openPanel / openLoom / openDoor, with the
-scene planted through restoreScene, each renders 4 injected nodes and fires
-onerror 4 times; the help sheet renders 0 and fires 0. qa/_probe_thread_sinks.js
-is that measurement. Fixing them is one escq per field, but they belong to three
-other surfaces and each needs its own gate, so this lane reports rather than
-reaches.
-
-A FOURTH SURFACE, FOUND BY THE GATE'S OWN MUTATION RUN, takes a PLACE NAME
-rather than a thread field. bannerHTML (:3151) interpolates `${s.name}` into a
-template string and makeBanner writes it with innerHTML, so restoreScene alone
-injects and fires it before any sheet is opened — measured at 1 node, 1 fire,
-with #help contributing 0. The help sheet escapes the same name correctly, and
-that is now asserted: §1 plants a sixth payload through map_structures because
-unescaping `escq(nameOf(k))` had been passing all 288 checks silently. The gate
-counts per payload rather than document-wide so it stays red about this lane and
-not about the banner.
-
-A FIFTH IS NOT AN ESCAPING BUG BUT A JS-STRING BREAKOUT, on the very surface
-R15 made a band tenant. :5690 builds the vital dropdown's Claim button as
-    onclick="claimQuest('${escq(q2.q)}','…')">⚑ Claim: ${q2.q}
-escq escapes & < " and NOT the apostrophe, so it is right for the double-quoted
-attribute and wrong for the single-quoted JS string inside it; the button's own
-text takes no escaping at all. Quest titles arrive through the same restoreScene.
-MEASURED through the real dropdown opened by a real tap, with a title of
-    harvest',''),window.__BREAK=1,claimQuest('x
-the rendered attribute is
-    claimQuest('harvest',''),window.__BREAK=1,claimQuest('x','Greenhouse & Gardens');…
-and pressing the button sets window.__BREAK to 1 with no page error.
-qa/_probe_vdrop_claim.js is that measurement. THE RIGHT TOOL DOES NOT EXIST HERE:
-escj is nowhere in this artifact, so closing it means either introducing that
-primitive or rebuilding the button on data-* and a delegated listener the way
-this sheet is built. Either is another lane's surface and another lane's gate.
+WITHDRAWN, AND VERIFIED CLOSED ON #29 (do not chase these):
+  - the three thread surfaces — cvrow (:3497), the Loom .lcard (:5241) and the
+    door .mrow (:5493): #19 read t.title/author/replies/last as raw innerHTML;
+    #29 wraps each in escq, so all three render the payload as literal text and
+    inject nothing.
+  - the map banner: #19 read bannerHTML's `${s.name}` as raw; #29 wraps it in
+    escq(s.name) (:3163), so restoreScene injects no node there. §1 now RATCHETS
+    that as a control — its pre-tap place-node count must stay 0, and the x10
+    mutant proves it reds if #29's banner escq is ever reverted.
+  - the vital dropdown's Claim button: #19 read it as
+    claimQuest('${escq(q2.q)}', ...) with escq (the wrong tool for a
+    single-quoted JS string) and the button text as raw. #29 rebuilt it (:5957)
+    as claimQuest('${escj(q2.q)}', ...) with escj — the correct JS-string escape
+    — and the text as escq(q2.q). escj exists throughout this artifact now, so
+    the old "the right tool does not exist here" note is stale as well.
+  replies itself is coerced to a number at restore (:5089), so it is not a
+  string sink on any of these surfaces. The probes kept beside this file
+  (_probe_thread_sinks.js, _probe_vdrop_claim.js) measured these on #19 and are
+  retained only as history; run against this base they read 0 injected and no
+  breakout.
 
 THE TOP BAND STILL LOSES THE BOTTOM OF THE VITAL DROPDOWN ON TWO LANDSCAPE
 PHONES. Opening #vdrop raises the top band's ceiling by its own 147px, the
@@ -231,17 +204,21 @@ CLAIM_NEW = """   THE ROWS ARE BUILT WITH DATA ATTRIBUTES AND ONE DELEGATED LIST
    address a different thread, so nothing normalises one; verify_help_l8.js
    asserts the round trip byte for byte instead of trusting this sentence.
 
-   ONE FIELD USED TO ESCAPE THIS RULE and the paragraph above used to deny it.
-   `t.replies` went into innerHTML raw. It is an integer in the seed and ANY
-   STRING after a scene is restored (:5001 maps `replies:t.replies||0`, and `||`
-   only replaces a falsy value), fed by the autosave, by a draft restore and by
-   a scene pushed over the shell bridge. A hostile village file therefore stored
-   script in this feed and ran it on every open of the sheet. It takes escq like
-   everything else now, and the gate plants the payload through restoreScene,
-   opens the sheet through #pbAttn, and fails if it executes. */"""
+   ONE FIELD, AND WHY ITS escq IS ONLY HYGIENE HERE. `t.replies` is an integer in
+   the seed. An earlier draft of this comment claimed it was a live stored-XSS
+   sink because restoreScene "maps replies:t.replies||0" and `||` only replaces a
+   falsy value, so any non-empty string would survive. That is NOT true on this
+   base: #29 coerces the field at import — :5089 maps `replies:Number(t.replies)||0`
+   — so a string a restored scene carries here comes back a number, and the door
+   surfaces #29 hardened (cvrow/loom/mrow) read it after that same coercion. The
+   security claim is therefore withdrawn: there is no reachable stored-XSS through
+   replies on this surface. escq(t.replies) below is kept as harmless hygiene over
+   a value that is already numeric, not as a fix for a live sink, and the gate
+   asserts the coercion (restoreScene returns a number) rather than selling this
+   escape as a vuln fix it is not. */"""
 
-src = edit(src, "the escaping comment stops overclaiming", CLAIM_ANCHOR, CLAIM_NEW,
-           guard="ONE FIELD USED TO ESCAPE THIS RULE")
+src = edit(src, "the escaping comment states the coercion, not a vuln fix", CLAIM_ANCHOR, CLAIM_NEW,
+           guard="ONE FIELD, AND WHY ITS escq IS ONLY HYGIENE HERE")
 
 # ------------------------------------------- 3. the tenant names its cap
 src = edit(

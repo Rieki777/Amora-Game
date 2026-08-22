@@ -6824,14 +6824,18 @@ if($('pbAsk'))$('pbAsk').onclick=()=>{document.body.classList.toggle('msheet');
    address a different thread, so nothing normalises one; verify_help_l8.js
    asserts the round trip byte for byte instead of trusting this sentence.
 
-   ONE FIELD USED TO ESCAPE THIS RULE and the paragraph above used to deny it.
-   `t.replies` went into innerHTML raw. It is an integer in the seed and ANY
-   STRING after a scene is restored (:5001 maps `replies:t.replies||0`, and `||`
-   only replaces a falsy value), fed by the autosave, by a draft restore and by
-   a scene pushed over the shell bridge. A hostile village file therefore stored
-   script in this feed and ran it on every open of the sheet. It takes escq like
-   everything else now, and the gate plants the payload through restoreScene,
-   opens the sheet through #pbAttn, and fails if it executes. */
+   ONE FIELD, AND WHY ITS escq IS ONLY HYGIENE HERE. `t.replies` is an integer in
+   the seed. An earlier draft of this comment claimed it was a live stored-XSS
+   sink because restoreScene "maps replies:t.replies||0" and `||` only replaces a
+   falsy value, so any non-empty string would survive. That is NOT true on this
+   base: #29 coerces the field at import — :5089 maps `replies:Number(t.replies)||0`
+   — so a string a restored scene carries here comes back a number, and the door
+   surfaces #29 hardened (cvrow/loom/mrow) read it after that same coercion. The
+   security claim is therefore withdrawn: there is no reachable stored-XSS through
+   replies on this surface. escq(t.replies) below is kept as harmless hygiene over
+   a value that is already numeric, not as a fix for a live sink, and the gate
+   asserts the coercion (restoreScene returns a number) rather than selling this
+   escape as a vuln fix it is not. */
 (function helpSheet(){
   const el=$('help');if(!el)return;
   const threads=()=>(typeof SCENE!=='undefined'&&SCENE.threads)?SCENE.threads:[];

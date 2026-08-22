@@ -18,9 +18,12 @@ ART = os.path.join(HERE, "..", "grounds-v0.html")
 # name -> (what it breaks, anchor, replacement, expected count)
 MUT = {
     # ---- the escaping half -------------------------------------------------
-    "x1_replies_raw": ("the reviewer's own defect, restored verbatim",
-        "+escq(t.replies)+' replies · '", "+t.replies+' replies · '", 1),
-    "x2_replies_dropped": ("the plausible WRONG fix: delete the field instead of escaping it",
+    # x1_replies_raw (escq(t.replies) -> t.replies) is GONE on this base. #29
+    # coerces replies to a number at restore (:5089), so escq over a number is a
+    # no-op and reverting it produces byte-identical output — not a defect, and
+    # not catchable. What replaced it is x11, which reverts the coercion itself:
+    # that is the line that actually protects this field now.
+    "x2_replies_dropped": ("delete the field instead of rendering it: the reader loses the count",
         "+escq(t.replies)+' replies · '", "+' replies · '", 1),
     "x3_title_raw": ("t.title unescaped",
         "<b>'+escq(t.title)+'</b>", "<b>'+t.title+'</b>", 1),
@@ -34,8 +37,23 @@ MUT = {
         "homes.map(k=>escq(nameOf(k))).join(' · ')", "homes.map(k=>nameOf(k)).join(' · ')", 1),
     "x8_id_normalised": ("a NORMALISER on the identifier instead of escape-only",
         "data-id=\"'+escq(t.id)+'\"", "data-id=\"'+escq(String(t.id).replace(/[^A-Za-z0-9_-]/g,'-'))+'\"", 1),
-    "x9_item_normalised": ("a normaliser on the deep-link address",
-        "escq(itemAddr('talk',t))", "escq(itemAddr('talk',t).replace(/[^A-Za-z0-9:_-]/g,'-'))", 1),
+    # The bare call appears twice: the map's cvrow (~:3497, template-literal
+    # form) and the help sheet's deep-link (~:6852, concatenation form). §2's
+    # round-trip check reads ONLY the help-link, so the anchor pins the
+    # concatenation form — unique to that site — and the mutation stays the one
+    # single edit the check exists to catch.
+    "x9_item_normalised": ("a normaliser on the help sheet's deep-link address",
+        "data-item=\"'+escq(itemAddr('talk',t))+'\"", "data-item=\"'+escq(itemAddr('talk',t).replace(/[^A-Za-z0-9:_-]/g,'-'))+'\"", 1),
+
+    # ---- #29's own fixes, which the re-derived §1 now ratchets as controls --
+    # The gate's §1 was re-derived onto #29 (the lane's real parent). These two
+    # revert #29's hardening and prove §1 still reds when it is removed: the
+    # place name in the map banner, and the numeric coercion of replies at
+    # restore. Each is caught by exactly the check re-derived for it.
+    "x10_banner_place_raw": ("revert #29's bannerHTML escq(s.name): the banner injects the poisoned place name again",
+        '${escq(s.name)}<span class="cnt">', '${s.name}<span class="cnt">', 1),
+    "x11_restore_replies_raw": ("revert #29's Number() coercion: a hostile replies string rides in raw again",
+        "Number(t.replies)||0,last:t.last_activity", "t.replies||0,last:t.last_activity", 1),
 
     # ---- the landscape half ------------------------------------------------
     "l1_cap_unread": ("the landscape regression itself: the sheet stops reading the room",

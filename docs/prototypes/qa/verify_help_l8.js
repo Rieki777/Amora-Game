@@ -18,13 +18,16 @@
  *
  * EVERY CHECK HERE HAS BEEN WATCHED GOING RED, and the harness that does it
  * ships beside this file: qa/_mut_l8.py stages the patched artifact with ONE
- * thing broken, qa/_mut_run_l8.sh runs this gate against each and asserts a
- * NON-ZERO check count before believing any verdict — a crash contributes an
- * empty FAIL set and would otherwise read as a clean pass.
+ * thing broken, and qa/_mut_run_l8.sh proves the gate BOTH ways. It runs the
+ * UNMUTATED shipped artifact first and aborts unless that control is clean
+ * (checks>0, fails==0) — a red baseline would lend every mutant a free
+ * "fails>0" — then requires each mutant to ADD fails over the control and a
+ * NON-ZERO check count, so a crash (empty FAIL set) is a hole, not a pass.
  *
  *     cd docs/prototypes/qa
  *     MUT_ROOT="C:/some/real/path/L8MUT" bash _mut_run_l8.sh
- *     # every row must read <name>|1|<checks>|<fails>  with checks>0 and fails>0
+ *     # control must read control|0|<checks>|0; every mutant <name>|1|<checks>|<fails>
+ *     # with checks>0 and fails>0 (> the control's 0). ACCEPTANCE PASSED prints last.
  *
  * THREE OF THE CHECKS EXIST BECAUSE A MUTATION SURVIVED THE DRAFT BEFORE THEM:
  *   - deleting t.replies instead of escaping it passed all 191 checks of the
@@ -59,13 +62,14 @@
  * never ran, is a FAIL and not a quiet green. The last line prints the number of
  * checks executed and the run fails if that number is zero.
  *
- * IT IS SCOPED TO THIS LANE'S SURFACE ON PURPOSE. A poisoned place name also
- * reaches bannerHTML (:3151), which interpolates `${s.name}` into a template and
- * lets makeBanner write it with innerHTML — a sink older than this lane, fired by
- * restoreScene before #help exists. Counting data-xss document-wide would make
- * this file red about the map banner, which is how a gate stops being read. The
- * counts are per payload, the banner's one node is measured BEFORE the tap, and
- * what this lane owns is asserted as the delta.
+ * IT IS SCOPED TO THIS LANE'S SURFACE ON PURPOSE, AND RE-DERIVED ONTO #29. The
+ * banner sink a poisoned place name also reaches — bannerHTML (:3163) — is closed
+ * on this base: #29 wraps that write in escq(s.name), so restoreScene injects no
+ * node there and the pre-tap count is 0, not 1. The place name is still counted
+ * per payload rather than document-wide, which now buys a control in both
+ * directions: unescape #help's own escq(nameOf(k)) and the sheet's count goes up,
+ * revert #29's bannerHTML escq and the pre-tap count goes up. What this lane owns
+ * is asserted as the delta either way.
  */
 const { chromium } = require('playwright');
 
@@ -101,8 +105,17 @@ const info = (s) => console.log('  --   ' + s);
  * counted by the injected-node checks and still fires the same flag, while each
  * field's presence is now asserted about that field and nothing else. */
 const pay = f => '<img src="x" data-xss="' + f + '" onerror="window.__XSS=(window.__XSS||0)+1">';
-/* Every field renderHelp writes into the row as element text. */
+/* Every field renderHelp writes into the row as element text. A payload is
+   planted into each, but replies is a special case on #29 (see RAWFIELDS). */
 const FIELDS = ['title', 'author', 'replies', 'last', 'excerpt'];
+/* The string fields restoreScene passes straight through unchanged, so they
+   survive the import byte-for-byte and must render as escaped literal text.
+   `replies` is DELIBERATELY NOT HERE: #29 coerces it to a number at restore
+   (restoreScene :5089, replies:Number(t.replies)||0), so a hostile string
+   becomes 0 and never reaches the row as a string. It is asserted on its own
+   terms below — that the coercion happened and that the reader still gets a
+   count — not as a raw-string survivor, which it is no longer. */
+const RAWFIELDS = ['title', 'author', 'last', 'excerpt'];
 const PAYLOADS = {}; for (const f of FIELDS) PAYLOADS[f] = pay(f);
 
 /* THE SIXTH FIELD, AND THE HOLE IT CLOSES. Every check above was watched going
@@ -113,14 +126,16 @@ const PAYLOADS = {}; for (const f of FIELDS) PAYLOADS[f] = pay(f);
    PLANT only ever poisoned forum_threads and a place name does not come from
    there. It comes from map_structures, through the same restoreScene.
    ITS FLAG IS ITS OWN, and that is not tidiness. A poisoned place name ALSO
-   reaches a sink this lane does not own: bannerHTML (:3151) interpolates
-   `${s.name}` into a template string and makeBanner writes it with innerHTML, so
-   restoreScene alone injects and fires it before #help exists at all. Sharing
-   window.__XSS would make "nothing executed" red about the map banner rather
-   than about this sheet. Split, the sheet's own contribution is provable: the
-   banner's one node is measured BEFORE the tap, and the count after the tap must
-   still be that same one. Unescape the place name and renderHelp adds two more
-   (the where-line and the link), and three checks go red at once. */
+   reaches a sink this lane does not own: bannerHTML (:3163) interpolates the
+   place name and makeBanner writes it with innerHTML. #29 closed that sink with
+   escq(s.name), so on this base restoreScene injects NO node there — but sharing
+   window.__XSS would still tie "nothing executed" to the banner rather than this
+   sheet, and would hide a future revert of #29's banner escq behind #help's own
+   result. Split, each surface is provable on its own: the banner's pre-tap count
+   is 0 and must stay 0, and the sheet's own count is 0 and must stay 0. Unescape
+   renderHelp's place name and the sheet adds two nodes; revert #29's bannerHTML
+   escq and the pre-tap count goes to 1. Either is one line, and each reds its
+   own check. */
 const PLACE_PAY = '<img src="x" data-xss="place" onerror="window.__XSSPLACE=(window.__XSSPLACE||0)+1">';
 /* Every character escq touches, plus a space, plus the two it deliberately does
    not touch. This is the identifier the deep link has to carry back out of a
@@ -259,11 +274,12 @@ const READ = () => {
     injectedInHelp: el ? el.querySelectorAll('[data-xss]').length : -1,
     injectedInDoc: document.querySelectorAll('[data-xss]').length,
     fired: (typeof window.__XSS === 'undefined') ? null : window.__XSS,
-    /* PER PAYLOAD, and only because one of the six reaches a sink outside this
-       lane. A single document-wide total would make this file red about
-       bannerHTML rather than about #help, which is the failure mode where a gate
-       stops being read. Counted by data-xss value so each field is still
-       asserted about itself. */
+    /* PER PAYLOAD, because the place name reaches a sink outside this lane's
+       surface (bannerHTML), and keeping its count separate lets #help's own
+       contribution be asserted as zero without depending on what #29 did to the
+       banner. On this base #29 escaped that sink, so the count is 0 either way;
+       split, a future revert of it still shows up here. Counted by data-xss
+       value so each field is still asserted about itself. */
     placeInHelp: el ? el.querySelectorAll('[data-xss="place"]').length : -1,
     placeInDoc: document.querySelectorAll('[data-xss="place"]').length,
     placeFired: (typeof window.__XSSPLACE === 'undefined') ? 0 : window.__XSSPLACE,
@@ -294,16 +310,23 @@ const PLANT = ([P, hid, place]) => {
     n: SCENE.threads.length,
     landed: {
       title: b.title === P.title, author: b.author === P.author,
-      replies: a.replies === P.replies, last: b.last === P.last, excerpt: b.ex === P.excerpt,
+      last: b.last === P.last, excerpt: b.ex === P.excerpt,
     },
+    /* #29 coerces replies to a number at restore (:5089), so the hostile string
+       on poison-1 comes back as 0, not as itself. Captured as a POSITIVE property
+       of the coercion — the control for that line — rather than as a failed
+       byte-exact survival, which is what it read as when the gate was derived
+       against #19. */
+    repliesVal: a.replies,
+    repliesNum: typeof a.replies === 'number',
     idExact: SCENE.threads[2] && SCENE.threads[2].id === hid,
     stKey: stKey,
     placeLanded: !!(typeof BY !== 'undefined' && BY[stKey] && BY[stKey].name === place),
     /* THE STATE BEFORE THIS SHEET HAS BEEN OPENED. restoreScene rebuilds the map
-       banners on its way through, and bannerHTML (:3151) writes a place name
-       into innerHTML unescaped, so this is already non-zero here — on a surface
-       older than this lane and owned by another. Captured now so the count after
-       the tap can be attributed. */
+       banners on its way through; #29 wraps that write in escq(s.name)
+       (bannerHTML :3163), so a poisoned place name is escaped there and this is 0.
+       Captured now so the count after the tap can be attributed, and so a revert
+       of #29's banner escaping shows up here as a node before #help ever runs. */
     preTapPlaceNodes: document.querySelectorAll('[data-xss="place"]').length,
     preTapPlaceFired: (typeof window.__XSSPLACE === 'undefined') ? 0 : window.__XSSPLACE,
     preTapHelpNodes: document.getElementById('help')
@@ -336,10 +359,18 @@ const PLANT = ([P, hid, place]) => {
     const { ctx, page, errs } = await open(browser, 390, 844, true);
     const planted = await page.evaluate(PLANT, [PAYLOADS, HOSTILE_ID, PLACE_PAY]);
     ok('the planted scene reached SCENE.threads', planted.n === 3, 'threads=' + planted.n);
-    for (const f of FIELDS) {
+    for (const f of RAWFIELDS) {
       ok('the ' + f + ' payload survived the import byte for byte', planted.landed[f],
         f + '-byte-exact=' + planted.landed[f]);
     }
+    /* #29's coercion, asserted as the fix it is, not as a hole. restoreScene maps
+       replies:Number(t.replies)||0 (:5089), so the hostile string on poison-1 is a
+       number after import — 0 — and cannot ride into innerHTML as a string. Revert
+       that coercion (x11) and this reds; escq(t.replies) in renderHelp is then only
+       harmless hygiene over a value that is already a number. */
+    ok('restoreScene coerces a hostile replies string to a number (#29)',
+      planted.repliesNum && planted.repliesVal === 0,
+      'typeof=' + (typeof planted.repliesVal) + ' value=' + JSON.stringify(planted.repliesVal));
     const tapped = await tapHelp(page);
     ok('the sheet opened over the planted scene', tapped, 'tapped=' + tapped);
     const r = await page.evaluate(READ);
@@ -352,27 +383,27 @@ const PLANT = ([P, hid, place]) => {
       'data-xss nodes in document=' + r.injectedInDoc + ' of which place=' + r.placeInDoc);
     ok('nothing a hostile thread carried executed', r.fired === null, 'window.__XSS=' + r.fired);
 
-    /* ---- the place name: this sheet's contribution is zero, and provably ----
-       The banner sink fires during restoreScene, before #help exists, so the
-       document count is 1 whatever this sheet does. What this lane owns is the
-       DELTA: renderHelp writes the place name twice per row, so unescaping it
-       takes the count from 1 to 3 and takes all three of these red at once. */
+    /* ---- the place name: #29 closed the banner sink too, and this proves it ----
+       restoreScene rebuilds the map banners on its way through, and #29 wraps that
+       write in escq(s.name) (bannerHTML :3163). So a poisoned place name reaches
+       the document as ESCAPED TEXT and injects NO node — not before this sheet
+       exists, and not when renderHelp (which also escapes it) runs. This lane's
+       contribution is zero and #29's is zero; unescaping EITHER surface takes a
+       check here red. */
     ok('the place-name payload survived the import byte for byte', planted.placeLanded,
       'BY[' + planted.stKey + '].name byte-exact=' + planted.placeLanded);
-    /* NODE COUNTS, not the flag, and the difference cost a red to learn. The
-       node is parsed into the document synchronously by innerHTML; its onerror
-       fires on a later turn. Asserting `fired` at plant time said 0 and asserted
-       nothing about the sink. The count of nodes is the deterministic quantity,
-       and the flag is asserted only as a BOUND on it afterwards. */
-    ok('a poisoned place name reaches the document from restoreScene alone, before this sheet exists',
-      planted.preTapPlaceNodes === 1 && planted.preTapHelpNodes === 0,
+    /* NODE COUNTS, not the flag. A node parsed by innerHTML lands synchronously;
+       its onerror fires a turn later. The count of nodes is the deterministic
+       quantity, and the flag is asserted only as a BOUND on it afterwards. */
+    ok('#29 escapes the poisoned place name in bannerHTML: no node reaches the document before this sheet exists',
+      planted.preTapPlaceNodes === 0 && planted.preTapHelpNodes === 0,
       'pre-tap nodes=' + planted.preTapPlaceNodes + ' in #help=' + planted.preTapHelpNodes
-      + '  (bannerHTML :3151, a sink older than this lane; its onerror fires a turn later)');
+      + '  (bannerHTML :3163 now wraps escq(s.name); revert it and this reads 1)');
     ok('no injected place name inside #help', r.placeInHelp === 0, 'place nodes in #help=' + r.placeInHelp);
     ok('opening the sheet added no place-name node',
       r.placeInDoc === planted.preTapPlaceNodes,
       'after tap nodes=' + r.placeInDoc + '  before tap nodes=' + planted.preTapPlaceNodes);
-    ok('nothing beyond that one banner node ever executed',
+    ok('no poisoned place name ever executed',
       r.placeFired <= planted.preTapPlaceNodes,
       'window.__XSSPLACE=' + r.placeFired + ' against ' + planted.preTapPlaceNodes + ' injected node(s)');
     ok('the place name is on screen in the sheet as literal text',
@@ -380,11 +411,19 @@ const PLANT = ([P, hid, place]) => {
     /* THE OTHER HALF OF THE SAME CLAIM: escaped means SHOWN AS TEXT, not eaten,
        and it is asserted PER FIELD because a shared payload let one field's text
        vouch for another's. A renderer that dropped any one of these would satisfy
-       every injection check above and go red on exactly one line here. */
-    for (const f of FIELDS) {
+       every injection check above and go red on exactly one line here. `replies`
+       is not among them — it is a number now, shown as its own count, asserted
+       just below. */
+    for (const f of RAWFIELDS) {
       ok('the ' + f + ' payload is on screen as literal text', r.helpText.indexOf(PAYLOADS[f]) >= 0,
         f + ' present in #help textContent=' + (r.helpText.indexOf(PAYLOADS[f]) >= 0));
     }
+    /* THE READER STILL GETS THE COUNT. poison-2 carries replies:3, and dropping
+       the field instead of rendering it (the x2 mutant) takes "3 replies" to
+       " replies" and reds this. That is the real regression left once the XSS is
+       a non-issue: a lost count, not a lost escape. */
+    ok('the numeric reply count is on screen for the reader', r.helpText.indexOf('3 replies') >= 0,
+      '"3 replies" present in #help textContent=' + (r.helpText.indexOf('3 replies') >= 0));
     ok('no page errors over a hostile scene', errs.length === 0, errs.join(' ; ') || 'none');
     await ctx.close();
   }
