@@ -46,9 +46,14 @@ measured after `pnpm build`. Read the numbers off `MAX_MAIN_JS_KB` and `MAX_TOTA
 ceiling was 6000, and stayed at 6 MB when `dbb4f9c` raised it to 6600 for the catalog art.
 `node scripts/check-dist-budget.mjs` reproduces the CI measurement locally and CI runs the same
 script, so the METHOD no longer differs between the two. It was checked against a real ext4
-volume on five different built trees and matched `du -sk` to the kilobyte on every one. Measured
-on this branch, `dist/public` is **5432 KB** block-charged against the 6600 ceiling and main JS
-is **477 KB**.
+volume on five different built trees and matched `du -sk` to the kilobyte on every one.
+
+**This block deliberately no longer quotes today's figure.** It has held a stale one twice: it
+said 6 MB for as long as the ceiling was 6000 and stayed at 6 MB when `dbb4f9c` raised it, and it
+then carried a measured 5432 KB / 477 KB long after several lanes had pushed the real numbers
+past them. Every merge moves both totals, so a number written here is wrong by the next landing.
+**Run the script and read your own tree.** A number in a doc is a claim about a moment; the script
+is a measurement of now.
 
 **Read the number off the PUSH run, never the pull_request run, and know why they differ.** A
 `pull_request` run builds your branch ALREADY MERGED with main, so it carries whatever other
@@ -118,7 +123,9 @@ time so `/health` cannot report a build that isn't running.
 - DB-backed suites need `TEST_DATABASE_URL` in the local `.env` (the S5 harness in
   `server/db/testDb.ts` drops/recreates a scratch schema — never point it at the app schema).
   Without it they skip loudly rather than pass hollowly.
-- **Provisioning migrates once per run, not once per suite.** 44 files provision a schema;
+- **Provisioning migrates once per run, not once per suite.** Every file in `drizzle/` provisions
+  a schema, and that count only grows (it was 44 when this line was written and `ls drizzle/*.sql
+  | wc -l` is the only figure worth trusting);
   the harness migrates into a `village_tpl_<hash>` template and clones it, so each suite
   still gets a private schema for a fraction of the cost. Every run prints what it paid, and
   `pnpm measure:provisioning` prints the template build, the per-clone cost and the
