@@ -36,7 +36,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { prefersReducedMotion } from "@/components/natural/useReducedMotion";
-import { setHapticsEnabled } from "./haptics";
+import { haptic, setHapticsEnabled, type HapticIntensity } from "./haptics";
 
 /** The five moments the product makes a sound for. */
 export const SOUND_MOMENTS = [
@@ -234,6 +234,13 @@ export function isMuted(): boolean {
   if (muted !== null) return muted;
   if (typeof window === "undefined") return false;
   muted = read(storageKey()) === "1";
+  // The stored preference has to reach the haptics too, and until now only
+  // `setMuted` and `setSoundMember` told them about it. Neither runs on a
+  // fresh page load, so a member who muted yesterday came back to a silent
+  // product that still buzzed: the mute was read here and never forwarded.
+  // Forwarding it at the moment it resolves fixes that wherever the read
+  // happens first, and `playMoment` below makes sure it always does.
+  setHapticsEnabled(!muted);
   return muted;
 }
 
@@ -305,6 +312,32 @@ export async function playSound(moment: SoundMoment): Promise<SoundOutcome> {
 export function resetSounds(): void {
   handles.clear();
   broken.clear();
+}
+
+/**
+ * ONE MOMENT, THROUGH BOTH CHANNELS. The call every celebration makes.
+ *
+ * Sound and haptics are one gesture from a member's point of view and were
+ * two imports at every call site, which is how they drift: a surface that
+ * remembers the chime and forgets the buzz, or the reverse. This is the
+ * pairing, and it is the only thing the wired moments call.
+ *
+ * ORDER MATTERS HERE. `playSound` reads `isMuted()` first, and that read is
+ * what forwards a stored mute to the haptics, so the vibrate below is asking
+ * a question that has just been answered correctly. Calling `haptic` first
+ * would buzz once for a muted member on every fresh page load.
+ *
+ * REDUCED MOTION SILENCES BOTH. `playSound` already refuses under it, and a
+ * vibration is sensory load by the same argument the sound layer makes: a
+ * member managing it is not asking for a buzz either.
+ *
+ * Fire and forget. Nothing here blocks, throws, or is ever the only signal.
+ */
+export function playMoment(moment: SoundMoment, intensity: HapticIntensity = "confirm"): void {
+  void playSound(moment).then((outcome) => {
+    if (outcome === "muted" || outcome === "reduced-motion") return;
+    haptic(intensity);
+  });
 }
 
 // ── The hook ────────────────────────────────────────────────────────────────

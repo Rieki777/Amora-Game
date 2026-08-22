@@ -192,6 +192,7 @@ import {
   memberAccount,
   MINT_FAUCET,
   postTransfer,
+  questCreditsFor,
   registerToken,
   tokenDef,
   TREASURY,
@@ -19190,16 +19191,48 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const stageId = await stageOf(user);
     const claims = await claimsRepo.forUser(user.id);
     const ctx = await capabilityCtx(user);
+    // What each consented quest actually paid. `amount` is what the witness
+    // granted; a standing badge multiplies that afterwards, so the two differ
+    // for anyone holding one and only the ledger knows the real number. The
+    // reward moment counts up to `credited`, and names the bonus when the two
+    // disagree. Absent on claims that never posted (a zero grant, or a claim
+    // still open), which is the client's signal to show the plain amount.
+    const questCredits = await questCreditsFor(getPool(), user.id);
+    // THE MOST RECENT RUNG THIS MEMBER CROSSED, and what it opened.
+    //
+    // `recordStageEvent` has computed this diff since item 8 and the only way
+    // to the browser was `/api/game/progression`, a page-specific route the
+    // dashboard does not call. So crossing a rung arrived as one line in a
+    // bell and the ladder itself said nothing. The dashboard already draws
+    // the ladder; this is the one fact it was missing.
+    //
+    // In-memory collection, already loaded at boot, so this costs a filter
+    // and not a query. Newest by `at`, or null for a member who has never
+    // advanced.
+    const advances = (stageEventsRepo.all() as any[])
+      .filter((e) => e.userId === user.id)
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    const lastAdvance = advances[0]
+      ? {
+          fromStage: advances[0].fromStage,
+          toStage: advances[0].toStage,
+          unlocked: advances[0].unlocked ?? [],
+          at: advances[0].at,
+        }
+      : null;
     res.json({
       stage: servedStage(stageId),
       stageIndex: stageIndex(stageId),
       stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
       gratitude: { balance: user.recognitionBalance ?? 0, budget: await gratitudeBudget(user) },
-      quests: claims,
+      quests: claims.map((c: any) =>
+        questCredits.has(c.id) ? { ...c, credited: questCredits.get(c.id) } : c,
+      ),
       journeys: user.journeys ?? {},
       membership: hasMembership(user),
       trainingComplete: trainingComplete(user),
       nextAction: await nextActionFor(user),
+      lastAdvance,
       // Revision 2: progression is no longer decoration. The client renders
       // what you can DO, so the gates are legible instead of mysterious.
       roles: roleIdsFor(user.id),

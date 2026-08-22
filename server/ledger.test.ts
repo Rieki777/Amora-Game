@@ -23,8 +23,11 @@ import {
   entriesForMember,
   loadTokenRegistry,
   memberAccount,
+  MINT_FAUCET,
+  PLATFORM_TOKEN,
   postTransfer,
   postTransferPair,
+  questCreditsFor,
   RECOGNITION_FAUCET,
   registerToken,
   tokenDef,
@@ -441,4 +444,80 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
     ]);
     expect((await checkLedgerInvariants(pool)).ok).toBe(true);
   });
+
+  /**
+   * WHAT A CONSENTED QUEST ACTUALLY CREDITED, per claim.
+   *
+   * The quest card prints `claim.amount`, which is the grant BEFORE a standing
+   * badge multiplies it, so the card under-reported every badge holder's
+   * payout. `questCreditsFor` reads what moved instead.
+   *
+   * The trap this pins was found by driving a real consent, not by reading the
+   * route: a consent posts TWO rows under `source = 'quest_consent'` with the
+   * SAME `source_ref`, the recognition credit and whatever the village's rules
+   * mint on a confirmed contribution. Without the token filter the mint
+   * overwrote the credit and an 80-point quest reported 10000.
+   */
+  it("reads a claim's credit from the ledger, per token", async () => {
+    const member = memberAccount("credits-reader");
+    const claim = "claim-credits-1";
+
+    await postTransfer(pool, {
+      from: RECOGNITION_FAUCET,
+      to: member,
+      amount: 112,
+      source: "quest_consent",
+      sourceRef: claim,
+      description: "Quest consented: a swale (80 x1.4 for a standing badge)",
+      idempotencyKey: `quest_consent:${claim}`,
+    });
+
+    const before = await questCreditsFor(pool, "credits-reader");
+    expect(before.get(claim)).toBe(112);
+
+    // The voice mint the same consent fires: same source, same ref, a
+    // different token and a wildly different magnitude.
+    await registerToken(pool, {
+      slug: "credit-voice",
+      name: "Credit Voice",
+      kind: "voice",
+      governance: "platform",
+      transferable: false,
+    });
+    await postTransfer(pool, {
+      from: MINT_FAUCET,
+      to: member,
+      amount: 10000,
+      tokenType: "credit-voice",
+      source: "quest_consent",
+      sourceRef: claim,
+      description: "Confirmed contribution: a swale",
+      idempotencyKey: `mint:${claim}`,
+    });
+
+    const after = await questCreditsFor(pool, "credits-reader");
+    expect(after.get(claim), "the voice mint must not be read as the payout").toBe(112);
+    expect(PLATFORM_TOKEN).toBe("gratitude");
+  });
+
+  it("omits a claim that never posted, which is what a zero grant looks like", async () => {
+    const credits = await questCreditsFor(pool, "credits-reader");
+    expect(credits.has("claim-never-posted")).toBe(false);
+  });
+
+  it("keeps one member's quest credits out of another's", async () => {
+    await postTransfer(pool, {
+      from: RECOGNITION_FAUCET,
+      to: memberAccount("credits-other"),
+      amount: 7,
+      source: "quest_consent",
+      sourceRef: "claim-other-1",
+      idempotencyKey: "quest_consent:claim-other-1",
+    });
+    const mine = await questCreditsFor(pool, "credits-reader");
+    expect(mine.has("claim-other-1")).toBe(false);
+    const theirs = await questCreditsFor(pool, "credits-other");
+    expect(theirs.get("claim-other-1")).toBe(7);
+  });
+
 });

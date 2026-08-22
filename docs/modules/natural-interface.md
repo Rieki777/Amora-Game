@@ -17,6 +17,94 @@ And, on the moon specifically:
 > For the moon completion Icon it should have a graphical phase for at least
 > each 12.5% illumination/completion.
 
+## The principle: what earns motion at all
+
+Founder-approved, and the standing guidance for every lane after this one.
+Read it before adding an animation anywhere in the product, and read it
+instead of deciding fresh.
+
+> **Motion that ANSWERS the person is alive. Motion that INTERRUPTS them is
+> noise.**
+>
+> Animate: state transitions (things appearing, collapsing, arriving,
+> filling), rare earned moments, arrivals, and waiting. Do not animate:
+> ambient idle motion, anything on every row of a list, anything that moves
+> the camera, or anything a person did not cause. Every effect needs a real
+> reduced-motion still state that is dignified rather than absent. Transform
+> and opacity only. Celebration is for RARE things; frequent events get a
+> whisper. A product that celebrates everything celebrates nothing.
+
+### What that rules out, in the cases that have already come up
+
+**"Anything a person did not cause" is about causation, not about timing.** A
+member who does a quest, has it consented, and comes back to look has caused
+the moment they are shown, even though the consent happened while they were
+away. What the rule forbids is the page celebrating its own load: a card that
+throws petals on mount because a fetch resolved is celebrating a fetch. The
+distinction is enforced mechanically in two places and neither is optional.
+`arrivalStep` in `client/src/components/natural/moments.ts` fires only on a
+change between two states it actually watched change, so the first real
+reading always seeds the baseline in silence. `client/src/lib/celebrated.ts`
+holds a moment to ONCE, EVER, keyed on the event, which is the same rule
+`server/lib/notify.ts` already keeps with its `dedupe_key` and the comment
+"re-computation can never re-celebrate".
+
+**A still state is a composition, not a cancellation.** The global
+reduce-motion block in `client/src/index.css` sets `animation-duration: 1ms`,
+and for an effect whose content is "rise and fade" that arrives at an empty
+box. Two live examples of getting this wrong, both now fixed: the crowdpool
+ring's arrival ripple was `opacity: 0` under reduce-motion, which deleted the
+arrival for exactly the members the rule exists to serve; and unmounting a
+celebration in its own `onDone` shows those members one frame, because
+`onDone` fires immediately when there is no animation to wait for. That second
+trap is why `useMomentWindow` is a clock rather than a callback: the window is
+the same length whichever way a member has their preference set.
+
+**Celebration intensity is a budget with a fixed size.** `moment` is spent on
+the events below and nothing else. Everything else is a `whisper`, and most
+things are neither.
+
+### The five wired moments, and the one kind each
+
+Five moments, five celebration kinds, one apiece. That is a coincidence worth
+keeping: it means no two moments in the product look alike.
+
+| Moment | Kind | Where | How often it can fire |
+| --- | --- | --- | --- |
+| A quest consented | `seeds` | `client/src/components/QuestActions.tsx` | Once ever per claim |
+| A stage advanced | `dawn` | `client/src/components/StageAdvanced.tsx` | Once ever per rung |
+| Gratitude received | `blossom` | `client/src/components/ProfileJourney.tsx` | Once ever per acknowledgment, at most one per visit |
+| A cycle settled | `fireflies` | `client/src/pages/Admin.tsx` (Cycle Close) | Once per settlement that released something |
+| A pledge landed | `ripples` | `client/src/components/crowdpool/PoolPieces.tsx` | Once per arrival seen while watching |
+
+### What was deliberately NOT wired, to keep celebration rare
+
+Restraint is the deliverable here as much as the wiring is. Each of these was
+reachable and was left alone on purpose.
+
+- **A heart received.** Hearts and written acknowledgments both arrive as
+  `kind` on the same gratitude row, and only one of them is rare. An
+  acknowledgment is capped at one per sender per recipient per lunar cycle and
+  must carry a message. A heart is a tap on a forum post, five per sender per
+  cycle, and `feed.hearts_on_wall` already defaults false on the reasoning
+  that a tap is a gesture. Celebrating the tap would spend the bloom on the
+  cheaper thing inside a week, so the heart gets nothing.
+- **Gratitude SENT.** The sender chose it; a confirmation is not a
+  celebration, and the budget readout already answers "did that work".
+- **Claiming or submitting a quest.** Both are frequent and both are the start
+  of something. The consent is the end of it, and that is where the moment
+  goes.
+- **Every row of the pool ledger.** Arrivals already flash the one line that
+  changed. A celebration per row is the wallpaper case, stated exactly.
+- **The twenty-one interior admin tab loaders.** They are text, they are one
+  screen deep inside an operator surface, and replacing all of them is churn
+  with no member on the other end. The admin GATE, which is a real full-screen
+  spinner, and the settlement desk, which is one of the wired moments, are the
+  two that changed.
+- **The dead `client/src/components/ui/spinner.tsx` primitive.** It has no
+  call sites at all. Deleting it belongs to whoever prunes unused shadcn
+  primitives, not to this lane.
+
 ## This is a unification, not an invention
 
 The platform already ran a real lunar clock before this kit existed and it
@@ -282,10 +370,40 @@ because there is no gate that can see a file nobody committed.
 
 ## Where it is wired today
 
-One demonstration, kept small and reversible: the dashboard's Path of Growth
-rail (`client/src/components/GameDashboard.tsx`) shows the member's position
-as a 40px moon beside the heading. The stage chips underneath carry the same
+The dashboard's Path of Growth rail
+(`client/src/components/GameDashboard.tsx`) shows the member's position as a
+40px moon beside the heading. The stage chips underneath carry the same
 reading in words, so the moon adds a shape to something already stated.
 `showNumber` is off there for that reason.
 
-Adopting the kit on other surfaces is later lanes' work, not this one's.
+The five celebrations are in the table above. Beyond them:
+
+- **Waiting.** `BreathingLoader` replaces the admin gate's spinner
+  (`client/src/pages/Admin.tsx`), the settlement desk's text loader, both
+  crowdpool boards (`client/src/pages/Crowdpool.tsx`,
+  `client/src/pages/CrowdpoolCampaign.tsx`) and the profile journey
+  (`client/src/components/ProfileJourney.tsx`). `PageLoading` in
+  `client/src/App.tsx` is deliberately untouched: the shell-hoist work
+  rewrites that file.
+- **Sound and haptics.** `playMoment` in `client/src/lib/sound.ts` is the one
+  call, and every wired moment makes it. It pairs the two channels so a
+  surface cannot remember one and forget the other, and it honours the
+  existing mute and reduce-motion refusals for both. No audio file is
+  committed and every moment is silent until a village supplies one, which is
+  unchanged.
+
+### Two things the wiring had to fix first
+
+**A badge holder was told the wrong number.** The claim row stores `amount` as
+the grant, and the badge reward multiplier is applied AFTER that row is
+written, so the quest card printed the pre-multiplier figure while the ledger
+credited more. `questCreditsFor` in `server/lib/ledger.ts` reads what actually
+moved and `/api/game/me` serves it as `credited`, so the number that counts up
+is the number that landed and the bonus is named beside it.
+
+**"You can now" had no words to say it with.** `recordStageEvent` has computed
+the exact capability diff since item 8, and every surface that showed it
+rendered raw keys: `forum.post,message.send`. `CAPABILITY_LABELS` in
+`shared/capabilities.ts` is the missing table, kept in lockstep with
+`ALL_CAPABILITIES` by `shared/capabilities.test.ts`, and it is also what fixed
+the same raw-key line on the profile's stage history.

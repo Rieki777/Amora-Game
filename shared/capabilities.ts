@@ -83,6 +83,60 @@ export const ALL_CAPABILITIES: Capability[] = [
 ];
 
 /**
+ * WHAT EACH KEY MEANS, in words a member reads.
+ *
+ * The union above already carries these phrases as trailing comments, and a
+ * comment is invisible at runtime, so every surface that showed a member
+ * their own capabilities showed them `forum.post,message.send` instead. A
+ * stage advance is the moment that hurts most: the whole point of crossing a
+ * rung is learning what opened, and a raw dotted key does not say.
+ *
+ * Phrased as the completion of "You can now", so the list reads as an
+ * invitation on the surfaces that use it that way and still reads correctly
+ * as a plain label on the ones that do not.
+ *
+ * KEEP IN LOCKSTEP with the union and with ALL_CAPABILITIES.
+ * `capabilities.test.ts` asserts the three agree, so a new key without a
+ * label fails there rather than shipping as machine text on a member's
+ * profile.
+ */
+export const CAPABILITY_LABELS: Record<Capability, string> = {
+  "quest.consent": "Release value on someone else's quest",
+  "forum.post": "Start a thread in the forum",
+  "forum.moderate": "Act on the community's behalf in the forum",
+  "proposal.open": "Open a governance decision",
+  "proposal.decide": "Record a decision's outcome",
+  "map.viewPeople": "See who holds seats on the village map",
+  "map.contact": "Reach a role holder through the contact relay",
+  "map.edit": "Draft changes to the land in build mode",
+  "map.publish": "Publish a draft onto the live map",
+  "feed.announce": "Post announcements to the village feed",
+  "stay.member_rate": "Book a stay at the member price",
+  "exchange.buy": "Buy listed tokens",
+  "exchange.swap": "Swap one village token for another",
+  "exchange.manage": "List tokens, post prices, and stock the treasury",
+  "health.record": "Log the land's own measurements",
+  "message.send": "Start a conversation and post to one",
+  "mechanics.propose": "Propose a change to the game's rules",
+  "event.rsvp": "Say you are coming to a gathering",
+  "event.manage": "Put a gathering on the village calendar",
+  "org.declare": "Declare how the village holds power",
+  "ballot.vote": "Cast a vote on a ballot",
+  "member.vouch": "Vouch for an applicant",
+};
+
+/**
+ * One capability in words, falling back to the key itself.
+ *
+ * The fallback is the honest one: a key with no label is a bug in the table
+ * above, and printing the key says so out loud instead of dropping the row
+ * and telling a member less than they held.
+ */
+export function capabilityLabel(cap: string): string {
+  return CAPABILITY_LABELS[cap as Capability] ?? cap;
+}
+
+/**
  * Stage that unlocks each capability by progression alone, referencing the
  * stage ids in gameConfig.ts (visitor, guest, immersant, participant, member,
  * contributor, quest-seeker, initiate, co-creator, role-holder, guide, sage).

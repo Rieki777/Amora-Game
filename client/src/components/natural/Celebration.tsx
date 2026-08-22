@@ -109,29 +109,44 @@ type SceneProps = { plan: CelebrationPlan; still: boolean };
 /**
  * SEEDS ON WIND. Winged seeds tumbling right and settling. Still form: the
  * same seeds resting on the ground line, which is what the wind leaves.
+ *
+ * PLACEMENT AND MOTION ARE TWO NESTED GROUPS, and they have to be.
+ *
+ * A CSS `transform` in a keyframe REPLACES an SVG `transform` attribute on
+ * the same element; it does not compose with it. Both used to sit on one
+ * `<g>`, so the moment `nat-seed-drift` began, every seed's scatter was
+ * discarded and all eleven animated from the viewBox origin: one pile in the
+ * corner, fading out. The still form was fine, because with no class there is
+ * no CSS transform to win, which is exactly why this survived review and only
+ * a rendered celebration showed it.
+ *
+ * So the outer group carries WHERE a seed is and the inner group carries what
+ * the wind does to it. Any kind added later that positions with a `transform`
+ * attribute needs the same split; the kinds that position with `cx`/`cy` do
+ * not, because those are not transforms and the animation composes cleanly.
  */
 export function Seeds({ plan, still }: SceneProps) {
   const per = plan.duration / 1.6;
   return (
     <g>
       {plan.elements.map((e) => (
+        /* Landed seeds sit in three shallow rows with their own tilts kept.
+           One row at a single height packed eleven of them into a solid
+           caterpillar, which is the opposite of "settled where the wind put
+           them". */
         <g
           key={e.i}
-          className={still ? undefined : "nat-seed"}
-          style={still ? undefined : vars(e.delay, per)}
-          /* Landed seeds sit in three shallow rows with their own tilts kept.
-             One row at a single height packed eleven of them into a solid
-             caterpillar, which is the opposite of "settled where the wind put
-             them". */
           transform={`translate(${e.x} ${still ? 70 + (e.i % 3) * 6 : e.y}) rotate(${e.tilt}) scale(${e.scale})`}
         >
-          <path
-            d="M0 0 C 4 -3 8 -1 8 3 C 8 7 4 9 0 6 Z"
-            fill="var(--nat-seed, #b9c98a)"
-            stroke="var(--nat-seed-edge, #7f9155)"
-            strokeWidth="0.7"
-          />
-          <line x1="0" y1="0" x2="-5" y2="-4" stroke="var(--nat-seed-edge, #7f9155)" strokeWidth="0.7" />
+          <g className={still ? undefined : "nat-seed"} style={still ? undefined : vars(e.delay, per)}>
+            <path
+              d="M0 0 C 4 -3 8 -1 8 3 C 8 7 4 9 0 6 Z"
+              fill="var(--nat-seed, #b9c98a)"
+              stroke="var(--nat-seed-edge, #7f9155)"
+              strokeWidth="0.7"
+            />
+            <line x1="0" y1="0" x2="-5" y2="-4" stroke="var(--nat-seed-edge, #7f9155)" strokeWidth="0.7" />
+          </g>
         </g>
       ))}
       {still && (

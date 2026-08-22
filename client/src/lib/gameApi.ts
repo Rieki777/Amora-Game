@@ -202,6 +202,12 @@ export interface GameMe {
   membership: boolean;
   trainingComplete: boolean;
   nextAction: { id: string; label: string; href: string };
+  /**
+   * The most recent rung this member crossed, and the capability keys it
+   * opened, straight from `recordStageEvent`'s own diff. Null for a member
+   * who has never advanced. The dashboard celebrates it once and never again.
+   */
+  lastAdvance: { fromStage: string; toStage: string; unlocked: string[]; at: string } | null;
 }
 
 export interface QuestClaim {
@@ -212,7 +218,15 @@ export interface QuestClaim {
   claimedAt: string;
   artifactUrl: string;
   note: string;
+  /** What the witness granted for this piece of work. */
   amount?: number;
+  /**
+   * What the ledger actually credited, which is `amount` multiplied by any
+   * standing badge the member holds. Present only once the consent has
+   * posted. It differs from `amount` exactly when a badge bonus applied, and
+   * that difference is what the reward moment names.
+   */
+  credited?: number;
 }
 
 export async function fetchGameMe(): Promise<GameMe | null> {
