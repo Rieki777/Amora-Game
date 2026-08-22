@@ -66,6 +66,26 @@ export type WizardType = (typeof WIZARD_TYPES)[number];
 export const CONDUCTABLE_TYPES: readonly WizardType[] = ["mechanics"];
 
 /**
+ * The types a village can put to a NON-BINDING vote today.
+ *
+ * Every type outside `CONDUCTABLE_TYPES` is here, and that is the whole list:
+ * the four the executors have not reached yet. A village that cannot yet MAKE
+ * a role appointment by ballot can still ask its members what they would
+ * decide about one, hold the vote on the real engine with the real frozen
+ * electorate and the real weights, and read the real answer. The decision
+ * closes, records its outcome, tells the roll, and does nothing else, because
+ * a subject type with no executor executes nothing (the close route's subject
+ * table is the one home for that fact).
+ *
+ * It is a ladder and never a scorecard. A village holding one binding power is
+ * a village at the beginning of something, and the practice vote is how it
+ * finds out what it already agrees about before it takes the next one.
+ */
+export const ADVISORY_TYPES: readonly WizardType[] = WIZARD_TYPES.filter(
+  (t) => !CONDUCTABLE_TYPES.includes(t),
+);
+
+/**
  * How many unfinished proposals one member may hold.
  *
  * Five is the number of proposal types: a member may have one of each in
