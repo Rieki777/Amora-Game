@@ -96,7 +96,8 @@ const STANDING_ORPHANS = {
   "POST /api/admin/library/sweep": "Scheduler-owned, with a by-hand override. Same decision as the reconcile above.",
   "POST /api/admin/library/adjust": "A ledger correction from the runbook. Same decision.",
   "PUT /api/admin/recordings/:id/transcript": "The by-hand repair path for a pasted transcript. Same decision.",
-  "POST /api/admin/users/:id/send-password-link": "No caller found. Check the player row before deleting it.",
+  "POST /api/admin/users/:id/send-password-link":
+    "Verified orphan: the only mentions anywhere are the handler and a curl line in FORK_RUNBOOK.md. Sending a member their set-password link is an ordinary support act and belongs on the player row.",
 };
 
 const WAIVED = { ...ALLOWED, ...STANDING_ORPHANS };
