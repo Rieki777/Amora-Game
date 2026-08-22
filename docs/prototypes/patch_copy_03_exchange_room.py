@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Copy pass R5, group 3: the Exchange room explains itself in plain words.
+"""Copy pass R5, group 3: the Exchange room explains itself, enchant-first.
 
 The founder's own reported confusion (census, WORST OFFENDERS 1 and 7): the
 Exchange blurb carried three token types and a governance rule in two lines,
 the retired name "Hearts" on top, and the library rows compressed the lending
-doctrine to "wear quoted up front" and "escrowed". The style ruling (R45):
-explain plainly first; short declarative sentences; the metaphors stay in the
-map, never in vagueness.
+doctrine to "wear quoted up front" and "escrowed". Revised under R46
+(enchant-first): a door BLURB is a surface line, so it leads with the image
+and keeps the plain mechanics after it; a DOCK TIP and a TABLE CELL are the
+map's own tooltip layer, so they stay plain, which is exactly where R46 puts
+the mechanics.
 
 Census refs and their treatment:
   :892   dock tip, wallet door  -> plain one-liner, Hearts -> Gratitude.
@@ -57,9 +59,9 @@ swap(
 # -- 2. The Exchange door blurb (census :5423) ----------------------------
 swap(
     "blurb:'One ledger, every token. Hearts are gratitude, never a wage. Stay credits and library credits are useful, never votes.',",
-    "blurb:'Every token the village uses, in one room. Gratitude is thanks for work, never pay. "
-    "Stay credits are nights earned through work exchange. Library credits are the deposit that "
-    "waits while you borrow. None of them are votes.',",
+    "blurb:'One room, one ledger: every token the village lives by leaves its thread here. "
+    "Gratitude is thanks for work, never pay. Stay credits are nights earned through work "
+    "exchange. Library credits are the deposit that waits while you borrow. None of them are votes.',",
 )
 
 # -- 3. The Gratitude table row (census :5424) ----------------------------
@@ -83,8 +85,9 @@ swap(
 # -- 6. The Material Library door blurb (census :5447) --------------------
 swap(
     "blurb:'The lending commons. Add your tools to earn credits, borrow with a deposit, wear quoted up front. Every item carries its own story.',",
-    "blurb:'The lending commons. Add your tools to earn credits; borrow with a deposit. Wear has "
-    "a price, and you see it before you borrow. Every item carries its own story.',",
+    "blurb:'One shelf, many hands: what you no longer need becomes what a neighbor was missing. "
+    "Add your tools to earn credits; borrow with a deposit. Wear has a price, and you see it "
+    "before you borrow. Every item carries its own story.',",
 )
 
 open(HTML, "w", encoding="utf8", newline="").write(src)

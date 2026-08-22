@@ -60,7 +60,7 @@ const headers = (): Record<string, string> => {
  */
 const EXAMPLE_SETS: Array<{ id: string; noun: string }> = [
   { id: "map", noun: "circle" },
-  { id: "progression", noun: "seat" },
+  { id: "progression", noun: "role" },
   { id: "quests", noun: "quest" },
 ];
 
@@ -603,7 +603,7 @@ function SeatSheet({ children, onClose }: { children: React.ReactNode; onClose: 
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Seat"
+        aria-label="Role"
         tabIndex={-1}
         data-scroll-contain
         className="bg-white w-full rounded-t-2xl p-6 pb-[calc(1.5rem+var(--tabbar-h))] max-h-[80vh] overflow-y-auto focus:outline-none"

@@ -17,6 +17,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { fetchGameMe, QuestClaim, useGameConfig } from "@/lib/gameApi";
 import { rewardCeiling } from "@shared/questRewards";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
+import InfoTip from "@/components/InfoTip";
 import QuestCard, { iconFor, QuestPoster } from "@/components/QuestCard";
 import {
   currentClaims,
@@ -187,10 +188,13 @@ export default function Quests() {
             <h1 className="font-display text-4xl md:text-5xl font-bold text-foreground mb-4">
               Community Quests
             </h1>
+            {/* R46 enchant-first: the surface line carries the invitation;
+                the reward mechanics live in the tooltip. */}
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-4">
-              Quests are how you contribute to the village and earn {currencyName}, our
-              way of acknowledging every contribution. Every quest builds
-              relationships, regenerates the land, and grows the village.
+              Real work, on real land, beside people becoming your people.
+              Every quest you finish grows the village a little, and the
+              village says thank you in{" "}
+              <InfoTip tip={`${currencyName} is thanks for work, never pay. A finished quest carries its thank-you, released when the circle consents the work is done.`}>{currencyName}</InfoTip>.
             </p>
             <ExamplesBanner moduleId="quests" noun="quest" />
             <p className="text-sm text-muted-foreground mb-8">
@@ -199,6 +203,7 @@ export default function Quests() {
                 .reduce((s, q) => s + rewardCeiling(q.gratitude), 0)
                 .toLocaleString()}{" "}
               {currencyName} available
+              <InfoTip tip="Every open quest names its own thank-you; this number is all of them added together." label="Where this number comes from" />
             </p>
 
           </motion.div>
@@ -397,7 +402,12 @@ export default function Quests() {
                         </span>
                       )}
                     </div>
-                    <p className="text-muted-foreground mt-1 max-w-2xl">{meta.blurb}</p>
+                    <p className="text-muted-foreground mt-1 max-w-2xl">
+                      {meta.blurb}
+                      {ring === "further" && (
+                        <InfoTip tip="The Path of Growth is the membership ladder on your profile. Walking it, or holding a role, opens these quests." label="What opens these quests" />
+                      )}
+                    </p>
                   </div>
                   <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {shown.map((quest, index) => (

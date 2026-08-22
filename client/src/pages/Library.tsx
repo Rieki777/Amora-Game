@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { Package, RotateCcw, Undo2, Wrench } from "lucide-react";
 import { Image } from "@/components/Image";
+import InfoTip from "@/components/InfoTip";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
 import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 
@@ -71,9 +72,12 @@ export default function Library() {
       <section className="py-12 bg-gradient-to-b from-teal-deep/5 to-background">
         <div className="container text-center">
           <h1 className="font-display text-4xl font-bold text-foreground mb-3">Material Library</h1>
+          {/* R46 enchant-first: the shelf image carries the surface; the
+              lending mechanics live in the tooltip. */}
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Shared tools and goods, borrowed on library credits. Donate what you
-            no longer need and earn the credits to borrow what you do.
+            One shelf, many hands. What you no longer need becomes what a
+            neighbor was missing, and the shelf remembers every gift in{" "}
+            <InfoTip tip="Library credits are earned by donating items and set aside as a deposit while you borrow. The deposit comes back at return, minus wear.">library credits</InfoTip>.
           </p>
           <ExamplesBanner moduleId="library" noun="donation" />
         </div>
@@ -98,7 +102,7 @@ export default function Library() {
                     <div key={l.id} className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">
                         <b className="text-foreground">{itemName(l.itemId)}</b> · {l.status.replace(/_/g, " ")}
-                        {l.dueOn && <> · due {l.dueOn}</>} · {l.escrowCredits} in escrow
+                        {l.dueOn && <> · due {l.dueOn}</>} · {l.escrowCredits} set aside
                       </span>
                       <span className="space-x-3">
                         {(l.status === "reserved" || l.status === "pickup_pending") && (
@@ -142,8 +146,15 @@ export default function Library() {
                   {i.description && <p className="text-sm text-muted-foreground mb-2">{i.description}</p>}
                   <div className="mt-auto flex items-center justify-between">
                     <p className="text-xs text-muted-foreground">
-                      value {i.creditValue} · deposit {i.escrow}
-                      {i.minStage && <> · from {i.minStage}</>}
+                      value {i.creditValue} ·{" "}
+                      <InfoTip tip="The deposit is set aside from your credits while the item is out and returns when it does, minus any wear.">deposit</InfoTip>{" "}
+                      {i.escrow}
+                      {i.minStage && (
+                        <>
+                          {" "}·{" "}
+                          <InfoTip tip={`This item opens at the ${i.minStage} stage of the membership path. The ladder lives on your profile.`}>from {i.minStage}</InfoTip>
+                        </>
+                      )}
                     </p>
                     {user && i.status === "available" && (
                       <button
