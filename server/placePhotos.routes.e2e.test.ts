@@ -75,8 +75,10 @@ async function call(method: string, route: string, body?: unknown, token = found
 }
 
 /** The bytes of an uploads address, and the status the route answered. */
-async function fetchUpload(address: string): Promise<{ status: number; bytes: Buffer }> {
-  const res = await fetch(BASE + address); // module-review-ok: the test client dialling the built server on localhost
+async function fetchUpload(address: string, token = ""): Promise<{ status: number; bytes: Buffer }> {
+  const res = await fetch(BASE + address, { // module-review-ok: the test client dialling the built server on localhost
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
   const buf = Buffer.from(await res.arrayBuffer());
   return { status: res.status, bytes: buf };
 }
@@ -411,6 +413,18 @@ describe.skipIf(!DB_CONFIGURED)("photographs of a place", () => {
     const curatorView = await call("GET", `/api/places/${PLACE}/photos`, undefined, talToken);
     const hidden = curatorView.json.photos.find((p: any) => p.id === solPhotoId);
     expect(hidden.hiddenBy).toBe("subject");
+  });
+
+  it("shows the hidden bytes to a curator and to nobody else", async () => {
+    // The one exception to the suppression, and the reason it exists: a report
+    // card that cannot show the photograph is a card nobody can decide.
+    const curator = await fetchUpload(solPhotoUrl, talToken);
+    expect(curator.status, "a curator must be able to look at what they are judging").toBe(200);
+    expect((await sharp(curator.bytes).metadata()).format).toBe("webp");
+    // A member who is signed in but holds no curate capability gets the same
+    // 404 a stranger gets. Signing in is not a way around a takedown.
+    expect((await fetchUpload(solPhotoUrl, wrenToken)).status).toBe(404);
+    expect((await fetchUpload(solPhotoUrl, solToken)).status).toBe(404);
   });
 
   it("carries the subject's request to the same queue, marked as what it is", async () => {

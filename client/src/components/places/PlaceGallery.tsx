@@ -16,6 +16,7 @@ import { Camera, Flag, Pin, Trash2, Undo2, EyeOff, UserRound } from "lucide-reac
 import { Image, uploadSrcSet } from "@/components/Image";
 import InfoTip from "@/components/InfoTip";
 import BreathingLoader from "@/components/natural/BreathingLoader";
+import CuratorImage from "@/components/places/CuratorImage";
 import { authToken } from "@/lib/gameApi";
 import { prepareImageForUpload } from "@/lib/imagePrep";
 import {
@@ -341,13 +342,20 @@ function PhotoCard({
 
   return (
     <li className="rounded-xl border border-border bg-card overflow-hidden">
-      <Image
-        src={photo.url}
-        alt={photo.altText}
-        srcSet={uploadSrcSet(photo.url, photo.thumbUrl)}
-        sizes="(min-width: 1024px) 320px, (min-width: 640px) 45vw, 92vw"
-        ratio={4 / 3}
-      />
+      {/* A hidden photograph's address stops answering an img tag, which is
+          the point. A curator still has to see it to decide, so those come
+          through an authenticated fetch instead. */}
+      {photo.hiddenAt ? (
+        <CuratorImage src={photo.url} alt={photo.altText} />
+      ) : (
+        <Image
+          src={photo.url}
+          alt={photo.altText}
+          srcSet={uploadSrcSet(photo.url, photo.thumbUrl)}
+          sizes="(min-width: 1024px) 320px, (min-width: 640px) 45vw, 92vw"
+          ratio={4 / 3}
+        />
+      )}
       <div className="p-3 space-y-2">
         {photo.heroAt && (
           <p className="inline-flex items-center gap-1 text-xs font-semibold text-teal-deep">

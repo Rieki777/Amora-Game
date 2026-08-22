@@ -20,6 +20,7 @@ import { Link } from "wouter";
 import { Check, X } from "lucide-react";
 import { Image } from "@/components/Image";
 import BreathingLoader from "@/components/natural/BreathingLoader";
+import CuratorImage from "@/components/places/CuratorImage";
 import { authToken } from "@/lib/gameApi";
 import {
   canAct,
@@ -118,10 +119,12 @@ export default function PhotoReportsPanel() {
           {reports.map((r) => (
             <li key={r.id} className="rounded-lg border border-border p-3 flex gap-3">
               <div className="w-24 shrink-0">
-                {r.photoUrl ? (
-                  <Image src={r.photoUrl} alt={r.photoAltText ?? "The reported photograph"} ratio={1} className="rounded" />
-                ) : (
+                {!r.photoUrl ? (
                   <p className="text-xs text-muted-foreground">This photograph has been taken down. Its file is gone.</p>
+                ) : r.photoHidden ? (
+                  <CuratorImage src={r.photoUrl} alt={r.photoAltText ?? "The reported photograph"} ratio={1} className="rounded" />
+                ) : (
+                  <Image src={r.photoUrl} alt={r.photoAltText ?? "The reported photograph"} ratio={1} className="rounded" />
                 )}
               </div>
               <div className="min-w-0 space-y-1">

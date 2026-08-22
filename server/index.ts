@@ -17309,7 +17309,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
      * function that writes each row, so the hottest read on the server pays a
      * hash lookup and never a query.
      */
-    if (isSuppressedUpload(safe)) return res.status(404).json({ error: "Not found" });
+    if (isSuppressedUpload(safe)) {
+      /*
+       * ...except to the people who have to look at it to decide.
+       *
+       * A queue whose cards cannot show the picture is a queue nobody can act
+       * on, which is the same defect as a queue no client can read wearing a
+       * different coat. So a caller holding `map.curatePhotos` passes, and
+       * everybody else gets the byte-identical 404 a missing file gets.
+       *
+       * Only SUPPRESSED filenames reach this branch, so the capability read is
+       * paid on a handful of addresses and never on the volume's hot path. It
+       * needs a Bearer token, which an `img` tag cannot send: the curator
+       * surfaces fetch these through `CuratorImage` and render a blob.
+       */
+      const hand = await photoHand(req);
+      if (!hand.canCurate) return res.status(404).json({ error: "Not found" });
+    }
     const filePath = path.join(UPLOADS_DIR, safe);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Not found" });
     const ext = path.extname(safe).toLowerCase();
