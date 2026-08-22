@@ -1,4 +1,4 @@
-/**
+﻿/**
  * The community card (L5b): everything a signed-in member DOES with the
  * calendar beyond answering, in one collapsible card under the views.
  *
@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 import { authToken } from "@/lib/gameApi";
 import { CalendarPlus, HandHelping, Hourglass } from "lucide-react";
 import type { CalendarItem, EventSlot } from "@shared/gatherings";
+import { actionError } from "@/lib/actionOutcome";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -130,9 +131,14 @@ export default function CommunityCalendarCard({ signedIn }: { signedIn: boolean 
     setBusy(null);
   };
 
+  // SWEEP. A failed close left the window on screen and said nothing, which
+  // reads as a button that does not work.
   const closeWindow = async (id: string) => {
-    const res = await fetch(`/api/events/meet-me/${id}`, { method: "DELETE", headers: headers() });
-    if (res.ok) { say("Window closed."); setWindows((w) => w.filter((x) => x.id !== id)); }
+    const res = await fetch(`/api/events/meet-me/${id}`, { method: "DELETE", headers: headers() }).catch(() => null);
+    const wrong = actionError({ ok: !!res?.ok, error: null });
+    if (wrong) { say(wrong); return; }
+    say("Window closed.");
+    setWindows((w) => w.filter((x) => x.id !== id));
   };
 
   const joinQueue = async (g: CalendarItem) => {
@@ -187,10 +193,20 @@ export default function CommunityCalendarCard({ signedIn }: { signedIn: boolean 
     setBusy(null);
   };
 
+  /*
+   * SWEEP (the incomplete loop). "Given back." was printed unconditionally,
+   * BEFORE anything checked the answer, so a refused DELETE confirmed a
+   * release that never happened and the member walked away still holding the
+   * slot. A false yes is worse than silence.
+   */
   const dropSlot = async (g: CalendarItem, slot: EventSlot) => {
     const occ = g.occurrenceKey ? `?occurrence=${g.occurrenceKey}` : "";
-    await fetch(`/api/events/${g.id}/slots/${slot.id}/signup${occ}`, { method: "DELETE", headers: headers() });
-    say("Given back.");
+    const res = await fetch(`/api/events/${g.id}/slots/${slot.id}/signup${occ}`, {
+      method: "DELETE",
+      headers: headers(),
+    }).catch(() => null);
+    const wrong = actionError({ ok: !!res?.ok, error: null });
+    say(wrong ?? "Given back.");
     setSlotsFor(null);
     await toggleSlots(g);
   };

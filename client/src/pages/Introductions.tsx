@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Introductions: say what you seek, confirm what you could offer, and answer
  * the few good matches the village proposes. Designed at 390px first: one
  * column, 44px tap targets, the inbox above the fold because the yes is the
@@ -14,6 +14,7 @@ import { Link } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
+import { actionError } from "@/lib/actionOutcome";
 import { Check, EyeOff, Handshake, Pause, Plus, X } from "lucide-react";
 
 const headers = (): Record<string, string> => {
@@ -272,7 +273,7 @@ function IntroductionsPage() {
             )}
             <ul className="space-y-2">
               {mine.map((i) => (
-                <MyIntent key={i.id} intent={i} onChanged={loadMine} />
+                <MyIntent key={i.id} intent={i} onChanged={loadMine} onSay={say} />
               ))}
             </ul>
           </section>
@@ -503,11 +504,16 @@ function Compose({ onDone }: { onDone: (created: boolean) => void }) {
   );
 }
 
-function MyIntent({ intent, onChanged }: { intent: Intent; onChanged: () => void }) {
+function MyIntent({ intent, onChanged, onSay }: { intent: Intent; onChanged: () => void; onSay: (t: string) => void }) {
+  // SWEEP. Pausing, resuming or retiring an intent swallowed every failure,
+  // so a member could press Pause, watch the row stay active, and conclude
+  // the control was decorative.
   const set = async (patch: Record<string, unknown>) => {
-    await fetch(`/api/intents/${intent.id}`, { method: "PUT", headers: headers(), body: JSON.stringify(patch) }).catch(
-      () => {},
+    const r = await fetch(`/api/intents/${intent.id}`, { method: "PUT", headers: headers(), body: JSON.stringify(patch) }).catch(
+      () => null,
     );
+    const wrong = actionError({ ok: !!r?.ok, error: null });
+    if (wrong) onSay(wrong);
     onChanged();
   };
   const resting = intent.lifecycle !== "active";
@@ -597,11 +603,18 @@ function OpportunityCard({
   const them = opp.theirs.incognito
     ? "Someone here"
     : opp.theirs.counterpart?.firstName ?? "A member";
+  /*
+   * SWEEP (the incomplete loop). Accept and decline printed their
+   * confirmation on success and said NOTHING on failure, so a member who
+   * tapped Accept on a dropped connection saw the same screen either way and
+   * had no reason to try again.
+   */
   const act = async (path: string, success: string) => {
     const r = await fetch(`/api/intents/opportunities/${opp.id}/${path}`, { method: "POST", headers: headers() }).catch(
       () => null,
     );
-    if (r?.ok) onSay(success);
+    const wrong = actionError({ ok: !!r?.ok, error: null });
+    onSay(wrong ?? success);
     onChanged();
   };
   return (

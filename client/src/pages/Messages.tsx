@@ -17,6 +17,8 @@ import { Link, useLocation, useRoute } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
+import { toast } from "sonner";
+import { reportFeedback } from "@/lib/reportFeedback";
 import {
   ArrowLeft, Bell, BellOff, Crown, Flag, LogOut, Pencil, Plus, Search, Send, Trash2,
   UserMinus, UserPlus, Users, X,
@@ -550,6 +552,34 @@ function ThreadView({ id }: { id: string }) {
     return res.ok;
   };
 
+  /**
+   * Reporting does not go through act().
+   *
+   * act() reloads the thread and answers a boolean, which is right for edits
+   * and removals: the screen changes and the member can see it worked. A
+   * report changes NOTHING on screen by design, so the boolean was the only
+   * evidence it had happened and every caller dropped it. This one speaks.
+   */
+  const report = async (messageId: string, reason: string) => {
+    let outcome: { ok: boolean; status: number; fresh?: boolean; error?: string | null };
+    try {
+      const res = await fetch(`/api/messages/${id}/messages/${messageId}/report`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      outcome = { ok: res.ok, status: res.status, fresh: data?.fresh, error: data?.message ?? data?.error ?? null };
+    } catch {
+      // Offline or a dropped connection. Nothing was filed, and the member
+      // needs to know that much.
+      outcome = { ok: false, status: 0 };
+    }
+    const said = reportFeedback(outcome);
+    if (said.tone === "success") toast.success(said.message);
+    else toast.error(said.message);
+  };
+
   if (gone) return <NotFound />;
   if (!thread && loadFailed) {
     return (
@@ -786,7 +816,7 @@ function ThreadView({ id }: { id: string }) {
                               onClick={() => {
                                 const reason = window.prompt("What is wrong with this message?");
                                 if (reason !== null) {
-                                  act(`/messages/${m.id}/report`, { method: "POST", body: JSON.stringify({ reason }) });
+                                  void report(m.id, reason);
                                 }
                               }}
                               className="inline-flex items-center gap-1 py-2 hover:text-destructive"

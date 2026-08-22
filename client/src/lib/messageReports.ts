@@ -28,6 +28,9 @@ export interface MessageReport {
   reason: string | null;
   status: ReportStatus;
   at: string;
+  /** Who closed it, once somebody has. Null while the report is open. */
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
 }
 
 /**

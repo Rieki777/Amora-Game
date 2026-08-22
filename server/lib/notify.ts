@@ -122,6 +122,15 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
       return "immediate"; // ops: sig-fails and disputes cannot wait for a digest
     case "restorative_intake":
       return "immediate"; // a human reached out about a rupture — same day matters
+    // Moderation: a report waiting for a steward, and the reply to the member
+    // who filed it. Same reasoning as restorative_intake — somebody flagged
+    // harassment and the clock on the first look starts now. It rides the
+    // global emailsOff switch and the daily cap like everything else; the
+    // in-app row survives either way. Note the SUBJECT is all an email can
+    // carry here: notification emails render the title, and the title is
+    // written to name no one and quote nothing.
+    case "moderation":
+      return "immediate";
     default:
       return "off";
   }

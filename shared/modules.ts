@@ -405,7 +405,12 @@ export const MODULES: ModuleDef[] = [
       "gratitude.pool_per_cycle",
       "gratitude.pool_token",
     ],
-    apiPrefixes: ["/api/game/gratitude", "/api/game/cycle"],
+    // Cycle close and the settlement preview hang off /api/admin/cycles, which
+    // this list forgot. Inert while gratitude is core and nothing is above
+    // `included`, and wrong the moment any listing above `included` uses the
+    // same shape: the vendor-lapse loop mounts one gate per declared prefix,
+    // so an admin surface missing from the list is a surface the gate skips.
+    apiPrefixes: ["/api/game/gratitude", "/api/game/cycle", "/api/admin/cycles"],
   },
   {
     id: "progression",
