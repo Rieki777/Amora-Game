@@ -16240,6 +16240,13 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
     ".woff": "font/woff",
     ".ttf": "font/ttf",
     ".otf": "font/otf",
+    // Village sound packs (client/src/lib/sound.ts). Without these two lines
+    // an uploaded one-shot comes back as application/octet-stream with an
+    // attachment disposition, which no Audio element will play, so the audio
+    // layer would ship unable to make a sound at all. Inert container formats
+    // that browsers decode in a sandboxed pipeline.
+    ".ogg": "audio/ogg",
+    ".mp3": "audio/mpeg",
   };
   app.get("/api/uploads/:filename", async (req, res) => {
     const safe = path.basename(req.params.filename);
@@ -16264,7 +16271,11 @@ ALWAYS respond with ONLY a single JSON object, no prose around it, of exactly th
       // Images and fonts. PDFs and unknown types fall through deliberately —
       // see below. A font is render-blocking-adjacent: a conditional request
       // per page load on the village's display face is a visible re-flow tax.
-      if (type.startsWith("image/") || type.startsWith("font/")) {
+      // Audio joins images and fonts here for the same reason: a sound pack is
+      // stamped into its filename like everything else in this volume, so the
+      // bytes behind a URL never change, and a UI tick that costs a
+      // conditional request every time it fires is a tick nobody ships.
+      if (type.startsWith("image/") || type.startsWith("font/") || type.startsWith("audio/")) {
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       } else {
         // Investor documents and the like live behind a request-and-email gate.
