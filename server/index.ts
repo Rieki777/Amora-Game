@@ -22210,19 +22210,41 @@ Send an empty drafts array when you are still listening. A role payload is {name
      * per member, and notifyRoll catches its own failures.
      */
     const binds = ballotBinds(b.subjectType);
+    /*
+     * THE KIND CARRIES THE MEANING, and it has to, because the bell groups,
+     * batches and rations celebration by KIND and never by title.
+     *
+     * `ballot_failed` used to fire for a missed quorum, and that kind's blurb
+     * reads "The village said no." So fix 1's defect was living in the bell as
+     * well as in the subject's status column: the title said one thing and the
+     * line underneath it said the opposite.
+     *
+     * `ballot_carried` is one of the four kinds that earn a celebration. An
+     * advisory vote must never reach it. Somebody shown the moment reserved
+     * for a decision, who finds out later that the village changed nothing, is
+     * worse off than somebody who never voted.
+     *
+     * The ternary stays INLINE on the property. `shared/notificationKinds.test.ts`
+     * reads the produced types out of this source by brace-matching the object
+     * literal and splitting it on top-level commas, and it has no idea what a
+     * comment is: a block comment sitting inside these braces splits on its own
+     * prose and hides every literal in the value below it.
+     */
     void notifyRoll(b, {
-      type: result.outcome === "passed" ? "ballot_carried" : "ballot_failed",
-      title:
-        result.outcome === "passed"
-          ? // A vote that executes nothing never gets the word "carried" in a
-            // bell. Somebody who reads "Carried" and finds out later that the
-            // village changed nothing is worse off than somebody who never
-            // voted, so the advisory line says what happened and stops.
-            binds
-            ? `Carried: ${b.title}`
-            : `The village would have said yes: ${b.title}`
+      type: !binds
+        ? "ballot_advisory_closed"
+        : result.outcome === "passed"
+          ? "ballot_carried"
           : result.outcome === "no_quorum"
-            ? `Closed without quorum: ${b.title}`
+            ? "ballot_no_quorum"
+            : "ballot_failed",
+      title:
+        result.outcome === "no_quorum"
+          ? `Closed without quorum: ${b.title}`
+          : result.outcome === "passed"
+            ? binds
+              ? `Carried: ${b.title}`
+              : `The village would have said yes: ${b.title}`
             : binds
               ? `Did not pass: ${b.title}`
               : `The village would have said no: ${b.title}`,
