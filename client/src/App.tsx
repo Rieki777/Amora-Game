@@ -11,13 +11,19 @@ import { ModuleProvider } from "./modules/ModuleProvider";
 import { chooseLanding, getPreference, recordVisit, wasMapAvailable } from "./lib/landing";
 
 /**
- * After two visits, "/" means the map (client/src/lib/landing.ts has the
- * rules; an explicit member choice always wins). The redirect happens here,
- * synchronously, before Home renders — deciding after the module catalogue
- * loads would flash the welcome page and then yank it away. The price of
- * deciding early is that map availability is one visit stale (cached by the
- * map page itself); the safe direction is built in, because a stale "not
- * available" just means the welcome page.
+ * "/" means the welcome page, for everyone, every time. The map was going to
+ * take over on the third visit and that promotion is TURNED OFF
+ * (AUTO_LANDING_ENABLED in client/src/lib/landing.ts, which has the rules),
+ * and no surface writes a landing preference while it is off, so nothing
+ * reaches the redirect below today. The machinery stays because the map
+ * becoming home is still where this is going.
+ *
+ * When it comes back: the redirect happens here, synchronously, before Home
+ * renders — deciding after the module catalogue loads would flash the welcome
+ * page and then yank it away. The price of deciding early is that map
+ * availability is one visit stale (cached by the map page itself); the safe
+ * direction is built in, because a stale "not available" just means the
+ * welcome page.
  *
  * `useState` initialiser, not `useEffect`: the visit must be counted exactly
  * once per page load, before first paint, and effects run twice in dev

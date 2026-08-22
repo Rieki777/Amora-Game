@@ -751,10 +751,8 @@
         "kind": "earned",
         "icon": "star",
         "active": true,
-        "description": "Ten quests consented by others. The engine awards this on its own at cycle close, and it stacks: twenty quests earns it twice. Holding it opens quest proposals early.",
-        "capabilities": [
-          "quest.propose"
-        ],
+        "description": "Ten quests consented by others. The engine awards this on its own at cycle close, and it stacks: twenty quests earns it twice. It carries no powers, which is what most earned badges are for.",
+        "capabilities": [],
         "denies": [],
         "rule": {
           "metric": "quests_consented",

@@ -613,7 +613,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Hypha",
     label: "Hypha space id (on-chain)",
     description:
-      "The numeric id of your DAO's space on Hypha's Base contracts. Every on-chain proposal your DAO creates is stamped with it. Found in your Hypha space's URL or from any of its proposals on Basescan. Used to verify that on-chain outcomes claiming to be yours really came from your space.",
+      "The numeric id of your DAO's space on Hypha's Base contracts. Every on-chain proposal your DAO creates is stamped with it. Found in your Hypha space's URL or from any of its proposals on Basescan. Coming soon: nothing reads this yet. The governance webhook authenticates on its shared secret alone, so an outcome claiming to be yours is trusted on that secret and this id checks nothing today. Recording it now means the check has it the day it is built.",
     type: "text",
     default: "",
     ring: "founder",

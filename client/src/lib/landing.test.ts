@@ -30,7 +30,11 @@ describe("where a returning member lands", () => {
     expect(chooseLanding({ visits: 500, preference: "home", mapAvailable: true })).toBe("home");
   });
 
-  it("still honours an explicit 'map' choice, which is the one way to land there", () => {
+  it("still honours an explicit 'map' choice, though no surface writes one today", () => {
+    // The decision function is whole; the surfaces around it are not. Nothing
+    // in the product stores a landing preference while the automatic switch
+    // is off, so this asserts the shape of the restore and a value left in a
+    // browser by an older build, never live behaviour.
     expect(chooseLanding({ visits: 1, preference: "map", mapAvailable: true })).toBe("map");
     expect(chooseLanding({ visits: 500, preference: "map", mapAvailable: true })).toBe("map");
   });

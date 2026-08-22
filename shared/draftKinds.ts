@@ -135,7 +135,6 @@ export function validateDraftPayload(kind: string, payload: unknown): string | n
  * nothing; "post token prices and stock the treasury" tells them everything.
  */
 export const CAPABILITY_CONSEQUENCE: Record<Capability, string> = {
-  "quest.propose": "suggest new quests for the village",
   "quest.consent": "release recognition on someone else's finished work",
   "forum.post": "start threads in the forum",
   "forum.moderate": "hide posts and act on reports for the whole community",

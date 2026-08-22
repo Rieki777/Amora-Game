@@ -382,7 +382,7 @@ export const MODULES: ModuleDef[] = [
     core: true,
     requires: [],
     recommends: [],
-    capabilities: ["quest.propose", "quest.consent"],
+    capabilities: ["quest.consent"],
     variableKeys: ["quest.consent_cap_mode", "quest.consent_cap_multiplier", "quest.require_submission_before_consent"],
     apiPrefixes: ["/api/quests", "/api/game/quests"],
   },

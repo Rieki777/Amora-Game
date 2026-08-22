@@ -2,24 +2,24 @@
   {
     "id": "founders-circle",
     "name": "Founders Circle",
-    "description": "Holds the founding vision and final say while the village grows into governing itself. Can open and decide proposals, consent to quests, and moderate the forum.",
-    "capabilities": ["proposal.open", "proposal.decide", "quest.consent", "forum.moderate", "quest.propose", "forum.post"],
+    "description": "Holds the founding vision and final say while the village grows into governing itself. Can open and decide proposals, consent to quests, moderate the forum, and declare how the village and its circles hold power.",
+    "capabilities": ["proposal.open", "proposal.decide", "quest.consent", "forum.moderate", "forum.post", "org.declare"],
     "minStage": null,
     "order": 1
   },
   {
     "id": "steward-circle",
     "name": "Steward Circle",
-    "description": "Village Stewards coordinating the land and the work. Can consent to quests and propose new ones.",
-    "capabilities": ["quest.consent", "quest.propose", "forum.post"],
+    "description": "Village Stewards coordinating the land and the work. Can consent to quests, post announcements to the whole village, log the land's own measurements, and put gatherings on the calendar.",
+    "capabilities": ["quest.consent", "forum.post", "feed.announce", "health.record", "event.manage"],
     "minStage": "member",
     "order": 2
   },
   {
     "id": "treasury",
     "name": "Treasury",
-    "description": "Keeps the money legible: tracks budgets and allocations, and carries the cycle report to Hypha where Amora and Voice are governed.",
-    "capabilities": ["proposal.open", "forum.post"],
+    "description": "Keeps the money legible: tracks budgets and allocations, lists tokens and posts their prices, and carries the cycle report to Hypha where Amora and Voice are governed.",
+    "capabilities": ["proposal.open", "forum.post", "exchange.manage"],
     "minStage": "member",
     "order": 3
   },

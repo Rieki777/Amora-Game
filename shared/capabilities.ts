@@ -19,7 +19,16 @@
 
 /** The capability keys the platform knows about. */
 export type Capability =
-  | "quest.propose" // suggest a new quest for the village
+  // `quest.propose` was here and is retired (0090). It named an act nobody
+  // ever needed permission for: suggesting a quest goes through
+  // `/api/forms/submit`, the house pattern for anonymous public intake, which
+  // takes a stranger's suggestion by design and turns it into an inbox row
+  // rather than a quest. Only an admin creates a quest. So the key gated
+  // nothing anywhere in the product, while the ladder announced it as newly
+  // unlocked at contributor and the admin explainer reported it as held.
+  // Gating the intake route was the alternative and it is incoherent: it
+  // would either shut strangers out of the suggestion box or hold members to
+  // a higher bar than strangers.
   | "quest.consent" // release value on someone's quest (also admin/role gated)
   | "forum.post" // start a thread
   | "forum.moderate" // hide, resolve reports, act on the community's behalf
@@ -49,7 +58,6 @@ export type Capability =
  * it ungrantable by badges — keep them in lockstep.
  */
 export const ALL_CAPABILITIES: Capability[] = [
-  "quest.propose",
   "quest.consent",
   "forum.post",
   "forum.moderate",
@@ -82,7 +90,6 @@ export const ALL_CAPABILITIES: Capability[] = [
  */
 export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   "forum.post": "member", // you can talk once you have joined
-  "quest.propose": "contributor", // propose work once you have done some
   "proposal.open": "co-creator", // open a decision once you are co-creating
   "map.viewPeople": "guest", // any account sees who holds the village's seats
   "map.contact": "member", // reaching people through the relay starts at member

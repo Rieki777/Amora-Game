@@ -20,7 +20,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { layoutForShape, type NestedInput } from "@shared/mapLayout";
 import { authToken } from "@/lib/gameApi";
-import { getPreference, rememberMapAvailable, setPreference } from "@/lib/landing";
+import { rememberMapAvailable } from "@/lib/landing";
 import { ChevronDown, Download, Link2, List, Map as MapIcon, X } from "lucide-react";
 import { ExampleChip, ExamplesBanner, useExampleModules } from "@/components/ExamplesBanner";
 import { FirstWalkInvite } from "@/pages/FirstWalk";
@@ -272,7 +272,6 @@ export default function VillageMap() {
           <div className="max-w-2xl mx-auto text-left mt-4">
             <FirstWalkInvite />
           </div>
-          <LandingToggle />
         </div>
       </section>
 
@@ -697,27 +696,12 @@ function CircleAccordion({
   );
 }
 
-/**
- * Only shown to someone who already made the map their home page, so they
- * can undo it. Both choices write an explicit preference, which outranks
- * the visit count forever.
+/*
+ * `LandingToggle` stood here: an undo for someone who had made the map their
+ * home page. Nothing could ever reach it. The automatic promotion is off
+ * (AUTO_LANDING_ENABLED in client/src/lib/landing.ts), and its own button was
+ * the only writer of a landing preference in the product, so the "map"
+ * preference it tested for was never set by any code path and the component
+ * returned null on every render. It also sat on /map/circles while the
+ * redirect it undid pointed at /map.
  */
-function LandingToggle() {
-  const [pref, setPref] = useState(() => getPreference());
-  if (pref !== "map") return null;
-  return (
-    <p className="mt-4 text-xs text-muted-foreground">
-      The map is your home page.{" "}
-      <button
-        type="button"
-        className="underline underline-offset-2 hover:text-foreground"
-        onClick={() => {
-          setPreference("home");
-          setPref("home");
-        }}
-      >
-        Show me the welcome page instead
-      </button>
-    </p>
-  );
-}
