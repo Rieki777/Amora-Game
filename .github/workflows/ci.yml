@@ -231,8 +231,19 @@ jobs:
           # A second opinion on the total, from the tool the budget was written
           # against. If these two ever disagree, the script is wrong about how
           # this filesystem charges for a file and the discrepancy is the bug.
+          #
+          # Both numbers go to the LOG as well as the summary. The old step sent
+          # every number to $GITHUB_STEP_SUMMARY alone, so the total was
+          # invisible to anyone reading the log, which is most of the reason
+          # nobody noticed the block-padding gap for as long as they did.
           du_kb=$(du -sk dist/public | awk '{print $1}')
-          echo "du -sk reports ${du_kb} KB (budget ${MAX_TOTAL_DIST_KB} KB)" >> "$GITHUB_STEP_SUMMARY"
+          model_kb=$(GITHUB_STEP_SUMMARY= node scripts/check-dist-budget.mjs --json --report \
+            | sed -n 's/.*"blockChargedKb": *\([0-9]*\).*/\1/p')
+          echo "du -sk reports ${du_kb} KB, the script modelled ${model_kb} KB (budget ${MAX_TOTAL_DIST_KB} KB)" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$du_kb" != "$model_kb" ]; then
+            echo "::warning::du -sk says ${du_kb} KB and scripts/check-dist-budget.mjs says ${model_kb} KB. The script models how ext4 charges for directories, so a block or two of drift is expected; a larger gap means the model needs revisiting."
+          fi
           if [ "$du_kb" -gt "$MAX_TOTAL_DIST_KB" ]; then
             echo "::error::du -sk puts dist/public at ${du_kb} KB, over the ${MAX_TOTAL_DIST_KB} KB budget. Check whether something large landed in client/public and belongs in the uploads volume, and run node scripts/check-dist-budget.mjs to see how much of that is 4 KB block padding."
             fail=1
