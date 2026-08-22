@@ -42,6 +42,7 @@ import VoteClock from "@/components/governance/VoteClock";
 import VoteResult from "@/components/governance/VoteResult";
 import VoteWidget from "@/components/governance/VoteWidget";
 import VoterRoll from "@/components/governance/VoterRoll";
+import WeightRecord from "@/components/governance/WeightRecord";
 import { subjectNoun } from "@/components/governance/wizardConfig";
 import { standingObjections, weightText } from "@/components/governance/voteBars";
 import {
@@ -49,11 +50,13 @@ import {
   closeBallot,
   fetchBallot,
   fetchStanding,
+  fetchWeightRecord,
   fileObjection,
   ruleObjection,
   type Ballot,
   type CloseResult,
   type Standing,
+  type WeightRecord as WeightRecordData,
 } from "@/components/governance/governanceApi";
 
 const METHOD_TIP: Record<string, string> = {
@@ -77,6 +80,13 @@ export default function Decision() {
 
   const [ballot, setBallot] = useState<Ballot | null>(null);
   const [standing, setStanding] = useState<Standing | null>(null);
+  // The village-wide weight trail. It rides along here because this page shows
+  // "Your weight" too, and that card no longer carries a trail of its own: the
+  // reader's own changes live in this one list, marked as theirs. Without this
+  // read, a member who arrived on a decision could not see how the weights
+  // deciding it were allocated, and hidden power is what the record exists to
+  // prevent.
+  const [record, setRecord] = useState<WeightRecordData | null>(null);
   const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -94,7 +104,10 @@ export default function Decision() {
   useEffect(() => {
     if (!governance) return;
     void load();
-    if (user) fetchStanding().then((s) => s.ok && setStanding(s.data));
+    if (user) {
+      void fetchStanding().then((s) => s.ok && setStanding(s.data));
+      void fetchWeightRecord().then((w) => w.ok && setRecord(w.data));
+    }
   }, [governance, load, user]);
 
   const act = async (run: () => Promise<{ ok: boolean; error?: string }>) => {
@@ -353,6 +366,10 @@ export default function Decision() {
                 vote, open or closed.
               </p>
             </div>
+            {/* Last in the rail, because it is the widest thing here: this
+                vote's rules are about this vote, and the record is about every
+                weight that ever entered one. */}
+            {record && <WeightRecord record={record} mine={standing?.history ?? []} />}
           </aside>
         </div>
       </div>

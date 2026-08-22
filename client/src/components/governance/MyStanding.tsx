@@ -4,10 +4,7 @@
  * Custom mode is the sharp case: weight is allocated by a steward, one member
  * at a time, and allocated power that a member cannot see is exactly the thing
  * the constitution's new law was written against ("Voting weight is on the
- * record"). The engine keeps an append-only trail of every change with its
- * author and its reason. This card is where a member reads their own row of
- * it, in their own words, without hunting for their first name in a
- * village-wide table.
+ * record").
  *
  * The other two modes get the same card because the QUESTION is the same one,
  * and a member should not have to know which mode their village runs to find
@@ -17,9 +14,29 @@
  *
  * A zero is stated, never left blank. In custom mode an absent allocation is
  * zero weight by design (fail closed), and a member holding zero has a real
- * grievance the interface should hand them rather than hide.
+ * grievance the interface should hand them instead of hiding it.
+ *
+ * THIS CARD CARRIED A TRAIL AND NO LONGER DOES, which is the whole of this
+ * lane. It printed the viewer's own weight-change rows under "Every change to
+ * it" while `WeightRecord` printed the village's append-only trail, which
+ * CONTAINS those same rows, under "Every change". Two headings a few words
+ * apart, one list nested inside the other, in one rail column. The two cards
+ * landed an hour apart from two lanes and neither lane was placed to see the
+ * pair.
+ *
+ * THE SHAPE CHOSEN: two cards, one job each, no shared rows. This card is the
+ * near fact a member came for, and it is a fact, never a list: what you weigh,
+ * under which rule, and what that weight is worth when a decision opens. The
+ * trail is one list and lives once, in `WeightRecord`, where a row belonging
+ * to the viewer now reads "You". Nothing left the page. The viewer's rows are
+ * still on it, they still sit where they happened, and they now carry the name
+ * of whoever made the change, which this card never showed.
+ *
+ * The merge was considered and refused: this card is on `/decisions/:id` too,
+ * where the rail is deliberately about one vote, and a single card holding the
+ * village's whole ledger would have to be the tallest thing on that page.
  */
-import { History, Scale } from "lucide-react";
+import { Scale } from "lucide-react";
 import InfoTip from "@/components/InfoTip";
 import { CrowdFigure } from "./QuorumField";
 import { weightText } from "./voteBars";
@@ -77,38 +94,6 @@ export default function MyStanding({ standing }: { standing: Standing }) {
             </p>
           )}
         </>
-      )}
-
-      {standing.mode === "custom" && standing.history.length > 0 && (
-        <div className="mt-4 border-t border-stone-100 pt-3">
-          <h4 className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
-            <History className="w-3.5 h-3.5 text-stone-500" aria-hidden="true" />
-            Every change to it
-          </h4>
-          <ul className="mt-2 space-y-2.5">
-            {standing.history.map((h) => (
-              <li key={h.id} className="text-sm">
-                <span className="font-medium tabular-nums text-stone-900">
-                  {h.oldWeight === null ? "set to" : `${weightText(h.oldWeight)} to`} {weightText(h.newWeight)}
-                </span>
-                <span className="text-stone-500">
-                  {" "}
-                  on {new Date(h.at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
-                </span>
-                <p className="text-stone-600 leading-relaxed">{h.note}</p>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 text-xs text-stone-500 leading-relaxed">
-            This trail is append-only. Nothing on it can be edited or removed, by anyone.
-          </p>
-        </div>
-      )}
-
-      {standing.mode === "custom" && standing.history.length === 0 && standing.eligible && (
-        <p className="mt-3 border-t border-stone-100 pt-3 text-xs text-stone-500 leading-relaxed">
-          Nobody has changed your weight. When someone does, it appears here with their name and their reason.
-        </p>
       )}
     </section>
   );
