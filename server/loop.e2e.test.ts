@@ -512,6 +512,33 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       ],
     );
 
+    // THE PREVIEW THE ADMIN DESK READS BEFORE IT PRESSES ANYTHING.
+    //
+    // Settlement releases value and is a human act, so the human has to be
+    // able to read the settlement first. This route writes nothing and splits
+    // with the same pure functions the close uses, which is the property
+    // worth pinning: a preview that disagreed with the deed would be worse
+    // than no preview at all, so the numbers here are compared against what
+    // the close actually credits a few lines below.
+    const previewAnon = await api("GET", "/api/admin/cycles/pending");
+    expect(previewAnon.status, "a stranger may not read who is about to be paid").toBe(401);
+
+    const preview = await api("GET", "/api/admin/cycles/pending", undefined, founderToken);
+    expect(preview.status).toBe(200);
+    expect(preview.json.pool.token).toBe("credits");
+    expect(preview.json.pool.problem, "a healthy pool names no problem").toBeNull();
+    const duePrev = preview.json.due.find((c: any) => c.cycleNumber === prevNumber);
+    expect(duePrev, "the finished lunation is due").toBeTruthy();
+    expect(duePrev.recipients).toBe(1);
+    expect(duePrev.received).toBe(8);
+    expect(duePrev.credited).toBe(1000);
+    expect(duePrev.fromPersistedSplit, "nothing has been settled yet").toBe(false);
+    expect(duePrev.shares[0].name).toBe("Grateful");
+    expect(duePrev.shares[0].distinctSenders).toBe(1);
+    // The OPEN lunation is never in the list: it has not ended, so it cannot
+    // be settled, and offering it would be offering a button that does nothing.
+    expect(preview.json.due.some((c: any) => c.cycleNumber === current.json.cycleNumber)).toBe(false);
+
     // Anonymous close is refused; the founder's close settles it.
     const anon = await api("POST", "/api/admin/cycles/close", {});
     expect(anon.status).toBe(401);
@@ -555,6 +582,14 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(again.json.poolCredited).toBe(0);
     const peerAfter = await api("GET", "/api/game/ledger", undefined, peerToken);
     expect(peerAfter.json.balances.credits?.balance).toBe(1000);
+
+    // And the preview agrees with the deed: the settled lunation drops off
+    // the due list, so the desk offers a second press nothing to promise.
+    // This is what stops a founder pressing twice on a screen that still
+    // says a thousand credits are waiting to go out.
+    const after = await api("GET", "/api/admin/cycles/pending", undefined, founderToken);
+    expect(after.status).toBe(200);
+    expect(after.json.due.some((c: any) => c.cycleNumber === prevNumber)).toBe(false);
 
     // Fail-loud misconfiguration guard: pointing the pool at the recognition
     // token itself is refused BEFORE anything settles (signal must never be

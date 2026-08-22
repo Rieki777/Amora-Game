@@ -35,6 +35,10 @@ export const TAB_MODULE: Record<string, string> = {
   "calls-admin": "automation",
   products: "commerce",
   "forum-moderation": "forum",
+  // `/api/admin/messages` mounts behind requireModule("messaging"), so the DM
+  // report queue is only a queue while the module is on. `cycles` is NOT here:
+  // gratitude is core, always public, and its close route is behind no gate.
+  "message-reports": "messaging",
   "resources-admin": "resources",
   "intents-admin": "introductions",
 };
