@@ -1,0 +1,243 @@
+/**
+ * Proposal drafts: the wizard's unfinished work, held by the server.
+ *
+ * The Hypha harvest (section 1) flagged one upgrade over the wizard it was
+ * otherwise copying wholesale: their drafts live in the browser's
+ * localStorage, keyed by title and timestamp, and a member who writes half a
+ * role application on a phone loses it to a cleared cache. A draft is work.
+ * Work belongs on the server.
+ *
+ * The rules this file holds:
+ *
+ *  - A DRAFT IS NOT A PROPOSAL. It has no supports, no ballot, no standing
+ *    and no reader but its author. Nothing here writes to any governance
+ *    table; publishing is a separate act through the subject's own route,
+ *    which is what keeps "I was typing" and "the village is deciding" from
+ *    ever being the same row.
+ *  - PRIVATE TO THE AUTHOR. Every read and every write is scoped by user_id
+ *    in the SQL itself, never by a check the caller could forget. A draft
+ *    fetched by the wrong member is not a 403 with a body; it is a miss.
+ *  - CAPPED. Drafts cost nothing to make and a wizard that autosaves is a
+ *    machine for making them, so a member holds at most DRAFT_CAP. The cap
+ *    refuses the NEW draft and says which ones to finish or discard; it never
+ *    silently evicts the oldest, because the oldest is the one somebody has
+ *    been meaning to come back to.
+ *  - THE STEP TRAVELS WITH IT. `step_index` is what makes Continue land where
+ *    the author stopped instead of at the type cards, and it is stored rather
+ *    than derived because the wizard's skip-walk means "how far they got" is
+ *    not a function of which fields are filled.
+ *
+ * The pure half (`draftProblem`, `WIZARD_TYPES`) is exported for the client's
+ * config-drift test: the wizard's type list and this validator's type list are
+ * the same list in two files, and a test proves they stay that way.
+ */
+import { randomUUID } from "crypto";
+import type { Pool, RowDataPacket } from "mysql2/promise";
+
+/**
+ * The proposal types a wizard draft may belong to (GOV_DESIGN section 4).
+ *
+ * This is the SERVER's copy. The client's declarative wizard config
+ * (client/src/components/governance/wizardConfig.ts) holds the same ids with
+ * their steps, fields and copy, and `wizardConfig.test.ts` fails if the two
+ * lists ever drift. Two files rather than one because the config carries React
+ * components and this module must not import any.
+ */
+export const WIZARD_TYPES = [
+  "role_application",
+  "mechanics",
+  "agreement",
+  "badge_grant",
+  "quest_payout",
+] as const;
+export type WizardType = (typeof WIZARD_TYPES)[number];
+
+/**
+ * The types this deployment can actually take to a vote today.
+ *
+ * A wizard that walks a member through five steps and then discovers there is
+ * nowhere to publish is worse than one that says so on the first screen, so
+ * the type step reads this list and the review step refuses what is not in it.
+ * The executors land lane by lane (GOV_DESIGN section 8): agreements with G3,
+ * role applications and quest payouts with G4, badge grants with G5. Each lane
+ * adds its own id here in the same commit that mounts its route, and nothing
+ * else in the wizard changes.
+ */
+export const CONDUCTABLE_TYPES: readonly WizardType[] = ["mechanics"];
+
+/**
+ * How many unfinished proposals one member may hold.
+ *
+ * Five is the number of proposal types: a member may have one of each in
+ * flight and still be doing something reasonable. A sixth is a wizard that
+ * autosaved a stray click, and the cap is where that shows up.
+ */
+export const DRAFT_CAP = 5;
+
+/** A payload bigger than this is not a draft, it is a document. */
+const MAX_PAYLOAD_BYTES = 64_000;
+
+export interface ProposalDraftRow {
+  id: string;
+  userId: string;
+  wizardType: WizardType;
+  payload: Record<string, unknown>;
+  stepIndex: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v));
+
+/**
+ * MySQL's json column comes back parsed on some driver versions and as a
+ * string on others. Both are handled, and a payload that will not parse
+ * becomes an empty object rather than throwing: a corrupt draft should cost
+ * the member their typing, never their access to the drafts card.
+ */
+function parsePayload(v: unknown): Record<string, unknown> {
+  if (v === null || v === undefined) return {};
+  if (typeof v === "string") {
+    try {
+      const parsed = JSON.parse(v);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+function toDraft(r: RowDataPacket): ProposalDraftRow {
+  return {
+    id: String(r.id),
+    userId: String(r.user_id),
+    wizardType: String(r.wizard_type) as WizardType,
+    payload: parsePayload(r.payload),
+    stepIndex: Number(r.step_index),
+    createdAt: iso(r.created_at),
+    updatedAt: iso(r.updated_at),
+  };
+}
+
+export interface DraftInput {
+  wizardType: unknown;
+  payload: unknown;
+  stepIndex: unknown;
+}
+
+/**
+ * Every check a draft passes before it is stored, as a sentence or null.
+ *
+ * Pure on purpose: the wizard runs the same function before it asks the
+ * server, so a member sees the refusal in the step they are standing in
+ * rather than after a round trip.
+ */
+export function draftProblem(input: DraftInput): string | null {
+  if (!(WIZARD_TYPES as readonly string[]).includes(String(input.wizardType))) {
+    return "That is not a proposal type this village knows";
+  }
+  const payload = input.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return "A draft carries what you have written so far, as a set of fields";
+  }
+  if (JSON.stringify(payload).length > MAX_PAYLOAD_BYTES) {
+    return "This draft has outgrown the wizard. Trim it, or publish what you have and edit from there";
+  }
+  const step = Number(input.stepIndex);
+  if (!Number.isInteger(step) || step < 0 || step > 50) {
+    return "A draft remembers which step you left off at, and that one is out of range";
+  }
+  return null;
+}
+
+export async function draftsOf(pool: Pool, userId: string): Promise<ProposalDraftRow[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT * FROM proposal_drafts WHERE user_id = ? ORDER BY updated_at DESC, id DESC LIMIT 50",
+    [userId],
+  );
+  return rows.map(toDraft);
+}
+
+/**
+ * One draft, scoped to its author in the query. A member asking for someone
+ * else's draft id gets null, which the route answers as a 404: the existence
+ * of another member's unfinished thought is not information.
+ */
+export async function draftFor(pool: Pool, id: string, userId: string): Promise<ProposalDraftRow | null> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT * FROM proposal_drafts WHERE id = ? AND user_id = ?",
+    [id, userId],
+  );
+  return rows[0] ? toDraft(rows[0]) : null;
+}
+
+export interface SaveDraftInput {
+  /** Absent creates; present updates that draft if the author owns it. */
+  id?: string | null;
+  userId: string;
+  wizardType: string;
+  payload: Record<string, unknown>;
+  stepIndex: number;
+}
+
+export type SaveDraftResult =
+  | { ok: true; draft: ProposalDraftRow; created: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Save-and-leave, and every autosave in between.
+ *
+ * An update is scoped by `(id, user_id)` in the UPDATE itself, so a save
+ * against a draft the caller does not own affects zero rows and reads as a
+ * miss rather than as a write to somebody else's work. The cap is checked
+ * only when a NEW draft would be created, because refusing to save an
+ * existing draft would throw away the very typing this table exists to keep.
+ */
+export async function saveDraft(pool: Pool, input: SaveDraftInput): Promise<SaveDraftResult> {
+  const problem = draftProblem(input);
+  if (problem) return { ok: false, error: problem };
+
+  if (input.id) {
+    const [result] = await pool.query<any>(
+      "UPDATE proposal_drafts SET wizard_type = ?, payload = ?, step_index = ? WHERE id = ? AND user_id = ?",
+      [input.wizardType, JSON.stringify(input.payload), input.stepIndex, input.id, input.userId],
+    );
+    if (Number(result.affectedRows) > 0) {
+      const draft = await draftFor(pool, input.id, input.userId);
+      if (draft) return { ok: true, draft, created: false };
+    }
+    // The draft is gone (published, or discarded on another device). Falling
+    // through to a fresh row is right: the member is still typing, and losing
+    // the tab's work to a race elsewhere is the failure this table prevents.
+  }
+
+  const mine = await draftsOf(pool, input.userId);
+  if (mine.length >= DRAFT_CAP) {
+    return {
+      ok: false,
+      error: `You are holding ${mine.length} unfinished proposals, which is the limit. Publish one or discard one to start another`,
+    };
+  }
+  const id = `pdr-${randomUUID().slice(0, 12)}`;
+  await pool.query(
+    "INSERT INTO proposal_drafts (id, user_id, wizard_type, payload, step_index) VALUES (?,?,?,?,?)",
+    [id, input.userId, input.wizardType, JSON.stringify(input.payload), input.stepIndex],
+  );
+  const draft = await draftFor(pool, id, input.userId);
+  if (!draft) return { ok: false, error: "The draft did not save" };
+  return { ok: true, draft, created: true };
+}
+
+/**
+ * Discard a draft, or clear it once its proposal exists. Returns whether a row
+ * went, so the route can answer 404 for a draft that was never the caller's
+ * instead of pretending to have deleted it.
+ */
+export async function deleteDraft(pool: Pool, id: string, userId: string): Promise<boolean> {
+  const [result] = await pool.query<any>(
+    "DELETE FROM proposal_drafts WHERE id = ? AND user_id = ?",
+    [id, userId],
+  );
+  return Number(result.affectedRows) > 0;
+}
