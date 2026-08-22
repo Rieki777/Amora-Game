@@ -20600,7 +20600,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       type: "governance",
       title: `${firstName(user.name)} sponsored your proposal, it is now open`,
       body: p.title,
-      link: "/game-mechanics",
+      link: proposalLink(p.id),
       actorUserId: user.id,
       dedupeKey: `gmp:${p.id}:sponsored`,
     });
@@ -20814,7 +20814,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
         type: "governance",
         title: `Your proposal was applied: ${p.title}`,
         body: failed.length ? `${applied.length} change(s) applied; ${failed.length} could not be (see the ledger).` : null,
-        link: "/game-mechanics",
+        link: proposalLink(p.id),
         actorUserId: actor,
         dedupeKey: `gmp:${p.id}:applied`,
       });
@@ -20912,7 +20912,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       await notify({
         userId: p.proposerUserId, type: "governance",
         title: `The vote did not pass: ${p.title}`,
-        link: "/game-mechanics", dedupeKey: `gmp:${p.id}:failed`,
+        link: proposalLink(p.id), dedupeKey: `gmp:${p.id}:failed`,
       });
       void recordEvent(getPool(), {
         kind: "audit", text: `gmp:failed:${p.id}`, entityType: "mechanics_proposal", entityRef: p.id, audience: "admin",
@@ -20941,7 +20941,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       await notify({
         userId: p.proposerUserId, type: "governance",
         title: `Verified. Your proposal applies at the next cycle close: ${p.title}`,
-        link: "/game-mechanics", dedupeKey: `gmp:${p.id}:verified-waiting`,
+        link: proposalLink(p.id), dedupeKey: `gmp:${p.id}:verified-waiting`,
       });
       return res.json({ received: true, status: "passed_verified", held: "applies at next cycle close" });
     }
@@ -21020,17 +21020,34 @@ Send an empty drafts array when you are still listening. A role payload is {name
   }
 
   /**
-   * Where a notice about a ballot should LAND.
+   * Where a notice about a ballot should LAND: on the ballot.
    *
-   * A mechanics ballot is a vote on a proposal, and the proposal is the thing
-   * the village can actually see and read, so the link goes to that card and
-   * not to the top of a page holding forty of them. `?focus=` is honoured by
-   * client/src/lib/useFocusTarget.ts, which scrolls to it, focuses it, and
-   * marks it. A proposal that has since been withdrawn simply is not there,
-   * and the page still works: a stale deep link is never an error state.
+   * This pointed at the proposal card on /game-mechanics until the decision
+   * surface existed, because a notice has to land on something a member can
+   * actually see. /decisions/:id is now that thing and it is strictly better:
+   * the vote widget, the clock, the frozen roll and the close beat are all on
+   * it, so every one of the five decision notices lands where its reader can
+   * act on it.
+   *
+   * A STALE LINK IS NEVER AN ERROR STATE, and that is the property this
+   * function exists to protect. A withdrawn ballot renders the decision page's
+   * own "No such decision" card with a way through to /decisions, and the
+   * notification row itself renders and clears from its stored text without
+   * ever resolving the ballot. A notice outlives the thing it points at.
    */
-  function ballotLink(b: { subjectType: string; subjectRef: string }): string {
-    return b.subjectType === "mechanics" ? `/game-mechanics?focus=proposal-${b.subjectRef}` : "/game-mechanics";
+  function ballotLink(b: { id: string }): string {
+    return `/decisions/${b.id}`;
+  }
+
+  /**
+   * Where a notice about a mechanics PROPOSAL should land: on the card, and
+   * not on the top of a page holding forty of them. `?focus=` is honoured by
+   * client/src/lib/useFocusTarget.ts, which scrolls to it, moves focus to it
+   * and marks it. A proposal that is gone is simply not found and the page
+   * still works, which is the same rule ballotLink is held to.
+   */
+  function proposalLink(proposalId: string): string {
+    return `/game-mechanics?focus=proposal-${proposalId}`;
   }
 
   /**
@@ -21047,7 +21064,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * just did is the fastest way to teach them to ignore the bell.
    */
   async function notifyRoll(
-    b: { id: string; subjectType: string; subjectRef: string },
+    b: { id: string },
     input: { type: string; title: string; body?: string | null; keySuffix: string; except?: Array<string | null | undefined>; roll?: string[] },
   ): Promise<number> {
     let rung = 0;
@@ -21442,32 +21459,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
       entityRef: b.id,
     });
 
-    // The roll hears the outcome, once, keyed on the ballot. Everyone who was
-    // asked gets told what the answer was, including the people who did not
-    // vote: a decision binds them either way, and finding out later from
-    // somebody else is how a village stops trusting its own process.
-    //
-    // `no_quorum` is worded as its own thing rather than folded into "did not
-    // pass". Too few people answered is a different fact from the village
-    // saying no, and it is the one an electorate can do something about.
-    // Not awaited, same reason as the open path above.
-    void notifyRoll(b, {
-      type: result.outcome === "passed" ? "ballot_carried" : "ballot_failed",
-      title:
-        result.outcome === "passed"
-          ? `Carried: ${b.title}`
-          : result.outcome === "no_quorum"
-            ? `Closed without quorum: ${b.title}`
-            : `Did not pass: ${b.title}`,
-      body: result.ballot.outcomeNote,
-      keySuffix: "outcome",
-    });
-
     // Outcome routing, mechanics only in this lane (GOV_DESIGN 2.6). Every
     // step is a guarded update or an idempotent apply, so a crash between
     // close and here heals on the admin apply path rather than corrupting.
     let applied: string[] = [];
     let held: string | null = null;
+    /*
+     * Whoever has ALREADY been told about this outcome in words specific to
+     * their proposal, so the roll's line does not arrive underneath it saying
+     * the same thing in general terms. Two rows for one event, sitting next to
+     * each other in the same Decisions group, is exactly the noise that makes
+     * a bell not worth opening.
+     *
+     * Left null in the auto-apply-off branch on purpose: that branch tells the
+     * ADMINS and says nothing to the proposer, so the roll's line is the only
+     * word they would get and they should have it.
+     */
+    let proposerTold: string | null = null;
     if (b.subjectType === "mechanics") {
       const p = await proposalById(getPool(), b.subjectRef);
       if (p && p.status === "onsite_vote") {
@@ -21487,14 +21495,18 @@ Send an empty drafts array when you are still listening. A role payload is {name
               );
             } else if (changeSetWaitsForCycleClose(fresh.changeSet)) {
               held = "applies at next cycle close";
+              proposerTold = p.proposerUserId;
               await notify({
                 userId: p.proposerUserId,
                 type: "governance",
                 title: `Passed. Your proposal applies at the next cycle close: ${p.title}`,
-                link: "/game-mechanics",
+                link: proposalLink(p.id),
                 dedupeKey: `gmp:${p.id}:verified-waiting`,
               });
             } else {
+              // applyMechanicsProposal tells the proposer "Your proposal was
+              // applied" on its own, which is why this counts as told.
+              proposerTold = p.proposerUserId;
               const applyResult = await applyMechanicsProposal(fresh, user.id);
               applied = applyResult.applied;
               if (applyResult.failed.length > 0) {
@@ -21511,18 +21523,46 @@ Send an empty drafts array when you are still listening. A role payload is {name
             "UPDATE mechanics_proposals SET status = 'failed' WHERE id = ? AND status = 'onsite_vote'",
             [p.id],
           );
+          proposerTold = p.proposerUserId;
           await notify({
             userId: p.proposerUserId,
             type: "governance",
             title: `The village vote did not pass: ${p.title}`,
             body: result.ballot.outcomeNote,
-            link: "/game-mechanics",
+            link: proposalLink(p.id),
             actorUserId: user.id,
             dedupeKey: `gmp:${p.id}:failed`,
           });
         }
       }
     }
+    /*
+     * The roll hears the outcome, once, keyed on the ballot. Everyone who was
+     * asked is told what the answer was, INCLUDING the people who did not
+     * vote: a decision binds them either way, and finding out later from
+     * somebody else is how a village stops trusting its own process.
+     *
+     * `no_quorum` is worded as its own thing and never folded into "did not
+     * pass". Too few people answered is a different fact from the village
+     * saying no, and it is the one an electorate can act on.
+     *
+     * AFTER the routing above, so `proposerTold` is settled. Not awaited, for
+     * the same reason the open path is not: a village-wide roll is one insert
+     * per member, and notifyRoll catches its own failures.
+     */
+    void notifyRoll(b, {
+      type: result.outcome === "passed" ? "ballot_carried" : "ballot_failed",
+      title:
+        result.outcome === "passed"
+          ? `Carried: ${b.title}`
+          : result.outcome === "no_quorum"
+            ? `Closed without quorum: ${b.title}`
+            : `Did not pass: ${b.title}`,
+      body: result.ballot.outcomeNote,
+      keySuffix: "outcome",
+      except: [proposerTold],
+    });
+
     res.json({
       success: true,
       outcome: result.outcome,

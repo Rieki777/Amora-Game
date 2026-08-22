@@ -397,6 +397,12 @@ title, body and link as stored text. A ballot that was withdrawn, a quest that w
 library item that went home: the line still reads, and the reader can still clear it. This is
 GitHub's phantom notification, answered before it happens.
 
+The same rule governs where the link LANDS. Decision notices go to `/decisions/:id`, which
+answers a ballot it cannot find with its own "No such decision" card and a way through to
+`/decisions`, so a notice that outlived its ballot is a small disappointment and never an error
+state. Proposal notices go to `/game-mechanics?focus=<id>`, which scrolls to the card, moves
+focus to it and marks it, and does nothing at all when the card is gone.
+
 **2. Seen is not read.** Opening the bell quiets the badge. It does not mark anything read.
 Reading a line, by clicking through to the thing it is about, marks that line read. "Mark all
 read" is an explicit button that says how many rows it touched, and read rows stay in the list,
@@ -438,10 +444,16 @@ Six kinds are new, and all six are economy or governance:
 | --- | --- | --- |
 | `ballot_opened` | a vote opens | everyone on the frozen roll, minus the proposer and the opener |
 | `ballot_closing` | 48 hours before the window shuts | only people on the roll who have not answered |
-| `ballot_carried` | a vote closes having passed | the whole roll |
-| `ballot_failed` | a vote closes without passing, or without quorum | the whole roll |
+| `ballot_carried` | a vote closes having passed | the whole roll, minus a proposer already told in their own words |
+| `ballot_failed` | a vote closes without passing, or without quorum | the same, and worded apart from "did not pass" |
 | `ballot_expired` | the window ran out and nobody closed it | whoever opened it |
 | `cycle_settled` | a lunation closes | everyone who received recognition inside it, with their share named |
+
+All five decision notices land on `/decisions/:id`, where the vote widget, the clock, the frozen
+roll and the close beat all live, so every one of them lands where its reader can act. The
+proposer of a mechanics ballot is left off the outcome line when the routing has already told
+them what happened to their proposal, because two rows for one event, sitting next to each other
+in the same group of the bell, is exactly the noise that makes a bell not worth opening.
 
 Before this, the governance engine froze an electorate at open and told nobody it existed. A
 vote could open, run its whole window and close with the proposer as the only member who ever

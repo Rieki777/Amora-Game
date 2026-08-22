@@ -5273,9 +5273,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     let rollNotes: any[] = [];
     for (let i = 0; i < 20; i++) {
       const bell = await api("GET", "/api/notifications", undefined, voters[2].token);
-      rollNotes = (bell.json.notifications ?? []).filter((n: any) =>
-        String(n.link ?? "").includes(`proposal-${proposalId}`),
-      );
+      rollNotes = (bell.json.notifications ?? []).filter((n: any) => n.link === `/decisions/${ballot.id}`);
       if (rollNotes.some((n: any) => n.type === "ballot_carried")) break;
     }
     const rollTypes = rollNotes.map((n: any) => n.type);
@@ -5284,8 +5282,28 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // The outcome note travels with it, so the bell carries the reasoning and
     // not only the verdict.
     expect(String(rollNotes.find((n: any) => n.type === "ballot_carried")?.body)).toContain("longer sensing");
-    // And the link lands on the proposal itself, not the top of the page.
-    expect(String(rollNotes[0].link)).toContain("/game-mechanics?focus=proposal-");
+
+    /*
+     * AND THE PROPOSER IS NOT TOLD TWICE. They already have "Your proposal was
+     * applied", worded for them, so the roll's general "Carried:" line is
+     * withheld. Two rows for one event, sitting next to each other in the same
+     * group of the bell, is exactly the noise that makes a bell not worth
+     * opening.
+     */
+    const proposerBell = await api("GET", "/api/notifications", undefined, founderToken);
+    const proposerNotes = proposerBell.json.notifications ?? [];
+    expect(
+      proposerNotes.filter((n: any) => n.link === `/decisions/${ballot.id}` && n.type === "ballot_carried"),
+      "the proposer is not told the outcome twice",
+    ).toHaveLength(0);
+    expect(
+      proposerNotes.some((n: any) => n.type === "governance" && String(n.title).includes("was applied")),
+      "they were told in their own words instead",
+    ).toBe(true);
+    // That notice lands on their proposal's card, not the top of the page.
+    expect(
+      String(proposerNotes.find((n: any) => String(n.title).includes("was applied"))?.link),
+    ).toBe(`/game-mechanics?focus=proposal-${proposalId}`);
     const lateVote = await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "no" }, voters[1].token);
     expect(lateVote.status).toBe(409);
     // And a second close changes nothing.
