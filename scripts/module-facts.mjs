@@ -140,8 +140,9 @@ function unionStrings(sourceFile, aliasName) {
  * refuses new dependencies, and the shape being read is two known keys at a
  * known indent rather than arbitrary YAML. A step whose `run` is a block
  * scalar is reported as a block, because reproducing a twenty-line shell
- * fragment in a facts listing would be noise, and the one thing a builder
- * needs to know about it is that no local command reproduces it.
+ * fragment in a facts listing would be noise. What a builder needs from such a
+ * step is whether anything local reproduces it, so the block is scanned for a
+ * `node scripts/*.mjs` call and that command is printed when one is there.
  */
 function ciGates(yml) {
   if (yml === null) return null;
@@ -168,7 +169,24 @@ function ciGates(yml) {
 
     const runBlock = /^\s{8}run:\s*\|\s*$/.exec(line);
     if (runBlock && pending) {
-      steps.push({ name: pending, command: null, block: true });
+      /*
+       * A block scalar used to be reported as unreproducible, full stop. That
+       * became wrong the day the bundle budget grew a script: the block still
+       * holds shell, and the shell now calls a gate a builder can run. So scan
+       * forward through the indented body for `node scripts/<name>.mjs` and
+       * report the first one as the local reproduction. Scanning stops at the
+       * next step, so a later step's command cannot be attributed to this one.
+       */
+      let local = null;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (/^\s{6}-\s+name:/.test(lines[j])) break;
+        const call = /\b(node\s+scripts\/[\w.-]+\.mjs)/.exec(lines[j]);
+        if (call) {
+          local = call[1];
+          break;
+        }
+      }
+      steps.push({ name: pending, command: null, block: true, local });
       pending = null;
       continue;
     }
@@ -282,7 +300,8 @@ if (asJson) {
 
   console.log(`Gates, in the order CI runs them (.github/workflows/ci.yml, Node ${gates?.nodeVersion ?? "?"})`);
   for (const s of gates?.steps ?? []) {
-    if (s.block) console.log(`  ${s.name}: a shell block in the workflow, no local command reproduces it`);
+    if (s.block && s.local) console.log(`  ${s.name}: a shell block in the workflow, reproduced locally by \`${s.local}\``);
+    else if (s.block) console.log(`  ${s.name}: a shell block in the workflow, no local command reproduces it`);
     else console.log(`  ${s.command}`);
   }
   const budgets = Object.entries(gates?.budgets ?? {});

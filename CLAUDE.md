@@ -34,19 +34,51 @@ node scripts/check-doc-links.mjs       # every path the builder docs name resolv
 node scripts/check-route-reachability.mjs  # two ways in to every route (--table prints the doors)
 node scripts/check-artifact-budget.mjs # the living map's disk and wire size
 node scripts/check-image-budget.mjs    # shipped images: WebP, 400 KB each, falling total
+node scripts/check-dist-budget.mjs     # main JS and total dist/public, measured the way CI measures
 ```
 
 `node scripts/module-facts.mjs` prints the gate list above straight from `.github/workflows/ci.yml`,
 so it is right on the day you run it. Prefer it to this block when the two disagree.
 
-Two CI budgets are shell steps rather than scripts, so nothing local reproduces them: main JS
-**700 KB** and total `dist/public` **6600 KB**, both measured after `pnpm build`. Read the
-numbers off `MAX_MAIN_JS_KB` and `MAX_TOTAL_DIST_KB` in `.github/workflows/ci.yml`, which is
-the authority: this block said 6 MB for as long as the ceiling was 6000, and stayed at 6 MB
-when `dbb4f9c` raised it to 6600 for the catalog art. Measured at `e1110bc`, `dist/public`
-is **6426 KB** and main JS is **503 KB**, so the real headroom is about **174 KB** on the
-total and roughly 197 KB on main — small enough that one unoptimised image spends it, and
-the fix is the uploads volume, never a bigger number here.
+Two CI budgets cap the client: main JS **700 KB** and total `dist/public` **6600 KB**, both
+measured after `pnpm build`. Read the numbers off `MAX_MAIN_JS_KB` and `MAX_TOTAL_DIST_KB` in
+`.github/workflows/ci.yml`, which is the authority: this block said 6 MB for as long as the
+ceiling was 6000, and stayed at 6 MB when `dbb4f9c` raised it to 6600 for the catalog art.
+`node scripts/check-dist-budget.mjs` reproduces both locally and CI runs the same script, so a
+number you measure here is the number that decides. It was checked against a real ext4 volume on
+five different built trees and matched `du -sk` to the kilobyte on every one. Measured on this
+branch, `dist/public` is **5432 KB** block-charged against the 6600 ceiling and main JS is
+**477 KB**.
+
+**The total is measured in 4 KB BLOCKS, and that changes what a fix looks like.** CI sizes the
+tree with `du -sk`, and `du` counts allocated blocks: on the runner's ext4 filesystem every file
+takes a whole 4096 bytes however small it is. A 400-byte chunk spends four kilobytes of the
+ceiling. At `ec8d147` that rounding was **729 KB** of the 6600, and ninety-six files under 4 KB
+burned 302 KB of it between them: the gate read 6536 KB against a tree holding 5806 KB, and
+nothing local reproduced the gap.
+
+The consequence is counter-intuitive and it is worth holding onto, because the build spent a
+long time fighting it: **the two budgets pull in opposite directions.**
+
+- **MAX_MAIN_JS_KB is REAL bytes on one file.** Splitting a route out of the main chunk lowers
+  it. Splitting is the fix, which is exactly what the workflow comment tells you.
+- **MAX_TOTAL_DIST_KB is BLOCK-CHARGED across the tree.** Splitting a small module into its own
+  chunk adds a full block whatever the module weighs, so splitting RAISES it. **Merging is the
+  fix.**
+
+A sibling lane proved the arithmetic exactly: swapping three single-use icons that were each
+their own ~400-byte chunk saved precisely 12 KB, which is 3 x 4096 and has nothing to do with
+the icons. Going the other way, grouping `lucide-react` into one `icons` chunk
+(`manualChunks` in `vite.config.ts`) removed about eighty such files and took the total down
+276 KB while the MAIN chunk also fell, from 503 KB to 477 KB, because the shell's own icons
+left with them. `output.experimentalMinChunkSize` was measured against the same tree and is the
+weaker knob: about 64 KB at 4096, a plateau by 20000, and it pushes real bytes into the main
+chunk. Dropping the legacy `.woff` fallback (below) took another 828 KB off the same ceiling.
+
+So before you split anything, run `node scripts/check-dist-budget.mjs` and read BOTH numbers.
+It prints real bytes, block-charged bytes, the overhead between them, a size histogram and the
+files paying the most padding. When the total is genuinely full of content, the fix is the
+uploads volume, never a bigger number here.
 
 Images are WebP. `scripts/check-image-budget.mjs` enforces it on `client/public`, and the
 exemptions are DERIVED, never typed: whatever `shared/gameConfig.ts` names as the favicon and
@@ -56,6 +88,14 @@ no dependable WebP support. The total in `scripts/image-budget-baseline.json` is
 hashed and swappable; `client/public` is cached one-year-immutable and cannot be replaced.
 Member uploads are shrunk in the browser first (`client/src/lib/imagePrep.ts`), which falls
 back to the original file whenever the browser cannot encode WebP.
+
+Fonts ship as WebP's equivalent: **woff2 only**. @fontsource declares a legacy `.woff` beside
+every `.woff2`, and that second set was 32 files and 758 KB of a budget no browser could ever
+spend, because woff2 landed in every engine before ES modules did and `client/index.html` boots
+the app from a single `<script type="module">`. A browser old enough to want the fallback cannot
+run the app. `dropLegacyWoffFallback` in `vite.config.ts` strips the fallback from the `src:`
+list before vite resolves the url, which is what stops the file being emitted. Member-uploaded
+display faces are a different path and still accept `.woff` (`server/index.ts` sniffs `wOFF`).
 
 The build marker is stamped from the git SHA by `scripts/build-server.mjs` — never hand-edit
 it. Only `BUILD_LABEL` in `server/index.ts` is human-written; the SHA is appended at build

@@ -51,8 +51,46 @@ function serveGroundsInDev(): Plugin {
   };
 }
 
+/**
+ * Drop the legacy `.woff` fallback that @fontsource declares beside every
+ * `.woff2`.
+ *
+ * Every face was shipping twice: 32 `.woff2` files at 651 KB and 32 `.woff`
+ * files at 758 KB, and the second set is dead weight. A browser only reaches
+ * the fallback when it cannot parse woff2, and woff2 landed in every engine
+ * BEFORE ES modules did (Chrome 36 vs 61, Firefox 39 vs 60, Safari 10 vs 11,
+ * Edge 14 vs 16). `client/index.html` boots the app from a single
+ * `<script type="module">`, so a browser old enough to want the `.woff` cannot
+ * run the app at all and never gets as far as requesting a font. The bytes
+ * were unreachable by construction.
+ *
+ * This strips the fallback from the `src:` list BEFORE vite resolves the
+ * url(), which is what stops the file being emitted at all: vite copies a font
+ * into `dist/public/assets` because some CSS points at it, so removing the
+ * pointer removes the copy. `enforce: "pre"` puts this ahead of vite's own CSS
+ * plugin, and the match is scoped to @fontsource so a village's hand-written
+ * @font-face is untouched.
+ *
+ * Member-uploaded display faces are a separate path and keep full `.woff`
+ * support: `server/index.ts` still sniffs the `wOFF` magic bytes and serves
+ * `font/woff`. This is only about the packaged Latin faces.
+ */
+function dropLegacyWoffFallback(): Plugin {
+  const FALLBACK = /,\s*url\([^)]*\.woff\)\s*format\((['"])woff\1\)/g;
+  return {
+    name: "drop-legacy-woff-fallback",
+    enforce: "pre",
+    transform(code, id) {
+      const file = id.split("?")[0].replace(/\\/g, "/");
+      if (!file.endsWith(".css") || !file.includes("/@fontsource")) return null;
+      const next = code.replace(FALLBACK, "");
+      return next === code ? null : { code: next, map: null };
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), serveGroundsInDev()],
+  plugins: [react(), tailwindcss(), serveGroundsInDev(), dropLegacyWoffFallback()],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
@@ -65,6 +103,46 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        /**
+         * One icon chunk, because the total budget is measured in BLOCKS.
+         *
+         * CI sizes `dist/public` with `du -sk`, and `du` counts allocated
+         * blocks. On the ext4 filesystem the runners use, every file costs a
+         * whole 4096 bytes however small it is. So the two budgets in
+         * `.github/workflows/ci.yml` pull in opposite directions: MAX_MAIN_JS_KB
+         * is real bytes on one file and falls when you split, MAX_TOTAL_DIST_KB
+         * is block-charged across the tree and RISES when you split. A 400-byte
+         * chunk costs four kilobytes of the ceiling.
+         *
+         * Icons were the worst case of that. Each lucide glyph is its own
+         * module, so any glyph used by two lazy routes became its own chunk:
+         * eighty files of 130 to 790 bytes, spending 278 KB of the ceiling on
+         * padding to carry about 37 KB of code. Grouping the package into one
+         * chunk took `dist/public` from 6536 KB to 6260 KB block-charged and
+         * the emitted chunk count from 152 to 82, while the main chunk FELL
+         * from 503 KB to 477 KB because the shell's own icons left with them.
+         *
+         * The cost, measured and stated plainly: a first page load now fetches
+         * every icon the app uses instead of the handful that route needs. The
+         * three heaviest routes gained 4.3 KB (admin), 6.0 KB (history) and
+         * 6.9 KB (map) gzipped, every later navigation gets its icons from
+         * cache, and eighty requests became one. Compression is why the raw
+         * numbers and the wire numbers disagree so much: gzip does very little
+         * for a 400-byte file and a lot for an 81 KB one.
+         *
+         * `output.experimentalMinChunkSize` was measured here too and is the
+         * weaker knob: about 64 KB at 4096, a plateau by 20000, and it pushes
+         * real bytes INTO the main chunk, which is the one budget measured in
+         * real bytes. Reach for it only after this.
+         *
+         * Verify any chunking change with `node scripts/check-dist-budget.mjs`,
+         * which prints both measures.
+         */
+        manualChunks: (id: string) => (id.includes("lucide-react") ? "icons" : undefined),
+      },
+    },
   },
   server: {
     port: 3000,

@@ -200,30 +200,41 @@ jobs:
         # took it to ~494, so the ratchet drops to 700: comfortable room for
         # genuine growth in the shared shell, no room for a page to slip back
         # into the main chunk by being imported eagerly somewhere.
+        #
+        # THE TWO NUMBERS MEASURE DIFFERENT THINGS, and the step used to hide
+        # that. `du -sk` reports ALLOCATED BLOCKS, and the runner's ext4
+        # filesystem hands a whole 4096 bytes to every file however small it
+        # is. So the total was reading about 700 KB heavier than the bytes on
+        # disk, a lane measuring real bytes locally saw headroom CI did not
+        # have, and CLAUDE.md had to say "nothing local reproduces them".
+        #
+        # Worse, the two budgets point in opposite directions. MAX_MAIN_JS_KB
+        # is real bytes on one file, so SPLITTING a chunk lowers it.
+        # MAX_TOTAL_DIST_KB is block-charged across the tree, so splitting
+        # RAISES it: a 400-byte chunk spends four kilobytes of the ceiling.
+        # A build tuned for the first budget quietly spends the second.
+        #
+        # scripts/check-dist-budget.mjs now enforces both and prints both, and
+        # a lane can run the identical measurement before pushing. The budget
+        # numbers still live here, and the script reads them from this file
+        # when the environment does not supply them, so there is one authority.
         env:
           MAX_MAIN_JS_KB: 700
           MAX_TOTAL_DIST_KB: 6600
           MAX_SINGLE_IMAGE_KB: 400
         run: |
           echo "## Bundle sizes" >> "$GITHUB_STEP_SUMMARY"
-          ls -la dist/public/assets/ | awk '{print $5, $9}' | while read size name; do
-            [ -n "$name" ] && echo "- $name: $((size/1024)) KB" >> "$GITHUB_STEP_SUMMARY"
-          done
           fail=0
 
-          main=$(ls -l dist/public/assets/index-*.js | awk '{print $5}' | sort -nr | head -1)
-          main_kb=$((main/1024))
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Main JS: ${main_kb} KB (budget ${MAX_MAIN_JS_KB} KB)" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$main_kb" -gt "$MAX_MAIN_JS_KB" ]; then
-            echo "::error::Main JS bundle is ${main_kb} KB, over the ${MAX_MAIN_JS_KB} KB budget. Split a route rather than raising the budget."
-            fail=1
-          fi
+          node scripts/check-dist-budget.mjs || fail=1
 
-          total_kb=$(du -sk dist/public | awk '{print $1}')
-          echo "Total dist/public: ${total_kb} KB (budget ${MAX_TOTAL_DIST_KB} KB)" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$total_kb" -gt "$MAX_TOTAL_DIST_KB" ]; then
-            echo "::error::dist/public is ${total_kb} KB, over the ${MAX_TOTAL_DIST_KB} KB budget. Something large landed in client/public — check whether it belongs in the uploads volume instead."
+          # A second opinion on the total, from the tool the budget was written
+          # against. If these two ever disagree, the script is wrong about how
+          # this filesystem charges for a file and the discrepancy is the bug.
+          du_kb=$(du -sk dist/public | awk '{print $1}')
+          echo "du -sk reports ${du_kb} KB (budget ${MAX_TOTAL_DIST_KB} KB)" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$du_kb" -gt "$MAX_TOTAL_DIST_KB" ]; then
+            echo "::error::du -sk puts dist/public at ${du_kb} KB, over the ${MAX_TOTAL_DIST_KB} KB budget. Check whether something large landed in client/public and belongs in the uploads volume, and run node scripts/check-dist-budget.mjs to see how much of that is 4 KB block padding."
             fail=1
           fi
 
