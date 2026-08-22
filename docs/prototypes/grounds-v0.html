@@ -230,6 +230,18 @@
   #maiaHead .who b{display:block;font-variant:small-caps;letter-spacing:.18em;font-size:14px;color:var(--gold-b);font-weight:normal}
   #maiaHead .who span{font-size:10px;color:#b9cf9a;letter-spacing:.06em}
   #maiaHead .min{margin-left:auto;color:var(--gold);font-size:13px;padding:2px 6px}
+  /* The read-instead toggle. It lives in her header because it is a fact
+     about Maia and not about the page, and it is a real <button> so a
+     keyboard and a screen reader both find it. The `+ .min` rule beats the
+     bare `.min` rule above on specificity, which is how the minimise dash
+     gives up its auto margin to the control that now sits before it. */
+  #maiaHead .mvb{margin-left:auto;appearance:none;font-family:inherit;cursor:pointer;
+    font-size:9.5px;letter-spacing:.14em;font-variant:small-caps;white-space:nowrap;
+    color:var(--parch);background:rgba(236,208,138,.1);border:1px solid rgba(201,162,94,.45);
+    border-radius:10px;padding:2px 8px}
+  #maiaHead .mvb:hover{background:rgba(236,208,138,.24)}
+  #maiaHead .mvb[aria-pressed="true"]{color:#1c2f1a;background:var(--gold-b);border-color:var(--gold-b)}
+  #maiaHead .mvb+.min{margin-left:6px}
   #maiaLog{height:150px;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;font-size:12.5px;scrollbar-width:thin}
   .mline{line-height:1.45;color:#efe4c6}
   .mline.me{color:#cfe3f5;text-align:right}
@@ -1113,6 +1125,8 @@
   <div id="maiaHead">
     <canvas id="maiaFace" width="42" height="42"></canvas>
     <div class="who"><b>Maia</b><span id="maiaSub">village guide · advisor dock</span></div>
+    <button class="mvb" id="maiaVoice" type="button" aria-pressed="false"
+      data-tip="Maia can say this out loud, or stay written down. Your choice, remembered.">◍ read</button>
     <span class="min" id="maiaMin">—</span>
   </div>
   <div id="maiaLog"></div>
@@ -2574,7 +2588,7 @@ function promiseResult(d){
   if(p.undo)p.undo();
   toast(PROMISE_WHY[d.reason]||PROMISE_WHY.error);
   if(d.reason==='anonymous'&&d.href)
-    maiaSay(`That one is kept against your name, so it needs a name. <a href="${escq(d.href)}" target="_blank" rel="noopener">Sign in</a> and tap it again; nothing is lost.`);
+    maiaSay(`That one is kept against your name, so it needs a name. <a href="${safeHref(d.href)}" target="_blank" rel="noopener">Sign in</a> and tap it again; nothing is lost.`);
 }
 window.promiseResult=promiseResult;
 const PROMISE_RSVP='Going adds this to your calendar in your profile and signs you up for updates by email. Tap again any time to change your answer.';
@@ -3659,10 +3673,286 @@ $('attnBtn').onclick=()=>{const items=attnItems();if(!items.length)return toast(
   c.fillStyle='#fff';c.beginPath();c.arc(15.8,19.2,.8,0,7);c.arc(27.8,19.2,.8,0,7);c.fill();
   c.strokeStyle='#1c2f1a';c.lineWidth=1.6;c.beginPath();c.arc(21,26,5,.25,2.9);c.stroke();
   c.fillStyle='#e8c877';c.beginPath();c.arc(21,12,1.4,0,7);c.fill()})();
+/* ---------- MAIA'S VOICE: three tiers, and a way to read instead ----------
+
+   The ladder, best first, each one falling to the next without a word to the
+   person listening:
+
+     1  hosted signature voices   DARK today. See MV_HOSTED.
+     2  Kokoro, in this browser   the shipping voice, loaded on the first tap.
+     3  device speechSynthesis    the floor. No network, no download, no wait.
+
+   READ IS THE DEFAULT AND THAT IS THE DESIGN. Sound is something a person
+   asks for. Until they do, this file behaves exactly as it did before the
+   voice existed: no engine, no CDN, no audio element, and the single
+   /api/map/walk-log POST is still the only request it ever makes.
+
+   THE TAP IS THE PERMISSION AND THE BUDGET. No browser will play audio a
+   gesture did not ask for, and the Kokoro weights are about 90 MB. Both facts
+   name the same moment, so the first tap on the toggle is the only place the
+   engine is allowed to load. */
+const MV_KEY='amora-maia-voice';
+const MVOICE={mode:'read',tier:null,engine:'idle'};
+window.MVOICE=MVOICE;
+
+/* TIER 1. Dark, and cheap to keep dark: `live` is false, so mvHosted() returns
+   before it can build a request. Rye's call, carried over from the site: the
+   key is added and nobody is paying yet. Turning these on is this one flag
+   plus a route that answers {audio:<base64>,mime}. */
+const MV_HOSTED={live:false,endpoint:'/api/map/tts',voice:'maia'};
+function mvHostedLive(){return !!(MV_HOSTED.live&&MV_HOSTED.endpoint)}
+window.mvHostedLive=mvHostedLive;
+
+/* TIER 2. Pinned to the version the site already ships (kokoro-js ^1.2.1) so
+   the two voices are the same voice. q8 on WASM keeps the one-time download
+   near 90 MB; fp32 on WebGPU avoids q8's artifacts where the device has it. */
+const MV_KOKORO={esm:'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm',
+  model:'onnx-community/Kokoro-82M-v1.0-ONNX',voice:'af_bella',wait:12000};
+
+/* Every reason to not even try. file:// is first because that is where every
+   QA suite runs: the gates stay offline, and a suite that measures requests
+   keeps measuring the same one. */
+function mvKokoroUsable(){
+  if(location.protocol==='file:')return false;
+  if(typeof WebAssembly==='undefined')return false;
+  if(navigator.onLine===false)return false;
+  return true}
+window.mvKokoroUsable=mvKokoroUsable;
+
+let MV_SEQ=0,MV_AUDIO=null,MV_URL=null,MV_KTTS=null,MV_KLOAD=null;
+
+/* Markup in, speech out. Deliberately a string transform and NOT innerHTML on
+   a detached node: assigning innerHTML fires <img onerror> even off-document,
+   and this function is handed lines that came over the bridge. */
+function mvStrip(html){
+  const ENT={amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' ','#39':"'"};
+  return String(html==null?'':html)
+    .replace(/<br\s*\/?>/gi,' ')
+    .replace(/<[^>]*>/g,' ')
+    .replace(/&([a-z]+|#\d+);/gi,function(m,e){return ENT[e.toLowerCase()]||' '})
+    .replace(/\s+/g,' ').trim()}
+window.mvStrip=mvStrip;
+
+function mvCleanAudio(){
+  if(MV_AUDIO){try{MV_AUDIO.pause()}catch(_){}MV_AUDIO=null}
+  if(MV_URL){try{URL.revokeObjectURL(MV_URL)}catch(_){}MV_URL=null}}
+
+/* Stop everything the ladder could have started. Called on every new line, on
+   the toggle going quiet, and when a walk ends. */
+function mvStop(){MV_SEQ++;mvCleanAudio();
+  try{if('speechSynthesis'in window)speechSynthesis.cancel()}catch(_){}
+  MVOICE.tier=null}
+window.mvStop=mvStop;
+
+function mvTier(t){MVOICE.tier=t}
+
+function mvPlayBlob(blob,seq){return new Promise(function(res){
+  if(seq!==MV_SEQ)return res();
+  mvCleanAudio();
+  let url;try{url=URL.createObjectURL(blob)}catch(_){return res()}
+  const a=new Audio(url);MV_AUDIO=a;MV_URL=url;
+  a.onended=function(){res()};a.onerror=function(){res()};
+  const p=a.play();if(p&&p.catch)p.catch(function(){res()})})}
+
+async function mvHosted(t,seq){
+  if(!mvHostedLive())return false;
+  try{
+    const r=await fetch(MV_HOSTED.endpoint,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({voice:MV_HOSTED.voice,text:t})});
+    if(!r.ok)return false;
+    const d=await r.json();
+    if(!d||!d.audio)return false;
+    const bytes=Uint8Array.from(atob(d.audio),function(c){return c.charCodeAt(0)});
+    if(seq!==MV_SEQ)return true;
+    mvTier('hosted');
+    await mvPlayBlob(new Blob([bytes],{type:d.mime||'audio/mpeg'}),seq);
+    return true}
+  catch(_){return false}}
+
+/* Load once, and never make a sentence wait longer than MV_KOKORO.wait for it.
+   A slow first load is answered by the device voice while the engine keeps
+   loading in the background for the line after. */
+function mvKokoroReady(){
+  if(MV_KTTS)return Promise.resolve(true);
+  if(MVOICE.engine==='failed')return Promise.resolve(false);
+  if(!MV_KLOAD){
+    MVOICE.engine='loading';mvPaint();
+    MV_KLOAD=(async function(){try{
+      const m=await import(MV_KOKORO.esm);
+      const K=m&&(m.KokoroTTS||(m.default&&m.default.KokoroTTS));
+      if(!K)throw new Error('kokoro-js exposed no KokoroTTS');
+      const gpu=!!(navigator.gpu);
+      MV_KTTS=await K.from_pretrained(MV_KOKORO.model,
+        {dtype:gpu?'fp32':'q8',device:gpu?'webgpu':'wasm'});
+      MVOICE.engine='ready';mvPaint();return true}
+    catch(err){
+      /* A warning, never a toast. Someone who asked to hear her still hears
+         her, in the device voice, and has nothing to fix. */
+      console.warn('[maia] the in-browser voice engine did not load; the device voice takes the line',err);
+      MVOICE.engine='failed';mvPaint();return false}})()}
+  return Promise.race([MV_KLOAD,new Promise(function(r){setTimeout(function(){r(false)},MV_KOKORO.wait)})])}
+
+async function mvKokoroSpeak(t,seq){
+  if(!MV_KTTS)return false;
+  let played=false;
+  try{
+    /* Sentence by sentence, so the first audio lands while the rest is still
+       being made. */
+    for await(const chunk of MV_KTTS.stream(t,{voice:MV_KOKORO.voice})){
+      if(seq!==MV_SEQ)return true;
+      const blob=(chunk&&chunk.audio&&chunk.audio.toBlob)?chunk.audio.toBlob():null;
+      if(!blob)continue;
+      if(!played){played=true;mvTier('kokoro')}
+      await mvPlayBlob(blob,seq);
+      if(seq!==MV_SEQ)return true}
+    return played}
+  catch(err){return played}}
+
+const MV_SHE=/(female|woman|samantha|victoria|karen|moira|tessa|fiona|serena|zira|hazel|susan|allison|ava|joana|luciana|paulina|monica|amelie|anna|ellen|milena|catherine|kate|libby|aria|jenny|sonia)/i;
+function mvDeviceVoice(){try{
+  const all=speechSynthesis.getVoices()||[];
+  const en=all.filter(function(v){return /^en/i.test(v.lang||'')});
+  return en.find(function(v){return MV_SHE.test(v.name||'')})||en[0]||all[0]||null}
+  catch(_){return null}}
+
+function mvDevice(t,seq){
+  if(!('speechSynthesis'in window))return false;
+  try{
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(t);
+    const v=mvDeviceVoice();if(v)u.voice=v;
+    u.rate=1;u.pitch=1.02;
+    u.onstart=function(){if(seq===MV_SEQ)mvTier('device')};
+    speechSynthesis.speak(u);return true}
+  catch(_){return false}}
+
+async function mvSpeakAsync(text){
+  if(MVOICE.mode!=='hear')return;
+  const t=mvStrip(text);
+  if(!t)return;
+  mvStop();
+  const seq=MV_SEQ;
+  if(mvHostedLive()){
+    if(await mvHosted(t,seq))return;
+    if(seq!==MV_SEQ)return}
+  if(mvKokoroUsable()){
+    const ready=await mvKokoroReady();
+    if(seq!==MV_SEQ)return;
+    if(ready&&await mvKokoroSpeak(t,seq))return;
+    if(seq!==MV_SEQ)return}
+  mvDevice(t,seq)}
+
+/* The synchronous door every caller uses. Nothing above may reject into a
+   caller's lap: a voice that throws must cost silence and nothing else. */
+function mvSpeak(text){try{const p=mvSpeakAsync(text);if(p&&p.catch)p.catch(function(){})}catch(_){}}
+window.mvSpeak=mvSpeak;
+
+function mvPaint(){
+  const b=$('maiaVoice');if(!b)return;
+  const hear=MVOICE.mode==='hear';
+  b.setAttribute('aria-pressed',hear?'true':'false');
+  b.textContent=hear?(MVOICE.engine==='loading'?'♪ warming':'♪ hear'):'◍ read';
+  b.title=hear?'Maia is speaking out loud. Tap to read her instead.'
+              :'Maia is written down. Tap to hear her out loud.'}
+window.mvPaint=mvPaint;
+
+function mvMode(next){
+  MVOICE.mode=(next==='hear')?'hear':'read';
+  try{localStorage.setItem(MV_KEY,MVOICE.mode)}catch(_){}
+  if(MVOICE.mode==='read'){mvStop();mvPaint();return}
+  mvPaint();
+  if(mvKokoroUsable())mvKokoroReady();
+  mvSpeak('I am here. I will say the village out loud as we walk.')}
+window.mvMode=mvMode;
+
+(function mvBoot(){
+  try{const saved=localStorage.getItem(MV_KEY);if(saved==='hear'||saved==='read')MVOICE.mode=saved}catch(_){}
+  const b=$('maiaVoice');
+  /* stopPropagation because the whole header is the minimise control. */
+  if(b)b.onclick=function(e){e.stopPropagation();mvMode(MVOICE.mode==='hear'?'read':'hear')};
+  mvPaint();
+  /* A saved 'hear' is a past gesture, not a present one, so the engine still
+     waits for a tap. The device floor speaks until then, which is exactly
+     what an autoplay-blocked page can honour. */
+})();
 const mlog=$('maiaLog');
-function maiaSay(html,from){const d=document.createElement('div');d.className='mline'+(from==='me'?' me':'');
-  d.innerHTML=(from==='me'?'':'<span class="from">maia</span>')+html;mlog.appendChild(d);mlog.scrollTop=1e9;
-  while(mlog.children.length>40)mlog.firstChild.remove()}
+/* `say` is the spoken line when the written one carries controls with it:
+   a journey stop writes her words plus three buttons and a counter, and
+   "walk on stay here 1 of 8" is not something a resident says out loud.
+   Absent, the spoken line is the written one with its markup taken off.
+   THE CAPTION IS WRITTEN FIRST, ALWAYS. Sound is asked for after the line
+   is already on screen, so nobody depends on hearing it. */
+/* A value crossing into a JS string inside an HTML attribute passes through
+   two grammars, and escq() only closes one of them: it escapes & < " and
+   leaves ' alone, which is right for text and for a double-quoted attribute
+   and wrong for onclick="f('<value>')". A quest named  ');window.x=1;('
+   closes the JS string without touching a single HTML delimiter. Close the JS
+   grammar first, then hand the result to escq for the HTML one. */
+function escja(t){return escq(String(t==null?'':t).replace(/\\/g,'\\\\').replace(/'/g,"\\'"))}
+window.escja=escja;
+
+/* A URL IS NOT TEXT, and escq only knows about text. It makes a value safe to
+   SIT inside an attribute and says nothing about what the attribute then does:
+   `javascript:alert(1)` survives it letter for letter. Both hrefs this dock
+   writes take their value from data the map did not author, so both go through
+   here. Anything whose scheme is not http or https becomes '#'.
+
+   THE SCHEME IS READ OFF THE STRING THE BROWSER WILL SEE. Tabs, newlines and
+   other control characters are dropped from a URL before the scheme is parsed,
+   so "java\tscript:x" runs while a naive test reads it as a relative path. */
+function safeHref(u){const raw=String(u==null?'':u);
+  const m=/^([a-z][a-z0-9+.-]*):/i.exec(raw.replace(/[\u0000-\u0020]/g,''));
+  return (m&&!/^https?$/i.test(m[1]))?'#':escq(raw.trim())}
+window.safeHref=safeHref;
+
+/* Elements the dock has no business containing. All of them either fetch
+   something or run something on their own, and not one of the 37 maiaSay call
+   sites in this file writes any of them. <button> is deliberately NOT here:
+   the journey's own controls are that, and they are markup this file wrote
+   rather than anything that came over a bridge. Their onclick is not left
+   alone though. MSAY_ON_OK below is the rule for attributes, and it names the
+   five handlers this file writes rather than trusting the element. */
+const MSAY_BAN='script,img,iframe,object,embed,svg,link,meta,base,form,input,textarea,video,audio,source,track,style,marquee,details';
+
+/* The handlers this file writes, matched on the VALUE. A rule about elements
+   cannot separate the dock's own <button onclick="jNext()"> from an
+   attacker's, and a rule about values can: these five are the entire set of
+   inline handlers in every maiaSay call site here. The claimQuest form
+   accepts two single-quoted arguments with every inner quote and backslash
+   escaped, which is what escja produces and what a broken escja would not,
+   so this catches an escaping regression a second time from the other side. */
+const MSAY_ON_OK=/^(?:jNext\(\)|jMore\(\)|jEnd\(\)|startTour\(\)|claimQuest\('(?:\\.|[^'\\])*','(?:\\.|[^'\\])*'\))$/;
+/* A strip that removed one of the dock's own controls would look exactly like
+   a control that was never written. The gate reads this on a clean run. */
+window.MSAY_STRIPPED=[];
+
+/* THE PARSE HAPPENS SOMEWHERE INERT. A <template>'s contents belong to a
+   separate, document-less fragment, so an <img> inside one is never fetched
+   and its onerror never fires. Assigning the same string to a detached <div>
+   DOES fire it, which is exactly how this class kept going off while looking
+   handled. Sanitising after an innerHTML assignment is sanitising the wreck. */
+function maiaClean(html){
+  const t=document.createElement('template');
+  t.innerHTML=String(html==null?'':html);
+  t.content.querySelectorAll(MSAY_BAN).forEach(function(el){el.remove()});
+  /* Attributes, not just elements. Removing an element is the easy half; a
+     live on* handler on a <b> the parser was happy to keep is the other. */
+  t.content.querySelectorAll('*').forEach(function(el){
+    for(let i=el.attributes.length-1;i>=0;i--){const a=el.attributes[i];
+      if(!/^on/i.test(a.name))continue;
+      if(MSAY_ON_OK.test(String(a.value).trim()))continue;
+      el.removeAttribute(a.name);
+      MSAY_STRIPPED.push(el.tagName.toLowerCase()+'['+a.name.toLowerCase()+']');
+      while(MSAY_STRIPPED.length>24)MSAY_STRIPPED.shift()}});
+  return t.content}
+window.maiaClean=maiaClean;
+
+function maiaSay(html,from,say){const d=document.createElement('div');d.className='mline'+(from==='me'?' me':'');
+  d.appendChild(maiaClean((from==='me'?'':'<span class="from">maia</span>')+html));mlog.appendChild(d);mlog.scrollTop=1e9;
+  while(mlog.children.length>40)mlog.firstChild.remove();
+  if(from!=='me')mvSpeak(say==null?mvStrip(html):say);
+  return d}
 function maiaContext(s){const q=questsAt(s.key),st=seatsAt(s.key);
   const bits=[];if(q.length)bits.push(`<b>${q.length}</b> quest${q.length>1?'s':''}`);if(st.length)bits.push(`<b>${st.length}</b> open seat${st.length>1?'s':''}`);
   if(s.event)bits.push(`<b>${escq(s.event)}</b>`);
@@ -3714,27 +4004,23 @@ $('maiaText').addEventListener('keydown',e=>{if(e.key==='Enter')$('maiaSend').cl
 document.querySelectorAll('#maiaActions .chip').forEach(ch=>ch.onclick=()=>{maiaSay(ch.dataset.say,'me');setTimeout(()=>conciergeMatch(ch.dataset.say),300)});
 $('maiaHead').onclick=e=>{$('maia').classList.toggle('min')};
 
-/* guided tour — deterministic script, camera-driven (D3) */
-const TOUR=[
-  {at:'gate',z:1.35,txt:`Welcome to <b>Amora</b>: 123 hectares on the Osa Peninsula, drawn live from Master Plan V7. Every story here walked in through this gate, and today that's you.`},
-  {at:'welcome',z:1.3,txt:`The <b>Welcome Lodge</b>. First meals, first questions, and the Welcome Aboard quests, ten small meaningful acts that root you in this community.`},
-  {at:'ponds',z:1.25,txt:`<b>The Ponds</b>. Rain caught and kept. The hamlet around them was Amora's first neighborhood. Herons approve.`},
-  {at:'greenhouse',z:1.35,txt:`The <b>Greenhouse</b>, engine room of food sovereignty. Two seats are open and three quests are waiting; the seedling census is a beautiful first one.`},
-  {at:'community',z:1.3,txt:`The <b>Village Heart</b>. Community Center, Kitchen, Library-in-the-raising, and the Council Fire. Click any building and it opens as a door into the game: forum, library, roles, gratitude.`},
-  {at:'ridgeA',z:1.3,txt:`Up the ridge, the first hamlet is <b>72% pooled</b>. Crowdpooling you can watch become walls. Saturday is a build day; strong backs welcome.`},
-  {at:'sanctuary',z:1.2,txt:`South, where the land still dreams, the <b>Sanctuary</b> is coming. Flip the Vision layer and you'll see the whole masterplan as blueprint ghosts, the fundable gap between today and the dream.`},
-  {at:'council',z:1.35,txt:`That's the shape of it. My whole job is to get you <i>off</i> this map and into the real one. Claim a quest, raise a hand for a seat, come to the feast tonight. Where shall we start?`},
-];
-let tourI=-1,tourTimer=null;
-function startTour(){tourI=-1;maiaSay(`Come, the short walk. You can wander off any time; the land doesn't mind.`);nextTour()}
-function nextTour(){clearTimeout(tourTimer);tourI++;if(tourI>=TOUR.length){tourI=-1;return}
-  const st=TOUR[tourI],s=BY[st.at];if(!s){nextTour();return}travelTo(s.x,s.y,st.z,()=>{maiaSay(st.txt);tourTimer=setTimeout(nextTour,5600)})}
+/* The tour was a second script about the same eight places. It is the journey
+   now, so this is the one line of it that is left: the name every caller
+   already uses. The `t` key, the concierge lexicon and two links inside Maia's
+   own sentences all say startTour(), and they all mean the Welcome Walk.
+
+   TOUR, tourI and tourTimer below are VIEWS, not features. They exist because
+   qa/secB.js §14 reads all three to follow the narration, and because the
+   intro's nine-second nudge asks tourI whether she is already walking someone.
+   The journey writes them; nothing reads them to decide anything. */
+let TOUR=[],tourI=-1,tourTimer=null;
+function startTour(){const id=welcomeJourney();if(id)playJourney(id)}
 
 /* pulse replay → ripples + narration */
 let pulseI=0;
 setInterval(()=>{const p=SCENE.pulse[pulseI++%SCENE.pulse.length];const s=BY[p.at];if(!s)return;
   addSparkle(s.x,s.y-10,p.t==='heart'?'#ff9bb0':'#ffe9a3');toast(p.msg);
-  if(pulseI%3===1)maiaSay(p.msg.split(' · ')[0].trim()+'.')},14000);
+  if(pulseI%3===1)maiaSay(escq(p.msg.split(' · ')[0].trim())+'.')},14000);
 
 /* keyboard */
 addEventListener('keydown',e=>{
@@ -5703,42 +5989,201 @@ document.querySelectorAll('#dock button').forEach(b=>b.onclick=()=>openDoor(b.da
   d('guest',{stay:1});d('sanctuary',{stay:'future'});
   d('ridgeA',{housing:1});d('ridgeB',{housing:1});d('pondhomes',{housing:1});
   d('library',{library:1});d('community',{library:1});d('market',{wallet:1})})();
-/* ---------- journey walks: a journey is a route on the land ---------- */
-let JWALK=null;
-function playJourney(id){const j=jById(id);if(!j)return;
-  closeLoom();$('panel').classList.remove('open');panelKey=null;$('module').classList.remove('show');closeInspect&&closeInspect();
+/* ---------- THE GUIDED CONVERSATION: a journey is a route on the land, and
+   Maia walks it beside you ----------
+
+   ONE experience on both profiles. The pocket walk and the desk tour used to
+   be two scripts saying nearly the same thing to two different surfaces; this
+   is the one that ships, and it is the journey, because the journey already
+   knew how to move the camera stop by stop.
+
+   THE SURFACE IS THE MAIA DOCK ON BOTH. On a desk it is already open in the
+   corner. On a phone #maia is display:none until body.msheet, so this adds
+   that class and removes it again at the end. NOTHING HERE POSITIONS
+   ANYTHING: #maia is a tenant of the bottom band reading --band-b-maia, and
+   bandWatch is watching body's class list, so the band places the sheet the
+   frame after it appears. A `bottom:` literal written here would be a second
+   opinion about an edge that already has an owner. */
+
+/* Her own words, for the places the Welcome Walk visits. She lives here. This
+   is the copy a village is expected to make its own, which is why a `walk`
+   push over the config bridge outranks it below. */
+const MAIA_STOPS={
+  gate:'I am Maia. I live up past the ponds. I came through this gate three years ago with one bag and a great many questions, and somebody was standing here waiting for me. Come in.',
+  welcome:'The Welcome Lodge. My first meal here was at that long table, and someone had already learned my name. One rule we keep: Hearts are gratitude. We thank each other. We never pay each other to care.',
+  ponds:'The ponds. We caught the rain and kept it. Herons moved in within a month and behave like they hold the deed. I still swim here most mornings.',
+  greenhouse:'The greenhouse feeds us. I spent my whole first season in here, mostly getting it wrong. The leaf pennants mark work that wants hands today, and the village thanks you in Hearts when you take one.',
+  community:'The Village Heart. Kitchen, library, council fire. We have no bosses. We are circles, and every circle keeps a home somewhere on this land.',
+  ridgeA:'My roof is up there. This hamlet is being pooled into existence, so the gold ring fills as money turns into walls. Saturday is a build day and my back already knows it.',
+  sanctuary:'South, under the mist, the Sanctuary is still a drawing. I like standing here. You can see what we have promised each other and have yet to build.',
+  council:'That is my village. Everything you walked past traces to something true: a funded build, a claimed quest, a filled seat. My whole job now is to get you off this map and onto the land. Where shall we start?'
+};
+window.MAIA_STOPS=MAIA_STOPS;
+
+/* Which journey is the newcomer's. j1 is Amora's Welcome Walk; a fork that
+   imported its own journeys gets its first one, and a village with none gets
+   nothing rather than a broken call. */
+function welcomeJourney(){return (jById('j1')?'j1':((SCENE.journeys[0]||{}).id||null))}
+window.welcomeJourney=welcomeJourney;
+
+/* The read-only view the old tour left behind. Built from the journey and
+   Maia's own lines, so qa/secB.js §14 now checks narration against the words
+   she actually says. Rebuilt on demand because SCENE.journeys is replaced
+   wholesale by restoreScene() on every shell push. */
+function tourView(){const id=welcomeJourney(),j=id&&jById(id);
+  return (j?j.steps:[]).filter(st=>st.at&&BY[st.at])
+    .map(st=>({at:st.at,z:1.25,txt:MAIA_STOPS[st.at]||st.t||''}))}
+window.tourView=tourView;
+TOUR=tourView();
+
+/* Whose words, in order. The village's own push over the {type:'config'}
+   bridge wins, because a fork's guide is the fork's guide. Then Maia's line
+   for that place. Then the Welcome Walk seed the village already wrote. An
+   empty answer is honest and the caller falls back to live scene data. */
+function jLine(st,s){
+  const k=s?s.key:null;if(!k)return '';
+  const pick=arr=>{const w=(arr||[]).find(x=>x&&x.structure_key===k&&x.body);return w?w.body:''};
+  return pick(window.WALK)||MAIA_STOPS[k]||pick(window.WALK_SEED)||''}
+window.jLine=jLine;
+
+/* What is true at this place right now, read off the scene rather than
+   written down anywhere. This is what "tell me more" says, and it is also
+   what she says at a stop no resident line covers, which is most of the
+   Resident, Steward and Investor journeys. Returns the written form and the
+   spoken form, because a percentage sign is not a word. */
+function jDeep(s){
+  const q=questsAt(s.key),se=seatsAt(s.key),html=[],say=[];
+  const add=(h,t)=>{html.push(h);say.push(t)};
+  const first=String(s.blurb||'').split('.')[0];
+  if(first)add(escq(first)+'.',first+'.');
+  if(s.state==='funding'&&typeof s.fund==='number'){const pc=Math.round(s.fund*100);
+    add('The pool sits at <b>'+pc+'%</b>, and every pledge here turns into wall.',
+        'The pool sits at '+pc+' percent, and every pledge here turns into wall.')}
+  if(q.length){const t=q.length+' quest'+(q.length>1?'s':'')+' waiting at this door';add(escq(t)+'.',t+'.')}
+  if(se.length){const t=se.length+' open seat'+(se.length>1?'s':'')+' belongs to this place';add(escq(t)+'.',t+'.')}
+  if(s.event)add('Coming up: <b>'+escq(s.event)+'</b>.','Coming up: '+s.event+'.');
+  if(!html.length){const t='I have nothing else recorded here yet. Ask me and I will go and find out.';add(escq(t),t)}
+  return{html:html.join(' '),say:say.join(' ')}}
+window.jDeep=jDeep;
+
+/* The row of answers under every line. `jn` reads "<n> of <total>" and stays
+   last, which is the shape verify_features reads. */
+function jRow(n,total,more){
+  return '<div class="jrow"><button class="btn" onclick="jNext()">▸ walk on</button>'
+    +(more?'<button class="btn ghostbtn" onclick="jMore()">☞ tell me more</button>':'')
+    +'<button class="btn ghostbtn" onclick="jEnd()">✕ stay here</button>'
+    +'<span class="jn">'+n+' of '+total+'</span></div>'}
+
+/* Long enough to read a line at, and it never runs while she is paused. A
+   1.5 second stop was a slideshow; this is a walk. */
+const JDWELL=6500;
+let JWALK=null,JTMR=null,JSHEET=false;
+function jSheetOn(){
+  if(document.body.classList.contains('pocket')&&!document.body.classList.contains('msheet')){
+    document.body.classList.add('msheet');JSHEET=true}}
+function jSheetOff(){if(JSHEET){document.body.classList.remove('msheet');JSHEET=false}}
+
+/* Stop the clock. Asking her something is the point of the whole feature, so
+   a question must never race the next stop. */
+function jPause(){if(!JWALK)return false;JWALK.paused=true;clearTimeout(JTMR);return true}
+window.jPause=jPause;
+function jOffer(){if(!JWALK||!JWALK.paused)return;
+  const say='Say the word and we walk on.';
+  maiaSay(escq(say)+'<div class="jrow"><button class="btn" onclick="jNext()">▸ walk on</button>'
+    +'<button class="btn ghostbtn" onclick="jEnd()">✕ stay here</button></div>',null,say)}
+
+/* Which id the run records for this stop. The Welcome Walk's seeded steps keep
+   their own ids so a village counting walk-log rows keeps counting the same
+   steps it always counted. */
+function jStepId(j,x){
+  const k=x.st.at;
+  const seed=k&&(window.WALK_SEED||[]).find(w=>w&&w.structure_key===k);
+  return seed?seed.id:(j.id+':'+x.si)}
+
+function playJourney(id,opts){const j=jById(id);if(!j)return;
+  const o=opts||{};
+  leaveIntro();closeLoom();$('panel').classList.remove('open');panelKey=null;
+  $('module').classList.remove('show');closeInspect&&closeInspect();
   if(document.body.classList.contains('circles'))setMapType('living',true);
   const stops=j.steps.map((st,si)=>({st,si})).filter(x=>x.st.at&&BY[x.st.at]);
   if(!stops.length){toast('No steps of this journey have a place yet. The Loom awaits.');return}
   const skipped=j.steps.length-stops.length;
-  JWALK={id,i:0};setHash('#/journey/'+id);
-  maiaSay(`<b>${escq(j.name)}</b>. Walking ${stops.length} of ${j.steps.length} steps${skipped?` (${skipped} not yet placed; drag them on the Loom)`:''}. <b>Esc</b> ends the walk.`);
+  $('maia').classList.remove('min');jSheetOn();
+  JWALK={id,i:0,paused:false,log:!!o.log};setHash('#/journey/'+id);
+  const open=j.name+'. '+stops.length+' stops, and you can stop me at any one of them.';
+  maiaSay('<b>'+escq(j.name)+'</b>. '+stops.length+' stops, and you can stop me at any one of them. '
+    +'<b>Esc</b> ends the walk.'
+    +(skipped?'<div style="margin-top:3px;opacity:.72">'+skipped+' step'+(skipped>1?'s':'')
+      +' of this journey has no place on the land yet. Drag them on the Loom.</div>':''),
+    null,open);
+  const hold=()=>{clearTimeout(JTMR);
+    if(!JWALK||JWALK.id!==id||JWALK.paused)return;
+    JTMR=setTimeout(()=>{if(JWALK&&JWALK.id===id&&!JWALK.paused){JWALK.i++;step()}},JDWELL);
+    tourTimer=JTMR};
   const step=()=>{if(!JWALK||JWALK.id!==id)return;
-    if(JWALK.i>=stops.length){JWALK=null;
-      maiaSay(`The walk ends here. The full <b>${escq(j.name)}</b> lives at <a href="${siteHref(SITE_ROUTES[id]||'/')}" target="_blank" rel="noopener">${SITE_ROUTES[id]||'/'}</a>. Two doors, one journey.`);
-      setHash('');return}
+    if(JWALK.i>=stops.length){const logged=JWALK.log,at=JWALK.i;JWALK=null;tourI=-1;setHash('');jSheetOff();
+      if(logged&&typeof endWalk==='function')endWalk(true,at);
+      const route=SITE_ROUTES[id]||'/';
+      maiaSay('The walk ends here. The whole of <b>'+escq(j.name)+'</b> lives at '
+        +'<a href="'+safeHref(siteHref(route))+'" target="_blank" rel="noopener">'+escq(route)+'</a>. '
+        +'Two doors, one journey.',
+        null,'The walk ends here. The whole of '+j.name+' lives on the site, at '+route+'. Two doors, one journey.');
+      return}
     const x=stops[JWALK.i];const s=BY[x.st.at];
+    tourI=JWALK.i;                                   // the view qa/secB.js follows
+    if(JWALK.log)WALK_LOG.push({step:jStepId(j,x),at_index:JWALK.i,ts_seq:WALK_LOG.length});
+    hap(12);
     travelTo(s.x,s.y,1.25,()=>{
       /* The flight lands FRAMES after step() started it, and the walk can end
          in between from jEnd(), Escape, or step() passing the last stop. Every
          other entry point re-checks JWALK for exactly that reason; this one is
          the only callback that fires late, so it is the only one that threw. */
       if(!JWALK||JWALK.id!==id)return;
-      /* Maia is the PRESENTER; the words stay village content, so `t` and the
-         optional `body` are printed as they were written. */
-      maiaSay(`<b>${x.st.stage?escq(x.st.stage)+': ':''}${escq(x.st.t)}</b> at ${escq(s.name)}`+
-        (x.st.body?`<div style="margin-top:3px">${x.st.body}</div>`:'')+
-        `<div class="jrow"><button class="btn" onclick="jNext()">▸ next</button>`+
-        `<button class="btn ghostbtn" onclick="jEnd()">✕ end the walk</button>`+
-        `<span class="jn">${JWALK.i+1} of ${stops.length}</span></div>`);
-      JTMR=setTimeout(()=>{if(JWALK&&JWALK.id===id){JWALK.i++;step()}},1500)})};
-  window.jNext=()=>{clearTimeout(JTMR);if(!JWALK||JWALK.id!==id)return;JWALK.i++;step()};
-  window.jEnd=()=>{clearTimeout(JTMR);JWALK=null;setHash('');
-    maiaSay('The walk ends here. Wander wherever you like.')};
-  step()}
-let JTMR=null;
+      /* EVERY RENDERED VALUE IS ESCAPED, and that is a change of position from
+         the pass before this one, which printed `t` and `body` "as they were
+         written". Journey text is not authored copy: restoreScene() rebuilds
+         SCENE.journeys from J.journeys on a shell push, on an autosave
+         restore, and on a site import, so a step title reaches innerHTML from
+         three directions. A village loses the ability to bold a word inside a
+         step body. That is the right price. */
+      const title=escq((x.st.stage?x.st.stage+': ':'')+(x.st.t||''));
+      const line=jLine(x.st,s),deep=line?null:jDeep(s);
+      const body=x.st.body?('<div style="margin-top:3px">'+escq(x.st.body)+'</div>'):'';
+      maiaSay('<b>'+title+'</b> at '+escq(s.name)
+        +'<div style="margin-top:3px">'+(line?escq(line):deep.html)+'</div>'
+        +body+jRow(JWALK.i+1,stops.length,true),
+        null,(line||deep.say)+(x.st.body?' '+x.st.body:''));
+      hold()})};
+  window.jNext=()=>{clearTimeout(JTMR);if(!JWALK||JWALK.id!==id)return;
+    JWALK.paused=false;JWALK.i++;step()};
+  /* Tell me more stays where it is and says what is actually there. */
+  window.jMore=()=>{clearTimeout(JTMR);if(!JWALK||JWALK.id!==id)return;
+    JWALK.paused=true;
+    const x=stops[Math.min(JWALK.i,stops.length-1)],s=x&&BY[x.st.at];if(!s)return;
+    const d=jDeep(s);
+    maiaSay(d.html+jRow(JWALK.i+1,stops.length,false),null,d.say)};
+  window.jEnd=()=>{clearTimeout(JTMR);
+    const logged=!!(JWALK&&JWALK.log),at=JWALK?JWALK.i:-1;
+    JWALK=null;tourI=-1;setHash('');jSheetOff();mvStop();
+    if(logged&&typeof endWalk==='function')endWalk(false,at);
+    maiaSay('The walk ends here. Wander wherever you like, and say my name when you want me.')};
+  JWALK.hold=hold;step()}
 window.playJourney=playJourney;
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&JWALK){clearTimeout(JTMR);JWALK=null;
+
+/* A question stops the walk. The send button and the Enter key are caught in
+   the CAPTURE phase so the pause is set before conciergeMatch is scheduled,
+   and the offer to carry on lands after her answer rather than on top of it. */
+(function jListen(){
+  const send=$('maiaSend'),txt=$('maiaText');
+  const paused=()=>{if(jPause())setTimeout(jOffer,900)};
+  if(send)send.addEventListener('click',paused,true);
+  if(txt)txt.addEventListener('keydown',e=>{if(e.key==='Enter')paused()},true);
+  document.querySelectorAll('#maiaActions .chip').forEach(ch=>ch.addEventListener('click',jPause,true));
+})();
+
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&JWALK){clearTimeout(JTMR);
+  const logged=!!JWALK.log,at=JWALK.i;JWALK=null;tourI=-1;jSheetOff();mvStop();
+  if(logged&&typeof endWalk==='function')endWalk(false,at);
   maiaSay('The walk ends here. Wander wherever you like.');setHash('')}},true);
 /* ---------- the skin step: Make This Yours, for the land ---------- */
 const SKIN={theme:'Emerald Atlas',words:'',accent:null,parch:null,lbl:100,mist:false,glow:true,
@@ -6716,7 +7161,7 @@ async function doDiscard(){
 function liveSince(version){
   const t=new Date();
   const hh=String(t.getHours()).padStart(2,'0'),mm=String(t.getMinutes()).padStart(2,'0');
-  maiaSay(`<b>Live since ${hh}:${mm}.</b> Version ${version} is the map every visitor sees now. `+
+  maiaSay(`<b>Live since ${hh}:${mm}.</b> Version ${escq(version)} is the map every visitor sees now. `+
     `<button class="btn ghostbtn" style="font-size:11px;padding:3px 9px;margin-top:6px" onclick="undoPublish()">Undo this</button>`);
   toast('Live. Everyone sees this map now.');
 }
@@ -6786,7 +7231,18 @@ try{if(window.parent!==window)window.parent.postMessage({type:'grounds-ready',ve
 window.HUD_PROFILE=(()=>{if(/hud=pocket/.test(location.hash))return'pocket';if(/hud=desk/.test(location.hash))return'desk';
   return(('ontouchstart'in window)&&Math.min(innerWidth,innerHeight)<820)?'pocket':'desk'})();
 if(HUD_PROFILE==='pocket')document.body.classList.add('pocket');
-function hap(p){try{if(navigator.vibrate&&document.body.classList.contains('pocket'))navigator.vibrate(p)}catch(_){}}
+/* A buzz nobody has touched the screen for is refused by the browser and
+   logged as an error, and the pocket boot opens the newcomer's walk 700ms in,
+   which is before anybody has had the chance to touch anything. Every phone
+   load therefore asked for one vibrate that could not happen and left an error
+   in the console to show for it. HAPTIC_OK latches on the first real gesture,
+   which is the same moment the browser starts allowing the call. A blocked
+   vibrate does not throw, so the try/catch below never saw this and never
+   could. `var` because hap() is hoisted and is called from fourteen places. */
+var HAPTIC_OK=false;
+['pointerdown','touchstart','keydown'].forEach(function(t){
+  addEventListener(t,function(){HAPTIC_OK=true},{capture:true,once:true})});
+function hap(p){try{if(HAPTIC_OK&&navigator.vibrate&&document.body.classList.contains('pocket'))navigator.vibrate(p)}catch(_){}}
 window.hap=hap;
 /* gestures: one-finger pan, two-finger pinch, on the canvas */
 (function touchNav(){const el=$('scene');if(!el)return;let T=null; // id is 'scene'; $('cv') was null and this block never ran
@@ -6956,13 +7412,16 @@ window.WALK_SEED=[
  {id:'w8',structure_key:'council',title:'Where Shall We Start?',gesture:'choice',
   body:'The whole point of this map is to get you off it and into the real one. Pick a door.'}];
 window.WALK=null;window.WGATE={};window.WALK_LOG=window.WALK_LOG||[];
-function walkSteps(){return(window.WALK&&WALK.length?WALK:WALK_SEED).filter(st=>st.structure_key&&BY[st.structure_key])}
-let WIDX=-1,WTMR=null;
-function startWalk(replay){const steps=walkSteps();if(!steps.length)return;
+/* The newcomer's first run. It is the journey now, on both profiles, and this
+   function is what is left of the pocket card: the once-only gate, and the
+   session key that makes the run countable. `log:true` is what tells the
+   journey to record; a journey opened from the Loom or from an address does
+   not, because it is not a first walk. */
+function startWalk(replay){
   if(!replay&&localStorage.getItem('amora-walk-done'))return;
-  leaveIntro();closeLoom();$('panel').classList.remove('open');panelKey=null;$('module').classList.remove('show');
-  if(document.body.classList.contains('circles'))setMapType('living',true);
-  WIDX=-1;window.WALK_SESSION=newWalkSession();window.WALK_LOG=[];nextWalk()}
+  const id=welcomeJourney();if(!id)return;
+  window.WALK_SESSION=newWalkSession();window.WALK_LOG=[];
+  playJourney(id,{log:true})}
 window.startWalk=startWalk;
 /* One key per run of the walk. Not a person and not a device: enough to tell
    one newcomer's steps from another's when counting, and nothing more. It is
@@ -6987,32 +7446,23 @@ function sendWalkLog(){
   }catch(_){}
 }
 window.sendWalkLog=sendWalkLog;
-function endWalk(done){clearTimeout(WTMR);const atEnd=WIDX;WIDX=-1;$('walkCard').classList.remove('show');
+/* Closes a run and posts it. The index comes from the journey now; WIDX went
+   with the card. Called only for a run startWalk() opened, so a journey opened
+   from the Loom never writes a newcomer row. */
+function endWalk(done,atIndex){
   if(done){try{localStorage.setItem('amora-walk-done','1')}catch(_){}}
-  WALK_LOG.push({step:done?'complete':'abandoned',at_index:atEnd,ts_seq:WALK_LOG.length});
+  WALK_LOG.push({step:done?'complete':'abandoned',
+    at_index:(typeof atIndex==='number'?atIndex:-1),ts_seq:WALK_LOG.length});
   sendWalkLog()}
-function nextWalk(){clearTimeout(WTMR);const steps=walkSteps();WIDX++;
-  if(WIDX>=steps.length){endWalk(true);return}
-  const st=steps[WIDX];const sBY=BY[st.structure_key];
-  WALK_LOG.push({step:st.id,at_index:WIDX,ts_seq:WALK_LOG.length});
-  window.WGATE={};hap(15);
-  travelTo(sBY.x,sBY.y,1.3,()=>{
-    const wc=$('walkCard');
-    const choice=st.gesture==='choice';
-    wc.innerHTML=`<h5>${escq(st.title)}</h5><p>${escq(st.body)}</p>
-      ${(!choice&&st.gesture&&st.gesture!=='none')?`<div class="wgate">✋ ${escq(st.gate_hint||st.gesture)}</div>`:''}
-      ${choice?`<div class="wrow" style="flex-wrap:wrap">
-        <button class="btn" onclick="claimQuest('Welcome Ambassador','the Welcome Lodge');endWalk(true)">⚑ Claim a first quest</button>
-        <button class="btn" onclick="evRSVP('e1');endWalk(true)">✦ Join tonight’s feast</button>
-        <button class="btn ghostbtn" onclick="endWalk(true);openDoor('journeys',{})">➹ Begin a journey</button></div>`:''}
-      <div class="wrow"><button class="btn ghostbtn" style="font-size:10.5px" onclick="endWalk(false)">skip</button>
-       ${!choice?`<button class="btn" style="font-size:10.5px" onclick="nextWalk()">next ›</button>`:''}
-       <span class="wn">${WIDX+1} / ${steps.length}</span></div>`;
-    wc.classList.add('show');
-    if(!choice){const need=st.gesture&&st.gesture!=='none'?st.gesture:null;
-      if(need){let waited=0;const poll=()=>{if(WIDX<0)return;
-        if(WGATE[need]||waited>12000){hap([10,40,10]);nextWalk()}else{waited+=400;WTMR=setTimeout(poll,400)}};WTMR=setTimeout(poll,400)}
-      else WTMR=setTimeout(nextWalk,6500)}})}
+window.endWalk=endWalk;
+/* nextWalk() and the #walkCard renderer stood here. The journey renders into
+   the Maia dock on both profiles, so a second card that says the same things
+   in a different voice is one surface too many.
+   WALK_SEED above is untouched: it is the village's own copy, jLine() reads it
+   as the third-choice source for a stop's words, and verify_badges.js reads
+   step w4. #walkCard's markup, CSS and band slot are still in the file and
+   nothing shows them; removing a band tenant belongs to whoever owns the
+   band. */
 /* gates fed by real use */
 const _openPanelW=openPanel;openPanel=function(k,t,i){window.WGATE&&(WGATE.tap=true);return _openPanelW(k,t,i)};
 /* config over the bridge: skin + walk + vocabulary in one push */
@@ -7044,7 +7494,7 @@ if(document.body.classList.contains('pocket')){
 $('enterBtn').onclick=()=>{document.body.classList.remove('intro');const ic=$('introCard');ic.style.opacity=0;setTimeout(()=>ic.remove(),1000);
   cam.x=430;cam.y=560;cam.z=1.15;travelTo(1440,670,0.84,()=>{
     maiaSay(`Welcome to the living map of <b>Amora</b>. Everything you see traces to something true: a funded build, a claimed quest, a filled seat. Hover anything; click any building to open its door. Want the short walk?`);
-    setTimeout(()=>{if(tourI<0)maiaSay(`Whenever you're ready: <a onclick="startTour()">take the tour</a>, or press <b>Space</b> to see what needs hands.`)},9000)})};
+    setTimeout(()=>{if(!JWALK)maiaSay(`Whenever you're ready: <a onclick="startTour()">take the tour</a>, or press <b>Space</b> to see what needs hands.`)},9000)})};
 
 applyTheme(THEMES.emerald); // boot theme (sets every --t-* var before first paint)
 requestAnimationFrame(frame); // start the loop only after the whole HUD exists
