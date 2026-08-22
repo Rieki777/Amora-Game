@@ -175,9 +175,31 @@ gibbous, waxing gibbous, waxing gibbous, full moon. Three crescents and three
 gibbouses share a name and none of them share a shape, which is the point of
 the ruling.
 
+**A moon can carry the line it has to reach.** Some values are measured
+against a bar, and a vote's agreement is the first of them. The founder's
+ruling on that surface:
+
+> for quorum a small icon with many silhouettes of people that fill up as we
+> get more of the quorum (what % of all voice tokens/voters) met and unity
+> (what % for or against) is a moon so a 80% threshold would show a red line
+> needing the moon to get to that 80% illumination
+
+Pass `threshold` (0 to 1) and the disc carries the terminator it WOULD have at
+that fraction, dashed, drawn by `terminatorPath` in `moonGeometry.ts`. The line
+and the lit edge are the same curve at two values, so the moon crossing it is
+exactly the number crossing the threshold, and the area identity above makes
+that true rather than approximately true. `thresholdTone` (`met`, `short`,
+`none`) colours it and `thresholdLabel` says it in words. The label is not
+optional: colour is never the only signal, and `none` is its own state, so a
+moon nobody has voted on yet never reads as a failure. The one consumer today
+is the agreement half of `client/src/components/governance/VoteResult.tsx`; the
+participation half is a field of silhouettes and never a second moon, because
+one vocabulary per measurement is the whole point.
+
 **Sizes.** One 100-unit viewBox, so everything scales with `size`. Below 24px
-the horizon ring and the printed number are dropped automatically, because at
-that size they are noise; the accessible name still carries both.
+the horizon ring, the printed number and the threshold line are dropped
+automatically, because at that size they are noise; the accessible name still
+carries all three.
 
 **Motion.** The terminator and the ring ease between values. Under
 `prefers-reduced-motion` the transition classes are not applied and the value

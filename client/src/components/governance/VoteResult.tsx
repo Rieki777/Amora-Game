@@ -1,101 +1,142 @@
 /**
- * THE TWO BARS, drawn.
+ * THE TWO PICTURES, drawn.
  *
- * One bar for agreement among those who voted, one bar for participation
- * against the whole electorate, and never a third bar that merges them. The
+ * One picture for agreement among those who voted, one for participation
+ * against the whole electorate, and never a third that merges them. The
  * arithmetic and the wording live in voteBars.ts, tested; this file is the
  * drawing, and its only job is to keep the two apart on the page as firmly as
  * they are kept apart in the module.
  *
- * WHY THE QUORUM BAR IS ALWAYS GREY. It is tempting to turn it green when it
+ * THE FOUNDER'S DESIGN, which is the spec:
+ *
+ *   > "for quorum a small icon with many silhouettes of people that fill up as
+ *   > we get more of the quorum (what % of all voice tokens/voters) met and
+ *   > unity (what % for or against) is a moon so a 80% threshold would show a
+ *   > red line needing the moon to get to that 80% illumination (if first
+ *   > person votes yes we're at 100% moon illumination but very little of the
+ *   > silhouettes, etc."
+ *
+ * The last clause is the whole teaching, and it is why there are two shapes
+ * and not two bars. A FULL MOON OVER AN ALMOST EMPTY FIELD is a picture a
+ * member reads once and never has to be taught again: everyone who spoke
+ * agrees, and hardly anyone has spoken. Two bars of different lengths say the
+ * same thing and say it in a language that has to be learned. That sentence
+ * ships on the page, in the explainer under both pictures.
+ *
+ * THIS SUPERSEDES THE EARLIER RULING IN THIS FILE, deliberately. The previous
+ * comment argued that `MoonProgress` was for completion displays and that a
+ * disc had nowhere to put a threshold. The second half was the real objection
+ * and it is now false: `terminatorPath` draws the terminator the moon WOULD
+ * have at the threshold, so the line and the lit edge are one curve at two
+ * values, and the moon crossing it is exactly the number crossing.
+ *
+ * WHY THE FIELD IS ALWAYS GREY. It is tempting to turn it green when it
  * clears, and that is the bug: green on this page means "this is carrying",
  * and a met quorum means only that enough people showed up for the question to
- * be answerable. Its met state is carried by the check mark and the sentence,
- * which is what the accessibility rule asks for anyway.
+ * be answerable. Its met state is carried by the notch, the check mark and the
+ * sentence, which is what the accessibility rule asks for anyway.
  *
- * WHY THESE ARE BARS AND NOT MOONS. `MoonProgress` is the platform's one
- * progress vocabulary and the contract gives it "any completion display"
- * (docs/modules/natural-interface.md). Neither of these is a completion
- * display. Each is a value read against a THRESHOLD, and the threshold is the
- * information: 62% means nothing here until you can see where 80% sits. A disc
- * has nowhere to put that line, and two discs side by side would lose the one
- * fact this widget exists to carry. Where this module does show completion it
- * uses the moon, on the Decisions page's turnout card.
+ * WHY A CONSENT BALLOT HAS NO MOON. `dialsForMethod` stores `unityPct: 0` for
+ * consent and `evaluateBallot` returns on objections before unity is read at
+ * all, so a moon there would draw a threshold that decides nothing. The
+ * objection state stands in its place, beside the field, which DOES apply.
+ * `objectionState` in voteBars.ts holds that reading.
  *
- * ACCESSIBILITY. Each bar is a `progressbar` with aria-valuenow and an
+ * ACCESSIBILITY. Each picture is a `progressbar` with aria-valuenow and an
  * accessible name that already contains the number and the verdict, so a
  * screen reader never has to infer anything from a colour or a shape. The
- * threshold notch is drawn AND named. The fill transition is dropped for
- * anyone who asked for less motion.
+ * threshold is drawn AND named in words. Every transition is dropped for
+ * anyone who asked for less motion, and the value still lands.
  */
 import { Check, Minus, X } from "lucide-react";
 import type { BallotMethod, BallotTallies } from "@shared/governanceEngine";
-import { useReducedMotion } from "@/components/natural";
+import { MoonProgress } from "@/components/natural";
 import InfoTip from "@/components/InfoTip";
-import { pctText, quorumBar, spoken, unityBar, weightText, type BarReading } from "./voteBars";
+import QuorumField from "./QuorumField";
+import {
+  objectionState,
+  pctText,
+  quorumBar,
+  spoken,
+  unityBar,
+  weightText,
+  type BarMark,
+  type BarReading,
+} from "./voteBars";
 
 const MARK_ICON = { met: Check, short: X, none: Minus } as const;
-
-/** The fill colours. Grey is a value here, not an absence of one. */
-const FILL = {
-  unity: { met: "bg-sage", short: "bg-coral", none: "bg-stone-300" },
-  quorum: { met: "bg-stone-500", short: "bg-stone-400", none: "bg-stone-300" },
-} as const;
-
 const MARK_TONE = { met: "text-sage", short: "text-coral", none: "text-stone-500" } as const;
 
-function Bar({
-  kind,
+/**
+ * A new moon with nobody yet decided is NOT zero percent agreement, and
+ * printing "0%" there is the same lie as painting it red: it tells a member
+ * the village disagreed about a question nobody has answered. Quorum keeps its
+ * zero, because zero of the weight really has spoken.
+ */
+const unityValueText = (bar: BarReading): string =>
+  bar.mark === "none" ? "none yet" : pctText(bar.valuePct);
+
+/** The one sentence that teaches the whole system, in the founder's own case. */
+const TWO_PICTURES =
+  "Two pictures, because a vote asks two questions. If one member votes yes and nobody else has voted yet, the moon is full and the field is nearly empty: everyone who took a side agrees, and hardly any of the village has spoken. Abstaining fills a silhouette and leaves the moon alone.";
+
+/**
+ * The same lesson on a ballot that has no moon. Saying "two pictures" over one
+ * picture teaches a member to look for something this method never draws.
+ */
+const ONE_PICTURE =
+  "One picture, because a consent decision does not count agreement. It carries when enough of the village has spoken and nothing stands in the way. Abstaining fills a silhouette and takes no side.";
+
+const UNITY_TIP =
+  "Of the weight that took a side, how much sided yes. The moon fills with that share, and the dashed line is where this vote needs it to reach. People who abstained are left out of this number on purpose.";
+
+const QUORUM_TIP =
+  "How much of the frozen electorate has voted, counting abstentions. Each silhouette is a twentieth of the frozen weight, so a member carrying more weight fills more of the field. This is how much showed up, never how much agreed.";
+
+const CONSENT_TIP =
+  "This is a consent decision. It does not count how many agree, so it has no moon. It carries unless somebody names a consequence the village should avoid.";
+
+function Heading({
   title,
   tip,
-  bar,
-  detail,
+  mark,
+  value,
 }: {
-  kind: "unity" | "quorum";
   title: string;
   tip: string;
-  bar: BarReading;
-  /** The count under the bar, in the village's own numbers. */
-  detail: string;
+  mark: BarMark;
+  /** The percent beside the picture. Consent has none, so it passes null. */
+  value: string | null;
 }) {
-  const reduced = useReducedMotion();
-  const Mark = MARK_ICON[bar.mark];
+  const Mark = MARK_ICON[mark];
   return (
-    <div>
-      <div className="flex items-baseline justify-between gap-2 mb-1.5">
-        <span className="text-sm font-semibold text-stone-800">
-          {title}
-          <InfoTip tip={tip} label={`What ${title.toLowerCase()} means`} />
-        </span>
-        <span className="flex items-center gap-1.5 text-sm font-bold tabular-nums text-stone-900">
-          <Mark className={`w-4 h-4 ${MARK_TONE[bar.mark]}`} aria-hidden="true" />
-          {pctText(bar.valuePct)}
-        </span>
-      </div>
-      <div
-        role="progressbar"
-        aria-valuenow={Math.round(bar.valuePct)}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={`${title}: ${pctText(bar.valuePct)}. ${bar.reading}`}
-        className="relative h-3 rounded-full bg-stone-200 overflow-hidden"
-      >
-        <div
-          className={`h-full rounded-full ${FILL[kind][bar.mark]}`}
-          style={{ width: `${bar.valuePct}%`, transition: reduced ? "none" : "width 500ms ease-out" }}
-        />
-        {/* The notch: where this vote's own frozen threshold sits. Drawn as a
-            line rather than as a colour change, so it survives greyscale. */}
-        <div
-          className="absolute inset-y-0 w-0.5 bg-stone-900/70"
-          style={{ left: `calc(${bar.thresholdPct}% - 1px)` }}
-          aria-hidden="true"
-        />
-      </div>
-      <p className="mt-1.5 text-xs text-stone-600 leading-relaxed">
-        {bar.reading}. <span className="text-stone-500">{detail}</span>
-      </p>
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="text-sm font-semibold text-stone-800">
+        {title}
+        <InfoTip tip={tip} label={`What ${title.toLowerCase()} means`} />
+      </span>
+      <span className="flex items-center gap-1.5 text-sm font-bold tabular-nums text-stone-900">
+        <Mark className={`w-4 h-4 ${MARK_TONE[mark]}`} aria-hidden="true" />
+        {value}
+      </span>
     </div>
+  );
+}
+
+/** The agreement moon, with the line it has to reach drawn on the disc. */
+function UnityMoon({ bar, size }: { bar: BarReading; size: number }) {
+  return (
+    <MoonProgress
+      value={bar.valuePct / 100}
+      size={size}
+      showNumber={false}
+      showRing={false}
+      label="Agreement"
+      threshold={bar.thresholdPct / 100}
+      thresholdTone={bar.mark}
+      thresholdLabel={`This vote needs ${pctText(bar.thresholdPct)}`}
+      description={bar.reading}
+    />
   );
 }
 
@@ -107,6 +148,8 @@ export interface VoteResultProps {
   method: BallotMethod;
   electorateCount: number;
   votedCount: number;
+  /** Consent only: objections still standing open. Ignored elsewhere. */
+  openObjections?: number;
 }
 
 export default function VoteResult({
@@ -117,53 +160,83 @@ export default function VoteResult({
   method,
   electorateCount,
   votedCount,
+  openObjections = 0,
 }: VoteResultProps) {
   const unity = unityBar(tallies, unityPct, method);
   const quorum = quorumBar(tallies, totalWeight, quorumPct);
   const { spokenWeight } = spoken(tallies, totalWeight);
   const consent = method === "consent";
+  const objections = objectionState(openObjections);
+  const ObjectionMark = MARK_ICON[objections.mark];
+
+  const fieldDetail = `${weightText(spokenWeight)} of ${weightText(totalWeight)} weight has spoken, from ${votedCount} of ${electorateCount} ${electorateCount === 1 ? "member" : "members"}.`;
 
   return (
     <div className="space-y-5">
-      {consent ? (
-        // Consent conducts no unity at all, so drawing an agreement bar here
-        // would invent a threshold this ballot does not have.
-        <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
-          <p className="text-sm font-semibold text-stone-800">
-            Agreement
-            <InfoTip
-              tip="This is a consent decision. It does not count how many agree. It passes unless someone names a consequence the village should avoid."
-              label="What agreement means here"
+      <div className="grid gap-5 sm:grid-cols-2">
+        <div>
+          {consent ? (
+            <>
+              <Heading title="Objections" tip={CONSENT_TIP} mark={objections.mark} value={null} />
+              <div className="mt-3 flex items-start gap-3 rounded-lg border border-stone-200 bg-stone-50 px-3 py-3">
+                <ObjectionMark
+                  className={`mt-0.5 w-5 h-5 shrink-0 ${MARK_TONE[objections.mark]}`}
+                  aria-hidden="true"
+                />
+                <p className="text-sm text-stone-700 leading-relaxed">
+                  {objections.reading}. <span className="text-stone-500">Consent is decided by what stands in the way, so it carries no percentage of agreement.</span>
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              <Heading title="Agreement" tip={UNITY_TIP} mark={unity.mark} value={unityValueText(unity)} />
+              <div className="mt-3 flex items-center gap-4">
+                <UnityMoon bar={unity} size={96} />
+                <p className="text-xs text-stone-600 leading-relaxed">
+                  {unity.reading}.{" "}
+                  <span className="text-stone-500">
+                    {weightText(tallies.yesW)} yes, {weightText(tallies.noW)} no.
+                  </span>
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div>
+          <Heading
+            title="Participation"
+            tip={QUORUM_TIP}
+            mark={quorum.mark}
+            value={pctText(quorum.valuePct)}
+          />
+          <div className="mt-3">
+            <QuorumField
+              valuePct={quorum.valuePct}
+              thresholdPct={quorum.thresholdPct}
+              title="Participation"
+              reading={quorum.reading}
+              detail={fieldDetail}
             />
-          </p>
-          <p className="mt-1 text-xs text-stone-600 leading-relaxed">
-            Consent is not counted in percentages. What matters is whether an objection still stands.
+          </div>
+          <p className="mt-2 text-xs text-stone-600 leading-relaxed">
+            {quorum.reading}. <span className="text-stone-500">{fieldDetail}</span>
           </p>
         </div>
-      ) : (
-        <Bar
-          kind="unity"
-          title="Agreement"
-          tip="Of the weight that took a side, how much sided yes. People who abstained are left out of this number on purpose."
-          bar={unity}
-          detail={`${weightText(tallies.yesW)} yes, ${weightText(tallies.noW)} no.`}
-        />
-      )}
+      </div>
 
-      <Bar
-        kind="quorum"
-        title="Participation"
-        tip="How much of the frozen electorate has voted, counting abstentions. This is how many showed up, never how many agreed."
-        bar={quorum}
-        detail={`${weightText(spokenWeight)} of ${weightText(totalWeight)} weight has spoken, from ${votedCount} of ${electorateCount} ${electorateCount === 1 ? "member" : "members"}.`}
-      />
+      <p className="border-t border-stone-100 pt-3 text-xs text-stone-500 leading-relaxed">
+        {consent ? ONE_PICTURE : TWO_PICTURES}
+      </p>
     </div>
   );
 }
 
 /**
- * The card variant: the same two bars, small, for a list of decisions in
- * flight. Still two, still marked, still never merged.
+ * The card variant: the same two pictures, small, for a list of decisions in
+ * flight. Still two, still marked, still never merged, and still no moon on a
+ * consent ballot.
  */
 export function VoteResultMini({
   tallies,
@@ -171,46 +244,54 @@ export function VoteResultMini({
   unityPct,
   quorumPct,
   method,
-}: Omit<VoteResultProps, "electorateCount" | "votedCount">) {
+}: Pick<VoteResultProps, "tallies" | "totalWeight" | "unityPct" | "quorumPct" | "method">) {
   const unity = unityBar(tallies, unityPct, method);
   const quorum = quorumBar(tallies, totalWeight, quorumPct);
-  const reduced = useReducedMotion();
-  const rows: Array<{ kind: "unity" | "quorum"; label: string; bar: BarReading }> = [
-    ...(method === "consent" ? [] : [{ kind: "unity" as const, label: "Agreement", bar: unity }]),
-    { kind: "quorum" as const, label: "Participation", bar: quorum },
-  ];
+  const consent = method === "consent";
+  const UnityMark = MARK_ICON[unity.mark];
+  const QuorumMark = MARK_ICON[quorum.mark];
+
   return (
-    <div className="space-y-2">
-      {rows.map((row) => {
-        const Mark = MARK_ICON[row.bar.mark];
-        return (
-          <div key={row.kind} className="flex items-center gap-2">
-            <span className="w-24 shrink-0 text-[11px] font-medium text-stone-600">{row.label}</span>
-            <div
-              role="progressbar"
-              aria-valuenow={Math.round(row.bar.valuePct)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`${row.label}: ${pctText(row.bar.valuePct)}. ${row.bar.reading}`}
-              className="relative h-2 flex-1 rounded-full bg-stone-200 overflow-hidden"
-            >
-              <div
-                className={`h-full rounded-full ${FILL[row.kind][row.bar.mark]}`}
-                style={{ width: `${row.bar.valuePct}%`, transition: reduced ? "none" : "width 500ms ease-out" }}
-              />
-              <div
-                className="absolute inset-y-0 w-0.5 bg-stone-900/60"
-                style={{ left: `calc(${row.bar.thresholdPct}% - 1px)` }}
-                aria-hidden="true"
-              />
-            </div>
-            <span className="flex w-14 shrink-0 items-center justify-end gap-1 text-[11px] font-bold tabular-nums text-stone-800">
-              <Mark className={`w-3 h-3 ${MARK_TONE[row.bar.mark]}`} aria-hidden="true" />
-              {pctText(row.bar.valuePct)}
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+      {consent ? (
+        // No moon on a consent ballot, and a line saying why, so the missing
+        // half reads as a fact about the method instead of a gap in the card.
+        <div className="flex flex-col leading-tight">
+          <span className="text-[11px] font-medium text-stone-600">Agreement</span>
+          <span className="text-xs text-stone-700">Objections decide this one</span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <UnityMoon bar={unity} size={36} />
+          <div className="flex flex-col leading-tight">
+            <span className="text-[11px] font-medium text-stone-600">Agreement</span>
+            <span className="flex items-center gap-1 text-xs font-bold tabular-nums text-stone-900">
+              <UnityMark className={`w-3 h-3 ${MARK_TONE[unity.mark]}`} aria-hidden="true" />
+              {unityValueText(unity)}
             </span>
           </div>
-        );
-      })}
+        </div>
+      )}
+
+      <div className="flex min-w-[12rem] flex-1 items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <QuorumField
+            valuePct={quorum.valuePct}
+            thresholdPct={quorum.thresholdPct}
+            title="Participation"
+            reading={quorum.reading}
+            detail={`Of the frozen weight, ${pctText(quorum.valuePct)} has spoken.`}
+            compact
+          />
+        </div>
+        <div className="flex flex-col leading-tight">
+          <span className="text-[11px] font-medium text-stone-600">Participation</span>
+          <span className="flex items-center gap-1 text-xs font-bold tabular-nums text-stone-900">
+            <QuorumMark className={`w-3 h-3 ${MARK_TONE[quorum.mark]}`} aria-hidden="true" />
+            {pctText(quorum.valuePct)}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

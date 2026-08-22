@@ -33,10 +33,11 @@ import Layout from "@/components/Layout";
 import ModuleGate from "@/components/modules/ModuleGate";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
-import { BreathingLoader, MoonProgress } from "@/components/natural";
+import { BreathingLoader } from "@/components/natural";
 import InfoTip from "@/components/InfoTip";
 import DecisionCard from "@/components/governance/DecisionCard";
 import MyStanding from "@/components/governance/MyStanding";
+import QuorumField from "@/components/governance/QuorumField";
 import WeightRecord from "@/components/governance/WeightRecord";
 import {
   fetchBallots,
@@ -241,28 +242,40 @@ function Group({
 }
 
 /**
- * How much of the village has been showing up, drawn as the moon.
+ * How much of the village has been showing up, drawn as the field.
  *
- * `MoonProgress` is the platform's one progress vocabulary, so a turnout
- * figure uses it rather than inventing a second ring two components away. The
- * percent travels in the accessible name and again in the caption, which is
- * the component's own rule about a shape never being a readout on its own.
+ * THIS USED TO BE A MOON, and that was wrong the moment the founder's design
+ * landed. The vocabulary a member learns on a decision is that the MOON is
+ * agreement and the SILHOUETTES are participation. A moon standing over a
+ * turnout figure in the rail beside those decisions teaches the opposite of
+ * the page next to it, and the number underneath cannot undo a shape.
+ *
+ * NO NOTCH HERE. Every closed vote froze its own quorum threshold, so an
+ * average of them has no single bar to reach, and drawing one would invent a
+ * line no ballot ever carried. `QuorumField` takes a null threshold for
+ * exactly this case.
  */
 function TurnoutCard({ ballots }: { ballots: BallotCard[] }) {
   const decided = ballots.filter((b) => b.status !== "open");
   if (decided.length === 0) return null;
   const average =
     decided.reduce((sum, b) => sum + quorumPctOf(b.tallies, b.totalWeight), 0) / decided.length;
+  const votes = `${decided.length} closed ${decided.length === 1 ? "vote" : "votes"}`;
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-4">
       <h3 className="text-base font-bold text-stone-900">How much the village turns out</h3>
-      <div className="mt-3 flex items-center gap-4">
-        <MoonProgress value={average / 100} size={64} label="Average turnout across closed votes" />
-        <p className="text-sm text-stone-600 leading-relaxed">
-          Across {decided.length} closed {decided.length === 1 ? "vote" : "votes"}, an average of{" "}
-          {Math.round(average)}% of the village's weight has spoken.
-        </p>
+      <div className="mt-3">
+        <QuorumField
+          valuePct={average}
+          thresholdPct={null}
+          title="Average turnout across closed votes"
+          reading={`Across ${votes}, this much of the village's weight has spoken`}
+          detail="Each silhouette is a twentieth of the weight on the roll."
+        />
       </div>
+      <p className="mt-2 text-sm text-stone-600 leading-relaxed">
+        Across {votes}, an average of {Math.round(average)}% of the village's weight has spoken.
+      </p>
     </div>
   );
 }

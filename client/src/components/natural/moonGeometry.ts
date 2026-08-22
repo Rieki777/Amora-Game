@@ -151,6 +151,33 @@ export function litPath({ cx, cy, r, fraction, side = "right" }: LitPathOptions)
   );
 }
 
+/**
+ * THE TERMINATOR ON ITS OWN, unfilled, for drawing a THRESHOLD on the disc.
+ *
+ * The founder's design asks a vote's agreement moon to carry the line it has
+ * to reach: "a 80% threshold would show a red line needing the moon to get to
+ * that 80% illumination". The honest line is the terminator the moon WOULD
+ * have at that fraction, because then the lit edge travelling toward it is
+ * the same curve at two values, and the moon crossing it is exactly the
+ * moment the number crosses the threshold. Any other line would be decoration
+ * sitting near the truth.
+ *
+ * `litPath` walks this curve from the bottom of the disc to the top. Drawn on
+ * its own it reads better top to bottom, and the same curve traversed the
+ * other way carries the opposite sweep flag, which is the `1 - sweep` here.
+ *
+ * At a fraction of exactly 0.5 the horizontal radius is zero, which SVG draws
+ * as the straight vertical line down the middle of the disc: the half.
+ */
+export function terminatorPath({ cx, cy, r, fraction, side = "right" }: LitPathOptions): string {
+  const f = clamp01(fraction);
+  const { terminator, terminatorSweep } = moonPathParts(r, f, side);
+  return (
+    `M ${fx(cx)} ${fx(cy - r)}` +
+    ` A ${fx(terminator)} ${fx(r)} 0 0 ${1 - terminatorSweep} ${fx(cx)} ${fx(cy + r)}`
+  );
+}
+
 export interface MoonReading {
   /** Illuminated fraction, 0 to 1. */
   fraction: number;

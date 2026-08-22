@@ -43,7 +43,7 @@ import VoteResult from "@/components/governance/VoteResult";
 import VoteWidget from "@/components/governance/VoteWidget";
 import VoterRoll from "@/components/governance/VoterRoll";
 import { subjectNoun } from "@/components/governance/wizardConfig";
-import { weightText } from "@/components/governance/voteBars";
+import { standingObjections, weightText } from "@/components/governance/voteBars";
 import {
   castVote,
   closeBallot,
@@ -211,25 +211,34 @@ export default function Decision() {
               />
             )}
 
-            {open && (
-              <section className="rounded-xl border border-stone-200 bg-white p-5">
-                <h2 className="text-base font-bold text-stone-900">Where it stands</h2>
-                <p className="mt-0.5 text-sm text-stone-600 leading-relaxed">
-                  Two measurements, never one. How much of the village has spoken, and how those who spoke divided.
-                </p>
-                <div className="mt-4">
-                  <VoteResult
-                    tallies={ballot.tallies}
-                    totalWeight={ballot.totalWeight}
-                    unityPct={ballot.unityPct}
-                    quorumPct={ballot.quorumPct}
-                    method={ballot.method}
-                    electorateCount={ballot.electorateCount}
-                    votedCount={votedCount}
-                  />
-                </div>
-              </section>
-            )}
+            {/* A CLOSED BALLOT KEEPS THE PICTURE. The whole point of drawing
+                the moon and the field is that a village can see how a decision
+                actually landed, and a record page that dropped them would
+                leave the numbers in the outcome card with nothing to read them
+                against. The heading changes because a decided question is not
+                a live one. */}
+            <section className="rounded-xl border border-stone-200 bg-white p-5">
+              <h2 className="text-base font-bold text-stone-900">{open ? "Where it stands" : "How it landed"}</h2>
+              <p className="mt-0.5 text-sm text-stone-600 leading-relaxed">
+                {!open
+                  ? "The measurements this closed on. They are frozen here, exactly as the close route read them."
+                  : ballot.method === "consent"
+                    ? "Two measurements, never one. How much of the village has spoken, and whether anything still stands in the way."
+                    : "Two measurements, never one. How much of the village has spoken, and how those who spoke divided."}
+              </p>
+              <div className="mt-4">
+                <VoteResult
+                  tallies={ballot.tallies}
+                  totalWeight={ballot.totalWeight}
+                  unityPct={ballot.unityPct}
+                  quorumPct={ballot.quorumPct}
+                  method={ballot.method}
+                  electorateCount={ballot.electorateCount}
+                  votedCount={votedCount}
+                  openObjections={standingObjections(ballot.objections)}
+                />
+              </div>
+            </section>
 
             {open && user && <VoteWidget ballot={ballot} onVote={onVote} busy={busy} />}
 

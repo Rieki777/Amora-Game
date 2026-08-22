@@ -26,6 +26,7 @@
 import { useState } from "react";
 import { CheckCircle2, CircleMinus, Hand, MessageSquareWarning } from "lucide-react";
 import InfoTip from "@/components/InfoTip";
+import { standingObjections } from "./voteBars";
 import type { BallotObjection } from "./governanceApi";
 
 const STATUS: Record<
@@ -87,7 +88,12 @@ export default function ObjectionPanel({
   const [ruling, setRuling] = useState("concern");
   const [note, setNote] = useState("");
 
-  const standing = objections.filter((o) => o.status === "open").length;
+  // `open` AND `integrated`, because upholding an objection means the proposal
+  // has to change, so the close route fails the ballot on it. Counting only
+  // `open` here told a member nothing stood in the way of a decision the
+  // server was about to refuse. The list lives in voteBars.ts, tested against
+  // the same statuses `standingObjectionCount` reads.
+  const standing = standingObjections(objections);
 
   const file = async () => {
     if (!text.trim()) {

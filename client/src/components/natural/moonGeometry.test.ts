@@ -26,6 +26,7 @@ import {
   moonPathParts,
   readLunation,
   readProgress,
+  terminatorPath,
   terminatorRadius,
   waxingPhase,
 } from "./moonGeometry";
@@ -129,6 +130,77 @@ describe("edges", () => {
     }
     expect(moonPathParts(R, 0.25, "left").limbSweep).toBe(0);
     expect(moonPathParts(R, 0.25, "right").limbSweep).toBe(1);
+  });
+});
+
+describe("the threshold line: the terminator a moon has yet to reach", () => {
+  const line = (f: number, side: "right" | "left" = "right") =>
+    terminatorPath({ cx: 50, cy: 50, r: R, fraction: f, side });
+  /** The rx, ry and sweep flag out of a one-arc path. */
+  const arc = (d: string) => {
+    const m = d.match(/A (\S+) (\S+) 0 0 (\d)/);
+    if (!m) throw new Error(`no arc in ${d}`);
+    return { rx: Number(m[1]), ry: Number(m[2]), sweep: Number(m[3]) };
+  };
+
+  it("is one arc, top of the disc to the bottom, and never closes", () => {
+    for (const f of MOON_STEPS) {
+      const d = line(f);
+      expect(d.startsWith("M 50 16")).toBe(true);
+      expect(d.endsWith("50 84")).toBe(true);
+      expect(d.match(/ A /g)).toHaveLength(1);
+      expect(d).not.toContain("Z");
+    }
+  });
+
+  it("carries the same terminator radius the lit region has at that fraction", () => {
+    for (const f of MOON_STEPS) {
+      expect(arc(line(f)).rx).toBeCloseTo(terminatorRadius(R, f), 3);
+      expect(arc(line(f)).ry).toBe(R);
+    }
+  });
+
+  it("bows the same way the lit edge does, walked the other way", () => {
+    // litPath runs the terminator bottom to top; this runs it top to bottom,
+    // so the flag is the complement and the CURVE is the same curve.
+    for (const f of MOON_STEPS) {
+      expect(arc(line(f)).sweep).toBe(1 - moonPathParts(R, f).terminatorSweep);
+    }
+  });
+
+  it("draws a different line at every one of the nine steps", () => {
+    const seen = new Set(MOON_STEPS.map((f) => line(f)));
+    expect(seen.size).toBe(9);
+  });
+
+  it("is the straight half at 50%, and the two limbs at the ends", () => {
+    expect(arc(line(0.5)).rx).toBe(0);
+    expect(arc(line(0)).rx).toBe(R);
+    expect(arc(line(1)).rx).toBe(R);
+    // Nothing yet and everything are opposite limbs, never the same line.
+    expect(line(0)).not.toBe(line(1));
+  });
+
+  it("clamps a threshold from outside the disc instead of drawing nonsense", () => {
+    expect(line(4)).toBe(line(1));
+    expect(line(-1)).toBe(line(0));
+    expect(line(Number.NaN)).toBe(line(0));
+  });
+
+  it("mirrors onto the other limb when the light does", () => {
+    for (const f of MOON_STEPS.slice(1, -1)) {
+      expect(line(f, "left")).not.toBe(line(f, "right"));
+    }
+  });
+
+  it("meets the lit edge exactly when the value reaches the threshold", () => {
+    // The point of the whole drawing: at value == threshold the line the moon
+    // is chasing IS the edge of its own light.
+    for (const f of MOON_STEPS.slice(1)) {
+      const lit = path(f);
+      const { rx, ry } = arc(line(f));
+      expect(lit).toContain(`A ${rx} ${ry} 0 0 ${moonPathParts(R, f).terminatorSweep}`);
+    }
   });
 });
 
