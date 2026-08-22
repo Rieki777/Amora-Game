@@ -42,12 +42,19 @@
  *     reach the thing reports what a check that passed reports. §1 now plants a
  *     sixth payload through the door that field actually uses.
  *
- * ONE CHECK IS A PINNED MEASUREMENT, NOT A CLAIM OF SUCCESS. §4b names the one
- * swept screen (568x320, an iPhone SE sideways) where the room the band can give
- * this sheet is smaller than the sheet's own head plus footer, so the list seats
- * nothing. It is not a regression — on the pristine base that button opened a
- * card body.pocket hides outright — and it is not cheaply fixable; both ways out
- * were measured and both are worse. Read the note at §4b before touching it.
+ * RECONCILED ONTO #32 (the Maia voice). #31 derived this gate against a walk
+ * card (#walkCard) that rose over the band on every first run; #32 retired that
+ * rise BY DESIGN — the journey speaks from the Maia dock now, and #walkCard's
+ * markup, CSS and band slot are still in the file with nothing showing them
+ * (:7989). Every check that asserted the card was up, or ratcheted what it
+ * covered, was re-derived against the dock: the sweep waits for the JOURNEY
+ * state (body.msheet + #maia up), asserts that opening this sheet DISMISSES
+ * the dock (openHelp removes msheet — one sheet at a time, :7857), and pins
+ * the card's retirement outright. Two of #31's pinned measurements INVERTED
+ * when the card went: the 568x320 starvation (§4b) and the landscape cap
+ * bites (§4) were both facts about the card's 143px in a 279px band, so both
+ * are ratchets in the other direction now. Read the notes at §4 and §4b
+ * before touching either.
  *
  * IT ASSERTS ON THE SURFACE A PERSON SEES. Every geometric check reads the live
  * #help in the document after a REAL touch tap on the REAL #pbAttn button, and
@@ -163,19 +170,18 @@ async function open(browser, w, h, touch) {
   return { ctx, page, errs };
 }
 
-/* THE WALK CARD IS A RACE, AND THREE CHECKS USED TO PASS BY ITS ABSENCE.
-   nextWalk fills #walkCard and shows it inside travelTo's completion callback
-   (:6699) — a camera animation — and the walk auto-starts on a fresh profile
-   (:6738, no 'amora-walk-done' in localStorage). Every check that mentions the
-   card is written `!r.walk || …`, so on a machine where the animation runs long
-   the card is not up yet and the overlap checks are satisfied by nothing being
-   there. That is not theory: on a loaded box _probe_l8_adv.js measured #walkCard
-   absent at 568x320 and the room the band published went 72px to 209px, which
-   would have taken §4b red for a reason with nothing to do with the artifact.
-   So wait for it, and then ASSERT it — the whole landscape fix is about the
-   state where this card is up, and a sweep that measures the other state is
-   measuring the wrong page. Only on a pocket: on a desk the card never shows,
-   and waiting for it there would be nine wasted seconds per viewport. */
+/* THE JOURNEY IS A RACE THE WALK CARD USED TO LOSE. On #31's base the sweep
+   waited nine seconds for #walkCard, because a card that had not animated in
+   yet satisfied every overlap check by not being there. #32 retired the card:
+   the walk auto-starts on a fresh pocket profile (:8020, no 'amora-walk-done'
+   in localStorage) and the journey renders into the Maia dock, which
+   body.msheet raises as a full-width bottom-band tenant (:696). The state the
+   sweep is about is the state it was always about — a first-time reader, the
+   band's other tenant up — so it waits for THAT state and then asserts it.
+   Measured on 2719f4f: msheet and the dock are up within ~20ms of open()'s own
+   settling, so the bound is generous, not hopeful. Only on a pocket: a desk
+   keeps Maia as a corner card, msheet never appears there, and the walk never
+   auto-starts. */
 /* THE BAND PUBLISHES ON A rAF, AND rAF IS THROTTLED IN A PAGE NOBODY IS
    LOOKING AT. bandSoon is `requestAnimationFrame(bandLayout)`, and Chromium
    parks rAF in an occluded tab — which is what a Playwright page becomes the
@@ -201,13 +207,14 @@ async function waitVar(page, name, ms = 6000) {
   } catch (e) { return false }
 }
 
-async function waitWalk(page, ms = 9000) {
+async function waitDock(page, ms = 9000) {
   try {
     await page.waitForFunction(() => {
-      const w = document.getElementById('walkCard');
-      if (!w) return false;
-      const cs = getComputedStyle(w);
-      return cs.display !== 'none' && cs.visibility !== 'hidden' && w.getBoundingClientRect().height > 2;
+      if (!document.body.classList.contains('msheet')) return false;
+      const m = document.getElementById('maia');
+      if (!m) return false;
+      const cs = getComputedStyle(m);
+      return cs.display !== 'none' && cs.visibility !== 'hidden' && m.getBoundingClientRect().height > 2;
     }, null, { timeout: ms, polling: 200 });
     return true;
   } catch (e) { return false }
@@ -264,6 +271,8 @@ const READ = () => {
     capVar: root.getPropertyValue('--band-b-help-max').trim() || null,
     botVar: root.getPropertyValue('--band-b-help').trim() || null,
     walk: shown(document.getElementById('walkCard')) ? rect(document.getElementById('walkCard')) : null,
+    msheet: document.body.classList.contains('msheet'),
+    dock: shown(document.getElementById('maia')) ? rect(document.getElementById('maia')) : null,
     vitals: shown(document.getElementById('vitals')) ? rect(document.getElementById('vitals')) : null,
     pbar: shown(document.getElementById('pbar')) ? rect(document.getElementById('pbar')) : null,
     hitClose: hit('#help .help-close'),
@@ -460,7 +469,7 @@ const PLANT = ([P, hid, place]) => {
     for (const [w, h] of list) {
       const label = tag + ' ' + w + 'x' + h;
       const { ctx, page, errs } = await open(browser, w, h, touch);
-      const walkUp = touch ? await waitWalk(page) : false;
+      const dockUp = touch ? await waitDock(page) : false;
       const closed = await page.evaluate(READ);
       const tapped = await tapHelp(page);
 
@@ -495,14 +504,23 @@ const PLANT = ([P, hid, place]) => {
         'help.b=' + (r.help && r.help.b) + ' pbar.t=' + (r.pbar && r.pbar.t));
       ok(label + ': the sheet clears the vitals bar', !r.vitals || r.help.t >= r.vitals.b,
         'help.t=' + (r.help && r.help.t) + ' vitals.b=' + (r.vitals && r.vitals.b));
-      /* ASSERTED, NOT ASSUMED. Without this line the check below it is satisfied
-         by a walk card that has not finished animating in, which is the state
-         this whole section is NOT about. */
-      ok(label + ': the walk card is up, so the next check is about something',
-        walkUp && !!r.walk, 'waited=' + walkUp + ' walkCard=' + (r.walk ? r.walk.t + '..' + r.walk.b : 'not shown'));
-      ok(label + ': the sheet and the walk card do not overlap',
-        !r.walk || r.help.b <= r.walk.t || r.help.t >= r.walk.b,
-        'help ' + (r.help ? r.help.t + '..' + r.help.b : '-') + ' walkCard ' + (r.walk ? r.walk.t + '..' + r.walk.b : 'not shown'));
+      /* THE FIRST-RUN STATE, ASSERTED, NOT ASSUMED. #32 retired the walk card;
+         the surface that rises on a fresh profile is the journey dock, and it
+         is measured BEFORE the tap so the check after this one is about the
+         state a newcomer is actually in when the thumb lands. */
+      ok(label + ': the journey dock was up when the reader tapped',
+        dockUp && closed.msheet && !!closed.dock,
+        'waited=' + dockUp + ' dock=' + (closed.dock ? closed.dock.t + '..' + closed.dock.b : 'not shown'));
+      /* ONE SHEET AT A TIME is how the band's overlap problem is solved now:
+         openHelp (:7857) removes body.msheet, so the dock leaves the band as
+         this sheet enters it, and nothing re-raises it — maiaSay keeps writing
+         into the hidden dock while the journey runs on, measured +6s out. The
+         walk card is pinned retired in the same breath: its markup and band
+         slot are still in the file (:7989) and NOTHING may show it. */
+      ok(label + ': the tap swapped the dock for the sheet, and no walk card rose',
+        !r.msheet && r.dock === null && r.walk === null && closed.walk === null,
+        'msheet=' + r.msheet + ' dock=' + (r.dock ? r.dock.t + '..' + r.dock.b : 'dismissed')
+        + ' walkCard=' + (r.walk || closed.walk ? 'SHOWN' : 'retired'));
       /* THE LIST IS WHAT THE READER CAME FOR, and a sheet whose list is 0px high
          is thirteen rows in the DOM that nobody can see — the same shape as
          every other silent zero this round. Asserted outright on every screen
@@ -510,11 +528,14 @@ const PLANT = ([P, hid, place]) => {
          skip, and the one screen it lets through is pinned after the loop. */
       ok(label + ': the list seats a row on any screen 360px tall or more',
         r.vh >= 360 ? r.listH > 0 : true, 'vh=' + r.vh + ' list clientHeight=' + r.listH);
-      /* The walk-card state is recorded with it because it is the cause: 143px
-         of a 279px band. A starved screen with no walk card up would be a
-         different defect and this line makes them tell apart. */
+      /* The band state is recorded with it because it is the diagnosis: on
+         #31's base the cause was the walk card's 143px of a 279px band. The
+         dock is dismissed by openHelp and the card is retired, so a starved
+         screen now means the sheet's own chrome outgrew the room — a different
+         defect, and this line makes them tell apart. */
       if (!(r.listH > 0)) STARVED.push(label + ' vh=' + r.vh + ' cap=' + r.capVar
-        + ' help.h=' + r.help.h + ' walkCard=' + (r.walk ? r.walk.h + 'px' : 'not shown'));
+        + ' help.h=' + r.help.h + ' dock=' + (r.dock ? r.dock.h + 'px' : 'dismissed')
+        + ' walkCard=' + (r.walk ? r.walk.h + 'px' : 'retired'));
 
       /* THE COMPOSITED PAGE. Everything above can be true of a sheet nobody can
          see or touch; these three are the ones that cannot. */
@@ -540,58 +561,68 @@ const PLANT = ([P, hid, place]) => {
       if (tag === 'LANDSCAPE' && cap > 0 && cap < vh42) { BITES.push(label + ' ' + cap + '<' + vh42); }
       ok(label + ': no page errors', errs.length === 0, errs.join(' ; ') || 'none');
       info(label + ': help ' + (r.help ? r.help.t + '..' + r.help.b : '-')
-        + '  walkCard ' + (r.walk ? r.walk.t + '..' + r.walk.b : 'not shown')
+        + '  dock ' + (r.dock ? r.dock.t + '..' + r.dock.b : 'dismissed')
         + '  cap=' + r.capVar + '  bottom=' + r.botVar + '  over=' + r.over);
       await ctx.close();
     }
   }
 
-  /* §4  the var earns its keep. Asserted over the sweep rather than per screen,
-     because a cap is allowed to be generous where there is room: 932x430 has
-     188px to give against a 181px authored cap, and the honest answer there is
-     that 42vh wins. What may not happen is that it wins EVERYWHERE. */
-  console.log('\n§4  the published cap is the number that decides, on the screens where it must');
-  ok('the cap comes out below 42vh on at least three landscape screens', BITES.length >= 3,
-    BITES.length ? BITES.join(' | ') : 'it never bit anything');
+  /* §4  INVERTED BY #32, on the same measurement. On #31's base the walk card
+     took up to half the band, the published cap came out below the authored
+     42vh on the short landscape screens, and this line demanded that it did —
+     a var that never decided anything would have been the literal it replaced.
+     #32 retired the card, and openHelp dismisses the dock, so the open sheet
+     has the band to itself: the room is 209..821px against a 42vh ask on
+     2719f4f, and no reachable swept state shrinks it. MEASURED, not assumed —
+     the sweep still collects every landscape screen where the cap bites, and
+     there must now be none. If this reds, a tenant is sharing the band with
+     the open sheet again; that is the #31 scarcity come back, not a band
+     defect, so re-derive the ratchet in that direction (the cap must bite and
+     the sheet must obey it) rather than deleting the line. The cap machinery
+     itself is still asserted per screen above: published while open, absent
+     while closed, and the sheet no taller than the number it was given. */
+  console.log('\n§4  the cap is published and obeyed, and nothing shares the band to make it bite');
+  ok('no landscape screen shrinks the cap below the authored 42vh any more', BITES.length === 0,
+    BITES.length ? BITES.join(' | ') : 'nothing shared the band');
 
-  /* WHAT THIS LANE DID NOT CLOSE, pinned as a number so the next lane inherits a
-     measurement instead of a hunch. At 568x320 the bottom band's whole room is
-     279px, a 143px walk card takes half of it, and the 72px the band can publish
-     for this sheet is exactly its own head plus its own footer. The sheet is on
-     screen, uncovered, and its title, close button and Get Involved row all pass
-     the hit tests — it is the LIST that seats nothing.
-     IT IS NOT A REGRESSION: on the pristine base this button opened #attnCard,
-     which body.pocket hides outright, so that screen showed nothing at all.
-     IT IS NOT CHEAPLY FIXABLE EITHER, and the two ways out were measured before
-     this line was written: a CSS floor on the sheet puts 44px of it back under
-     the z-58 walk card, which is the regression this round was raised on, and
-     giving the walk card a `max` of its own makes two shrinking tenants measure
-     each other, which is the oscillation the one-shrinker rule exists to stop.
-     IF YOU FIX IT this goes red and that is correct — edit the list, do not
-     delete the check. If a SECOND screen joins it, that is a regression. */
-  console.log('\n§4b the one screen whose room is smaller than the sheet\'s own chrome');
-  ok('320px tall is the only swept screen where the list seats nothing',
-    STARVED.length === 1 && / vh=320 /.test(STARVED[0]),
-    STARVED.length ? STARVED.join(' | ') : 'no screen starved — if that is real, update this check');
+  /* WHAT #31 PINNED, #32 FIXED FROM THE SIDE, and the pin inverts rather than
+     dies. At 568x320 the walk card's 143px of a 279px band left this sheet
+     72px — exactly its own head plus footer — and the list seated nothing;
+     both cheap ways out were measured then and both were worse, so #31 pinned
+     the starvation as a fact ("IF YOU FIX IT this goes red and that is
+     correct"). #32 fixed it by retiring the card: the same screen now gets a
+     209px cap and seats a 56px list on 2719f4f. So the pin flips into the
+     ratchet #31 could not write: NO swept screen may starve the list. If this
+     reds, either the sheet's own chrome grew past the room a short screen has,
+     or a tenant is sharing the band again — each entry names the screen, the
+     cap, and the dock and walk-card state so the diagnoses tell apart. */
+  console.log('\n§4b no screen\'s room is smaller than the sheet\'s own chrome any more');
+  ok('no swept screen starves the list (568x320 did, until #32 retired the walk card)',
+    STARVED.length === 0,
+    STARVED.length ? STARVED.join(' | ') : 'every open sheet seats at least one row');
 
   /* ================= §5  the top band: the vital dropdown ================= */
   /* THE OTHER HALF OF THIS LANE. R15 made #vdrop a tenant of the top band; this
-     asserts that it still is after every rebase, and it ratchets the one thing
-     the lane improved without closing.
-     WHAT THE RATCHET IS FOR. Opening the dropdown raises the top band's ceiling
-     by its own height, and the bottom band's limit is innerHeight minus that
-     ceiling, so on a landscape phone the walk card gets clamped UP under the
-     open dropdown. The `max` mechanism #help uses cannot reach this: the top
-     band's limit is innerHeight, so the room it would publish is the whole
-     screen. Closing it means letting the two edges solve for each other in one
-     pass, which is a change to machinery every overlay in the app sits on, so
-     this lane measured it and pinned it instead of half-doing it.
-     THE NUMBERS BELOW ARE THE BASE'S, measured on the pristine origin/main blob
-     through the same real tap, and they are a CEILING: the lane came in at
-     1 / 0 / 16 / 31 against them. Any future change that covers more of the
-     dropdown than the artifact this lane started from goes red here. */
-  console.log('\n§5  the vital dropdown is a top-band tenant, and no worse than the base in landscape');
-  const BASE_OVERLAP = { '390x844': 0, '844x390': 16, '851x393': 13, '667x375': 31, '740x360': 46, '932x430': 0, '1280x800': 0, '1920x1080': 0 };
+     asserts that it still is after every rebase.
+     THE WALK-CARD RATCHET THAT STOOD HERE RETIRED WITH THE CARD. The bands
+     still cannot solve for each other in one pass — the bottom band's limit is
+     innerHeight minus the top band's ceiling, the top band's limit is
+     innerHeight full stop — so on a landscape phone the bottom band's tallest
+     tenant is clamped UP under an open dropdown. On #31's base that tenant was
+     the 143px walk card and its cover was pinned per screen as a ceiling
+     (16/13/31/46px, bottom third only). #32's journey dock is a 279px sheet,
+     so mid-journey on a landscape pocket it sits over MOST of an open
+     dropdown, top included — measured on 2719f4f, not assumed, and a
+     first-run-only state: the walk runs once per profile and body.msheet
+     leaves with it. This lane's answer keeps #31's shape — measure it, pin WHO
+     may do it, and assert the state a reader lives in afterwards. Mid-journey,
+     nothing but the dock may sit over the readings and the walk card may not
+     rise at all; the journey ended, the dropdown must still be open and every
+     reading uncovered. A third surface over the readings, or any cover once
+     the walk is done, reds this. A pixel ratchet on the dock itself would
+     ratchet the length of whatever the current stop SAYS — copy, not layout —
+     so there deliberately is none. */
+  console.log('\n§5  the vital dropdown is a top-band tenant, mid-journey and after');
   const capVals = new Set();
   /* THE DESK PAIR IS NOT PADDING. #vdrop is a tenant of the TOP band, which is
      the one band that exists on both profiles, so unlike #help this surface has
@@ -603,14 +634,13 @@ const PLANT = ([P, hid, place]) => {
   [740, 360, true], [932, 430, true], [1280, 800, false], [1920, 1080, false]]) {
     const label = w + 'x' + h;
     const { ctx, page, errs } = await open(browser, w, h, touch);
-    /* THE RATCHET BELOW IS AN OVERLAP AGAINST THE WALK CARD, so a walk card that
-       has not animated in yet reports overlap=0 and passes every ceiling in
-       BASE_OVERLAP for free. Waited for and asserted on the pocket, where it is
-       the state the numbers were measured in; on a desk it never shows and the
-       base numbers there are 0 for that reason. */
-    const walkUp = touch ? await waitWalk(page) : false;
-    if (touch) ok(label + ': the walk card is up, so the overlap ratchet is about something',
-      walkUp, 'waited=' + walkUp);
+    /* THE MID-JOURNEY READS BELOW ARE ABOUT THE FIRST-RUN STATE, so a dock that
+       is not up yet would let "only the dock covers it" pass on an empty page.
+       Waited for and asserted on the pocket, where the walk auto-starts; on a
+       desk there is no msheet and no auto-walk, and the strict form runs. */
+    const dockUp = touch ? await waitDock(page) : false;
+    if (touch) ok(label + ': the journey dock is up, so the mid-journey reads are about the first-run state',
+      dockUp, 'waited=' + dockUp);
     const closedVar = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--band-t-vdrop').trim() || null);
     ok(label + ': --band-t-vdrop is absent while the dropdown is closed', closedVar === null, 'var=' + closedVar);
 
@@ -629,23 +659,25 @@ const PLANT = ([P, hid, place]) => {
     const r = await page.evaluate(() => {
       const shown = e => { if (!e) return false; const cs = getComputedStyle(e); if (cs.display === 'none' || cs.visibility === 'hidden') return false; const q = e.getBoundingClientRect(); return q.width > 0 && q.height > 0 };
       const box = e => { const q = e.getBoundingClientRect(); return { t: Math.round(q.top), b: Math.round(q.bottom), h: Math.round(q.height) } };
-      const vd = document.getElementById('vdrop'), wk = document.getElementById('walkCard'), vt = document.getElementById('vitals');
+      const vd = document.getElementById('vdrop'), wk = document.getElementById('walkCard'), vt = document.getElementById('vitals'), mk = document.getElementById('maia');
       if (!shown(vd)) return { open: false };
       const q = vd.getBoundingClientRect();
       /* Down the dropdown's own column, on the composited page. The reading the
-         reader tapped for lives in the top two thirds; those may never be under
-         anything. */
+         reader tapped for lives in the top two thirds, and WHO sits over a
+         point matters: mid-journey the dock is allowed there and nothing else
+         is, so the classifier names it rather than folding it into "covered". */
       const at = f => {
         const x = Math.round(q.left + q.width / 2), y = Math.round(q.top + q.height * f);
         const top = document.elementFromPoint(x, y);
-        return top && top.closest && top.closest('#vdrop') ? 'vdrop' : (top ? ('#' + (top.id || (typeof top.className === 'string' ? top.className.split(' ')[0] : '?'))) : 'nothing');
+        if (top && top.closest && top.closest('#vdrop')) return 'vdrop';
+        if (top && top.closest && top.closest('#maia')) return 'dock';
+        return top ? ('#' + (top.id || (typeof top.className === 'string' ? top.className.split(' ')[0] : '?'))) : 'nothing';
       };
-      const ov = (a, b) => Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
       const V = box(vd);
       return {
         open: true, vh: innerHeight, vdrop: V,
         walk: shown(wk) ? box(wk) : null, vitals: shown(vt) ? box(vt) : null,
-        overlap: shown(wk) ? ov(V, box(wk)) : 0,
+        dock: shown(mk) ? box(mk) : null,
         topAt: [at(0.08), at(0.33), at(0.62), at(0.95)],
         vdropVar: getComputedStyle(document.documentElement).getPropertyValue('--band-t-vdrop').trim() || null,
       };
@@ -671,16 +703,51 @@ const PLANT = ([P, hid, place]) => {
       'vdrop ' + r.vdrop.t + '..' + r.vdrop.b + ' vh=' + r.vh);
     ok(label + ': the dropdown clears the vitals bar', !r.vitals || r.vdrop.t >= r.vitals.b,
       'vdrop.t=' + r.vdrop.t + ' vitals.b=' + (r.vitals && r.vitals.b));
-    ok(label + ': the top two thirds of the dropdown are uncovered',
-      r.topAt.slice(0, 3).every(x => x === 'vdrop'), JSON.stringify(r.topAt));
-    const allow = BASE_OVERLAP[label];
-    ok(label + ': the walk card covers no more of it than it did on the base',
-      r.overlap <= allow, 'overlap=' + r.overlap + ' base allowed=' + allow);
+    if (touch) {
+      /* Mid-journey, on the short screens, the 279px dock sits over the open
+         dropdown — the bands cannot see each other, and #32 made the bottom
+         tenant taller. WHO covers is the assertion: the dock, and nothing
+         else. Anything a third surface put there names itself in the detail. */
+      ok(label + ': mid-journey, nothing but the journey dock sits over the readings',
+        r.topAt.slice(0, 3).every(x => x === 'vdrop' || x === 'dock'), JSON.stringify(r.topAt));
+      ok(label + ': the walk card stays retired mid-journey', r.walk === null,
+        'walkCard=' + (r.walk ? 'SHOWN ' + r.walk.t + '..' + r.walk.b : 'retired')
+        + ' dock=' + (r.dock ? r.dock.t + '..' + r.dock.b : 'not shown'));
+    } else {
+      ok(label + ': the top two thirds of the dropdown are uncovered',
+        r.topAt.slice(0, 3).every(x => x === 'vdrop'), JSON.stringify(r.topAt));
+    }
     if (r.vdropVar) capVals.add(r.vdropVar);
+    if (touch) {
+      /* THE STATE A READER LIVES IN. The walk runs once per profile ever;
+         every vital tapped after it is over must show its readings. jEnd() is
+         the same call Escape and "stay here" make. The dropdown closes on a
+         TAP anywhere else and this is not one, so it must still be open — a
+         gate that ended the walk by closing the dropdown would be asserting
+         the uncovered state of nothing. */
+      await page.evaluate(() => { if (typeof window.jEnd === 'function') window.jEnd() });
+      await page.waitForTimeout(600);
+      const after = await page.evaluate(() => {
+        const v = document.getElementById('vdrop');
+        const q = v.getBoundingClientRect();
+        const at = f => {
+          const x = Math.round(q.left + q.width / 2), y = Math.round(q.top + q.height * f);
+          const top = document.elementFromPoint(x, y);
+          if (top && top.closest && top.closest('#vdrop')) return 'vdrop';
+          if (top && top.closest && top.closest('#maia')) return 'dock';
+          return top ? ('#' + (top.id || (typeof top.className === 'string' ? top.className.split(' ')[0] : '?'))) : 'nothing';
+        };
+        return { open: v.classList.contains('show'), msheet: document.body.classList.contains('msheet'),
+                 topAt: [at(0.08), at(0.33), at(0.62), at(0.95)] };
+      });
+      ok(label + ': the journey over, the dropdown is still open and every reading is uncovered',
+        after.open && !after.msheet && after.topAt.every(x => x === 'vdrop'),
+        JSON.stringify(after));
+    }
     ok(label + ': no page errors', errs.length === 0, errs.join(' ; ') || 'none');
-    info(label + ': vdrop ' + r.vdrop.t + '..' + r.vdrop.b + '  walkCard '
-      + (r.walk ? r.walk.t + '..' + r.walk.b : 'not shown') + '  overlap=' + r.overlap
-      + ' (base ' + allow + ')  var=' + r.vdropVar);
+    info(label + ': vdrop ' + r.vdrop.t + '..' + r.vdrop.b + '  dock '
+      + (r.dock ? r.dock.t + '..' + r.dock.b : 'not shown')
+      + '  topAt=' + JSON.stringify(r.topAt) + '  var=' + r.vdropVar);
     await ctx.close();
   }
   /* ================= §5b  a floor the band cannot measure ================= */

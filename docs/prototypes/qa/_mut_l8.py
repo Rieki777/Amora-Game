@@ -56,8 +56,17 @@ MUT = {
         "Number(t.replies)||0,last:t.last_activity", "t.replies||0,last:t.last_activity", 1),
 
     # ---- the landscape half ------------------------------------------------
-    "l1_cap_unread": ("the landscape regression itself: the sheet stops reading the room",
-        "max-height:min(42vh,var(--band-b-help-max,42vh));", "max-height:42vh;", 1),
+    # l1_cap_unread (max-height stops reading the var) is GONE on this base,
+    # the same way x1 went. It was caught by the cap BITING: on #31's base the
+    # walk card made the published room smaller than 42vh on the short
+    # landscape screens, so a sheet that ignored the var was taller than the
+    # room and §4's checks saw it. #32 retired the card and openHelp dismisses
+    # the dock, so the room is 209..821px against a 42vh ask on every swept
+    # screen: min(42vh, var(...)) and a bare 42vh now compute the same number
+    # everywhere the gate can reach, and no single-edit check can tell them
+    # apart. The var is not dead — l2/l3 still prove it is declared and
+    # published, and §4's inverted ratchet reds the day a tenant makes the
+    # room scarce again, which is the day this mutant comes back too.
     "l2_tenant_no_max": ("the tenant stops declaring it can shrink",
         "{id:'help',    v:'--band-b-help',max:'--band-b-help-max'},",
         "{id:'help',    v:'--band-b-help'},", 1),
@@ -88,13 +97,27 @@ MUT = {
     "b2_band_never_publishes": ("the band clears unconditionally and never comes back",
         "  if(fl&&!bandShown(fl)){", "  if(fl){", 1),
 
-    # ---- the pinned measurement in §4b -------------------------------------
-    # §4b names ONE screen whose room is smaller than the sheet's own chrome.
-    # Grow the chrome and a second screen joins it, which is the direction that
-    # check exists to catch. Without this, §4b would be a sentence about a
-    # number rather than an assertion about one.
-    "m1_chrome_taller": ("the sheet's footer grows and starves a second screen's list",
-        ".help-work{flex:0 0 auto;padding:9px 14px;", ".help-work{flex:0 0 auto;padding:34px 14px;", 1),
+    # ---- the inverted ratchet in §4b ---------------------------------------
+    # §4b now asserts NO swept screen starves the list (568x320 did, until #32
+    # retired the walk card). Same mutant, re-derived: 34px of padding was
+    # enough to starve a second screen when the band could only publish 72px,
+    # but with the sheet alone in the band the short screens seat 56px of list
+    # under a 134px sheet, so the chrome has to outgrow the SHEET now, not the
+    # room. 48px of footer padding takes the chrome past 42vh of a 320px
+    # screen and the list back to zero — the regression the inverted check
+    # exists to catch.
+    "m1_chrome_taller": ("the sheet's footer grows until a short screen's list starves again",
+        ".help-work{flex:0 0 auto;padding:9px 14px;", ".help-work{flex:0 0 auto;padding:48px 14px;", 1),
+
+    # ---- one sheet at a time (#32's answer to the band overlap) ------------
+    # openHelp dismisses the journey dock before the sheet enters the band;
+    # that dismissal is the whole reason the sweep's overlap and starvation
+    # checks hold. Keep the dock up and the two sheets share a band neither
+    # fits in. The anchor pins openHelp's own removal line — jSheetOff at
+    # :6600 carries the other, differently-shaped removal.
+    "s1_sheet_keeps_dock": ("openHelp stops dismissing the dock: two sheets share one band",
+        "function openHelp(){renderHelp();\n    document.body.classList.remove('msheet');",
+        "function openHelp(){renderHelp();", 1),
 
     # ---- refusing to pass on nothing ---------------------------------------
     "z1_zero_rows": ("the renderer runs and renders no rows at all",
