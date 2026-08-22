@@ -23,6 +23,7 @@ import { ArrowRight, PenLine } from "lucide-react";
 import { useModule } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import VoteClock from "./VoteClock";
+import { VoteResultMini } from "./VoteResult";
 import { subjectNoun } from "./wizardConfig";
 import { fetchBallots, type BallotCard } from "./governanceApi";
 
@@ -84,17 +85,34 @@ export default function LiveDecisionsBand() {
         {shown.length > 0 && (
           <ul className="mt-4 grid gap-3 sm:grid-cols-3">
             {shown.map((b) => (
-              <li key={b.id}>
+              // The two pictures ride here as well as on the decision itself,
+              // because "what is the village deciding" and "where has it got
+              // to" are one glance for a member passing through. The link
+              // wraps the title alone: a progressbar inside an anchor would be
+              // read out as part of the link's own name.
+              <li
+                key={b.id}
+                className="flex h-full flex-col rounded-xl border border-stone-200 bg-white p-4 focus-within:border-teal-deep hover:border-teal-deep"
+              >
+                <span className="text-xs font-medium text-stone-500">{subjectNoun(b.subjectType)}</span>
                 <Link
                   href={`/decisions/${b.id}`}
-                  className="flex h-full min-h-[44px] flex-col rounded-xl border border-stone-200 bg-white p-4 hover:border-teal-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+                  className="mt-1 flex min-h-[44px] flex-1 items-start rounded-sm text-sm font-bold leading-snug text-stone-900 hover:text-teal-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
                 >
-                  <span className="text-xs font-medium text-stone-500">{subjectNoun(b.subjectType)}</span>
-                  <span className="mt-1 flex-1 text-sm font-bold leading-snug text-stone-900">{b.title}</span>
-                  <span className="mt-2">
-                    <VoteClock closesAt={b.closesAt} />
-                  </span>
+                  {b.title}
                 </Link>
+                <span className="mt-2">
+                  <VoteClock closesAt={b.closesAt} />
+                </span>
+                <div className="mt-3 border-t border-stone-100 pt-3">
+                  <VoteResultMini
+                    tallies={b.tallies}
+                    totalWeight={b.totalWeight}
+                    unityPct={b.unityPct}
+                    quorumPct={b.quorumPct}
+                    method={b.method}
+                  />
+                </div>
               </li>
             ))}
           </ul>

@@ -6,7 +6,7 @@
  * intensity table before reaching for `moment`.
  */
 export { default as MoonProgress } from "./MoonProgress";
-export type { MoonProgressProps } from "./MoonProgress";
+export type { MoonProgressProps, MoonThresholdTone } from "./MoonProgress";
 
 export { default as BreathingLoader } from "./BreathingLoader";
 export type { BreathingLoaderProps } from "./BreathingLoader";
@@ -33,6 +33,7 @@ export {
   moonPathParts,
   readLunation,
   readProgress,
+  terminatorPath,
   terminatorRadius,
   waxingPhase,
 } from "./moonGeometry";

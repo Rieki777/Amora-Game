@@ -21,6 +21,7 @@
  */
 import { History, Scale } from "lucide-react";
 import InfoTip from "@/components/InfoTip";
+import { CrowdFigure } from "./QuorumField";
 import { weightText } from "./voteBars";
 import type { Standing } from "./governanceApi";
 
@@ -56,6 +57,18 @@ export default function MyStanding({ standing }: { standing: Standing }) {
             <span className="text-sm text-stone-600">{MODE_LABEL[standing.mode]}</span>
           </p>
           <p className="mt-1.5 text-sm text-stone-600 leading-relaxed">{standing.why}</p>
+
+          {/* The same silhouette a decision's participation field is built
+              from, so the vocabulary is learned once. It is here because this
+              is the card that answers "what is my weight worth", and the field
+              is where a member sees weight spent. */}
+          <p className="mt-2.5 flex items-start gap-2 text-xs text-stone-500 leading-relaxed">
+            <CrowdFigure size={22} className="mt-0.5" />
+            <span>
+              On a decision, the row of silhouettes fills by weight and never by heads, so this number is the share of
+              it your vote fills.
+            </span>
+          </p>
 
           {zero && (
             <p className="mt-3 rounded-lg bg-amber-light px-3 py-2 text-sm text-gold leading-relaxed">

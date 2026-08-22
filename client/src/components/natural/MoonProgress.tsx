@@ -30,10 +30,36 @@
  * MOTION. The terminator eases between values, which is the moon moving. That
  * transition is dropped for anyone who asked for less motion, and the value
  * still lands.
+ *
+ * THE THRESHOLD LINE. Some moons are measured against a bar the value has to
+ * reach, and a vote's agreement is the first of them: the founder's design
+ * asks for "a red line needing the moon to get to that 80% illumination". Pass
+ * `threshold` and the disc carries the terminator it would have at that
+ * fraction, dashed, so the lit edge and the line it is chasing are the same
+ * curve at two values and crossing it is exactly crossing the number.
+ *
+ * `thresholdTone` colours that line and `thresholdLabel` says it in words. The
+ * words are not optional: the colour is never allowed to be the only signal,
+ * and the label is what a screen reader and a greyscale reader get.
  */
 import { useId } from "react";
-import { litPath, readLunation, readProgress, type MoonReading } from "./moonGeometry";
+import { litPath, readLunation, readProgress, terminatorPath, type MoonReading } from "./moonGeometry";
 import { useReducedMotion } from "./useReducedMotion";
+
+/** Where a threshold stands against the value. `none` means nobody has moved yet. */
+export type MoonThresholdTone = "met" | "short" | "none";
+
+/**
+ * The `none` stroke is a mid grey and not the disc's own edge colour: at a new
+ * moon the line lies on the dark side, and `--nat-moon-edge` is close enough
+ * to `--nat-moon-dark` that the threshold disappeared exactly where a member
+ * most needs to see how far the light has to travel.
+ */
+const THRESHOLD_STROKE: Record<MoonThresholdTone, string> = {
+  met: "var(--color-sage, #3d6e4a)",
+  short: "var(--color-coral, #9b4030)",
+  none: "var(--nat-moon-mark, #8f8a84)",
+};
 
 export interface MoonProgressProps {
   /**
@@ -50,6 +76,17 @@ export interface MoonProgressProps {
   showNumber?: boolean;
   /** Draw the horizon ring around the disc. Ignored under 24px. */
   showRing?: boolean;
+  /**
+   * Where the value has to reach, 0 to 1. Drawn on the disc as the terminator
+   * that fraction would have. Ignored under 24px, where it would be mush.
+   */
+  threshold?: number;
+  /** How that line is toned. Pass `thresholdLabel` with it, always. */
+  thresholdTone?: MoonThresholdTone;
+  /** The threshold in words. Carried in the accessible name. */
+  thresholdLabel?: string;
+  /** One more sentence for the accessible name, after the phase. */
+  description?: string;
   className?: string;
 }
 
@@ -67,6 +104,10 @@ export default function MoonProgress({
   label,
   showNumber = true,
   showRing = true,
+  threshold,
+  thresholdTone = "none",
+  thresholdLabel,
+  description,
   className,
 }: MoonProgressProps) {
   // React's generated ids carry punctuation that is legal in an id and not in
@@ -85,7 +126,14 @@ export default function MoonProgress({
   // keeps climbing while the moon itself is already shrinking.
   const ringFraction = mode === "lunation" ? read.phase : read.fraction;
   const ringLength = 2 * Math.PI * RING_R;
-  const name = label ? `${label}: ${read.label}` : read.label;
+
+  const withThreshold = threshold != null && !tiny;
+  const thresholdD = withThreshold
+    ? terminatorPath({ cx: CX, cy: CY, r: R, fraction: threshold, side: read.side })
+    : "";
+  const name = [label ? `${label}: ${read.label}` : read.label, thresholdLabel, description]
+    .filter(Boolean)
+    .join(". ");
 
   return (
     <span className={`nat-moon${className ? ` ${className}` : ""}`} role="img" aria-label={name}>
@@ -138,6 +186,20 @@ export default function MoonProgress({
             stroke="var(--nat-moon-edge, #2f4f52)"
             strokeWidth="0.6"
             strokeLinejoin="round"
+          />
+        )}
+
+        {/* The line the light has to reach. Dashed, so it reads as a mark on
+            the disc and never as the moon's own edge, and drawn last so it
+            stays legible over the lit side once the moon has crossed it. */}
+        {thresholdD && (
+          <path
+            d={thresholdD}
+            fill="none"
+            stroke={THRESHOLD_STROKE[thresholdTone]}
+            strokeWidth="2.5"
+            strokeDasharray="5 4"
+            strokeLinecap="round"
           />
         )}
       </svg>
