@@ -43,11 +43,20 @@ Two CI budgets cap the client: main JS **700 KB** and total `dist/public` **6600
 measured after `pnpm build`. Read the numbers off `MAX_MAIN_JS_KB` and `MAX_TOTAL_DIST_KB` in
 `.github/workflows/ci.yml`, which is the authority: this block said 6 MB for as long as the
 ceiling was 6000, and stayed at 6 MB when `dbb4f9c` raised it to 6600 for the catalog art.
-`node scripts/check-dist-budget.mjs` reproduces both locally and CI runs the same script, so a
-number you measure here is the number that decides. It was checked against a real ext4 volume on
-five different built trees and matched `du -sk` to the kilobyte on every one. Measured on this
-branch, `dist/public` is **5432 KB** block-charged against the 6600 ceiling and main JS is
-**477 KB**.
+`node scripts/check-dist-budget.mjs` reproduces the CI measurement locally and CI runs the same
+script, so the METHOD no longer differs between the two. It was checked against a real ext4
+volume on five different built trees and matched `du -sk` to the kilobyte on every one. Measured
+on this branch, `dist/public` is **5432 KB** block-charged against the 6600 ceiling and main JS
+is **477 KB**.
+
+**Read the number off the PUSH run, never the pull_request run, and know why they differ.** A
+`pull_request` run builds your branch ALREADY MERGED with main, so it carries whatever other
+lanes have landed since you branched and reads higher than your branch alone. On `f8c7b14` the
+two runs of the same commit reported **5432 KB** (push, the branch) and **5460 KB** (pull_request,
+the branch plus main), a 28 KB gap that is entirely other people's work. The push run agreed with
+this machine to the kilobyte and emitted the same content hash for the CSS, so a local
+measurement IS the CI measurement for the tree you built. What it cannot see is what has landed
+on main while you worked. Rebase before you trust a number near the ceiling.
 
 **The total is measured in 4 KB BLOCKS, and that changes what a fix looks like.** CI sizes the
 tree with `du -sk`, and `du` counts allocated blocks: on the runner's ext4 filesystem every file
