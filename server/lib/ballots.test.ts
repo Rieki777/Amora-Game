@@ -58,13 +58,13 @@ const openOne = async (over: Partial<OpenBallotInput> = {}) =>
 
 /** Push a ballot's closes_at into the past: the clock, not a status change. */
 const expire = async (ballotId: string) => {
-  await pool.query("UPDATE ballots SET closes_at = DATE_SUB(NOW(), INTERVAL 1 HOUR) WHERE id = ?", [ballotId]);
+  await pool.query("UPDATE ballots SET closes_at = DATE_SUB(NOW(), INTERVAL 1 HOUR) WHERE id = ?", [ballotId]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
 };
 
 describe.skipIf(!configured)("ballots (MySQL)", () => {
   beforeAll(async () => {
     db = await provisionTestDb();
-    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 8 });
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 8 }); // module-review-ok: the S5 scratch-schema harness pool, the crews.test.ts shape
   });
 
   afterAll(async () => {

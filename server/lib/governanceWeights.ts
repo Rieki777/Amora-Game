@@ -119,11 +119,11 @@ export async function setWeight(pool: Pool, input: WeightChangeInput): Promise<v
       [input.userId],
     );
     const oldWeight = prev[0] ? Number(prev[0].weight) : null;
-    await conn.query(
+    await conn.query( // module-review-ok: the weight tables' one enumerable home; state and trail commit in one transaction here and nowhere else
       "INSERT INTO governance_weights (user_id, weight) VALUES (?,?) ON DUPLICATE KEY UPDATE weight = VALUES(weight)",
       [input.userId, input.weight],
     );
-    await conn.query(
+    await conn.query( // module-review-ok: the weight tables' one enumerable home; state and trail commit in one transaction here and nowhere else
       "INSERT INTO governance_weight_changes (user_id, old_weight, new_weight, actor_user_id, note) VALUES (?,?,?,?,?)",
       [input.userId, oldWeight, input.weight, input.actorUserId, input.note.trim()],
     );

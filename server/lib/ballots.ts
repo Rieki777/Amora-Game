@@ -166,7 +166,7 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    await conn.query(
+    await conn.query( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
       "INSERT INTO ballots (id, subject_type, subject_ref, open_key, circle_id, title, doc_markdown, method, " +
         "weight_mode, weight_token, unity_pct, quorum_pct, total_weight, electorate_count, opened_by, " +
         "opens_at, closes_at, status) " +
@@ -191,7 +191,7 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
       ],
     );
     for (const e of electorate) {
-      await conn.query("INSERT INTO ballot_electorate (ballot_id, user_id, weight) VALUES (?,?,?)", [
+      await conn.query("INSERT INTO ballot_electorate (ballot_id, user_id, weight) VALUES (?,?,?)", [ // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
         id,
         e.userId,
         Math.max(0, e.weight),
@@ -289,7 +289,7 @@ export async function castVote(
   if (ballot.method === "consent" && choice === "no" && !cleanReason) {
     return { ok: false, error: "A no in consent mode is an objection, and an objection carries its reasoning. Say why" };
   }
-  await pool.query(
+  await pool.query( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
     "INSERT INTO ballot_votes (ballot_id, user_id, choice, reason) VALUES (?,?,?,?) " +
       "ON DUPLICATE KEY UPDATE choice = VALUES(choice), reason = VALUES(reason)",
     [ballotId, userId, choice, cleanReason || null],
@@ -300,7 +300,7 @@ export async function castVote(
       [ballotId, userId],
     );
     if (mine[0]) {
-      await pool.query("UPDATE ballot_objections SET text = ? WHERE id = ?", [cleanReason, String(mine[0].id)]);
+      await pool.query("UPDATE ballot_objections SET text = ? WHERE id = ?", [cleanReason, String(mine[0].id)]); // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
     } else {
       await fileObjection(pool, ballotId, userId, cleanReason);
     }
@@ -328,7 +328,7 @@ export async function fileObjection(
   );
   if (!inRoll[0]) return { ok: false, error: "Objections come from the ballot's own electorate" };
   const id = `obj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  await pool.query(
+  await pool.query( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
     "INSERT INTO ballot_objections (id, ballot_id, user_id, text, status) VALUES (?,?,?,?,'open')",
     [id, ballotId, userId, clean],
   );
