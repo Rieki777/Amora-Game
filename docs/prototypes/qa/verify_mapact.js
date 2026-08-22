@@ -278,6 +278,23 @@ const label = (r) => `${r.at} tab ${r.tab} ${r.kind} "${r.txt}"`;
     const changed = after.filter !== h.before.filter || after.bg !== h.before.bg || after.bc !== h.before.bc;
     ok(changed, `§5.1 ${h.sel} answers a hover (${h.before.filter} -> ${after.filter}, border ${h.before.bc} -> ${after.bc})`);
   }
+  /* A HOVER ANSWERS IN THE RIGHT DIRECTION. §5.1 only asks whether anything
+     changed, and the first version of this patch passed it while making the
+     CURRENT tab fainter: the new hover rule and the tab strip's .on rule weigh
+     the same, so order decided, and the block below the strip won. Pointing at
+     the tab you are on took its fill from .5 to .35 and its ink from #241a08
+     to #3a2b12. Measured, not reasoned about. */
+  {
+    const alpha = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c); if (!m) return 1; const p = m[1].split(','); return p.length > 3 ? parseFloat(p[3]) : 1; };
+    const lum = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c); if (!m) return 0; const p = m[1].split(',').map(parseFloat); return 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]; };
+    const sel = '#tabs button.on';
+    const before = await page.evaluate((s) => { const cs = getComputedStyle(document.querySelector(s)); return { bg: cs.backgroundColor, col: cs.color }; }, sel);
+    await page.hover(sel); await page.waitForTimeout(220);
+    const after = await page.evaluate((s) => { const cs = getComputedStyle(document.querySelector(s)); return { bg: cs.backgroundColor, col: cs.color }; }, sel);
+    ok(alpha(after.bg) >= alpha(before.bg) && lum(after.col) <= lum(before.col) + 1,
+      `§5.2 hovering the current tab does not wash it out (fill ${before.bg} -> ${after.bg}, ink ${before.col} -> ${after.col})`);
+    await page.mouse.move(4, 4); await page.waitForTimeout(120);
+  }
 
   /* ══ §6 NOT COLOUR ALONE ═══════════════════════════════════════════════ */
   console.log('\n-- §6 shape, not only colour --');
