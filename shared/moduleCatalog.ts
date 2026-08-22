@@ -295,6 +295,21 @@ export const MODULE_CATALOG: Record<string, ModuleCatalogEntry> = {
     hue: 100,
     emblem: "Handshake",
   },
+  crowdpool: {
+    promise: "Watch the pool your village is gathering become walls.",
+    benefits: [
+      "The hub campaign as a living page: gold ring, star lantern, needs shelf",
+      "A ledger of arrivals in the map's own voice, aggregates only",
+      "Every claim links to the hub page where the pledge itself happens",
+      "Partner funder cards carry the hub's own cached numbers",
+      "Hub outages degrade to the last snapshot with its age named",
+    ],
+    forWhom: "Villages raising something real through the hub's crowdpool.",
+    setupSummary: "Link at least one hub campaign by id or slug in the module config.",
+    dataSummary: "A cached copy of hub-public campaign data. Never member data.",
+    hue: 42,
+    emblem: "Landmark",
+  },
   network: {
     promise: "Villages sharing needs and offers, on purpose.",
     benefits: [
