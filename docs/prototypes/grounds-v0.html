@@ -209,17 +209,22 @@
     background:linear-gradient(180deg,#f7ecce,#eadbb2 30%,#e2cfa0);border-left:2px solid #8a6a33;
     box-shadow:-12px 0 34px rgba(0,0,0,.45);transition:right .28s cubic-bezier(.2,.8,.3,1);color:var(--ink);pointer-events:none}
   #panel.open{right:0;pointer-events:auto}
-  #panelHead{padding:18px 20px 12px;border-bottom:1px solid #c8ab6f;background:
+  /* The right padding is the close cross's 44px plus its offset plus a
+     gap. Without it a long place name runs under the bigger cross. */
+  #panelHead{padding:18px 62px 12px 20px;border-bottom:1px solid #c8ab6f;background:
     linear-gradient(180deg,rgba(58,43,26,.06),transparent)}
   #panelHead h2{font-variant:small-caps;letter-spacing:.1em;font-size:21px;font-weight:normal;color:#3a2b12}
   #panelHead .sub{color:#6b4d1e;font-size:12px;margin-top:2px}
   #panelHead .statepill{display:inline-block;margin-top:8px;font-size:11px;letter-spacing:.1em;font-variant:small-caps;
     padding:2px 10px;border-radius:12px;border:1px solid #8a6a33;background:#fff7e0}
-  #panelClose{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:50%;border:1px solid #8a6a33;
-    background:linear-gradient(180deg,#e9cf93,#cda45c);cursor:pointer;font-size:14px;color:#221807;font-family:inherit}
+  #panelClose{position:absolute;top:10px;right:10px;width:44px;height:44px;border-radius:50%;border:1.5px solid #8a6a33;
+    background:linear-gradient(180deg,#e9cf93,#cda45c);cursor:pointer;font-size:17px;color:#221807;font-family:inherit;
+    box-shadow:inset 0 1px 0 rgba(255,248,220,.7),0 2px 5px rgba(36,26,16,.3)}
+  #panelClose:hover{filter:brightness(1.08);border-color:#6b4d1e}
+  #panelClose:active{transform:translateY(1px)}
   #tabs{display:flex;border-bottom:1px solid #c8ab6f}
   #tabs button{flex:1;appearance:none;border:none;background:transparent;font-family:inherit;font-variant:small-caps;
-    letter-spacing:.1em;font-size:12.5px;padding:10px 4px;cursor:pointer;color:#6b4d1e;border-bottom:3px solid transparent}
+    letter-spacing:.1em;font-size:12.5px;padding:12px 4px;min-height:44px;cursor:pointer;color:#6b4d1e;border-bottom:3px solid transparent}
   #tabs button.on{color:#241a08;border-bottom-color:#a37f42;background:rgba(255,247,224,.5)}
   #panelBody{flex:1;overflow-y:auto;padding:14px 18px;font-size:13.5px;line-height:1.5}
   .qcard{border:1px solid #c8ab6f;border-radius:7px;padding:10px 12px;margin-bottom:10px;background:#fdf6e0}
@@ -237,6 +242,76 @@
   .doorbtn b{font-variant:small-caps;letter-spacing:.08em;font-size:14px;color:#2c2008;font-weight:normal}
   .doorbtn span{font-size:11px;color:#6b4d1e}
   .doorbtn .arr{color:#8a6a33;font-size:16px}
+
+  /* ---------- W1c: AN ACTION POINT LOOKS LIKE AN ACTION ----------
+     Measured on the pristine artifact at 1480x1180, panel open at the
+     Greenhouse and at Ridge Hamlet North: RSVP 51x20, the door CTA
+     161x29, a module door 128x30, Claim this quest 123x28, Raise a hand
+     102x28, a tab 100x38, the close cross 30x30. Panel prose is 13.5px
+     Georgia at line-height 1.5, so those are phrases with borders, which
+     is how the founder read them. Only the Enter tab's .doorbtn, at
+     362x52, was already a control.
+
+     The plaque is this map's own answer and body.lbl-tablet .banner
+     already wears it: a gold ground, a cut highlight along the top edge,
+     really dark ink, small caps. Every value below is a token already in
+     this sheet, sized to a thumb.
+
+     44px in BOTH dimensions, bought with padding and min-height rather
+     than a fixed height, so a founder label that wraps to two lines grows
+     instead of clipping. Nothing is signalled by colour alone: a control
+     carries a border, a fill and a shadow that prose does not, and the
+     focus state is a ring rather than a tint. */
+  #panel .btn,#moduleCard .btn{min-height:44px;min-width:44px;padding:11px 18px;
+    font-size:14px;line-height:1.15;letter-spacing:.09em;font-variant:small-caps;
+    border-radius:6px;border-width:1.5px;
+    box-shadow:inset 0 1px 0 rgba(255,248,220,.7),0 2px 5px rgba(36,26,16,.3)}
+  #panel .btn:hover,#moduleCard .btn:hover{filter:brightness(1.08);border-color:#6b4d1e}
+  #panel .btn:active,#moduleCard .btn:active{transform:translateY(1px);
+    box-shadow:inset 0 2px 4px rgba(36,26,16,.42)}
+  /* The row of module doors on the Overview is drawn with inline margins
+     of 6px and the door CTAs with a 7px flex gap, so 44px targets already
+     stand apart. The seat row is the one that needed telling: a wider
+     control there used to crush the seat's own name. */
+  #panel .seatrow{gap:12px;padding:10px 2px}
+  #panel .seatrow .nm{flex:1 1 auto;min-width:0}
+  /* Tab 3 was already a control. It only joins the shadow and the ring. */
+  #panel .doorbtn{border-width:1.5px;
+    box-shadow:inset 0 1px 0 rgba(255,248,220,.7),0 2px 5px rgba(36,26,16,.28)}
+  /* The conversation row was a <div> with cursor:pointer that opened the
+     Forum. A pointer is not a role: it had no keyboard, no Enter, and no
+     name for a screen reader. It is a <button> now and it is raised like
+     one, a step below the brass so the hierarchy still reads. */
+  #panel .cvrow{appearance:none;font-family:inherit;width:100%;text-align:left;
+    align-items:center;min-height:44px;padding:9px 11px;
+    border-width:1.5px;border-color:#a3854a;
+    background:linear-gradient(180deg,#fdf6e0,#f0e2bd);
+    box-shadow:inset 0 1px 0 rgba(255,252,238,.9),0 1px 3px rgba(36,26,16,.2)}
+  #panel .cvrow:hover{filter:brightness(1.04);border-color:#8a6a33}
+  #panel .cvrow:active{transform:translateY(1px)}
+  #tabs button:hover{background:rgba(255,247,224,.35);color:#3a2b12}
+  /* THE HOVER RULE OUTRANKS .on BY ORDER, not by weight: both selectors
+     weigh the same and this block sits below the tab strip's, so without
+     this line pointing at the CURRENT tab washed it out, .5 fill down to
+     .35 and #241a08 ink up to #3a2b12. Hovering the tab you are already
+     on now reads as more of it rather than less. */
+  #tabs button.on:hover{background:rgba(255,247,224,.66);color:#241a08}
+  /* ONE RING FOR EVERY CONTROL IN THE PANEL. Dark ink on parchment and
+     offset clear of the plaque's own edge, so it reads on the pale fills
+     and on the dark .doorcta alike. */
+  #panel .btn:focus-visible,#panel .cvrow:focus-visible,#panel .doorbtn:focus-visible,
+  #tabs button:focus-visible,#panelClose:focus-visible,
+  #moduleCard .btn:focus-visible{outline:3px solid #2c2008;outline-offset:3px}
+  /* A press is a direct answer to a finger and stays. The easing is the
+     motion, so the easing is what a reduced-motion reader loses. */
+  @media (prefers-reduced-motion:no-preference){
+    #panel .btn,#panel .cvrow,#panel .doorbtn,#tabs button,#panelClose,
+    #moduleCard .btn{transition:filter .12s ease,box-shadow .12s ease,
+      background .12s ease,border-color .12s ease,transform .08s ease}}
+  /* The room the door opens grows with its controls, so it gets a scroll
+     of its own before a taller row can push the last one off the screen.
+     body.pocket #moduleCard already caps itself and outranks this. */
+  #moduleCard{max-height:88vh;overflow-y:auto}
   .lastv{font-size:10.5px;color:#8a7347;margin-top:10px;font-style:italic}
 
   /* ---------- Maia dock ---------- */
@@ -3627,7 +3702,7 @@ function renderTab(i){const s=BY[panelKey];if(!s)return;[...$('tabs').children].
     ${doorBtns(s)}
     <p style="margin-top:8px;font-size:12px;color:#6b4d1e">⚑ ${q.length} quests · ⛨ ${st.length} open seats · 💬 ${threadsAt(s.key).length} conversation${threadsAt(s.key).length===1?'':'s'}${s.event?' · ✦ '+escq(s.event):''}</p>
     ${threadsAt(s.key).length?`<div style="margin-top:8px">${head('what people are saying here')}
-      ${threadsAt(s.key).map(t=>`<div class="cvrow" data-item="${escq(itemAddr('talk',t))}" onclick="openDoor('forum',{at:'${escj(s.key)}'})"><span>💬</span><span><b>${escq(t.title)}</b><small>${escq(t.author)} · ${escq(t.replies)} replies · ${escq(t.last)} ago</small></span></div>`).join('')}
+      ${threadsAt(s.key).map(t=>`<button type="button" class="cvrow" data-item="${escq(itemAddr('talk',t))}" onclick="openDoor('forum',{at:'${escj(s.key)}'})"><span>💬</span><span><b>${escq(t.title)}</b><small>${escq(t.author)} · ${escq(t.replies)} replies · ${escq(t.last)} ago</small></span></button>`).join('')}
       </div>`:''}
     <div style="margin-top:11px;border-top:1px dashed #c8ab6f;padding-top:8px">
       ${head('vitals at this address'+(facts.length?' · <span style="color:#a3703d">sample data</span>':''))}
@@ -6224,7 +6299,7 @@ try{refreshBadges()}catch(_){}
 setInterval(()=>{try{refreshBadges()}catch(_){}} ,3000);
 function eventCard(s){const evs=eventsAt(s.key);if(!evs.length)return'';
   return `<div style="margin-top:9px">`+evs.map(e=>`<div class="mrow" data-item="${escq(itemAddr('event',e))}" style="margin:4px 0"><span><b>✦ ${e.title}</b><small>${e.when} · ${e.rsvp} going · sample</small></span>
-   <button class="btn" data-ev="${escq(e.id)}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${escj(e.id)}')">${EV_RSVP[e.id]?'✔ Going · tap to change':'RSVP'}</button></div>
+   <button class="btn" type="button" data-ev="${escq(e.id)}" onclick="evRSVP('${escj(e.id)}')">${EV_RSVP[e.id]?'✔ Going · tap to change':'RSVP'}</button></div>
    <div class="promise">${PROMISE_RSVP}</div>`).join('')+`</div>`}
 window.eventCard=eventCard;
 function evRSVP(id){const e=EVENTS.find(x=>x.id===id);if(!e)return;
@@ -6302,20 +6377,20 @@ const MODULES={
     blurb:'Walk a path. Every journey is a route on the land; steps without a place yet wait on the Loom.',
     sample:ctx=>SCENE.journeys.map(j=>{const placed=j.steps.filter(st=>st.at&&BY[st.at]).length;
       return `<div class="mrow"><span><b>${escq(j.name)}</b><small>${placed} of ${j.steps.length} steps placed</small></span>
-       <span style="display:flex;gap:6px"><button class="btn" style="font-size:10.5px;padding:3px 10px" onclick="playJourney('${escj(j.id)}')">➹ walk it</button></span></div>`}).join('')},
+       <span style="display:flex;gap:6px"><button class="btn" type="button" onclick="playJourney('${escj(j.id)}')">➹ walk it</button></span></div>`}).join('')},
   health:{name:'Village Health',icon:'☀',route:'/village-health',
     blurb:'The numbers behind the map. The same truth the crown banner reads.',
     sample:ctx=>SCENE.vitals.map(v=>`<div class="mrow"><span><b>${escq(v.label)}</b><small>${escq(v.sub)}</small></span><span><b>${escq(v.v)}</b></span></div>`).join('')},
   events:{name:'Events',icon:MICON.events,route:'/events',
     blurb:'Feasts, build days, ceremonies. Every event is a place and a time on the land, and its lantern burns brighter as the day comes near.',
     sample:ctx=>EVENTS.map(e=>`<div class="mrow"><span><b>✦ ${e.title}</b><small>${e.when} · at ${escq(e.at.map(k=>BY[k]?BY[k].name:k).join(' + '))} · sample</small></span>
-      <button class="btn" data-ev="${escq(e.id)}" style="font-size:10.5px;padding:3px 10px" onclick="evRSVP('${escj(e.id)}')">${EV_RSVP[e.id]?'✔ Going · tap to change':'RSVP'}</button></div>
+      <button class="btn" type="button" data-ev="${escq(e.id)}" onclick="evRSVP('${escj(e.id)}')">${EV_RSVP[e.id]?'✔ Going · tap to change':'RSVP'}</button></div>
       <div class="promise">${PROMISE_RSVP}</div>`).join('')
       +`<div class="lastv">the Events module keeps these, with the RSVPs and the capacity. Two doors, one room</div>`},
   admin:{name:'Village Settings · Make This Yours',icon:MICON.admin,route:'/admin?tab=setup',
     blurb:'Turn this into your village\'s own game. Identity, content, and the map\'s skin in one flow; blank fields keep Amora\'s answer as the suggestion.',
     sample:ctx=>`<div class="mrow"><span><b>Map skin</b><small>theme · accent · parchment · labels · icon style · painterly dials</small></span>
-      <span><button class="btn" style="font-size:10.5px;padding:3px 10px" onclick="$('module').classList.remove('show');openSkin()">✂ open the step</button></span></div>
+      <span><button class="btn" type="button" onclick="$('module').classList.remove('show');openSkin()">✂ open the step</button></span></div>
       <div class="lastv">style it once and both the site and the land follow</div>`}};
 window.MODULES=MODULES;
 function siteHref(route){return (window.SITE_BASE||'')+route}
