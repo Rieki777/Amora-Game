@@ -40,6 +40,13 @@ interface AdminModule {
   name: string;
   core: boolean;
   lifecycle: string;
+  /**
+   * What is actually being SERVED, which differs from `lifecycle` when a
+   * module is demoted for a missing dependency. The catalog withholds a
+   * village's own card image on this value, so anything explaining that
+   * has to read it and not the configured one.
+   */
+  served: string;
   legalReview: boolean;
   dataClass: string;
   setup: "none" | "optional" | "required";
@@ -208,11 +215,12 @@ function AdminPanel({ id }: { id: string }) {
           * hidden from, and the rule lived only in a server comment and an
           * e2e assertion. Say it on the surface that sets the picture.
           */}
-        {hasVillageImage && !m.core && (m.lifecycle === "off" || m.lifecycle === "preview") && (
+        {hasVillageImage && !m.core && (m.served === "off" || m.served === "preview") && (
           <p className="text-xs text-muted-foreground mb-2">
-            You are the only one seeing it. While this module is {m.lifecycle === "off" ? "off" : "in preview"},
+            You are the only one seeing it. While this module is {m.served === "off" ? "off" : "in preview"},
             members and visitors get the platform art, so your own picture never hints at what the village is
             trying out. Yours appears for everyone once the module is live for members.
+            {m.served !== m.lifecycle && " That is what is being served right now, whatever this is configured as, because the module is missing something it requires."}
           </p>
         )}
         <div className="flex flex-wrap items-center gap-3">
