@@ -29,6 +29,7 @@ import {
 } from "../../shared/modules";
 import { recordEvent } from "./events";
 import { hasRealContent } from "./examples";
+import { markModuleUse } from "./moduleUsage";
 import { secretValue } from "./secrets";
 import { stringVar } from "./variables";
 
@@ -280,6 +281,24 @@ export interface ModuleAuthDeps {
   isAdmin(req: Request): Promise<boolean>;
   /** True when the request carries a valid member token. */
   isAuthed(req: Request): Promise<boolean>;
+  /**
+   * Who to credit this request to in the meter, or null for a stranger.
+   *
+   * SYNCHRONOUS AND FREE, which is the whole reason it is a separate dep from
+   * `isAuthed`. It reads the member id straight out of the signed token and
+   * touches no database, so putting the meter on the request path of every
+   * module route in the product costs nothing on a `public` module that
+   * `isAuthed` would never have looked at.
+   *
+   * The one thing it skips is session revocation, and the trade is deliberate.
+   * A revoked token still names a real member of this village, so the worst it
+   * can do is count somebody as present who has been logged out. It cannot
+   * invent a member, because the token is HMAC-signed by this deployment. On a
+   * `members` module the gate refuses the request anyway and the meter is never
+   * reached. Paying a database read per request to sharpen that would be the
+   * write amplification problem wearing a different hat.
+   */
+  meterUserId(req: Request): string | null;
 }
 
 let authDeps: ModuleAuthDeps | null = null;
@@ -302,19 +321,80 @@ export function requireModule(id: string) {
       if (lc === "off") return hidden();
       if (lc === "preview") {
         if (!authDeps || !(await authDeps.isAdmin(req))) return hidden();
-        return next();
+        return served(id, req, res, next);
       }
       if (lc === "members") {
         if (!authDeps || !(await authDeps.isAuthed(req))) {
           return res.status(401).json({ error: "auth_required", module: id });
         }
-        return next();
+        return served(id, req, res, next);
       }
-      return next(); // public — capability checks still apply per route
+      return served(id, req, res, next); // public — capability checks still apply per route
     } catch (e) {
       next(e);
     }
   };
+}
+
+/**
+ * The module is about to serve this request, so the meter hears about it.
+ *
+ * Here and not in each module's own code, for the same reason `moduleActivity`
+ * exists: a structural no-op beats a review-enforced rule. Every non-core
+ * module mounts behind this gate, so every non-core module is metered the day
+ * it lists, and a builder cannot forget to call anything or choose to call it
+ * twice. It also cannot fire for a request the gate refused, because the
+ * refusing branches return before they reach here, so a stranger bouncing off a
+ * `members` module never counts as having used it.
+ *
+ * A signed-in member is the unit, so anonymous traffic on a `public` module
+ * earns that module nothing. That is a real cost and it is the right side of
+ * the trade: an anonymous visitor cannot be counted once instead of a hundred
+ * times, and a measure that saturates per person stops meaning anything the
+ * moment it admits people it cannot tell apart.
+ *
+ * The four core modules do not mount behind this gate and are therefore not
+ * metered. Their share would recycle to the pool under R59 either way, so
+ * nothing is owed to anybody differently; what it does mean is that the weight
+ * they would have absorbed stays with the modules that are measured. See the
+ * report for why that is worth the founder's attention.
+ */
+function served(id: string, req: Request, res: Response, next: NextFunction): void {
+  // An admin route is CONFIGURATION and not use. Every module mounts its admin
+  // prefix behind this same gate, so without this line an admin who opens the
+  // library's settings and never borrows anything counts as a library user, and
+  // in a village of four that is a quarter of the module's reach bought with a
+  // visit to a settings page. The pool is supposed to measure a village living
+  // in a module. Lowercased because Express matches mounts case-insensitively
+  // by default, so `/API/Admin/library` reaches the same handler and would
+  // otherwise walk straight past a case-sensitive test.
+  if (req.originalUrl.toLowerCase().startsWith("/api/admin/")) return next();
+
+  const userId = authDeps?.meterUserId(req) ?? null;
+  if (!userId) return next();
+
+  /*
+   * THE MARK WAITS FOR THE RESPONSE, and this is the difference between
+   * measuring use and measuring traffic.
+   *
+   * `requireModule` is mounted with `app.use("/api/library", ...)`, so it runs
+   * for EVERY path under the prefix before Express has decided whether the
+   * route exists and before any per-route capability check. Marking here
+   * directly would mean `GET /api/library/anything-at-all` set a member's bit
+   * for the cycle: a member could claim every enabled module with twenty curls,
+   * and a stray prefetch would credit a module nobody opened. The number would
+   * be counting "issued a request that reached the gate", which is not what the
+   * header promises and not what the pool should pay for.
+   *
+   * `finish` fires once the response is written, so the status is known. Under
+   * 400 means the module actually served this person something. A 404 for a
+   * path that does not exist, a 403 from a capability check, and a 500 all
+   * leave the count where it was.
+   */
+  res.on("finish", () => {
+    if (res.statusCode < 400) markModuleUse(id, userId);
+  });
+  next();
 }
 
 // ── Readiness (the Go-live card's question) ──────────────────────────────────
