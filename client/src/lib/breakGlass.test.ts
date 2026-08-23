@@ -9,7 +9,13 @@
  * set proves nothing about either.
  */
 import { describe, expect, it } from "vitest";
-import { breakGlassCopy, readOverrideRefusal, OVERRIDE_HEADER } from "./breakGlass";
+import {
+  breakGlassCopy,
+  declinedMessage,
+  declinedRefusal,
+  readOverrideRefusal,
+  OVERRIDE_HEADER,
+} from "./breakGlass";
 
 const REFUSAL = {
   error: "This village holds this one. Steward Circle looks after it now, and you are not seated there.",
@@ -121,5 +127,95 @@ describe("the sentences an operator reads before deciding", () => {
 
   it("spells the header the way the server reads it", () => {
     expect(OVERRIDE_HEADER).toBe("x-capability-override");
+  });
+});
+
+/**
+ * The sentence the server writes for a terminal, word for word from
+ * `overrideRefusal` in `server/index.ts`. It is here as the CONTROL: these
+ * cases are only worth anything if the string they replace really does hand
+ * somebody a header to send, and asserting that against a paraphrase would
+ * prove nothing about what ships.
+ */
+const CURL_ERROR =
+  "This village holds this one. Steward Circle looks after it now, and you are not seated there. " +
+  "You can still act on it: send override with this request, or the x-capability-override header " +
+  "when it carries no body, and the village will see that you did.";
+
+describe("what an operator reads after they decline", () => {
+  it("confirms the choice and names who kept it", () => {
+    expect(declinedMessage(readOverrideRefusal(409, REFUSAL)!)).toBe(
+      "Left it with Steward Circle. The act did not go through.",
+    );
+  });
+
+  it("keeps a missing holder missing", () => {
+    const message = declinedMessage({
+      capability: "dial.set",
+      title: "dial.set",
+      holder: null,
+      consequence: null,
+    });
+    expect(message).toBe("Left it with the village. The act did not go through.");
+    expect(message).not.toContain("null");
+  });
+
+  it("hands nobody a terminal instruction", () => {
+    // The whole point. The control below proves the string being replaced
+    // really did carry one, so a green here is about the swap and not about
+    // a refusal that never mentioned a header in the first place.
+    expect(CURL_ERROR).toContain("x-capability-override");
+    for (const ask of [readOverrideRefusal(409, REFUSAL)!, { capability: "c", title: "c", holder: null, consequence: null }]) {
+      const message = declinedMessage(ask);
+      expect(message).not.toContain("x-capability-override");
+      expect(message).not.toContain("header");
+      expect(message).not.toContain("override");
+    }
+  });
+
+  it("swaps the sentence and keeps every other fact the server sent", async () => {
+    const served = new Response(JSON.stringify({ ...REFUSAL, error: CURL_ERROR }), {
+      status: 409,
+      statusText: "Conflict",
+      headers: { "content-type": "application/json", "content-length": "999" },
+    });
+    const body = await served.clone().json();
+    const declined = declinedRefusal(served, body, readOverrideRefusal(409, body)!);
+
+    expect(declined.status).toBe(409);
+    expect(declined.ok).toBe(false);
+    expect(declined.statusText).toBe("Conflict");
+
+    const seen = await declined.json();
+    expect(seen.error).toBe("Left it with Steward Circle. The act did not go through.");
+    expect(seen.requiresOverride).toBe(true);
+    expect(seen.villageHolds).toBe(true);
+    expect(seen.capability).toBe("forum.moderate");
+    expect(seen.holder).toBe("Steward Circle");
+    expect(seen.title).toBe("The forum");
+    expect(seen.consequence).toBe(REFUSAL.consequence);
+  });
+
+  it("drops the length it just invalidated", async () => {
+    const served = new Response(JSON.stringify({ ...REFUSAL, error: CURL_ERROR }), {
+      status: 409,
+      headers: { "content-type": "application/json", "content-length": "999" },
+    });
+    expect(served.headers.get("content-length")).toBe("999");
+    const declined = declinedRefusal(served, await served.clone().json(), readOverrideRefusal(409, REFUSAL)!);
+    expect(declined.headers.get("content-length")).toBeNull();
+    expect(declined.headers.get("content-type")).toBe("application/json");
+  });
+
+  it("survives a body it cannot spread", async () => {
+    // `declinedRefusal` is only ever reached through a body that already read
+    // as a refusal, so this can't happen today. It is here so that the day
+    // something upstream changes, the operator gets a sentence and not a
+    // thrown TypeError inside a fetch wrapper every page depends on.
+    const served = new Response("[]", { status: 409 });
+    const declined = declinedRefusal(served, [], readOverrideRefusal(409, REFUSAL)!);
+    expect(await declined.json()).toEqual({
+      error: "Left it with Steward Circle. The act did not go through.",
+    });
   });
 });
