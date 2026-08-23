@@ -99,8 +99,11 @@ export default function QuestCrews({
 
   const leave = async (crew: CrewView) => {
     setBusy(true);
-    await gameFetch(`/api/crews/${encodeURIComponent(crew.id)}/leave`, { method: "POST" });
-    setNote(`You left ${crew.name}.`);
+    // Its two siblings above read `r.ok` before they say anything. This one
+    // said "You left" on any answer at all, so a refusal left somebody in a
+    // crew they had been told they were out of.
+    const r = await gameFetch(`/api/crews/${encodeURIComponent(crew.id)}/leave`, { method: "POST" });
+    setNote(r.ok ? `You left ${crew.name}.` : `That did not go through. You are still in ${crew.name}.`);
     setBusy(false);
     load();
   };

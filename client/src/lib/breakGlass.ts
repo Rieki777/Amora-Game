@@ -35,6 +35,24 @@
  * route (`PUT /api/org/village/power`) validates the shape of what a village
  * says about itself, so an extra key in a JSON body is a thing it has to be
  * taught to ignore.
+ *
+ * ── THE ONE PLACE THIS TOUCHES A BODY, AND WHY ────────────────────────────
+ *
+ * The server's `error` is written for somebody holding a terminal. It names
+ * the holder and then says to send the `x-capability-override` header, and
+ * that sentence is the documented protocol: curl is still a real way in, the
+ * 409 is still its answer, and `server/index.ts` keeps that string exactly as
+ * it is.
+ *
+ * An operator who was ASKED and pressed "Leave it" is a different reader.
+ * They declined a second ago, and every control in this client renders a
+ * failed write by printing `error` in a toast, so the last thing they see is
+ * a terminal instruction for the very thing they just turned down. A decline
+ * is a fact the browser holds and the server never learns, so the browser is
+ * the only side that can say it. `declinedRefusal` swaps that ONE string for
+ * what actually happened and leaves the status, the flags and every other
+ * field alone. A refusal nobody was asked about passes through untouched, and
+ * so does one where the question itself failed to be put.
  */
 
 /** The facts a 409 hands over, and the only ones a control may say. */
@@ -120,6 +138,60 @@ export function breakGlassCopy(ask: BreakGlassAsk): BreakGlassCopy {
   };
 }
 
+/**
+ * WHAT A CONTROL PRINTS AFTER A DECLINE.
+ *
+ * Short, past tense, and carrying no instruction. The operator made a choice
+ * a second ago and this confirms it, so there is nothing here to do next. The
+ * holder is named when the server named one and dropped when it did not,
+ * which is the rule every other sentence in this file follows.
+ *
+ * "The act did not go through" is the tense `breakGlassCopy` already set, and
+ * it is true of every route that reaches this point: the 409 is written by
+ * `guardCapability` before the handler runs, so the refusal is the whole
+ * story and nothing was half done.
+ */
+export function declinedMessage(ask: BreakGlassAsk): string {
+  return ask.holder
+    ? `Left it with ${ask.holder}. The act did not go through.`
+    : "Left it with the village. The act did not go through.";
+}
+
+/**
+ * The refusal as the person who declined it should read it.
+ *
+ * Everything the server sent survives except `error`: the status, the flags,
+ * the capability and the three facts the dialog was built from. A caller that
+ * keys on `res.status`, or reads `requiresOverride`, or falls back to its own
+ * sentence when the body has none, behaves exactly as it did before.
+ *
+ * Two headers come off, both for the same reason: they described a body that
+ * no longer exists. `content-length` is the obvious one. `content-encoding`
+ * is the one worth writing down, because `server/index.ts` mounts
+ * `compression`, so a 409 large enough to be worth gzipping arrives carrying
+ * it. A constructed Response never decodes its own body, so leaving it would
+ * not break a caller today; it would sit there as a header saying "gzip" over
+ * plain JSON, waiting for the first person who believes it.
+ *
+ * Pure and separate from the wrapper so it is testable without a browser,
+ * which is what every client test in this repo is.
+ */
+export function declinedRefusal(res: Response, body: unknown, ask: BreakGlassAsk): Response {
+  const fields =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : {};
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  headers.delete("content-encoding");
+  headers.set("content-type", "application/json");
+  return new Response(JSON.stringify({ ...fields, error: declinedMessage(ask) }), {
+    status: res.status,
+    statusText: res.statusText,
+    headers,
+  });
+}
+
 /** Answered by whoever is holding the screen. True means replay it. */
 export type BreakGlassAsker = (ask: BreakGlassAsk) => Promise<boolean>;
 
@@ -184,13 +256,19 @@ export function installBreakGlass(asker: BreakGlassAsker): () => void {
     const ask = readOverrideRefusal(res.status, body);
     if (!ask) return res;
     if (!replayable(input, init)) return res;
+    // Whether the question was ANSWERED, which is a different fact from
+    // whether it was answered yes. An asker that throws leaves nobody holding
+    // a decision, and a refusal nobody decided about is still the server's to
+    // explain, so only a real decline gets the client's sentence.
+    let answered = false;
     let go = false;
     try {
       go = await asker(ask);
+      answered = true;
     } catch {
       go = false;
     }
-    if (!go) return res;
+    if (!go) return answered ? declinedRefusal(res, body, ask) : res;
     try {
       return await original(spare, replayOptions(input, init));
     } catch {

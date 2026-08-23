@@ -9,7 +9,7 @@
 import { Link } from "wouter";
 import { ArrowLeft } from "lucide-react";
 import Layout from "@/components/Layout";
-import ModuleGate from "@/components/modules/ModuleGate";
+import ModuleGate, { SignInDoors } from "@/components/modules/ModuleGate";
 import { PAGE_GATE_LINES } from "@/components/modules/gateCopy";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
@@ -49,12 +49,13 @@ export default function Propose() {
               <p className="mx-auto mt-2 max-w-md text-stone-600 leading-relaxed">
                 A proposal carries your name, so this part opens for members.
               </p>
-              <Link
-                href="/login?next=%2Fpropose"
-                className="mt-5 inline-flex min-h-[44px] items-center rounded-lg bg-teal-deep px-5 font-semibold text-white hover:bg-teal-deep-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2"
-              >
-                Sign in
-              </Link>
+              {/* The one card of the four that SignInToSee could nearly
+                  replace. It keeps its own because the back link to every
+                  decision is this page's shape and a visitor who is not ready
+                  to write a proposal should still be able to go and read one. */}
+              <div className="mt-5">
+                <SignInDoors next="/propose" />
+              </div>
             </div>
           )}
         </div>

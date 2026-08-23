@@ -8,7 +8,7 @@
  * sanitize, the same posture Messages takes.
  */
 import Layout from "@/components/Layout";
-import ModuleGate from "@/components/modules/ModuleGate";
+import ModuleGate, { SignInDoors } from "@/components/modules/ModuleGate";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -168,12 +168,7 @@ function IntroductionsPage() {
               The rest of this page opens when you sign in: your own intents, offers to confirm, and the
               introductions waiting for you.
             </p>
-            <Link
-              href={`/login?next=${encodeURIComponent("/introductions")}`}
-              className="inline-flex items-center min-h-[44px] px-5 rounded-lg bg-teal-deep text-white font-semibold"
-            >
-              Sign in
-            </Link>
+            <SignInDoors next="/introductions" />
           </div>
           <Board entries={board} />
         </div>

@@ -162,8 +162,19 @@ export default function YourAgentPanel() {
     setTokenName("");
     void load();
   };
+  /*
+   * THE FOUR IN THIS FILE THAT DID NOT ASK (save honesty).
+   *
+   * Every other handler here goes through `json<T>` and reads `r.ok` before
+   * it says a word. These four threw the answer away and let `load()` stand
+   * in for it, so a refused revoke redrew the same token, a refused key
+   * removal cleared the note that would have explained it, and a correction
+   * to a public statement about somebody closed its own editor and lost the
+   * text they had typed. Each now returns before it touches the screen.
+   */
   const revoke = async (id: string) => {
-    await gameFetch(`/api/agent/tokens/${id}`, { method: "DELETE" });
+    const r = await gameFetch(`/api/agent/tokens/${id}`, { method: "DELETE" }).then(json<any>);
+    if (!r.ok) { setError(r.data?.error ?? "Could not revoke that token"); return; }
     void load();
   };
 
@@ -184,7 +195,8 @@ export default function YourAgentPanel() {
     void load();
   };
   const removeInboxNow = async () => {
-    await gameFetch("/api/agent/inbox", { method: "DELETE" });
+    const r = await gameFetch("/api/agent/inbox", { method: "DELETE" }).then(json<any>);
+    if (!r.ok) { setInboxNote(r.data?.error ?? "Could not remove the inbox"); return; }
     setInboxUrl(""); setInboxSecret(""); void load();
   };
 
@@ -197,7 +209,8 @@ export default function YourAgentPanel() {
     void load();
   };
   const removeKey = async () => {
-    await gameFetch("/api/agent/key", { method: "DELETE" });
+    const r = await gameFetch("/api/agent/key", { method: "DELETE" }).then(json<any>);
+    if (!r.ok) { setKeyNote(r.data?.error ?? "Could not remove the key"); return; }
     setKeyNote(""); void load();
   };
 
@@ -211,7 +224,10 @@ export default function YourAgentPanel() {
   };
 
   const decideStatement = async (id: string, action: "correct" | "withdraw", correction?: string) => {
-    await gameFetch(`/api/agent/statements/${id}/${action}`, { method: "POST", body: JSON.stringify({ correction }) });
+    const r = await gameFetch(`/api/agent/statements/${id}/${action}`, { method: "POST", body: JSON.stringify({ correction }) }).then(json<any>);
+    // The editor stays open with the text still in it, which is the rule the
+    // rest of this round settled on for a refused piece of writing.
+    if (!r.ok) { setError(r.data?.error ?? "Could not record that"); return; }
     setCorrecting(null); void load();
   };
   const decideDraft = async (id: string, action: "confirm" | "reject") => {

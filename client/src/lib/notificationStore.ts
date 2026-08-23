@@ -243,6 +243,8 @@ export async function markNotificationsSeen(): Promise<void> {
   if (!token || state.unseen === 0) return;
   publish({ ...state, unseen: 0 });
   await fetch("/api/notifications/seen", {
+    // save-ok: the badge comes back on the next poll if the server never
+    // heard, so the truth arrives on its own and no sentence is owed.
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: "{}",
