@@ -541,22 +541,27 @@ describe.skipIf(!DB_CONFIGURED)("what the village actually got", () => {
      * THE CEILING IS REAL, AND THIS IS WHERE IT IS PROVED. Before this
      * crossing the same request from the same account made an event.
      *
-     * KNOWN GAP, AND IT IS NOT THIS LANE'S TO CLOSE. The calendar's routes
-     * ask `mayManageEvents`, which reduces `mayAct`'s verdict to a boolean
-     * and answers a bare 401. The verdict's own sentence names the holder and
-     * says exactly what to send to go through, and `guardCapability` returns
-     * it as a 409 for the eleven routes that use it, so an operator meeting
-     * the library or the queues is told what happened and an operator meeting
-     * the calendar is not. `guardCapability`'s own comment says why that
-     * matters: a bare 401 there reads as a bug in the product, and an
-     * operator who believes the panel is broken starts looking for a database
-     * to edit. Twelve call sites in the admin block, which lane G-B owns.
+     * THE GAP THIS USED TO PIN IS CLOSED. The calendar answered a bare 401
+     * here, because its routes asked `mayManageEvents`, which reduced
+     * `mayAct`'s verdict to a boolean and threw away the sentence naming the
+     * holder. An operator meeting the library or the queues was told what had
+     * happened and an operator meeting the calendar was not, which is the
+     * case `guardCapability`'s own comment is about: a bare 401 reads as a
+     * bug in the product, and an operator who believes the panel is broken
+     * starts looking for a database to edit.
      *
-     * This asserts what is TRUE today rather than what should be, because a
-     * test written against the better answer would go red on somebody else's
-     * correct fix and green on nothing.
+     * Eleven refusal sites now ask `guardCapability` directly. The three
+     * calls to `mayManageEvents` that remain are visibility reads deciding
+     * whether a payload includes drafts, which is the one job a boolean is
+     * the right answer to.
      */
-    expect(stopped.status).toBe(401);
+    expect(stopped.status).toBe(409);
+    // THE EXPLANATION ARRIVES: who holds it, and exactly what to send.
+    expect(stopped.json?.villageHolds).toBe(true);
+    expect(stopped.json?.requiresOverride).toBe(true);
+    expect(stopped.json?.capability).toBe("event.manage");
+    expect(String(stopped.json?.error)).toContain("Steward Circle");
+    expect(String(stopped.json?.error)).toContain("override");
   });
 
   it("...and reaching past the village in the open works, and the village is told", async () => {

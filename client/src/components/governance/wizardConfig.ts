@@ -35,7 +35,9 @@ import {
   Coins,
   FileText,
   Handshake,
+  KeyRound,
   Scale,
+  Undo2,
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
@@ -54,6 +56,8 @@ export const WIZARD_TYPES = [
   "badge_grant",
   "quest_payout",
   "power_transfer",
+  "power_grant",
+  "power_return",
 ] as const;
 export type WizardType = (typeof WIZARD_TYPES)[number];
 
@@ -105,6 +109,21 @@ export type PickSource =
    * cannot offer a door that is not there.
    */
   | "powers"
+  /*
+   * The powers the village could vote ONTO a role, and the ones it is holding
+   * right now. Two more served lists, for the same reason `powers` is served:
+   * the platform's own answer to what can move is the only one that cannot go
+   * stale, and a picker built on a typed list walks members toward a refusal.
+   *
+   * `grantablePowers` is deliberately NOT the same list as `powers`. That one
+   * hides a power the village already holds, because asking to hold it again
+   * is a ceremony about nothing. The runway wants the opposite: a power the
+   * village holds can still be voted onto a second role, and a power no role
+   * carries is exactly the one the runway exists for. What it hides instead
+   * is a power the CHOSEN role already carries, which the route refuses.
+   */
+  | "grantablePowers"
+  | "heldPowers"
   | "roles";
 
 export interface FieldSpec {
@@ -626,6 +645,153 @@ export const WIZARD_TYPE_CONFIGS: readonly WizardTypeConfig[] = [
       terms: { skip: true },
     },
   },
+  /*
+   * THE RUNWAY.
+   *
+   * A power cannot cross to a village unless a role already carries it: a
+   * holder that cannot act is not a holder. Until this type existed the only
+   * writer of a role's capability list was an admin route, so the handover's
+   * first step belonged to the scaffolding, and five of the eight movable
+   * powers are carried by no seeded role at all. This is that step, held by
+   * the village.
+   *
+   * IT IS THE SMALLER ASK ON PURPOSE, and it sits above the handover here for
+   * that reason. Saying the stewards should be able to work the queues is a
+   * different question from saying the admin panel should stop carrying them,
+   * and a village can answer the first and never be asked the second.
+   */
+  {
+    id: "power_grant",
+    group: "The village's own powers",
+    icon: KeyRound,
+    title: "Give a role a power",
+    description: "Ask the village to let a role do something it cannot do yet.",
+    consequence:
+      "Publishing opens the vote to the whole roll. If it carries, anybody seated in the role you named can do this from that day. Nothing moves off the admin panel: this is the step that lets somebody act, and taking a power on is a separate ask the village makes later, or never.",
+    publish: {
+      path: "/api/governance/power-grants",
+      body: (a) => ({
+        capability: a.capability,
+        roleId: a.roleId,
+        reason: a.reason,
+      }),
+    },
+    steps: {
+      subject: {
+        label: "The power",
+        intro: "What the village would be letting a role do, and which role.",
+        fields: [
+          {
+            key: "capability",
+            kind: "pick",
+            source: "grantablePowers",
+            label: "The power",
+            required: true,
+            problem: required("A power"),
+            help: "These are the powers a village can go on to hold. A power that could never leave the admin panel is not on this list, because giving a role one would be a job description and never a step toward anything.",
+            tip: "Who votes here is a rule of the game, so it is changed by a rule change and never by giving a role the key.",
+          },
+          {
+            key: "roleId",
+            kind: "pick",
+            source: "roles",
+            label: "Who would do it",
+            required: true,
+            problem: required("A role"),
+            help: "Anybody seated in this role can do it the day the vote carries.",
+            tip: "This adds one power to a role. Taking one off a role is not something a vote does, so a role the village armed cannot be quietly disarmed by another one.",
+          },
+        ],
+      },
+      details: {
+        label: "Why this role",
+        intro: "What makes this the right group of people to look after it.",
+        fields: [
+          {
+            key: "reason",
+            kind: "textarea",
+            rows: 6,
+            maxLength: 2000,
+            label: "Why this role",
+            placeholder:
+              "The stewards already answer most of what comes through the submissions box, and they have been forwarding it to an admin to action for two seasons.",
+            help: "This is the part the roll reads before it votes.",
+            required: true,
+            problem: atLeast(40, "The case for it"),
+          },
+        ],
+      },
+      terms: { skip: true },
+    },
+  },
+  /*
+   * THE WAY BACK.
+   *
+   * R55: the handover is a journey, and a journey with no way back is a trap.
+   * A village could vote a power across and then had one exit, an admin
+   * route, so a village that found it was not ready had to ask the
+   * scaffolding to take the power back. That is the one sentence this whole
+   * round exists to stop a village having to say.
+   *
+   * THE COPY HERE IS THE DESIGN. Handing a power back is an ordinary act of a
+   * village being honest about its capacity. Nothing on this card frames it
+   * as failing, as being behind, or as a thing to try again later, and it
+   * carries no celebration either way: the crossing claimed the one moment
+   * this surface rations.
+   */
+  {
+    id: "power_return",
+    group: "The village's own powers",
+    icon: Undo2,
+    title: "Hand a power back",
+    description: "Ask the village to give one of the powers it holds back to the admin panel.",
+    consequence:
+      "Publishing opens the vote to the whole roll. If it carries, the admin panel carries this one again from that day. The role keeps the power itself, so the same people can still do it; what ends is the village holding it. The village can ask for it again whenever it wants to.",
+    publish: {
+      path: "/api/governance/power-returns",
+      body: (a) => ({
+        capability: a.capability,
+        reason: a.reason,
+      }),
+    },
+    steps: {
+      subject: {
+        label: "The power",
+        intro: "Which of the powers this village holds would go back.",
+        fields: [
+          {
+            key: "capability",
+            kind: "pick",
+            source: "heldPowers",
+            label: "The power",
+            required: true,
+            problem: required("A power"),
+            help: "These are the powers this village is holding right now.",
+            tip: "Handing one back is one of the ordinary things a village does with a power.",
+          },
+        ],
+      },
+      details: {
+        label: "Why now",
+        intro: "What the village wants the record to say about this.",
+        fields: [
+          {
+            key: "reason",
+            kind: "textarea",
+            rows: 6,
+            maxLength: 2000,
+            label: "Why now",
+            placeholder:
+              "The two people who were working the queue have both moved on, and the village would rather hand this back than leave it with nobody answering it.",
+            help: "This is the part the roll reads before it votes, and the part somebody reads years later to understand what happened.",
+            required: true,
+            problem: atLeast(40, "The reason"),
+          },
+        ],
+      },
+      terms: { skip: true },
+    },
+  },
 ];
 
 /** By id, for the walker and the renderer. */
@@ -671,6 +837,14 @@ export const SUBJECT_NOUN: Record<string, string> = {
    * reads about a vote they were asked to cast.
    */
   power_transfer: "Power handover",
+  /*
+   * The two halves of the journey either side of a handover, and both take a
+   * noun for the THING rather than for the machinery. "Capability grant" is
+   * what the table would call it; what happened is that a village decided who
+   * can do something.
+   */
+  power_grant: "Power given to a role",
+  power_return: "Power handed back",
   /*
    * NOT a wizard type, and here because `ballots.subject_type` carries it.
    * Without this entry an advisory vote fell through to "Decision", which is

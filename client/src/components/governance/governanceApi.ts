@@ -95,6 +95,19 @@ export interface Ballot {
    * session that closed the vote.
    */
   transfer: {
+    /**
+     * WHICH OF THE THREE POWER CEREMONIES THIS IS.
+     *
+     * `transfer` is a power crossing to the village, `grant` is the village
+     * voting a power onto a role so somebody can act at all, `return` is the
+     * village handing one back. The card switches on this and has NO default
+     * branch: a kind a build does not know renders nothing, which is the same
+     * fail-safe direction as an unparseable subject ref.
+     *
+     * Typed as a union and never a string, so a fourth ceremony cannot be
+     * added server-side and quietly render as one of these three.
+     */
+    kind: "transfer" | "grant" | "return";
     capability: string;
     /** The registry's noun for this power. Null when nothing names it. */
     title: string | null;
@@ -104,7 +117,8 @@ export interface Ballot {
     consequence: string | null;
     /** Whether this platform can move this key at all. */
     movable: boolean;
-    toRoleId: string;
+    /** The role the ask names. Null on a return, which names no role. */
+    toRoleId: string | null;
     /** Null when the role has been retired since the vote opened. */
     toRoleName: string | null;
     /** Whether that role can actually use it, read now and not at open. */

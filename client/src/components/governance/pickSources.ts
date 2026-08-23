@@ -103,6 +103,53 @@ export async function loadPickOptions(source: PickSource): Promise<PickOption[]>
           hint: p.consequence ? String(p.consequence) : undefined,
         }));
     }
+    case "grantablePowers": {
+      /*
+       * The powers the village could vote onto a role.
+       *
+       * `movable` and nothing else. It deliberately does NOT drop a power the
+       * village already holds, which is the one way this list differs from
+       * `powers` above: holding `library.keep` through the stewards does not
+       * make "should the gardeners be able to do this too" a settled
+       * question, and a power that NO role carries is exactly the case the
+       * runway exists for.
+       *
+       * The route refuses a role that already carries the power it was given,
+       * and that refusal cannot be made here: which powers are already on a
+       * role depends on the role, and the role is picked on the next field.
+       * A picker that filtered on it would have to re-filter itself every
+       * time the second answer changed, and would still be a guess about a
+       * check the server owns.
+       */
+      const payload = await getJson<any>("/api/village/powers");
+      return (payload?.powers ?? [])
+        .filter((p: any) => p.movable === true)
+        .map((p: any) => ({
+          value: String(p.capability),
+          label: String(p.title ?? p.capability),
+          hint: p.consequence ? String(p.consequence) : undefined,
+        }));
+    }
+    case "heldPowers": {
+      /*
+       * The powers this village is holding right now, which is the whole of
+       * what a return ballot can name.
+       *
+       * `heldBy` is the server's own record of the holding, so a village
+       * holding nothing gets an empty picker and the wizard says there is
+       * nothing to pick. That is the honest state for a village that has not
+       * taken anything on, and it needs no separate sentence: there is no way
+       * back from somewhere you have not been.
+       */
+      const payload = await getJson<any>("/api/village/powers");
+      return (payload?.powers ?? [])
+        .filter((p: any) => !!p.heldBy)
+        .map((p: any) => ({
+          value: String(p.capability),
+          label: String(p.title ?? p.capability),
+          hint: p.heldBy?.roleName ? `${String(p.heldBy.roleName)} looks after it` : undefined,
+        }));
+    }
     case "roles": {
       /*
        * The roles that could hold a power. `/api/roles` serves the village's
