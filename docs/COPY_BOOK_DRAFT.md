@@ -197,7 +197,7 @@ apply after it lands.
 |---|---|---|
 | H1 / sub | Welcome Back · Sign in to your Amora village journey | kept (shopfront zone; a fork replaces the brand here wholesale) |
 | Fields / buttons | Email · Password · Sign In / Signing in... · Forgot your password? · Don't have an account? · Create Account | kept |
-| Members gate card | {Module name} - This part of the village opens when you sign in. · Sign in | kept |
+| Members gate card | {Module name} - This part of the village opens when you sign in. · Sign in | **{Module name} · one line saying what is behind the gate, in the words of that module (`client/src/components/modules/gateCopy.ts`) · This part of the village opens when you sign in. · Sign in + Create an account · a closing line naming what is still open to this reader, read off the module manifest.** The old sentence and the Sign in door are unchanged; what is added is the module's own line above them and the still-open line below. A signed-in reader never sees this card: it hands them to the module-off card, whose sentence is the ruled one. |
 | **Module-off card (new, R43 Q8)** | (was: the 404 page) | **{Project} hasn't enabled this module. Reach out to the admin team, or make a proposal to initiate it in your village.** + "Back to the village" home button. Project name reads from config; fallback "This village", never a hardcoded brand. Wired in ModuleGate, which every module page routes through. |
 
 ## 1.12 404 page

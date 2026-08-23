@@ -18,12 +18,51 @@
  * this module. reach out to the admin team or make a proposal to initiate
  * this module in your village(s).] - so the card says that, with the
  * project's configured name, never a hardcoded one.
+ *
+ * ── WHAT THE SIGN-IN CARD OWES A VISITOR ─────────────────────────────────
+ *
+ * It used to be a heading, one grey line ("This part of the village opens
+ * when you sign in") and a Sign in button. Three things were missing and all
+ * three were things the card already knew or could know:
+ *
+ *   what is behind it   the same sentence over the forum and over messages
+ *                       says nothing about either. `gateCopy.ts` holds one
+ *                       line per module, and a page whose module covers more
+ *                       than one surface passes its own as `behind`.
+ *   what is still open   the manifest in hand IS the list of what this reader
+ *                       can already reach. A visitor who can see the shape of
+ *                       the village is being invited; one who sees a grey box
+ *                       is being dismissed.
+ *   a way in at all      the person this card meets most often has no account,
+ *                       and it offered them nothing but a sign-in form.
+ *
+ * This follows the shape `PeopleLock` set: lead with a fact, say what is
+ * still visible, then offer the door. One answer to the question, not two.
+ *
+ * ── AND IT NEVER TELLS A SIGNED-IN PERSON TO SIGN IN ─────────────────────
+ *
+ * `AuthProvider` reads the token synchronously and the USER asynchronously,
+ * so between first paint and `/api/profile` answering, a signed-in member
+ * has `token` and no `user`. `Messages` renders this card on `!user`, which
+ * meant a member who was already signed in got "Sign in" for the length of
+ * that round trip. So the card reads `loading` itself and holds a quiet
+ * loader instead of making a claim it cannot yet support.
+ *
+ * The two refusals are genuinely different and are told apart:
+ *
+ *   signed out  the page is one sign-in or one account away, so offer both
+ *               doors and say what is on the other side.
+ *   signed in   sign-in is useless advice. The reader falls through to the
+ *               module-off card, which is the founder-ruled sentence and the
+ *               only sentence this repository has for that fact.
  */
 import Layout from "@/components/Layout";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModules } from "@/modules/ModuleProvider";
 import { useGameConfig } from "@/lib/gameApi";
+import BreathingLoader from "@/components/natural/BreathingLoader";
+import { gateLine, nameList } from "./gateCopy";
 
 /** Internal paths only: anything else falls back to home. The backslash
  *  variant is refused too, so this stays safe even in front of a consumer
@@ -32,26 +71,96 @@ function safeNext(path: string): string {
   return path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\") ? path : "/";
 }
 
-/**
- * The sign-in card, extracted from Messages.tsx and shared. `name` is the
- * page's catalog name; `next` defaults to where the visitor already is.
- */
-export function SignInToSee({ name, next }: { name: string; next?: string }) {
-  const [location] = useLocation();
-  const target = safeNext(next ?? location);
+const DOOR = "inline-flex items-center justify-center min-h-[44px] px-5 rounded-lg font-semibold";
+const DOOR_PRIMARY = `${DOOR} bg-teal-deep text-white`;
+const DOOR_SECOND = `${DOOR} border border-teal-deep text-teal-deep`;
+
+/** The card's frame, so all four states are one shape at one width. */
+function GateShell({ name, children }: { name: string; children: React.ReactNode }) {
   return (
     <Layout>
-      <div className="container py-16 text-center">
-        <h1 className="font-display text-3xl font-bold mb-3">{name}</h1>
-        <p className="text-muted-foreground mb-6">This part of the village opens when you sign in.</p>
-        <Link
-          href={`/login?next=${encodeURIComponent(target)}`}
-          className="inline-flex items-center min-h-[44px] px-5 rounded-lg bg-teal-deep text-white font-semibold"
-        >
-          Sign in
-        </Link>
+      <div className="container py-16">
+        <div className="mx-auto max-w-xl text-center">
+          <h1 className="font-display text-3xl font-bold mb-3">{name}</h1>
+          {children}
+        </div>
       </div>
     </Layout>
+  );
+}
+
+/**
+ * What this reader can already reach, read off the manifest they are holding.
+ *
+ * The manifest is viewer-scoped, so its `modules` array is exactly the list
+ * of what is open to whoever is looking: a count is a fact and the names are
+ * facts (R56). It says nothing about what a village ought to have on, and it
+ * compares this village to nothing (R55). When the list is empty there is
+ * nothing true to say, so it says nothing.
+ */
+function StillOpen({ signedIn }: { signedIn: boolean }) {
+  const { modules } = useModules();
+  const names = modules.map((m) => m.name).filter(Boolean);
+  if (!names.length) return null;
+  const reach = signedIn ? "open to you right now" : "open without an account";
+  return (
+    <p className="text-sm text-muted-foreground leading-relaxed">
+      {names.length <= 3
+        ? `Still ${reach}: ${nameList(names)}.`
+        : `${names.length} parts of this village are ${reach}, including ${nameList(names.slice(0, 3))}.`}
+    </p>
+  );
+}
+
+/**
+ * The sign-in card, extracted from Messages.tsx and shared. `name` is the
+ * page's catalog name; `next` defaults to where the visitor already is;
+ * `behind` overrides the module's own line for a page that shares a module
+ * id with a different surface.
+ */
+export function SignInToSee({
+  moduleId, name, next, behind,
+}: {
+  moduleId?: string;
+  name: string;
+  next?: string;
+  behind?: string;
+}) {
+  const [location] = useLocation();
+  const { user, loading } = useAuth();
+  const target = safeNext(next ?? location);
+  const line = behind ?? gateLine(moduleId);
+
+  // The session is still being read. Claiming anything about this reader here
+  // is how a signed-in member got told to sign in.
+  if (loading) {
+    return (
+      <GateShell name={name}>
+        <div className="flex justify-center py-4">
+          <BreathingLoader label="Reading your account" />
+        </div>
+      </GateShell>
+    );
+  }
+
+  // Signed in already: "sign in" is useless advice, and the module-off card
+  // carries the founder-ruled sentence for this exact fact.
+  if (user) return <ModuleOff name={name} />;
+
+  return (
+    <GateShell name={name}>
+      {line && <p className="text-foreground leading-relaxed mb-2">{line}</p>}
+      <p className="text-muted-foreground mb-6">This part of the village opens when you sign in.</p>
+      <div className="flex flex-col sm:flex-row gap-3 justify-center mb-6">
+        <Link href={`/login?next=${encodeURIComponent(target)}`} className={DOOR_PRIMARY}>
+          Sign in
+        </Link>
+        <Link href="/register" className={DOOR_SECOND}>
+          Create an account
+        </Link>
+      </div>
+      <StillOpen signedIn={false} />
+    </GateShell>
   );
 }
 
@@ -60,38 +169,77 @@ export function SignInToSee({ name, next }: { name: string; next?: string }) {
  * the caller knows exists (it named it) but the manifest does not serve:
  * off, or preview a visitor cannot see. The page keeps the site shell so a
  * shared link lands somewhere with a menu, never on a dead end.
+ *
+ * The ruled paragraph and its home button are untouched. What is added under
+ * them is a separate fact about what this reader CAN reach, which argues with
+ * nothing and leaves the ruling the only sentence on the subject.
  */
 export function ModuleOff({ name }: { name: string }) {
   const cfg = useGameConfig();
+  const { user } = useAuth();
   const project = cfg?.project?.name ?? "This village";
   return (
-    <Layout>
-      <div className="container py-16 text-center">
-        <h1 className="font-display text-3xl font-bold mb-3">{name}</h1>
-        <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-          {project} hasn't enabled this module. Reach out to the admin team,
-          or make a proposal to initiate it in your village.
-        </p>
-        <Link
-          href="/"
-          className="inline-flex items-center min-h-[44px] px-5 rounded-lg bg-teal-deep text-white font-semibold"
-        >
+    <GateShell name={name}>
+      <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+        {project} hasn't enabled this module. Reach out to the admin team,
+        or make a proposal to initiate it in your village.
+      </p>
+      <Link href="/" className={`${DOOR_PRIMARY} mb-6`}>
+        Back to the village
+      </Link>
+      <StillOpen signedIn={!!user} />
+    </GateShell>
+  );
+}
+
+/**
+ * The manifest could not be read at all.
+ *
+ * `ModuleProvider` retries three times and then sets `failed`, and its own
+ * comment says why that is a different fact from an empty catalog: "a blip
+ * must not latch an empty catalog". The gate then ignored the distinction and
+ * rendered the module-off card anyway, so a dropped request told a reader
+ * this village had not enabled a module it may well have enabled. That is a
+ * false statement about why they cannot see something, which is the one thing
+ * this card exists to avoid.
+ */
+function CatalogUnread({ name }: { name: string }) {
+  const { refresh } = useModules();
+  return (
+    <GateShell name={name}>
+      <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+        This village's list of modules could not be read just now, so this page cannot say whether
+        {" "}{name} is open. The village is still there.
+      </p>
+      <div className="flex flex-col sm:flex-row gap-3 justify-center">
+        <button type="button" onClick={refresh} className={DOOR_PRIMARY}>
+          Try again
+        </button>
+        <Link href="/" className={DOOR_SECOND}>
           Back to the village
         </Link>
       </div>
-    </Layout>
+    </GateShell>
   );
 }
 
 export default function ModuleGate({
-  moduleId, name, next,
+  moduleId, name, next, behind,
 }: {
   moduleId: string;
   name: string;
   next?: string;
+  /** This page's own line, for a module id that covers more than one surface. */
+  behind?: string;
 }) {
-  const { user } = useAuth();
-  const { signInToSee } = useModules();
-  if (!user && signInToSee.includes(moduleId)) return <SignInToSee name={name} next={next} />;
+  const { signInToSee, failed } = useModules();
+  if (failed) return <CatalogUnread name={name} />;
+  // `signInToSee` only ever rides the ANONYMOUS manifest, so its presence is
+  // already the signed-out fact. SignInToSee re-checks the session anyway and
+  // hands a signed-in reader to ModuleOff, which is what makes the old
+  // `!user &&` guard here redundant instead of load-bearing.
+  if (signInToSee.includes(moduleId)) {
+    return <SignInToSee moduleId={moduleId} name={name} next={next} behind={behind} />;
+  }
   return <ModuleOff name={name} />;
 }
