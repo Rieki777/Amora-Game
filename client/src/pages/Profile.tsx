@@ -232,17 +232,24 @@ export default function Profile() {
                     Your Paths
                   </h2>
                   <div className="grid md:grid-cols-2 gap-4">
+                    {/* A path this build has not been taught is READ, never
+                        dropped. `if (!pathInfo) return null` took the whole
+                        tile away, so a member who had walked a path a newer
+                        server knows about saw their own paths list come up
+                        short with nothing saying why. The block further down
+                        this same page already renders the raw id
+                        (`PATH_INFO[path]?.label || path`); these two now
+                        agree. */}
                     {user.paths.map((pathId) => {
                       const pathInfo = PATH_INFO[pathId];
-                      if (!pathInfo) return null;
                       return (
                         <motion.div
                           key={pathId}
                           whileHover={{ scale: 1.05 }}
-                          className={`${pathInfo.bgColor} border-2 border-current p-4 rounded-lg ${pathInfo.color} font-semibold flex items-center gap-3`}
+                          className={`${pathInfo?.bgColor ?? "bg-gray-100"} border-2 border-current p-4 rounded-lg ${pathInfo?.color ?? "text-gray-700"} font-semibold flex items-center gap-3`}
                         >
-                          {pathInfo.icon}
-                          {pathInfo.label}
+                          {pathInfo?.icon}
+                          {pathInfo?.label ?? pathId}
                         </motion.div>
                       );
                     })}

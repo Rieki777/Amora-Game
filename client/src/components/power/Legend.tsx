@@ -7,7 +7,30 @@
  */
 import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
-import type { PowerBlock, PowerSeat } from "./types";
+import type { PowerBlock, PowerSeat, SeatStateWord } from "./types";
+
+/**
+ * THE BUCKETS THE SEAT TALLY COUNTS INTO.
+ *
+ * Five states plus `other`, and the five answer to `SeatState` in
+ * `server/lib/orgChart.ts`. That column is not the authority: `expired` is
+ * DERIVED by `seatState()` and the 0049 enum deliberately cannot hold it, so
+ * the server's own type is the only enumeration of what can arrive here.
+ * `seatStates.test.ts` reads that union out of source and holds this list to
+ * it, the way objectionStates.test.ts reads OBJECTION_RULINGS.
+ */
+export const SEAT_TALLY_BUCKETS: readonly (SeatStateWord | "other")[] = [
+  "open",
+  "partial",
+  "filled",
+  "forming",
+  "expired",
+  "other",
+];
+
+const EMPTY_TALLY: Record<string, number> = Object.fromEntries(
+  SEAT_TALLY_BUCKETS.map((b) => [b, 0]),
+);
 
 function GlyphSample({ kind }: { kind: "open" | "partial" | "filled" | "forming" | "expired" }) {
   const r = 7;
@@ -60,8 +83,31 @@ export default function Legend({
 
   const real = seats.filter((s) => !s.isExample);
   const counted = real.length ? real : seats;
-  const counts: Record<string, number> = { open: 0, partial: 0, filled: 0, forming: 0, expired: 0 };
-  for (const s of counted) counts[s.state ?? (s.holderCount > 0 ? "filled" : "open")] += 1;
+  /**
+   * THE TALLY, and it has to add up to the number of seats.
+   *
+   * `s.state` arrives from the server and its authority is `SeatState` in
+   * `server/lib/orgChart.ts`, which this file mirrors by hand as
+   * `SeatStateWord` in ./types. Read straight, `counts[s.state] += 1` on a
+   * state this build has not heard of writes `NaN` onto a key nothing below
+   * renders, so the seat is counted NOWHERE: the legend goes on saying "3
+   * open, 2 held" over six seats and no reader can tell it is short. Seats
+   * are how a village describes who holds power, so a tally that quietly
+   * drops one is a false statement about that.
+   *
+   * `seatStates.test.ts` holds the five below to the server's union. The
+   * `other` bucket is for the server that is ahead of this build, and it
+   * renders only when it has something in it.
+   */
+  const counts: Record<string, number> = { ...EMPTY_TALLY };
+  for (const s of counted) {
+    // Read as a bare string on purpose: the TYPE says SeatStateWord, and the
+    // value came off the wire, and this whole class of defect is the gap
+    // between those two sentences. A server that literally sends "other"
+    // lands in the same bucket, which is where it belongs anyway.
+    const word = String(s.state ?? (s.holderCount > 0 ? "filled" : "open"));
+    counts[word !== "other" && word in counts ? word : "other"] += 1;
+  }
 
   const rows: Array<{ kind: "open" | "partial" | "filled" | "forming" | "expired"; word: string }> = [
     { kind: "open", word: "open call" },
@@ -85,6 +131,16 @@ export default function Legend({
             <span className="ml-auto text-muted-foreground tabular-nums">{counts[rw.kind]}</span>
           </li>
         ))}
+        {counts.other > 0 && (
+          <li className="flex items-center gap-2 text-xs text-foreground">
+            <span
+              className="w-3 h-3 shrink-0 rounded-full border border-dashed border-muted-foreground"
+              aria-hidden="true"
+            />
+            <span>in a state this page has not been taught</span>
+            <span className="ml-auto text-muted-foreground tabular-nums">{counts.other}</span>
+          </li>
+        )}
       </ul>
 
       {/* The spectrum (card A design 5): one strip from "one holds it" to

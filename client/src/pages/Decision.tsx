@@ -27,7 +27,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "wouter";
 import { ArrowLeft, FileText, Scale } from "lucide-react";
-import type { VoteChoice } from "@shared/governanceEngine";
+import type { BallotMethod, VoteChoice } from "@shared/governanceEngine";
 import Layout from "@/components/Layout";
 import ModuleGate from "@/components/modules/ModuleGate";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -60,18 +60,45 @@ import {
   type WeightRecord as WeightRecordData,
 } from "@/components/governance/governanceApi";
 
-const METHOD_TIP: Record<string, string> = {
+/**
+ * WHAT EACH METHOD MEANS, and its authority is `BALLOT_METHODS` in
+ * `shared/governanceEngine.ts`. Typed against `BallotMethod` rather than
+ * `string`, so a fifth method added there turns this declaration red instead
+ * of shipping a tooltip that quietly describes a different method.
+ */
+const METHOD_TIP: Record<BallotMethod, string> = {
   majority: "More than half of the weight that took a side carries it.",
   consensus: "Everyone who takes a side has to agree. One no stops it.",
   consent: "Nobody has to agree. It carries unless somebody names a consequence the village should avoid.",
   custom: "The village set its own bar for agreement and for turnout, and this ballot froze both when it opened.",
 };
 
-const WEIGHT_MODE_TIP: Record<string, string> = {
+/**
+ * A method this build has not been taught. It used to fall back to the
+ * `custom` sentence, which told a member a specific and possibly false thing
+ * about how their decision carries. Saying the rule is on the ballot is the
+ * only sentence that stays true whatever the method turns out to be.
+ */
+const UNKNOWN_METHOD_TIP =
+  "This ballot was decided by a method this page has not been taught to explain. Its rule was frozen when the ballot opened and is on the decision's record.";
+
+const WEIGHT_MODE_TIP: Record<Ballot["weightMode"], string> = {
   equal: "Every member on the roll weighs the same here.",
   token: "Weight came from token balances, read once when this ballot opened and frozen there.",
   custom: "Weight was allocated by the stewards, and every allocation is on the record.",
 };
+
+/**
+ * Same rule for weight. Falling back to the `equal` sentence told a member
+ * "every member on the roll weighs the same here" about a ballot that may
+ * have been weighted by token, which is a false statement about their own
+ * standing in a vote.
+ */
+const UNKNOWN_WEIGHT_TIP =
+  "Weight on this ballot was decided by a mode this page has not been taught to explain. It was frozen when the ballot opened, and the weight record shows what each member carried.";
+
+export const DECISION_METHOD_TIPS = METHOD_TIP;
+export const DECISION_WEIGHT_TIPS = WEIGHT_MODE_TIP;
 
 export default function Decision() {
   const params = useParams<{ id: string }>();
@@ -219,11 +246,11 @@ export default function Decision() {
           </span>
           <span className="text-xs text-stone-600">
             Decided by {ballot.method}
-            <InfoTip tip={METHOD_TIP[ballot.method] ?? METHOD_TIP.custom} label="What this method means" />
+            <InfoTip tip={METHOD_TIP[ballot.method] ?? UNKNOWN_METHOD_TIP} label="What this method means" />
           </span>
           <span className="text-xs text-stone-600">
             {ballot.electorateCount} on the roll, {weightText(ballot.totalWeight)} weight between them
-            <InfoTip tip={WEIGHT_MODE_TIP[ballot.weightMode] ?? WEIGHT_MODE_TIP.equal} label="How weight was decided" />
+            <InfoTip tip={WEIGHT_MODE_TIP[ballot.weightMode] ?? UNKNOWN_WEIGHT_TIP} label="How weight was decided" />
           </span>
         </div>
 
