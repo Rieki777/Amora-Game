@@ -498,7 +498,7 @@ async function rsvpCounts(pool: Pool, eventIds: string[], userId: string | null)
     [userId ?? "", ...ids],
   );
   for (const r of rows) {
-    out.set(`${r.event_id} ${r.occurrence_key ?? ""}`, {
+    out.set(`${r.event_id}\u0000${r.occurrence_key ?? ""}`, {
       going: Number(r.going ?? 0),
       mine: userId ? ((r.mine ?? null) as RsvpStatus | null) : null,
     });
@@ -508,7 +508,7 @@ async function rsvpCounts(pool: Pool, eventIds: string[], userId: string | null)
 
 function toItem(o: Occurrence, counts: Map<string, RsvpCount>, now: Date, viewer: CalendarViewer): CalendarItem {
   const r = o.row;
-  const c = counts.get(`${r.id} ${o.occurrenceKey}`) ?? { going: 0, mine: null };
+  const c = counts.get(`${r.id}\u0000${o.occurrenceKey}`) ?? { going: 0, mine: null };
   const status: EventStatus = o.cancelled ? "cancelled" : r.status;
   return {
     id: r.id,
@@ -620,7 +620,7 @@ export interface CalendarUpsertInput extends SourceRef {
 
 /** A stable id from the source, so a mirrored fact keeps its link forever. */
 export function calendarIdFor(ref: SourceRef): string {
-  const h = createHash("sha1").update(`${ref.sourceModule} ${ref.sourceId}`).digest("hex").slice(0, 20);
+  const h = createHash("sha1").update(`${ref.sourceModule}\u0000${ref.sourceId}`).digest("hex").slice(0, 20);
   const mod = ref.sourceModule.replace(/[^a-z0-9]/gi, "").slice(0, 16).toLowerCase();
   return `ev-${mod}-${h}`;
 }
