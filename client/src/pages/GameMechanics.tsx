@@ -233,15 +233,21 @@ function BallotReturnNote({ proposal }: { proposal: Proposal }) {
   if (!proposal.ballotId) return null;
   const back = proposal.lastBallotStatus ? BALLOT_RETURN[proposal.lastBallotStatus] : null;
   const live = proposal.lastBallotStatus === "open";
+  const to = (
+    <Link
+      href={`/decisions/${proposal.ballotId}`}
+      className={`text-sm text-teal-deep font-medium hover:underline ${back?.line ? "mt-1 inline-block" : ""}`}
+    >
+      {live ? "See the vote" : "See that vote"}
+    </Link>
+  );
+  // No box around a bare link. The band is there to hold a sentence, and an
+  // empty one reads as something that failed to load.
+  if (!back?.line) return <p className="mb-3">{to}</p>;
   return (
     <div className="mb-3 rounded-lg bg-stone-50 border border-stone-200 px-3 py-2">
-      {back?.line && <p className="text-sm text-stone-600 leading-relaxed">{back.line}</p>}
-      <Link
-        href={`/decisions/${proposal.ballotId}`}
-        className={`text-sm text-teal-deep font-medium hover:underline ${back?.line ? "mt-1 inline-block" : ""}`}
-      >
-        {live ? "See the vote" : "See that vote"}
-      </Link>
+      <p className="text-sm text-stone-600 leading-relaxed">{back.line}</p>
+      {to}
     </div>
   );
 }
