@@ -143,7 +143,7 @@ Tooltips on the hero card:
 | Where | Old | New | Yours |
 |---|---|---|---|
 | CTA | View Roles & Open Seats | View Open Roles (COPY-1) | |
-| Card members line | {names} or "N seats, none held yet" | {names} or "N roles, none held yet" (COPY-1) | |
+| Card members line | {names} or "N seats, none held yet" | {names}, else "N roles, M seats held", else "N roles, none held yet" (COPY-1, corrected R57) | |
 | Everything else on the page | - | kept | |
 
 ## 1.7 Village Calendar (/events)
