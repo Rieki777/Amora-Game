@@ -64,6 +64,11 @@ const DIST = path.resolve(process.cwd(), "dist/index.js");
  * (13600 + pid % 400, powerTransfer.routes), so a base at 14000 cannot
  * collide with any of them for ANY process id. 400 wide, ending at 14399,
  * well below the ephemeral range Windows hands out (49152+).
+ *
+ * Amended 0103: `powerEight.routes` now sits ABOVE this one, at
+ * 14500 + pid % 400. The claim above is about the suites this band had to
+ * clear and it still holds; it is no longer a statement that nothing runs
+ * higher.
  */
 const PORT = 14000 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
@@ -394,20 +399,65 @@ describe.skipIf(!DB_CONFIGURED)("what the runway deliberately cannot do", () => 
     expect(String(r.json?.error)).toContain("not a power the village can take on");
   });
 
-  it("refuses a power whose gate has no way back for an operator", async () => {
+  it("refuses a key that names a personal act, because there is nobody to give it to", async () => {
     /*
-     * `feed.announce` is a real power a village should be able to take, and
-     * its check is still an inline `hasCapability` call that never sees the
-     * request, so the break-glass cannot reach it. The runway is exactly as
-     * wide as the ceremony it serves: every key it can grant is a key the
-     * village could go on to hold, so it will not arm a role for a road that
-     * ends in a lockout.
+     * This case used to name `feed.announce`, and 0103 is why it does not.
+     *
+     * The runway is exactly as wide as the ceremony it serves: every key it
+     * can grant is a key the village could go on to hold, and that width is
+     * DERIVED from `TRANSFERABLE` and from whether anything gates on the key.
+     * `map.curatePhotos` was refused here because every route behind it was
+     * still an inline `hasCapability` call that could not carry the
+     * break-glass. 0103 converted those five routes to `guardCapability` and
+     * flipped the map in the same commit, so the runway widened to include
+     * the key with no edit in this route, which is the property the
+     * derivation was built for.
+     *
+     * `map.curatePhotos` and not `feed.announce`, because `roles-seed.json`
+     * already puts announcements on the Steward Circle and the runway
+     * correctly refuses a role that already carries the power. Nothing seeded
+     * carries curation, so it is the honest demonstration.
+     *
+     * What this case still has to pin is the OTHER half: a key that names
+     * something a member does for themselves is refused whatever happens to
+     * the wiring. `map.edit` is that shape. Keeping a private draft of the
+     * land is a personal act with nobody to hand it to, and a row saying the
+     * village holds it would be a category error with a lockout attached.
      */
     const r = await call("POST", "/api/governance/power-grants", {
-      token: wrenToken, body: { ...good, capability: "feed.announce" },
+      token: wrenToken, body: { ...good, capability: "map.edit" },
     });
     expect(r.status).toBe(409);
     expect(String(r.json?.error)).toContain("not a power the village can take on");
+  });
+
+  it("now offers map.curatePhotos, because converting its route widened the runway", async () => {
+    /*
+     * THE DERIVATION, DRIVEN. Nothing in this route names `feed.announce`,
+     * and nothing in it was edited by 0103. The route asks `TRANSFERABLE` and
+     * `POWERS`, both of which moved, so this key became askable on the same
+     * commit that gave its gate an escape hatch. A `TRANSFERABLE` flip
+     * without the conversion would have widened the runway toward a lockout,
+     * which is exactly what the old case was guarding.
+     *
+     * It opens a real ballot, so this case calls it off again straight away:
+     * one open handover per power, and the cases below need a clear board.
+     */
+    const opened = await call("POST", "/api/governance/power-grants", {
+      token: wrenToken,
+      body: {
+        ...good,
+        capability: "map.curatePhotos",
+        reason: "The stewards already answer for what is on the village map, and should be able to work its photographs.",
+      },
+    });
+    expect(opened.status, JSON.stringify(opened.json)).toBe(200);
+    const id = String(opened.json?.ballot?.id ?? "");
+    expect(id).toBeTruthy();
+    const off = await call("POST", `/api/governance/ballots/${id}/withdraw`, {
+      token: wrenToken, body: { reason: "Opened here only to show the runway widened." },
+    });
+    expect(off.status, JSON.stringify(off.json)).toBe(200);
   });
 
   it("refuses a key this platform does not know", async () => {

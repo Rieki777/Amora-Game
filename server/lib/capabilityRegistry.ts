@@ -10,10 +10,17 @@
  *
  * ── WHAT IS DERIVED AND WHAT IS DECLARED, SAID PLAINLY ─────────────────────
  *
- * The SET of powers is derived: it is exactly the keys `TRANSFERABLE` marks
- * as able to move, split between the ones with a surface behind them and the
- * ones nothing has wired yet. `capabilityRegistry.test.ts` fails if a key
+ * The SET of powers is derived: every key `TRANSFERABLE` marks as able to
+ * move is named here, split between the ones with a surface behind them and
+ * the ones nothing has wired yet. `capabilityRegistry.test.ts` fails if a key
  * appears in neither list, so a new transferable key cannot slip in unnamed.
+ *
+ * `POWERS` is the wider list of the two, and 0103 is when that started to
+ * matter. It names every power a village MEETS, which includes one the map
+ * refuses to move: `ballot.vote` is real, wired and read on every ballot, and
+ * `shared/capabilities.ts` says at length why it stays where it is. Every
+ * such key carries its own sentence in `WIRED_BUT_HELD_BACK` below, and the
+ * test pins that list to exactly the entries here that cannot move.
  *
  * The SENTENCE a member reads is derived: it comes from
  * `CAPABILITY_CONSEQUENCE`, written on the explicit principle that these say
@@ -105,7 +112,23 @@ export const POWERS: readonly PowerEntry[] = [
     capability: "org.declare",
     title: "The village's own shape",
     surface: "Declaring the circles, the seats, and how each one decides",
-    routes: ["/api/admin/org/drafts/:id/publish", "/api/circles"],
+    /*
+     * CORRECTED IN 0103. This entry named `/api/admin/org/drafts/:id/publish`
+     * and `/api/circles`, and neither one asks this key: the first is behind
+     * a plain `isAdmin` and the second is a public read with no gate at all.
+     * The rot test only asks whether a declared path still EXISTS, which both
+     * of these did, so a village was reading a sentence about its own shape
+     * beside two doors that answer to something else entirely.
+     *
+     * These five are the routes that actually run `mayDeclare`.
+     */
+    routes: [
+      "/api/org/village/power",
+      "/api/org/circles/:id/decides",
+      "/api/admin/resources/rules",
+      "/api/admin/resources/sources",
+      "/api/admin/resources/budgets",
+    ],
   },
   {
     capability: "dial.set",
@@ -135,19 +158,30 @@ export const POWERS: readonly PowerEntry[] = [
     capability: "quest.consent",
     title: "Releasing value on finished work",
     surface: "Consenting to somebody else's finished quest",
-    routes: ["/api/admin/quest-claims/:id/consent"],
+    routes: ["/api/admin/quest-claims/:id/consent", "/api/events/:id/checkin"],
   },
   {
     capability: "map.publish",
     title: "The living map",
     surface: "Putting a drafted map in front of every visitor",
-    routes: ["/api/map/publish", "/api/housing/availability/:structureKey"],
+    routes: [
+      "/api/map/publish",
+      "/api/map/revisions/:version/restore",
+      "/api/housing/availability/:structureKey",
+      "/api/housing/reservations/:id/status",
+    ],
   },
   {
     capability: "map.curatePhotos",
     title: "The map's photographs",
     surface: "Taking a photograph down, and working the queue of reports",
-    routes: ["/api/places/reports/:id", "/api/places/photo/:id/hide", "/api/places/photo/:id"],
+    routes: [
+      "/api/places/reports/:id",
+      "/api/places/photo/:id/hide",
+      "/api/places/photo/:id/restore",
+      "/api/places/photo/:id",
+      "/api/places/:key/hero",
+    ],
   },
   {
     capability: "feed.announce",
@@ -159,7 +193,13 @@ export const POWERS: readonly PowerEntry[] = [
     capability: "proposal.decide",
     title: "Closing a decision",
     surface: "Recording the outcome of a decision and closing it",
-    routes: ["/api/governance/ballots/:id/close", "/api/forum/threads/:id/decide"],
+    routes: [
+      "/api/governance/ballots/:id/close",
+      "/api/governance/ballots/:id/withdraw",
+      "/api/governance/ballots/:id/objections/:objectionId/rule",
+      "/api/forum/threads/:id/decide",
+      "/api/admin/roles/:id/holders",
+    ],
   },
   {
     capability: "ballot.vote",
@@ -186,6 +226,32 @@ export const NOT_YET_WIRED: Readonly<Record<string, string>> = {
     "Declared in the round 5 capability set and gated by nothing: grep finds the key in " +
     "shared/capabilities.ts and in no route, helper or query in server/**. The membrane's " +
     "vouching step has not been built, so there is no power here to hand anybody yet.",
+};
+
+/**
+ * WIRED, REAL, AND STILL UNABLE TO MOVE, with the reason a member reads.
+ *
+ * The two ceremony routes refused any non-transferable key with one sentence:
+ * "It names something a member does for themselves, or plumbing the
+ * deployment has to keep reachable." That sentence is TRUE of every key it
+ * used to meet, and after 0103 it is false of the one key left in this
+ * position. A village asking for `ballot.vote` would have been told it was a
+ * personal act, which is the flattest kind of lie a product tells: a fallback
+ * sentence answering a question nobody asked it.
+ *
+ * So the reason lives here, beside the power it is about, and the route reads
+ * it. `capabilityRegistry.test.ts` pins the keys of this map to exactly the
+ * POWERS entries `TRANSFERABLE` refuses, so a key that crosses later takes
+ * its line out of here on the same day.
+ */
+export const WIRED_BUT_HELD_BACK: Readonly<Record<string, string>> = {
+  "ballot.vote":
+    "Who votes here is a rule of the game, so it moves the way a rule moves. Nothing in the " +
+    "product refuses anybody on this key: the roll is built by running the gate over every " +
+    "member when a ballot opens, and the ballot itself reads the roll it froze. There is no " +
+    "door for an administrator to be turned away from, so handing it over would record a " +
+    "promise the code could not keep. Open a rule change on the rung that decides who is on " +
+    "the roll, and the whole roll decides it.",
 };
 
 /**

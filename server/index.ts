@@ -30,7 +30,13 @@ import {
   returnCapabilityToScaffolding,
   villageHeldCapabilities,
 } from "./lib/capabilityHolding";
-import { NOT_YET_WIRED, POWERS, powersForReading, type PowerHolder } from "./lib/capabilityRegistry";
+import {
+  NOT_YET_WIRED,
+  POWERS,
+  powersForReading,
+  WIRED_BUT_HELD_BACK,
+  type PowerHolder,
+} from "./lib/capabilityRegistry";
 import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } from "./lib/variables";
 import { buildThemeCss, sanitizeFontName } from "./lib/themeCss";
 import { applyTimingOf, ringOf, VARIABLES_BY_KEY } from "../shared/gameVariables";
@@ -3003,6 +3009,18 @@ interface CapabilityVerdict {
   source: string;
   /** What to say to the person, when `ok` is false. */
   message: string;
+  /**
+   * TRUE for exactly one refusal: an admin, on a key the village holds, who
+   * did not break the glass. That is the only case with a 409 and a way
+   * through, and every other refusal is an ordinary one.
+   *
+   * It is a named field since 0103 because the callers were reading it off
+   * `message !== "auth_required"`, and a string comparison deciding which
+   * refusal a person gets is a permission answer that a copy edit can move.
+   * Seven more keys arrived on this path in that commit, so the discriminator
+   * stopped being worth leaving as a coincidence of wording.
+   */
+  needsOverride: boolean;
 }
 
 function wantsOverride(req: express.Request): boolean {
@@ -3014,7 +3032,10 @@ function wantsOverride(req: express.Request): boolean {
 async function mayAct(req: express.Request, cap: Capability): Promise<CapabilityVerdict> {
   const user = await authedUser(req);
   if (!user) {
-    return { ok: false, reachedPast: false, villageHolds: false, source: "not granted", message: "auth_required" };
+    return {
+      ok: false, reachedPast: false, villageHolds: false,
+      source: "not granted", message: "auth_required", needsOverride: false,
+    };
   }
   // `adminActor(req)` reads this, and it is how a hundred routes attribute
   // their audit rows. Setting it here keeps that working for every route that
@@ -3031,10 +3052,16 @@ async function mayAct(req: express.Request, cap: Capability): Promise<Capability
     // village-held power real, so they happen HERE and not at the call site.
     // Twenty-six call sites is twenty-six chances to forget.
     await recordAdminReach(cap, user, req);
-    return { ok: true, reachedPast: true, villageHolds: true, source: decision.source, message: "" };
+    return {
+      ok: true, reachedPast: true, villageHolds: true,
+      source: decision.source, message: "", needsOverride: false,
+    };
   }
   if (decision.allowed) {
-    return { ok: true, reachedPast: false, villageHolds: decision.villageHolds, source: decision.source, message: "" };
+    return {
+      ok: true, reachedPast: false, villageHolds: decision.villageHolds,
+      source: decision.source, message: "", needsOverride: false,
+    };
   }
   if (decision.villageHolds && ctx.isAdmin) {
     const holder = (await capabilityHoldings(getPool())).find((h) => h.capability === cap);
@@ -3043,13 +3070,18 @@ async function mayAct(req: express.Request, cap: Capability): Promise<Capability
       ok: false,
       reachedPast: false,
       villageHolds: true,
+      needsOverride: true,
       source: decision.source,
       message:
         `This village holds this one. ${who} looks after it now, and you are not seated there. ` +
-        `You can still act on it: send override with this request, and the village will see that you did.`,
+        `You can still act on it: send override with this request, or the x-capability-override header ` +
+        `when it carries no body, and the village will see that you did.`,
     };
   }
-  return { ok: false, reachedPast: false, villageHolds: decision.villageHolds, source: decision.source, message: "auth_required" };
+  return {
+    ok: false, reachedPast: false, villageHolds: decision.villageHolds,
+    source: decision.source, message: "auth_required", needsOverride: false,
+  };
 }
 
 /**
@@ -3066,20 +3098,91 @@ async function guardCapability(
   req: express.Request,
   res: express.Response,
   cap: Capability,
+  /*
+   * THE REFUSAL A ROUTE ALREADY HAD, kept (0103).
+   *
+   * Eleven of the routes converted in this round refused with a written
+   * sentence and their own status code: "Consenting to finished work is for
+   * stewards", "Publishing the map is a cartographer's work". Replacing all
+   * of them with a bare 401 auth_required would have been the exact loss
+   * `mayAct`'s own header warns about, one level down: the gate would be
+   * right and every person who met it would be told less than before.
+   *
+   * So the 409 hatch is added ON TOP of what the route already said, and
+   * nothing else about the refusal changes. The 409 is reached only when the
+   * village holds the key AND the actor is an admin who did not break the
+   * glass, which is precisely the case that had no sentence at all.
+   */
+  refusal?: { status: number; body: Record<string, unknown> },
 ): Promise<boolean> {
   const verdict = await mayAct(req, cap);
   if (verdict.ok) return true;
-  if (verdict.villageHolds && verdict.message !== "auth_required") {
-    res.status(409).json({
-      error: verdict.message,
-      capability: cap,
-      villageHolds: true,
-      requiresOverride: true,
-    });
+  const hatch = overrideRefusal(cap, verdict);
+  if (hatch) {
+    res.status(409).json(hatch);
+    return false;
+  }
+  if (refusal) {
+    res.status(refusal.status).json(refusal.body);
     return false;
   }
   res.status(401).json({ error: "auth_required" });
   return false;
+}
+
+/**
+ * THE 409 BODY, or null when this refusal is an ordinary one (0103).
+ *
+ * Pulled out of `guardCapability` because the routes with two doors cannot
+ * use that helper: a ballot's opener may withdraw it, a member may take down
+ * their own photograph, and an expired ballot's proposer may close it. Those
+ * routes ask `mayAct` themselves and decide, so they need the same 409 body
+ * `guardCapability` writes rather than a second one that drifts.
+ *
+ * Null means the refusal has nothing to do with the village holding the key:
+ * either it does not, or the actor is a member who simply does not hold it.
+ * Only an admin who did not break the glass gets a body here.
+ */
+function overrideRefusal(
+  cap: Capability,
+  verdict: CapabilityVerdict,
+): Record<string, unknown> | null {
+  if (!verdict.needsOverride) return null;
+  return { error: verdict.message, capability: cap, villageHolds: true, requiresOverride: true };
+}
+
+/**
+ * MAY THIS PERSON STILL SEE IT. For a READ that refuses (0103).
+ *
+ * `mayManageEvents` is the shape being generalised, and its comment carries
+ * the argument: `mayAct` reads the break-glass, and breaking the glass writes
+ * a PUBLIC event saying an administrator reached past a power this village
+ * holds. That is right for an act and it is a false record for a read. The
+ * RSVP route is where that bit once already, and this helper cannot write
+ * anything at all. That is the property being bought.
+ *
+ * THE OPERATOR KEEPS THE READ, which is the other half. A village taking a
+ * power on takes the ACT, and a GET carries no break-glass, so an admin
+ * refused here would have no way back through the product at all. The four
+ * routes that ask this are the ones that answer 403 or 404 to a non-holder:
+ * the curator's queue, the bytes of a suppressed photograph, the housing
+ * numbers and the consent queue.
+ *
+ * A payload FLAG is a different question and does not come here. Those stay
+ * on `hasCapability` at their own call sites, which is the pure gate: an
+ * admin who is not seated where a village-held power lives is told `false`,
+ * because they are not the holder, and the 409 on the act is where they are
+ * told how to reach past it. Every one of those sites is named in this
+ * commit's comments.
+ */
+async function mayStillSee(req: express.Request, cap: Capability): Promise<boolean> {
+  const user = await authedUser(req);
+  if (!user) return false;
+  if (user.role === "admin" || user.role === "founder") {
+    (req as any).adminUser = user;
+    return true;
+  }
+  return capabilityDecision(cap, await capabilityCtx(user)).allowed;
 }
 
 /**
@@ -3463,6 +3566,14 @@ async function notifyAdmins(type: string, title: string, dedupeKey: string, link
  * reads `capabilityCtx` costs on any authenticated request, and a quest is
  * submitted at human pace. One member's gate blowing up must never stop the
  * rest hearing, so each is tried on its own.
+ *
+ * 0103: this stays `hasCapability` and is NOT converted, on two counts. It
+ * has no request, because it runs the gate over every member in the village,
+ * so there is no break-glass to read and nothing to attribute a record to.
+ * And ringing a bell is a look. The admins pushed in above the loop keep
+ * their line on a village-held key deliberately: they can still reach the act
+ * through the 409, so a queue that stopped telling them would be a queue with
+ * a hole in it.
  */
 async function questConsentRecipients(): Promise<string[]> {
   const out: string[] = [];
@@ -8154,8 +8265,23 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (threadKind === "decision" && !hasCapability("proposal.open", ctx)) {
       return res.status(403).json({ error: "Opening a decision requires the co-creator stage or a role that grants it" });
     }
-    if (threadKind === "announcement" && !hasCapability("feed.announce", ctx)) {
-      return res.status(403).json({ error: "Announcements require the feed.announce capability (a role grant)" });
+    /*
+     * 0103: ACT. Speaking to the whole village in its own feed is the power,
+     * and it is the only thing `feed.announce` gates anywhere, so this one
+     * call is the whole conversion. The 403 sentence above it is kept: a
+     * member who is simply not an announcer should read what they always
+     * read, and only an admin on a village-held key meets the new 409.
+     *
+     * `forum.post` two checks up stays inline on purpose. It is a personal
+     * act, permanently non-transferable, and there is nothing for it to move
+     * to.
+     */
+    if (threadKind === "announcement") {
+      const mayAnnounce = await guardCapability(req, res, "feed.announce", {
+        status: 403,
+        body: { error: "Announcements require the feed.announce capability (a role grant)" },
+      });
+      if (!mayAnnounce) return;
     }
     if (imageUrl && !String(imageUrl).startsWith("/api/uploads/")) {
       return res.status(400).json({ error: "Images must come through the village's own upload" });
@@ -8486,10 +8612,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (await isExampleRow(getPool(), "forum_threads", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
-    const ctx = await capabilityCtx(user);
-    if (!hasCapability("proposal.decide", ctx)) {
-      return res.status(403).json({ error: "Recording a decision requires the proposal.decide capability" });
-    }
+    // 0103: ACT. Recording an outcome locks the thread and puts the village's
+    // answer on the record, which is the whole of what this key names.
+    const mayDecide = await guardCapability(req, res, "proposal.decide", {
+      status: 403,
+      body: { error: "Recording a decision requires the proposal.decide capability" },
+    });
+    if (!mayDecide) return;
     const thread = await forumThreadById(req.params.id);
     if (!thread || thread.kind !== "decision") return res.status(404).json({ error: "That is not an open decision" });
     if (thread.meta?.status === "decided") return res.status(409).json({ error: "This decision was already recorded" });
@@ -9166,20 +9295,47 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   }
 
   /**
-   * Everything `mayDeclare` needs about one viewer (0083, P10). The seat
-   * plane is only consulted when the first two doors are shut, so an admin
-   * request costs no extra queries.
+   * Everything `mayDeclare` needs about one viewer, for a WRITE (0083, P10).
+   *
+   * ── 0103: THIS IS THE ACT CONTEXT, AND BOTH ITS CALLERS ARE WRITES ──────
+   *
+   * Declaring how a village or a circle decides is the power `org.declare`
+   * names, so it goes through `mayAct`: the break-glass is read here and the
+   * public record is written there.
+   *
+   * `isAdmin` is reported as FALSE and that is deliberate rather than a bug
+   * waiting to be tidied. `mayDeclare`'s first door is the admin, and folding
+   * that door into the verdict is the whole conversion: while the village
+   * holds nothing the verdict says yes to an operator exactly as before, and
+   * once it holds this key the operator has to break the glass like anybody
+   * else. Collapsing the two would have left `mayDeclare` answering true on
+   * `ctx.isAdmin` before it ever looked at the verdict.
+   *
+   * The THIRD door is untouched. A circle's seated delegate still declares
+   * for their own circle through the seat plane, which is what the ADR is
+   * for, and it never depended on this key.
+   *
+   * The reading surfaces build their own context inline and keep the admin
+   * door open, because they REPORT rather than refuse: `GET /api/map` says
+   * where a viewer may declare so the client knows where to draw a pencil,
+   * and a pencil that leads to the 409 is how an operator finds the hatch at
+   * all. Neither of them can write anything.
    */
-  async function orgDeclareCtx(req: express.Request): Promise<DeclareContext> {
+  async function orgDeclareCtx(
+    req: express.Request,
+  ): Promise<{ ctx: DeclareContext; verdict: CapabilityVerdict }> {
     const viewer = await authedUser(req);
-    const admin = await isAdmin(req);
-    const hasOrgDeclare =
-      admin || (viewer ? hasCapability("org.declare", await capabilityCtx(viewer)) : false);
-    const needSeats = !admin && !hasOrgDeclare && !!viewer;
+    const verdict = await mayAct(req, "org.declare");
+    // The seat plane is only consulted when the first door is shut, so a
+    // passing request still costs no extra queries.
+    const needSeats = !verdict.ok && !!viewer;
     const [roles, assignments] = needSeats
       ? await Promise.all([listOrgRoles(getPool()), listOrgAssignments(getPool())])
       : [[], []];
-    return { isAdmin: admin, hasOrgDeclare, userId: viewer?.id ?? null, roles, assignments };
+    return {
+      ctx: { isAdmin: false, hasOrgDeclare: verdict.ok, userId: viewer?.id ?? null, roles, assignments },
+      verdict,
+    };
   }
 
   /**
@@ -9332,6 +9488,12 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         canContact: false,
         // Where this viewer may declare (P10): "village" and/or circle ids.
         // The pencil shows where this says; the server re-checks on write.
+        // 0103: a LOOK, and the admin door stays OPEN here. The pencil this
+        // draws is how an operator finds the 409 that tells them a village
+        // holds declaring and what to send to go through anyway; hiding it
+        // would leave them with a surface that says nothing and a hatch they
+        // never meet. `orgDeclareCtx` is the act-side context and it folds
+        // the admin door into `mayAct`.
         mayDeclare: declarableTargets(
           {
             isAdmin: admin,
@@ -11271,7 +11433,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    */
   app.post("/api/events/:id/checkin", async (req, res) => {
     const actor = await consentActor(req);
-    if (!actor.ok) return res.status(actor.status).json({ error: actor.error });
+    if (!actor.ok) return res.status(actor.status).json(actor.body);
     const userId = String(req.body?.userId ?? "").trim();
     if (!userId) return res.status(400).json({ error: "Name who was here" });
     if (!actor.userId) return res.status(403).json({ error: "A check-in needs a named steward" });
@@ -14527,6 +14689,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const circleIds = Array.from(
       new Set(heldRoleIds.map((id) => roleById.get(id)?.circleId).filter((v): v is string => !!v)),
     );
+    /*
+     * 0103: the READING context, and the admin door stays open in it for the
+     * same reason it stays open on the map. Its one refusal is a read, and
+     * `mayDeclareVillage` below is a drawing hint that leads an operator to
+     * the 409. Every WRITE re-derives this through `resourcesDeclareAct`,
+     * which folds the admin door into `mayAct`, so nothing here decides
+     * whether anybody may change anything.
+     */
     const declareCtx: DeclareContext = {
       isAdmin: admin,
       hasOrgDeclare: admin || (ctx ? hasCapability("org.declare", ctx) : false),
@@ -14726,6 +14896,37 @@ Send an empty drafts array when you are still listening. A role payload is {name
     return mayDeclare(target, declareCtx);
   }
 
+  /**
+   * The declare context for a resources WRITE (0103).
+   *
+   * `resourcesViewerFor` builds the READING context, which keeps the admin
+   * door open because its one refusal is a read and its `mayDeclareVillage`
+   * is a drawing hint. Every route that WRITES a spending rule, a funding
+   * source or a budget asks this instead, so the admin door is folded into
+   * `mayAct` and the break-glass and the record come with it.
+   *
+   * Same shape as `orgDeclareCtx` above and for the same reasons, including
+   * why `isAdmin` is reported false. The circle-delegate door is carried
+   * through untouched on `roles` and `assignments`.
+   */
+  async function resourcesDeclareAct(
+    req: express.Request,
+    base: DeclareContext,
+  ): Promise<{ ctx: DeclareContext; verdict: CapabilityVerdict }> {
+    const verdict = await mayAct(req, "org.declare");
+    return { ctx: { ...base, isAdmin: false, hasOrgDeclare: verdict.ok }, verdict };
+  }
+
+  /** The refusal a declare write answers with, hatch first when there is one. */
+  function refuseDeclare(res: express.Response, verdict: CapabilityVerdict, message?: string): void {
+    const hatch = overrideRefusal("org.declare", verdict);
+    if (hatch) {
+      res.status(409).json(hatch);
+      return;
+    }
+    res.status(401).json(message ? { error: "auth_required", message } : { error: "auth_required" });
+  }
+
   /** Everything the admin tab edits, plus the pickers' names. */
   app.get("/api/admin/resources", async (req, res) => {
     const { viewer, declareCtx, orgRoles } = await resourcesViewerFor(req);
@@ -14764,8 +14965,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const { declareCtx, orgRoles, user } = await resourcesViewerFor(req);
     const problem = ruleProblem(req.body, resourcesTokenExists);
     if (problem) return res.status(400).json({ error: problem });
-    if (!mayDeclareResources(ruleDeclareTarget(req.body, orgRoles), declareCtx)) {
-      return res.status(401).json({ error: "auth_required", message: "Declaring here takes admin, org.declare, or this circle's speaking seat" });
+    // 0103: ACT. A spending rule says what this village's money may do.
+    const { ctx: actCtx, verdict } = await resourcesDeclareAct(req, declareCtx);
+    if (!mayDeclareResources(ruleDeclareTarget(req.body, orgRoles), actCtx)) {
+      return refuseDeclare(res, verdict, "Declaring here takes admin, org.declare, or this circle's speaking seat");
     }
     // An edit must clear the gate for the row it OVERWRITES, not only the
     // destination it names. Without this, a declarer for circle A could send
@@ -14776,8 +14979,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const editId = String(req.body?.id ?? "").trim();
     if (editId) {
       const existing = (await listRules(getPool())).find((r) => r.id === editId);
-      if (existing && !mayDeclareResources(ruleDeclareTarget(existing, orgRoles), declareCtx)) {
-        return res.status(401).json({ error: "auth_required", message: "That rule belongs to a circle you cannot declare for" });
+      if (existing && !mayDeclareResources(ruleDeclareTarget(existing, orgRoles), actCtx)) {
+        return refuseDeclare(res, verdict, "That rule belongs to a circle you cannot declare for");
       }
     }
     if (req.body.scope === "circle" && !(circlesRepo.all() as any[]).some((c: any) => c.id === String(req.body.scopeId))) {
@@ -14797,8 +15000,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const rules = await listRules(getPool());
     const rule = rules.find((r) => r.id === req.params.id);
     if (!rule) return res.status(404).json({ error: "No such spending rule" });
-    if (!mayDeclareResources(ruleDeclareTarget(rule, orgRoles), declareCtx)) {
-      return res.status(401).json({ error: "auth_required" });
+    // 0103: ACT.
+    const { ctx: actCtx, verdict } = await resourcesDeclareAct(req, declareCtx);
+    if (!mayDeclareResources(ruleDeclareTarget(rule, orgRoles), actCtx)) {
+      return refuseDeclare(res, verdict);
     }
     await deleteRule(getPool(), rule.id, adminActor(req)?.id ?? user?.id ?? null);
     res.json({ success: true });
@@ -14807,7 +15012,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.post("/api/admin/resources/sources", async (req, res) => {
     const { declareCtx, user } = await resourcesViewerFor(req);
     // Funding sources are the village's shared story: village-level rights.
-    if (!mayDeclareResources("village", declareCtx)) return res.status(401).json({ error: "auth_required" });
+    // 0103: ACT.
+    const { ctx: actCtx, verdict } = await resourcesDeclareAct(req, declareCtx);
+    if (!mayDeclareResources("village", actCtx)) return refuseDeclare(res, verdict);
     const problem = sourceProblem(req.body, resourcesTokenExists);
     if (problem) return res.status(400).json({ error: problem });
     const id = await upsertSource(getPool(), req.body, adminActor(req)?.id ?? user?.id ?? null);
@@ -14817,7 +15024,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.delete("/api/admin/resources/sources/:id", async (req, res) => {
     const { declareCtx, user } = await resourcesViewerFor(req);
-    if (!mayDeclareResources("village", declareCtx)) return res.status(401).json({ error: "auth_required" });
+    // 0103: ACT. A DELETE carries no body, so the hatch is the header.
+    const { ctx: actCtx, verdict } = await resourcesDeclareAct(req, declareCtx);
+    if (!mayDeclareResources("village", actCtx)) return refuseDeclare(res, verdict);
     const gone = await deleteSource(getPool(), String(req.params.id), adminActor(req)?.id ?? user?.id ?? null);
     if (!gone) return res.status(404).json({ error: "No such funding source" });
     res.json({ success: true });
@@ -14827,8 +15036,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const { declareCtx, user } = await resourcesViewerFor(req);
     const problem = budgetProblem(req.body, resourcesTokenExists);
     if (problem) return res.status(400).json({ error: problem });
-    if (!mayDeclareResources(String(req.body.circleId), declareCtx)) {
-      return res.status(401).json({ error: "auth_required" });
+    // 0103: ACT.
+    const { ctx: actCtx, verdict } = await resourcesDeclareAct(req, declareCtx);
+    if (!mayDeclareResources(String(req.body.circleId), actCtx)) {
+      return refuseDeclare(res, verdict);
     }
     if (!(circlesRepo.all() as any[]).some((c: any) => c.id === String(req.body.circleId))) {
       return res.status(400).json({ error: "No such circle" });
@@ -14843,7 +15054,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const budgets = await listBudgets(getPool());
     const budget = budgets.find((b) => b.id === req.params.id);
     if (!budget) return res.status(404).json({ error: "No such budget" });
-    if (!mayDeclareResources(budget.circleId, declareCtx)) return res.status(401).json({ error: "auth_required" });
+    // 0103: ACT. A DELETE carries no body, so the hatch is the header.
+    const { ctx: actCtx, verdict } = await resourcesDeclareAct(req, declareCtx);
+    if (!mayDeclareResources(budget.circleId, actCtx)) return refuseDeclare(res, verdict);
     await deleteBudget(getPool(), budget.id, adminActor(req)?.id ?? user?.id ?? null);
     res.json({ success: true });
   });
@@ -14980,12 +15193,15 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * other meant either nothing got recorded or admin got handed out to make it
    * possible. The path stays under /api/admin for continuity; the gate is what
    * changed.
+   *
+   * 0103: through `guardCapability`, so a village can take the land's own
+   * measurements on. This is an ACT and the only one this key gates, which is
+   * what made it the smallest of the seven conversions. `mayAct` attaches the
+   * admin account for `adminActor` below exactly as `isAdmin` used to.
    */
   app.post("/api/admin/health/regen", async (req, res) => {
+    if (!(await guardCapability(req, res, "health.record"))) return;
     const recorder = await authedUser(req);
-    const mayRecord = (await isAdmin(req))
-      || (recorder ? hasCapability("health.record", await capabilityCtx(recorder)) : false);
-    if (!mayRecord) return res.status(401).json({ error: "auth_required" });
     const { metricKey, value, unit, note } = req.body ?? {};
     const def = REGEN_METRICS.find((m) => m.key === String(metricKey ?? ""));
     if (!def) return res.status(400).json({ error: `Unknown regen metric. Pick one of: ${REGEN_METRICS.map((m) => m.key).join(", ")}` });
@@ -18351,8 +18567,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
        * needs a Bearer token, which an `img` tag cannot send: the curator
        * surfaces fetch these through `CuratorImage` and render a blob.
        */
-      const hand = await photoHand(req);
-      if (!hand.canCurate) return res.status(404).json({ error: "Not found" });
+      // 0103: `mayStillSee`, so the operator can still open the picture a
+      // report is about on a village-held key. A GET carries no break-glass,
+      // so a pure read here would be a lockout with no way back.
+      if (!(await mayStillSee(req, "map.curatePhotos"))) {
+        return res.status(404).json({ error: "Not found" });
+      }
     }
     const filePath = path.join(UPLOADS_DIR, safe);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Not found" });
@@ -18928,11 +19148,16 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * Behind the capability gate because it carries `updatedBy`, which names a
    * person. The public route above carries no identity and therefore needs no
    * gate; splitting them is what lets the public one stay uncredentialed.
+   *
+   * 0103: a LOOK that refuses, so it asks `mayStillSee`. A village taking
+   * `map.publish` on takes the SETTING of the numbers, and it does not take
+   * the operator's eyes: there is no break-glass on a GET, so an admin
+   * refused here would have no way back at all.
    */
   app.get("/api/housing/availability", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to see housing numbers" });
-    if (!hasCapability("map.publish", await capabilityCtx(user))) {
+    if (!(await mayStillSee(req, "map.publish"))) {
       return res.status(403).json({ error: "Setting housing numbers is an appointment" });
     }
     res.json({ rows: await housingRows(getPool()) });
@@ -18941,12 +19166,16 @@ Send an empty drafts array when you are still listening. A role payload is {name
   /**
    * Set (or clear) one hamlet's numbers. BOTH founder surfaces land here.
    *
-   * Gated by `hasCapability("map.publish")` through the one gate in
-   * shared/capabilities.ts and nowhere else. That key is already
-   * appointment-only, deliberately absent from STAGE_UNLOCKS so nobody
-   * reaches it by climbing, and it already means "this becomes true for every
-   * visitor", which is exactly what a housing count is. Admins pass at step 1
-   * of the gate, which is what covers the Admin surface.
+   * Gated on `map.publish` through the one gate in shared/capabilities.ts and
+   * nowhere else. That key is appointment-only, deliberately absent from
+   * STAGE_UNLOCKS so nobody reaches it by climbing, and it already means
+   * "this becomes true for every visitor", which is exactly what a housing
+   * count is.
+   *
+   * 0103 moved the ask from `hasCapability` to `guardCapability`. An admin
+   * still passes at step 1 of the gate while the village holds nothing, which
+   * is what covers the Admin surface; once a village holds the key the same
+   * admin meets the 409 and is told who holds it and what to send.
    *
    * ── THE BODY IS A PATCH: SEND ONLY WHAT YOU ARE CHANGING ───────────────
    * All four writable fields read the same way, and this is the whole
@@ -18981,9 +19210,15 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.put("/api/housing/availability/:structureKey", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to set housing numbers" });
-    if (!hasCapability("map.publish", await capabilityCtx(user))) {
-      return res.status(403).json({ error: "Setting housing numbers is an appointment" });
-    }
+    // 0103: ACT. A hamlet's count becomes true for every visitor the moment
+    // it lands, which is the same reason this key gates the map's publish.
+    // `readAvailabilityPatch` reads only the four fields it names, so an
+    // `override` riding the body cannot reach a column.
+    const maySet = await guardCapability(req, res, "map.publish", {
+      status: 403,
+      body: { error: "Setting housing numbers is an appointment" },
+    });
+    if (!maySet) return;
     const structureKey = String(req.params.structureKey ?? "");
     // The map mints these keys and the site stores them verbatim, so the only
     // question here is whether it could be one, never what it should become.
@@ -19180,7 +19415,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.get("/api/housing/reservations", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to see reservations" });
-    if (!hasCapability("map.publish", await capabilityCtx(user))) {
+    // 0103: a LOOK that refuses, so the operator keeps the read. See the
+    // availability GET above for why `adminSees` and not the pure gate.
+    if (!(await mayStillSee(req, "map.publish"))) {
       return res.status(403).json({ error: "Reading reservations is an appointment" });
     }
     res.json({ rows: await listReservations(getPool()) });
@@ -19194,9 +19431,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.put("/api/housing/reservations/:id/status", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "Sign in to update reservations" });
-    if (!hasCapability("map.publish", await capabilityCtx(user))) {
-      return res.status(403).json({ error: "Updating reservations is an appointment" });
-    }
+    // 0103: ACT. Moving somebody's request to `reserved` takes a home off the
+    // map and sends them an email, so it belongs on the act path.
+    const mayMove = await guardCapability(req, res, "map.publish", {
+      status: 403,
+      body: { error: "Updating reservations is an appointment" },
+    });
+    if (!mayMove) return;
     const status = String(req.body?.status ?? "");
     if (!isReservationStatus(status)) {
       return res.status(400).json({ error: "Unknown status" });
@@ -19496,7 +19737,21 @@ Send an empty drafts array when you are still listening. A role payload is {name
   /** Same scope column the 0069+ tables carry, and the same value. */
   const PLACE_VILLAGE = "local";
 
-  /** What this member may do with the village's photographs, asked once per request. */
+  /**
+   * What this member may do with the village's photographs, asked once per
+   * request.
+   *
+   * 0103: a LOOK. Both flags ride the pure gate, no override is read and
+   * nothing is written, because these answers are DRAWING HINTS: they decide
+   * which controls a gallery renders and whether hidden rows ride the
+   * payload. The five routes that act on `map.curatePhotos` each ask
+   * `guardCapability` for themselves.
+   *
+   * The two reads that REFUSE, the curator's queue and the bytes of a
+   * suppressed picture, keep the operator's short-circuit through
+   * `mayStillSee`. There is no break-glass on a GET, so a village taking
+   * curation on must not take the operator's eyes with it.
+   */
   async function photoHand(req: express.Request): Promise<{ user: any | null; canContribute: boolean; canCurate: boolean }> {
     const user = await authedUser(req);
     if (!user) return { user: null, canContribute: false, canCurate: false };
@@ -19514,6 +19769,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * Decided by THE ONE GATE, the same way `questConsentRecipients` decides
    * who may release recognition. A queue that rings a different set of people
    * from the set who can act on it is a queue with a wait built into it.
+   *
+   * 0103: stays `hasCapability` and is not converted. It runs the gate over
+   * every member and has no request, so there is no break-glass to read and
+   * nobody to attribute a record to. The admins pushed in above the loop keep
+   * their line on a village-held key on purpose: they can still reach the act
+   * through the 409, and a queue that stopped telling them would have a hole
+   * in it.
    */
   async function photoCuratorRecipients(): Promise<string[]> {
     const out: string[] = [];
@@ -19593,7 +19855,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.get("/api/places/reports", async (req, res) => {
     const hand = await photoHand(req);
     if (!hand.user) return res.status(401).json({ error: "auth_required" });
-    if (!hand.canCurate) return res.status(403).json({ error: "Reading this queue needs the capability to curate the village's photographs" });
+    // 0103: a LOOK that refuses, so the operator keeps the queue on a
+    // village-held key. Acting on a row in it is a different question, asked
+    // one route down.
+    if (!(await mayStillSee(req, "map.curatePhotos"))) {
+      return res.status(403).json({ error: "Reading this queue needs the capability to curate the village's photographs" });
+    }
     const status = ["open", "resolved", "dismissed"].includes(String(req.query.status)) ? (String(req.query.status) as any) : "open";
     res.json({ reports: await placePhotosRepo.listReports(getPool(), status), status });
   });
@@ -19602,7 +19869,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.put("/api/places/reports/:id", async (req, res) => {
     const hand = await photoHand(req);
     if (!hand.user) return res.status(401).json({ error: "auth_required" });
-    if (!hand.canCurate) return res.status(403).json({ error: "Closing a report needs the capability to curate the village's photographs" });
+    // 0103: ACT. Closing a report tells the member who raised it that a human
+    // looked, which is a thing that happened to somebody.
+    const mayClose = await guardCapability(req, res, "map.curatePhotos", {
+      status: 403,
+      body: { error: "Closing a report needs the capability to curate the village's photographs" },
+    });
+    if (!mayClose) return;
     const status = String(req.body?.status ?? "");
     if (!["resolved", "dismissed"].includes(status)) return res.status(400).json({ error: "status must be resolved or dismissed" });
     const before = await placePhotosRepo.reporterOf(getPool(), req.params.id);
@@ -19725,7 +19998,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.put("/api/places/:key/hero", async (req, res) => {
     const hand = await photoHand(req);
     if (!hand.user) return res.status(401).json({ error: "auth_required" });
-    if (!hand.canCurate) return res.status(403).json({ error: "Choosing a place's lead photograph needs the capability to curate them" });
+    // 0103: ACT. The lead shot is the picture the whole village sees first.
+    const mayPin = await guardCapability(req, res, "map.curatePhotos", {
+      status: 403,
+      body: { error: "Choosing a place's lead photograph needs the capability to curate them" },
+    });
+    if (!mayPin) return;
     const key = sanitiseMapKey(req.params.key);
     if (!key) return res.status(404).json({ error: "Not found" });
     const photoId = req.body?.photoId == null ? null : String(req.body.photoId);
@@ -19865,7 +20143,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.post("/api/places/photo/:id/hide", async (req, res) => {
     const hand = await photoHand(req);
     if (!hand.user) return res.status(401).json({ error: "auth_required" });
-    if (!hand.canCurate) return res.status(403).json({ error: "Hiding a photograph needs the capability to curate the village's photographs" });
+    // 0103: ACT. Taking somebody's photograph out of the village's record.
+    const mayHide = await guardCapability(req, res, "map.curatePhotos", {
+      status: 403,
+      body: { error: "Hiding a photograph needs the capability to curate the village's photographs" },
+    });
+    if (!mayHide) return;
     const photo = await placePhotosRepo.photoById(getPool(), req.params.id);
     if (!photo || photo.removedAt) return res.status(404).json({ error: "Not found" });
     const reason = String(req.body?.reason ?? "").slice(0, 200) || null;
@@ -19878,7 +20161,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.post("/api/places/photo/:id/restore", async (req, res) => {
     const hand = await photoHand(req);
     if (!hand.user) return res.status(401).json({ error: "auth_required" });
-    if (!hand.canCurate) return res.status(403).json({ error: "Restoring a photograph needs the capability to curate the village's photographs" });
+    // 0103: ACT. Putting a picture back is as much a decision as taking it
+    // down, and the same people make both.
+    const mayRestore = await guardCapability(req, res, "map.curatePhotos", {
+      status: 403,
+      body: { error: "Restoring a photograph needs the capability to curate the village's photographs" },
+    });
+    if (!mayRestore) return;
     const photo = await placePhotosRepo.photoById(getPool(), req.params.id);
     if (!photo || photo.removedAt) return res.status(404).json({ error: "Not found" });
     const done = await placePhotosRepo.restorePhoto(getPool(), photo.id);
@@ -19902,8 +20191,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const photo = await placePhotosRepo.photoById(getPool(), req.params.id);
     if (!photo || photo.removedAt) return res.status(404).json({ error: "Not found" });
     const mine = photo.contributorId === hand.user.id;
-    if (!hand.canCurate && !mine) {
-      return res.status(403).json({ error: "Taking down someone else's photograph needs the capability to curate them" });
+    /*
+     * 0103: ACT, and the gate is asked ONLY when the picture belongs to
+     * somebody else. The order matters and it is not cosmetic: `mayAct` reads
+     * the break-glass, so asking it first would mean an admin withdrawing
+     * their OWN photograph, with a stray override header on the request,
+     * wrote "acted on a power this village holds" to the public pulse for
+     * tidying up after themselves.
+     *
+     * A DELETE carries no body, so the hatch here is the
+     * `x-capability-override` header.
+     */
+    if (!mine) {
+      const mayTakeDown = await guardCapability(req, res, "map.curatePhotos", {
+        status: 403,
+        body: { error: "Taking down someone else's photograph needs the capability to curate them" },
+      });
+      if (!mayTakeDown) return;
     }
     const done = await placePhotosRepo.removePhoto(getPool(), photo.id, hand.user.id);
     if (done) {
@@ -19948,7 +20252,21 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * and the column has an opinion about the body.
    */
 
-  /** What this member may do to the map, asked once per request. */
+  /**
+   * What this member may do to the map, asked once per request.
+   *
+   * 0103: a LOOK, and it stays one. Both flags ride the pure gate with no
+   * override read and no side effect, because the shell asks
+   * `GET /api/map/draft` on every boot of every map to decide what to DRAW.
+   * The two routes that ACT on `map.publish` ask `guardCapability` for
+   * themselves below, and the map's own header already says why: the artifact
+   * is a static file anyone can open, so what it is told to draw was never
+   * the permission in the first place.
+   *
+   * An admin sees `canPublish: false` while the village holds the key, which
+   * is the honest answer on a drawing hint. The 409 on the publish route is
+   * where the operator is told how to go through anyway.
+   */
   async function mapHand(req: express.Request) {
     const user = await authedUser(req);
     if (!user) return { user: null, canEdit: false, canPublish: false };
@@ -20078,13 +20396,17 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * harmless and nothing vanishes at the moment they were told it worked.
    */
   app.post("/api/map/publish", async (req, res) => {
-    const { user, canPublish } = await mapHand(req);
+    const { user } = await mapHand(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to publish the map." });
-    if (!canPublish) {
-      return res.status(403).json({
-        error: "Publishing the map is a cartographer's work. Your draft is safe and still yours.",
-      });
-    }
+    // 0103: ACT, and the sharpest one this key gates. One press puts a new
+    // shape of the land in front of every visitor at once. `readScene` reads
+    // `scene` and `baseVersion` only, so an `override` in the body reaches
+    // nothing but the hatch.
+    const mayPublish = await guardCapability(req, res, "map.publish", {
+      status: 403,
+      body: { error: "Publishing the map is a cartographer's work. Your draft is safe and still yours." },
+    });
+    if (!mayPublish) return;
 
     const read = readScene(req.body);
     if ("error" in read) return res.status(400).json({ error: read.error });
@@ -20175,11 +20497,15 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * makes this safe to press when you are not certain.
    */
   app.post("/api/map/revisions/:version/restore", async (req, res) => {
-    const { user, canPublish } = await mapHand(req);
+    const { user } = await mapHand(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
-    if (!canPublish) {
-      return res.status(403).json({ error: "Putting an earlier map back is a cartographer's work." });
-    }
+    // 0103: ACT. An undo is a publish carrying an old scene, so it takes the
+    // same key through the same door.
+    const mayRestore = await guardCapability(req, res, "map.publish", {
+      status: 403,
+      body: { error: "Putting an earlier map back is a cartographer's work." },
+    });
+    if (!mayRestore) return;
     const version = Number(req.params.version);
     if (!Number.isInteger(version) || version < 1) {
       return res.status(400).json({ error: "That is not a version number." });
@@ -20810,27 +21136,81 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * released by whoever holds the founder password, which is precisely the
    * single-founder bottleneck the capability system exists to prevent.
    *
-   * Extends the ONE gate rather than inventing a second: hasCapability over
-   * capabilityCtx, so a warning badge's deny still beats the role grant and
-   * only admin outranks it.
+   * Extends the ONE gate: through `mayAct` since 0103, so a warning badge's
+   * deny still beats the role grant, an admin still outranks all of it while
+   * the village holds nothing, and a village that HAS taken this on refuses
+   * an admin who did not say they meant to reach past it.
+   *
+   * ── ACT, AND ONLY ACT ──────────────────────────────────────────────────
+   *
+   * This function is asked by the two routes that RELEASE something: the
+   * consent that mints recognition, and the check-in that witnesses somebody
+   * was there. The third caller used to be `GET /api/admin/quest-claims`,
+   * which reads the queue, and it was moved to `consentQueueViewer` below in
+   * the same edit. Reading a queue is looking, and `mayAct` would have put
+   * "acted on a power this village holds" on the public pulse for it.
+   *
+   * `isAdminActor` still names the ACCOUNT and never the gate's verdict. It
+   * unlocks exactly one thing, the solo-founder self-consent window, and the
+   * rule there is that role authority is not founder authority. An admin who
+   * broke the glass is still an admin.
    */
-  async function consentActor(
-    req: express.Request,
-  ): Promise<{ ok: true; userId: string | null; isAdminActor: boolean } | { ok: false; status: number; error: string }> {
-    if (await isAdmin(req)) {
-      return { ok: true, userId: (await authedUser(req))?.id ?? adminActor(req)?.id ?? null, isAdminActor: true };
-    }
+  type ConsentActor =
+    | { ok: true; userId: string | null; isAdminActor: boolean }
+    | { ok: false; status: number; body: Record<string, unknown> };
+
+  async function consentActor(req: express.Request): Promise<ConsentActor> {
+    const verdict = await mayAct(req, "quest.consent");
     const viewer = await authedUser(req);
-    if (!viewer) return { ok: false, status: 401, error: "Unauthorized" };
-    if (!hasCapability("quest.consent", await capabilityCtx(viewer))) {
+    if (verdict.ok) {
+      return {
+        ok: true,
+        userId: viewer?.id ?? adminActor(req)?.id ?? null,
+        isAdminActor: viewer?.role === "admin" || viewer?.role === "founder",
+      };
+    }
+    if (!viewer) return { ok: false, status: 401, body: { error: "Unauthorized" } };
+    if (verdict.needsOverride) {
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          error: verdict.message,
+          capability: "quest.consent",
+          villageHolds: true,
+          requiresOverride: true,
+        },
+      };
+    }
+    return { ok: false, status: 403, body: { error: "Consenting to finished work is for stewards" } };
+  }
+
+  /**
+   * WHO MAY READ THE QUEUE. A look, and it writes nothing.
+   *
+   * The queue and the consent button sit on the same panel, so it would have
+   * been one line shorter to keep one helper for both. That is the RSVP
+   * defect: a curator opening a list is not an act, and an admin whose
+   * request happened to carry an override would have been recorded reaching
+   * past a power for having opened a page.
+   *
+   * The operator keeps the read on a village-held key (`adminSees`). A
+   * village taking on consent takes the button, and there is no break-glass
+   * on a GET to hand an operator their eyes back.
+   */
+  async function consentQueueViewer(
+    req: express.Request,
+  ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+    if (!(await authedUser(req))) return { ok: false, status: 401, error: "Unauthorized" };
+    if (!(await mayStillSee(req, "quest.consent"))) {
       return { ok: false, status: 403, error: "Consenting to finished work is for stewards" };
     }
-    return { ok: true, userId: viewer.id, isAdminActor: false };
+    return { ok: true };
   }
 
   app.get("/api/admin/quest-claims", async (req, res) => {
-    const actor = await consentActor(req);
-    if (!actor.ok) return res.status(actor.status).json({ error: actor.error });
+    const viewer = await consentQueueViewer(req);
+    if (!viewer.ok) return res.status(viewer.status).json({ error: viewer.error });
     const claims = await claimsRepo.all();
     claims.sort((a, b) => new Date(b.claimedAt ?? 0).getTime() - new Date(a.claimedAt ?? 0).getTime());
     res.json(claims);
@@ -20928,7 +21308,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   app.post("/api/admin/quest-claims/:id/consent", async (req, res) => {
     const actor = await consentActor(req);
-    if (!actor.ok) return res.status(actor.status).json({ error: actor.error });
+    if (!actor.ok) return res.status(actor.status).json(actor.body);
     const { approve, amount } = req.body ?? {};
     const claim = await claimsRepo.byId(req.params.id);
     if (!claim) return res.status(404).json({ error: "Not found" });
@@ -22580,11 +22960,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
      */
     const verdict = await mayAct(req, "dial.set");
     if (!verdict.ok) {
-      if (verdict.villageHolds && verdict.message !== "auth_required") {
-        return res.status(409).json({
-          error: verdict.message, capability: "dial.set", villageHolds: true, requiresOverride: true,
-        });
-      }
+      // 0103: through `overrideRefusal`, so this route and the eleven the
+      // same commit converted write ONE 409 body between them. It used to
+      // build its own off `message !== "auth_required"`, which is a copy edit
+      // away from being a different permission answer.
+      const hatch = overrideRefusal("dial.set", verdict);
+      if (hatch) return res.status(409).json(hatch);
       return res.status(401).json({ error: "auth_required" });
     }
     if (verdict.source !== "admin") {
@@ -24587,11 +24968,19 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const objections = await objectionsFor(getPool(), req.params.id);
     const target = objections.find((o) => o.id === req.params.objectionId);
     if (!target) return res.status(404).json({ error: "Not found" });
-    const ctx = await capabilityCtx(user);
-    const isFacilitator = hasCapability("proposal.decide", ctx);
+    /*
+     * 0103: ACT, with a second door beside it. The objector's own withdrawal
+     * is checked FIRST, so somebody taking back their own objection never
+     * touches the break-glass and can never write a record about reaching
+     * past a power they were not using.
+     */
     const withdrawingOwn = ruling === "withdrawn" && target.userId === user.id;
-    if (!isFacilitator && !withdrawingOwn) {
-      return res.status(403).json({ error: "Ruling objections takes proposal.decide standing. You can withdraw your own" });
+    if (!withdrawingOwn) {
+      const mayRule = await guardCapability(req, res, "proposal.decide", {
+        status: 403,
+        body: { error: "Ruling objections takes proposal.decide standing. You can withdraw your own" },
+      });
+      if (!mayRule) return;
     }
     const result = await ruleObjection(getPool(), {
       objectionId: req.params.objectionId,
@@ -24615,13 +25004,27 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!user) return res.status(401).json({ error: "auth_required" });
     const b = await ballotById(getPool(), req.params.id);
     if (!b) return res.status(404).json({ error: "Not found" });
-    const ctx = await capabilityCtx(user);
-    const isFacilitator = hasCapability("proposal.decide", ctx);
     const subjectProposerId =
       b.subjectType === "mechanics" ? (await proposalById(getPool(), b.subjectRef))?.proposerUserId ?? null : null;
     const expired = Date.parse(b.closesAt) <= Date.now();
     const isProposer = user.id === subjectProposerId || user.id === b.openedBy;
+    /*
+     * 0103: ACT, asked through `mayAct` so a village can hold the close.
+     *
+     * One call and not two, because the answer is needed twice: it is the
+     * door AND it is `closerMayCloseEarly` below. Closing a ballot is
+     * unambiguously an act, so an admin who sends the break-glass here has
+     * done the thing the record is for.
+     *
+     * The proposer's door is unchanged and stays beside it: after the window
+     * runs out, whoever opened the vote can close it with no capability at
+     * all. Early close is still the facilitator's call alone.
+     */
+    const verdict = await mayAct(req, "proposal.decide");
+    const isFacilitator = verdict.ok;
     if (!isFacilitator && !(expired && isProposer)) {
+      const hatch = overrideRefusal("proposal.decide", verdict);
+      if (hatch) return res.status(409).json(hatch);
       return res.status(403).json({
         error: expired
           ? "Closing this ballot is for its proposer, a proposal.decide holder, or an admin"
@@ -24764,9 +25167,19 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!user) return res.status(401).json({ error: "auth_required" });
     const b = await ballotById(getPool(), req.params.id);
     if (!b) return res.status(404).json({ error: "Not found" });
-    const ctx = await capabilityCtx(user);
-    const isFacilitator = hasCapability("proposal.decide", ctx);
+    /*
+     * 0103: ACT, one `mayAct` call for the same reason the close route makes
+     * one. The answer is the door for everybody who did not open the ballot,
+     * and it is `withdrawerMayDiscardVotes` for everybody who did. An opener
+     * with votes standing needs a real answer here, and a pure read would
+     * leave an operator on a village-held key unable to call off a vote and
+     * with nothing telling them how.
+     */
+    const verdict = await mayAct(req, "proposal.decide");
+    const isFacilitator = verdict.ok;
     if (user.id !== b.openedBy && !isFacilitator) {
+      const hatch = overrideRefusal("proposal.decide", verdict);
+      if (hatch) return res.status(409).json(hatch);
       return res.status(403).json({
         error: "Calling off a vote is for whoever opened it, a proposal.decide holder, or an admin",
       });
@@ -25020,10 +25433,20 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const refused = typeRefusesCapability("power_transfer", capability);
     if (refused) return res.status(409).json({ error: refused });
     if (TRANSFERABLE[cap] !== true) {
+      /*
+       * 0103: two refusals, because there are two reasons and the sentence
+       * has to be the true one. A key nothing gates has nobody to move to. A
+       * key the product DOES use and this map still refuses is a different
+       * fact entirely, and telling a village that `ballot.vote` "names
+       * something a member does for themselves" would be a fallback
+       * answering a question nobody asked it.
+       */
+      const heldBack = WIRED_BUT_HELD_BACK[capability];
       return res.status(409).json({
         error:
+          heldBack ??
           `"${capability}" is not a power that can move. It names something a member does for themselves, ` +
-          `or plumbing the deployment has to keep reachable, so there is nobody for it to move to.`,
+            `or plumbing the deployment has to keep reachable, so there is nobody for it to move to.`,
       });
     }
     const entry = POWERS.find((p) => p.capability === cap);
@@ -25306,10 +25729,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const refused = typeRefusesCapability("power_grant", capability);
     if (refused) return res.status(409).json({ error: refused });
     if (TRANSFERABLE[cap] !== true) {
+      // 0103: the same two reasons the transfer route tells apart, told apart
+      // here for the same reason.
+      const heldBack = WIRED_BUT_HELD_BACK[capability];
       return res.status(409).json({
         error:
+          heldBack ??
           `"${capability}" is not a power the village can take on, so there is no reason to vote it onto a role. ` +
-          `It names something a member does for themselves, or plumbing the deployment has to keep reachable.`,
+            `It names something a member does for themselves, or plumbing the deployment has to keep reachable.`,
       });
     }
     const entry = POWERS.find((p) => p.capability === cap);
@@ -25796,6 +26223,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
       // route will refuse, which is the difference between a surface that
       // teaches a member their standing and one that lets them find out by
       // being told no.
+      //
+      // 0103: a LOOK, and the PURE gate. `mayAct` would read the break-glass
+      // off a request that is only asking a member about themselves, and an
+      // admin checking their own standing would have written "acted on a
+      // power this village holds" to the public pulse. On a village-held key
+      // an admin is told `false` here, which is the honest answer about who
+      // facilitates; the 409 on the close route is where they are told how to
+      // reach past it.
       mayDecide: hasCapability("proposal.decide", ctx),
       // The member's own history, never the village's: the village-wide trail
       // already has its own route, and this one answers "why me".
@@ -26172,11 +26607,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (await isExampleRow(getPool(), "circles", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
-    const ctx = await orgDeclareCtx(req);
+    const { ctx, verdict } = await orgDeclareCtx(req);
     if (!mayDeclare(String(req.params.id), ctx)) {
+      const hatch = overrideRefusal("org.declare", verdict);
+      if (hatch) return res.status(409).json(hatch);
       return res.status(403).json({ error: "Declaring how this circle decides belongs to its delegate, org.declare holders and admins" });
     }
-    const body = req.body ?? {};
+    /*
+     * 0103: the hatch comes OFF the body before the declaration is checked.
+     * `circleDecidesProblem` refuses any key it does not know by name, which
+     * is right for a declaration and would have made the break-glass
+     * unreachable here: the 409 says to send `override`, and sending it would
+     * have answered 400 "override is not part of a decides declaration". The
+     * gate above has already read it, so this only removes it from the words
+     * the village is declaring about itself.
+     */
+    const body: Record<string, any> = { ...(req.body ?? {}) };
+    delete body.override;
     const problem = circleDecidesProblem(body);
     if (problem) return res.status(400).json({ error: problem });
     const before = all[idx] as any;
@@ -26215,11 +26662,16 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.put("/api/org/village/power", async (req, res) => {
     const viewer = await authedUser(req);
     if (!viewer) return res.status(401).json({ error: "auth_required", message: "Sign in to declare the village's shape" });
-    const ctx = await orgDeclareCtx(req);
+    const { ctx, verdict } = await orgDeclareCtx(req);
     if (!mayDeclare("village", ctx)) {
+      const hatch = overrideRefusal("org.declare", verdict);
+      if (hatch) return res.status(409).json(hatch);
       return res.status(403).json({ error: "Declaring the village's shape belongs to org.declare holders and admins" });
     }
-    const body = req.body ?? {};
+    // 0103: the hatch comes off the body before the declaration is checked,
+    // for the reason spelled out on the circle route above.
+    const body: Record<string, any> = { ...(req.body ?? {}) };
+    delete body.override;
     const problem = villagePowerProblem(body);
     if (problem) return res.status(400).json({ error: problem });
     const power = {
@@ -27191,8 +27643,25 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const actorUser = await authedUser(req);
     const isAdminActor = await isAdmin(req);
     const actorCtx = actorUser ? await capabilityCtx(actorUser) : null;
-    const mayDecide = !!actorCtx && hasCapability("proposal.decide", actorCtx);
-    if (!isAdminActor && !mayDecide) {
+    /*
+     * 0103: ACT, and the admin's OR came out of the front of it.
+     *
+     * `isAdminActor || mayDecide` meant an admin passed this route by being
+     * an admin, which is exactly the short-circuit `TRANSFERABLE` promises to
+     * remove: a village holding `proposal.decide` would have read that it
+     * appoints its own stewards while the panel carried on appointing them.
+     * The verdict is now the whole door, so an operator on a village-held key
+     * meets the 409 and goes through in the open.
+     *
+     * `isAdminActor` survives BELOW this line and keeps its old job. It
+     * unlocks removals, self-appointment and seating above yourself, and
+     * those are properties of the account rather than of this key. An admin
+     * who broke the glass is still an admin.
+     */
+    const verdict = await mayAct(req, "proposal.decide");
+    if (!verdict.ok) {
+      const hatch = overrideRefusal("proposal.decide", verdict);
+      if (hatch) return res.status(409).json(hatch);
       return res.status(401).json({ error: "auth_required", message: "Appointing needs the village's decision capability" });
     }
     // TWO GUARDS on the non-admin path, because `proposal.decide` is the

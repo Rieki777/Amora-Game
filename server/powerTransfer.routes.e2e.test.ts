@@ -311,26 +311,39 @@ describe.skipIf(!DB_CONFIGURED)("what the route refuses before a village ever vo
     expect(String(r.json?.error)).toContain("not a power that can move");
   });
 
-  it("refuses ballot.vote TODAY, and says why in the platform's own words", async () => {
+  it("refuses ballot.vote, and says the reason that is actually true of it", async () => {
     /*
      * THE HONEST HALF OF RULING 2. The transfer TYPE permits the governance
      * keys (proved in server/lib/proposalDrafts.test.ts: its refusal list is
-     * empty). The PLATFORM does not move `ballot.vote` yet, because
-     * `TRANSFERABLE` marks it false while its gate has no escape hatch, and
-     * the route reads that map rather than second-guessing it.
+     * empty). The PLATFORM does not move `ballot.vote`, and the route reads
+     * that map rather than second-guessing it.
      *
-     * The two facts are separate on purpose and both are true: nothing about
-     * this ceremony is what stands between a village and its own roll, and
-     * the day the key flips this route needs no edit.
+     * 0103 CHANGED THE SENTENCE AND NOT THE ANSWER, and the difference is
+     * the whole of this case now. The refusal above is one written line about
+     * two reasons: a personal act, or plumbing an operator must keep
+     * reachable. That line was true of every key it could meet until seven of
+     * them crossed, and it was never true of this one. A village asking for
+     * its own roll was being told it had asked for something a member does
+     * for themselves, which is a fallback answering a question nobody put to
+     * it. The reason now comes from `WIRED_BUT_HELD_BACK`, beside the power
+     * it is about.
+     *
+     * The two facts stay separate and both stay true: nothing about this
+     * ceremony is what stands between a village and its own roll, and the day
+     * the key flips this route still needs no edit.
      */
     const r = await call("POST", "/api/governance/power-transfers", {
       token: wrenToken, body: { ...good, capability: "ballot.vote" },
     });
     expect(r.status).toBe(409);
-    expect(String(r.json?.error)).toContain("not a power that can move");
+    const why = String(r.json?.error);
+    expect(why).toContain("Who votes here is a rule of the game");
+    expect(why).toContain("who is on the roll");
+    // The sentence that is false about this key, and was being said anyway.
+    expect(why).not.toContain("names something a member does for themselves");
     // And it is NOT the badge review's refusal talking: the transfer type
     // says nothing about ballot.vote at all.
-    expect(String(r.json?.error)).not.toContain("badge");
+    expect(why).not.toContain("badge");
   });
 
   it("refuses a role that could not act on it the day it crossed", async () => {

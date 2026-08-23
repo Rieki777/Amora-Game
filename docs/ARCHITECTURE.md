@@ -1223,16 +1223,43 @@ submission aged out.
    balance columns — the framework gives modules no place to keep one.
 4. **Routes** in `server/index.ts`, mounted behind
    `app.use("<prefix>", requireModule("<id>"))` for every prefix declared
-   in the registry. Capability checks per route via
-   `hasCapability(cap, await capabilityCtx(user))`. Settlement webhooks (if
-   fiat) go through `registerPaymentHandlers`, never behind the module
-   gate.
+   in the registry. Settlement webhooks (if fiat) go through
+   `registerPaymentHandlers`, never behind the module gate.
+
+   **Capability checks: which of the two, and why it matters.** This line
+   used to say `hasCapability(cap, await capabilityCtx(user))` for every
+   route, and following it is what made seven powers unable to leave the
+   admin panel. That call never sees the request, so it cannot carry the
+   break-glass and cannot write the record that makes a village-held power
+   real, which forced `TRANSFERABLE` to mark each of those keys `false`.
+   Ask the question the route is asking:
+
+   - A route that REFUSES on the key is an ACT. Use
+     `guardCapability(req, res, cap)`, or `mayAct(req, cap)` when the route
+     has a second door beside the capability (an author editing their own
+     thing, a proposer closing their own ballot). Both read `override` and
+     `x-capability-override`, both answer 409 with the holder's name, and
+     `mayAct` writes the public record.
+   - A route that only REPORTS the key, in a payload flag or a decision
+     about how much to build, is a LOOK. Use
+     `hasCapability(cap, await capabilityCtx(user))`, which reads no
+     override and writes nothing. Pointing a look at `mayAct` puts "acted
+     on a power this village holds" on the public pulse for somebody who
+     opened a page, and that defect has shipped once already.
+   - A read that REFUSES is a look that would otherwise strand an
+     operator, because a GET carries no break-glass. Use `mayStillSee`.
 5. **Variables** in `shared/gameVariables.ts`, namespaced `<id>.*`, bounded,
    founder-readable descriptions. Admin hides the group while the module is
    off.
 6. **Capabilities**: extend the union AND `ALL_CAPABILITIES` in
    `shared/capabilities.ts` (lockstep or badges cannot grant it), add a
-   `STAGE_UNLOCKS` row only if the ladder should grant it.
+   `STAGE_UNLOCKS` row only if the ladder should grant it, and classify it
+   in `TRANSFERABLE`. That last one is a `Record` and not a `Set` on
+   purpose: a new key with no line there is a type error, so whether a
+   village may ever hold this power is a decision somebody makes rather
+   than a default somebody inherits. Mark it `true` ONLY in the same commit
+   that puts its acting routes behind `guardCapability`/`mayAct` (step 4),
+   never one without the other.
 7. **Public activity** through `moduleActivity(id, …)` only;
    notifications through `insertNotification` with a stable dedupe key and
    a cadence entry in `emailCadenceFor` if it should ever email.
