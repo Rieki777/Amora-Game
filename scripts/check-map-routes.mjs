@@ -18,14 +18,20 @@
  * It rotted at exactly the speed pages were added.
  *
  * BOTH HALVES OF THIS COMPARISON ALREADY EXISTED, in two scripts that never met.
- * `scripts/qa/routes.mjs` derives the route list from `client/src/App.tsx`, and it
- * is the same deriver `docs/prototypes/patch_g1_01_doors.py` used to write
- * SITE_PAGES into the artifact in the first place. The regex read of the array back
- * out of the artifact is what `docs/prototypes/patch_g1_04_routes_rederive.py`
- * does. Neither ran in CI. This puts the two halves together, and it needs no
- * browser and no build: it reads two files and compares two lists, in milliseconds,
- * so it is cheap enough to run on every push, which is the entire point. A gate that
- * costs a browser gets run at the end of a round, and the drift lands before that.
+ * `scripts/qa/routes.mjs` derives the route list from `client/src/App.tsx`. The
+ * regex read of the array back out of the artifact is what
+ * `docs/prototypes/patch_g1_04_routes_rederive.py` does. Neither ran in CI. This
+ * puts the two halves together, and it needs no browser and no build: it reads two
+ * files and compares two lists, in milliseconds, so it is cheap enough to run on
+ * every push, which is the entire point. A gate that costs a browser gets run at
+ * the end of a round, and the drift lands before that.
+ *
+ * WHICH SCRIPT OWNS THE ARRAY, because there are two and only one is the answer.
+ * `patch_g1_01_doors.py` wrote SITE_PAGES originally, but from a literal list of its
+ * own that it merely ASSERTS against the deriver; that literal is itself stale today
+ * (it predates the five newest routes), so running it now aborts on its own guard.
+ * `patch_g1_04_routes_rederive.py` writes exactly what the deriver emits and nothing
+ * else, which is why it is the command named below and the one to reach for.
  *
  * TWO DIRECTIONS, BOTH FAIL, AND THE MESSAGE SAYS WHICH. They are different
  * defects with different fixes, so a gate that collapsed them into one number would
