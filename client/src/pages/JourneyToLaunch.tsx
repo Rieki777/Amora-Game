@@ -36,6 +36,7 @@ import {
   TreePine,
   TriangleAlert,
 } from "lucide-react";
+import type { LaunchGroup } from "@shared/launchRequirements";
 
 /**
  * S65: the launch guide. Same brain as the Work With Us guide, different
@@ -160,14 +161,57 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
   );
 }
 
-const GROUP_META: Record<string, { title: string; blurb: string }> = {
+/**
+ * THE SECTION EACH REQUIREMENT SITS IN.
+ *
+ * The authority is `LaunchGroup` in `shared/launchRequirements.ts`, which is
+ * the same file this page renders and is in this one TypeScript program.
+ * Typing both of these against that union rather than `string` is the fix
+ * with no runtime cost: a sixth group added there turns GROUP_META red at
+ * `pnpm check`, and GROUP_ORDER can no longer name a group that does not
+ * exist.
+ *
+ * The compiler still cannot force GROUP_ORDER to be COMPLETE, and a group
+ * missing from it took its whole section off the page silently, with no
+ * blocking requirement in it visible anywhere and nothing on screen saying so.
+ * This is the launch checklist, so a requirement that is invisible is a
+ * village that thinks it is ready. `leftoverGroups` below renders whatever the
+ * server sent that this list does not name.
+ */
+const GROUP_META: Record<LaunchGroup, { title: string; blurb: string }> = {
   identity: { title: "Who runs this village", blurb: "Named admins, attributable acts: the platform's oldest requirement." },
   brand: { title: "Make it yours", blurb: "The name, the words, the images. A fork stops being a template here." },
   integrations: { title: "Connections", blurb: "Third-party keys, each honest about what stops without it." },
   modules: { title: "What your village runs", blurb: "Everything ships off; opening each part is a decision." },
   reach: { title: "Being reachable", blurb: "Domain, deliverability, and the drills only a human can do." },
 };
-const GROUP_ORDER = ["identity", "brand", "integrations", "modules", "reach"];
+const GROUP_ORDER: LaunchGroup[] = ["identity", "brand", "integrations", "modules", "reach"];
+
+/** A section for a group this build has not been taught, named as itself. */
+const groupMeta = (g: string): { title: string; blurb: string } =>
+  GROUP_META[g as LaunchGroup] ?? {
+    title: String(g || "Other"),
+    blurb: "These came from a newer server than this page. They still count towards launch.",
+  };
+
+/**
+ * Every group the server actually sent that GROUP_ORDER does not name, in the
+ * order they arrived. Empty on every build whose list is current, which is why
+ * nothing about the page changes until the day it would otherwise have gone
+ * quiet.
+ */
+const leftoverGroups = (items: Array<{ group?: string }>): string[] => {
+  const known = new Set<string>(GROUP_ORDER);
+  const extra: string[] = [];
+  for (const i of items) {
+    const g = String(i.group ?? "");
+    if (g && !known.has(g)) {
+      known.add(g);
+      extra.push(g);
+    }
+  }
+  return extra;
+};
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -340,10 +384,10 @@ export default function JourneyToLaunch() {
             <p className="text-sm text-muted-foreground py-12 text-center">Reading the village's pulse…</p>
           ) : (
             <>
-              {GROUP_ORDER.map((g) => {
+              {[...GROUP_ORDER, ...leftoverGroups(items)].map((g) => {
                 const group = items.filter((i) => i.group === g);
                 if (group.length === 0) return null;
-                const meta = GROUP_META[g];
+                const meta = groupMeta(g);
                 return (
                   <section key={g} className="bg-white border border-stone-200 rounded-xl overflow-hidden">
                     <header className="px-5 pt-4 pb-3 border-b border-stone-100">

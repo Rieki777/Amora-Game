@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
-import { Award, Hammer, Medal, Plus, ShieldAlert, Sparkles, X } from "lucide-react";
+import { Award, CircleHelp, Hammer, Medal, Plus, ShieldAlert, Sparkles, X } from "lucide-react";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
 
 const headers = (): Record<string, string> => {
@@ -19,6 +19,19 @@ const headers = (): Record<string, string> => {
   return t ? { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
 };
 
+/**
+ * WHAT EACH BADGE KIND READS AS.
+ *
+ * The authority is the `badges`.`kind` column, declared
+ * `enum('self','earned','granted','warning','hypha')` by
+ * `drizzle/0023_badges.sql`, so the database is what the route selects and the
+ * migration is what this map answers to. `badgeKinds.test.ts` reads the last
+ * migration to declare the column and holds this map to it.
+ *
+ * A kind matters here beyond its colour. Kinds carry capability meaning in the
+ * one gate (`shared/capabilities.ts`): `warning` is the kind that DENIES, and
+ * a deny beats role and stage.
+ */
 const KIND_META: Record<string, { label: string; icon: React.ElementType; cls: string }> = {
   self: { label: "self-declared", icon: Sparkles, cls: "bg-sky-50 text-sky-700 border-sky-200" },
   earned: { label: "earned", icon: Medal, cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -26,6 +39,26 @@ const KIND_META: Record<string, { label: string; icon: React.ElementType; cls: s
   warning: { label: "warning", icon: ShieldAlert, cls: "bg-red-50 text-red-700 border-red-200" },
   hypha: { label: "hypha", icon: Award, cls: "bg-purple-50 text-purple-700 border-purple-200" },
 };
+
+/**
+ * A kind this build has not been taught, read as itself.
+ *
+ * This used to fall back to `KIND_META.granted`, which is the most dangerous
+ * wrong answer available: it painted an unknown kind as a friendly amber
+ * award. Badge kinds are how this village says what a badge DOES, and the one
+ * kind that takes capability away is `warning`. A sixth kind added to the
+ * column with deny semantics would have read to every member as a gift. The
+ * badge's own name and description still render above this chip, so showing
+ * the raw kind loses nothing and claims nothing.
+ */
+const UNKNOWN_KIND = { icon: CircleHelp, cls: "bg-stone-100 text-stone-600 border-stone-200" };
+
+export const BADGE_KIND_META = KIND_META;
+
+/** The chip beside a badge name, never undefined and never guessed. */
+function kindMeta(kind: string): { label: string; icon: React.ElementType; cls: string } {
+  return KIND_META[kind] ?? { ...UNKNOWN_KIND, label: String(kind || "unknown") };
+}
 
 export default function Badges() {
   const modules = useModules();
@@ -119,7 +152,7 @@ export default function Badges() {
 
           <div className="space-y-3">
             {(data?.badges ?? []).map((b: any) => {
-              const meta = KIND_META[b.kind] ?? KIND_META.granted;
+              const meta = kindMeta(String(b.kind ?? ""));
               const Icon = meta.icon;
               const mine = myAwardByBadge.get(b.id);
               return (

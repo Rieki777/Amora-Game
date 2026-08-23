@@ -25,10 +25,30 @@ import { Celebration } from "@/components/natural";
 import { pctText, weightText } from "./voteBars";
 import type { Ballot } from "./governanceApi";
 
+/**
+ * WHAT A CLOSED DECISION READS AS.
+ *
+ * The authority is `ballots.status` as the server declares it, which is the
+ * union on `BallotRow` in `server/lib/ballots.ts`: the column is a varchar,
+ * so no migration constrains it and the server's own type is the only
+ * enumeration there is. `ballotStates.test.ts` reads that union out of source
+ * and holds this map to it, the way objectionStates.test.ts does for rulings.
+ *
+ * Typed against the client's own copy of the union rather than `string`, so
+ * the compiler catches the half of the drift it can see and the test catches
+ * the half it cannot.
+ */
 const OUTCOME: Record<
-  string,
+  Ballot["status"],
   { word: string; icon: typeof CheckCircle2; frame: string; chip: string; law: boolean }
 > = {
+  open: {
+    word: "Still open",
+    icon: MinusCircle,
+    frame: "border-stone-300 bg-stone-50",
+    chip: "bg-stone-600 text-white",
+    law: false,
+  },
   passed: {
     word: "Carried",
     icon: CheckCircle2,
@@ -59,6 +79,27 @@ const OUTCOME: Record<
   },
 };
 
+/**
+ * A status nobody has taught this card yet.
+ *
+ * This used to fall back to `failed`, and that was the whole defect in one
+ * word: a decision the village CARRIED under a status this build has not
+ * heard of would have been shown to every member as "Did not carry". A
+ * fallback that invents an outcome is worse than one that admits it does not
+ * know, because nothing on the page tells the reader which they are looking
+ * at. `law` stays false so nothing downstream treats an unread status as
+ * settled law.
+ */
+const UNKNOWN_OUTCOME = {
+  word: "Closed",
+  icon: MinusCircle,
+  frame: "border-stone-300 bg-stone-50",
+  chip: "bg-stone-600 text-white",
+  law: false,
+};
+
+export const DECISION_OUTCOME_COPY = OUTCOME;
+
 export default function DecisionOutcome({
   ballot,
   /** What the close actually changed. Empty is normal and says so. */
@@ -72,7 +113,7 @@ export default function DecisionOutcome({
   held?: string | null;
   fresh?: boolean;
 }) {
-  const o = OUTCOME[ballot.status] ?? OUTCOME.failed;
+  const o = OUTCOME[ballot.status] ?? UNKNOWN_OUTCOME;
   const Icon = o.icon;
   const closedOn = ballot.closedAt
     ? new Date(ballot.closedAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })

@@ -18,17 +18,45 @@
  * shipped limitation; a limitation nobody is told about is a trap.
  */
 import { useState } from "react";
-import { CircleCheck, CircleMinus, CircleX, Users } from "lucide-react";
+import { CircleCheck, CircleHelp, CircleMinus, CircleX, Users } from "lucide-react";
 import type { VoteChoice } from "@shared/governanceEngine";
 import InfoTip from "@/components/InfoTip";
 import { weightText } from "./voteBars";
 import type { BallotSilent, BallotVote } from "./governanceApi";
 
+/**
+ * What each vote reads as. The authority is `VOTE_CHOICES` in
+ * `shared/governanceEngine.ts`, and because that union is in this same
+ * TypeScript program the compiler holds this map complete against it: a
+ * fourth choice added there turns this declaration red.
+ *
+ * The FALLBACK below is for the case the compiler cannot see, which is the
+ * one that took two pages down today. `v.choice` arrives over HTTP and is
+ * typed by assertion, so `Record<Union, T>` types this index as total while
+ * only asserting a claim about the server. A client build older than the
+ * server it is talking to meets a choice this union never held, and read
+ * straight the next line throws inside the list and takes the whole decision
+ * page to the error boundary for every member.
+ */
 const CHOICE_MARK: Record<VoteChoice, { icon: typeof CircleCheck; label: string; tone: string }> = {
   yes: { icon: CircleCheck, label: "Yes", tone: "text-sage" },
   abstain: { icon: CircleMinus, label: "Abstain", tone: "text-stone-600" },
   no: { icon: CircleX, label: "No", tone: "text-coral" },
 };
+
+/**
+ * A choice nobody has taught this roll yet, read as itself. Never guessed into
+ * one of the three above: what this member said is on the ballot's record, and
+ * printing "Abstain" over a yes would be a false statement about their vote.
+ */
+const UNKNOWN_CHOICE = { icon: CircleHelp, label: "Recorded", tone: "text-stone-500" };
+
+export const VOTER_ROLL_CHOICES = CHOICE_MARK;
+
+/** The mark beside a name, never undefined. */
+export function choiceMark(choice: VoteChoice): { icon: typeof CircleCheck; label: string; tone: string } {
+  return CHOICE_MARK[choice] ?? UNKNOWN_CHOICE;
+}
 
 const SHOWN_AT_FIRST = 8;
 
@@ -65,7 +93,7 @@ export default function VoterRoll({
       {votes.length > 0 && (
         <ul className="mt-3 divide-y divide-stone-100">
           {shownVotes.map((v) => {
-            const mark = CHOICE_MARK[v.choice];
+            const mark = choiceMark(v.choice);
             const Icon = mark.icon;
             return (
               <li key={`${v.name}-${v.castAt}`} className="flex items-center justify-between gap-3 py-2">

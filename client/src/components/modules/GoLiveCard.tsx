@@ -17,6 +17,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import type { ModuleLifecycle } from "@shared/modules";
 
 interface AdminModule {
   id: string;
@@ -31,7 +32,29 @@ interface AdminModule {
   showingExamples: boolean;
 }
 
-const RANK: Record<string, number> = { off: 0, preview: 1, members: 2, public: 3 };
+/**
+ * HOW FAR OPEN EACH LIFECYCLE IS.
+ *
+ * The authority is `ModuleLifecycle` in `shared/modules.ts`, and typing this
+ * map against that union rather than `string` is the whole fix: both live in
+ * this one TypeScript program, so a fifth lifecycle added there turns this
+ * declaration red at `pnpm check` and no test is needed to catch it.
+ *
+ * The reads below still take a fallback, because `m.maxLifecycle` and the
+ * lookup's `lifecycle` arrive over HTTP as strings and are typed by
+ * assertion. Unranked used to mean `undefined`, and `undefined >= 3` and
+ * `undefined < 3` are BOTH false: an unrecognised ceiling silently withheld
+ * the Everyone button, and an unrecognised dependency silently vanished from
+ * the list of what is holding this module back. Ranking the unknown at the
+ * bottom keeps the first behaviour (which fails closed, and is right) and
+ * fixes the second, so a dependency is named instead of disappearing.
+ */
+const RANK: Record<ModuleLifecycle, number> = { off: 0, preview: 1, members: 2, public: 3 };
+
+/** Where a lifecycle sits, with anything unrecognised held at the bottom. */
+const rank = (lifecycle: string): number => RANK[lifecycle as ModuleLifecycle] ?? RANK.off;
+
+export const GO_LIVE_RANK = RANK;
 
 export function GoLiveCard({
   module: m, lookup, token, onChanged,
@@ -51,9 +74,9 @@ export function GoLiveCard({
   const setupDone = m.setup === "none" || m.ready?.ready === true;
   if (!setupDone || notYet) return null;
 
-  const everyoneAllowed = RANK[m.maxLifecycle] >= RANK.public;
+  const everyoneAllowed = rank(m.maxLifecycle) >= RANK.public;
   const narrowDeps = m.requires
-    .filter((dep) => RANK[lookup[dep]?.lifecycle ?? "off"] < RANK.public)
+    .filter((dep) => rank(lookup[dep]?.lifecycle ?? "off") < RANK.public)
     .map((dep) => lookup[dep]?.name ?? dep);
   const preferMembers = m.dataClass === "member-pii";
 
