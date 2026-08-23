@@ -30,78 +30,7 @@ import {
   basenameOf,
   isPhotoFile,
 } from "./placePhotos";
-
-/** Somewhere real, and deliberately not the village's actual coordinates. */
-const LAT = 9.944;
-const LON = -84.1408;
-const CAMERA = "FixtureProbeCam";
-
-/**
- * A little-endian TIFF/EXIF block with a real GPS IFD, spliced into a JPEG's
- * APP1 segment. This is what a phone writes, in miniature: IFD0 carries the
- * camera make and a pointer at tag 0x8825, and the GPS IFD behind that pointer
- * carries the latitude and longitude as rationals.
- */
-function buildGeotaggedJpeg(base: Buffer, lat: number, lon: number): Buffer {
-  const rat = (n: number, d: number) => {
-    const b = Buffer.alloc(8);
-    b.writeUInt32LE(n, 0);
-    b.writeUInt32LE(d, 4);
-    return b;
-  };
-  const dms = (v: number) => {
-    const a = Math.abs(v);
-    const deg = Math.floor(a);
-    const min = Math.floor((a - deg) * 60);
-    const sec = Math.round(((a - deg) * 60 - min) * 6000);
-    return Buffer.concat([rat(deg, 1), rat(min, 1), rat(sec, 100)]);
-  };
-  const make = Buffer.from(`${CAMERA}\0`, "ascii");
-  const latB = dms(lat);
-  const lonB = dms(lon);
-  const IFD0 = 8;
-  const GPS = IFD0 + 30; // 2 + 2*12 + 4
-  const DATA = GPS + 66; // 2 + 5*12 + 4
-  const offMake = DATA;
-  const offLat = offMake + make.length;
-  const offLon = offLat + latB.length;
-  const t = Buffer.alloc(offLon + lonB.length);
-  t.write("II", 0, "ascii");
-  t.writeUInt16LE(42, 2);
-  t.writeUInt32LE(IFD0, 4);
-  let p = IFD0;
-  t.writeUInt16LE(2, p);
-  p += 2;
-  const entry = (tag: number, type: number, count: number, value: Buffer | number) => {
-    t.writeUInt16LE(tag, p);
-    t.writeUInt16LE(type, p + 2);
-    t.writeUInt32LE(count, p + 4);
-    if (Buffer.isBuffer(value)) value.copy(t, p + 8);
-    else t.writeUInt32LE(value, p + 8);
-    p += 12;
-  };
-  entry(0x010f, 2, make.length, offMake); // Make
-  entry(0x8825, 4, 1, GPS); // GPSInfoIFDPointer
-  t.writeUInt32LE(0, p);
-  p = GPS;
-  t.writeUInt16LE(5, p);
-  p += 2;
-  entry(0x0000, 1, 4, Buffer.from([2, 3, 0, 0])); // GPSVersionID
-  entry(0x0001, 2, 2, Buffer.from(`${lat >= 0 ? "N" : "S"}\0`, "ascii"));
-  entry(0x0002, 5, 3, offLat);
-  entry(0x0003, 2, 2, Buffer.from(`${lon >= 0 ? "E" : "W"}\0`, "ascii"));
-  entry(0x0004, 5, 3, offLon);
-  t.writeUInt32LE(0, p);
-  make.copy(t, offMake);
-  latB.copy(t, offLat);
-  lonB.copy(t, offLon);
-
-  const payload = Buffer.concat([Buffer.from("Exif\0\0", "binary"), t]);
-  const app1 = Buffer.alloc(4);
-  app1.writeUInt16BE(0xffe1, 0);
-  app1.writeUInt16BE(payload.length + 2, 2);
-  return Buffer.concat([base.subarray(0, 2), app1, payload, base.subarray(2)]);
-}
+import { FIXTURE_CAMERA, buildGeotaggedJpeg } from "./exifFixture";
 
 /** Read the tag ids out of IFD0 and the GPS IFD an EXIF blob points at. */
 function exifTags(blob: Buffer): { ifd0: number[]; gps: number[] } {
@@ -131,7 +60,7 @@ async function geotaggedFixture(): Promise<Buffer> {
   })
     .jpeg()
     .toBuffer();
-  return buildGeotaggedJpeg(plain, LAT, LON);
+  return buildGeotaggedJpeg(plain);
 }
 
 describe("the fixture really is geotagged", () => {
@@ -149,7 +78,7 @@ describe("the fixture really is geotagged", () => {
 
   it("carries the camera make as readable bytes", async () => {
     const geo = await geotaggedFixture();
-    expect(geo.includes(Buffer.from(CAMERA))).toBe(true);
+    expect(geo.includes(Buffer.from(FIXTURE_CAMERA))).toBe(true);
   });
 });
 
@@ -172,7 +101,7 @@ describe("stripAndEncode removes the location data", () => {
     const out = await stripAndEncode(geo);
     // Read the BYTES, never a parser's opinion of them. A chunk a parser has
     // no field for is exactly the case a metadata query would miss.
-    expect(out.bytes.includes(Buffer.from(CAMERA))).toBe(false);
+    expect(out.bytes.includes(Buffer.from(FIXTURE_CAMERA))).toBe(false);
     expect(out.bytes.includes(Buffer.from("Exif"))).toBe(false);
     expect(out.bytes.includes(Buffer.from("EXIF"))).toBe(false);
     expect(out.bytes.includes(Buffer.from("http://ns.adobe.com/xap"))).toBe(false);
@@ -213,7 +142,7 @@ describe("writePhoto", () => {
         const bytes = fs.readFileSync(path.join(dir, name));
         // Read back off DISK, which is the only place the harm could happen.
         expect(await readMetadataMarkers(bytes)).toEqual([]);
-        expect(bytes.includes(Buffer.from(CAMERA))).toBe(false);
+        expect(bytes.includes(Buffer.from(FIXTURE_CAMERA))).toBe(false);
       }
       const thumb = await sharp(fs.readFileSync(path.join(dir, out.thumbFilename!))).metadata();
       expect(thumb.width).toBe(320);

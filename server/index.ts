@@ -44,6 +44,13 @@ import {
   takenOnProblem,
 } from "../shared/placePhotos";
 import {
+  CarriesLocationData,
+  readMetadataMarkers,
+  sanitiseForVolume,
+  stampedName,
+  writeToVolume,
+} from "./lib/uploads";
+import {
   LocationDataSurvived,
   isPhotoFile,
   isSuppressedUpload,
@@ -16992,19 +16999,32 @@ Send an empty drafts array when you are still listening. A role payload is {name
     res.json({ success: true });
   });
 
-  // Public, tightly-limited attachment upload for a proposal (image or PDF).
+  /*
+   * Public, tightly-limited attachment upload for a proposal (image or PDF).
+   *
+   * ── THIS ROUTE PUBLISHED THE LAND'S COORDINATES ─────────────────────────
+   *
+   * It used multer's diskStorage, which writes the file a stranger sent
+   * BYTE FOR BYTE and hands back its name. `/api/uploads/:filename` then
+   * served it inline to anybody, so a photograph taken on the land arrived
+   * carrying the land's GPS position in its EXIF and left carrying it too.
+   * Public, unauthenticated, and several of these villages have real reasons
+   * not to be findable.
+   *
+   * memoryStorage now, and every byte goes through `sanitiseForVolume`
+   * before anything reaches the volume: an image is re-encoded with no
+   * metadata and the result is checked, a PDF holding a geotagged photograph
+   * is refused with a sentence the uploader can act on. Nothing is written
+   * until the bytes are clean, so a failure leaves the volume untouched
+   * instead of leaving a file behind for the sweep to find.
+   *
+   * The response shape is unchanged: `/api/forms/submit` stores `filename`
+   * in the submission's data JSON and the retention sweep unlinks by that
+   * name, so both keep working.
+   */
   const proposalUpload = multer({
-    storage: multer.diskStorage({
-      destination: (_req, _file, cb) => {
-        if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-        cb(null, UPLOADS_DIR);
-      },
-      filename: (_req, file, cb) => {
-        const ext = path.extname(file.originalname).toLowerCase();
-        cb(null, `proposal-${Date.now()}-${Math.random().toString(36).slice(2, 7)}${ext}`);
-      },
-    }),
-    limits: { fileSize: 10 * 1024 * 1024 },
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024, files: 1 },
     fileFilter: (_req, file, cb) => {
       const ok = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"].includes(file.mimetype);
       if (ok) cb(null, true);
@@ -17015,10 +17035,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (await overLimit(`upload:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
       return res.status(429).json({ error: "Too many uploads. Try again shortly." });
     }
-    proposalUpload.single("file")(req, res, (err: any) => {
+    proposalUpload.single("file")(req, res, async (err: any) => {
       if (err) return res.status(400).json({ error: err.message || "Upload failed" });
       if (!req.file) return res.status(400).json({ error: "Missing file" });
-      res.json({ filename: req.file.filename, originalName: req.file.originalname });
+      try {
+        const clean = await sanitiseForVolume(req.file.buffer, req.file.originalname);
+        const filename = stampedName("proposal", clean.ext || ".bin");
+        writeToVolume(UPLOADS_DIR, filename, clean.bytes);
+        res.json({ filename, originalName: req.file.originalname });
+      } catch (e) {
+        if (e instanceof CarriesLocationData) return res.status(400).json({ error: e.message });
+        if (e instanceof LocationDataSurvived) {
+          console.error("[uploads] refused a proposal attachment whose metadata survived the strip", e.markers);
+          return res.status(500).json({ error: "That file kept its metadata through the re-encode, so it was not stored." });
+        }
+        console.error("[uploads] could not store a proposal attachment", e);
+        return res.status(400).json({ error: "That file could not be read." });
+      }
     });
   });
 
@@ -17046,11 +17079,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
       try {
         const sharp = (await import("sharp")).default;
         const filename = `brand-${stamp}.webp`;
-        const info = await sharp(req.file.buffer)
+        /*
+         * ASSERTED, not assumed. This pipeline dropped metadata because that
+         * is sharp's default, and a guarantee that rests on a dependency's
+         * default is a guarantee nobody checks: a `.withMetadata()` added two
+         * files away for a good reason would turn it into a live disclosure
+         * with nothing raising. Encode to a buffer, read the buffer back, and
+         * only then write.
+         */
+        const encoded = await sharp(req.file.buffer)
           .rotate() // honour EXIF orientation before resizing
           .resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true })
           .webp({ quality: 82 })
-          .toFile(path.join(UPLOADS_DIR, filename));
+          .toBuffer({ resolveWithObject: true });
+        const brandMarkers = await readMetadataMarkers(encoded.data);
+        if (brandMarkers.length) throw new LocationDataSurvived(brandMarkers);
+        const info = encoded.info;
+        writeToVolume(UPLOADS_DIR, filename, encoded.data);
 
         // A card thumbnail served at 2000px is absurd, and it is what every
         // illustrated list would have done: the pipeline resized once and
@@ -17060,11 +17105,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
         let thumbFilename: string | null = null;
         try {
           thumbFilename = `brand-${stamp}.thumb.webp`;
-          await sharp(req.file.buffer)
+          const thumb = await sharp(req.file.buffer)
             .rotate()
             .resize({ width: 400, height: 400, fit: "inside", withoutEnlargement: true })
             .webp({ quality: 76 })
-            .toFile(path.join(UPLOADS_DIR, thumbFilename));
+            .toBuffer();
+          const thumbMarkers = await readMetadataMarkers(thumb);
+          if (thumbMarkers.length) throw new LocationDataSurvived(thumbMarkers);
+          writeToVolume(UPLOADS_DIR, thumbFilename, thumb);
         } catch (thumbErr) {
           console.error("[BRAND IMAGE] thumbnail failed, full size only", thumbErr);
           thumbFilename = null;
@@ -17150,8 +17198,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
       const filename = `brand-font-${Date.now()}-${Math.random().toString(36).slice(2, 7)}${magic.ext}`;
       try {
-        if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-        fs.writeFileSync(path.join(UPLOADS_DIR, filename), req.file.buffer);
+        // A font is a glyph table with no location field, and the magic-byte
+        // check above is what makes these bytes a font. It still goes through
+        // the one write helper so `scripts/check-upload-strip.mjs` sees a
+        // single shape for every writer into the volume.
+        writeToVolume(UPLOADS_DIR, filename, req.file.buffer);
       } catch {
         return res.status(500).json({ error: "Could not save the font" });
       }
@@ -17181,25 +17232,32 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   // ── Investor Document Vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
 
+  /*
+   * The vault takes ANY file type on purpose: cap tables, term sheets and
+   * whatever else an investor asks for. It also used diskStorage, so a
+   * geotagged photograph dropped in here kept its coordinates and was served
+   * from the village's own origin.
+   *
+   * memoryStorage, and the bytes go through the one door. An image is
+   * re-encoded with no metadata AT ITS OWN DIMENSIONS, which is why
+   * `sanitiseForVolume` never resizes: a scanned cap table shrunk to 2000px
+   * is a document nobody can read. Everything that is not an image or a PDF
+   * passes through unchanged, so a spreadsheet is still a spreadsheet.
+   */
   const upload = multer({
-    storage: multer.diskStorage({
-      destination: (_req, _file, cb) => {
-        if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-        cb(null, UPLOADS_DIR);
-      },
-      filename: (_req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        const base = path
-          .basename(file.originalname, ext)
-          .replace(/[^a-z0-9_-]+/gi, "-")
-          .replace(/^-+|-+$/g, "")
-          .slice(0, 60) || "doc";
-        const uniq = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        cb(null, `${base}-${uniq}${ext}`);
-      },
-    }),
-    limits: { fileSize: 50 * 1024 * 1024 },
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024, files: 1 },
   });
+
+  /** The vault keeps the document's own name in the file, so a founder can find it. */
+  function vaultBase(originalName: string): string {
+    const ext = path.extname(originalName);
+    return path
+      .basename(originalName, ext)
+      .replace(/[^a-z0-9_-]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "doc";
+  }
 
   app.get("/api/admin/investor-docs", async (req, res) => {
     if (!(await isAdmin(req))) {
@@ -17238,10 +17296,24 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const pageLink = typeof req.body.pageLink === "string" && req.body.pageLink.trim()
       ? req.body.pageLink.trim()
       : null;
+    let filename: string;
+    try {
+      const clean = await sanitiseForVolume(req.file.buffer, req.file.originalname);
+      filename = stampedName(vaultBase(req.file.originalname), clean.ext || path.extname(req.file.originalname));
+      writeToVolume(UPLOADS_DIR, filename, clean.bytes);
+    } catch (e) {
+      if (e instanceof CarriesLocationData) return res.status(400).json({ error: e.message });
+      if (e instanceof LocationDataSurvived) {
+        console.error("[uploads] refused a vault document whose metadata survived the strip", e.markers);
+        return res.status(500).json({ error: "That file kept its metadata through the re-encode, so it was not stored." });
+      }
+      console.error("[uploads] could not store a vault document", e);
+      return res.status(400).json({ error: "That file could not be stored." });
+    }
     const entry = {
       id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       name,
-      filename: req.file.filename,
+      filename,
       pageLink,
       uploadedAt: new Date().toISOString(),
     };

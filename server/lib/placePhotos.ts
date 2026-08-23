@@ -48,35 +48,18 @@ export interface EncodedPhoto {
 }
 
 /**
- * What survived the encode, named. Empty means nothing did.
+ * ONE assertion function for the whole volume.
  *
- * Reports the categories a picture can carry a location in, and not only EXIF:
- * XMP holds `exif:GPSLatitude` in plain text and rides in its own chunk, and
- * IPTC carries a location sublocation. A guard that only knew about EXIF would
- * pass a file that says where it was taken in two other places.
+ * These two were declared here when the place-photo path was the only door
+ * that checked anything. `server/lib/uploads.ts` is now the door every writer
+ * comes through, so the check lives there and this file uses it. Two copies of
+ * a security assertion is one copy that gets updated.
+ *
+ * Re-exported because the routes and the suites already import them from here,
+ * and a name that moves is a diff nobody can read.
  */
-export async function readMetadataMarkers(bytes: Buffer): Promise<string[]> {
-  const sharp = (await import("sharp")).default;
-  const meta = await sharp(bytes).metadata();
-  const found: string[] = [];
-  if (meta.exif && meta.exif.length) found.push("exif");
-  if (meta.xmp && (meta.xmp as any).length) found.push("xmp");
-  if ((meta as any).iptc && (meta as any).iptc.length) found.push("iptc");
-  // The chunk names, straight off the wire. sharp parses what it knows; a
-  // container chunk it has no field for would still be sitting in the bytes.
-  const head = bytes.toString("binary");
-  if (head.includes("EXIF")) found.push("exif-chunk");
-  if (head.includes("http://ns.adobe.com/xap")) found.push("xmp-packet");
-  return Array.from(new Set(found));
-}
-
-/** Thrown when the encoded bytes still carry metadata. The upload fails with it. */
-export class LocationDataSurvived extends Error {
-  constructor(public markers: string[]) {
-    super(`The picture still carried ${markers.join(", ")} after re-encoding, so it was not stored.`);
-    this.name = "LocationDataSurvived";
-  }
-}
+import { readMetadataMarkers, LocationDataSurvived, writeToVolume } from "./uploads";
+export { readMetadataMarkers, LocationDataSurvived };
 
 /**
  * Re-encode a photograph to WebP with no metadata at all, and prove it.
@@ -110,14 +93,17 @@ export async function stripAndEncode(input: Buffer, maxEdge = PHOTO_MAX_EDGE, qu
  * upload fails, so a half-written pair never reaches a row.
  */
 export async function writePhoto(input: Buffer, uploadsDir: string, stamp: string): Promise<EncodedPhoto> {
-  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
   const filename = `place-${stamp}.webp`;
   const thumbFilename = `place-${stamp}.thumb.webp`;
   const full = await stripAndEncode(input, PHOTO_MAX_EDGE);
-  fs.writeFileSync(path.join(uploadsDir, filename), full.bytes);
+  // Through the one write helper, so `scripts/check-upload-strip.mjs` sees a
+  // single shape for every byte that reaches the volume. This path does its
+  // own stripping because it also RESIZES, which sanitiseForVolume must never
+  // do; the assertion inside stripAndEncode is the same one.
+  writeToVolume(uploadsDir, filename, full.bytes);
   try {
     const thumb = await stripAndEncode(input, PHOTO_THUMB_EDGE, 76);
-    fs.writeFileSync(path.join(uploadsDir, thumbFilename), thumb.bytes);
+    writeToVolume(uploadsDir, thumbFilename, thumb.bytes);
   } catch (e) {
     try { fs.unlinkSync(path.join(uploadsDir, filename)); } catch { /* never written */ }
     throw e;
