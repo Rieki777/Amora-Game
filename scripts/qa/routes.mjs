@@ -9,7 +9,7 @@
 //   import { routes } from "./routes.mjs"   # from the other scripts here
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.join(HERE, "..", "..", "client", "src", "App.tsx");
@@ -32,7 +32,14 @@ export function routes() {
   return { concrete, parameterised, total: all.length };
 }
 
-if (import.meta.url === `file://${process.argv[1]?.split(path.sep).join("/")}` || process.argv[1]?.endsWith("routes.mjs")) {
+// Run directly, or imported? The hand-rolled comparison this used to make never
+// matched on Windows (`file://` + `C:/...` is two slashes short of the `file:///C:/`
+// that import.meta.url actually carries), so it leaned on a filename fallback that
+// fired for any importer whose own name happened to END in "routes.mjs", which
+// scripts/check-map-routes.mjs does. That importer got 61 stray lines of route list
+// printed into the middle of its own output. pathToFileURL is the comparison both
+// clauses were reaching for, and it is exact on both platforms.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const r = routes();
   for (const p of r.concrete) console.log(p);
   if (process.argv.includes("--verbose")) {
