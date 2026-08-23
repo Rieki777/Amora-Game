@@ -1,4 +1,5 @@
 import { Toaster } from "@/components/ui/sonner";
+import BreakGlass from "@/components/BreakGlass";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation } from "wouter";
@@ -435,6 +436,12 @@ function App() {
         <ModuleProvider>
           <TooltipProvider>
             <Toaster />
+            {/*
+              * The handle on the break-glass. Draws nothing until a route
+              * answers 409 with a power this village holds, and then asks
+              * before anything is sent a second time.
+              */}
+            <BreakGlass />
             <Router />
           </TooltipProvider>
 
