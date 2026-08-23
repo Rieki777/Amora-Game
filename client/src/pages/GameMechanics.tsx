@@ -630,6 +630,9 @@ export default function GameMechanics() {
   const isAdminViewer = user?.role === "admin" || user?.role === "founder";
   const gov = snapshot?.governance ?? null;
   const onSite = gov?.decidesBy === "onsite";
+  // The public answer, with the signed-in one as the fallback for the moment
+  // before the snapshot lands. They read the same variable.
+  const supportThreshold = gov?.supportThreshold ?? standing?.supportThreshold ?? 0;
   /**
    * Whether THIS viewer may take THIS proposal to the vote, answered from the
    * standing payload the routes enforce with. The open-ballot route admits
@@ -643,7 +646,7 @@ export default function GameMechanics() {
     !!standing &&
     !standing.denied &&
     (standing.mayOpenBallot || standing.mine.includes(p.id)) &&
-    p.supports >= (gov?.supportThreshold ?? 0);
+    p.supports >= supportThreshold;
   const activeProposals = proposals.filter(
     (p) => p.status !== "withdrawn" && p.status !== "applied" && p.status !== "failed",
   );
@@ -850,11 +853,20 @@ export default function GameMechanics() {
                 {/* The venue, from the server, in the one place the page has
                     room to say it. Both readings are true of a real village:
                     `governance.default_method` decides which, and a village
-                    that chooses Hypha keeps every word of the shipped loop. */}
+                    that chooses Hypha keeps every word of the shipped loop.
+
+                    The threshold reads off the PUBLIC payload now. It came
+                    from /standing, which needs a token, so the one sentence
+                    saying what sends a proposal to the vote was invisible to
+                    everybody who was not signed in, on a page whose whole
+                    claim is that the rules are visible to everyone. It also
+                    governs whether the door below appears, and a door that
+                    comes and goes on a number nobody was shown is the kind of
+                    thing a member reads as the page being broken. */}
                 <p className="text-sm text-stone-600 mb-5 max-w-2xl">
                   Rule changes the village is weighing. Support gathers here
-                  {standing && standing.supportThreshold > 0
-                    ? ` (${standing.supportThreshold} supporter${standing.supportThreshold === 1 ? "" : "s"} sends one to the vote)`
+                  {supportThreshold > 0
+                    ? ` (${supportThreshold} supporter${supportThreshold === 1 ? "" : "s"} sends one to the vote)`
                     : ""}
                   {onSite
                     ? "; the binding vote runs here, on this village's own ballot, and a proposal that carries is"
