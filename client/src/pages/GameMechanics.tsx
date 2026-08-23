@@ -142,7 +142,7 @@ interface Standing {
   backed: Array<{ proposalId: string; kind: string }>;
 }
 
-const STATUS_COPY: Record<ProposalStatus, { label: string; cls: string }> = {
+export const STATUS_COPY: Record<ProposalStatus, { label: string; cls: string }> = {
   draft: { label: "draft, needs a sponsor", cls: "bg-amber-50 text-amber-700" },
   open: { label: "open for support", cls: "bg-emerald-50 text-emerald-700" },
   withdrawn: { label: "withdrawn", cls: "bg-stone-100 text-stone-500" },
@@ -185,7 +185,7 @@ function statusChip(status: ProposalStatus): { label: string; cls: string } {
  * `passed` and `failed` are here for the record only. The proposal's own
  * status already says what happened, so this adds the link and stays quiet.
  */
-const BALLOT_RETURN: Record<BallotStatus, { chip: string | null; cls: string; line: string | null; tip: string | null }> = {
+export const BALLOT_RETURN: Record<BallotStatus, { chip: string | null; cls: string; line: string | null; tip: string | null }> = {
   open: { chip: null, cls: "", line: null, tip: null },
   passed: { chip: null, cls: "", line: null, tip: null },
   failed: { chip: null, cls: "", line: null, tip: null },
