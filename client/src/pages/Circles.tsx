@@ -24,6 +24,8 @@ import { useEffect, useState } from "react";
 import CircleScene from "@/components/CircleScene";
 import InfoTip from "@/components/InfoTip";
 import { swatchFor } from "@/lib/swatch";
+import { gameFetch } from "@/lib/gameApi";
+import { PeopleLockNote, type PeopleTier } from "@/components/PeopleLock";
 
 interface CircleEntry {
   id: string;
@@ -151,12 +153,19 @@ export default function Circles() {
   const [expandedCircle, setExpandedCircle] = useState<string | null>(null);
   const [circles, setCircles] = useState<CircleEntry[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [people, setPeople] = useState<PeopleTier | null>(null);
+  const [seatCounts, setSeatCounts] = useState({ seats: 0, held: 0 });
 
   // Circles are rows now (0049). What a circle IS and who is in it are read
   // from its seats rather than from hand-typed prose, so the page cannot go
   // on describing a circle the village stopped running.
+  //
+  // `gameFetch` carries the member's token; the bare `fetch` this replaces did
+  // not, and `/api/org` tiers holder names behind `map.viewPeople` off the
+  // Authorization header alone. So this page asked as a stranger however
+  // signed in the reader was, and the names never arrived for anybody.
   useEffect(() => {
-    fetch("/api/org")
+    gameFetch("/api/org")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data) => {
         if (!data || !Array.isArray(data.circles)) throw new Error("bad shape");
@@ -166,12 +175,36 @@ export default function Circles() {
           list.push(r);
           seatsByCircle.set(r.circleId, list);
         }
+        setPeople(data.people ?? null);
+        setSeatCounts({
+          seats: (data.roles ?? []).reduce((n: number, r: any) => n + Number(r.seats ?? 0), 0),
+          held: (data.roles ?? []).reduce((n: number, r: any) => n + Number(r.holderCount ?? 0), 0),
+        });
         setCircles(
           (data.circles as any[]).map((c: any, i: number) => {
             const seats = seatsByCircle.get(c.id) ?? [];
             const heldBy = seats
               .flatMap((s: any) => (s.holders ?? []).map((h: any) => h.name))
               .filter(Boolean);
+            /*
+             * A LIE THIS PAGE HAS BEEN TELLING SINCE THE NAMES WERE TIERED.
+             *
+             * The members line below fell back to "3 roles, none held yet"
+             * whenever `heldBy` came back empty, and `heldBy` is built from
+             * holder NAMES, which /api/org withholds from anyone without
+             * map.viewPeople. This page never sent a token, so the names were
+             * withheld from everybody, and every circle with people in it
+             * announced itself as unheld to every reader it ever had.
+             *
+             * `holderCount` is public at every tier and always has been, so
+             * the count is what the fallback is built from now. Names when we
+             * have them, the true count when we do not, and "none held yet"
+             * only when that is a fact.
+             */
+            const heldSeats = seats.reduce(
+              (n: number, s: any) => n + Number(s.holderCount ?? 0),
+              0,
+            );
             return {
               id: String(c.id ?? c.name ?? `circle-${i}`),
               name: String(c.name ?? "Untitled circle"),
@@ -185,7 +218,9 @@ export default function Circles() {
               members: heldBy.length
                 ? Array.from(new Set(heldBy)).join(", ")
                 : seats.length
-                  ? `${seats.length} role${seats.length === 1 ? "" : "s"}, none held yet`
+                  ? heldSeats
+                    ? `${seats.length} role${seats.length === 1 ? "" : "s"}, ${heldSeats} seat${heldSeats === 1 ? "" : "s"} held`
+                    : `${seats.length} role${seats.length === 1 ? "" : "s"}, none held yet`
                   : "",
             } as CircleEntry;
           }),
@@ -231,6 +266,13 @@ export default function Circles() {
           </motion.div>
 
           <div className="max-w-4xl mx-auto">
+            {/* Members-only people: the cards below still carry every circle
+                and every seat, so this says which part is missing and why. */}
+            {circles !== null && (
+              <div className="mb-12">
+                <PeopleLockNote people={people} seats={seatCounts.seats} held={seatCounts.held} />
+              </div>
+            )}
             {circles === null && !failed && (
               <div className="text-center text-muted-foreground py-16">Loading circles…</div>
             )}

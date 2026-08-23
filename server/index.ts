@@ -23380,12 +23380,43 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * and how many are filled. WHO holds a seat is gated behind map.viewPeople,
    * the same tier /api/roles already applies, so a village can publish its
    * shape without publishing its people.
+   *
+   * ── R57: THE PEOPLE ARE PUBLIC BY DEFAULT, WITH A LOCK ────────────────
+   *
+   * Rye's ruling: "yes a signed out visitor can see by default but we can
+   * have a 'secret society' toggle for those who want it to be member-only."
+   * `org.public_people` is that toggle, and it defaults to on.
+   *
+   * THREE TIERS NOW, not two. The middle one is new:
+   *
+   *   EDITING  — admin: everything, seating ids and the recruitment pack.
+   *   MEMBER   — map.viewPeople: the holder rows as they have always been,
+   *              carrying focus, note and lapse state.
+   *   PUBLIC   — anyone, while `org.public_people` is on: a first name and
+   *              nothing else. See `publicHolder` below for why.
+   *
+   * The lock moves NAMES. Structure answers a stranger at either setting,
+   * because `holderCount` and `state` are what let somebody decide whether to
+   * approach a village at all, and they name nobody.
+   *
+   * THE SECOND HALF OF THIS WAS A PLAIN BUG. `/team`, `/roles` and `/circles`
+   * each called this route with a bare `fetch` and no Authorization header,
+   * and `authedUser` reads that header ALONE with no cookie fallback. So
+   * `viewer` was null on every one of those three pages however signed in the
+   * reader was, and `map.viewPeople` had never once been consulted there
+   * since the route shipped. The pages send their token now, which is what
+   * makes the members-only setting mean anything at all.
    */
   app.get("/api/org", async (req, res) => {
     const viewer = await authedUser(req);
     const admin = await isAdmin(req);
     const maySeePeople =
       admin || (viewer ? hasCapability("map.viewPeople", await capabilityCtx(viewer)) : false);
+    // The village's own dial. `maySeePeople` still wins, so turning the lock
+    // on never takes the people away from the members who were already
+    // entitled to them.
+    const peopleArePublic = boolVar("org.public_people");
+    const seesPeople = maySeePeople || peopleArePublic;
 
     const [roles, assignments, allMembers] = await Promise.all([
       listOrgRoles(getPool()),
@@ -23394,6 +23425,35 @@ Send an empty drafts array when you are still listening. A role payload is {name
     ]);
     const nameOf = (id: string) =>
       firstName((allMembers as any[]).find((u: any) => u.id === id)?.name ?? "Member");
+
+    /*
+     * THE PUBLIC HOLDER ROW: a first name, and nothing riding along with it.
+     *
+     * Every other field on a holder is either a sentence somebody typed ABOUT
+     * a person or a handle that resolves to them elsewhere, and this repo has
+     * already paid for each one once:
+     *
+     *   userId       a stable id on a payload that answers anonymous callers
+     *                is the exact defect `regenNameFor` was written to stop,
+     *                and `buildOrgExport` refuses user ids by name.
+     *   note         "Away and inactive." is the string that leaked through
+     *                `/api/content/roles`, and `releaseSeatingsForUser` wipes
+     *                it on departure because it restates the person.
+     *   focus        `buildOrgExport` refuses it too, and the loop test
+     *                asserts "mornings only" out of the anonymous tier.
+     *   kind         says whether a named person has an account here.
+     *   lapsed       a judgement about somebody's mandate. The seat's own
+     *                `state` and `holderCount` already carry the vacancy
+     *                fact at this tier, and they name nobody.
+     *
+     * `displayName` goes through `firstName()` here and does NOT at the
+     * member tier above. A documented holder is a real person WITHOUT an
+     * account: they never signed up for anything, an admin typed their name,
+     * and this is the door their full name would otherwise leave by.
+     */
+    const publicHolder = (h: OrgAssignment) => ({
+      name: h.holderKind === "member" && h.userId ? nameOf(h.userId) : firstName(h.displayName ?? ""),
+    });
 
     const byRole = new Map<string, OrgAssignment[]>();
     for (const a of assignments) {
@@ -23417,6 +23477,24 @@ Send an empty drafts array when you are still listening. A role payload is {name
       }));
 
     res.json({
+      /*
+       * WHAT TIER IS THIS PAYLOAD, said out loud.
+       *
+       * Without this a page that gets `holders: []` cannot tell "this village
+       * keeps its people for members" from "nobody holds a seat yet", so it
+       * renders the same silence for both and the reader is left to guess.
+       * Rendering empty and saying nothing is the defect this round has been
+       * closing everywhere else, and it would have shipped here by omission.
+       *
+       * Three facts, no argument. Whether the names are in this payload,
+       * whether the village has closed them, and whether this caller is
+       * signed in. What the page says about them is the page's business.
+       */
+      people: {
+        visible: seesPeople,
+        membersOnly: !peopleArePublic,
+        signedIn: !!viewer,
+      },
       circles,
       roles: roles
         .filter((r) => r.active)
@@ -23437,8 +23515,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
             // already carried two seats marked filled with nobody named.
             state: seatState(r, held),
             holderCount: held.length,
-            holders: maySeePeople
-              ? held.map((h) => ({
+            holders: !seesPeople
+              ? []
+              : !maySeePeople
+              ? held.map(publicHolder)
+              : held.map((h) => ({
                   userId: h.userId,
                   /*
                    * The seating's own id, ADMIN ONLY.
@@ -23461,8 +23542,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
                   // seated in has turned. They are still holding it.
                   lapsed: !!h.lapsed,
                   lapsedReason: h.lapsedReason ?? null,
-                }))
-              : [],
+                })),
             isExample: r.isExample,
             // The recruitment pack, ADMIN ONLY. 0049 created these six columns
             // and `WRITABLE` has accepted them ever since, while `ROLE_COLS`

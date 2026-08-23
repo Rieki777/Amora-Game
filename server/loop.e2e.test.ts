@@ -1545,11 +1545,65 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // Quests resolve to circles through aliases.
     expect(anonMap.json.quests.some((q: any) => q.circleId === "permaculture-council")).toBe(true);
 
-    // The public org chart serves the same rows, structure-only to a stranger.
+    /*
+     * ── R57: the people are PUBLIC by default, with one lock ─────────────
+     *
+     * This block used to assert `holders.length === 0` for a stranger and
+     * called it "structure-only". Rye's ruling replaced that posture: "yes a
+     * signed out visitor can see by default but we can have a 'secret
+     * society' toggle for those who want it to be member-only."
+     *
+     * Three states, because the third had never worked once. A stranger
+     * reads names by default; the lock takes them away; and a MEMBER holding
+     * map.viewPeople still reads them through the lock, which is what makes
+     * members-only a setting instead of a blackout. The three pages on this
+     * route could never exercise that last one: they sent no Authorization
+     * header, and `authedUser` reads that header alone with no cookie
+     * fallback, so their viewer was null on every request ever made.
+     */
     const org = await api("GET", "/api/org");
     expect(org.status).toBe(200);
     expect(org.json.roles.some((r: any) => r.id === seatId)).toBe(true);
-    expect(org.json.roles.every((r: any) => r.holders.length === 0)).toBe(true);
+    expect(org.json.people).toEqual({ visible: true, membersOnly: false, signedIn: false });
+    const publicSeat = org.json.roles.find((r: any) => r.id === seatId);
+    expect(publicSeat.holders.length).toBe(2);
+    /*
+     * A FIRST NAME AND NOTHING ELSE, asserted on the KEYS rather than by
+     * scanning bytes. `Mira` was documented above with the focus string
+     * "arrivals", and the seated member has a user id that joins to them
+     * everywhere else; neither may ride out on a payload that answers
+     * anonymous callers.
+     */
+    for (const h of publicSeat.holders) expect(Object.keys(h)).toEqual(["name"]);
+    expect(JSON.stringify(publicSeat.holders)).not.toContain("arrivals");
+    expect(JSON.stringify(publicSeat.holders)).not.toContain(doerId);
+
+    // The lock on, which is the setting Rye named the secret society.
+    expect((await api("PUT", "/api/admin/variables/org.public_people",
+      { value: "false" }, founderToken)).status).toBe(200);
+    const locked = await api("GET", "/api/org");
+    expect(locked.json.people).toEqual({ visible: false, membersOnly: true, signedIn: false });
+    expect(locked.json.roles.every((r: any) => r.holders.length === 0)).toBe(true);
+    // Structure is untouched by the lock. The count and the derived state are
+    // what let somebody decide whether to approach a village at all, and they
+    // name nobody.
+    expect(locked.json.roles.find((r: any) => r.id === seatId).holderCount).toBe(2);
+    expect(locked.json.roles.find((r: any) => r.id === seatId).state).toBe("partial");
+
+    // THE HALF THAT HAD NEVER WORKED ON THESE PAGES.
+    const throughLock = await api("GET", "/api/org", undefined, doerToken);
+    expect(throughLock.json.people.visible).toBe(true);
+    expect(throughLock.json.people.signedIn).toBe(true);
+    const memberSeat = throughLock.json.roles.find((r: any) => r.id === seatId);
+    expect(memberSeat.holders.length).toBe(2);
+    expect(memberSeat.holders.some((h: any) => h.userId === doerId)).toBe(true);
+    // And the member tier really is the wider one: the focus string is here.
+    expect(JSON.stringify(memberSeat.holders)).toContain("arrivals");
+
+    // Back to the platform default, because this file is order-dependent and
+    // everything after it was written against the public posture.
+    expect((await api("PUT", "/api/admin/variables/org.public_people",
+      { value: "true" }, founderToken)).status).toBe(200);
 
     // Raise a hand on the seat → the existing submissions inbox.
     const hand = await api("POST", `/api/map/roles/${seatId}/raise-hand`, { note: "I hold the long view." }, doerToken);

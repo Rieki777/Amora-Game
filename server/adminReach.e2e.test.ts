@@ -434,9 +434,11 @@ describe.skipIf(!DB_CONFIGURED)("an admin write reaches the page that renders it
     expect(holder?.assignmentId, "an admin read must carry the seating id").toBeTruthy();
 
     // A stranger never sees it: a seating id is a handle on a person's record.
+    // R57 made the NAMES public by default, so there is a holder row here to
+    // check now, and the seating id staying off it is the whole point.
     const publicOrg = await asStranger("/api/org");
     const publicHeld = (publicOrg.json.roles ?? []).find((r: any) => r.id === seatId);
-    for (const h of publicHeld.holders ?? []) expect(h.assignmentId).toBeUndefined();
+    for (const h of publicHeld.holders ?? []) expect(Object.keys(h)).toEqual(["name"]);
 
     const ended = await call("DELETE", `/api/admin/org/seatings/${holder.assignmentId}`, { reason: "moved away" });
     expect(ended.status, JSON.stringify(ended.json)).toBe(200);

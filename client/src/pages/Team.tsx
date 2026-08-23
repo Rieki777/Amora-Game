@@ -4,6 +4,8 @@ import { Users, ArrowRight, ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import { Image } from "@/components/Image";
 import { useEffect, useState } from "react";
+import { gameFetch } from "@/lib/gameApi";
+import { PeopleLockNote, type PeopleTier } from "@/components/PeopleLock";
 
 interface TeamMember {
   name: string;
@@ -24,6 +26,10 @@ const advisoryHighlights = [
 
 export default function Team() {
   const [team, setTeam] = useState<TeamMember[] | null>(null);
+  // The tier this page's copy of /api/org came back at, plus the two counts
+  // that are public on every tier. Held for the lock note below.
+  const [people, setPeople] = useState<PeopleTier | null>(null);
+  const [seatCounts, setSeatCounts] = useState({ seats: 0, held: 0 });
 
   useEffect(() => {
     // Two sources, merged. Seats and their holders come from the org rows
@@ -33,11 +39,23 @@ export default function Team() {
     //
     // Before this the Team page was its own hand-kept list, and it showed two
     // people out of the eight who held seats.
+    //
+    // `gameFetch` CARRIES THE TOKEN and a bare `fetch` does not, which is the
+    // whole reason this line changed. `/api/org` tiers its holder names
+    // behind `map.viewPeople`, `authedUser` reads the Authorization header
+    // alone with no cookie fallback, and this page had never sent one: the
+    // capability was therefore consulted on a viewer that was always null,
+    // and it had never granted anybody anything here.
     Promise.all([
-      fetch("/api/org").then((r) => (r.ok ? r.json() : { circles: [], roles: [] })).catch(() => ({ circles: [], roles: [] })),
+      gameFetch("/api/org").then((r) => (r.ok ? r.json() : { circles: [], roles: [] })).catch(() => ({ circles: [], roles: [] })),
       fetch("/api/content/team").then((r) => (r.ok ? r.json() : [])).catch(() => []),
     ])
       .then(([org, cards]) => {
+        setPeople(org.people ?? null);
+        setSeatCounts({
+          seats: (org.roles ?? []).reduce((n: number, r: any) => n + Number(r.seats ?? 0), 0),
+          held: (org.roles ?? []).reduce((n: number, r: any) => n + Number(r.holderCount ?? 0), 0),
+        });
         const profileByName = new Map<string, any>();
         for (const c of Array.isArray(cards) ? cards : []) {
           if (c?.name) profileByName.set(String(c.name).trim().toLowerCase(), c);
@@ -127,6 +145,13 @@ export default function Team() {
                 <Link href="/roles" className="text-sage font-medium hover:underline">Roles &amp; Circles page</Link>.
               </p>
             </motion.div>
+
+            {/* Members-only people: say so, with the counts that stay public.
+                Without this the grid below simply renders short and a visitor
+                reads a busy village as an empty one. */}
+            <div className="mb-12">
+              <PeopleLockNote people={people} seats={seatCounts.seats} held={seatCounts.held} />
+            </div>
 
             <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto">
               {(team ?? []).map((member, index) => (
