@@ -286,6 +286,18 @@ nothing had ever read the column).
   `/members`); override individually only if your DHO differs. The
   boundary is absolute: this platform READS and DISPLAYS what Hypha
   governs and never mints, moves, or prices it.
+- Hypha Bridge module (`hypha`, R58; `drizzle/0096` + `0097` add
+  `hypha_token_bindings`, `hypha_village_reads` and `hypha_outcomes`). Ships
+  OFF and free; every surface above keeps working while it is off. Turning it
+  on needs `hypha.org_url` plus one token contract a human confirmed, and
+  reading Base at all needs an endpoint somebody pays for. New game variable:
+  `hypha.treasury_address` (blank shows total supply only). Who watches Base is
+  DERIVED from the hosting relationship rather than set: a village holding the
+  `governance_hub_secret` is on the hub's listener, a village with its own
+  dedicated `tokens.base_rpc_url` runs its own, and a village with neither
+  records outcomes by hand. `hypha.space_id` now does what it always claimed:
+  a governance callback naming a different space is refused. See
+  `docs/modules/hypha.md`.
 - Stripe (v3 S32+): per-fork keys; ONE webhook endpoint (`/api/webhooks/stripe`,
   raw-body signature verification — see the two `STRIPE_*` env rows above for
   the full setup checklist); test with the CLI before go-live; dispute

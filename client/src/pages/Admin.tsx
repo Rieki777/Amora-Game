@@ -36,6 +36,7 @@ import MapVocabularyPanel from "@/components/admin/MapVocabularyPanel";
 import EventsAdminPanel from "@/components/EventsAdminPanel";
 import ResourcesAdminPanel from "@/components/power/ResourcesAdminPanel";
 import { CrowdpoolAdminTab, ForumCategoriesEditor, ToolsCategoriesEditor } from "@/components/admin/ModuleConfigPanels";
+import HyphaModulePanel from "@/components/admin/HyphaModulePanel";
 import VotingWeightsPanel from "@/components/admin/VotingWeightsPanel";
 import RelationsEditor from "@/components/admin/RelationsEditor";
 import HousingAdminPanel from "@/components/HousingAdminPanel";
@@ -8905,6 +8906,7 @@ function VariablesTab({ password }: { password: string }) {
         </p>
       </div>
       <IntegrateDaoPanel password={password} onAssigned={load} />
+      <div className="mb-6"><HyphaModulePanel password={password} /></div>
       <div className="mb-6">
         <div className="relative max-w-md">
           <input

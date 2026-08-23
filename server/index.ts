@@ -133,7 +133,14 @@ import {
   rowToProposal,
   validateChangeSet,
 } from "./lib/mechanics";
-import { buildMechanicsHandoff, extractMechanicsMarker } from "./lib/hypha-bridge";
+import { buildMechanicsHandoff } from "./lib/hypha-bridge";
+// ── The Hypha Bridge module (R58) ────────────────────────────────────────────
+import * as hyphaRepo from "./repos/hypha";
+import { DiscoveryUnavailable, discoverCandidates, HYPHA_FIRST_STEPS } from "./lib/hypha/discovery";
+import { listenerHeadline, listenerPosture } from "./lib/hypha/listener";
+import { checkSpace, matchOutcome, readInboundOutcome } from "./lib/hypha/outcomes";
+import { switchoverPreflight } from "./lib/hypha/switchover";
+import { villageFigure } from "./lib/hypha/village";
 import {
   awaitingVote,
   ballotById,
@@ -226,7 +233,7 @@ import {
   staysOpenState,
   allStays,
 } from "./lib/stays";
-import { createWalletChallenge, readOnchainBalance, verifyWalletSignature } from "./lib/base-reads";
+import { createWalletChallenge, formatUnits, readOnchainBalance, readTokenIdentity, readVillageMetric, verifyWalletSignature } from "./lib/base-reads";
 import {
   allExits,
   blockingStates,
@@ -20589,15 +20596,21 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * Integrate DAO: discover a token's contract address on Base from the
    * founder's account. The founder issues themselves even a tiny amount of
    * each token (Hypha requires an issuance for the DAO to create the
-   * contract on-chain), then this looks the contract up by the token's
-   * EXACT on-chain name.
+   * contract on-chain), then this looks the contract up.
    *
-   * Two lookup paths, tried in order:
-   *  1. Alchemy Token API — when tokens.base_rpc_url is an Alchemy endpoint
-   *     (alchemy_getTokenBalances + alchemy_getTokenMetadata on the SAME
-   *     key; no extra signup). Balances-based: exactly what issuance
-   *     produces.
-   *  2. Etherscan V2 (basescan_api_key secret) — transfer-history based.
+   * THE LOOKUP MOVED OUT (Hypha module, R58 upgrade 1). Two sources, an
+   * Alchemy Token API path and an Etherscan V2 path, now live in
+   * `server/lib/hypha/discovery.ts` so this route and the module's own
+   * pick-list run ONE implementation. They also now dial through the pinned
+   * guard instead of bare fetch.
+   *
+   * This route keeps its shape on purpose. It predates the module, the
+   * Integrate DAO panel calls it today, and a village that has not turned the
+   * module on must still reach it, so it is deliberately NOT behind
+   * requireModule. What changed underneath is that it can no longer report a
+   * single confident match: `candidates` comes back on every answer, because a
+   * founder's wallet holds airdropped junk and a scam token's whole trick is to
+   * pass an exact-name test.
    *
    * Read-only: the admin assigns the found address through the normal
    * variables route, so the audit trail is the same one every variable
@@ -20609,111 +20622,313 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!tokenName) return res.status(400).json({ error: "Enter the token's exact on-chain name" });
     const founderAddress = stringVar("hypha.founder_base_address").trim();
     if (!/^0x[0-9a-fA-F]{40}$/.test(founderAddress)) {
-      return res.status(409).json({ error: "Set the founder Base account address first (Hypha → Founder Base account address)" });
-    }
-
-    type Candidate = { contractAddress: string; tokenName: string; tokenSymbol: string };
-    const withTimeout = async <T,>(run: (signal: AbortSignal) => Promise<T>): Promise<T> => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 10_000);
-      try {
-        return await run(controller.signal);
-      } finally {
-        clearTimeout(timer);
-      }
-    };
-
-    /** Alchemy Token API: tokens the founder HOLDS (issuance = a balance). */
-    const alchemyCandidates = async (rpcUrl: string): Promise<Candidate[]> => {
-      const rpc = (method: string, params: unknown[]) =>
-        withTimeout(async (signal) => {
-          const r = await fetch(rpcUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-            signal,
-          });
-          const d: any = await r.json();
-          if (d.error) throw new Error(String(d.error.message ?? "RPC error"));
-          return d.result;
-        });
-      const balances: any = await rpc("alchemy_getTokenBalances", [founderAddress]);
-      const held: string[] = (balances?.tokenBalances ?? [])
-        .filter((b: any) => b?.tokenBalance && !/^0x0*$/.test(String(b.tokenBalance)))
-        .map((b: any) => String(b.contractAddress).toLowerCase())
-        .slice(0, 60);
-      const metas = await Promise.all(
-        held.map(async (addr): Promise<Candidate | null> => {
-          try {
-            const m: any = await rpc("alchemy_getTokenMetadata", [addr]);
-            return { contractAddress: addr, tokenName: String(m?.name ?? ""), tokenSymbol: String(m?.symbol ?? "") };
-          } catch {
-            return null;
-          }
-        }),
-      );
-      return metas.filter((m): m is Candidate => m !== null && m.tokenName !== "");
-    };
-
-    /** Etherscan V2 (Base chainid 8453): tokens in the transfer history. */
-    const basescanCandidates = async (): Promise<Candidate[]> => {
-      const api = new URL("https://api.etherscan.io/v2/api");
-      api.searchParams.set("chainid", "8453");
-      api.searchParams.set("module", "account");
-      api.searchParams.set("action", "tokentx");
-      api.searchParams.set("address", founderAddress);
-      api.searchParams.set("page", "1");
-      api.searchParams.set("offset", "500");
-      api.searchParams.set("sort", "desc");
-      api.searchParams.set("apikey", secretValue("basescan_api_key"));
-      const data: any = await withTimeout(async (signal) => (await fetch(api, { signal })).json());
-      const txs: any[] = Array.isArray(data?.result) ? data.result : [];
-      const distinct = new Map<string, Candidate>();
-      for (const t of txs) {
-        const addr = String(t.contractAddress ?? "").toLowerCase();
-        if (addr && !distinct.has(addr)) {
-          distinct.set(addr, { contractAddress: addr, tokenName: String(t.tokenName ?? ""), tokenSymbol: String(t.tokenSymbol ?? "") });
-        }
-      }
-      return Array.from(distinct.values());
-    };
-
-    const baseRpc = stringVar("tokens.base_rpc_url").trim();
-    const hasAlchemy = /g\.alchemy\.com\/v2\//.test(baseRpc);
-    if (!hasAlchemy && !secretConfigured("basescan_api_key")) {
-      return res.status(409).json({
-        error:
-          "No lookup source configured. Either set an Alchemy endpoint as the Base RPC URL (Tokens → Base RPC URL; its Token API does the lookup, no extra key), or save a free etherscan.io API key under Admin → Integrations as the Basescan key. You can also paste the contract address by hand from basescan.org.",
-      });
+      return res.status(409).json({ error: "Set the founder Base account address first (Hypha, Founder Base account address)" });
     }
     try {
-      const all = hasAlchemy ? await alchemyCandidates(baseRpc) : await basescanCandidates();
-      let matches = all.filter((t) => t.tokenName === tokenName);
-      if (matches.length === 0) {
-        matches = all.filter((t) => t.tokenName.toLowerCase() === tokenName.toLowerCase());
-      }
+      const found = await discoverCandidates({
+        baseRpcUrl: stringVar("tokens.base_rpc_url").trim(),
+        founderAddress,
+        nameHint: tokenName,
+      });
+      const matches = found.candidates.filter((c) => c.nameMatches);
       if (matches.length === 1) {
-        return res.json({ found: true, token: matches[0], candidates: all.length, source: hasAlchemy ? "alchemy" : "basescan" });
+        return res.json({
+          found: true,
+          token: matches[0],
+          // The full list rides along even on a clean single match. Confirming
+          // is a human act and a human confirming needs to see what else was
+          // there; a lone row with nothing beside it reads as verified.
+          candidates: found.candidates,
+          source: found.source,
+        });
       }
       if (matches.length > 1) {
         return res.json({
           found: false,
           ambiguous: true,
           matches,
+          candidates: found.candidates,
           error: `${matches.length} contracts share that name. Pick the address by hand from the list.`,
         });
       }
       return res.json({
         found: false,
-        candidates: all,
+        candidates: found.candidates,
         error:
-          all.length === 0
+          found.candidates.length === 0
             ? "No tokens found on that account yet. Issue yourself some of the token on Hypha first (any amount), then try again."
-            : `No token named "${tokenName}" on this account. The name must match the on-chain name exactly. ${all.length} other token(s) were seen.`,
+            : `No token named "${tokenName}" on this account. The name must match the on-chain name exactly. ${found.candidates.length} other token(s) were seen.`,
       });
     } catch (err: any) {
+      if (err instanceof DiscoveryUnavailable) return res.status(409).json({ error: err.message });
       return res.status(502).json({ error: `Token lookup failed: ${String(err?.message ?? err).slice(0, 120)}` });
     }
+  });
+
+  // ── The Hypha Bridge module (R58) ─────────────────────────────────────────
+  //
+  // Everything below is the module's own surface and mounts behind
+  // requireModule("hypha"), which ships OFF. The read-only deep links in
+  // shared/hypha.ts, the mechanics handoff in hypha-bridge.ts and the
+  // find-token route above all predate it and keep working untouched while it
+  // is off, which is what "off changes nothing" has to mean for a module
+  // landing on top of a shipped loop.
+  //
+  // The admin routes sit under /api/admin/hypha per route instead of behind a
+  // wholesale app.use, because that prefix already carries find-token.
+
+  /** The posture, read from what this village holds. Never a toggle (R58a). */
+  const hyphaListener = () =>
+    listenerPosture({
+      hubUrl: stringVar("governance.hub_url"),
+      hubSecretConfigured: secretConfigured("governance_hub_secret"),
+      rpcUrl: stringVar("tokens.base_rpc_url"),
+    });
+
+  /**
+   * Which contract each chain-governed token points at.
+   *
+   * DERIVED FROM THE REGISTRY, never a hardcoded pair of slugs. The platform's
+   * own definition of a token that lives on Base is `governance === "hypha"`
+   * (`server/lib/ledger.ts`), which is the same fact the ledger refuses to move
+   * and the weight guard refuses to count. A fork that named its equity token
+   * something else is covered by construction, and no village's token names
+   * enter platform code, which is what the brand ratchet is for.
+   *
+   * The pointer variable keys off the token's KIND, which is how the two
+   * address variables were always named. A chain-governed token of some other
+   * kind has no address variable yet, so it drops out instead of reading a key
+   * that does not exist.
+   */
+  const hyphaContracts = (): Array<{ slug: string; variableKey: string; address: string }> =>
+    allTokens()
+      .filter((t) => t.governance === "hypha" && t.active && !t.isExample)
+      .map((t) => ({ slug: t.slug, variableKey: `tokens.${t.kind}_address` }))
+      .filter((c) => !!VARIABLES_BY_KEY[c.variableKey])
+      .map((c) => ({ ...c, address: stringVar(c.variableKey).trim() }));
+
+  /** The read-through village figure. The rule it carries lives beside it in
+   *  server/lib/hypha/village.ts, where a test can reach all three outcomes:
+   *  fresh, last-known-marked-stale, and nothing at all. Never a zero. */
+  const hyphaVillageFigure = (
+    tokenSlug: string,
+    metric: "totalSupply" | "treasuryBalance",
+    contractAddress: string,
+    holderAddress?: string,
+    force = false,
+  ) => villageFigure(getPool(), { tokenSlug, metric, contractAddress, holderAddress, force });
+
+  app.use("/api/hypha", requireModule("hypha"));
+
+  /**
+   * What this village's DAO looks like from here: the links, who is watching
+   * Base, the confirmed bindings, and the village-level figures.
+   *
+   * The member view, so it carries no addresses a member has no use for beyond
+   * the contract itself, which is public on Base anyway.
+   */
+  app.get("/api/hypha", async (_req, res) => {
+    const links = resolveHyphaLinks(stringVar);
+    const bindings = await hyphaRepo.allBindings(getPool());
+    const treasury = stringVar("hypha.treasury_address").trim();
+    const tokens = [];
+    for (const b of bindings) {
+      const supply = await hyphaVillageFigure(b.tokenSlug, "totalSupply", b.contractAddress);
+      const held = treasury
+        ? await hyphaVillageFigure(b.tokenSlug, "treasuryBalance", b.contractAddress, treasury)
+        : null;
+      tokens.push({
+        slug: b.tokenSlug,
+        // THE CHAIN'S NAME, never a founder's typing. Read at confirm time and
+        // dated, so a reader can see how old the claim is.
+        name: b.chainName,
+        symbol: b.chainSymbol,
+        contractAddress: b.contractAddress,
+        chainId: b.chainId,
+        decimals: b.decimals,
+        readAt: b.readAt,
+        totalSupply: supply,
+        treasuryBalance: held,
+      });
+    }
+    res.json({
+      configured: links.configured,
+      links: links.configured ? links.links : {},
+      listener: { mode: hyphaListener().mode, headline: listenerHeadline(hyphaListener()) },
+      treasuryConfigured: !!treasury,
+      tokens,
+    });
+  });
+
+  /**
+   * Discovery as a PICK-LIST. Every candidate, marked where the name matches,
+   * and nothing chosen. The founder confirms one through /bind below, which is
+   * the only route that writes a binding.
+   */
+  app.post("/api/admin/hypha/candidates", requireModule("hypha"), async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const founderAddress = stringVar("hypha.founder_base_address").trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(founderAddress)) {
+      return res.status(409).json({
+        error: "Set the founder Base account address first, under Hypha in Game Mechanics.",
+        firstSteps: HYPHA_FIRST_STEPS,
+      });
+    }
+    try {
+      const found = await discoverCandidates({
+        baseRpcUrl: stringVar("tokens.base_rpc_url").trim(),
+        founderAddress,
+        nameHint: String(req.body?.nameHint ?? ""),
+      });
+      res.json({ ...found, firstSteps: HYPHA_FIRST_STEPS });
+    } catch (err: any) {
+      if (err instanceof DiscoveryUnavailable) {
+        return res.status(409).json({ error: err.message, firstSteps: HYPHA_FIRST_STEPS });
+      }
+      res.status(502).json({ error: `The lookup failed: ${String(err?.message ?? err).slice(0, 160)}` });
+    }
+  });
+
+  /**
+   * CONFIRM A BINDING. The one route that writes one, and it never trusts what
+   * the lookup said a contract was called.
+   *
+   * name(), symbol() and decimals() are read from the contract itself here, and
+   * a contract that will not answer is refused with nothing stored. That is the
+   * check an exact-name match cannot perform for itself, and it is why an
+   * impersonating token cannot be bound by passing a name test.
+   *
+   * Writing the address into `tokens.equity_address` or `tokens.voice_address`
+   * stays a SEPARATE act through the audited variables route. Two writes, both
+   * human, one audit trail each. Folding them together here would put a
+   * contract pointer change outside the trail every other variable change gets.
+   */
+  app.post("/api/admin/hypha/bind", requireModule("hypha"), async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const actor = adminActor(req);
+    if (!actor) return res.status(401).json({ error: "auth_required" });
+    const tokenSlug = String(req.body?.tokenSlug ?? "").trim().toLowerCase();
+    const contractAddress = String(req.body?.contractAddress ?? "").trim();
+    const known = hyphaContracts().map((c) => c.slug);
+    if (!known.includes(tokenSlug)) {
+      return res.status(400).json({ error: `Bind one of: ${known.join(", ")}` });
+    }
+    if (!/^0x[0-9a-fA-F]{40}$/.test(contractAddress)) {
+      return res.status(400).json({ error: "That is not a Base contract address" });
+    }
+    const identity = await readTokenIdentity(contractAddress);
+    if (!identity) {
+      return res.status(502).json({
+        error:
+          "That contract did not answer with a name, a symbol and a decimals figure, so nothing was stored. Check the address and that the Base endpoint is reachable.",
+      });
+    }
+    await hyphaRepo.saveBinding(getPool(), {
+      tokenSlug,
+      contractAddress,
+      chainId: identity.chainId,
+      chainName: identity.name,
+      chainSymbol: identity.symbol,
+      decimals: identity.decimals,
+      readAt: identity.readAt,
+      confirmedByUserId: actor.id,
+    });
+    const variableKey = hyphaContracts().find((c) => c.slug === tokenSlug)!.variableKey;
+    res.json({
+      success: true,
+      binding: await hyphaRepo.bindingFor(getPool(), tokenSlug),
+      variableKey,
+      message: `The contract answers to ${identity.name} (${identity.symbol}), read from Base just now. Save it as ${variableKey} to point the platform at it.`,
+    });
+  });
+
+  app.delete("/api/admin/hypha/bindings/:slug", requireModule("hypha"), async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const gone = await hyphaRepo.removeBinding(getPool(), String(req.params.slug).toLowerCase());
+    if (!gone) return res.status(404).json({ error: "Nothing is bound to that slug" });
+    res.json({ success: true, message: "Unbound. Nothing on Base changed; this village stopped claiming that contract." });
+  });
+
+  /**
+   * The founder's page: bindings, who is listening, what is in flight if the
+   * village changed how it decides, and the outcomes that landed nowhere.
+   */
+  app.get("/api/admin/hypha/status", requireModule("hypha"), async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const posture = hyphaListener();
+    const bindings = await hyphaRepo.allBindings(getPool());
+    const pointers = hyphaContracts();
+    res.json({
+      hypha: resolveHyphaLinks(stringVar),
+      listener: posture,
+      treasuryAddress: stringVar("hypha.treasury_address").trim(),
+      spaceId: stringVar("hypha.space_id").trim(),
+      founderAddress: stringVar("hypha.founder_base_address").trim(),
+      firstSteps: HYPHA_FIRST_STEPS,
+      // A pointer with no confirmed binding is the state that matters: the
+      // platform is reading a contract nobody looked at.
+      slots: pointers.map((p) => {
+        const b = bindings.find((x) => x.tokenSlug === p.slug) ?? null;
+        return {
+          slug: p.slug,
+          variableKey: p.variableKey,
+          pointerAddress: p.address,
+          binding: b,
+          agrees: !!b && !!p.address && b.contractAddress.toLowerCase() === p.address.toLowerCase(),
+        };
+      }),
+      switchover: switchoverPreflight({
+        currentMethod: stringVar("governance.default_method"),
+        targetMethod: stringVar("governance.default_method") === "hypha" ? "custom" : "hypha",
+        byStatus: await hyphaRepo.inFlightDecisionCounts(getPool()),
+      }),
+      orphans: await hyphaRepo.orphanOutcomes(getPool()),
+      recentOutcomes: await hyphaRepo.recentOutcomes(getPool(), 10),
+    });
+  });
+
+  /** Pull the village-level figures again now, ignoring the read-through TTL. */
+  app.post("/api/admin/hypha/refresh", requireModule("hypha"), async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const treasury = stringVar("hypha.treasury_address").trim();
+    const out: Array<{ slug: string; totalSupply: boolean; treasuryBalance: boolean | null }> = [];
+    for (const b of await hyphaRepo.allBindings(getPool())) {
+      // `force` skips the read-through window and nothing else. A figure that
+      // fails here still leaves the stored one alone, so pressing this button
+      // during an outage can never replace a true number with an absence.
+      const supply = await hyphaVillageFigure(b.tokenSlug, "totalSupply", b.contractAddress, undefined, true);
+      const bal = treasury
+        ? await hyphaVillageFigure(b.tokenSlug, "treasuryBalance", b.contractAddress, treasury, true)
+        : null;
+      // A figure that came back STALE is one the chain refused just now, so it
+      // reports as a failure here even though the page still shows a number.
+      const fresh = (f: { stale: boolean } | null) => !!f && !f.stale;
+      out.push({
+        slug: b.tokenSlug,
+        totalSupply: fresh(supply),
+        treasuryBalance: treasury ? fresh(bal) : null,
+      });
+    }
+    const failed = out.filter((r) => !r.totalSupply || r.treasuryBalance === false).length;
+    res.json({
+      success: true,
+      read: out,
+      message: failed
+        ? `${failed} figure(s) did not come back. The last true values are still shown, dated, and nothing was overwritten.`
+        : "Every figure came back fresh from Base.",
+    });
+  });
+
+  /** A steward's answer to an orphaned outcome. Set by hand, never by a job. */
+  app.post("/api/admin/hypha/outcomes/:id/resolve", requireModule("hypha"), async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const actor = adminActor(req);
+    if (!actor) return res.status(401).json({ error: "auth_required" });
+    const note = String(req.body?.note ?? "").trim();
+    if (!note) return res.status(400).json({ error: "Say what this outcome turned out to be. An orphan closed with no words is one nobody can audit" });
+    const done = await hyphaRepo.resolveOutcome(getPool(), String(req.params.id), actor.id, note);
+    if (!done) return res.status(404).json({ error: "That outcome is already answered, or there is no such delivery" });
+    res.json({ success: true, message: "Answered. The delivery stays on the record with your note beside it." });
   });
 
   app.put("/api/admin/variables/:key", async (req, res) => {
@@ -21358,10 +21573,98 @@ Send an empty drafts array when you are still listening. A role payload is {name
         discarded: "unauthenticated: set the governance hub secret in Admin → Integrations",
       });
     }
-    const marker = extractMechanicsMarker(String(req.body?.marker ?? req.body?.title ?? ""));
+    /*
+     * DOES THIS DELIVERY CONCERN THIS VILLAGE'S SPACE (R58 upgrade 6).
+     *
+     * `hypha.space_id` shipped promising exactly this check and nothing read
+     * the field, so a founder who filled it in believed they had chain-level
+     * provenance and had none. The signature above proves the sender holds this
+     * village's secret; it cannot prove the OUTCOME is this village's, and one
+     * hub carries many forks off one listener, so a routing mistake there
+     * arrives correctly signed. That is the failure this closes.
+     *
+     * NOT module-gated, deliberately. The variable is platform configuration
+     * that every village can see whether or not the Hypha Bridge module is on,
+     * and its description now states this behaviour, so gating the check would
+     * make that description false for most forks.
+     */
+    const space = checkSpace(stringVar("hypha.space_id"), req.body);
+    if (space.verdict === "mismatch") {
+      void reportError(new Error(`Hypha outcome names space ${space.claimed}, this village is ${stringVar("hypha.space_id").trim()}`), {
+        where: "mechanics governance callback",
+      });
+      return res.status(403).json({
+        received: true,
+        discarded: "that outcome names a different Hypha space",
+      });
+    }
+    if (space.verdict === "unstated") {
+      // Accepted, and said out loud. A check that cannot run must never read as
+      // a check that passed, and refusing instead would take a working
+      // integration down the first time a sender dropped an optional field.
+      void reportError(new Error("Hypha outcome carried no space id, so the space check did not run"), {
+        where: "mechanics governance callback",
+      });
+    }
+
+    /*
+     * MATCHING, AND THE ORPHANS (R58 upgrade 3).
+     *
+     * The marker is a human-editable field in somebody else's product and the
+     * bridge header says so: lose it from the title and the outcome cannot find
+     * its way home. So the AGREEMENT ID Hypha returns at creation is tried
+     * first, read off `mechanics_proposals.hypha_proposal_id` where the link
+     * step already stores it, and the marker stays as the fallback the shipped
+     * bridge was built around.
+     *
+     * A delivery that matches neither is RECORDED as an orphan while the Hypha
+     * Bridge module is on, instead of answered and forgotten. With the module
+     * off this behaves exactly as it always has, which is what an off module
+     * has to mean.
+     */
     const outcome = String(req.body?.outcome ?? "");
-    if (!marker || (outcome !== "passed" && outcome !== "failed")) {
-      return res.status(400).json({ error: "marker (carrying [gm:…]) and outcome passed|failed are required" });
+    if (outcome !== "passed" && outcome !== "failed") {
+      return res.status(400).json({ error: "outcome passed|failed is required" });
+    }
+    const inbound = readInboundOutcome(req.body, outcome === "passed" ? "confirmed" : "rejected");
+    if (!inbound.marker && !inbound.agreementId) {
+      return res.status(400).json({ error: "a marker carrying [gm:…] or an agreementId is required" });
+    }
+    const match = await matchOutcome(inbound, {
+      byAgreementId: (id) => hyphaRepo.proposalByAgreementId(getPool(), id),
+      proposalExists: (id) => hyphaRepo.proposalExists(getPool(), id),
+    });
+    const logOutcomes = effectiveLifecycle("hypha") !== "off";
+    if (logOutcomes) {
+      await hyphaRepo
+        .recordOutcome(getPool(), {
+          agreementId: inbound.agreementId,
+          marker: inbound.marker,
+          verdict: inbound.verdict,
+          source: "hub",
+          matchedBy: match.matchedBy,
+          matchedProposalId: match.proposalId,
+          deliveryKey: inbound.deliveryKey,
+        })
+        .catch(() => ({ id: "", duplicate: false }));
+    }
+    if (match.conflict) {
+      // Both halves resolved and disagreed. The agreement id wins because the
+      // chain carries it, and the disagreement is reported because the only
+      // ways it happens are a mispasted link or two proposals sharing an id.
+      void reportError(new Error(`Hypha outcome: agreement ${inbound.agreementId} and marker gm:${inbound.marker} name different proposals`), {
+        where: "mechanics governance callback",
+      });
+    }
+    const marker = match.proposalId;
+    if (!marker) {
+      return res.json({
+        received: true,
+        discarded: logOutcomes
+          ? "no proposal for that agreement id or marker; recorded for a steward"
+          : `no proposal for marker gm:${inbound.marker}`,
+        orphaned: logOutcomes,
+      });
     }
     const p = await proposalById(getPool(), marker);
     if (!p) return res.json({ received: true, discarded: `no proposal for marker gm:${marker}` });
