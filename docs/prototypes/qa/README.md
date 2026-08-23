@@ -91,7 +91,9 @@ object field by field, so any key `skinExport()` gains and the site has not is
 dropped on save with no error anywhere. Its last check compares the two key
 sets and names the difference. **When the map's skin gains a key, run it.**
 
-`verify_door_routes.js` holds the same kind of contract in the other direction.
+`scripts/check-map-routes.mjs` holds the same kind of contract in the other direction. (This
+paragraph named `verify_door_routes.js` until 2026-08-22; that file was never written, and saying
+otherwise let the route list drift four routes behind the router.)
 The artifact has no build step and cannot import `client/src/App.tsx`, so the
 map carries a copied route list in `window.SITE_PAGES`. This gate re-derives
 the real list with `scripts/qa/routes.mjs` and fails when the copy has drifted,

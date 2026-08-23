@@ -32,8 +32,9 @@ harmless only because the card had no link. `/health` is the worst of them: the 
 the ops probe, so those eight would have shown a visitor raw JSON rather than a 404.
 
 The route list is derived from `client/src/App.tsx` by `scripts/qa/routes.mjs`, which finds 54
-concrete routes. `qa/verify_door_routes.js` re-derives it on every run and goes red if the map's
-copy drifts.
+concrete routes. **`qa/verify_door_routes.js` was never written** (see the correction at the foot
+of this file). `scripts/check-map-routes.mjs` re-derives the list on every CI run and goes red if
+the map's copy drifts, in either direction.
 
 ### Re-taking every number
 
@@ -42,7 +43,7 @@ cd docs/prototypes && source qa/env.sh
 node qa/_probe_doors.js                                        # the seed scene
 LEGACY_DOORS=qa/legacy_doors_pre_g.json node qa/_probe_doors.js # a village that already published
 GROUNDS_FILE="file:///…/head-artifact.html" node qa/_probe_doors.js   # either one, pre-round-g
-node qa/verify_door_routes.js                                  # the gate over all of it
+node ../../scripts/check-map-routes.mjs                        # the route half, and it is in CI
 ```
 
 `qa/legacy_doors_pre_g.json` is the 32 doors exactly as the map shipped them before this round,
@@ -154,8 +155,9 @@ Worth carrying, because each one passed the gate that existed at the time.
    heals an old scene without writing to it and without a line in `restoreScene`.
 3. **Module keys showed up in the founder's label box.** Slot 0 carries the key on the 19 bound
    doors, so 19 of 32 boxes read `stay`, `quests`, `health`. The obvious move from there, typing a
-   friendlier word, unbound the door. Fixed above, and `qa/verify_door_routes.js` now holds the bound
-   count at a floor of 19 so it cannot drift back down in silence.
+   friendlier word, unbound the door. Fixed above. **The bound-count floor of 19 was never actually
+   held by anything**, since the gate named here was never written; `scripts/check-map-routes.mjs`
+   covers the route list only.
 
 ## Four more the second review found, in the fix itself
 
@@ -193,8 +195,19 @@ And one that was **not** from this round, found while fixing the second: the act
 panel, the `Book a room` / `Reserve a home here` button, interpolated the same structure key into the
 same single-quoted `onclick`. It is on `main`, it predates all of this, and it is closed the same way.
 
-`qa/verify_door_routes.js` now holds all of it: 45 checks, and each new one was measured failing
-against the pre-fix artifact before it was believed.
+**None of this was ever held by a gate.** `qa/verify_door_routes.js` does not exist and never did,
+on any ref. The route half is now held by `scripts/check-map-routes.mjs`, which runs in CI; the
+other checks described above are unwatched.
+
+## Correction, 2026-08-22
+
+Every reference above to `qa/verify_door_routes.js` was wrong. `git ls-files` and
+`git log --all --diff-filter=A` return nothing for it on any ref, proven against `verify_doors.js`
+as a known-present control in the same command. **Three documents cited it as a working gate, so a
+reader was told the line was held when it was not** - and the map's route list duly drifted four
+routes behind the router (`/campaigns`, `/decisions`, `/places`, `/propose`) with three shipped dead
+doors as a result. `scripts/check-map-routes.mjs` now holds the route half in CI and has been
+watched going red on that exact drift and on a rename, then green after re-derivation.
 
 ## Housing example numbers, the same round
 
