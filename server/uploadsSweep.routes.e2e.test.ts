@@ -180,6 +180,7 @@ describe.skipIf(!DB_CONFIGURED)("the files nothing points at", () => {
   let vaultDoc = "";
   let oldBrand = "";
   let oldBrandThumb = "";
+  let heldAttachment = "";
   let staleOrphan = "";
   let proposalOrphan = "";
   let foreignFile = "";
@@ -239,7 +240,25 @@ describe.skipIf(!DB_CONFIGURED)("the files nothing points at", () => {
     vaultDoc = path.basename(String(vault.json?.url ?? ""));
     expect(vaultDoc).toBeTruthy();
 
-    mustSurvive.push(placePhoto, placeThumb, brandImage, brandThumb, vaultDoc, oldBrand, oldBrandThumb);
+    /*
+     * THE MOST DANGEROUS REFERENCE ON THE PLATFORM, and the reason it is
+     * exercised on an OLD file rather than on one that has just come off the
+     * door: a proposal attachment is stored as a BARE FILENAME inside the
+     * `data` JSON of a submission, with no `/api/uploads/` anywhere near it.
+     * Every reference scan that looks for a URL prefix classes every
+     * work-with-us attachment on the volume as unreferenced, and those are
+     * CVs, portfolios, and ID scans on some forks. A fresh file would be held
+     * by the grace window whatever the scan concluded, so the assertion would
+     * prove nothing.
+     */
+    heldAttachment = plantOrphan(`proposal-${LONG_AGO + 20}-kk3jd.jpg`, await jpeg(140));
+    const held = await call("POST", "/api/forms/submit", {
+      type: "work-with-us",
+      data: { name: "Wren Ash", email: `wren-${PORT}@example.test`, attachment: heldAttachment },
+    }, "");
+    expect(held.status, held.text).toBe(200);
+
+    mustSurvive.push(placePhoto, placeThumb, brandImage, brandThumb, vaultDoc, oldBrand, oldBrandThumb, heldAttachment);
     for (const name of mustSurvive) {
       expect(fs.existsSync(path.join(uploadsDir, name)), `${name} must be on the volume`).toBe(true);
     }
@@ -275,6 +294,11 @@ describe.skipIf(!DB_CONFIGURED)("the files nothing points at", () => {
     expect(orphans, "a thumbnail nothing names must not be offered").not.toContain(oldBrandThumb);
     expect(r.findings.find((f) => f.name === oldBrandThumb)).toBeUndefined();
     expect(r.findings.find((f) => f.name === oldBrand)).toBeUndefined();
+
+    // A bare filename in a submission's data JSON holds its file, and the file
+    // beside it that no submission names does not survive by association.
+    expect(orphans, "a bare filename in a JSON column is a reference").not.toContain(heldAttachment);
+    expect(orphans).toContain(proposalOrphan);
 
     expect(names(r, "unknown")).toContain(foreignFile);
     expect(r.tally.recent.files, "the fresh file is inside the window").toBeGreaterThan(0);
