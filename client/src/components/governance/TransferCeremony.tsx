@@ -81,29 +81,38 @@ export default function TransferCeremony({
         crossed ? "border-sage bg-sage-light" : "border-stone-200 bg-cream"
       }`}
     >
+      {/* The daybreak sits in the corner and the words keep out of its way.
+          At 390 a 160-wide drawing pinned to the right edge lands across the
+          power's name, and a celebration that makes the sentence underneath it
+          harder to read has spent the moment on nothing. */}
       {fresh && crossed && (
-        <div className="pointer-events-none absolute inset-0 flex items-start justify-end opacity-70">
+        <div className="pointer-events-none absolute right-0 top-0 opacity-70">
           <Celebration
             kind="dawn"
             intensity="moment"
-            size={160}
+            size={120}
             message={`A power crossed to the village. ${toWhom} looks after it now.`}
           />
         </div>
       )}
 
       <div className="relative">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-stone-900/5 px-3 py-1 text-xs font-bold uppercase tracking-wide text-stone-700">
-          <Handshake className="w-3.5 h-3.5" aria-hidden="true" />
-          {crossed ? "It crossed over" : "The village asks to hold this"}
-        </span>
+        {/* The chip and the power's name are the two lines the drawing would
+            sit across, so they keep clear of it and nothing below is indented
+            by a decoration. */}
+        <div className={fresh && crossed ? "pr-28 sm:pr-32" : ""}>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-stone-900/5 px-3 py-1 text-xs font-bold uppercase tracking-wide text-stone-700">
+            <Handshake className="w-3.5 h-3.5" aria-hidden="true" />
+            {crossed ? "It crossed over" : "The village asks to hold this"}
+          </span>
 
-        {/* THE POWER. The title and the sentence both come from the registry
-            the gate itself reads, so what a member is told a holder could do
-            is what a holder can actually do. */}
-        <h2 className="mt-3 font-display text-xl font-bold leading-snug text-stone-900">
-          {t.title ?? t.capability}
-        </h2>
+          {/* THE POWER. The title and the sentence both come from the registry
+              the gate itself reads, so what a member is told a holder could do
+              is what a holder can actually do. */}
+          <h2 className="mt-3 font-display text-xl font-bold leading-snug text-stone-900">
+            {t.title ?? t.capability}
+          </h2>
+        </div>
         {t.consequence ? (
           <p className="mt-1 text-sm text-stone-800 leading-relaxed">
             Whoever holds this can {t.consequence}.

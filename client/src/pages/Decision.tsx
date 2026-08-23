@@ -308,13 +308,21 @@ export default function Decision() {
             {!open && (
               <DecisionOutcome
                 ballot={ballot}
-                applied={justClosed?.applied}
-                held={justClosed?.held}
+                /* "WHAT CHANGED" IS WRITTEN IN DIALS, AND A POWER IS NOT ONE.
+                   This card renders each applied key as "<key> now holds the
+                   value the village voted for", which is exactly right for a
+                   mechanics amendment and false for a handover: `event.manage`
+                   holds no value, it moved house. A real crossing rendered as
+                   a dial change is the quiet-lie shape all over again, so the
+                   handover's own card says what changed, in the power's words,
+                   for both the crossing and the refusal. */
+                applied={ballot.transfer ? undefined : justClosed?.applied}
+                held={ballot.transfer ? null : justClosed?.held}
                 /* ONE MOMENT PER PAGE. A power handover that carried plays its
                    own celebration inside TransferCeremony, on the crossing
-                   rather than on the ballot, so this card stands down. Two
-                   moments side by side is the wallpaper case the celebration
-                   ration exists to prevent (docs/modules/natural-interface.md). */
+                   itself, so this card stands down. Two moments side by side is
+                   the wallpaper case the celebration ration exists to prevent
+                   (docs/modules/natural-interface.md). */
                 fresh={!!justClosed && ballot.transfer === null}
               />
             )}
