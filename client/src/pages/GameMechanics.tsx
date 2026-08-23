@@ -150,7 +150,10 @@ export const STATUS_COPY: Record<ProposalStatus, { label: string; cls: string }>
   onsite_vote: { label: "at the village vote", cls: "bg-sky-50 text-sky-700" },
   passed_claimed: { label: "passed, awaiting verification", cls: "bg-violet-50 text-violet-700" },
   passed_verified: { label: "verified on-chain, applying", cls: "bg-violet-50 text-violet-700" },
-  passed_onsite: { label: "carried at the village vote, applying", cls: "bg-violet-50 text-violet-700" },
+  // No ", applying" on this one. Whether it IS applying depends on
+  // `governance.auto_apply_enabled`, which this page is not served and cannot
+  // read, and with the brake on the proposal sits here waiting for a hand.
+  passed_onsite: { label: "carried at the village vote", cls: "bg-violet-50 text-violet-700" },
   failed: { label: "did not pass", cls: "bg-stone-100 text-stone-500" },
   applied: { label: "applied", cls: "bg-teal-deep/10 text-teal-deep" },
 };
