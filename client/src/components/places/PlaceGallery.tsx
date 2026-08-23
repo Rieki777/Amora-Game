@@ -218,14 +218,19 @@ function AddPhoto({
       </div>
       <label className="block text-sm">
         <span className="block mb-1 font-medium">Picture</span>
+        {/* A wrapping <label> names the control with every string inside it,
+            so the size limit and the location note read as part of the field
+            name. Both stay on screen as a description. */}
         <input
           ref={input}
           type="file"
           accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          aria-label="Picture"
+          aria-describedby="place-photo-file-hint"
           className={`${TAP} block w-full text-sm`}
         />
-        <span className="block mt-1 text-xs text-muted-foreground">
+        <span id="place-photo-file-hint" className="block mt-1 text-xs text-muted-foreground">
           Up to {maxMb} MB. Location data is removed before it is stored.
         </span>
       </label>
@@ -253,13 +258,17 @@ function AddPhoto({
       </label>
       <label className="block text-sm">
         <span className="block mb-1 font-medium">When was it taken?</span>
+        {/* Same shape as the picture field above: the question is the name,
+            what a blank date does is a description. */}
         <input
           type="date"
           value={takenOn}
           onChange={(e) => setTakenOn(e.target.value)}
+          aria-label="When was it taken?"
+          aria-describedby="place-photo-taken-hint"
           className={`${TAP} w-full rounded-lg border border-border px-3`}
         />
-        <span className="block mt-1 text-xs text-muted-foreground">
+        <span id="place-photo-taken-hint" className="block mt-1 text-xs text-muted-foreground">
           Left blank, the line under it says when it was added instead.
         </span>
       </label>

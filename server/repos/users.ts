@@ -169,6 +169,21 @@ export function usersRepo(pool: Pool = getPool()): UsersRepo {
   }
 
   return {
+    /**
+     * THE ORDER BY IS LOAD-BEARING. Leave it.
+     *
+     * `id` is the primary key, so `joined_at, id` is a TOTAL order: two reads
+     * of the same rows answer identically, and `joined_at` is
+     * `timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP` with no `ON UPDATE`
+     * clause, so writing a member cannot move them. Every admin table built on
+     * this read depends on that. Without it MySQL is free to answer in any
+     * order it likes, and a row that shifts between two reads puts the next
+     * click on a different person than the one the admin was looking at.
+     *
+     * This is the STABILITY floor, and it is deliberately not the display
+     * order. Join order cannot be searched, so surfaces that show members to a
+     * person sort through `shared/memberOrder.ts` on top of this.
+     */
     async all() {
       return (await rows(`${select} ORDER BY joined_at, id`)).map(rowToMember);
     },

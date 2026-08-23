@@ -172,17 +172,24 @@ export default function ObjectionPanel({
                           <div className="mt-1.5 space-y-1.5">
                             {(canRule ? RULINGS : RULINGS.filter((r) => r.id === "withdrawn")).map((r) => (
                               <label key={r.id} className="flex min-h-[44px] items-start gap-2 rounded-lg border border-stone-200 p-2 has-[:checked]:border-teal-deep">
+                                {/* The ruling names the option; what the ruling
+                                    does to the proposal is a description. A
+                                    wrapping <label> read both as one name, so
+                                    choosing between three rulings meant hearing
+                                    three paragraphs. */}
                                 <input
                                   type="radio"
                                   name={`ruling-${o.id}`}
                                   value={r.id}
                                   checked={ruling === r.id}
                                   onChange={() => setRuling(r.id)}
+                                  aria-label={r.label}
+                                  aria-describedby={`ruling-${o.id}-${r.id}-help`}
                                   className="mt-1 accent-teal-deep"
                                 />
                                 <span>
                                   <span className="block text-sm font-medium text-stone-900">{r.label}</span>
-                                  <span className="block text-xs text-stone-600 leading-relaxed">{r.help}</span>
+                                  <span id={`ruling-${o.id}-${r.id}-help`} className="block text-xs text-stone-600 leading-relaxed">{r.help}</span>
                                 </span>
                               </label>
                             ))}
