@@ -2068,7 +2068,10 @@ function UploadedFilesTab({ password }: { password: string }) {
           <h3 className="text-sm font-bold text-gray-900 mb-1">Nothing points at these</h3>
           {orphans.length === 0 ? (
             <p className="text-sm text-gray-500 mb-8">
-              Every file on the volume is either in use or too new to judge.
+              {/* Exactly what is true, and no more. "Everything here is in use"
+                  would be a claim about the unidentified files below, which are
+                  the ones nothing here can say anything about. */}
+              No file on the volume has been shown to be unused.
             </p>
           ) : (
             <>
