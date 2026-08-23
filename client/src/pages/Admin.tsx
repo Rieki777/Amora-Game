@@ -1005,7 +1005,19 @@ function SubmissionsTab({ password }: { password: string }) {
 
   const deleteSubmission = async (id: string) => {
     if (!confirm("Delete this submission?")) return;
-    await fetch(`${API_BASE}/admin/submissions/${id}`, { method: "DELETE", headers: authHeaders(password) });
+    // The reload was standing in for an answer: a refused delete redrew the
+    // same row and said nothing, so it read as a click that missed.
+    try {
+      const res = await fetch(`${API_BASE}/admin/submissions/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(refusal(body, `The server refused that (${res.status}). The submission is still here.`));
+        return;
+      }
+    } catch {
+      toast.error("That did not reach the server. The submission is still here.");
+      return;
+    }
     load();
   };
 
@@ -1160,6 +1172,13 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [parseError, setParseError] = useState("");
+  /**
+   * The save's own answer, beside the save button.
+   *
+   * `parseError` renders inside the advanced JSON block, which is collapsed
+   * on the card editor, so a refusal reported there is a refusal nobody sees.
+   */
+  const [saveError, setSaveError] = useState("");
   const [saved, setSaved] = useState(false);
 
   const load = useCallback(async () => {
@@ -1198,16 +1217,34 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
       }
     }
     setSaving(true);
+    setSaveError("");
+    /*
+     * THE SAVE ASKS. It did not, and the button said "Saved!" whatever came
+     * back, which is the one thing an editor must never do.
+     *
+     * `fetch` resolves on a 403 and on a 500 the same way it resolves on a
+     * 200, so the old `catch` only ever caught a dead network. This route is
+     * behind `story.tell`, and a village that holds that power answers with a
+     * 409 the break-glass turns into a question. An operator who reads that
+     * question and chooses "Leave it" gets the 409 back, so a save that skips
+     * the status check prints "Saved!" over a change the operator just
+     * declined to make.
+     */
     try {
-      await fetch(`${API_BASE}/admin/content/${sectionKey}`, {
+      const res = await fetch(`${API_BASE}/admin/content/${sectionKey}`, {
         method: "PUT",
         headers: authHeaders(password, { "Content-Type": "application/json" }),
         body: JSON.stringify(parsed),
       });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      if (res.ok) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
+      } else {
+        const body = await res.json().catch(() => null);
+        setSaveError(refusal(body, `The server refused this save (${res.status}). The live page is unchanged.`));
+      }
     } catch {
-      setParseError("Save failed. Check server connection.");
+      setSaveError("This save did not reach the server. The live page is unchanged.");
     }
     setSaving(false);
   };
@@ -1260,6 +1297,12 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
           </button>
         </div>
       </div>
+
+      {saveError && (
+        <p role="alert" className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          {saveError}
+        </p>
+      )}
 
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading...</div>
@@ -1802,11 +1845,16 @@ function InvestorVaultTab({ password }: { password: string }) {
   const remove = async (id: string) => {
     if (!confirm("Delete this document permanently?")) return;
     try {
-      await fetch(`${API_BASE}/admin/investor-docs/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      const res = await fetch(`${API_BASE}/admin/investor-docs/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(refusal(body, `The server refused that (${res.status}). The document is still here.`));
+        return;
+      }
       toast.success("Deleted");
       load();
     } catch {
-      toast.error("Delete failed");
+      toast.error("That did not reach the server. The document is still here.");
     }
   };
 
@@ -2228,11 +2276,16 @@ function TrainingModulesTab({ password }: { password: string }) {
   const remove = async (id: string) => {
     if (!confirm("Delete this module?")) return;
     try {
-      await fetch(`${API_BASE}/admin/training-modules/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      const res = await fetch(`${API_BASE}/admin/training-modules/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(refusal(body, `The server refused that (${res.status}). The module is still here.`));
+        return;
+      }
       toast.success("Deleted");
       load();
     } catch {
-      toast.error("Delete failed");
+      toast.error("That did not reach the server. The module is still here.");
     }
   };
 
@@ -2398,15 +2451,30 @@ function FaqAdminTab({ password }: { password: string }) {
 
   useEffect(() => { load(); }, [load]);
 
+  /*
+   * The list moved first and the answer was thrown away, so a refused save
+   * left the screen holding a version of the FAQ the server never took. The
+   * old `catch` only ran on a dead network; a 403 or a 500 resolved normally
+   * and changed nothing on screen.
+   */
   const persist = async (next: FaqItem[]) => {
+    const before = items;
     setItems(next);
     try {
-      await fetch(`${API_BASE}/admin/faqs/${pathway}`, {
+      const res = await fetch(`${API_BASE}/admin/faqs/${pathway}`, {
         method: "PUT",
         headers: authHeaders(password, { "Content-Type": "application/json" }),
         body: JSON.stringify(next),
       });
-    } catch { toast.error("Save failed"); }
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setItems(before);
+        toast.error(refusal(body, `The server refused that (${res.status}). The list is back to what it holds.`));
+      }
+    } catch {
+      setItems(before);
+      toast.error("That did not reach the server. The list is back to what it holds.");
+    }
   };
 
   const add = async () => {
@@ -2427,10 +2495,15 @@ function FaqAdminTab({ password }: { password: string }) {
   const remove = async (id: string) => {
     if (!confirm("Delete this question?")) return;
     try {
-      await fetch(`${API_BASE}/admin/faqs/${pathway}/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      const res = await fetch(`${API_BASE}/admin/faqs/${pathway}/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(refusal(body, `The server refused that (${res.status}). The question is still here.`));
+        return;
+      }
       toast.success("Deleted");
       load();
-    } catch { toast.error("Delete failed"); }
+    } catch { toast.error("That did not reach the server. The question is still here."); }
   };
 
   const move = (idx: number, dir: -1 | 1) => {
@@ -2602,22 +2675,35 @@ function MilestonesAdminTab({ password }: { password: string }) {
 
   const update = async (id: string, patch: Partial<Milestone>) => {
     setItems((prev) => prev.map((m) => m.id === id ? { ...m, ...patch } : m));
+    // Same shape as the FAQ list above: optimistic, and the answer was
+    // dropped. `load()` is the rollback here, because the server holds the
+    // whole row and re-reading it is cheaper than remembering the old one.
     try {
-      await fetch(`${API_BASE}/admin/milestones/${id}`, {
+      const res = await fetch(`${API_BASE}/admin/milestones/${id}`, {
         method: "PUT",
         headers: authHeaders(password, { "Content-Type": "application/json" }),
         body: JSON.stringify(patch),
       });
-    } catch { toast.error("Save failed"); load(); }
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(refusal(body, `The server refused that (${res.status}). The row is back to what it holds.`));
+        load();
+      }
+    } catch { toast.error("That did not reach the server. The row is back to what it holds."); load(); }
   };
 
   const remove = async (id: string) => {
     if (!confirm("Delete this milestone?")) return;
     try {
-      await fetch(`${API_BASE}/admin/milestones/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      const res = await fetch(`${API_BASE}/admin/milestones/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(refusal(body, `The server refused that (${res.status}). The milestone is still here.`));
+        return;
+      }
       toast.success("Deleted");
       load();
-    } catch { toast.error("Delete failed"); }
+    } catch { toast.error("That did not reach the server. The milestone is still here."); }
   };
 
   const add = async () => {
@@ -5394,7 +5480,18 @@ function SeasonPatternsTab({ password }: { password: string }) {
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(d?.error ?? "That did not work"); return d; }
+      /*
+       * `null`, and it used to be `d`.
+       *
+       * Ten sibling helpers in this file return null on a refusal and their
+       * callers read that as "it did not happen". This one returned the ERROR
+       * BODY, which is an object and therefore truthy, so every caller here
+       * treated a refusal as a result: `setPlan(await call(...))` drew a
+       * season plan out of an error, and creating a pattern wiped the name the
+       * founder had typed. The toast fired the whole time, under a screen that
+       * had already moved on.
+       */
+      if (!res.ok) { toast.error(refusal(d, `The server refused that (${res.status}).`)); return null; }
       return d;
     } finally { setBusy(false); }
   };
@@ -5451,7 +5548,7 @@ function SeasonPatternsTab({ password }: { password: string }) {
               className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm w-full mt-1" />
           </label>
           <button disabled={!newName.trim() || busy}
-            onClick={async () => { await call("/admin/seasons/patterns", { name: newName }); setNewName(""); void load(); }}
+            onClick={async () => { const made = await call("/admin/seasons/patterns", { name: newName }); if (made) setNewName(""); void load(); }}
             className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Create</button>
         </div>
         <p className="text-xs text-gray-400 mt-2">
@@ -5810,7 +5907,17 @@ function ToolsAdminTab({ password }: { password: string }) {
 
   const remove = async (id: string) => {
     if (!window.confirm("Remove this tool? Click history is kept.")) return;
-    await fetch(`${API_BASE}/admin/tools/${id}`, { method: "DELETE", headers: authHeaders(password) });
+    try {
+      const res = await fetch(`${API_BASE}/admin/tools/${id}`, { method: "DELETE", headers: authHeaders(password) });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(refusal(body, `The server refused that (${res.status}). The tool is still on the hub.`));
+        return;
+      }
+    } catch {
+      toast.error("That did not reach the server. The tool is still on the hub.");
+      return;
+    }
     load();
   };
 
@@ -5820,11 +5927,23 @@ function ToolsAdminTab({ password }: { password: string }) {
     const j = i + dir;
     if (j < 0 || j >= ids.length) return;
     [ids[i], ids[j]] = [ids[j], ids[i]];
-    await fetch(`${API_BASE}/admin/tools/order`, {
-      method: "PUT",
-      headers: authHeaders(password, { "Content-Type": "application/json" }),
-      body: JSON.stringify({ ids }),
-    });
+    // A refused reorder used to redraw the old order in silence, which reads
+    // as an arrow that does nothing rather than as a refusal.
+    try {
+      const res = await fetch(`${API_BASE}/admin/tools/order`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(refusal(body, `The server refused that (${res.status}). The order is unchanged.`));
+        return;
+      }
+    } catch {
+      toast.error("That did not reach the server. The order is unchanged.");
+      return;
+    }
     load();
   };
 
