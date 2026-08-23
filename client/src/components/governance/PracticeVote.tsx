@@ -34,7 +34,7 @@ import { useState } from "react";
 import { Loader2, MessageCircleQuestion } from "lucide-react";
 import InfoTip from "@/components/InfoTip";
 import { openAdvisory } from "./governanceApi";
-import { typeConfig, type WizardType } from "./wizardConfig";
+import { subjectNoun, type WizardType } from "./wizardConfig";
 
 /**
  * The methods a practice vote may run, in the order a member meets them.
@@ -59,7 +59,7 @@ export default function PracticeVote({
   onOpened: (ballotId: string) => void;
   onCancel: () => void;
 }) {
-  const cfg = typeConfig(about);
+  const noun = subjectNoun(about);
   const [question, setQuestion] = useState("");
   const [detail, setDetail] = useState("");
   const [method, setMethod] = useState("");
@@ -99,10 +99,19 @@ export default function PracticeVote({
           label="What a practice vote is"
         />
       </h3>
-      <p className="mt-1 text-sm text-stone-600 leading-relaxed">
-        {cfg
-          ? `This village does not carry ${cfg.title.toLowerCase()} by vote today. It can still put the question to everyone and find out what it already agrees about.`
-          : "Put the question to everyone and find out what the village already agrees about."}
+      {/* The type is named as a CHIP and never inside a sentence. The wizard
+          cards are verb phrases ("Write an agreement"), so folding one into
+          prose produced "does not carry write an agreement by vote today",
+          and the noun map has an article problem of its own ("a agreement").
+          A label beside a type-free sentence has neither. */}
+      {noun && (
+        <span className="mt-2 inline-block rounded-full bg-stone-100 px-2.5 py-0.5 text-xs font-medium text-stone-700">
+          {noun}
+        </span>
+      )}
+      <p className="mt-2 text-sm text-stone-600 leading-relaxed">
+        This kind of decision does not carry a binding vote in this village yet. A practice vote is real in every other
+        way: the whole roll, the real weights, and an answer the village can act on when it chooses to.
       </p>
 
       <div className="mt-4">
