@@ -69,6 +69,20 @@ export default function DecisionCard({ ballot }: { ballot: BallotCardData }) {
         </Link>
       </h3>
 
+      {/* WHETHER THIS ONE BINDS, before the bars and before the vote button.
+          A card that showed a real clock, real weights and a real quorum over
+          a vote that executes nothing was telling a member they were deciding
+          something. The fact comes from the server, which reads it off the
+          close route's own subject table, so the card cannot be wrong about
+          it. */}
+      {!ballot.binding && (
+        <p className="mt-1.5 text-sm text-stone-600 leading-relaxed">
+          {open
+            ? "This one asks what the village thinks. Nothing changes by itself when it closes."
+            : "This one asked what the village thinks. Nothing changed by itself."}
+        </p>
+      )}
+
       {!open && ballot.outcomeNote && (
         <p className="mt-1.5 text-sm italic text-stone-700 leading-relaxed">{ballot.outcomeNote}</p>
       )}
@@ -80,6 +94,7 @@ export default function DecisionCard({ ballot }: { ballot: BallotCardData }) {
           unityPct={ballot.unityPct}
           quorumPct={ballot.quorumPct}
           method={ballot.method}
+          standingObjections={ballot.standingObjections}
         />
       </div>
 

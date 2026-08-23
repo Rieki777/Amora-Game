@@ -543,6 +543,15 @@ export const SUBJECT_NOUN: Record<string, string> = {
   agreement: "Agreement",
   badge_grant: "Badge grant",
   quest_payout: "Quest payout",
+  /*
+   * NOT a wizard type, and here because `ballots.subject_type` carries it.
+   * Without this entry an advisory vote fell through to "Decision", which is
+   * the one word it must never be called: the whole point of an advisory vote
+   * is that it decides nothing. The village's own vocabulary for it, on the
+   * document the server freezes and in the bell that announces it, is
+   * "advisory vote", so the card says the same words.
+   */
+  advisory: "Advisory vote",
 };
 
 export const subjectNoun = (subjectType: string): string => SUBJECT_NOUN[subjectType] ?? "Decision";

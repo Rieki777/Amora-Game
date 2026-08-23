@@ -15,7 +15,6 @@
 import { describe, expect, it } from "vitest";
 import { dialsForMethod, evaluateBallot } from "@shared/governanceEngine";
 import {
-  BLOCKING_OBJECTION_STATUSES,
   CROWD_FIGURES,
   FIGURE_SHARE_PCT,
   countdown,
@@ -25,7 +24,6 @@ import {
   pctText,
   quorumBar,
   spoken,
-  standingObjections,
   tickMsFor,
   unityBar,
   weightText,
@@ -276,23 +274,18 @@ describe("consent has no agreement to draw", () => {
     expect(objectionState(Number.NaN).mark).toBe("met");
   });
 
-  it("counts an UPHELD objection as standing, the way the close route does", () => {
-    // server/lib/ballots.ts standingObjectionCount: status IN ('open','integrated').
-    // An upheld objection means the proposal has to change, so it blocks.
-    expect(BLOCKING_OBJECTION_STATUSES).toEqual(["open", "integrated"]);
-    const objections = [
-      { status: "open" },
-      { status: "integrated" },
-      { status: "concern" },
-      { status: "withdrawn" },
-    ];
-    expect(standingObjections(objections)).toBe(2);
-    expect(standingObjections([{ status: "integrated" }])).toBe(1);
-    expect(standingObjections([{ status: "concern" }, { status: "withdrawn" }])).toBe(0);
-    expect(standingObjections([])).toBe(0);
-    // And the reading follows the count, so an upheld objection is never
-    // reported as nothing standing in the way.
-    expect(objectionState(standingObjections([{ status: "integrated" }])).mark).toBe("short");
+  it("reads a standing objection as short, never as nothing in the way", () => {
+    /*
+     * The COUNT is the server's now (`standingObjections` on both ballot
+     * payloads, from the same function the close route evaluates with), and
+     * this file no longer mirrors the status list. What stays testable here is
+     * the reading: whatever number arrives, one objection standing must never
+     * come out as "nothing stands in the way", which is the lie the old
+     * client-side recount produced when it counted `open` and forgot
+     * `integrated`.
+     */
+    expect(objectionState(1).mark).toBe("short");
+    expect(objectionState(2).mark).toBe("short");
   });
 });
 

@@ -28,6 +28,21 @@ import { evaluateBallot } from "@shared/governanceEngine";
 import { pctText, weightText } from "./voteBars";
 import type { Ballot } from "./governanceApi";
 
+/**
+ * WHAT CLOSING DOES, and why there are two sets of words.
+ *
+ * The binding set said "Closing it makes it the village's decision and does
+ * whatever the decision says to do", which is true of a rule change and FALSE
+ * of an advisory vote. An advisory ballot runs on this same engine with the
+ * same frozen roll and the same weights, and closing it executes nothing: the
+ * server reads that off the close route's own subject table and sends it as
+ * `binding`. A closer reading the binding sentence over a practice vote would
+ * be told they had just changed something, at the exact moment they are
+ * putting their name to the record.
+ *
+ * The advisory words say what actually happened: the village answered, the
+ * answer is kept, and nothing moved on its own.
+ */
 const OUTCOME_WORDS: Record<string, { heading: string; blurb: string }> = {
   passed: {
     heading: "This carries",
@@ -40,6 +55,21 @@ const OUTCOME_WORDS: Record<string, { heading: string; blurb: string }> = {
   no_quorum: {
     heading: "Not enough of the village spoke",
     blurb: "Too little of the electorate voted for this to be an answer either way. Closing records that, and it is not the same thing as a rejection.",
+  },
+};
+
+const ADVISORY_WORDS: Record<string, { heading: string; blurb: string }> = {
+  passed: {
+    heading: "The village would say yes",
+    blurb: "This vote was advisory, so nothing changes by itself. Closing it records what the village thinks, and somebody still has to decide what to do about it.",
+  },
+  failed: {
+    heading: "The village would say no",
+    blurb: "This vote was advisory, so nothing changes by itself. Closing it records that the village did not agree, which is worth knowing before anyone builds on it.",
+  },
+  no_quorum: {
+    heading: "Not enough of the village spoke",
+    blurb: "Too few voted for this to be an answer either way. Nothing changes by itself here, and a quiet advisory vote is its own useful fact about what the village is ready to weigh in on.",
   },
 };
 
@@ -57,10 +87,10 @@ export default function CloseBeat({
   const [note, setNote] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
 
-  const standingObjections =
-    ballot.method === "consent"
-      ? ballot.objections.filter((o) => o.status === "open" || o.status === "integrated").length
-      : 0;
+  // The server's count, from the same function the close route evaluates
+  // with. This used to filter the objections array here, which made the close
+  // preview a second opinion about whether the ballot carries.
+  const standingObjections = ballot.standingObjections;
 
   const outcome = evaluateBallot({
     method: ballot.method,
@@ -70,7 +100,7 @@ export default function CloseBeat({
     tallies: ballot.tallies,
     openObjections: standingObjections,
   });
-  const words = OUTCOME_WORDS[outcome];
+  const words = (ballot.binding ? OUTCOME_WORDS : ADVISORY_WORDS)[outcome];
 
   const submit = async () => {
     if (note.trim().length < 10) {
@@ -85,7 +115,7 @@ export default function CloseBeat({
     <section className="rounded-xl border-2 border-teal-deep bg-white p-5">
       <h3 className="flex items-center gap-2 text-lg font-bold text-stone-900">
         <Scale className="w-5 h-5 text-teal-deep" aria-hidden="true" />
-        Close this decision
+        {ballot.binding ? "Close this decision" : "Close this advisory vote"}
       </h3>
       <p className="mt-1 text-sm text-stone-600 leading-relaxed">
         You are the person doing this. Nothing closed it while you were away, and nothing will.
@@ -121,11 +151,12 @@ export default function CloseBeat({
 
       <div className="mt-4">
         <label htmlFor="outcome-note" className="block text-sm font-semibold text-stone-900">
-          What did the village decide?
+          {ballot.binding ? "What did the village decide?" : "What did the village say?"}
         </label>
         <p className="mt-0.5 text-xs text-stone-600 leading-relaxed">
-          One or two sentences, in plain words, saying what was decided and what happens next. This is what the record
-          keeps. The numbers are already kept.
+          {ballot.binding
+            ? "One or two sentences, in plain words, saying what was decided and what happens next. This is what the record keeps. The numbers are already kept."
+            : "One or two sentences, in plain words, saying what the village said and what you make of it. Nothing here changes anything on its own, and that is what makes it safe to be plain."}
         </p>
         <textarea
           id="outcome-note"
@@ -133,7 +164,11 @@ export default function CloseBeat({
           value={note}
           maxLength={4000}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="The village agreed to give proposals nine days of sensing instead of seven, starting now."
+          placeholder={
+            ballot.binding
+              ? "The village agreed to give proposals nine days of sensing instead of seven, starting now."
+              : "Most of the village would back a shared tool shelf. Nothing is decided by this, and it is worth writing up as a real proposal."
+          }
           className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
         />
       </div>

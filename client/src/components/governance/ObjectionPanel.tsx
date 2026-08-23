@@ -26,7 +26,6 @@
 import { useState } from "react";
 import { CheckCircle2, CircleMinus, Hand, MessageSquareWarning } from "lucide-react";
 import InfoTip from "@/components/InfoTip";
-import { standingObjections } from "./voteBars";
 import type { BallotObjection } from "./governanceApi";
 
 const STATUS: Record<
@@ -67,6 +66,7 @@ const RULINGS: Array<{ id: string; label: string; help: string }> = [
 
 export default function ObjectionPanel({
   objections,
+  standing,
   canFile,
   canRule,
   busy,
@@ -74,6 +74,13 @@ export default function ObjectionPanel({
   onRule,
 }: {
   objections: BallotObjection[];
+  /**
+   * How many of them block, stated by the server rather than counted here.
+   * See the note in voteBars.ts: both ballot payloads carry this number from
+   * the same function the close route evaluates with, and a panel that
+   * recounted would be a second authority on whether this decision can carry.
+   */
+  standing: number;
   /** In the electorate, and the ballot is still open. */
   canFile: boolean;
   /** Holds proposal.decide, or is an admin. */
@@ -87,13 +94,6 @@ export default function ObjectionPanel({
   const [rulingFor, setRulingFor] = useState<string | null>(null);
   const [ruling, setRuling] = useState("concern");
   const [note, setNote] = useState("");
-
-  // `open` AND `integrated`, because upholding an objection means the proposal
-  // has to change, so the close route fails the ballot on it. Counting only
-  // `open` here told a member nothing stood in the way of a decision the
-  // server was about to refuse. The list lives in voteBars.ts, tested against
-  // the same statuses `standingObjectionCount` reads.
-  const standing = standingObjections(objections);
 
   const file = async () => {
     if (!text.trim()) {

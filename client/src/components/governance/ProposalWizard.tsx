@@ -34,6 +34,7 @@ import {
 import { typeConfig, type StepKey, type WizardType } from "./wizardConfig";
 import { fieldsFor, nextStep, prevStep, problemsFor, problemsInStep, stepAtIndex, walkFor } from "./wizardWalk";
 import DraftCards from "./DraftCards";
+import PracticeVote from "./PracticeVote";
 import TypeCards from "./TypeCards";
 import WizardField, { type MechanicsVariableLite } from "./WizardField";
 import WizardStepper from "./WizardStepper";
@@ -54,6 +55,10 @@ export default function ProposalWizard() {
 
   const [drafts, setDrafts] = useState<ProposalDraft[]>([]);
   const [conductable, setConductable] = useState<string[]>([]);
+  const [advisory, setAdvisory] = useState<string[]>([]);
+  const [mayOpenAdvisory, setMayOpenAdvisory] = useState(false);
+  /** The kind being put to a practice vote, when one is being written. */
+  const [practiceType, setPracticeType] = useState<WizardType | null>(null);
   const [supportThreshold, setSupportThreshold] = useState(0);
   const [dials, setDials] = useState<MechanicsVariableLite[]>([]);
 
@@ -79,6 +84,8 @@ export default function ProposalWizard() {
       if (!alive) return;
       if (factsAnswer.ok) {
         setConductable(factsAnswer.data.conductable);
+        setAdvisory(factsAnswer.data.advisory ?? []);
+        setMayOpenAdvisory(!!factsAnswer.data.mayOpenAdvisory);
         setSupportThreshold(factsAnswer.data.supportThreshold);
       }
       if (draftsAnswer.ok) setDrafts(draftsAnswer.data.drafts);
@@ -305,17 +312,39 @@ export default function ProposalWizard() {
 
         {step === "type" && (
           <div className="space-y-8">
-            <DraftCards drafts={drafts} busyId={busyDraft} onContinue={continueDraft} onDiscard={discardDraft} />
-            <div>
-              <h2 className="text-base font-bold text-stone-900">What kind of decision is this?</h2>
-              <p className="mt-0.5 text-sm text-stone-600">
-                Each kind asks different questions and travels a different road. Pick the one that fits and the rest
-                follows.
-              </p>
-              <div className="mt-4">
-                <TypeCards chosen={type} conductable={conductable} onChoose={chooseType} />
-              </div>
-            </div>
+            {/* A practice vote is not a wizard walk: it opens on one screen
+                and goes straight to the real decision it created, so it
+                REPLACES the type step rather than becoming a sixth road
+                through it. Nothing about the draft is touched on the way in
+                or out, because a practice vote is not a draft of anything. */}
+            {practiceType ? (
+              <PracticeVote
+                about={practiceType}
+                onOpened={(ballotId) => navigate(`/decisions/${ballotId}`)}
+                onCancel={() => setPracticeType(null)}
+              />
+            ) : (
+              <>
+                <DraftCards drafts={drafts} busyId={busyDraft} onContinue={continueDraft} onDiscard={discardDraft} />
+                <div>
+                  <h2 className="text-base font-bold text-stone-900">What kind of decision is this?</h2>
+                  <p className="mt-0.5 text-sm text-stone-600">
+                    Each kind asks different questions and travels a different road. Pick the one that fits and the
+                    rest follows.
+                  </p>
+                  <div className="mt-4">
+                    <TypeCards
+                      chosen={type}
+                      conductable={conductable}
+                      advisory={advisory}
+                      mayOpenAdvisory={mayOpenAdvisory}
+                      onChoose={chooseType}
+                      onPractice={setPracticeType}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 

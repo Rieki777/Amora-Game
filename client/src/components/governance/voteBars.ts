@@ -233,23 +233,29 @@ export function crowdFront(
 
 // ── Consent, which has no agreement to draw ──────────────────────────────────
 
-/**
- * WHICH OBJECTION STATUSES BLOCK, and why this is a named list.
+/*
+ * HOW MANY OBJECTIONS STAND IS THE SERVER'S NUMBER NOW, AND THIS FILE NO
+ * LONGER COUNTS THEM.
  *
- * `standingObjectionCount` in server/lib/ballots.ts counts
- * `status IN ('open','integrated')`, and `integrated` is the one that surprises
+ * There used to be a `standingObjections()` here that filtered an objections
+ * array on `["open","integrated"]`, mirroring `standingObjectionCount` in
+ * server/lib/ballots.ts. The mirror existed because `integrated` surprises
  * people: upholding an objection means the proposal has to CHANGE, so the
- * ballot closes as failed and the subject goes back to staging. Counting only
- * `open` on the client tells a member nothing is in the way of a decision the
- * close route is about to fail, which is the same class of lie as a merged
- * bar: a page previewing an outcome the server will not reach.
+ * ballot closes as failed, and a surface counting only `open` told a member
+ * nothing stood in the way of a decision the close route was about to refuse.
+ *
+ * Both ballot payloads now carry `standingObjections`, computed by the same
+ * function the close route evaluates with, so the mirror became the second of
+ * two sources for one fact. The list payload settled it: a CARD builds no
+ * objections array at all, so the server number is the only source there, and
+ * a detail page that kept counting for itself would have been a different
+ * authority on the same question one screen away. Two copies of one rule
+ * disagree eventually, and here the disagreement lands on somebody who thinks
+ * they know whether their vote carries.
+ *
+ * So every surface reads `ballot.standingObjections`. `objectionState` below
+ * takes that number and says what it means; it never derives it.
  */
-export const BLOCKING_OBJECTION_STATUSES: readonly string[] = ["open", "integrated"];
-
-/** How many objections are still standing in the close route's own reckoning. */
-export function standingObjections(objections: ReadonlyArray<{ status: string }>): number {
-  return objections.filter((o) => BLOCKING_OBJECTION_STATUSES.includes(o.status)).length;
-}
 
 export interface ObjectionReading {
   mark: BarMark;
