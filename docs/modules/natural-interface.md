@@ -64,10 +64,18 @@ the same length whichever way a member has their preference set.
 the events below and nothing else. Everything else is a `whisper`, and most
 things are neither.
 
-### The five wired moments, and the one kind each
+### The wired moments, and the kind each one takes
 
-Five moments, five celebration kinds, one apiece. That is a coincidence worth
-keeping: it means no two moments in the product look alike.
+Five of these took a kind apiece, and that was a coincidence worth keeping
+while it lasted: no two moments in the product looked alike. The sixth is
+`dawn` a second time, which is stated here instead of quietly broken. A
+governance decision carrying already draws `dawn` in
+`client/src/components/governance/DecisionOutcome.tsx`, and a power crossing
+over IS a decision carrying, seen from the side of the thing that moved. They
+are the same daybreak read twice, they can never fire on one page at once
+(`TransferCeremony` plays it and the outcome card stands down), and giving the
+crossing a different drawing would say the two events are unrelated when one
+is a special case of the other.
 
 | Moment | Kind | Where | How often it can fire |
 | --- | --- | --- | --- |
@@ -76,6 +84,7 @@ keeping: it means no two moments in the product look alike.
 | Gratitude received | `blossom` | `client/src/components/ProfileJourney.tsx` | Once ever per acknowledgment, at most one per visit |
 | A cycle settled | `fireflies` | `client/src/pages/Admin.tsx` (Cycle Close) | Once per settlement that released something |
 | A pledge landed | `ripples` | `client/src/components/crowdpool/PoolPieces.tsx` | Once per arrival seen while watching |
+| A power crossed to the village | `dawn` | `client/src/components/governance/TransferCeremony.tsx` | Once ever per crossing, in the session that closed the vote |
 
 ### What was deliberately NOT wired, to keep celebration rare
 
@@ -215,9 +224,36 @@ Two intensities, and the split is a budget rather than a volume knob.
 - a quest consented
 - a ballot carrying
 - a need delivered on a crowdpool
+- a power crossing over to the village
 
 Everything else gets a `whisper`: a gratitude sent, a claim made, a form
 accepted, a row saved.
+
+**The fifth one is an addition, and here is the argument for it.** This list
+was four items long and the case for keeping it there is the strongest
+argument in this document: a celebration on every action becomes wallpaper
+within a session. So an addition has to clear a high bar, and the bar is the
+sentence above the list, which is events a village would talk about.
+
+A power crossing over clears it on every reading. It happens at most once per
+power in a village's whole life, and there are a couple of dozen powers, so
+the ceiling on this moment across a decade is smaller than the number of
+quests a single member consents to in a season. It is the act this platform
+exists for: the admin panel is scaffolding to be dismantled, and this is a
+piece of it coming down by a vote the whole electorate held. And it is
+irreversible in the way that matters to a person, which is what separates a
+landmark from a step: after it, somebody in this village looks after something
+that used to belong to whoever had the administrator password, and the record
+of the day has a date on it, an author, a sentence and a row.
+
+Two things it is NOT, because both were available and both would have been
+cheaper. It is not a moment for OPENING the ask, which is frequent, reversible
+and the beginning of something; the ration's own rule is that the end of a
+thing carries the celebration and the start of it carries nothing. And it is
+not a moment attached to how many powers a village holds. A village holding
+two of twelve is young and not behind, so nothing here counts, compares or
+totals: one power crossing is one daybreak, and the village with one and the
+village with ten see the same drawing when their next one lands.
 
 The reason is not taste. A celebration on every action becomes wallpaper
 within a session, and once it is wallpaper the rare event has nothing left to

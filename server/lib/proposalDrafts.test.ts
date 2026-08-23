@@ -17,14 +17,18 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import mysql from "mysql2/promise";
 import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
 import {
+  CONDUCTABLE_TYPES,
   DRAFT_CAP,
+  TYPE_CAPABILITY_REFUSALS,
   WIZARD_TYPES,
   deleteDraft,
   draftFor,
   draftProblem,
   draftsOf,
   saveDraft,
+  typeRefusesCapability,
 } from "./proposalDrafts";
+import { ALL_CAPABILITIES } from "../../shared/capabilities";
 
 const configured = testDbConfigured();
 
@@ -62,6 +66,73 @@ describe("draftProblem (pure)", () => {
   it("refuses a payload that has outgrown the wizard", () => {
     const huge = { body: "x".repeat(70_000) };
     expect(draftProblem({ wizardType: "agreement", payload: huge, stepIndex: 0 })).toContain("outgrown");
+  });
+});
+
+/**
+ * RULING 2 OF THE HANDOVER SPEC, PINNED.
+ *
+ * The badge review asked that `badge_grant` refuse `ballot.vote` and
+ * `member.vouch`, arguing that "an electorate that can vote to hand
+ * ballot.vote to chosen people is an electorate that can vote to enlarge
+ * itself, one ballot at a time." R54 makes the ARGUMENT wrong and leaves the
+ * CONCLUSION right, and getting that backwards in either direction breaks
+ * something real:
+ *
+ *  - Put the refusal on the transfer type too, and the handover freezes.
+ *    `ballot.vote` and `member.vouch` are exactly the powers a village most
+ *    wants to hold, and a village that may never ask for them has been told
+ *    its own electorate is not its business.
+ *  - Take the refusal off `badge_grant`, and three named individuals can be
+ *    handed the vote by one ballot, which is capture wearing the village's
+ *    clothes: a small group choosing who else gets a say.
+ *
+ * The distinction is people versus powers, and this suite is where it is
+ * held, because it is a two-line change to get it wrong and nothing else in
+ * the tree would notice.
+ */
+describe("which capability keys a proposal type may name", () => {
+  it("badge_grant refuses the governance keys, because a badge names PEOPLE", () => {
+    expect(typeRefusesCapability("badge_grant", "ballot.vote")).toBeTruthy();
+    expect(typeRefusesCapability("badge_grant", "member.vouch")).toBeTruthy();
+  });
+
+  it("...and the transfer type permits both, because it names a POWER", () => {
+    expect(typeRefusesCapability("power_transfer", "ballot.vote")).toBeNull();
+    expect(typeRefusesCapability("power_transfer", "member.vouch")).toBeNull();
+    // Nothing else is refused there either. The transfer type's list is empty
+    // and that is the design, so a key added to it later is a deliberate act.
+    for (const cap of ALL_CAPABILITIES) {
+      expect(typeRefusesCapability("power_transfer", cap), cap).toBeNull();
+    }
+  });
+
+  it("names only capabilities this platform has, so a typo cannot be a silent no-op", () => {
+    for (const [type, entry] of Object.entries(TYPE_CAPABILITY_REFUSALS)) {
+      for (const key of entry?.keys ?? []) {
+        expect(ALL_CAPABILITIES, `${type} refuses ${key}`).toContain(key);
+      }
+    }
+  });
+
+  it("says WHY in the sentence it refuses with, and the reason travels with the keys", () => {
+    const why = typeRefusesCapability("badge_grant", "ballot.vote") ?? "";
+    // The sentence a member reads has to say what they CAN do instead, or a
+    // refusal on a governance key reads as the platform closing a door R54
+    // says is the destination.
+    expect(why).toContain("power transfer");
+    expect(why.length).toBeGreaterThan(60);
+    // A type with no entry refuses nothing at all.
+    expect(typeRefusesCapability("mechanics", "ballot.vote")).toBeNull();
+    expect(typeRefusesCapability("not_a_type", "ballot.vote")).toBeNull();
+  });
+
+  it("keeps the transfer type conductable, so the wizard is not walking members at a wall", () => {
+    // The badge_grant cautionary tale in one assertion: full client config,
+    // working pickers, a SUBJECT_NOUN entry, and no route. A type that cannot
+    // be published belongs in the advisory list and says so on its card.
+    expect(CONDUCTABLE_TYPES).toContain("power_transfer");
+    expect(CONDUCTABLE_TYPES).not.toContain("badge_grant");
   });
 });
 

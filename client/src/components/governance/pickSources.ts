@@ -79,6 +79,49 @@ export async function loadPickOptions(source: PickSource): Promise<PickOption[]>
         .filter((t: any) => !t.isExample)
         .map((t: any) => ({ value: String(t.slug), label: String(t.name), hint: t.kind ?? undefined }));
     }
+    case "powers": {
+      /*
+       * The powers this village could take on, straight from the registry the
+       * gate itself reads.
+       *
+       * `movable` is the platform's own answer to "can this key ever leave the
+       * admin panel", and filtering on it here is what stops the wizard
+       * walking a member five steps toward a transfer the route would refuse.
+       * The hint is the consequence sentence, which is written on the
+       * principle that these say what a holder could DO and never the key.
+       *
+       * A power the village already holds is left OUT: the ask has already
+       * been answered, and offering it again would produce a ceremony about
+       * nothing.
+       */
+      const payload = await getJson<any>("/api/village/powers");
+      return (payload?.powers ?? [])
+        .filter((p: any) => p.movable === true && !p.heldBy)
+        .map((p: any) => ({
+          value: String(p.capability),
+          label: String(p.title ?? p.capability),
+          hint: p.consequence ? String(p.consequence) : undefined,
+        }));
+    }
+    case "roles": {
+      /*
+       * The roles that could hold a power. `/api/roles` serves the village's
+       * SHAPE to anyone and the names of holders only behind map.viewPeople,
+       * so a picker built on it never leaks who sits where.
+       *
+       * Example roles are out for the same reason they are everywhere else:
+       * platform demo content in a village's own list of who looks after what
+       * is indistinguishable from the village's own decision.
+       */
+      const roles = await getJson<any[]>("/api/roles");
+      return (roles ?? [])
+        .filter((r: any) => !r.isExample)
+        .map((r: any) => ({
+          value: String(r.id),
+          label: String(r.name ?? r.id),
+          hint: r.description ? String(r.description).slice(0, 120) : undefined,
+        }));
+    }
     case "members":
       // Searched, never listed. See searchMembers below.
       return [];
