@@ -108,6 +108,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/stay": "Stays",
   "/library": "Material library",
   "/badges": "Badges & skills",
+  "/powers": "What this village looks after",
   // Keys here are matched by longest PREFIX against the live location, so a
   // key with no route behind it can never match and is dead weight that
   // reads like a promise. /health, /exchange and /profiles were all three:
@@ -268,6 +269,7 @@ const Feed = lazyPage(() => import("./pages/Feed"));
 const Stay = lazyPage(() => import("./pages/Stay"));
 const Wallet = lazyPage(() => import("./pages/Wallet"));
 const Badges = lazyPage(() => import("./pages/Badges"));
+const Powers = lazyPage(() => import("./pages/Powers"));
 const Library = lazyPage(() => import("./pages/Library"));
 const VillageHealth = lazyPage(() => import("./pages/VillageHealth"));
 const ExitPolicy = lazyPage(() => import("./pages/ExitPolicy"));
@@ -347,6 +349,7 @@ function Router() {
       <Route path="/tokens" component={Wallet} />
       <Route path="/wallet" component={Wallet} />
       <Route path="/badges" component={Badges} />
+      <Route path="/powers" component={Powers} />
       <Route path="/library" component={Library} />
       {/* /village-health, not /health: the server owns /health as the ops probe */}
       <Route path="/village-health" component={VillageHealth} />

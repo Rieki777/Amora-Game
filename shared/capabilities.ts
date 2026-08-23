@@ -52,7 +52,21 @@ export type Capability =
   | "event.manage" // put a gathering on the village calendar, edit or cancel it
   | "org.declare" // declare how the village and its circles hold power (0083)
   | "ballot.vote" // cast a vote on an on-site ballot (round 5 governance engine)
-  | "member.vouch"; // vouch for an applicant at the membrane (round 5)
+  | "member.vouch" // vouch for an applicant at the membrane (round 5)
+  // ── The five handover keys (0098) ────────────────────────────────────────
+  //
+  // 159 admin write routes had no capability behind them and no key that
+  // could name them, so a village had nothing to ask for. Adding 159 keys
+  // would name every button and no power. These five name POWERS a village
+  // would actually want, and each one covers a cluster of routes that
+  // already exist. A key is worth adding when a member can finish the
+  // sentence "the village's ____ look after that"; it is not worth adding
+  // for a route whose only holder could ever be the deployment operator.
+  | "org.seat" // seat and unseat the people who hold the village's seats
+  | "intake.moderate" // work the queues strangers and members put things into
+  | "library.keep" // keep the shared library: what comes in, what goes out
+  | "story.tell" // say what the village is, in its own words, in public
+  | "dial.set"; // turn the village's own dials, within the open ring
 
 /**
  * The canonical list, as a VALUE: badge validation and unlock diffs iterate
@@ -84,6 +98,11 @@ export const ALL_CAPABILITIES: Capability[] = [
   "org.declare",
   "ballot.vote",
   "member.vouch",
+  "org.seat",
+  "intake.moderate",
+  "library.keep",
+  "story.tell",
+  "dial.set",
 ];
 
 /**
@@ -129,6 +148,11 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "org.declare": "Declare how the village holds power",
   "ballot.vote": "Cast a vote on a ballot",
   "member.vouch": "Vouch for an applicant",
+  "org.seat": "Seat and unseat the holders of the village's seats",
+  "intake.moderate": "Work the village's queues and act on what gets reported",
+  "library.keep": "Keep the shared library and its loans",
+  "story.tell": "Say what the village is, in public, in its own words",
+  "dial.set": "Turn the village's own dials",
 };
 
 /**
@@ -221,54 +245,256 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   // circle and lives in orgChart.mayDeclare, not here: the one narrow bridge
   // from the seat plane, recorded in
   // docs/ADR_2026-08_REPRESENTS_CIRCLE_DECLARES.md.
+  //
+  // The five handover keys (0098) are all deliberately absent, and for one
+  // reason: every one of them is a job the village fills, so the honest way
+  // in is a role or a badge somebody was given. A rung would hand seating,
+  // moderation, the library, the village's public voice and its own dials to
+  // everyone who did enough quests, which is how you get a power with no
+  // holder and nobody to ask about it.
 };
 
 /**
- * THE ONE GATE (revised S36). Given a member's computed stage index, the
- * capabilities their roles grant, and the capabilities/denies their badges
- * carry, decide whether they hold a capability. Pure, so it is unit-testable
+ * WHICH KEYS MAY EVER LEAVE THE ADMIN PANEL (0098).
+ *
+ * R54, the founder's ruling: "these villages are meant to be taken over by
+ * the electorate to run the game and put the admins out of a full time job."
+ * Admin is scaffolding. But until this map existed, a power could not leave,
+ * because `if (ctx.isAdmin) return true;` was the first line of the gate and
+ * it answered for every key. Every "the village holds this now" claim was
+ * decoration over a short-circuit.
+ *
+ * A `true` here means: once this village records a holder for this key, an
+ * admin stops passing the gate on it by being an admin, and has to reach past
+ * the village in the open to act on it.
+ *
+ * A `false` means one of two things, and they are worth telling apart:
+ *
+ *  - It is a PERSONAL ACT, not a power. `forum.post`, `event.rsvp`,
+ *    `exchange.buy`, `message.send`, `map.photograph`: nobody "holds" the
+ *    right to talk on behalf of the village, and a table row saying the
+ *    village holds posting would be a category error with a lockout attached.
+ *  - It is PLUMBING the deployment operator has to keep reachable. Moving
+ *    those would strand a fork whose operator did not choose any of this.
+ *
+ * A Record and not a Set on purpose: a new capability with no line here is a
+ * TYPE ERROR, so the classification is a decision somebody makes rather than
+ * a default somebody inherits. `capabilities.test.ts` pins that the keys of
+ * this map are exactly ALL_CAPABILITIES.
+ *
+ * The default posture for anything unclassified is non-transferable, which is
+ * exactly today's behaviour: an unclassified key can never make the new
+ * branch reachable, so it cannot lock anybody out of anything.
+ */
+export const TRANSFERABLE: Record<Capability, boolean> = {
+  // ── TRUE: a power, AND its gate carries the escape hatch ────────────────
+  //
+  // The second half of that sentence is a hard condition and it is what keeps
+  // this map honest. A `true` here removes an admin's short-circuit on a live
+  // deployment, so every route behind the key has to be able to say "you can
+  // still act, here is how" and leave a record when somebody does. In this
+  // codebase that means the route asks `mayAct`/`guardCapability`, which is
+  // where `override` and `x-capability-override` are read and where the
+  // public record gets written. A key whose routes still call
+  // `hasCapability` inline would fall through with no way back through the
+  // product, and a ceiling an operator cannot climb over is not a ceiling, it
+  // is an outage.
+  "intake.moderate": true,
+  "library.keep": true,
+  "story.tell": true,
+  "org.seat": true,
+  "dial.set": true,
+  "event.manage": true,
+  "exchange.manage": true,
+  "forum.moderate": true,
+
+  // ── FALSE: a personal act. There is nobody for these to move TO ─────────
+  //
+  // Talking, coming to a gathering, buying, photographing a wall you built.
+  // A row saying the village holds `message.send` is a category error with a
+  // lockout attached.
+  "forum.post": false,
+  "proposal.open": false,
+  "message.send": false,
+  "mechanics.propose": false,
+  "event.rsvp": false,
+  "exchange.buy": false,
+  "exchange.swap": false,
+  "stay.member_rate": false,
+  "map.photograph": false,
+  "map.viewPeople": false,
+  "map.contact": false,
+  "map.edit": false,
+
+  // ── FALSE FOR NOW: real powers whose gates have no hatch yet ────────────
+  //
+  // Every one of these is a power a village should be able to take, and the
+  // only thing standing in the way is mechanical: their checks are inline
+  // `hasCapability(cap, await capabilityCtx(user))` calls, which never see
+  // the request and therefore cannot carry an override. Flipping one of them
+  // to `true` today would mean an admin who is not the holder is refused with
+  // no way back through the product at all.
+  //
+  // The work to flip one is small and it is the same work each time: route
+  // the check through `mayAct` so the hatch and the record come with it. It
+  // is deliberately NOT done here, because doing eight of them blind in the
+  // same commit as the gate change is how a lane ships a lockout it never
+  // drove.
+  "quest.consent": false,
+  "proposal.decide": false,
+  "map.publish": false,
+  "map.curatePhotos": false,
+  "feed.announce": false,
+  "health.record": false,
+  "org.declare": false,
+  // `ballot.vote` deserves its own line, because it is the one the transfer
+  // ceremony most wants and the one that most needs care. The electorate is
+  // built by running this key over every member, so an admin is on the roll
+  // of every ballot by virtue of being an admin, and a village that took this
+  // on would get the thing the engine has never had: an admin who votes
+  // because they are a member, or does not vote at all. What makes it hard is
+  // the snapshot law. The roll is frozen at open, so a transfer landing
+  // mid-ballot must not move anybody already on it, and proving that is a
+  // test in the lane that owns the ballot engine.
+  "ballot.vote": false,
+  // Declared in the round 5 capability set and gated by nothing at all: the
+  // membrane's vouching step does not exist, so there is no power here yet.
+  "member.vouch": false,
+};
+
+/**
+ * Is this capability one the village is holding right now?
+ *
+ * Checks the TRANSFERABLE map as well as the holdings, so a row written by
+ * hand into `capability_holding` naming a key that may never move cannot
+ * close a door on anyone. `assertCapabilityHoldingInvariants` refuses the
+ * boot on such a row, and this is the second lock on the same gate: a
+ * hand-written UPDATE is invisible to code review by definition.
+ */
+export function isVillageHeld(cap: Capability, held: readonly string[] | undefined): boolean {
+  if (!held || held.length === 0) return false;
+  return TRANSFERABLE[cap] === true && held.includes(cap);
+}
+
+/** Which step of the gate decided, in the gate's own vocabulary. */
+export type CapabilitySource =
+  | "admin"
+  | "admin-override"
+  | "denied by warning badge"
+  | "role"
+  | "badge"
+  | "stage"
+  | "not granted";
+
+export interface CapabilityCtx {
+  stageIndex: number;
+  stageIndexOf: (stageId: string) => number;
+  roleCapabilities: readonly string[];
+  /** Capabilities granted by the member's active badges. Default []. */
+  badgeCapabilities?: readonly string[];
+  /** Capabilities DENIED by active warning badges. Default []. */
+  badgeDenies?: readonly string[];
+  isAdmin?: boolean;
+  /**
+   * Per-village overrides of STAGE_UNLOCKS, sourced from the variables
+   * registry (progression.unlock.*) — the Game Mechanics initiative made
+   * the unlock table itself a mechanic. Absent key = platform default;
+   * the value "none" disables the stage path for that capability (roles
+   * and badges still grant it). The GATE's order of authority is
+   * unchanged: this only parameterizes step 5.
+   */
+  stageUnlockOverrides?: Partial<Record<Capability, string>>;
+  /**
+   * The capabilities this village holds, read live from `capability_holding`
+   * (0098). Default [] means "the village holds nothing", which is byte-for-
+   * byte the gate's pre-0098 behaviour, and is what every existing
+   * deployment reports until somebody acts.
+   */
+  villageHeld?: readonly string[];
+  /**
+   * THE BREAK-GLASS, for exactly one act.
+   *
+   * Set by a caller that has been told, in the request, that the admin means
+   * to reach past a power the village holds. It never persists, it is never
+   * inferred, and the caller that sets it owes the village a record and a
+   * notification. `capabilityDecision` reports `reachedPastVillage` so the
+   * caller cannot forget.
+   */
+  adminOverride?: boolean;
+}
+
+export interface CapabilityDecision {
+  allowed: boolean;
+  /** The step that decided, for the explainer and for the audit line. */
+  source: CapabilitySource;
+  /** True when the village holds this key, whatever the answer turned out to be. */
+  villageHolds: boolean;
+  /** True when an admin passed only because they broke the glass. Owes a record. */
+  reachedPastVillage: boolean;
+}
+
+/**
+ * THE ONE GATE (revised S36, revised again 0098). Given a member's computed
+ * stage index, the capabilities their roles grant, the capabilities/denies
+ * their badges carry, and what the village itself holds, decide whether they
+ * hold a capability and say WHICH step decided. Pure, so it is unit-testable
  * and runs identically on client and server.
  *
- * Order of authority — this ordering IS the policy (Gate E):
- *   1. isAdmin           -> true.  The operator can always act.
+ * Order of authority — this ordering IS the policy (Gate E, amended):
+ *   1. isAdmin, on a key the village does NOT hold -> true. Unchanged: the
+ *      operator can always act on the scaffolding they are responsible for.
+ *   1b. isAdmin, on a key the village DOES hold:
+ *        - with an explicit break-glass -> true, and the caller owes the
+ *          village a record it can read.
+ *        - without one -> the admin short-circuit does not apply, and the
+ *          same admin is judged on steps 2-5 like anybody else. An admin
+ *          who holds the role still passes, and passes AS the holder.
  *   2. badgeDenies       -> false. A warning badge's deny beats ROLE and
  *      stage grants too, not just badge grants: a warning that a role
- *      trivially overrides is not a warning. Only admin outranks it.
+ *      trivially overrides is not a warning.
  *   3. roleCapabilities  -> true.  Appointments.
  *   4. badgeCapabilities -> true.  Earned/granted badges.
  *   5. stage unlock      -> true.  The ladder everyone climbs.
  *   6. otherwise false.
+ *
+ * WHAT 1b CHANGES, stated plainly because it is the highest-blast-radius edit
+ * in the round: on a village-held key a warning badge's deny now reaches an
+ * ADMIN too, because the admin is being judged on steps 2-5. That is the
+ * point. It is also why the break-glass ships in the same commit and not one
+ * commit later: a gate that can lock an operator out of a live village must
+ * never exist without its escape hatch.
  */
-export function hasCapability(
-  cap: Capability,
-  ctx: {
-    stageIndex: number;
-    stageIndexOf: (stageId: string) => number;
-    roleCapabilities: readonly string[];
-    /** Capabilities granted by the member's active badges. Default []. */
-    badgeCapabilities?: readonly string[];
-    /** Capabilities DENIED by active warning badges. Default []. */
-    badgeDenies?: readonly string[];
-    isAdmin?: boolean;
-    /**
-     * Per-village overrides of STAGE_UNLOCKS, sourced from the variables
-     * registry (progression.unlock.*) — the Game Mechanics initiative made
-     * the unlock table itself a mechanic. Absent key = platform default;
-     * the value "none" disables the stage path for that capability (roles
-     * and badges still grant it). The GATE's order of authority is
-     * unchanged: this only parameterizes step 5.
-     */
-    stageUnlockOverrides?: Partial<Record<Capability, string>>;
-  },
-): boolean {
-  if (ctx.isAdmin) return true;
-  if ((ctx.badgeDenies ?? []).includes(cap)) return false;
-  if (ctx.roleCapabilities.includes(cap)) return true;
-  if ((ctx.badgeCapabilities ?? []).includes(cap)) return true;
+export function capabilityDecision(cap: Capability, ctx: CapabilityCtx): CapabilityDecision {
+  const villageHolds = isVillageHeld(cap, ctx.villageHeld);
+  if (ctx.isAdmin && !villageHolds) {
+    return { allowed: true, source: "admin", villageHolds: false, reachedPastVillage: false };
+  }
+  if (ctx.isAdmin && villageHolds && ctx.adminOverride === true) {
+    return { allowed: true, source: "admin-override", villageHolds: true, reachedPastVillage: true };
+  }
+  const decided = (allowed: boolean, source: CapabilitySource): CapabilityDecision =>
+    ({ allowed, source, villageHolds, reachedPastVillage: false });
+
+  if ((ctx.badgeDenies ?? []).includes(cap)) return decided(false, "denied by warning badge");
+  if (ctx.roleCapabilities.includes(cap)) return decided(true, "role");
+  if ((ctx.badgeCapabilities ?? []).includes(cap)) return decided(true, "badge");
   const unlockStage = ctx.stageUnlockOverrides?.[cap] ?? STAGE_UNLOCKS[cap];
   if (unlockStage && unlockStage !== "none") {
     const needed = ctx.stageIndexOf(unlockStage);
-    if (needed >= 0 && ctx.stageIndex >= needed) return true;
+    if (needed >= 0 && ctx.stageIndex >= needed) return decided(true, "stage");
   }
-  return false;
+  return decided(false, "not granted");
+}
+
+/**
+ * The gate's yes-or-no face, which is what almost every caller wants.
+ *
+ * It is a projection of `capabilityDecision` and never a second copy of the
+ * order. The admin explainer at GET /api/admin/members/:id/capabilities used
+ * to re-implement the ladder to report a source, under a comment admitting
+ * that "if that order ever changes, this explanation lies". It reads the
+ * decision now, so it cannot.
+ */
+export function hasCapability(cap: Capability, ctx: CapabilityCtx): boolean {
+  return capabilityDecision(cap, ctx).allowed;
 }

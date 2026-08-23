@@ -21,7 +21,8 @@
  * from raw sends.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { ALL_CAPABILITIES } from "../../shared/capabilities";
+import { ALL_CAPABILITIES, type Capability } from "../../shared/capabilities";
+import { CAPABILITY_CONSEQUENCE } from "../../shared/draftKinds";
 
 export const BADGE_KINDS = ["self", "earned", "granted", "warning", "hypha"] as const;
 export type BadgeKind = (typeof BADGE_KINDS)[number];
@@ -167,6 +168,40 @@ export function badgeProblem(b: {
     return `only earned badges carry a rule (this one is ${b.kind})`;
   }
   return null;
+}
+
+/**
+ * WHAT A HOLDER IS TOLD WHEN THE DEFINITION UNDER THEM CHANGES (0098).
+ *
+ * `PUT /api/admin/badges/:id` rewrote `capabilities` and `denies` in silence
+ * for as long as the route existed. A member could gain the power to hide
+ * other people's posts, or lose the power to book at the member price, and
+ * find out by trying. Every AWARD left a trail; the DEFINITION the awards
+ * answer to did not.
+ *
+ * Pure, and here rather than at the route, so the sentence is testable
+ * without a database and so the route reads as one thing happening.
+ *
+ * The sentences come from CAPABILITY_CONSEQUENCE, which exists on the stated
+ * principle that these say the consequence and never the key: "forum.moderate
+ * was added to your badge" tells a member nothing at all about what changed
+ * in their life. Reads as the completion of "You can now", matching the
+ * register the capability labels already use.
+ */
+export function badgeChangeSentence(
+  gained: readonly string[],
+  lost: readonly string[],
+  newlyDenied: readonly string[],
+  undenied: readonly string[],
+): string {
+  const say = (list: readonly string[]) =>
+    list.map((c) => CAPABILITY_CONSEQUENCE[c as Capability] ?? c).join("; ");
+  const parts: string[] = [];
+  if (gained.length) parts.push(`You can now ${say(gained)}.`);
+  if (lost.length) parts.push(`This badge no longer lets you ${say(lost)}.`);
+  if (newlyDenied.length) parts.push(`While you hold it you cannot ${say(newlyDenied)}.`);
+  if (undenied.length) parts.push(`It no longer stops you from being able to ${say(undenied)}.`);
+  return parts.join(" ");
 }
 
 /** Boot assertion: every ACTIVE badge must still validate. Refuse boot otherwise. */

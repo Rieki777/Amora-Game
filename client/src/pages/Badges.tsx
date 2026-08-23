@@ -5,6 +5,7 @@
  * resolved — shown honestly, not hidden).
  */
 import Layout from "@/components/Layout";
+import { Link } from "wouter";
 import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
@@ -67,6 +68,17 @@ export default function Badges() {
             real contribution, honors granted by stewards.
           </p>
           <ExamplesBanner moduleId="badges" noun="badge" />
+          {/*
+            0098. A badge is one of the ways a power reaches a person, so the
+            page about what the village recognises is the page a member is on
+            when they want to know who looks after what.
+          */}
+          <p className="text-sm text-muted-foreground mt-4">
+            <Link href="/powers" className="underline">
+              See what this village looks after
+            </Link>
+            , and who holds each of it.
+          </p>
         </div>
       </section>
 

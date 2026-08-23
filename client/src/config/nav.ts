@@ -201,5 +201,9 @@ export const ACCOUNT_MENU: readonly NavLink[] = [
   { href: "/profile", label: "My Profile" },
   { href: "/profile#wallet", label: "Wallet", module: "exchange" },
   { href: "/badges", label: "Badges", module: "badges" },
+  // 0098. What the village looks after, and who holds each one. In the
+  // account menu rather than under Village because it answers a question a
+  // member asks about themselves as often as about the place: who do I ask.
+  { href: "/powers", label: "What we look after" },
   { href: "/admin", label: "Village Settings", roles: ["admin", "founder"] },
 ];

@@ -14,7 +14,22 @@ import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { civilParts, moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { sceneStopsFor } from "../shared/questScenes";
 import { cleanCrewName, crewsRepo as crewsRepoFactory } from "./lib/crews";
-import { ALL_CAPABILITIES, hasCapability, STAGE_UNLOCKS, type Capability } from "../shared/capabilities";
+import {
+  ALL_CAPABILITIES,
+  capabilityDecision,
+  hasCapability,
+  STAGE_UNLOCKS,
+  TRANSFERABLE,
+  type Capability,
+} from "../shared/capabilities";
+import {
+  assertCapabilityHoldingInvariants,
+  capabilityHoldings,
+  moveCapabilityToVillage,
+  returnCapabilityToScaffolding,
+  villageHeldCapabilities,
+} from "./lib/capabilityHolding";
+import { NOT_YET_WIRED, POWERS, powersForReading, type PowerHolder } from "./lib/capabilityRegistry";
 import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } from "./lib/variables";
 import { buildThemeCss, sanitizeFontName } from "./lib/themeCss";
 import { applyTimingOf, ringOf, VARIABLES_BY_KEY } from "../shared/gameVariables";
@@ -342,6 +357,7 @@ import {
   awardsFor,
   badgeById,
   badgeGrantsFor,
+  badgeChangeSentence,
   badgeProblem,
   badgesOpenState,
   evaluateEarnedBadges,
@@ -499,9 +515,10 @@ import {
 } from "./lib/villageBrain";
 import { proposalSystemPrompt } from "./lib/proposalPrompt";
 import {
-  applyEscalationChoices, draftById, draftQueue, markDecided, proposeDraft, roleBatchCap,
+  applyEscalationChoices, computeEscalations, draftById, draftQueue, markDecided, proposeDraft,
+  roleBatchCap,
 } from "./lib/drafts";
-import { CIRCLE_STATUSES, validateDraftPayload } from "../shared/draftKinds";
+import { CAPABILITY_CONSEQUENCE, CIRCLE_STATUSES, validateDraftPayload } from "../shared/draftKinds";
 import { BRIEF_BY_ID, BRIEF_SECTIONS } from "../shared/villageBrief";
 import {
   // LANE Q: `fenceForPrompt` had exactly one caller, the tool loop, while three
@@ -2923,7 +2940,183 @@ async function capabilityCtx(user: any) {
     // Admins pass every capability gate (shared/capabilities.ts honors this):
     // real role on the user record, never a parallel permission path.
     isAdmin: user.role === "admin" || user.role === "founder",
+    // 0098: what the VILLAGE holds. Read live, never cached, in the same
+    // shape as badgeGrantsFor above, and for the same reason turned up to
+    // eleven: a cached permission that a hand-written UPDATE can desync
+    // between processes is not a permission. Empty on every deployment that
+    // has not acted, and empty means the gate behaves exactly as it did.
+    villageHeld: await villageHeldCapabilities(getPool()),
   };
+}
+
+/**
+ * ── THE BREAK-GLASS ────────────────────────────────────────────────────────
+ *
+ * One seam for every route that used to open with `if (await isAdmin(req))
+ * return true;`. That line is where a power actually lived, and while it was
+ * the first thing every gated route asked, no power could ever leave the
+ * admin panel however many rows said it had.
+ *
+ * What this returns, and what the caller owes for each answer:
+ *
+ *  - `ok`, `reachedPast: false` — ordinary. The actor holds it, by being an
+ *    admin on a key the village has not taken, or by role, badge or stage.
+ *  - `ok`, `reachedPast: true` — an admin broke the glass on a power the
+ *    village holds. This function has already written the public record and
+ *    told the village; the caller does nothing extra.
+ *  - `!ok`, `villageHolds: true` — an admin who did not say they meant it.
+ *    The caller answers 409 with `body.message`, which names the holder and
+ *    says exactly what to send to go through.
+ *  - `!ok`, `villageHolds: false` — the ordinary 401. Unchanged.
+ *
+ * THE ESCAPE HATCH SHIPS WITH THE GATE, in this same commit, because a gate
+ * that can lock an operator out of a live village must never exist without
+ * one. Two ways to break it, on purpose: `override: true` in a JSON body, and
+ * the `x-capability-override: true` header for the routes that carry no body
+ * or whose body shape is already spoken for (uploads, DELETEs).
+ */
+interface CapabilityVerdict {
+  ok: boolean;
+  reachedPast: boolean;
+  villageHolds: boolean;
+  /** The gate step that decided, for the caller's own audit line. */
+  source: string;
+  /** What to say to the person, when `ok` is false. */
+  message: string;
+}
+
+function wantsOverride(req: express.Request): boolean {
+  if ((req.body as any)?.override === true) return true;
+  const header = req.headers["x-capability-override"];
+  return String(Array.isArray(header) ? header[0] : header ?? "") === "true";
+}
+
+async function mayAct(req: express.Request, cap: Capability): Promise<CapabilityVerdict> {
+  const user = await authedUser(req);
+  if (!user) {
+    return { ok: false, reachedPast: false, villageHolds: false, source: "not granted", message: "auth_required" };
+  }
+  // `adminActor(req)` reads this, and it is how a hundred routes attribute
+  // their audit rows. Setting it here keeps that working for every route that
+  // now asks this function instead of `isAdmin`, which is exactly the kind of
+  // quiet loss a gate swap produces: the route still works, and every record
+  // it writes says nobody did it.
+  if (user.role === "admin" || user.role === "founder") (req as any).adminUser = user;
+  const ctx = await capabilityCtx(user);
+  const wanted = wantsOverride(req);
+  const decision = capabilityDecision(cap, { ...ctx, adminOverride: wanted });
+
+  if (decision.reachedPastVillage) {
+    // The record and the notification are the whole of what makes a
+    // village-held power real, so they happen HERE and not at the call site.
+    // Twenty-six call sites is twenty-six chances to forget.
+    await recordAdminReach(cap, user, req);
+    return { ok: true, reachedPast: true, villageHolds: true, source: decision.source, message: "" };
+  }
+  if (decision.allowed) {
+    return { ok: true, reachedPast: false, villageHolds: decision.villageHolds, source: decision.source, message: "" };
+  }
+  if (decision.villageHolds && ctx.isAdmin) {
+    const holder = (await capabilityHoldings(getPool())).find((h) => h.capability === cap);
+    const who = holder?.holderRoleName ?? holder?.holderRoleId ?? "the village";
+    return {
+      ok: false,
+      reachedPast: false,
+      villageHolds: true,
+      source: decision.source,
+      message:
+        `This village holds this one. ${who} looks after it now, and you are not seated there. ` +
+        `You can still act on it: send override with this request, and the village will see that you did.`,
+    };
+  }
+  return { ok: false, reachedPast: false, villageHolds: decision.villageHolds, source: decision.source, message: "auth_required" };
+}
+
+/**
+ * `mayAct` with the refusal already written. Returns true when the caller
+ * should carry on.
+ *
+ * The 409 is the discoverable half of the escape hatch: an admin who meets it
+ * is told who holds the power and exactly what to send to go through anyway.
+ * A bare 401 there would read as a bug in the product rather than as a
+ * village having taken something on, and an operator who believes the panel
+ * is broken starts looking for a database to edit.
+ */
+async function guardCapability(
+  req: express.Request,
+  res: express.Response,
+  cap: Capability,
+): Promise<boolean> {
+  const verdict = await mayAct(req, cap);
+  if (verdict.ok) return true;
+  if (verdict.villageHolds && verdict.message !== "auth_required") {
+    res.status(409).json({
+      error: verdict.message,
+      capability: cap,
+      villageHolds: true,
+      requiresOverride: true,
+    });
+    return false;
+  }
+  res.status(401).json({ error: "auth_required" });
+  return false;
+}
+
+/**
+ * The witness. An admin reached past a power the village holds, so the
+ * village hears about it from the village's own surfaces.
+ *
+ * `audience: "public"` is load-bearing and is the difference between this
+ * being a record and being a receipt. The admin audit trail already exists
+ * and only admins read it; a village that cannot read the record of somebody
+ * overriding it has been given a ceiling with no witness, which the admin who
+ * lost their own grant undoes in one write.
+ */
+async function recordAdminReach(cap: Capability, user: any, req: express.Request): Promise<void> {
+  const holder = (await capabilityHoldings(getPool())).find((h) => h.capability === cap);
+  const who = holder?.holderRoleName ?? holder?.holderRoleId ?? "the village";
+  const what = CAPABILITY_CONSEQUENCE[cap];
+  await recordEvent(getPool(), {
+    kind: "governance",
+    text: `${user.name ?? "An admin"} acted on a power this village holds: ${what}. ${who} holds it.`,
+    actorUserId: user.id ?? null,
+    entityType: "capability",
+    entityRef: cap,
+    audience: "public",
+  });
+  void recordEvent(getPool(), {
+    kind: "audit",
+    text: `capability:override:${cap}:${req.method} ${req.path}`,
+    actorUserId: user.id ?? null,
+    entityType: "capability",
+    entityRef: cap,
+    audience: "admin",
+  });
+  try {
+    const holderIds = holder
+      ? loadRoleHolders().filter((r: any) => r.roleId === holder.holderRoleId).map((r: any) => r.userId)
+      : [];
+    for (const userId of holderIds) {
+      if (userId === user.id) continue;
+      await notify({
+        userId,
+        type: "capability_override",
+        title: "Somebody reached past a power you hold",
+        body: `${user.name ?? "An admin"} acted on ${what}, which ${who} holds. It is on the village's own record.`,
+        link: "/powers",
+        actorUserId: user.id ?? null,
+        // Stable per (capability, recipient, hour), never Date.now(). An
+        // admin working through a queue of twenty reports has broken the
+        // glass once as far as a holder is concerned, and twenty identical
+        // lines in somebody's notifications is how a real signal becomes
+        // something people mute. The PUBLIC record above carries every
+        // individual act; this is the tap on the shoulder.
+        dedupeKey: `cap-override:${cap}:${userId}:${new Date().toISOString().slice(0, 13)}`,
+      });
+    }
+  } catch (e) {
+    console.error("[capability] could not tell the holders about an override (the record stands)", e);
+  }
 }
 
 // â”€â”€ Seasons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -4701,6 +4894,10 @@ async function startServer() {
   await assertExchangeFirewalls(getPool());
   await assertBadgeInvariants(getPool());
   await assertLibraryInvariants(getPool());
+  // 0098: the same posture for the holding table, and the same reason. A row
+  // naming a capability that may never move would close a door quietly, and
+  // the one thing a hand-written row is guaranteed to escape is code review.
+  await assertCapabilityHoldingInvariants(getPool());
 
   /*
    * conversations.last_message_at is a denormalized cache, and the ledger's
@@ -6377,7 +6574,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   // into the game for a matching member (contribution + Gratitude + pulse).
   const SUBMISSION_STATUSES = ["new", "reviewing", "in-conversation", "accepted", "declined"];
   app.put("/api/admin/submissions/:id/status", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    // 0098: `intake.moderate`. The path stays under /api/admin for continuity;
+    // the gate is what changed, which is the frame `health.regen` already
+    // wrote into this codebase.
+    if (!(await guardCapability(req, res, "intake.moderate"))) return;
     const { status } = req.body ?? {};
     if (!SUBMISSION_STATUSES.includes(status)) return res.status(400).json({ error: "Invalid status" });
     const submissions: any[] = submissionsRepo.all();
@@ -6549,9 +6749,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   // Admin: Update Content Section
   // PUT /api/admin/content/:section   (Authorization: Bearer <admin password>)
   app.put("/api/admin/content/:section", async (req, res) => {
-    if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "auth_required" });
-    }
+    // 0098: `story.tell`. What a village says about itself in public is the
+    // clearest case in the set of a power that belongs to the village.
+    if (!(await guardCapability(req, res, "story.tell"))) return;
     const content = contentRepo.get();
     content[req.params.section] = req.body;
     await contentRepo.put(content);
@@ -7619,10 +7819,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     };
   }
 
-  async function canModerateForum(req: express.Request, user: any): Promise<boolean> {
-    if (await isAdmin(req)) return true;
-    const ctx = await capabilityCtx(user);
-    return hasCapability("forum.moderate", ctx);
+  /**
+   * 0098: through `mayAct`, so `forum.moderate` is a power that can actually
+   * move. The admin short-circuit is still the first thing asked and still
+   * answers yes, right up until the village records a holder for this key.
+   */
+  async function canModerateForum(req: express.Request, _user: any): Promise<boolean> {
+    return (await mayAct(req, "forum.moderate")).ok;
   }
 
   app.get("/api/forum/categories", async (_req, res) => {
@@ -8100,7 +8303,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   app.put("/api/admin/forum/reports/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "intake.moderate"))) return;
     const status = String(req.body?.status ?? "");
     if (!["resolved", "dismissed"].includes(status)) return res.status(400).json({ error: "status must be resolved or dismissed" });
     // Read the reporter BEFORE the update, so the person who raised this can
@@ -8647,7 +8850,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   app.put("/api/admin/messages/reports/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "intake.moderate"))) return;
     const status = String(req.body?.status ?? "");
     if (!["resolved", "dismissed"].includes(status)) {
       return res.status(400).json({ error: "status must be resolved or dismissed" });
@@ -9033,6 +9236,108 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // module's examples had no retirement path but the admin clear button.
     onRealItemPublished(getPool(), "progression", adminActor(req)?.id ?? null);
     res.json(all[idx]);
+  });
+
+  /**
+   * THE RUNWAY (0098): give a role a power it did not have.
+   *
+   * Before this route, there was no way to add a capability to an existing
+   * role at all. `PUT /api/admin/roles/:id` takes `{ circleId, seats }` and
+   * nothing else; the only writers of role capabilities were the boot seed
+   * and `POST /api/admin/drafts/:id/accept`, which CREATES a role. So handing
+   * the Steward Circle a power meant walking the AI draft queue or editing a
+   * seed file and redeploying. The handover had no runway, and a handover
+   * with no runway is a poster.
+   *
+   * THE ESCALATION CHECKBOX, copied from the draft-accept path
+   * (`applyEscalationChoices`, and the same helper it uses). Any capability
+   * this role would be the FIRST to carry is listed as its own line, in a
+   * sentence about what a holder could do, and it is granted only if the
+   * request ticks it. Silence is refusal. The reasoning is unchanged from
+   * where it was written: a role that introduces a power nothing else in the
+   * village has is a governance change wearing a job title.
+   *
+   * Writes through `rolesRepo.replaceAll`, never raw SQL. A raw UPDATE here
+   * would be invisible to every running process until the next reboot, and
+   * this is a permission table.
+   */
+  app.put("/api/admin/roles/:id/capabilities", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const all = rolesRepo.all();
+    const idx = all.findIndex((r: any) => r.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Role not found" });
+    if ((all[idx] as any).isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+
+    const requested = Array.isArray(req.body?.capabilities) ? req.body.capabilities.map(String) : [];
+    const unknown = requested.filter((c: string) => !ALL_CAPABILITIES.includes(c as Capability));
+    if (unknown.length) {
+      return res.status(400).json({ error: `Not capabilities this platform knows about: ${unknown.join(", ")}` });
+    }
+    /*
+     * WHAT COUNTS AS AN ESCALATION HERE, and the version of this that was
+     * wrong for one test run.
+     *
+     * The draft path compares a NEW role against every existing one, because
+     * a new role introducing a power nothing else has is a governance change
+     * wearing a job title. This route edits an EXISTING role, so the baseline
+     * has to include what that role already carries. Without it, every
+     * capability the role uniquely held came back as an escalation, and
+     * "silence is refusal" then stripped the lot: a founder adding one power
+     * to the Steward Circle would have silently taken away its announcements,
+     * its measurements and its calendar. The refusal rule is right and the
+     * baseline was wrong.
+     */
+    const elsewhere = new Set<string>(((all[idx] as any).capabilities ?? []) as string[]);
+    for (const r of all) {
+      if ((r as any).id === req.params.id) continue;
+      for (const c of ((r as any).capabilities ?? []) as string[]) elsewhere.add(c);
+    }
+    const escalations = computeEscalations(requested, Array.from(elsewhere));
+    const granted = applyEscalationChoices(requested, escalations, {
+      grantedEscalations: Array.isArray(req.body?.grantedEscalations)
+        ? req.body.grantedEscalations.map(String)
+        : [],
+    });
+    const refused = escalations.filter((e) => !granted.includes(e.capability));
+    if (refused.length > 0 && req.body?.grantedEscalations === undefined) {
+      // First call with no answer at all: say what is being asked for, in
+      // sentences, and change nothing. The same warn-and-proceed shape the
+      // badge kind change uses, for the same reason: what may never happen is
+      // the change landing silently.
+      return res.status(409).json({
+        error:
+          `This would be the first role in the village to carry ${refused.length === 1 ? "a power" : "powers"} nothing else grants. ` +
+          `Tick the ones you mean and send them back.`,
+        escalations: escalations.map((e) => ({ capability: e.capability, consequence: e.consequence })),
+        requiresConfirmation: true,
+      });
+    }
+
+    const before = ((all[idx] as any).capabilities ?? []) as string[];
+    all[idx] = { ...all[idx], capabilities: granted } as any;
+    await rolesRepo.replaceAll(all);
+
+    const added = granted.filter((c) => !before.includes(c));
+    const removed = before.filter((c) => !(granted as string[]).includes(c));
+    const actor = adminActor(req)?.id ?? null;
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: `role:capabilities:${req.params.id}:+${added.join("|") || "none"}:-${removed.join("|") || "none"}`,
+      actorUserId: actor, entityType: "role", entityRef: req.params.id, audience: "admin",
+    });
+    if (added.length) {
+      // The village hears about a power arriving somewhere, because that is
+      // the thing worth hearing about. Removals stay in the admin trail: a
+      // public line about a power being taken off somebody reads as a
+      // sanction on a person, and it is usually a tidy-up.
+      const name = (all[idx] as any).name ?? req.params.id;
+      await addActivity(
+        "governance",
+        `${name} can now ${added.map((c) => CAPABILITY_CONSEQUENCE[c as Capability] ?? c).join(", and ")}.`,
+        { actorUserId: actor, entityType: "role", entityRef: req.params.id },
+      );
+    }
+    res.json({ success: true, role: all[idx], added, removed, refused: refused.map((e) => e.capability) });
   });
 
   /** Raise your hand on a vacant seat → the EXISTING submissions inbox. */
@@ -9957,9 +10262,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
 
   /** Putting something on the village calendar: admin OR `event.manage`. */
   async function mayManageEvents(req: any): Promise<boolean> {
-    if (await isAdmin(req)) return true;
-    const user = await authedUser(req);
-    return user ? hasCapability("event.manage", await capabilityCtx(user)) : false;
+    return (await mayAct(req, "event.manage")).ok;
   }
 
   /**
@@ -12645,19 +12948,25 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const target = await members.byId(String(req.params.id));
     if (!target) return res.status(404).json({ error: "No such member" });
     const ctx = await capabilityCtx(target);
+    // 0098: the ladder is no longer re-implemented here. It used to be, under
+    // a comment admitting that "if that order ever changes, this explanation
+    // lies", and the gate's order changed in this very commit. `hasCapability`
+    // is now a projection of `capabilityDecision`, which reports the deciding
+    // step, so the explainer READS the decision instead of guessing at it and
+    // the two cannot drift.
     const rows = ALL_CAPABILITIES.map((cap) => {
-      const held = hasCapability(cap, ctx);
-      // The order below MIRRORS shared/capabilities.ts. If that order ever
-      // changes, this explanation lies — the test in capabilities.test.ts
-      // is what keeps them honest.
-      let source: string;
-      if (ctx.isAdmin) source = "admin";
-      else if (ctx.badgeDenies.includes(cap)) source = "denied by warning badge";
-      else if (ctx.roleCapabilities.includes(cap)) source = "role";
-      else if (ctx.badgeCapabilities.includes(cap)) source = "badge";
-      else if (held) source = `stage (${STAGE_UNLOCKS[cap] ?? "?"})`;
-      else source = "not granted";
-      return { capability: cap, held, source };
+      const decision = capabilityDecision(cap, ctx);
+      const source =
+        decision.source === "stage" ? `stage (${STAGE_UNLOCKS[cap] ?? "?"})` : decision.source;
+      return {
+        capability: cap,
+        held: decision.allowed,
+        source,
+        // What the village holds, so an admin reading "not granted" on a key
+        // they used to pass can see WHY rather than filing a bug.
+        villageHolds: decision.villageHolds,
+        transferable: TRANSFERABLE[cap] === true,
+      };
     });
     res.json({
       member: { id: target.id, name: target.name, role: target.role },
@@ -12665,7 +12974,161 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       roles: ctx.roleCapabilities,
       badgeGrants: ctx.badgeCapabilities,
       badgeDenies: ctx.badgeDenies,
+      villageHeld: ctx.villageHeld,
       capabilities: rows,
+    });
+  });
+
+  /**
+   * ── WHAT THIS VILLAGE HOLDS, AND WHAT MOVING ONE COSTS (0098) ───────────
+   *
+   * The admin side of the powers list. It carries the one thing the member
+   * side deliberately does not: the machinery, including which role would
+   * have to carry a power before it could cross.
+   */
+  app.get("/api/admin/capabilities/holding", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const holdings = await capabilityHoldings(getPool());
+    const held = new Map(holdings.map((h) => [h.capability, h]));
+    res.json({
+      powers: POWERS.map((p) => {
+        const h = held.get(p.capability);
+        return {
+          capability: p.capability,
+          title: p.title,
+          surface: p.surface,
+          consequence: CAPABILITY_CONSEQUENCE[p.capability],
+          movable: TRANSFERABLE[p.capability] === true,
+          routes: p.routes,
+          heldBy: h ? { roleId: h.holderRoleId, roleName: h.holderRoleName, movedAt: h.movedAt, byBallot: !!h.movedByBallotId } : null,
+        };
+      }),
+      // Roles and what each already carries, so the panel can say which ones
+      // could hold a power today without a second edit first.
+      roles: rolesRepo.all().map((r: any) => ({
+        id: r.id, name: r.name ?? r.id, capabilities: (r.capabilities ?? []) as string[], isExample: !!r.isExample,
+      })),
+      notYetWired: NOT_YET_WIRED,
+    });
+  });
+
+  /**
+   * Hand a power to the village, before there is a ballot type that can.
+   *
+   * Lane G-C builds the ceremony: a proposal the village opens, the whole
+   * electorate votes on, and a passed ballot writes the same row through the
+   * same helper with `movedByBallotId` filled in. This route exists so that
+   * lane has something real to act on, and so a village that wants to do this
+   * today is not waiting on a ceremony to be built. A row written here says
+   * an admin handed it over; a row written by a ballot says the village took
+   * it. `capability_holding` keeps both facts and they read differently a
+   * year later, which is why the ballot id is a column.
+   */
+  app.put("/api/admin/capabilities/:capability/holding", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const cap = String(req.params.capability);
+    const roleId = String(req.body?.roleId ?? "").trim();
+    if (!roleId) return res.status(400).json({ error: "Name the role that will hold it." });
+    const r = await moveCapabilityToVillage(getPool(), {
+      capability: cap,
+      holderRoleId: roleId,
+      movedByUserId: adminActor(req)?.id ?? null,
+      note: req.body?.note ? String(req.body.note).slice(0, 500) : null,
+    });
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    const role = rolesRepo.all().find((x: any) => x.id === roleId) as any;
+    const what = CAPABILITY_CONSEQUENCE[cap as Capability] ?? cap;
+    await addActivity("governance", `${role?.name ?? roleId} holds this now: ${what}.`, {
+      actorUserId: adminActor(req)?.id ?? null, entityType: "capability", entityRef: cap,
+    });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `capability:moved:${cap}:${roleId}`,
+      actorUserId: adminActor(req)?.id ?? null, entityType: "capability", entityRef: cap, audience: "admin",
+    });
+    res.json({ success: true });
+  });
+
+  /**
+   * Hand a power back to the scaffolding.
+   *
+   * This is not a hedge and it is not paternalism. The platform is custodian
+   * of deployments whose operator did not choose any of this and may not be
+   * able to pull a redeploy, so a transfer nothing can undo would leave a
+   * captured village with no way out. What makes the transfer real is the
+   * witness, never the one-way door: this leaves the same public line the
+   * crossing did.
+   */
+  app.delete("/api/admin/capabilities/:capability/holding", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const cap = String(req.params.capability);
+    const existed = await returnCapabilityToScaffolding(getPool(), cap);
+    if (!existed) return res.status(404).json({ error: "The village was not holding that one." });
+    const what = CAPABILITY_CONSEQUENCE[cap as Capability] ?? cap;
+    await addActivity("governance", `This went back to the admin panel: ${what}.`, {
+      actorUserId: adminActor(req)?.id ?? null, entityType: "capability", entityRef: cap,
+    });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `capability:returned:${cap}`,
+      actorUserId: adminActor(req)?.id ?? null, entityType: "capability", entityRef: cap, audience: "admin",
+    });
+    res.json({ success: true });
+  });
+
+  /**
+   * ── THE POWERS THIS VILLAGE HAS, FOR ANYONE WHO LIVES HERE (0098) ───────
+   *
+   * The member-facing half, and the one that carries the R55 rules.
+   *
+   * WHY IT IS NOT UNDER /api/governance, which is where the spec put it. Every
+   * route under that prefix mounts behind `requireModule("governance")`, and
+   * powers are not a governance-module feature: they are the permission spine
+   * of the whole product and they exist whether or not a village has switched
+   * the ballot engine on. Gating "what can this village hold" behind an
+   * optional module would hide the handover story from exactly the villages
+   * that have not started governing yet.
+   *
+   * WHAT THIS ROUTE MAY NEVER SERVE, because the shape of the payload is what
+   * makes the page possible: no count, no total, no fraction, no ordering by
+   * held-versus-not. The list arrives in the registry's own fixed order,
+   * identical for a village holding none of these and a village holding all
+   * of them, and the client cannot derive a score from it without inventing
+   * the denominator itself.
+   */
+  app.get("/api/village/powers", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const holdings = await capabilityHoldings(getPool());
+    const holders = new Map<string, PowerHolder>(
+      holdings.map((h) => [
+        h.capability,
+        { roleId: h.holderRoleId, roleName: h.holderRoleName, movedAt: h.movedAt, byBallot: !!h.movedByBallotId },
+      ]),
+    );
+    const seats = loadRoleHolders();
+    const names = new Map((await members.all()).map((m: any) => [m.id, m.name]));
+    res.json({
+      powers: powersForReading(holders).map((p) => ({
+        capability: p.capability,
+        title: p.title,
+        surface: p.surface,
+        consequence: p.consequence,
+        movable: TRANSFERABLE[p.capability] === true,
+        heldBy: p.heldBy
+          ? {
+              roleName: p.heldBy.roleName ?? p.heldBy.roleId,
+              byBallot: p.heldBy.byBallot,
+              movedAt: p.heldBy.movedAt,
+              // Who is actually sitting there. A power held by a role nobody
+              // sits in is a real state and the page says so plainly, because
+              // "the library keepers" with nobody in the chair is exactly the
+              // thing a village needs to notice.
+              people: seats
+                .filter((s: any) => s.roleId === p.heldBy!.roleId)
+                .map((s: any) => names.get(s.userId) ?? null)
+                .filter((n): n is string => !!n),
+            }
+          : null,
+      })),
     });
   });
 
@@ -14759,7 +15222,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** The SECOND steward's signature on a high-value intake. */
   app.post("/api/admin/library/items/:id/approve", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "library.keep"))) return;
     const r = await approveIntake(getPool(), req.params.id, adminActor(req)?.id ?? "");
     if (!r.ok) return res.status(409).json({ error: r.error });
     const item = await libraryItemById(getPool(), req.params.id);
@@ -14774,7 +15237,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.put("/api/admin/library/items/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "library.keep"))) return;
     // Inert: writing off an example item drifts it from the seeded shape.
     if (await isExampleRow(getPool(), "library_items", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
@@ -14801,7 +15264,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.post("/api/admin/library/loans/:id/pickup", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "library.keep"))) return;
     // Read the borrower before the transition: this is the moment a due date
     // comes into existence, and the person who owes it back was never told.
     const loan = await libraryLoanById(getPool(), req.params.id);
@@ -14825,7 +15288,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * the same defaults a dispute deadline resolves to.
    */
   app.post("/api/admin/library/loans/:id/settle", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "library.keep"))) return;
     const { outcome, wearFee, damageFee } = req.body ?? {};
     if (!["closed", "expired", "cancelled", "disputed"].includes(String(outcome))) {
       return res.status(400).json({ error: "Outcome is closed, expired, cancelled or disputed" });
@@ -14854,7 +15317,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Grant or burn credits by hand — audited, refuses overdraft. */
   app.post("/api/admin/library/adjust", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "library.keep"))) return;
     const { userId, credits, note } = req.body ?? {};
     const amount = Math.floor(Number(credits) || 0);
     if (!amount) return res.status(400).json({ error: "Credits must be a non-zero integer (negative burns)" });
@@ -15180,6 +15643,59 @@ Send an empty drafts array when you are still listening. A role payload is {name
         });
       }
     }
+    /*
+     * THE SAME DEFECT, ONE FIELD OVER (task 30, closed here).
+     *
+     * `capabilities` and `denies` are the powers this badge hands out and
+     * takes away, and until now a PUT rewrote them in silence. Every holder
+     * gained or lost real access the moment the row changed, and nothing told
+     * anybody: no confirmation in front of the person doing it, no line in
+     * the trail naming what moved, no notification to the people it happened
+     * to. The badge's KIND had all three, under a comment saying such a
+     * change may never land silently. This is that comment applied to the
+     * field it was actually about.
+     *
+     * Deliberately the SAME shape as the kind branch and not a second
+     * pattern: count the awards, answer 409 naming the stakes in the
+     * CAPABILITY_CONSEQUENCE sentences (they say what a holder could DO and
+     * never the key), let a second call through with a flag, and write a
+     * specific audit row. Warn and proceed, never a hard block: the change
+     * itself is legitimate, and it is the silence that was the defect.
+     */
+    const capsBefore = new Set<string>((existing.capabilities ?? []).map(String));
+    const capsAfter = new Set<string>(merged.capabilities.map(String));
+    const deniesBefore = new Set<string>((existing.denies ?? []).map(String));
+    const deniesAfter = new Set<string>(merged.denies.map(String));
+    const gained = Array.from(capsAfter).filter((c) => !capsBefore.has(c));
+    const lost = Array.from(capsBefore).filter((c) => !capsAfter.has(c));
+    const newlyDenied = Array.from(deniesAfter).filter((c) => !deniesBefore.has(c));
+    const undenied = Array.from(deniesBefore).filter((c) => !deniesAfter.has(c));
+    const powerMoved = gained.length + lost.length + newlyDenied.length + undenied.length > 0;
+    let holderIds: string[] = [];
+    if (powerMoved) {
+      const [holders] = await getPool().query<any[]>(
+        "SELECT user_id FROM badge_awards WHERE badge_id = ? AND (expires_at IS NULL OR expires_at > NOW())",
+        [req.params.id],
+      );
+      holderIds = holders.map((h: any) => String(h.user_id));
+      if (holderIds.length > 0 && req.body?.confirmCapabilityChange !== true) {
+        const say = (list: string[]) =>
+          list.map((c) => CAPABILITY_CONSEQUENCE[c as Capability] ?? c).join("; ");
+        const parts: string[] = [];
+        if (gained.length) parts.push(`they will be able to ${say(gained)}`);
+        if (lost.length) parts.push(`they will no longer be able to ${say(lost)}`);
+        if (newlyDenied.length) parts.push(`they will be stopped from being able to ${say(newlyDenied)}`);
+        if (undenied.length) parts.push(`they will stop being stopped from being able to ${say(undenied)}`);
+        return res.status(409).json({
+          error:
+            `${holderIds.length} ${holderIds.length === 1 ? "person holds" : "people hold"} this badge, and ` +
+            `${parts.join(", ")}. They will be told. Confirm to go ahead.`,
+          holders: holderIds.length,
+          gained, lost, newlyDenied, undenied,
+          requiresConfirmation: true,
+        });
+      }
+    }
     await getPool().query(
       "UPDATE badges SET name=?, description=?, icon=?, kind=?, capabilities=?, denies=?, rule=?, season_scope=?, multiplier=?, active=? WHERE id=?",
       [merged.name, merged.description, merged.icon, merged.kind, JSON.stringify(merged.capabilities),
@@ -15192,6 +15708,36 @@ Send an empty drafts array when you are still listening. A role payload is {name
       actorUserId: (await authedUser(req))?.id ?? adminActor(req)?.id ?? null,
       entityType: "badge", entityRef: req.params.id, audience: "admin",
     });
+    if (powerMoved) {
+      const actorId = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text:
+          `badge:capabilities-changed:${req.params.id}:+${gained.join("|") || "none"}` +
+          `:-${lost.join("|") || "none"}:deny+${newlyDenied.join("|") || "none"}` +
+          `:deny-${undenied.join("|") || "none"}:${holderIds.length}-holders`,
+        actorUserId: actorId,
+        entityType: "badge", entityRef: req.params.id, audience: "admin",
+      });
+      // The people it happened to hear about it. Dedupe key is stable per
+      // (badge, holder, what moved), following the discipline the notify
+      // spine states: one stable key per (event, recipient), never
+      // Date.now(). Two admins making the same edit twice is one telling.
+      const shape = [gained, lost, newlyDenied, undenied].map((l) => l.slice().sort().join(",")).join("|");
+      const fingerprint = Buffer.from(shape).toString("base64url").slice(0, 40);
+      const sentence = badgeChangeSentence(gained, lost, newlyDenied, undenied);
+      for (const holderId of holderIds) {
+        await notify({
+          userId: holderId,
+          type: "badge_definition_changed",
+          title: `What "${merged.name}" carries has changed`,
+          body: sentence,
+          link: "/profile",
+          actorUserId: actorId,
+          dedupeKey: `badge-def:${req.params.id}:${holderId}:${fingerprint}`,
+        });
+      }
+    }
     res.json({ success: true, badge: await badgeById(getPool(), req.params.id) });
   });
 
@@ -15304,10 +15850,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.use("/api/admin/exchange", requireModule("exchange"));
 
   async function canManageExchange(req: express.Request): Promise<boolean> {
-    if (await isAdmin(req)) return true;
-    const user = await authedUser(req);
-    if (!user) return false;
-    return hasCapability("exchange.manage", await capabilityCtx(user));
+    return (await mayAct(req, "exchange.manage")).ok;
   }
 
   /** The market, one call: listings, prices, stock, my balances and receipts. */
@@ -17616,7 +18159,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.put("/api/admin/faqs/:pathway", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "story.tell"))) return;
     const pathway = req.params.pathway;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     if (!Array.isArray(req.body)) return res.status(400).json({ error: "Body must be an array" });
@@ -17631,7 +18174,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.post("/api/admin/faqs/:pathway", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "story.tell"))) return;
     const pathway = req.params.pathway;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     const { question, answer } = req.body ?? {};
@@ -17649,7 +18192,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.delete("/api/admin/faqs/:pathway/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "story.tell"))) return;
     const { pathway, id } = req.params;
     if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
     const all = faqsRepo.get();
@@ -17676,7 +18219,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.post("/api/admin/milestones", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "story.tell"))) return;
     const { phase, title, description, status, completedDate, updateNote, order } = req.body ?? {};
     if (!title || !phase) return res.status(400).json({ error: "Missing title or phase" });
     const mils: any[] = milestonesRepo.all();
@@ -17697,7 +18240,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.put("/api/admin/milestones/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "story.tell"))) return;
     const mils: any[] = milestonesRepo.all();
     const idx = mils.findIndex((m) => m.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
@@ -17714,7 +18257,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.delete("/api/admin/milestones/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "story.tell"))) return;
     const mils: any[] = milestonesRepo.all();
     const filtered = mils.filter((m) => m.id !== req.params.id);
     if (filtered.length === mils.length) return res.status(404).json({ error: "Not found" });
@@ -21604,7 +22147,44 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.put("/api/admin/variables/:key", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    /*
+     * 0098: `dial.set`, and THE RING BECOMES A FLOOR AS WELL AS A CEILING.
+     *
+     * `ringOf(def)` says who may govern a dial. The proposal path has always
+     * enforced it (server/lib/mechanics.ts, and the mechanics route's "This
+     * dial is no longer community-governable"), and this route enforced it
+     * nowhere. So the ring was a ceiling on the VILLAGE and never a floor
+     * under it: the village could not propose a founder-ring change, and
+     * anybody who reached this route could make one silently. That asymmetry
+     * is the handover problem written in one function.
+     *
+     * Now: an actor whose path here is the capability, and not the admin
+     * short-circuit, is refused a founder-ring key exactly the way the
+     * proposal path refuses it. An admin acting AS an admin keeps the
+     * founder ring, because a fork's operator has to be able to set an RPC
+     * url and a session length. Once the village holds `dial.set`, an admin
+     * falls through and is judged as anybody else, so an admin who wants a
+     * founder-ring key back breaks the glass in the open.
+     */
+    const verdict = await mayAct(req, "dial.set");
+    if (!verdict.ok) {
+      if (verdict.villageHolds && verdict.message !== "auth_required") {
+        return res.status(409).json({
+          error: verdict.message, capability: "dial.set", villageHolds: true, requiresOverride: true,
+        });
+      }
+      return res.status(401).json({ error: "auth_required" });
+    }
+    if (verdict.source !== "admin") {
+      const def = VARIABLES_BY_KEY[req.params.key];
+      if (def && ringOf(def) !== "open") {
+        return res.status(403).json({
+          error:
+            "This dial is not one the village governs. It belongs to whoever runs the deployment, " +
+            "and it stays with them.",
+        });
+      }
+    }
     const raw = req.body?.value;
     if (raw === undefined || raw === null) return res.status(400).json({ error: "A value is required" });
     /*
@@ -24740,7 +25320,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.post("/api/admin/org/roles/:id/holders", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    // 0098: `org.seat`. Deciding who sits in the village's seats is the
+    // archetypal power a village takes back, and it was an admin check.
+    if (!(await guardCapability(req, res, "org.seat"))) return;
     const role = (await listOrgRoles(getPool())).find((r) => r.id === req.params.id);
     if (!role) return res.status(404).json({ error: "Seat not found" });
     if (role.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
@@ -24910,7 +25492,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.delete("/api/admin/org/seatings/:id", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "org.seat"))) return;
     // The `/forget` sibling below has refused example rows since it shipped and
     // this door did not, which mattered the moment either got a button: ending
     // a standing example's seating empties the demo chart with no tombstone
