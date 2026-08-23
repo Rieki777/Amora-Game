@@ -1122,6 +1122,10 @@ const investorDocsRepo = dbCollection(getPool(), {
     { js: "url", db: "url" },
     { js: "requiresRequest", db: "requires_request", kind: "bool" },
     { js: "order", db: "sort_order", kind: "int" },
+    // 0099. The upload route collected both of these and had nowhere to put
+    // them, which is half of why its insert threw on every press.
+    { js: "pageLink", db: "page_link" },
+    { js: "uploadedAt", db: "uploaded_at", kind: "time", defaultNow: true },
   ],
 });
 const stageEventsRepo = dbCollection(getPool(), {
@@ -17868,16 +17872,43 @@ Send an empty drafts array when you are still listening. A role payload is {name
       console.error("[uploads] could not store a vault document", e);
       return res.status(400).json({ error: "That file could not be stored." });
     }
+    /*
+     * WRITE THE COLUMNS THE TABLE ACTUALLY HAS.
+     *
+     * This built `{id, name, filename, pageLink, uploadedAt}` and handed it to
+     * a repo whose columns are `{id, title, description, url, requires_request,
+     * sort_order}`. `title` is NOT NULL, and dbCollection names every spec'd
+     * column on every insert, so an absent key writes an explicit NULL and the
+     * column default never applies. The insert therefore threw
+     * `Column 'title' cannot be null` on every press since the route shipped,
+     * and no document has ever reached the vault through the product.
+     *
+     * `url` holds the link, so a row imported with an external address renders
+     * the same way an uploaded one does. 0099 gave `pageLink` and `uploadedAt`
+     * the columns the form always assumed they had.
+     */
     const entry = {
       id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name,
-      filename,
+      title: name,
+      description: null,
+      url: `/api/uploads/${filename}`,
+      requiresRequest: false,
+      order: investorDocsRepo.all().length + 1,
       pageLink,
       uploadedAt: new Date().toISOString(),
     };
-    const docs = investorDocsRepo.all();
-    docs.push(entry);
-    await investorDocsRepo.replaceAll(docs);
+    try {
+      // One INSERT, not snapshot -> push -> replaceAll: the whole-table rewrite
+      // raced concurrent writers and dropped rows, the same way it did on the
+      // submissions and stage-event paths.
+      await investorDocsRepo.insert(entry);
+    } catch (e) {
+      // The bytes landed before the row, so a failed write leaves a file
+      // nothing references. Every press of this button used to leave one.
+      try { fs.unlinkSync(path.join(UPLOADS_DIR, filename)); } catch { /* already gone */ }
+      console.error("[VAULT] could not record a document, and removed its file", e);
+      return res.status(500).json({ error: "That document could not be saved." });
+    }
     res.json(entry);
   });
 
@@ -17890,9 +17921,16 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!target) return res.status(404).json({ error: "Not found" });
     const filtered = docs.filter((d) => d.id !== req.params.id);
     await investorDocsRepo.replaceAll(filtered);
-    const filePath = path.join(UPLOADS_DIR, target.filename);
-    if (fs.existsSync(filePath)) {
-      try { fs.unlinkSync(filePath); } catch (err) { console.error("[VAULT] Failed to delete file", err); }
+    // `target.filename` was never a column, so this read undefined and joined
+    // it into a path. Only a row whose url points into our own uploads volume
+    // has a file to remove; an imported row pointing at an external address
+    // must not have anything unlinked on its behalf.
+    const url = String(target.url ?? "");
+    if (url.startsWith("/api/uploads/")) {
+      const filePath = path.join(UPLOADS_DIR, path.basename(url));
+      if (fs.existsSync(filePath)) {
+        try { fs.unlinkSync(filePath); } catch (err) { console.error("[VAULT] Failed to delete file", err); }
+      }
     }
     res.json({ success: true });
   });
@@ -18024,6 +18062,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const entry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       type: "investor-doc-request",
+      // `status` and `rewarded` are NOT NULL on `submissions`. dbCollection
+      // names every spec'd column on every insert, so leaving them out wrote an
+      // explicit NULL and the column DEFAULT never got a chance: this insert
+      // threw `Column 'status' cannot be null` every time, and the public
+      // "request the investor packet" form has never once captured a lead. The
+      // other two submission writers set both; this one was the outlier.
+      status: "new",
+      rewarded: false,
       data: { name, email, accredited: accredited ? "yes" : "no" },
       submittedAt: new Date().toISOString(),
     };
@@ -18045,11 +18091,24 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // Email the investor with download links
     const cfg = getEmailConfig();
     if (cfg.resend_api_key && email) {
+      /*
+       * READ THE COLUMNS THE TABLE ACTUALLY HAS, for the same reason the
+       * upload route now writes them. This addressed `d.filename` and `d.name`,
+       * neither of which is a column of `investor_docs`, so every link in the
+       * investor's packet email pointed at `/api/uploads/undefined` and was
+       * labelled "undefined". The writer could never save a row, so this half
+       * of the break had nothing to show it on.
+       */
+      const absolute = (link: string) => (/^https?:\/\//i.test(link) ? link : `${origin}${link}`);
       const links = docs
-        .map(
-          (d) =>
-            `<li style="margin:8px 0"><a href="${origin}/api/uploads/${escapeHtml(d.filename)}" style="color:#2D5A5A;font-weight:600">${escapeHtml(d.name)}</a>${d.pageLink ? ` &middot; <a href="${origin}${escapeHtml(d.pageLink)}" style="color:#6b7280;font-size:13px">view on site</a>` : ""}</li>`
-        )
+        .map((d) => {
+          const href = absolute(String(d.url ?? ""));
+          const label = String(d.title ?? "Document");
+          const onSite = d.pageLink
+            ? ` &middot; <a href="${escapeHtml(absolute(String(d.pageLink)))}" style="color:#6b7280;font-size:13px">view on site</a>`
+            : "";
+          return `<li style="margin:8px 0"><a href="${escapeHtml(href)}" style="color:#2D5A5A;font-weight:600">${escapeHtml(label)}</a>${onSite}</li>`;
+        })
         .join("");
       const html = `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;background:#f9fafb;padding:24px;color:#1f2937">
 <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">

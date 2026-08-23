@@ -211,6 +211,10 @@ export const investorDocs = mysqlTable("investor_docs", {
   /** Doc vault gating, if the record carries it. */
   requiresRequest: boolean("requires_request").default(false).notNull(),
   sortOrder: int("sort_order").default(0).notNull(),
+  /** 0099. The "view on site" link the admin form has always collected. */
+  pageLink: varchar("page_link", { length: 1000 }),
+  /** 0099. Null on rows imported by scripts/import-json-to-mysql.ts. */
+  uploadedAt: timestamp("uploaded_at"),
 });
 
 export const trainingModules = mysqlTable("training_modules", {
