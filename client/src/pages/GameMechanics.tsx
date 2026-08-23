@@ -13,6 +13,10 @@
  *      ledger when it applies.
  *   3. Open proposals — support, sponsor a draft, copy the canonical
  *      document for Hypha, report a pass, and (admins) apply a verified one.
+ *      A proposal here may have BEEN to a vote and come back: a missed quorum
+ *      and a called-off ballot both send it to `open` holding its ballot id,
+ *      and both settle nothing. The card says which, in the bell's own words,
+ *      and links to the vote (BALLOT_RETURN below).
  *   4. The amendment history.
  *
  * The page RENDERS the server's answers and computes no rule of its own:
@@ -35,6 +39,8 @@ import {
   Copy,
   X,
 } from "lucide-react";
+import { Link } from "wouter";
+import InfoTip from "@/components/InfoTip";
 import { useGameConfig, authToken } from "@/lib/gameApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { useFocusTarget } from "@/lib/useFocusTarget";
@@ -89,11 +95,32 @@ interface ProposalChange {
   currentValue: string | null;
 }
 
+/** Every value `mechanics_proposals.status` can hold (0089 widened the enum to
+ *  ten and this list carried eight; see STATUS_COPY). */
+type ProposalStatus =
+  | "draft"
+  | "open"
+  | "withdrawn"
+  | "to_hypha"
+  | "onsite_vote"
+  | "passed_claimed"
+  | "passed_verified"
+  | "passed_onsite"
+  | "failed"
+  | "applied";
+
+/** How the last ballot on a proposal ended (`ballots.status`). */
+type BallotStatus = "open" | "passed" | "failed" | "no_quorum" | "withdrawn";
+
 interface Proposal {
   id: string;
   title: string;
   rationale: string;
-  status: "draft" | "open" | "withdrawn" | "to_hypha" | "passed_claimed" | "passed_verified" | "failed" | "applied";
+  status: ProposalStatus;
+  /** The vote this proposal last went to, null if it has never been to one. */
+  ballotId: string | null;
+  /** How that vote ended. Null while it is still open, and null with no vote. */
+  lastBallotStatus: BallotStatus | null;
   hyphaRef: string | null;
   hyphaProposalId: string | null;
   hyphaProposalUrl: string | null;
@@ -115,16 +142,118 @@ interface Standing {
   backed: Array<{ proposalId: string; kind: string }>;
 }
 
-const STATUS_COPY: Record<Proposal["status"], { label: string; cls: string }> = {
+export const STATUS_COPY: Record<ProposalStatus, { label: string; cls: string }> = {
   draft: { label: "draft, needs a sponsor", cls: "bg-amber-50 text-amber-700" },
   open: { label: "open for support", cls: "bg-emerald-50 text-emerald-700" },
   withdrawn: { label: "withdrawn", cls: "bg-stone-100 text-stone-500" },
   to_hypha: { label: "at Hypha for the vote", cls: "bg-sky-50 text-sky-700" },
+  onsite_vote: { label: "at the village vote", cls: "bg-sky-50 text-sky-700" },
   passed_claimed: { label: "passed, awaiting verification", cls: "bg-violet-50 text-violet-700" },
   passed_verified: { label: "verified on-chain, applying", cls: "bg-violet-50 text-violet-700" },
+  // No ", applying" on this one. Whether it IS applying depends on
+  // `governance.auto_apply_enabled`, which this page is not served and cannot
+  // read, and with the brake on the proposal sits here waiting for a hand.
+  passed_onsite: { label: "carried at the village vote", cls: "bg-violet-50 text-violet-700" },
   failed: { label: "did not pass", cls: "bg-stone-100 text-stone-500" },
   applied: { label: "applied", cls: "bg-teal-deep/10 text-teal-deep" },
 };
+
+/**
+ * The state chip, never undefined. `STATUS_COPY[p.status].cls` used to be read
+ * straight, and the enum in the database is the authority for what arrives
+ * here: 0089 added `onsite_vote` and `passed_onsite` and this map kept eight
+ * keys, so the first proposal to reach the village's own vote threw a
+ * TypeError inside the list and took the whole page down for everyone. A
+ * status nobody has taught this page yet now reads as itself instead.
+ */
+function statusChip(status: ProposalStatus): { label: string; cls: string } {
+  return STATUS_COPY[status] ?? { label: String(status).replace(/_/g, " "), cls: "bg-stone-100 text-stone-500" };
+}
+
+/**
+ * WHY A PROPOSAL IS SITTING WHERE IT IS SITTING.
+ *
+ * A proposal back at `open` while holding a ballot id has BEEN to a vote and
+ * come back, and until the close route was fixed there was no such thing: a
+ * missed quorum wrote `failed` on the subject, so "too few of us were here"
+ * went on the record as "the village rejected this". Two facts, and the second
+ * one was false.
+ *
+ * Both ways back settle NOTHING, and the words have to carry that or the fix
+ * only reached the database. The vocabulary is the bell's, deliberately:
+ * `ballot_no_quorum` says too few of the roll answered and the question
+ * stands, `ballot_withdrawn` says a vote was called off before it closed. One
+ * event, one set of words, however a member meets it.
+ *
+ * `passed` and `failed` are here for the record only. The proposal's own
+ * status already says what happened, so this adds the link and stays quiet.
+ */
+export const BALLOT_RETURN: Record<BallotStatus, { chip: string | null; cls: string; line: string | null; tip: string | null }> = {
+  open: { chip: null, cls: "", line: null, tip: null },
+  passed: { chip: null, cls: "", line: null, tip: null },
+  failed: { chip: null, cls: "", line: null, tip: null },
+  no_quorum: {
+    chip: "too few spoke",
+    cls: "bg-stone-100 text-stone-600",
+    line: "Too few of the village voted for that ballot to settle anything. This stands where it stood, holding its supporters and every word of it, and it can go to a vote again.",
+    tip: "A vote settles something only when enough of the village answers it. Too few did, so that ballot decided nothing and this went back where it was. Going again means a new vote, frozen fresh on the day it opens.",
+  },
+  withdrawn: {
+    chip: "its vote was called off",
+    cls: "bg-stone-100 text-stone-600",
+    line: "The vote on this was called off before it closed, so nothing was decided. It holds its supporters and every word of it, and the reason is on that vote's record.",
+    tip: "Whoever opens a vote can call it off while nobody has answered it. Once even one vote stands, calling it off takes a proposal.decide holder or an admin, because cast votes belong to the people who cast them.",
+  },
+};
+
+/**
+ * The chip that says a proposal has been to a vote and come back, beside the
+ * chip that says where it stands now. Two chips, because they answer two
+ * questions and folding them into one is how "waiting" became "rejected".
+ *
+ * A proposal that has never been to a vote carries nothing here. Its status
+ * chip is the whole of its state, and hanging a badge on it for a thing that
+ * has not happened is the scorecard R55 rules out.
+ */
+function BallotReturnChip({ proposal }: { proposal: Proposal }) {
+  const back = proposal.lastBallotStatus ? BALLOT_RETURN[proposal.lastBallotStatus] : null;
+  if (!proposal.ballotId || !back?.chip) return null;
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full ${back.cls}`}>
+      {back.chip}
+      {back.tip && <InfoTip tip={back.tip} label={`What ${back.chip} means`} />}
+    </span>
+  );
+}
+
+/**
+ * What the vote left behind, in the card body, and the way to the vote itself.
+ * The link is the point of the sentence: the ballot holds the frozen roll, the
+ * tallies and the reason it was called off, so a member can read the thing
+ * being described instead of taking this page's word for it.
+ */
+function BallotReturnNote({ proposal }: { proposal: Proposal }) {
+  if (!proposal.ballotId) return null;
+  const back = proposal.lastBallotStatus ? BALLOT_RETURN[proposal.lastBallotStatus] : null;
+  const live = proposal.lastBallotStatus === "open";
+  const to = (
+    <Link
+      href={`/decisions/${proposal.ballotId}`}
+      className={`text-sm text-teal-deep font-medium hover:underline ${back?.line ? "mt-1 inline-block" : ""}`}
+    >
+      {live ? "See the vote" : "See that vote"}
+    </Link>
+  );
+  // No box around a bare link. The band is there to hold a sentence, and an
+  // empty one reads as something that failed to load.
+  if (!back?.line) return <p className="mb-3">{to}</p>;
+  return (
+    <div className="mb-3 rounded-lg bg-stone-50 border border-stone-200 px-3 py-2">
+      <p className="text-sm text-stone-600 leading-relaxed">{back.line}</p>
+      {to}
+    </div>
+  );
+}
 
 function displayValue(v: MechanicsVariable, raw: string): string {
   if (v.type === "boolean") return raw === "true" || raw === "1" ? "On" : "Off";
@@ -590,7 +719,7 @@ export default function GameMechanics() {
                   {activeProposals.map((p) => {
                     // Proposer-only actions render for every signed-in member;
                     // the server answers an honest 403 for anyone else.
-                    const status = STATUS_COPY[p.status];
+                    const status = statusChip(p.status);
                     return (
                       <div
                         key={p.id}
@@ -602,7 +731,10 @@ export default function GameMechanics() {
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                           <h3 className="font-semibold text-stone-900">{p.title}</h3>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${status.cls}`}>{status.label}</span>
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${status.cls}`}>{status.label}</span>
+                            <BallotReturnChip proposal={p} />
+                          </span>
                         </div>
                         <p className="text-xs text-stone-400 mb-2">
                           by {p.proposer} · {new Date(p.createdAt).toLocaleDateString()} · {p.supports} supporter
@@ -610,6 +742,7 @@ export default function GameMechanics() {
                           {p.sponsors > 0 ? ` · sponsored` : ""}
                         </p>
                         <p className="text-sm text-stone-600 mb-3 leading-relaxed">{p.rationale}</p>
+                        <BallotReturnNote proposal={p} />
                         <ul className="text-sm space-y-1 mb-3">
                           {p.changes.map((c) => (
                             <li key={c.key}>
@@ -741,15 +874,24 @@ export default function GameMechanics() {
                 {settledProposals.length > 0 && (
                   <details className="mt-4">
                     <summary className="text-sm text-stone-500 cursor-pointer">
-                      {settledProposals.length} settled proposal{settledProposals.length === 1 ? "" : "s"} (applied or withdrawn)
+                      {settledProposals.length} settled proposal{settledProposals.length === 1 ? "" : "s"} (applied,
+                      withdrawn, or did not pass)
                     </summary>
                     <ul className="mt-2 space-y-1.5">
                       {settledProposals.map((p) => (
                         <li key={p.id} className="text-sm text-stone-500">
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full mr-2 ${STATUS_COPY[p.status].cls}`}>
-                            {STATUS_COPY[p.status].label}
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full mr-2 ${statusChip(p.status).cls}`}>
+                            {statusChip(p.status).label}
                           </span>
                           {p.title} · by {p.proposer}
+                          {p.ballotId && (
+                            <>
+                              {" · "}
+                              <Link href={`/decisions/${p.ballotId}`} className="text-teal-deep hover:underline">
+                                see its vote
+                              </Link>
+                            </>
+                          )}
                         </li>
                       ))}
                     </ul>
