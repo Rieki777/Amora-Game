@@ -127,6 +127,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (tk) {
       try {
         await fetch("/api/auth/logout", {
+          // save-ok: sign-out must finish whether or not the server hears. A
+          // refusal read here could only be reported by keeping somebody in a
+          // session they asked to leave, which is the worse of the two.
           method: "POST",
           headers: { Authorization: `Bearer ${tk}` },
         });

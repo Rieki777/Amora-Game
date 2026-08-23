@@ -31,6 +31,7 @@ node scripts/check-voice.mjs           # house writing rules on shipped copy
 node scripts/check-hyphen-dash.mjs     # no em or en dashes anywhere (hyphens are fine)
 node scripts/check-auth-fetch.mjs      # a client call to a route that refuses strangers carries a token
 node scripts/check-admin-reach.mjs     # every admin WRITE route has a caller in the browser
+node scripts/check-save-honesty.mjs    # a control that says a change landed held the Response
 node scripts/check-repo-payloads.mjs   # every repo insert names the columns its table requires
 node scripts/check-mirror-annotations.mjs  # a hand-kept map of server values is keyed by the union
 node scripts/check-upload-strip.mjs    # nothing reaches the uploads volume without the strip

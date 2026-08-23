@@ -80,6 +80,8 @@ export default function Training() {
     saveCompleted(next);
     // Mirror to the player's server-side game state (drives Path of Growth stage)
     gameFetch("/api/game/journey/sync", {
+      // save-ok: local-first. `saveCompleted` above is what this page renders
+      // from, and the sync only mirrors it into the Path of Growth stage.
       method: "POST",
       body: JSON.stringify({ journeyId: "training", steps: next }),
     }).catch(() => { /* offline-tolerant; localStorage remains source for UI */ });

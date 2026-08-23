@@ -68,6 +68,15 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
    * refused consent change has to be readable where the finger just was.
    */
   const [contactNote, setContactNote] = useState("");
+  /**
+   * The same slot again, for the switches above the consent one.
+   *
+   * `saveContactable` was fixed in the sweep and `save` beside it was not, so
+   * this card had one control that explained a refusal and six that let the
+   * switch snap back and said nothing. A member reading that sees a setting
+   * that will not stay put and no reason anywhere on the page.
+   */
+  const [notifyNote, setNotifyNote] = useState("");
   /** Set only when an outside store did not confirm. Holds the redirect open. */
   const [farewell, setFarewell] = useState("");
 
@@ -111,10 +120,20 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
 
   const save = (patch: Record<string, any>) => {
     setSaving(true);
+    setNotifyNote("");
     fetch("/api/profile/prefs", { method: "PUT", headers: headers(), body: JSON.stringify({ notify: patch }) })
-      .then((r) => r.json())
-      .then((d) => setPrefs(d?.notify ?? prefs))
-      .catch(() => {})
+      .then(async (r) => {
+        if (!r.ok) {
+          // `r.json()` on a refusal hands back the ERROR body, and `d?.notify`
+          // is then undefined, so the old code fell back to `prefs` and the
+          // switch quietly returned to where it started.
+          setNotifyNote("That did not save. These settings are unchanged.");
+          return;
+        }
+        const d = await r.json().catch(() => null);
+        setPrefs(d?.notify ?? prefs);
+      })
+      .catch(() => setNotifyNote("That did not reach the server. These settings are unchanged."))
       .finally(() => setSaving(false));
   };
 
@@ -209,6 +228,8 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
           </span>
         </span>
       </label>
+
+      {notifyNote && <p role="alert" className="text-xs text-red-600 mb-4">{notifyNote}</p>}
 
       {contactable !== null && (
         <div className="mb-4">

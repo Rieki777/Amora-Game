@@ -507,6 +507,8 @@ function ThreadView({ id }: { id: string }) {
           setThread(d);
           if (markRead && d.latestSeq > d.lastReadSeq) {
             fetch(`/api/messages/${id}/read`, {
+              // save-ok: a read receipt, and the cursor it moves is re-read on
+              // the next open. Nothing on this screen claims it landed.
               method: "POST",
               headers: headers(),
               body: JSON.stringify({ seq: d.latestSeq }),

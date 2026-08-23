@@ -144,6 +144,36 @@ jobs:
         # inside the script is a ratchet that may only shrink.
         run: node scripts/check-admin-reach.mjs
 
+      - name: Save honesty guard
+        # The guard above asks whether a founder can REACH a route. This one
+        # asks whether the control that calls it tells the truth afterwards.
+        #
+        # A sweep of 434 client fetch calls found seventeen surfaces reporting
+        # success without asking the server, six of them outright lies.
+        # ContentEditorTab's button read "Saved!" on any answer at all, and
+        # that route sits behind story.tell: a village holding that power
+        # answers with the 409 the break-glass turns into a question, so an
+        # operator who chose "Leave it" was shown "Saved!" for the change they
+        # had just declined.
+        #
+        # It looks for one syntactic property and no more: the Response was
+        # never held. A mutating call that is a statement of its own, or a
+        # chain that reaches .then() without touching .ok or .status. The
+        # script's header states in full what that cannot see, so nobody
+        # rebuilds a bigger version believing the bigger version was untried:
+        # a helper that reads the status and lies in its return value, the
+        # optimistic write, the silence, and server-side reachability.
+        #
+        # Watched RED before wiring, against the REAL pre-fix tree rather than
+        # a mock: the three files as of e238103^ exit 1 and name sixteen sites,
+        # including the ContentEditorTab save and the submissions delete. The
+        # same run confirms the documented blind spots are genuinely blind:
+        # GuideChat reports zero, and SeasonPatternsTab's lying helper is not
+        # among them. Clean at this ref, with five save-ok waivers.
+        #
+        # Before the build, with the other guards: it reads source files.
+        run: node scripts/check-save-honesty.mjs
+
       - name: Repo payload guard
         # The guard above proves a founder can REACH a route. This one asks
         # whether the route works, because two shipped that could never succeed

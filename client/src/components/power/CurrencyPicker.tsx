@@ -94,6 +94,9 @@ export default function CurrencyPicker({
     }
     if (authToken()) {
       fetch("/api/profile/prefs", {
+        // save-ok: local-first. localStorage above is the source this picker
+        // reads back, and the server copy only carries the choice to another
+        // device, so a refusal costs nothing the person can see here.
         method: "PUT",
         headers: { ...headers(), "Content-Type": "application/json" },
         body: JSON.stringify({ displayCurrency: code }),
