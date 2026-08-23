@@ -17,12 +17,15 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { prepareImageForUpload } from "@/lib/imagePrep";
 import { POOL_REASON_COPY } from "@shared/moduleCatalog";
+import type { ModuleDataClass } from "@shared/modules";
 import { ArrowLeft } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useRoute } from "wouter";
 import { toast } from "sonner";
 
-const DATA_CLASS_PLAIN: Record<string, string> = {
+// Keyed by the union the registry declares, so a new data class cannot ship
+// without the plain-words line this page prints under it.
+const DATA_CLASS_PLAIN: Record<ModuleDataClass, string> = {
   none: "No personal data",
   "village-content": "Village content, nothing personal",
   "member-pii": "Personal member data, protected",
@@ -48,7 +51,7 @@ interface AdminModule {
    */
   served: string;
   legalReview: boolean;
-  dataClass: string;
+  dataClass: ModuleDataClass;
   setup: "none" | "optional" | "required";
   ready: { ready: boolean; hint: string } | null;
   maxLifecycle: string;

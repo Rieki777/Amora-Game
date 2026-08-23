@@ -7,6 +7,7 @@
  */
 import { Link } from "wouter";
 import { POOL_REASON_COPY } from "@shared/moduleCatalog";
+import type { ModuleDataClass } from "@shared/modules";
 import ModuleArt from "./ModuleArt";
 
 export interface CatalogModule {
@@ -15,7 +16,7 @@ export interface CatalogModule {
   description: string;
   core: boolean;
   tier: string;
-  dataClass: string;
+  dataClass: ModuleDataClass;
   group: string | null;
   setup: string;
   requires: string[];

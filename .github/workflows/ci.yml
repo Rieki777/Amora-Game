@@ -144,6 +144,51 @@ jobs:
         # inside the script is a ratchet that may only shrink.
         run: node scripts/check-admin-reach.mjs
 
+      - name: Repo payload guard
+        # The guard above proves a founder can REACH a route. This one asks
+        # whether the route works, because two shipped that could never succeed
+        # in any version and every gate here passed them both.
+        #
+        # POST /api/admin/investor-docs/upload wrote {id, name, filename,
+        # pageLink, uploadedAt} into a repo whose columns were {id, title,
+        # description, url, requires_request, sort_order}. POST
+        # /api/investor-docs/request, the public "send me the investor packet"
+        # form, left `status` off its submissions insert. Both threw on every
+        # call: an admin could press Upload and nothing was ever saved, and the
+        # stewards' inbox was empty because no lead was ever captured.
+        #
+        # One line in server/repos/store-db.ts is the mechanism. dbCollection
+        # names every spec'd column on every INSERT, so a key the caller did not
+        # set arrives as an explicit NULL, and an explicit NULL is not an absent
+        # column: the DEFAULT never applies. That turns an omission into a
+        # guaranteed NOT NULL violation.
+        #
+        # Static, and it reads both halves from the code: the specs with the
+        # TypeScript compiler, the NOT NULL columns from drizzle/. Same pass
+        # checks that every spec'd column still exists in its table, which is
+        # what breaks the boot SELECT when a spec and the schema drift apart.
+        run: node scripts/check-repo-payloads.mjs
+
+      - name: Mirror annotation guard
+        # The client keeps small lookup tables beside the union types the server
+        # sends: a hint per module lifecycle, words per ballot outcome, a colour
+        # per decision method. Written Record<string, T> they are a promise
+        # nobody checks, and a member added to the union in shared/ makes the
+        # page render NOTHING where a sentence belonged. No error, no console
+        # line, no failing test: an empty paragraph. Admin.tsx did exactly that
+        # with LIFECYCLE_HINT.
+        #
+        # So this suggests the stronger key type, and only where it is free: the
+        # map's keys must be EXACTLY the union's members, because Record<Union,T>
+        # requires all of them and suggesting it for a partial map would hand
+        # somebody a build error dressed as a fix. Nothing here judges a read, so
+        # nothing here has to decide whether a fallback is honest.
+        #
+        # noUncheckedIndexedAccess was measured and is the wrong tool: 282 errors
+        # repo-wide and it does NOT flag Record<Union,T>[keyTypedAsUnion], the
+        # exact shape of both crashes that shipped.
+        run: node scripts/check-mirror-annotations.mjs
+
       - name: Upload strip guard
         # A public, unauthenticated route wrote a stranger's file straight to
         # the uploads volume with multer's diskStorage, and /api/uploads served

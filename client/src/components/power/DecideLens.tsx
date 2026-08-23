@@ -9,12 +9,13 @@
  * stands alone: the accordion chips and the key row say the words.
  */
 import type { NestedLayout } from "@shared/mapLayout";
+import type { DecidesById } from "@shared/power";
 import type { PowerBlock, PowerCircle } from "./types";
 
 /** One colour per method, from an Okabe-Ito-derived set: distinguishable
  *  under the common colour blindnesses, which a governance lens owes its
  *  readers. `other` is grey on purpose: its meaning is the village's gloss. */
-export const METHOD_COLOURS: Record<string, string> = {
+export const METHOD_COLOURS: Record<DecidesById, string> = {
   consent: "#009E73",
   consensus: "#56B4E9",
   majority: "#0072B2",
@@ -26,6 +27,21 @@ export const METHOD_COLOURS: Record<string, string> = {
   hypha: "#33BBC5",
   other: "#8A8A8A",
 };
+
+/**
+ * The colour for a method NAME THAT CAME OFF THE WIRE.
+ *
+ * The map is keyed by the union now, so the compiler checks that every method
+ * has a colour. What it cannot check is the value a circle actually carries: a
+ * village types its own `decides_by`, so every read here starts as a plain
+ * string. This is the one place that crossing happens, and it says so, instead
+ * of three index expressions each quietly asserting the value is a member.
+ */
+export function methodColour(method: string | null | undefined): string {
+  return method && Object.prototype.hasOwnProperty.call(METHOD_COLOURS, method)
+    ? METHOD_COLOURS[method as DecidesById]
+    : METHOD_COLOURS.other;
+}
 
 export function methodFor(
   circle: PowerCircle | undefined,
@@ -59,7 +75,7 @@ export default function DecideLens({
         const c = byId.get(pos.id);
         const method = methodFor(c, domain, power);
         if (!method) return null;
-        const colour = METHOD_COLOURS[method] ?? METHOD_COLOURS.other;
+        const colour = methodColour(method);
         const overrides = Object.keys(c?.decidesByDomains ?? {});
         return (
           <g key={pos.id}>
@@ -71,7 +87,7 @@ export default function DecideLens({
               const a = Math.PI / 2 + (i - (overrides.length - 1) / 2) * 0.4;
               const mx = pos.x + (pos.r - 10) * Math.cos(a);
               const my = pos.y + (pos.r - 10) * Math.sin(a);
-              const oColour = METHOD_COLOURS[c?.decidesByDomains?.[d]?.method ?? "other"] ?? METHOD_COLOURS.other;
+              const oColour = methodColour(c?.decidesByDomains?.[d]?.method);
               return <rect key={d} x={mx - 3.5} y={my - 3.5} width={7} height={7} rx={1.5} fill={oColour} stroke="white" strokeWidth={1} />;
             })}
           </g>
@@ -106,7 +122,7 @@ export function DecideKey({
         const def = power.glossary.decidesBy.find((d) => d.id === m);
         return (
           <span key={m} className="inline-flex items-center gap-1.5 text-xs text-foreground" title={def?.gloss}>
-            <span className="w-3 h-3 rounded-full inline-block border border-black/10" style={{ background: METHOD_COLOURS[m] ?? METHOD_COLOURS.other }} />
+            <span className="w-3 h-3 rounded-full inline-block border border-black/10" style={{ background: methodColour(m) }} />
             {def?.label ?? m}
             <span className="text-muted-foreground tabular-nums">{n}</span>
           </span>
