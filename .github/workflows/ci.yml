@@ -144,6 +144,31 @@ jobs:
         # inside the script is a ratchet that may only shrink.
         run: node scripts/check-admin-reach.mjs
 
+      - name: Repo payload guard
+        # The guard above proves a founder can REACH a route. This one asks
+        # whether the route works, because two shipped that could never succeed
+        # in any version and every gate here passed them both.
+        #
+        # POST /api/admin/investor-docs/upload wrote {id, name, filename,
+        # pageLink, uploadedAt} into a repo whose columns were {id, title,
+        # description, url, requires_request, sort_order}. POST
+        # /api/investor-docs/request, the public "send me the investor packet"
+        # form, left `status` off its submissions insert. Both threw on every
+        # call: an admin could press Upload and nothing was ever saved, and the
+        # stewards' inbox was empty because no lead was ever captured.
+        #
+        # One line in server/repos/store-db.ts is the mechanism. dbCollection
+        # names every spec'd column on every INSERT, so a key the caller did not
+        # set arrives as an explicit NULL, and an explicit NULL is not an absent
+        # column: the DEFAULT never applies. That turns an omission into a
+        # guaranteed NOT NULL violation.
+        #
+        # Static, and it reads both halves from the code: the specs with the
+        # TypeScript compiler, the NOT NULL columns from drizzle/. Same pass
+        # checks that every spec'd column still exists in its table, which is
+        # what breaks the boot SELECT when a spec and the schema drift apart.
+        run: node scripts/check-repo-payloads.mjs
+
       - name: Upload strip guard
         # A public, unauthenticated route wrote a stranger's file straight to
         # the uploads volume with multer's diskStorage, and /api/uploads served

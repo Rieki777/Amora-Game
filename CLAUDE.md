@@ -31,6 +31,7 @@ node scripts/check-voice.mjs           # house writing rules on shipped copy
 node scripts/check-hyphen-dash.mjs     # no em or en dashes anywhere (hyphens are fine)
 node scripts/check-auth-fetch.mjs      # a client call to a route that refuses strangers carries a token
 node scripts/check-admin-reach.mjs     # every admin WRITE route has a caller in the browser
+node scripts/check-repo-payloads.mjs   # every repo insert names the columns its table requires
 node scripts/check-upload-strip.mjs    # nothing reaches the uploads volume without the strip
 node scripts/check-doc-links.mjs       # every path the builder docs name resolves on disk
 node scripts/check-route-reachability.mjs  # two ways in to every route (--table prints the doors)
@@ -209,6 +210,14 @@ time so `/health` cannot report a build that isn't running.
   the Write/Edit tools, never shell redirection.
 - **MySQL UNIQUE indexes exempt NULLs** — a nullable column in a unique key admits infinite
   duplicates. Dedupe columns must be NOT NULL.
+- **A column DEFAULT never applies to a `dbCollection` write.** `insert` and `replaceAll`
+  build one INSERT naming EVERY column in the spec, so a key the caller did not set arrives
+  as an explicit NULL, and an explicit NULL is not an absent column. On a NOT NULL column
+  that is a guaranteed violation however good its DEFAULT is, which is how two routes shipped
+  that could never once succeed. `toDb` rescues exactly two cases: `kind: "bool"` writes 0 and
+  `defaultNow` writes now. **`kind: "int"` is NOT one of them** — the `v == null` branch
+  returns before the switch that would coerce it. `node scripts/check-repo-payloads.mjs`
+  enforces this, and states in its own header what it cannot see.
 - **BigInt literals** (`123n`) break the build target. Use `BigInt("...")`.
 - **`vitest -t`** breaks the order-dependent loop test. Run whole files.
 - **A copy change can break a test by capitalization alone.** Assertions use `toContain`
