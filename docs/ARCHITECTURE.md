@@ -1130,6 +1130,69 @@ Three properties worth keeping:
   cost is real and is the right way round: a village that rolls back pauses on
   its peers until somebody looks.
 
+### 3.21 The uploads volume — five writers, one reader, one sweep
+
+`UPLOADS_DIR` is flat, it is a mounted disk, and five doors write into it. Any
+code that reasons about a file on it has to know all five, because a rule that
+knows four is a rule that eventually deletes a member's photograph.
+
+**The five writers, and where each one's reference lives.** Every byte goes
+through `server/lib/uploads.ts` (`sanitiseForVolume` + `writeToVolume`), which
+`scripts/check-upload-strip.mjs` enforces.
+
+| Door | Filename | The reference that keeps it |
+|---|---|---|
+| `POST /api/work-with-us/attachment` (public) | `proposal-<stamp>` | `submissions.data.attachment`, a **bare filename** with no `/api/uploads/` prefix |
+| `POST /api/admin/brand/image` | `brand-<stamp>.webp` and `brand-<stamp>.thumb.webp` | the `brand` document in `app_config`; the THUMBNAIL is named by nothing, because `BrandImageField` discards `data.thumbUrl` |
+| `POST /api/admin/brand/font` | `brand-font-<stamp><ext>` | `brand.theme.fontFaceUrl`, and the filename again inside `brand.theme.fontLicenceAck.file` |
+| `POST /api/admin/investor-docs/upload` | `<document's own name>-<stamp><ext>` | `investor_docs.url` (0099) |
+| `POST /api/places/:key/photos` | `place-<stamp>.webp` and `place-<stamp>.thumb.webp` | `place_photos.url` and `.thumb_url` |
+
+**The stamp is a contract, not a convention.** Every one of those names carries
+`-<13 digit millisecond>-<random>` before its extension, minted by
+`stampedName()`. Three separate mechanisms rest on it: the one-year immutable
+cache on `/api/uploads/:filename` is only correct because a URL's bytes never
+change; the grace window below reads the millisecond as a second clock; and the
+reference scan uses the thirteen digits to make "does anything name this file"
+an exact question over a whole database.
+
+**Removing a file that nothing points at** is Admin > Documents > Uploaded
+Files (`GET /api/admin/uploads/orphans`, then
+`POST /api/admin/uploads/orphans/remove`). The rules, all in
+`server/lib/uploadsSweep.ts`:
+
+- **Unreferenced is proven, never guessed.** `server/repos/uploadRefs.ts` reads
+  every text-shaped column of every base table in the LIVE schema from
+  `information_schema`, from the database and never from a repo cache. There is
+  no hand-kept list of reference columns, because a hand-kept list is a promise
+  that every future column joins it.
+- **A scan that did not finish offers nothing.** Any unreadable column marks
+  the whole report incomplete and the removal refuses.
+- **Only a stamped name is judged.** Anything else is reported as unknown and
+  left where it is.
+- **Both clocks clear the window.** `uploads.orphan_grace_days` (default 30)
+  is measured against the more recent of the file's mtime and its stamp, which
+  is what protects a brand image somebody replaced yesterday.
+- **A thumbnail and its picture are one decision**, in both directions.
+- **Symlinks and directories are never followed, never removed, always reported.**
+- **The press carries a fingerprint of the list, never a filename.** The sweep
+  enumerates the volume itself; nothing a request says can aim it at a file.
+- **The audit line records counts and never names.** `health_events` is a table
+  the reference scan reads, so a file named in the trail would look referenced
+  from that moment on.
+
+The daily retention sweep MEASURES and never reclaims. `/health` carries
+`uploads.orphanFiles` and `uploads.orphanMb` from the last measurement, and
+the deletion stays a person's press. `docs/DESIGN_TOKENS_SPEC.md` A1 is the
+record of what a slightly-wrong automatic sweep costs.
+
+**A door's own sweep may only reach that door's own files.** The retention
+sweep unlinks a handled submission's attachment, and that filename arrives
+through a public unvalidated route, so it is checked against
+`isProposalAttachment` first. Without that check a stranger could post the
+village's hero image as `data.attachment` and have it unlinked the day that
+submission aged out.
+
 ---
 
 ## 4. Modules: how to add one, how to remove one

@@ -47,6 +47,32 @@ and multi-path string leaves (the canonicalizer must extract **every**
 `/api/uploads/` occurrence per string, trimming trailing prose punctuation,
 not just the last).
 
+**A1 STATUS: the conditions are met, and the way they were met is the part
+worth reading.** `server/lib/uploadsSweep.ts` and `server/repos/uploadRefs.ts`
+ship a removal path, reached from Admin > Documents > Uploaded Files.
+
+- (a) is met by **deleting the canonicalizer's list rather than extending it**.
+  A hand-kept table of reference columns is what produced this refutation: it
+  could not see the vault, and nothing would ever have told it to. The scan now
+  reads every text-shaped column of every base table in the live schema out of
+  `information_schema`, so the vault, `shared_items`, a soft-deleted
+  `forum_threads` row and any column a migration adds tomorrow are all covered
+  by construction. The multi-path requirement is met the same way: every
+  thirteen-digit run in every stored value is looked up, so a string naming
+  four files is four references.
+- (b) does not apply. There is no boolean gate and no `runOnce` id, because
+  there is no unattended reclaim to gate: the daily sweep measures, and the
+  removal is a founder's press against a list on screen.
+- (c) is met by `server/uploadsSweep.routes.e2e.test.ts`, which puts a vault
+  document, a member's photograph, a brand image and a brand thumbnail that no
+  stored string names on the volume through the real doors, plants a file with
+  no row beside them, removes the file, and asserts all four survive and are
+  still served.
+
+Two rules the base spec did not have, both earned since: a thumbnail and its
+full-size picture are judged as one, and a scan that could not finish offers
+nothing at all.
+
 ### A2. Blank `theme.place` leaks Amora's biome into every fork's generated art
 
 §3.1 falls back to `project.location` — but at read time that goes through

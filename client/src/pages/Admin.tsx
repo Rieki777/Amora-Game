@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, MessageSquare, Moon, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen, ToggleLeft, Scale } from "lucide-react";
+import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, MessageSquare, Moon, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen, ToggleLeft, Scale, HardDrive } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { linesToList, listToLines } from "@/lib/questBoard";
@@ -25,6 +25,7 @@ import { BUILDER_GUIDE_URL, MODULE_GROUPS, POOL_REASON_COPY } from "@shared/modu
 import { filterNavByModules, TAB_MODULE, type TabBadge } from "@/lib/adminNav";
 import { AdminGoLive } from "@/components/modules/GoLiveCard";
 import type { ModuleLifecycle } from "@shared/modules";
+import type { UploadsSweepReport } from "@shared/uploadsSweep";
 import { CIRCLE_STATUSES } from "@shared/draftKinds";
 
 const API_BASE = "/api";
@@ -476,7 +477,16 @@ function navGroups(setupComplete: boolean): NavGroup[] {
         { key: "drafts", label: "Her Drafts", icon: Inbox },
       ],
     },
-    { title: "Documents", items: [{ key: "investor-vault", label: "Investor Vault", icon: FileText }] },
+    {
+      // Beside the vault on purpose: the vault is the door that filled the
+      // volume with files nothing pointed at, and this is where a founder sees
+      // what is on it.
+      title: "Documents",
+      items: [
+        { key: "investor-vault", label: "Investor Vault", icon: FileText },
+        { key: "uploaded-files", label: "Uploaded Files", icon: HardDrive },
+      ],
+    },
     { title: "Training", items: [{ key: "training-modules", label: "Training Modules", icon: GraduationCap }] },
     {
       title: "The Game",
@@ -1898,6 +1908,244 @@ function InvestorVaultTab({ password }: { password: string }) {
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Uploaded Files Tab ────────────────────────────────────────────────────────
+
+/**
+ * WHAT IS ON THE VOLUME, AND THE ONE PRESS THAT CLEARS THE UNUSED PART.
+ *
+ * The investor vault wrote its file before attempting a row it could never
+ * save, so every press of that button left a file behind that nothing has
+ * ever pointed at. The route is fixed. Removing what it already left needed a
+ * shell on a production volume, which is a thing a founder does not have, and
+ * that was the real defect.
+ *
+ * THE LIST IS THE DEFAULT AND THE REMOVAL IS A SECOND ACT. Opening this tab
+ * looks and never touches anything. The removal reads the fingerprint of
+ * exactly the list on screen back to the server, so what leaves the volume is
+ * always what somebody read.
+ *
+ * The sentence beside each file is written on the SERVER, where the evidence
+ * was. This page renders it and adds nothing, because a second copy of the
+ * reasoning over here is the copy that goes stale.
+ */
+function volumeSize(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} bytes`;
+}
+
+function UploadedFilesTab({ password }: { password: string }) {
+  const [report, setReport] = useState<UploadsSweepReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [armed, setArmed] = useState(false);
+  const [removedNames, setRemovedNames] = useState<string[] | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setArmed(false);
+    try {
+      const res = await fetch(`${API_BASE}/admin/uploads/orphans`, { headers: authHeaders(password) });
+      const data = await res.json();
+      setReport(res.ok ? (data as UploadsSweepReport) : null);
+      if (!res.ok) toast.error(data?.error ?? "The volume could not be read");
+    } catch {
+      setReport(null);
+      toast.error("The volume could not be read");
+    }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const remove = async () => {
+    if (!report) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/uploads/orphans/remove`, {
+        method: "POST",
+        headers: { ...authHeaders(password), "Content-Type": "application/json" },
+        body: JSON.stringify({ digest: report.digest }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data?.report) setReport(data.report as UploadsSweepReport);
+        toast.error(data?.error ?? "Nothing was removed");
+      } else {
+        setRemovedNames(Array.isArray(data.names) ? data.names : []);
+        setReport(data.after as UploadsSweepReport);
+        toast.success(`Removed ${data.removed} file(s), ${volumeSize(data.bytes)}`);
+        for (const k of data.kept ?? []) toast.error(`${k.name}: ${k.reason}`);
+      }
+    } catch {
+      toast.error("Nothing was removed");
+    }
+    setArmed(false);
+    setBusy(false);
+  };
+
+  const orphans = report?.findings.filter((f) => f.verdict === "orphan") ?? [];
+  const unknowns = report?.findings.filter((f) => f.verdict === "unknown") ?? [];
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Uploaded Files</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Every file on this village's uploads volume, and what the database says about each one.
+          </p>
+        </div>
+        <button
+          onClick={load}
+          disabled={loading || busy}
+          className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> Look again
+        </button>
+      </div>
+
+      {loading || !report ? (
+        <div className="text-center py-12 text-gray-400">Looking...</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <div className="border border-gray-200 rounded-xl px-4 py-3">
+              <div className="text-2xl font-bold text-gray-900">{report.volume.files}</div>
+              <div className="text-xs text-gray-500 mt-0.5">files, {volumeSize(report.volume.bytes)}</div>
+            </div>
+            <div className="border border-gray-200 rounded-xl px-4 py-3">
+              <div className="text-2xl font-bold text-gray-900">{report.tally.referenced.files}</div>
+              <div className="text-xs text-gray-500 mt-0.5">in use, {volumeSize(report.tally.referenced.bytes)}</div>
+            </div>
+            <div className="border border-gray-200 rounded-xl px-4 py-3">
+              <div className="text-2xl font-bold text-gray-900">{report.tally.orphan.files}</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                nothing points at, {volumeSize(report.tally.orphan.bytes)}
+              </div>
+            </div>
+            <div className="border border-gray-200 rounded-xl px-4 py-3">
+              <div className="text-2xl font-bold text-gray-900">{report.tally.unknown.files}</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                unidentified, {volumeSize(report.tally.unknown.bytes)}
+              </div>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-400 mb-6">
+            Read at {new Date(report.scannedAt).toLocaleString()} against {report.scan.columns} column(s) of{" "}
+            {report.scan.tables} table(s), {report.scan.values} stored value(s). A file is left alone for its first{" "}
+            {report.graceDays} days and for as long as any row points at it.{" "}
+            {report.tally.recent.files > 0
+              ? `${report.tally.recent.files} file(s) are inside that window today.`
+              : ""}
+          </p>
+
+          {!report.complete && (
+            <div className="border border-amber-200 bg-amber-50 rounded-xl px-5 py-4 mb-6 text-sm text-amber-900">
+              {report.incompleteReason} Nothing can be removed until every table can be read, because a file is only
+              removable when nothing anywhere names it.
+            </div>
+          )}
+
+          {removedNames && (
+            <div className="border border-gray-200 rounded-xl px-5 py-4 mb-6">
+              <div className="text-sm font-medium text-gray-900 mb-2">
+                {removedNames.length === 0 ? "Nothing was removed." : `Removed ${removedNames.length} file(s):`}
+              </div>
+              <div className="text-xs text-gray-500 font-mono break-all space-y-0.5">
+                {removedNames.map((n) => <div key={n}>{n}</div>)}
+              </div>
+            </div>
+          )}
+
+          <h3 className="text-sm font-bold text-gray-900 mb-1">Nothing points at these</h3>
+          {orphans.length === 0 ? (
+            <p className="text-sm text-gray-500 mb-8">
+              {/* Exactly what is true, and no more. "Everything here is in use"
+                  would be a claim about the unidentified files below, which are
+                  the ones nothing here can say anything about. */}
+              No file on the volume has been shown to be unused.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-gray-500 mb-3">
+                Removing them frees {volumeSize(report.tally.orphan.bytes)} and changes nothing a member or a visitor
+                can see. It cannot be undone.
+              </p>
+              <div className="space-y-2 mb-4">
+                {orphans.map((f) => (
+                  <div key={f.name} className="border border-gray-200 rounded-xl px-4 py-3">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="font-mono text-xs text-gray-900 break-all">{f.name}</span>
+                      <span className="text-xs text-gray-500 shrink-0">
+                        {volumeSize(f.bytes)} · {f.ageDays} day(s) old
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">{f.reason}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2 mb-8">
+                {armed ? (
+                  <>
+                    <button
+                      onClick={remove}
+                      disabled={busy}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 transition-colors"
+                    >
+                      {busy ? "Removing..." : `Yes, remove these ${orphans.length} file(s)`}
+                    </button>
+                    <button
+                      onClick={() => setArmed(false)}
+                      disabled={busy}
+                      className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      Keep them
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setArmed(true)}
+                    disabled={busy || !report.complete}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-50 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" /> Remove these {orphans.length} file(s)
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+
+          {unknowns.length > 0 && (
+            <>
+              <h3 className="text-sm font-bold text-gray-900 mb-1">These stay</h3>
+              <p className="text-sm text-gray-500 mb-3">
+                Nothing here can tell what these are, so nothing here will touch them. They are listed so somebody who
+                does know can decide.
+              </p>
+              <div className="space-y-2">
+                {unknowns.map((f) => (
+                  <div key={f.name} className="border border-gray-200 rounded-xl px-4 py-3">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="font-mono text-xs text-gray-900 break-all">{f.name}</span>
+                      <span className="text-xs text-gray-500 shrink-0">
+                        {volumeSize(f.bytes)} · {f.ageDays} day(s) old
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">{f.reason}</p>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </>
       )}
     </div>
   );
@@ -10434,6 +10682,7 @@ export default function Admin() {
           {activeTab === "message-reports" && <MessageReportsTab password={password} />}
           {activeTab === "products" && <ProductsAdminTab password={password} />}
           {activeTab === "investor-vault" && <InvestorVaultTab password={password} />}
+          {activeTab === "uploaded-files" && <UploadedFilesTab password={password} />}
           {activeTab === "training-modules" && <TrainingModulesTab password={password} />}
           {activeTab === "quests-admin" && <QuestsTab password={password} />}
           {activeTab === "quest-claims" && <QuestClaimsTab password={password} />}

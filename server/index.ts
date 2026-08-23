@@ -67,6 +67,17 @@ import {
   writeToVolume,
 } from "./lib/uploads";
 import {
+  classifyVolume,
+  humanBytes,
+  readVolume,
+  isProposalAttachment,
+  removableNames,
+  removeFiles,
+  stampOf,
+} from "./lib/uploadsSweep";
+import type { UploadsSweepReport } from "../shared/uploadsSweep";
+import { scanUploadReferences } from "./repos/uploadRefs";
+import {
   LocationDataSurvived,
   isPhotoFile,
   isSuppressedUpload,
@@ -3540,6 +3551,62 @@ function stayPostingHooks() {
 }
 
 /**
+ * WHAT THE UPLOADS VOLUME IS HOLDING, MEASURED AND NEVER RECLAIMED HERE.
+ *
+ * The last answer, kept in memory so `/health` can report it without walking
+ * the volume on a probe that fires every few minutes. Refreshed by the daily
+ * retention sweep and by every look a founder takes at Admin > Uploaded Files.
+ */
+let lastUploadsReport: UploadsSweepReport | null = null;
+
+/**
+ * Walk the volume, ask the database about every file on it, and classify.
+ *
+ * ── WHY THE MEASUREMENT IS DAILY AND THE DELETION IS NOT ─────────────────
+ *
+ * The reporting half belongs in the daily sweep, so a founder never has to
+ * ask a question to find out the answer: the count and the bytes are on
+ * `/health` and on his own admin page whether or not he went looking. The
+ * DELETING half stays a press of a button, and the reason is not caution for
+ * its own sake.
+ *
+ * An unattended deleter has to be right about every door that will ever be
+ * built here, forever, with nobody watching the run. This volume holds
+ * photographs members took on the land, and a photograph is not recoverable
+ * from anywhere. `docs/DESIGN_TOKENS_SPEC.md` A1 is the record of what that
+ * costs when the reasoning is a shade off: a sweep that looked correct would
+ * have unlinked live investor documents thirty-one days after upload because
+ * one door's naming convention was invisible to the reference scan.
+ *
+ * Against that, what an automatic reclaim actually buys is one press of a
+ * button on a page that already tells him the number. So the job measures,
+ * and a person decides. The class of file this was built for cannot
+ * accumulate any more either way: the vault route now unlinks its own file
+ * when the row fails, which is the half that stops the bleeding.
+ */
+async function sweepUploadsVolume(): Promise<UploadsSweepReport> {
+  const entries = readVolume(UPLOADS_DIR);
+  // Only stamped names are ever asked about: their millisecond is what makes
+  // the database lookup exact. Everything else is reported as unknown without
+  // a claim being made about it either way.
+  const candidates = entries
+    .filter((e) => e.isFile && !e.isSymbolicLink && stampOf(e.name) !== null)
+    .map((e) => e.name);
+  const scan = await scanUploadReferences(getPool(), candidates);
+  const report = classifyVolume({
+    entries,
+    referenced: scan.referenced,
+    graceDays: Math.max(1, numberVar("uploads.orphan_grace_days")),
+    now: Date.now(),
+    complete: scan.complete,
+    incompleteReason: scan.incompleteReason,
+    scan: { tables: scan.tables, columns: scan.columns, values: scan.values },
+  });
+  lastUploadsReport = report;
+  return report;
+}
+
+/**
  * S18: the daily retention sweep. Two rules, both variables, both refusing
  * to touch anything still in flight: handled submissions age out (their data
  * JSON carries PII), read notifications age out. Unhandled and unread rows
@@ -3565,17 +3632,32 @@ async function runRetentionSweep(): Promise<string> {
       // public request body, and UPLOADS_DIR also holds brand images and the
       // investor vault — a `../` or a neighbouring filename must not be able
       // to reach them. Each unlink is isolated so one missing file cannot
-      // abort the sweep, and a filename any KEPT row still references is
-      // left alone.
+      // abort the sweep.
+      //
+      // TWO THINGS THAT HAD TO CHANGE, and both are about the same fact: this
+      // filename came from a stranger.
+      //
+      //  1. THE TWO SIDES WERE IN DIFFERENT NAMESPACES. The kept set was built
+      //     from RAW stored strings while the delete basenamed, so a kept row
+      //     holding `"foo.pdf"` did not protect against a dropped row holding
+      //     `"./foo.pdf"`: the lookup missed and both names reached the same
+      //     file. Basename on both sides, one namespace.
+      //
+      //  2. THIS SWEEP COULD REACH ANOTHER DOOR'S FILES. `POST /api/forms/submit`
+      //     is public and stores `data` unvalidated, so `data.attachment` could
+      //     name the village's hero image, and the day that submission aged out
+      //     this loop would have unlinked it. A door's own sweep may only ever
+      //     reach that door's own files, so the name has to be one the proposal
+      //     door minted.
       const keptFiles = new Set(
-        keep.map((s: any) => String(s?.data?.attachment ?? "").trim()).filter(Boolean),
+        keep.map((s: any) => path.basename(String(s?.data?.attachment ?? "").trim())).filter(Boolean),
       );
       const dropped = before.filter((s: any) => !keep.includes(s));
       for (const row of dropped) {
-        const name = String((row as any)?.data?.attachment ?? "").trim();
-        if (!name || keptFiles.has(name)) continue;
+        const name = path.basename(String((row as any)?.data?.attachment ?? "").trim());
+        if (!name || keptFiles.has(name) || !isProposalAttachment(name)) continue;
         try {
-          fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(name)));
+          fs.unlinkSync(path.join(UPLOADS_DIR, name));
         } catch {
           /* already gone, or never written — the row still goes */
         }
@@ -3637,7 +3719,26 @@ async function runRetentionSweep(): Promise<string> {
       if (gone) parts.push(`${gone} removed photograph(s)`);
     }
   }
-  return parts.length ? `swept ${parts.join(", ")}` : "nothing due";
+  /*
+   * And then the volume itself, MEASURED. Nothing here is unlinked: the count
+   * and the bytes land on `/health` and on Admin > Uploaded Files, and the
+   * decision stays with a person. See `sweepUploadsVolume` for why the two
+   * halves are split that way.
+   */
+  let volumeNote = "";
+  try {
+    const volume = await sweepUploadsVolume();
+    const orphan = volume.tally.orphan;
+    if (!volume.complete) {
+      volumeNote = `the uploads volume could not be judged this run (${volume.incompleteReason})`;
+    } else if (orphan.files) {
+      volumeNote = `${orphan.files} file(s) on the uploads volume holding ${humanBytes(orphan.bytes)} have nothing pointing at them`;
+    }
+  } catch (e) {
+    console.error("[retention] the uploads volume could not be measured", e);
+  }
+  const swept = parts.length ? `swept ${parts.join(", ")}` : "nothing due";
+  return volumeNote ? `${swept}; ${volumeNote}` : swept;
 }
 
 /**
@@ -6446,6 +6547,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // the sweep would have deleted live cap tables. Measurement first;
     // deletion only behind the amendments in docs/DESIGN_TOKENS_SPEC.md §A1.
     //
+    // `orphanFiles` / `orphanMb` are the amended version of that: the scan now
+    // reads EVERY text column of every table in the live schema instead of a
+    // hand-kept list, so the vault's own naming convention is no longer
+    // invisible to it (server/repos/uploadRefs.ts). Nothing here reclaims even
+    // so. The figure is served from the last daily sweep and never measured on
+    // this probe, which fires every few minutes.
+    //
     // 0093 splits the community's photographs out of that total, and the
     // reason is that they changed what this gauge is FOR. Until now the
     // volume only moved when a founder pressed a button, so a number that
@@ -6454,7 +6562,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // but "how full, and how much of it is the part that grows on its own".
     // Every writer stamps its own filename prefix, so the split costs one
     // comparison inside a walk this probe already does and no query at all.
-    let uploads: { files: number; mb: number; photoFiles: number; photoMb: number } | undefined;
+    let uploads:
+      | { files: number; mb: number; photoFiles: number; photoMb: number; orphanFiles?: number; orphanMb?: number }
+      | undefined;
     try {
       const entries = fs.readdirSync(UPLOADS_DIR, { withFileTypes: true });
       let bytes = 0;
@@ -6474,6 +6584,15 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         mb: Math.round(bytes / (1024 * 1024)),
         photoFiles,
         photoMb: Math.round(photoBytes / (1024 * 1024)),
+        // Absent until the first sweep has run, and absent whenever a scan
+        // could not finish. A zero would read as "none found", which is a
+        // different statement from "not measured yet".
+        ...(lastUploadsReport?.complete
+          ? {
+              orphanFiles: lastUploadsReport.tally.orphan.files,
+              orphanMb: Math.round(lastUploadsReport.tally.orphan.bytes / (1024 * 1024)),
+            }
+          : {}),
       };
     } catch { /* volume not mounted yet: report nothing rather than a zero that reads as healthy */ }
     res.json({ status: "ok", build: BUILD_MARKER, timestamp: new Date().toISOString(), uploads });
@@ -17934,6 +18053,85 @@ Send an empty drafts array when you are still listening. A role payload is {name
       }
     }
     res.json({ success: true });
+  });
+
+  /*
+   * ── THE FILES NOTHING POINTS AT: LOOK FIRST, THEN REMOVE ────────────────
+   *
+   * The founder authorised this cleanup and then could not find a way to do
+   * it, because the answer was a shell on a production volume. That was the
+   * defect. These two routes are the door: the GET is the whole report and
+   * the POST is the press, and the press cannot happen without the report.
+   *
+   * WHY THE PRESS CARRIES A FINGERPRINT AND NOT A LIST OF FILENAMES. A
+   * sweep must never accept a filename as input: it enumerates the volume
+   * itself and looks references up, so nothing a request says can aim it at a
+   * file. What the press carries instead is the digest of exactly the set the
+   * founder was shown. The server re-runs the whole sweep, recomputes the
+   * digest, and removes only when the two agree. A file that arrived, left or
+   * changed size in between stops the removal and returns the new report, so
+   * what gets removed is always what somebody actually looked at.
+   *
+   * WHY THE TRAIL RECORDS COUNTS AND NEVER NAMES. `health_events` is a table
+   * this sweep's own reference scan reads. An audit line naming a file would
+   * make that file look referenced from the moment it was written, so a
+   * removal that partly failed would leave its survivors permanently
+   * unremovable and permanently invisible. The names go back to the founder
+   * in the response, where nothing stores them.
+   */
+  app.get("/api/admin/uploads/orphans", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    try {
+      res.json(await sweepUploadsVolume());
+    } catch (e) {
+      console.error("[uploads] the volume could not be judged", e);
+      res.status(500).json({ error: "The uploads volume could not be read just now." });
+    }
+  });
+
+  app.post("/api/admin/uploads/orphans/remove", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const confirm = String(req.body?.digest ?? "").trim();
+    if (!confirm) {
+      return res.status(400).json({ error: "Open the list first. Removal only ever happens against a list somebody has looked at." });
+    }
+    let report: UploadsSweepReport;
+    try {
+      report = await sweepUploadsVolume();
+    } catch (e) {
+      console.error("[uploads] the volume could not be judged", e);
+      return res.status(500).json({ error: "The uploads volume could not be read just now." });
+    }
+    if (!report.complete) {
+      return res.status(409).json({
+        error: `Nothing was removed. ${report.incompleteReason} Until every table can be read, no file here can be shown to be unused.`,
+        report,
+      });
+    }
+    if (report.digest !== confirm) {
+      return res.status(409).json({
+        error: "The volume changed since you looked, so nothing was removed. Here is what is on it now.",
+        report,
+      });
+    }
+    const names = removableNames(report);
+    if (!names.length) {
+      return res.json({ removed: 0, bytes: 0, names: [], kept: [], after: report });
+    }
+    const outcome = removeFiles(UPLOADS_DIR, names);
+    const after = await sweepUploadsVolume();
+    const actor = await authedUser(req);
+    await recordEvent(getPool(), {
+      kind: "uploads.reclaim",
+      text:
+        `${outcome.removed.length} file(s) holding ${humanBytes(outcome.bytes)} were removed from the uploads volume. ` +
+        `Nothing in the database pointed at any of them.`,
+      actorUserId: actor?.id ?? adminActor(req)?.id ?? null,
+      entityType: "uploads",
+      entityRef: null,
+      audience: "admin",
+    });
+    res.json({ removed: outcome.removed.length, bytes: outcome.bytes, names: outcome.removed, kept: outcome.kept, after });
   });
 
   /**
