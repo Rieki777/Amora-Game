@@ -24,7 +24,7 @@
  */
 import { useState } from "react";
 import { Loader2, Scale } from "lucide-react";
-import { evaluateBallot } from "@shared/governanceEngine";
+import { evaluateBallot, type BallotOutcome } from "@shared/governanceEngine";
 import { pctText, weightText } from "./voteBars";
 import type { Ballot } from "./governanceApi";
 
@@ -43,7 +43,9 @@ import type { Ballot } from "./governanceApi";
  * The advisory words say what actually happened: the village answered, the
  * answer is kept, and nothing moved on its own.
  */
-const OUTCOME_WORDS: Record<string, { heading: string; blurb: string }> = {
+// Keyed by the union `evaluateBallot` returns, so an outcome added to the engine
+// cannot reach this dialog without words to say.
+const OUTCOME_WORDS: Record<BallotOutcome, { heading: string; blurb: string }> = {
   passed: {
     heading: "This carries",
     blurb: "Closing it makes it the village's decision and does whatever the decision says to do.",
@@ -58,7 +60,7 @@ const OUTCOME_WORDS: Record<string, { heading: string; blurb: string }> = {
   },
 };
 
-const ADVISORY_WORDS: Record<string, { heading: string; blurb: string }> = {
+const ADVISORY_WORDS: Record<BallotOutcome, { heading: string; blurb: string }> = {
   passed: {
     heading: "The village would say yes",
     blurb: "This vote was advisory, so nothing changes by itself. Closing it records what the village thinks, and somebody still has to decide what to do about it.",

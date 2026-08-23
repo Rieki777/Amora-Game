@@ -3599,7 +3599,10 @@ function GameRolesTab({ password }: { password: string }) {
 // check-voice holds them.
 
 const LIFECYCLES = ["off", "preview", "members", "public"] as const;
-const LIFECYCLE_HINT: Record<string, string> = {
+// Keyed by the union, not by `string`: the compiler now owns the promise that
+// every lifecycle has a sentence, so a fifth one is a build error rather than a
+// blank paragraph where the who-can-see-this line belongs.
+const LIFECYCLE_HINT: Record<ModuleLifecycle, string> = {
   off: "Routes 404, no nav, no admin surface.",
   preview: "Admins only. Invisible to everyone else.",
   members: "Signed-in members only.",
@@ -4158,7 +4161,11 @@ function ModulesTab({ password }: { password: string }) {
                 </div>
                 {!m.core && m.lifecycle !== "off" && (
                   <p className="text-xs text-gray-600 mt-3">
-                    {LIFECYCLE_HINT[m.lifecycle]}
+                    {/* `m` is the untyped catalog row, so the cast is where the
+                        wire value meets the union. It asserts what the server
+                        already validates and nothing more: a value outside the
+                        union still renders blank, exactly as it does today. */}
+                    {LIFECYCLE_HINT[m.lifecycle as ModuleLifecycle]}
                     {m.variableKeys.length > 0 && ` Tunables now visible in Game Mechanics: ${m.variableKeys.join(", ")}.`}
                   </p>
                 )}

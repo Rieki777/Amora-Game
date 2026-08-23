@@ -32,6 +32,7 @@ node scripts/check-hyphen-dash.mjs     # no em or en dashes anywhere (hyphens ar
 node scripts/check-auth-fetch.mjs      # a client call to a route that refuses strangers carries a token
 node scripts/check-admin-reach.mjs     # every admin WRITE route has a caller in the browser
 node scripts/check-repo-payloads.mjs   # every repo insert names the columns its table requires
+node scripts/check-mirror-annotations.mjs  # a hand-kept map of server values is keyed by the union
 node scripts/check-upload-strip.mjs    # nothing reaches the uploads volume without the strip
 node scripts/check-doc-links.mjs       # every path the builder docs name resolves on disk
 node scripts/check-route-reachability.mjs  # two ways in to every route (--table prints the doors)
@@ -210,6 +211,13 @@ time so `/health` cannot report a build that isn't running.
   the Write/Edit tools, never shell redirection.
 - **MySQL UNIQUE indexes exempt NULLs** — a nullable column in a unique key admits infinite
   duplicates. Dedupe columns must be NOT NULL.
+- **A hand-kept map typed `Record<string, T>` is a promise nobody checks.** The client keeps
+  lookup tables beside the unions the server sends, and a member added to the union in
+  `shared/` makes the page render NOTHING where a sentence belonged: no error, no console
+  line, an empty paragraph. Key them by the union and the compiler does the whole job.
+  `node scripts/check-mirror-annotations.mjs` suggests it wherever it is free. Reach for
+  `noUncheckedIndexedAccess` and you get 282 errors repo-wide and it still does not flag
+  `Record<Union, T>[keyTypedAsUnion]`, which is the shape that actually shipped.
 - **A column DEFAULT never applies to a `dbCollection` write.** `insert` and `replaceAll`
   build one INSERT naming EVERY column in the spec, so a key the caller did not set arrives
   as an explicit NULL, and an explicit NULL is not an absent column. On a NOT NULL column

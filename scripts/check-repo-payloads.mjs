@@ -112,6 +112,7 @@
  *   node scripts/check-repo-payloads.mjs
  *   node scripts/check-repo-payloads.mjs --table
  *   node scripts/check-repo-payloads.mjs --json
+ *   node scripts/check-repo-payloads.mjs --columns <table>   # audit the DDL parse
  */
 import fs from "node:fs";
 import path from "node:path";
