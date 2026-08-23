@@ -67,7 +67,51 @@ export function getPool(): mysql.Pool {
       console.error(`[pool] connection dropped, the pool will redial: ${err?.code ?? ""} ${err?.message ?? err}`);
     });
   });
+  void verifySessionZone(_pool);
   return _pool;
+}
+
+/**
+ * SAY IT OUT LOUD IF THE PIN DID NOT TAKE.
+ *
+ * The `SET time_zone` above is fire-and-forget, and a sweep of `server/**`
+ * counted about ten comparisons whose correctness rests entirely on it: the
+ * abuse guard's window and the scheduler's dueness check named in the comment
+ * above, the ballot close time (`ballots.closes_at`, written by
+ * `DATE_ADD(NOW(), …)` and read in JS against `Date.now()`), the per-cycle mint
+ * cap (`token_ledger.at` against a JS lunar boundary), agent-token last-use and
+ * delivery retries, and the badge expiry checks. None of them can see this
+ * file. All of them fail silently and most fail in the unsafe direction.
+ *
+ * So the query gets asked back. This proves the hook runs and the server
+ * accepted the offset, which is the failure that would actually happen (a
+ * driver change, a typo, a server refusing the value). It does NOT prove every
+ * future connection is pinned; nothing short of asking on every checkout would,
+ * and that is a round trip per query for a hook that either works or does not.
+ *
+ * Logged and never thrown. A village whose database answers everything else
+ * correctly should not refuse to boot over a diagnostic, and an exception here
+ * would land in an event handler where nothing can catch it.
+ *
+ * The structural alternative, where it is available, is to stop comparing two
+ * clocks at all: `server/lib/base-reads.ts` writes its cache timestamps from a
+ * bound `Date` and compares them through `withinFreshWindow`, so that pair is
+ * correct whatever this query does.
+ */
+async function verifySessionZone(pool: mysql.Pool): Promise<void> {
+  try {
+    const [rows] = await pool.query<any[]>("SELECT @@session.time_zone AS tz");
+    const tz = String(rows?.[0]?.tz ?? "");
+    if (tz !== "+00:00") {
+      console.error(
+        `[pool] SESSION ZONE IS ${tz || "unreadable"}, not +00:00. Every comparison between a ` +
+          "NOW()-written column and this process's clock is now wrong by that offset, silently. " +
+          "Rate limits, job cadence, ballot close times and the mint cap all read it.",
+      );
+    }
+  } catch (e: any) {
+    console.error(`[pool] could not confirm the session zone: ${e?.message ?? e}`);
+  }
 }
 
 /** For tests and graceful shutdown. */

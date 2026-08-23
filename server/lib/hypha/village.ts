@@ -17,7 +17,13 @@
  * drives all three against a real JSON-RPC node it then takes away.
  */
 import type { Pool } from "mysql2/promise";
-import { formatUnits, readVillageMetric } from "../base-reads";
+import {
+  FRESH_WINDOW_MS,
+  formatUnits,
+  readInstant,
+  readVillageMetric,
+  withinFreshWindow,
+} from "../base-reads";
 import * as repo from "../../repos/hypha";
 
 export interface VillageFigure {
@@ -33,12 +39,14 @@ export interface VillageFigure {
   stale: boolean;
 }
 
-/**
+/*
  * Serve a figure under a minute old without touching the RPC. A page load must
  * not hammer an endpoint somebody pays per call for, and this is the same
- * read-through window `readOnchainBalance` uses for member balances.
+ * read-through window `readOnchainBalance` uses for member balances — the same
+ * constant now, imported, rather than a second literal saying so in a comment.
+ * The comparison itself lives in `withinFreshWindow`, which is where the
+ * DB-clock-versus-process-clock rule is written down and tested.
  */
-const FRESH_MS = 60_000;
 
 export async function villageFigure(
   pool: Pool,
@@ -56,7 +64,7 @@ export async function villageFigure(
   if (input.metric === "treasuryBalance" && !subject) return null;
 
   const cached = await repo.villageRead(pool, input.tokenSlug, input.metric, subject).catch(() => null);
-  if (!input.force && cached && Date.now() - Date.parse(cached.fetchedAt) < FRESH_MS) {
+  if (!input.force && cached && withinFreshWindow(cached.fetchedAt, Date.now(), FRESH_WINDOW_MS)) {
     return { ...cached, formatted: formatUnits(cached.raw, cached.decimals), stale: false };
   }
 
@@ -72,9 +80,10 @@ export async function villageFigure(
      * holds. Returning `new Date()` while storing something else would make the
      * first read of a figure report a different moment from every read after
      * it, which is the kind of difference nobody notices until a staleness
-     * message contradicts itself.
+     * message contradicts itself. `readInstant` is that truncation, shared with
+     * the member-balance path so both caches date themselves the same way.
      */
-    const at = new Date(Math.floor(Date.now() / 1000) * 1000);
+    const at = readInstant();
     await repo
       .saveVillageRead(pool, {
         tokenSlug: input.tokenSlug,
