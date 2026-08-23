@@ -78,27 +78,41 @@ describe.skipIf(!configured)("the application pool", () => {
     }
   });
 
-  it("and the control: an UNPINNED connection to the same server is where that arithmetic goes wrong", async () => {
+  it("and the control: an UNPINNED connection reads NOW() off by exactly the session's offset", async () => {
     /*
      * Every suite in this repo builds its own pool with `timezone: "Z"` and no
-     * session pin, which is the regime this connection reproduces. On a UTC
-     * server the drift is zero and this test asserts nothing beyond the
-     * pinned one; on a server in any other zone it is that zone's offset, and
-     * the assertion below is what tells the reader the pinned result above was
-     * not a coincidence.
+     * session pin, which is the regime this connection reproduces.
+     *
+     * THE OFFSET IS MEASURED, NEVER READ OFF THE NAME. The first version of
+     * this test branched on whether `@@session.time_zone` was the string
+     * "+00:00" and demanded a drift over a minute when it was not. It passed
+     * here and went red in CI at 924 ms, because CI's MySQL reports `SYSTEM`
+     * while its host runs UTC: the name says "not pinned" and the offset says
+     * zero, and those are different questions. This machine's MariaDB reports
+     * `SYSTEM` too, four hours from UTC. So ask the server what the offset IS.
+     *
+     * The assertion is a total one and holds on either engine: `NOW()` read
+     * through an unpinned session comes back wrong by exactly that offset,
+     * whether the offset is four hours or nothing at all.
      */
     const loose = await mysql.createConnection({ uri: db.url, timezone: "Z" });
     try {
-      const [[row]] = await loose.query<any[]>("SELECT @@session.time_zone AS tz, NOW() AS n, UNIX_TIMESTAMP(NOW()) AS u");
-      const trueSkew = Math.abs(Number(row.u) * 1000 - Date.now());
-      const apparentDrift = Math.abs(Date.now() - new Date(row.n).getTime());
-      // The server's clock really is right. Only the reading is shifted.
-      expect(trueSkew).toBeLessThan(60_000);
-      if (String(row.tz) !== "+00:00") {
-        expect(apparentDrift).toBeGreaterThan(60_000);
-      } else {
-        expect(apparentDrift).toBeLessThan(2_000);
-      }
+      const [[row]] = await loose.query<any[]>(
+        "SELECT @@session.time_zone AS tz, TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) AS offsetSeconds, " +
+          "NOW() AS n, UNIX_TIMESTAMP(NOW()) AS u",
+      );
+      const offsetMs = Number(row.offsetSeconds) * 1000;
+      // The server's clock really is right. Only the reading moves.
+      expect(Math.abs(Number(row.u) * 1000 - Date.now())).toBeLessThan(60_000);
+      // And it moves by the offset, in the direction the session leans.
+      const apparentDrift = Date.now() - new Date(row.n).getTime();
+      expect(Math.abs(apparentDrift + offsetMs)).toBeLessThan(5_000);
+      // Whatever that offset is, the pinned pool above answered zero for it.
+      const pinned = getPool();
+      const [[p]] = await pinned.query<any[]>(
+        "SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) AS offsetSeconds",
+      );
+      expect(Number(p.offsetSeconds)).toBe(0);
     } finally {
       await loose.end();
     }
