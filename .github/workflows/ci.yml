@@ -205,6 +205,32 @@ jobs:
         # Before the build, with the other guards: it reads source files.
         run: node scripts/check-route-reachability.mjs
 
+      - name: Living map route list
+        # The gate above asks whether a route can be reached from the CLIENT. This
+        # one asks whether the living map agrees the route exists at all.
+        #
+        # docs/prototypes/grounds-v0.html carries SITE_PAGES, its own allowlist of
+        # the routes this app serves, and realRoute() returns '' for anything not on
+        # it. So a door a founder places on a route the list has not caught renders,
+        # carries an href, takes a click and does not navigate. No error, no console
+        # line, nothing a test can see.
+        #
+        # It drifted four routes behind the router (/campaigns, /decisions, /propose,
+        # /places) and THREE of those had already shipped as dead doors. The array is
+        # derived output and nothing re-derived it, so it rotted at the speed pages
+        # were added.
+        #
+        # Both halves of the comparison already existed in the tree, in two scripts
+        # that never met: scripts/qa/routes.mjs derives the routes from App.tsx, and
+        # docs/prototypes/patch_g1_04_routes_rederive.py reads the array back out.
+        # This runs both and compares, with no browser and no build, which is what
+        # makes it cheap enough to run on every push. Watched RED before wiring, on
+        # the real four-route drift and on a route rename that leaves both counts at
+        # 61, then GREEN after the re-derive it names put the file back byte for byte.
+        #
+        # Before the build, with the other guards: it reads two files in the repo.
+        run: node scripts/check-map-routes.mjs
+
       - name: Image budget
         # Format, per-file size, and a total that may only fall.
         #

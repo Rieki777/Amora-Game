@@ -33,6 +33,7 @@ node scripts/check-admin-reach.mjs     # every admin WRITE route has a caller in
 node scripts/check-upload-strip.mjs    # nothing reaches the uploads volume without the strip
 node scripts/check-doc-links.mjs       # every path the builder docs name resolves on disk
 node scripts/check-route-reachability.mjs  # two ways in to every route (--table prints the doors)
+node scripts/check-map-routes.mjs      # the living map's SITE_PAGES allowlist still matches the router
 node scripts/check-artifact-budget.mjs # the living map's disk and wire size
 node scripts/check-image-budget.mjs    # shipped images: WebP, 400 KB each, falling total
 node scripts/check-dist-budget.mjs     # main JS and total dist/public, measured the way CI measures
