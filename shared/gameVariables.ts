@@ -814,6 +814,19 @@ export const VARIABLES: VariableDef[] = [
     max: 3650,
     unit: "days",
   },
+  {
+    key: "uploads.orphan_grace_days",
+    category: "Data lifecycle",
+    label: "Leave an unreferenced upload alone for",
+    description:
+      "The uploads volume holds files from five doors: proposal attachments, brand images, village fonts, investor documents and members' photographs. Admin > Uploaded Files lists the ones no row in the database points at, and this is how long a file is left alone before it can appear on that list. The window protects a picture you have just replaced: swapping an image mints a new address by design, so the old file goes unreferenced the moment the new one lands while every browser and every email already sent still points at it. Nothing is ever removed without somebody pressing the button.",
+    type: "integer",
+    default: "30",
+    min: 1,
+    max: 3650,
+    unit: "days",
+    ring: "founder",
+  },
 
   // ── Call automation ──────────────────────────────────────────────────────
   {
