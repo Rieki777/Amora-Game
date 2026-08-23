@@ -28,6 +28,19 @@ import { CheckCircle2, CircleMinus, Hand, MessageSquareWarning } from "lucide-re
 import InfoTip from "@/components/InfoTip";
 import type { BallotObjection } from "./governanceApi";
 
+/**
+ * What each state of an objection means, and its authority is the server's
+ * `OBJECTION_RULINGS` plus the `open` an insert writes (server/lib/ballots.ts).
+ * `ballot_objections.status` is a varchar with no enum behind it, so the
+ * database constrains nothing here and the route's own allow-list is the only
+ * rule; governanceStates.test.ts reads that list and holds this map to it.
+ *
+ * The lookup takes a fallback for the same reason GameMechanics.tsx does.
+ * `Record<Union, T>` types an index as total, so the compiler asserts a claim
+ * about the server instead of checking one: the identical shape here threw
+ * inside a list and took a whole page to the error boundary the first time a
+ * status arrived that a hand-kept union had never heard of.
+ */
 const STATUS: Record<
   BallotObjection["status"],
   { label: string; blurb: string; chip: string; icon: typeof Hand }
@@ -58,7 +71,18 @@ const STATUS: Record<
   },
 };
 
-const RULINGS: Array<{ id: string; label: string; help: string }> = [
+/** A state nobody has taught this panel yet, read as itself. */
+const UNKNOWN_STATUS = {
+  label: "Recorded",
+  blurb: "This objection is in a state this page has not been taught to read. Its ruling is on the decision's record.",
+  chip: "bg-stone-100 text-stone-600",
+  icon: CircleMinus,
+};
+
+export const OBJECTION_STATUS_COPY = STATUS;
+
+/** The rulings a facilitator is offered. Same authority as STATUS above. */
+export const RULINGS: Array<{ id: string; label: string; help: string }> = [
   { id: "integrated", label: "Uphold it", help: "The proposal must change. This ballot closes and a new one carries the amended version." },
   { id: "concern", label: "Record as a concern", help: "It does not block. It stays attached to the decision and surfaces at its review." },
   { id: "withdrawn", label: "Withdraw it", help: "For when the person who raised it no longer holds it." },
@@ -135,7 +159,7 @@ export default function ObjectionPanel({
       {objections.length > 0 && (
         <ul className="mt-4 space-y-4">
           {objections.map((o) => {
-            const s = STATUS[o.status];
+            const s = STATUS[o.status] ?? UNKNOWN_STATUS;
             const Icon = s.icon;
             return (
               <li key={o.id} className="rounded-lg border border-stone-200 p-3">

@@ -134,6 +134,19 @@ export const NOTIFICATION_KINDS: Record<string, NotificationKind> = {
     many: "{n} proposals moved.",
     celebrate: false,
   },
+  // How much your vote weighs is power, and the weight routes moved it for a
+  // year while telling the person it belonged to nothing at all. The trail was
+  // readable the whole time, which is a different thing from being told: a
+  // member has to already suspect something changed before a trail helps them.
+  // The reason was required at the point of the change and now reaches the one
+  // person it was written for. Quiet, per R52: this is a fact somebody needs,
+  // and no part of it is a celebration.
+  weight_changed: {
+    group: "decisions",
+    blurb: "How much your vote weighs was changed, and whoever changed it said why.",
+    many: "{n} changes to how much your vote weighs.",
+    celebrate: false,
+  },
   role_appointed: {
     group: "decisions",
     blurb: "A seat is yours to hold. The role page says what it is accountable for.",

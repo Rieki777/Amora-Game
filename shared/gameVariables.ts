@@ -400,11 +400,15 @@ export const VARIABLES: VariableDef[] = [
     unit: "per cycle",
   },
   {
+    // The KEY is forever; the label named Hypha as the only destination and
+    // stopped being true when the on-site engine landed, the same way
+    // governance.hypha_threshold's did. This gate stands in front of the
+    // binding vote wherever the binding vote happens, so it says that.
     key: "governance.proposal_support_threshold",
     category: "Governance",
-    label: "Supporters before a proposal can go to Hypha",
+    label: "Supporters before a proposal can go to the vote",
     description:
-      "How many members must support a mechanics proposal in-game before it can be taken to Hypha for the binding vote. The sensing step: proposals gather perspectives here first, and only what the village actually wants reaches the chain. 0 turns the gate off: any open proposal can go straight to Hypha.",
+      "How many members must support a mechanics proposal in-game before it can be taken to the binding vote. The sensing step: proposals gather perspectives here first, and only what the village actually wants reaches a ballot. Where that ballot happens is set by how village-wide ballots decide, on this village's own dials or in your Hypha space. 0 turns the gate off, and any open proposal can go straight to the vote.",
     type: "integer",
     default: "0",
     min: 0,

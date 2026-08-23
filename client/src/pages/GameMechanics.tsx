@@ -9,21 +9,32 @@
  *      dials are EDITABLE in place for signed-in members: adjusting one
  *      stages a change, staged changes become a proposal with a title and a
  *      rationale, and the proposal walks the village's own path — sensing
- *      support in-game, then Hypha for the binding vote, then the amendment
- *      ledger when it applies.
- *   3. Open proposals — support, sponsor a draft, copy the canonical
- *      document for Hypha, report a pass, and (admins) apply a verified one.
+ *      support in-game, then the binding vote, then the amendment ledger
+ *      when it applies.
+ *   3. Open proposals — support, sponsor a draft, take one to the binding
+ *      vote, and (admins) apply one that carried.
  *      A proposal here may have BEEN to a vote and come back: a missed quorum
  *      and a called-off ballot both send it to `open` holding its ballot id,
  *      and both settle nothing. The card says which, in the bell's own words,
  *      and links to the vote (BALLOT_RETURN below).
  *   4. The amendment history.
  *
+ * WHERE THE BINDING VOTE HAPPENS IS THIS VILLAGE'S OWN ANSWER, and the page
+ * had no way to ask. It shipped saying "the binding vote happens on the
+ * village's Hypha" in two places and offering exactly two doors, both of them
+ * to Hypha, while `governance.default_method` ships as `custom`: a village
+ * that turned the governance engine on decided its own mechanics, and the
+ * only route that could open that vote had no caller in this whole client.
+ * `snapshot.governance` now carries the venue, the method and the auto-apply
+ * brake, so every sentence here is true under either setting and the door to
+ * the village's own vote exists.
+ *
  * The page RENDERS the server's answers and computes no rule of its own:
  * eligibility comes from /standing (the same function the routes enforce
- * with), validation problems come back from the server, and the proposal
- * document is fetched, never rebuilt here — what is voted on is what was
- * checked.
+ * with), the venue comes from /api/game/mechanics (the same helpers the
+ * open-ballot route conducts by), validation problems come back from the
+ * server, and the proposal document is fetched, never rebuilt here — what is
+ * voted on is what was checked.
  */
 import Layout from "@/components/Layout";
 import { useCallback, useEffect, useState } from "react";
@@ -63,10 +74,27 @@ interface MechanicsVariable {
   applyTiming: "instant" | "cycle-close";
 }
 
+/**
+ * How THIS village decides a mechanics proposal, served whole so the page
+ * states it and never infers it. `decidesBy` already folds in whether the
+ * on-site engine is running at all: a village with the governance module off
+ * decides on Hypha whatever its stored method says, because the route that
+ * would open a village ballot is not mounted.
+ */
+interface MechanicsGovernance {
+  decidesBy: "onsite" | "hypha";
+  /** The method an on-site ballot conducts. Null when the vote is on Hypha. */
+  method: "majority" | "custom" | "consensus" | "consent" | null;
+  /** `governance.auto_apply_enabled`: off holds a carried proposal for a hand. */
+  autoApply: boolean;
+  supportThreshold: number;
+}
+
 interface MechanicsSnapshot {
   constitution: Array<{ title: string; plain: string; enforcedBy: string }>;
   variables: MechanicsVariable[];
   modules: Array<{ id: string; name: string; core: boolean }>;
+  governance: MechanicsGovernance;
 }
 
 interface Amendment {
@@ -140,6 +168,10 @@ interface Standing {
   recognitionHeld: number;
   supportThreshold: number;
   backed: Array<{ proposalId: string; kind: string }>;
+  /** Holds `proposal.open`, so may take ANY proposal to the village vote. */
+  mayOpenBallot: boolean;
+  /** Proposals this viewer raised. The other half of who the route admits. */
+  mine: string[];
 }
 
 export const STATUS_COPY: Record<ProposalStatus, { label: string; cls: string }> = {
@@ -149,14 +181,38 @@ export const STATUS_COPY: Record<ProposalStatus, { label: string; cls: string }>
   to_hypha: { label: "at Hypha for the vote", cls: "bg-sky-50 text-sky-700" },
   onsite_vote: { label: "at the village vote", cls: "bg-sky-50 text-sky-700" },
   passed_claimed: { label: "passed, awaiting verification", cls: "bg-violet-50 text-violet-700" },
-  passed_verified: { label: "verified on-chain, applying", cls: "bg-violet-50 text-violet-700" },
+  // ", applying" came off this one too. Whether it is applying depends on the
+  // same brake and the same cycle timing as the on-site sibling below, and
+  // the chip asserted the happy branch of both.
+  passed_verified: { label: "verified on-chain", cls: "bg-violet-50 text-violet-700" },
   // No ", applying" on this one. Whether it IS applying depends on
-  // `governance.auto_apply_enabled`, which this page is not served and cannot
-  // read, and with the brake on the proposal sits here waiting for a hand.
+  // `governance.auto_apply_enabled` and on whether the set touches a
+  // cycle-timed dial, so the chip states the fact that never varies and
+  // WaitingNote below says which of the two is holding it.
   passed_onsite: { label: "carried at the village vote", cls: "bg-violet-50 text-violet-700" },
   failed: { label: "did not pass", cls: "bg-stone-100 text-stone-500" },
   applied: { label: "applied", cls: "bg-teal-deep/10 text-teal-deep" },
 };
+
+/**
+ * The statuses an admin may apply from, mirroring the ONE apply route
+ * (`POST /api/admin/mechanics/proposals/:id/apply`, server/index.ts).
+ *
+ * `passed_onsite` shipped in that route's accepted set and NOT in this page's
+ * button, so a proposal the village carried at its own vote and the brake was
+ * holding had no way to be applied from the only surface that shows it. The
+ * route's own comment already said a ballot-passed proposal is applied by the
+ * same human hand as a Hypha-verified one; the button disagreed in silence.
+ * gameMechanicsStates.test.ts reads the route's set out of the server source
+ * and holds this to it, the same way it reads the status enum off the
+ * migration instead of trusting a union kept by hand.
+ */
+export const APPLYABLE: ReadonlySet<ProposalStatus> = new Set<ProposalStatus>([
+  "to_hypha",
+  "passed_claimed",
+  "passed_verified",
+  "passed_onsite",
+]);
 
 /**
  * The state chip, never undefined. `STATUS_COPY[p.status].cls` used to be read
@@ -251,6 +307,52 @@ function BallotReturnNote({ proposal }: { proposal: Proposal }) {
     <div className="mb-3 rounded-lg bg-stone-50 border border-stone-200 px-3 py-2">
       <p className="text-sm text-stone-600 leading-relaxed">{back.line}</p>
       {to}
+    </div>
+  );
+}
+
+/**
+ * WHY A PROPOSAL THAT CARRIED IS STILL SITTING THERE.
+ *
+ * A proposal at `passed_onsite` or `passed_verified` has won its vote and
+ * changed nothing yet, and the page had no words for that at all. Two things
+ * hold one: the founder's auto-apply brake, and a change-set touching a
+ * cycle-timed dial (the whole set waits together, because a set applies
+ * atomically or not at all). Both are facts the server already knows and the
+ * member could not see, so the chip said "applying" and the ledger stayed
+ * empty and nothing on the page joined those up.
+ *
+ * The order matches the server's: the brake is checked before the cycle
+ * timing, because with the brake on a human applies it whatever the timing
+ * says. That ordering is also why the brake line says nothing about WHEN: a
+ * hand-applied set writes through immediately, so the "(at next cycle close)"
+ * note beside a change describes the auto path the brake has switched off,
+ * and a sentence promising a timing here would contradict the line under it.
+ * A third case is left deliberately vague, and honestly so: with the brake
+ * off and every dial instant, the apply already ran and refused every change,
+ * and this page cannot know which registry rule refused it. It says what it
+ * knows and points at the person who can look.
+ *
+ * R56: every line here is a fact the member cannot otherwise see. None of it
+ * argues for an outcome, and none of it asks anybody to hurry.
+ */
+function WaitingNote({ proposal, gov }: { proposal: Proposal; gov: MechanicsGovernance | null }) {
+  if (proposal.status !== "passed_onsite" && proposal.status !== "passed_verified") return null;
+  const carried =
+    proposal.status === "passed_onsite"
+      ? "The village carried this at its own vote."
+      : "This carried on Hypha and the verified result has come home.";
+  const why =
+    gov && !gov.autoApply
+      ? "Applying it is a steward's own act while the founders' auto-apply brake is off."
+      : proposal.changes.some((c) => c.applyTiming === "cycle-close")
+        ? "One of these dials only moves at a cycle close, so the whole set applies together at the next one."
+        : "Nothing has reached the amendment ledger under it yet, and a steward can see why from the apply.";
+  return (
+    <div className="mb-3 rounded-lg bg-violet-50/60 border border-violet-200 px-3 py-2">
+      <p className="text-sm text-stone-700 leading-relaxed">
+        {carried} {why}
+      </p>
     </div>
   );
 }
@@ -500,10 +602,51 @@ export default function GameMechanics() {
     }
   };
 
+  /**
+   * Take a proposal to the village's own vote. The route this reaches had no
+   * caller anywhere in the client until now, so the shipped default posture
+   * (`governance.default_method` at `custom`, the governance engine on) had
+   * every door to Hypha and none to the vote the village had chosen to hold.
+   *
+   * The confirm states the two consequences a member cannot undo and cannot
+   * see coming: the whole roll is asked, and the weights freeze as they stand
+   * today. Both are the snapshot law, and both belong in front of the person
+   * pressing the button.
+   */
+  const openBallot = async (p: Proposal) => {
+    if (
+      !window.confirm(
+        `Open the village vote on "${p.title}"? Everyone on the roll is asked, and the voting weights freeze as they stand today.`,
+      )
+    )
+      return;
+    const d = await act(`/api/governance/mechanics/${p.id}/open-ballot`);
+    if (d) setFeedback({ ok: true, text: "The village vote is open, and everyone on the roll has been asked." });
+  };
+
   const villageName = cfg?.project?.name ?? "";
   const categories = snapshot ? Array.from(new Set(snapshot.variables.map((v) => v.category))) : [];
   const backedIds = new Set((standing?.backed ?? []).filter((b) => b.kind === "support").map((b) => b.proposalId));
   const isAdminViewer = user?.role === "admin" || user?.role === "founder";
+  const gov = snapshot?.governance ?? null;
+  const onSite = gov?.decidesBy === "onsite";
+  // The public answer, with the signed-in one as the fallback for the moment
+  // before the snapshot lands. They read the same variable.
+  const supportThreshold = gov?.supportThreshold ?? standing?.supportThreshold ?? 0;
+  /**
+   * Whether THIS viewer may take THIS proposal to the vote, answered from the
+   * standing payload the routes enforce with. The open-ballot route admits
+   * the proposer or a `proposal.open` holder and refuses below the support
+   * threshold, so all three halves of its answer are asked here and a member
+   * never meets the button by being told no.
+   */
+  const mayOpenBallotOn = (p: Proposal) =>
+    onSite &&
+    p.status === "open" &&
+    !!standing &&
+    !standing.denied &&
+    (standing.mayOpenBallot || standing.mine.includes(p.id)) &&
+    p.supports >= supportThreshold;
   const activeProposals = proposals.filter(
     (p) => p.status !== "withdrawn" && p.status !== "applied" && p.status !== "failed",
   );
@@ -517,9 +660,14 @@ export default function GameMechanics() {
         <div className="container max-w-3xl mx-auto px-4 text-center">
           <Scale className="w-8 h-8 text-amber mx-auto mb-3" />
           <h1 className="font-display text-4xl md:text-5xl font-bold mb-3">Game Mechanics</h1>
+          {/* No venue in this sentence. It renders before the snapshot lands,
+              and where the binding vote happens is this village's own answer:
+              the old wording named Hypha as a flat fact and was false for
+              every village running its own ballots. The Proposals section
+              says which, once the page knows. */}
           <p className="text-white/80 max-w-2xl mx-auto">
             Every rule this Game runs on, in the open, and yours to change. Adjust a dial to
-            start a proposal; the village senses it here, the vote binds on Hypha, and every
+            start a proposal; the village senses it here, then votes on it, and every
             change lands on the permanent record.
             {villageName ? ` This is how ${villageName} plays.` : ""}
           </p>
@@ -702,12 +850,27 @@ export default function GameMechanics() {
                   <Megaphone className="w-5 h-5 text-teal-deep" />
                   <h2 className="font-display text-2xl font-bold text-teal-deep">Proposals</h2>
                 </div>
+                {/* The venue, from the server, in the one place the page has
+                    room to say it. Both readings are true of a real village:
+                    `governance.default_method` decides which, and a village
+                    that chooses Hypha keeps every word of the shipped loop.
+
+                    The threshold reads off the PUBLIC payload now. It came
+                    from /standing, which needs a token, so the one sentence
+                    saying what sends a proposal to the vote was invisible to
+                    everybody who was not signed in, on a page whose whole
+                    claim is that the rules are visible to everyone. It also
+                    governs whether the door below appears, and a door that
+                    comes and goes on a number nobody was shown is the kind of
+                    thing a member reads as the page being broken. */}
                 <p className="text-sm text-stone-600 mb-5 max-w-2xl">
                   Rule changes the village is weighing. Support gathers here
-                  {standing && standing.supportThreshold > 0
-                    ? ` (${standing.supportThreshold} supporter${standing.supportThreshold === 1 ? "" : "s"} sends one to the vote)`
+                  {supportThreshold > 0
+                    ? ` (${supportThreshold} supporter${supportThreshold === 1 ? "" : "s"} sends one to the vote)`
                     : ""}
-                  ; the binding vote happens on the village's Hypha, and a passed proposal is
+                  {onSite
+                    ? "; the binding vote runs here, on this village's own ballot, and a proposal that carries is"
+                    : "; the binding vote runs on the village's Hypha, and a proposal that carries is"}{" "}
                   applied and recorded on the amendment ledger.
                 </p>
                 {activeProposals.length === 0 && (
@@ -743,6 +906,7 @@ export default function GameMechanics() {
                         </p>
                         <p className="text-sm text-stone-600 mb-3 leading-relaxed">{p.rationale}</p>
                         <BallotReturnNote proposal={p} />
+                        <WaitingNote proposal={p} gov={gov} />
                         <ul className="text-sm space-y-1 mb-3">
                           {p.changes.map((c) => (
                             <li key={c.key}>
@@ -780,14 +944,36 @@ export default function GameMechanics() {
                               Sponsor this draft
                             </button>
                           )}
+                          {/* THE DOOR TO THE VILLAGE'S OWN VOTE. The route
+                              behind it shipped complete and unreachable: no
+                              caller anywhere in this client, so the shipped
+                              default posture had every door leading to Hypha
+                              and none to the ballot the village had chosen to
+                              hold. Admin was the only way in, which is exactly
+                              the shape R54 rules out. */}
+                          {mayOpenBallotOn(p) && (
+                            <button
+                              type="button"
+                              onClick={() => openBallot(p)}
+                              className="text-sm bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium hover:bg-teal"
+                            >
+                              Open the village vote
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => copyDocument(p.id)}
                             className="inline-flex items-center gap-1.5 text-sm text-teal-deep font-medium hover:underline"
                           >
-                            <Copy className="w-3.5 h-3.5" /> Copy for Hypha
+                            <Copy className="w-3.5 h-3.5" /> {onSite ? "Copy this proposal" : "Copy for Hypha"}
                           </button>
-                          {(p.status === "open" || p.status === "to_hypha") && (
+                          {/* The Hypha route-out is offered while this village
+                              votes on Hypha, and for a proposal that is ALREADY
+                              there whatever the village decided since. A
+                              founder who moves the village on-site leaves
+                              proposals mid-flight on the chain, and those keep
+                              every door they need to come home. */}
+                          {(p.status === "to_hypha" || (p.status === "open" && !onSite)) && (
                             <button
                               type="button"
                               onClick={() => continueToHypha(p.id)}
@@ -796,7 +982,7 @@ export default function GameMechanics() {
                               Continue to Hypha ↗
                             </button>
                           )}
-                          {user && p.status === "open" && (
+                          {user && p.status === "open" && !onSite && (
                             <button
                               type="button"
                               onClick={() => act(`/api/game/mechanics/proposals/${p.id}/to-hypha`)}
@@ -840,20 +1026,33 @@ export default function GameMechanics() {
                               It passed on Hypha
                             </button>
                           )}
-                          {isAdminViewer && (p.status === "to_hypha" || p.status === "passed_claimed" || p.status === "passed_verified") && (
+                          {/* APPLYABLE, not a list retyped here. This condition
+                              read three statuses while the route accepted
+                              four, so a proposal the village carried at its
+                              own vote and the brake was holding could be
+                              applied by nothing at all. The confirm asks the
+                              right question for the vote that actually
+                              happened: a Hypha result is a claim about
+                              somebody else's chain and wants checking, and a
+                              ballot this village ran and closed itself was
+                              already counted here. */}
+                          {isAdminViewer && APPLYABLE.has(p.status) && (
                             <button
                               type="button"
                               onClick={() => {
+                                const onsiteVote = p.status === "passed_onsite";
                                 if (
                                   window.confirm(
-                                    `Apply "${p.title}" now? Verify it actually passed on Hypha first${p.hyphaRef ? ` (${p.hyphaRef})` : ""}. Every change lands on the public ledger under this proposal's reference.`,
+                                    onsiteVote
+                                      ? `Apply "${p.title}" now? The village carried this at its own vote and it is waiting on a hand. Every change lands on the public ledger under this proposal's reference.`
+                                      : `Apply "${p.title}" now? Verify it actually passed on Hypha first${p.hyphaRef ? ` (${p.hyphaRef})` : ""}. Every change lands on the public ledger under this proposal's reference.`,
                                   )
                                 )
                                   act(`/api/admin/mechanics/proposals/${p.id}/apply`);
                               }}
                               className="text-sm bg-amber text-foreground rounded-lg px-3 py-1.5 font-medium"
                             >
-                              Verify & apply
+                              {p.status === "passed_onsite" ? "Apply this" : "Verify & apply"}
                             </button>
                           )}
                           {user && (p.status === "open" || p.status === "draft") && (
