@@ -258,10 +258,24 @@ export async function sanitiseForVolume(input: Buffer, originalName = ""): Promi
   const sharp = (await import("sharp")).default;
   const meta = await sharp(input).metadata();
   const format = String(meta.format ?? "");
+  /*
+   * A GIF or a WebP can hold more than one frame, and sharp decodes only the
+   * first unless it is told otherwise. Re-encoding an animation without this
+   * would silently hand back a still, which is `imagePrep.ts`'s exact rule in
+   * the browser: a helper that quietly ships a broken file is worse than no
+   * helper. `pages` is what sharp reports; anything above one is animated.
+   *
+   * Written from sharp's documented contract rather than from a fixture: a
+   * multi-frame GIF cannot be built with sharp alone, so there is no honest
+   * test for it here and there is no dependency worth adding for one. The
+   * single-frame path IS tested, so this cannot regress the common case.
+   */
+  const animated = Number(meta.pages ?? 1) > 1;
+  const read = animated ? { animated: true } : {};
   // No resize anywhere in this call: a scanned document has to come out the
   // size it went in. The place-photo path resizes because a gallery renders
   // thumbnails, and it has its own function for that.
-  const pipeline = sharp(input).rotate(); // honour orientation before the flag is dropped
+  const pipeline = sharp(input, read).rotate(); // honour orientation before the flag is dropped
   let out: Buffer;
   if (format === "png") out = await pipeline.png().toBuffer();
   else if (format === "webp") out = await pipeline.webp({ quality: 92 }).toBuffer();
