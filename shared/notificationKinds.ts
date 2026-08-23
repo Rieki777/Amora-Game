@@ -297,6 +297,29 @@ export const NOTIFICATION_KINDS: Record<string, NotificationKind> = {
     many: "{n} marks on your profile changed.",
     celebrate: false,
   },
+  // 0098. A badge's DEFINITION changed under the people holding it, so what
+  // they can do changed with it. Every award left a trail and the definition
+  // the awards answer to did not, which meant somebody gained or lost real
+  // access and found out by trying. Not a celebration: an edit to a badge is
+  // somebody else's housekeeping, and the holder needs the fact rather than
+  // confetti.
+  badge_definition_changed: {
+    group: "village",
+    blurb: "A badge you hold carries something different now, and the line says what changed.",
+    many: "{n} badges you hold were changed.",
+    celebrate: false,
+  },
+  // 0098. Somebody with an admin account acted on a power this village has
+  // taken on, and you are one of the people holding it. The public record
+  // carries the same fact; this is the tap on the shoulder, because a power
+  // being reached past without its holder noticing is the failure the
+  // witness exists to prevent.
+  capability_override: {
+    group: "decisions",
+    blurb: "An admin acted on a power you hold. It is on the village's own record, with their name on it.",
+    many: "{n} powers you hold were acted on from the admin panel.",
+    celebrate: false,
+  },
   waitlist_promoted: {
     group: "village",
     blurb: "A seat opened at a gathering you queued for, and the line reached you.",
