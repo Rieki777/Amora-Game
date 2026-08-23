@@ -28,6 +28,7 @@ pnpm build                             # vite client + esbuild server -> dist/
 pnpm test                              # vitest run — see loop-test rules first
 node scripts/check-brand-refs.mjs      # brand ratchet (read $?, its last line is blank on failure)
 node scripts/check-voice.mjs           # house writing rules on shipped copy
+node scripts/check-hyphen-dash.mjs     # no em or en dashes anywhere (hyphens are fine)
 node scripts/check-auth-fetch.mjs      # a client call to a route that refuses strangers carries a token
 node scripts/check-admin-reach.mjs     # every admin WRITE route has a caller in the browser
 node scripts/check-upload-strip.mjs    # nothing reaches the uploads volume without the strip

@@ -67,7 +67,7 @@ that existed at the time.
     bound doors, so after E the box read `stay`, `quests`, `health` 19 times,
     and the obvious move from there, typing a friendlier word, wrote straight
     into s.modules[i][0] and UNBOUND the door. Edits H and I show the room's
-    name and rebind on change. qa/verify_door_routes.js now holds the bound
+    name and rebind on change. scripts/check-map-routes.mjs now holds the
     count at a floor of 19, which it did not before: "nothing is stranded"
     stays true when every door quietly becomes a plain page link.
 
@@ -247,7 +247,7 @@ MACHINERY = SITEHREF + """
 
    SITE_PAGES is derived from client/src/App.tsx by scripts/qa/routes.mjs and
    written here by patch_g1_01_doors.py, which aborts if the two have drifted.
-   qa/verify_door_routes.js re-derives it and fails when this list rots.
+   scripts/check-map-routes.mjs re-derives it and fails when this list rots.
    NOT `SITE_ROUTES`: that name is taken at :4504 by the journey map, and a
    second const of the same name kills this whole script block in silence. */
 const SITE_PAGES=[""" + PAGES_JS + """];
