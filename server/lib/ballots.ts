@@ -160,6 +160,36 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
   const days = Math.max(1, Math.min(90, Math.trunc(input.durationDays) || 1));
   const id = `bal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const openKey = `${input.subjectType}:${input.subjectRef}`;
+  /*
+   * THE VOTING WINDOW IS SET BY THIS PROCESS'S CLOCK, NEVER THE DATABASE'S.
+   *
+   * These two were `NOW()` and `DATE_ADD(NOW(), INTERVAL ? DAY)`, and every
+   * reader compares them against `Date.now()`: whether a vote is still
+   * accepted (`castVote`), whether a ballot may be closed early
+   * (`closeBallot`), and which bucket it falls in
+   * (`ballotsNeedingAttention`). `NOW()` is the database server's wall clock
+   * in the database SESSION's zone, so those five comparisons were reading
+   * one clock against another and were correct only because
+   * `server/db/pool.ts` runs `SET time_zone = '+00:00'` on every connection.
+   * A close time that moves with a server setting is a hole in the snapshot
+   * law: too early cuts a decision short, too late gives the electorate a
+   * window nobody agreed to.
+   *
+   * `opens_at` and `closes_at` are `datetime`, not `timestamp` (0089), so
+   * MySQL applies no zone conversion in either direction and mysql2 renders
+   * and parses under `timezone: "Z"`. A bound Date is therefore the same
+   * instant coming back out on ANY server, with nothing to configure. The
+   * only other place that compares this column is `ballotsNeedingAttention`,
+   * which binds its own boundary for exactly this reason; the two agree by
+   * construction now instead of by both happening to ask MySQL.
+   *
+   * Whole seconds because the column holds whole seconds, so the stored value
+   * is the value every reader gets rather than a rounded neighbour. (Same
+   * truncation as `readInstant` in base-reads.ts, written out here instead of
+   * imported: governance has no business depending on the chain-read module.)
+   */
+  const opensAt = new Date(Math.floor(Date.now() / 1000) * 1000);
+  const closesAt = new Date(opensAt.getTime() + days * 24 * 60 * 60 * 1000);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -167,7 +197,7 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
       "INSERT INTO ballots (id, subject_type, subject_ref, open_key, title, doc_markdown, method, " +
         "weight_mode, weight_token, unity_pct, quorum_pct, total_weight, electorate_count, opened_by, " +
         "opens_at, closes_at, status) " +
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, NOW(), DATE_ADD(NOW(), INTERVAL ? DAY), 'open')",
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, 'open')",
       [
         id,
         input.subjectType,
@@ -183,7 +213,8 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
         totalWeight,
         electorate.length,
         input.openedBy,
-        days,
+        opensAt,
+        closesAt,
       ],
     );
     for (const e of electorate) {
@@ -271,6 +302,9 @@ export async function castVote(
   if (ballot.status !== "open") {
     return { ok: false, error: `This ballot is ${ballot.status.replace("_", " ")}. Voting ended when it closed` };
   }
+  // One clock. `closes_at` is written from this process in `openBallot`, so
+  // this subtraction is two readings of the same clock and holds on a database
+  // in any zone. It used to hold only while the pool pinned the session.
   if (Date.parse(ballot.closesAt) <= Date.now()) {
     return { ok: false, error: "The voting period has ended. Votes are locked until a human closes the ballot" };
   }
@@ -411,6 +445,9 @@ export async function closeBallot(pool: Pool, input: CloseBallotInput): Promise<
   if (ballot.status !== "open") {
     return { ok: false, error: `This ballot is already ${ballot.status.replace("_", " ")}`, alreadyClosed: ballot };
   }
+  // Same one clock as `castVote` (see `openBallot`). This flag decides who may
+  // close and whether a consent ballot may pass, so an offset here would hand
+  // or withhold that right by accident.
   const expired = Date.parse(ballot.closesAt) <= Date.now();
   const tallies = await talliesFor(pool, ballot.id);
   const openObjections = ballot.method === "consent" ? await standingObjectionCount(pool, ballot.id) : 0;
@@ -601,9 +638,23 @@ export async function ballotsNeedingAttention(
   pool: Pool,
   hours: number,
 ): Promise<{ closingSoon: BallotRow[]; pastWindow: BallotRow[] }> {
+  /*
+   * THE ONLY PLACE `closes_at` IS COMPARED INSIDE SQL, and it binds its
+   * boundary from this process for the same reason `openBallot` writes the
+   * column from this process. It read `closes_at <= (NOW() + INTERVAL ? HOUR)`
+   * while the two filters below read `Date.parse(b.closesAt)` against
+   * `Date.now()`, so one prefilter asked the database's clock and the split it
+   * feeds asked this one. With the column now written process-side, asking
+   * MySQL here would be the same mismatch pointing the other way: a whole
+   * offset's worth of ballots would fall out of the prefilter before either
+   * filter ever saw them, and a steward would simply never be told.
+   *
+   * One clock, three comparisons, and the boundary is visible in the code.
+   */
+  const horizon = new Date(Date.now() + Math.max(1, Math.floor(hours)) * 60 * 60 * 1000);
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT * FROM ballots WHERE status = 'open' AND closes_at <= (NOW() + INTERVAL ? HOUR) ORDER BY closes_at",
-    [Math.max(1, Math.floor(hours))],
+    "SELECT * FROM ballots WHERE status = 'open' AND closes_at <= ? ORDER BY closes_at",
+    [horizon],
   );
   const now = Date.now();
   const all = rows.map(rowToBallot);
