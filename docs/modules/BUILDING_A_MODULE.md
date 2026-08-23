@@ -237,14 +237,27 @@ bills on your behalf is an open decision recorded in
 Charging is one of two ways to be paid here, and the other one is the default.
 
 Every free third-party module is in a recurring $ReGen distribution to whoever built it, sized by
-how many known villages run it. It pays for adoption instead of for negotiation, and it is why a
+how many members open it. It pays for adoption instead of for negotiation, and it is why a
 module with no price is still a module somebody is paid for.
+
+The measure is REACH, and it saturates. One member opening your module during a lunar cycle counts
+once for that cycle, whether they open it once or two hundred times and whether or not they write
+anything. Each village contributes the share of its active members who opened you, so three members
+of four counts far more than three of four hundred, and each village can contribute at most one. A
+module earns by being opened by more people, and never by asking more of the same ones.
 
 **Declaring a price takes you out of the pool**, and that is arithmetic instead of a penalty. A paid
 module is already paid by the villages running it, so drawing from a common pool as well would have
-every village funding a product only some of them use. A listing picks one. The platform's own
-modules and the four core modules sit outside the pool for the same reason, because the platform is
-not a third party, and a withdrawn listing leaves it because it is no longer being offered.
+every village funding a product only some of them use. A listing picks one. A withdrawn listing
+leaves the pool because it is no longer being offered.
+
+The platform's own modules and the four core modules ARE in the pool, and they are paid to nobody.
+That is R59: they earn a share on the same measure as everybody else, and the share returns to the
+pool to be given out again next cycle. It is there so the measurement stays honest. A pool that
+excluded the platform's own work would split a fixed sum among whoever remained, which quietly pays
+third-party builders for the platform's usage as well as their own. What it means for you is that
+your share is a share of everything the pool measures, and what the platform earns never leaves the
+pool. The village's own pool statement shows the returning amount as a number.
 
 To be paid, create your ReGen Civics account and link your Hypha account with a Base address in
 profile setup. The pool pays an account and never a raw address written into a registry file,

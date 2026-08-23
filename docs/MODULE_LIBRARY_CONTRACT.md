@@ -152,8 +152,19 @@ documentation it must carry, and a set of statically detectable code patterns. I
 **14. The builders' pool, and what a price costs you.** New in 1.1.
 
 Every **free** third-party module is included in a recurring $ReGen distribution to its builder,
-proportional to how many known villages run it. This is the primary way a builder is paid here, and it
+proportional to how many members open it. This is the primary way a builder is paid here, and it
 is deliberately not a per-village invoice: it pays for adoption instead of for negotiation.
+
+The measure is **reach, and it saturates**: one member opening a module during a lunar cycle counts
+once for that cycle however often they return and however much they write. A village contributes the
+share of its active members who opened the module, capped at one, so a large village cannot outvote a
+small one and a module cannot earn by being noisy or by nagging.
+
+**The platform's own modules and the four core modules are IN the pool, and are paid to nobody**
+(R59). They earn a share on the same measure and that share returns to the pool for the next cycle.
+Excluding them would split a fixed sum among whoever remained, which pays third-party builders for
+the platform's usage as well as their own; including them and recycling keeps the measurement honest
+without the platform paying itself. A village's pool statement shows the returning amount as a number.
 
 **A module that charges is out of the pool by construction.** This is not a penalty. A paid module is
 already being paid by the villages that run it, and paying it a second time out of a common pool would

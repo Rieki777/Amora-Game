@@ -15,6 +15,7 @@ import InfoTip from "@/components/InfoTip";
 import Layout from "@/components/Layout";
 import ModuleCard, { type CatalogModule } from "@/components/modules/ModuleCard";
 import ModuleShelf from "@/components/modules/ModuleShelf";
+import PoolStatement from "@/components/modules/PoolStatement";
 import { authToken } from "@/lib/gameApi";
 import { Hammer } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -112,6 +113,7 @@ export default function Modules() {
               </ModuleShelf>
             );
           })}
+        {data && <PoolStatement />}
       </div>
     </Layout>
   );

@@ -24,7 +24,7 @@ export interface CatalogModule {
   legalReview: boolean;
   withdrawn: { since: string; replacedBy?: string } | null;
   priceLine: string | null;
-  pool: { eligible: boolean; reason: string } | null;
+  pool: { eligible: boolean; reason: string; disposition: "paid" | "recycled" | "none" } | null;
   support: {
     party: "platform" | "vendor";
     vendorName: string | null;
@@ -48,7 +48,19 @@ export interface CatalogModule {
 const PILL = "text-[10px] px-1.5 py-0.5 rounded-full border";
 
 export default function ModuleCard({ module: m }: { module: CatalogModule }) {
-  const poolLine = m.pool && m.pool.eligible ? POOL_REASON_COPY[m.pool.reason] : null;
+  /*
+   * The pill answers one question a browser has: does running this send $ReGen
+   * to somebody outside the platform. So it shows for a share that is PAID and
+   * not merely eligible.
+   *
+   * R59 made every platform module eligible, and the old `eligible` test would
+   * now put an identical teal badge on all twenty-three cards saying the same
+   * thing about the same author. The recycling still has to be visible, and it
+   * is: the detail page renders every reason, and the pool statement on this
+   * page shows the returning share as an amount. A shelf is for telling cards
+   * apart, and a label every card carries tells nobody anything.
+   */
+  const poolLine = m.pool?.disposition === "paid" ? POOL_REASON_COPY[m.pool.reason] : null;
   return (
     <Link
       href={`/modules/${m.id}`}

@@ -428,16 +428,22 @@ export const BUILDERS_POOL_URL = "https://regencivics.earth/builders-pool"; // b
 /**
  * One sentence per pool reason, keyed on what `poolStatus` decided.
  *
- * The server sends `{ eligible, reason }` and the reason is the whole message:
- * "not eligible" on its own invites the founder to guess, and the four ways a
- * module can be out of the pool are not interchangeable. A key with no entry
- * renders nothing instead of a blank label, so a reason added later is silent
- * here instead of wrong.
+ * The server sends `{ eligible, reason, disposition }` and the reason is the
+ * whole message: "not eligible" on its own invites the founder to guess, and
+ * the ways a module can sit in or out of the pool are not interchangeable. A
+ * key with no entry renders nothing instead of a blank label, so a reason added
+ * later is silent here instead of wrong.
+ *
+ * R59 rewrote two of these. A platform-built module and a core module used to
+ * be OUT of the pool, and they are now in it with their share returning to it.
+ * The sentences say where the money goes, because that is the question somebody
+ * reading a pool label is actually asking, and the founder's instruction was
+ * that the recycling be visible rather than implied.
  */
 export const POOL_REASON_COPY: Record<string, string> = {
   "free-third-party": "In the $ReGen builders' pool",
   paid: "Charges a price, so not in the pool",
-  "platform-built": "Built by the platform, so not in the pool",
-  core: "Core module, so not in the pool",
+  "platform-built": "Earns from the pool, and its share goes back into the pool",
+  core: "Core module. Earns from the pool, and its share goes back into the pool",
   withdrawn: "No longer offered, so not in the pool",
 };

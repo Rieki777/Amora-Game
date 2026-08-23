@@ -4428,7 +4428,12 @@ function ModulesTab({ password }: { password: string }) {
                       {m.pool && POOL_REASON_COPY[m.pool.reason] && (
                         <span>
                           pool:{" "}
-                          <span className={m.pool.eligible ? "text-emerald-700" : "text-gray-700"}>
+                          {/* Keyed on disposition and no longer on `eligible`.
+                              R59 made every platform module eligible, so an
+                              eligible test now paints all twenty-three the same
+                              emerald and the colour says nothing. Green here
+                              means a builder outside the platform is paid. */}
+                          <span className={m.pool.disposition === "paid" ? "text-emerald-700" : "text-gray-700"}>
                             {POOL_REASON_COPY[m.pool.reason]}
                           </span>
                         </span>

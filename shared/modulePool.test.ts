@@ -4,6 +4,7 @@ import {
   isBuilderHandle,
   modulePayoutProblems,
   poolEligibleModules,
+  poolPaidModules,
   poolStatus,
 } from "./modulePool";
 
@@ -38,23 +39,32 @@ const goodVendor = {
 };
 
 describe("who the pool pays", () => {
-  it("takes a free module somebody outside the platform wrote", () => {
+  it("takes a free module somebody outside the platform wrote, and pays it", () => {
     const m = base({ builtBy: "Ada Lovelace" });
-    expect(poolStatus(m)).toEqual({ eligible: true, reason: "free-third-party" });
+    expect(poolStatus(m)).toEqual({ eligible: true, reason: "free-third-party", disposition: "paid" });
   });
 
-  it("leaves out a module the platform wrote itself", () => {
-    expect(poolStatus(base({}))).toEqual({ eligible: false, reason: "platform-built" });
+  it("takes a module the platform wrote itself, and recycles its share (R59)", () => {
+    expect(poolStatus(base({}))).toEqual({
+      eligible: true,
+      reason: "platform-built",
+      disposition: "recycled",
+    });
   });
 
   it("reads a blank credit as the platform's own, the same way the registry lint does", () => {
-    expect(poolStatus(base({ builtBy: "   " }))).toEqual({ eligible: false, reason: "platform-built" });
+    expect(poolStatus(base({ builtBy: "   " }))).toEqual({
+      eligible: true,
+      reason: "platform-built",
+      disposition: "recycled",
+    });
   });
 
-  it("leaves out a core module", () => {
+  it("takes a core module, and recycles its share", () => {
     expect(poolStatus(base({ core: true, builtBy: "Ada Lovelace" }))).toEqual({
-      eligible: false,
+      eligible: true,
       reason: "core",
+      disposition: "recycled",
     });
   });
 
@@ -71,7 +81,7 @@ describe("who the pool pays", () => {
         licenceKey: "example_api_key",
       },
     });
-    expect(poolStatus(m)).toEqual({ eligible: false, reason: "paid" });
+    expect(poolStatus(m)).toEqual({ eligible: false, reason: "paid", disposition: "none" });
   });
 
   it("keeps a listing that prices itself at zero, because zero is free out loud", () => {
@@ -81,21 +91,24 @@ describe("who the pool pays", () => {
       vendor: goodVendor,
       pricing: { amount: 0, currency: "USD", period: "month", billingUrl: "https://example.com/buy" },
     });
-    expect(poolStatus(m)).toEqual({ eligible: true, reason: "free-third-party" });
+    expect(poolStatus(m)).toEqual({ eligible: true, reason: "free-third-party", disposition: "paid" });
   });
 
   it("leaves out a withdrawn module even where it was free and third party", () => {
     const m = base({ builtBy: "Ada Lovelace", withdrawn: { since: "2026-08-01" } });
-    expect(poolStatus(m)).toEqual({ eligible: false, reason: "withdrawn" });
+    expect(poolStatus(m)).toEqual({ eligible: false, reason: "withdrawn", disposition: "none" });
   });
 
-  it("reports the most structural reason first when several apply", () => {
-    const m = base({
-      core: true,
-      builtBy: "Ada Lovelace",
-      withdrawn: { since: "2026-08-01" },
-    });
-    expect(poolStatus(m).reason).toBe("core");
+  it("lets a withdrawal beat a core or platform credit, so a left listing stops absorbing weight", () => {
+    /*
+     * The check order had to invert for R59. Core and platform-built are now
+     * inclusions, so if they were still asked first a withdrawn platform module
+     * would report `recycled` and keep taking a share of a pool it had left.
+     * That is not cosmetic: weight absorbed and recycled is weight the
+     * remaining builders are not paid this cycle.
+     */
+    const m = base({ core: true, builtBy: "Ada Lovelace", withdrawn: { since: "2026-08-01" } });
+    expect(poolStatus(m)).toEqual({ eligible: false, reason: "withdrawn", disposition: "none" });
   });
 
   it("never depends on an account, so a builder with no ReGen Civics login still earns", () => {
@@ -104,32 +117,42 @@ describe("who the pool pays", () => {
     expect(poolStatus(withAccount)).toEqual(poolStatus(without));
   });
 
-  it("filters a registry down to the eligible entries, in registry order", () => {
+  it("counts a platform module as eligible and a third-party one as paid", () => {
     const defs = [
       base({ id: "a", builtBy: "Ada Lovelace" }),
       base({ id: "b" }),
       base({ id: "c", builtBy: "Grace Hopper" }),
+      base({ id: "d", withdrawn: { since: "2026-08-01" } }),
     ];
-    expect(poolEligibleModules(defs).map((m) => m.id)).toEqual(["a", "c"]);
+    // R59: the platform's own module earns, so it is IN the eligible set.
+    expect(poolEligibleModules(defs).map((m) => m.id)).toEqual(["a", "b", "c"]);
+    // Only somebody outside the platform is owed anything.
+    expect(poolPaidModules(defs).map((m) => m.id)).toEqual(["a", "c"]);
   });
 });
 
 describe("the shipped registry", () => {
-  it("gives every module a pool verdict", () => {
+  it("gives every module a pool verdict and a disposition", () => {
     for (const m of MODULES) {
       const status = poolStatus(m);
       expect(typeof status.eligible).toBe("boolean");
       expect(status.reason).toBeTruthy();
+      expect(["paid", "recycled", "none"]).toContain(status.disposition);
+      expect(status.eligible).toBe(status.disposition !== "none");
     }
   });
 
-  it("pays nobody out of the pool for the platform's own work", () => {
-    // Every module shipped today is the platform's own, so the pool is empty
-    // and the treasury owes nothing. The day a third party lands one, this
-    // number moves and the statement has a line in it.
+  it("owes nobody anything today, and recycles every share it awards", () => {
+    /*
+     * No module in the registry carries a `builtBy` credit, so every one of
+     * them is the platform's own. Under R59 that makes them all ELIGIBLE and
+     * all RECYCLED: the pool awards shares, the shares return to the pool, and
+     * the treasury owes nothing to anybody. The day a third party lands a
+     * module this assertion moves and the statement gains a payable line.
+     */
+    expect(poolPaidModules(MODULES)).toEqual([]);
     for (const m of poolEligibleModules(MODULES)) {
-      expect(m.builtBy?.trim()).toBeTruthy();
-      expect(m.core ?? false).toBe(false);
+      expect(poolStatus(m).disposition).toBe("recycled");
     }
   });
 

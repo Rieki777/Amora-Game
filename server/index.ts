@@ -716,6 +716,8 @@ import {
   type ModuleLifecycle,
 } from "../shared/modules";
 import { poolStatus } from "../shared/modulePool";
+import { computeModulePoolShares, MODULE_POOL_PER_CYCLE, nextCyclePool } from "../shared/modulePoolShares";
+import { initModuleUsage, villageUsageReport } from "./lib/moduleUsage";
 import { BUILD_A_MODULE_URL, BUILDERS_POOL_URL, MODULE_CATALOG, MODULE_GROUPS } from "../shared/moduleCatalog";
 import { resolveHyphaLinks } from "../shared/hypha";
 import { getPool } from "./db/pool";
@@ -729,6 +731,7 @@ import {
   dueCycles,
   settleCycle,
   formatCycleId,
+  parseCycleId,
   type CycleRecord,
   type DistributionRecord,
 } from "./lib/gratitude-cycles";
@@ -4965,7 +4968,17 @@ async function startServer() {
   wireModuleAuth({
     isAdmin: (req) => isAdmin(req as any),
     isAuthed: async (req) => !!(await authedUser(req as any)),
+    // The signed token names the member, so the meter costs no database read.
+    // `decodeToken` verifies the signature and the session window before it
+    // returns anything, so this cannot be handed an id the deployment did not
+    // mint. `server/lib/modules.ts` states what it skips and why.
+    meterUserId: (req) => {
+      const header = (req as any).headers?.authorization;
+      if (typeof header !== "string" || !header.startsWith("Bearer ")) return null;
+      return decodeToken(header.slice(7))?.userId ?? null;
+    },
   });
+  initModuleUsage(getPool());
 
   // S30/S33/S37: open-state lives on the server (it needs the pool); the
   // shared registry stays import-clean for the client bundle.
@@ -7436,6 +7449,112 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         };
       }),
     });
+  });
+
+  /*
+   * Lane METER: the builders' pool, said out loud.
+   *
+   * PUBLIC on purpose. R59 is a ruling about where the platform's own money
+   * goes, and the founder's instruction was that "a village or an author should
+   * be able to see that the platform's share went back in, not into our
+   * pocket". A transparency surface that needs a login is a claim, and this is
+   * supposed to be a receipt. Nothing here is per-member: every number is a
+   * count of people, never a person, so there is nothing to protect.
+   *
+   * WHAT THIS IS A STATEMENT OF, precisely, because the distinction matters and
+   * a reader will assume the stronger one. It splits the pool using THIS
+   * VILLAGE'S reach alone, so it answers "what does our usage say should
+   * happen". The hub settles the real one by summing this village's reach with
+   * every other village's, so the shares below are this village's reading and
+   * never its payment. `basis` says so in the payload rather than only in the
+   * page, so an integrator reading JSON cannot miss it.
+   */
+  /*
+   * The cycle a caller asked for, or nothing.
+   *
+   * Validated through `parseCycleId` so an unparseable string falls back to the
+   * open cycle. Without it `?cycle=whatever` answered with a complete, sealed-
+   * looking statement for a lunation that never existed, echoing the caller's
+   * own string back as the cycle id. It is a receipt for a fiction, and a
+   * receipt is exactly what this surface is for.
+   */
+  const requestedCycle = (req: express.Request): string | undefined => {
+    const raw = typeof req.query.cycle === "string" ? req.query.cycle : "";
+    return parseCycleId(raw) === null ? undefined : raw;
+  };
+
+  app.get("/api/modules/pool", async (req, res) => {
+    // Wrapped, because express 4 does not catch a rejected handler promise: an
+    // unwrapped throw here would never reach the error middleware and never
+    // answer, leaving a public request hanging until a proxy gave up on it.
+    try {
+      const report = await villageUsageReport(requestedCycle(req));
+      const reach = new Map(report.modules.map((m) => [m.moduleId, m.reach]));
+      const eligible = MODULES.filter((m) => poolStatus(m).eligible);
+      const split = computeModulePoolShares(
+        eligible.map((m) => ({
+          moduleId: m.id,
+          weight: reach.get(m.id) ?? 0,
+          disposition: poolStatus(m).disposition,
+          hasPayoutAccount: !!m.builtByAccount?.trim(),
+        })),
+        MODULE_POOL_PER_CYCLE,
+      );
+      const byId = new Map(split.shares.map((s) => [s.moduleId, s]));
+      res.json({
+        basis: "village-reading",
+        cycle: report.cycleId,
+        sealed: report.sealed,
+        activeMembers: report.activeMembers,
+        totals: {
+          pool: split.pool,
+          payable: split.payable,
+          accrued: split.accrued,
+          distributed: split.distributed,
+          recycled: split.recycled,
+          // The CONSTANT and never `split.pool`, though they are equal here.
+          // `base` means the fresh budget the hub puts in, and the day a
+          // carried-forward pool is passed in, `split.pool` would already hold
+          // last cycle's recycled amount and adding it again would count it
+          // twice. Equal today is not the same as correct.
+          nextCyclePool: nextCyclePool(MODULE_POOL_PER_CYCLE, split),
+        },
+        modules: eligible
+          .map((m) => {
+            const share = byId.get(m.id);
+            return {
+              id: m.id,
+              name: m.name,
+              core: !!m.core,
+              builtBy: m.builtBy?.trim() || null,
+              pool: poolStatus(m),
+              membersReached: report.modules.find((x) => x.moduleId === m.id)?.membersReached ?? 0,
+              reach: reach.get(m.id) ?? 0,
+              share: share?.share ?? 0,
+              settlement: share?.settlement ?? "recycled",
+            };
+          })
+          .sort((a, b) => b.share - a.share || (a.id < b.id ? -1 : 1)),
+      });
+    } catch (e) {
+      reportError(e, { where: "the module pool statement" });
+      res.status(500).json({ error: "pool_unavailable" });
+    }
+  });
+
+  /*
+   * The hub's pull. Aggregate counts and an instance id, and no member ever.
+   * A pull rather than a push for the reason the feedback relay is queue-and-
+   * forget: the hub is a listener and never a dependency, so a village whose
+   * hub is unreachable keeps its own books and loses nothing.
+   */
+  app.get("/api/platform/module-usage", async (req, res) => {
+    try {
+      res.json(await villageUsageReport(requestedCycle(req)));
+    } catch (e) {
+      reportError(e, { where: "the module usage report" });
+      res.status(500).json({ error: "usage_unavailable" });
+    }
   });
 
   // Readiness readers attach at route-registration time, which runs once at
