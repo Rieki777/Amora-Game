@@ -80,6 +80,38 @@ export interface Ballot {
    * was about to fail it. Zero on every method but consent.
    */
   standingObjections: number;
+  /**
+   * WHAT A POWER HANDOVER IS ASKING, AND WHETHER IT LANDED (lane G-C).
+   *
+   * Null on every other subject type. Every field inside it is a fact the
+   * server stated or an explicit null, and `TransferCeremony` renders no
+   * sentence that is not one of them: a card that filled a gap with a
+   * plausible default would tell a village it holds a power it does not, and
+   * the member finds that out by being refused.
+   *
+   * `crossedHere` is the crossing itself, read off the holding row's own
+   * ballot id. It is what makes the ceremony say the same thing on the day
+   * and on the anniversary; the close response's `applied` exists only in the
+   * session that closed the vote.
+   */
+  transfer: {
+    capability: string;
+    /** The registry's noun for this power. Null when nothing names it. */
+    title: string | null;
+    /** Where in the product it is used. Null when nothing names it. */
+    surface: string | null;
+    /** What a holder could DO. Null rather than the key dressed as prose. */
+    consequence: string | null;
+    /** Whether this platform can move this key at all. */
+    movable: boolean;
+    toRoleId: string;
+    /** Null when the role has been retired since the vote opened. */
+    toRoleName: string | null;
+    /** Whether that role can actually use it, read now and not at open. */
+    roleCarriesIt: boolean;
+    heldNow: { roleId: string; roleName: string | null; byBallot: boolean; movedAt: string } | null;
+    crossedHere: { movedAt: string } | null;
+  } | null;
   myVote: { choice: VoteChoice; reason: string | null } | null;
   /** Null means the viewer is outside this electorate. Zero means inside it,
    *  holding no weight, which is a different and much louder fact. */

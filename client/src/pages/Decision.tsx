@@ -38,6 +38,7 @@ import CloseBeat from "@/components/governance/CloseBeat";
 import DecisionOutcome from "@/components/governance/DecisionOutcome";
 import MyStanding from "@/components/governance/MyStanding";
 import ObjectionPanel from "@/components/governance/ObjectionPanel";
+import TransferCeremony from "@/components/governance/TransferCeremony";
 import VoteClock from "@/components/governance/VoteClock";
 import VoteResult from "@/components/governance/VoteResult";
 import VoteWidget from "@/components/governance/VoteWidget";
@@ -309,9 +310,21 @@ export default function Decision() {
                 ballot={ballot}
                 applied={justClosed?.applied}
                 held={justClosed?.held}
-                fresh={!!justClosed}
+                /* ONE MOMENT PER PAGE. A power handover that carried plays its
+                   own celebration inside TransferCeremony, on the crossing
+                   rather than on the ballot, so this card stands down. Two
+                   moments side by side is the wallpaper case the celebration
+                   ration exists to prevent (docs/modules/natural-interface.md). */
+                fresh={!!justClosed && ballot.transfer === null}
               />
             )}
+
+            {/* THE CEREMONY. It renders above the frozen document and below
+                the outcome, on an open handover and on a closed one, because
+                what the village is being asked and what the village did are
+                the same three facts read at two different times. It returns
+                null for every other subject type. */}
+            {ballot.transfer && <TransferCeremony ballot={ballot} fresh={!!justClosed} />}
 
             {/* A CLOSED BALLOT KEEPS THE PICTURE. The whole point of drawing
                 the moon and the field is that a village can see how a decision

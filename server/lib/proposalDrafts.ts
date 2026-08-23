@@ -49,6 +49,7 @@ export const WIZARD_TYPES = [
   "agreement",
   "badge_grant",
   "quest_payout",
+  "power_transfer",
 ] as const;
 export type WizardType = (typeof WIZARD_TYPES)[number];
 
@@ -63,13 +64,76 @@ export type WizardType = (typeof WIZARD_TYPES)[number];
  * adds its own id here in the same commit that mounts its route, and nothing
  * else in the wizard changes.
  */
-export const CONDUCTABLE_TYPES: readonly WizardType[] = ["mechanics"];
+export const CONDUCTABLE_TYPES: readonly WizardType[] = ["mechanics", "power_transfer"];
+
+/**
+ * WHICH CAPABILITY KEYS A PROPOSAL TYPE MAY NOT NAME, AND WHY.
+ *
+ * The badge review asked that `badge_grant` refuse `ballot.vote` and
+ * `member.vouch`. Its stated reason was that "an electorate that can vote to
+ * hand ballot.vote to chosen people is an electorate that can vote to enlarge
+ * itself, one ballot at a time." R54 makes that reason wrong while leaving
+ * the conclusion right, so the reason is restated here rather than inherited:
+ *
+ *   ENLARGEMENT IS THE DESTINATION. "These villages are meant to be taken
+ *   over by the electorate to run the game and put the admins out of a full
+ *   time job." A village voting to widen its own roll is the thing this
+ *   platform is for, and a refusal built to prevent it would be the
+ *   scaffolding defending itself.
+ *
+ *   CAPTURE IS THE RISK, and it is a different shape. A badge grant names
+ *   PEOPLE. Three named individuals handed the vote by one ballot is a small
+ *   group choosing who else gets a say, which is capture wearing the
+ *   village's clothes. A power transfer names a POWER, and the whole
+ *   electorate votes on where it lives.
+ *
+ * So the refusal sits on the type that names people, and the type that names
+ * a power carries no capability refusal at all. That distinction is the whole
+ * design: it answers the review's real safety concern and leaves R54's
+ * destination reachable.
+ *
+ * A type absent from this map refuses nothing, which is today's behaviour for
+ * every type that names no capability at all.
+ *
+ * WHAT THIS DOES NOT DO, said here rather than discovered later:
+ * `POST /api/governance/badge-grants` has not been built (the wizard type is
+ * advisory-only until it is, because `CONDUCTABLE_TYPES` does not name it).
+ * This map is what that route reads on the day it lands, and the transfer
+ * route reads it today. It is a contract with one live reader, not two.
+ */
+export const TYPE_CAPABILITY_REFUSALS: Partial<
+  Record<WizardType, { readonly keys: readonly string[]; readonly why: string }>
+> = {
+  badge_grant: {
+    keys: ["ballot.vote", "member.vouch"],
+    why:
+      "A badge names people, so handing this one to named individuals would be a few members " +
+      "choosing who else gets a say. The village can still take this power on: that is a power " +
+      "transfer, where the power is named and the whole electorate votes on where it lives.",
+  },
+  power_transfer: {
+    keys: [],
+    why: "",
+  },
+};
+
+/**
+ * A sentence saying why this type may not name this capability, or null.
+ *
+ * The sentence comes out of the map beside the keys, so a type added to the
+ * map tomorrow cannot inherit an argument written about badges.
+ */
+export function typeRefusesCapability(type: string, capability: string): string | null {
+  const entry = TYPE_CAPABILITY_REFUSALS[type as WizardType];
+  if (!entry || !entry.keys.includes(capability)) return null;
+  return entry.why;
+}
 
 /**
  * The types a village can put to a NON-BINDING vote today.
  *
  * Every type outside `CONDUCTABLE_TYPES` is here, and that is the whole list:
- * the four the executors have not reached yet. A village that cannot yet MAKE
+ * the ones the executors have not reached yet. A village that cannot yet MAKE
  * a role appointment by ballot can still ask its members what they would
  * decide about one, hold the vote on the real engine with the real frozen
  * electorate and the real weights, and read the real answer. The decision

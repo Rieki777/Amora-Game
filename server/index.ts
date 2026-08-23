@@ -225,6 +225,7 @@ import {
   deleteDraft as deleteProposalDraft,
   draftsOf as proposalDraftsOf,
   saveDraft as saveProposalDraft,
+  typeRefusesCapability,
 } from "./lib/proposalDrafts";
 import {
   BALLOT_METHODS,
@@ -23425,7 +23426,137 @@ Send an empty drafts array when you are still listening. A role payload is {name
       });
       return out;
     },
+
+    /*
+     * A POWER CROSSES OVER (lane G-C).
+     *
+     * The subject is the crossing itself: `subject_ref` is
+     * `<capability>@<roleId>`, frozen at open like every other snapshot
+     * column, so this reads what the village actually voted on and never
+     * what the tables say today. A role renamed or re-scoped mid-ballot
+     * cannot change which power moves or where it lands.
+     *
+     * IDEMPOTENT TWICE OVER, because this is the one executor whose double
+     * run would be a permission change nobody voted for. `closeBallot` is a
+     * guarded `UPDATE … WHERE status='open'`, so a second close returns
+     * `alreadyClosed` and never reaches here at all; and
+     * `moveCapabilityToVillage` writes `ON DUPLICATE KEY UPDATE` on a table
+     * whose primary key is the capability, so even a run that did reach here
+     * twice leaves exactly one row with its original `moved_at`.
+     *
+     * A REFUSAL IS HELD, NEVER SWALLOWED. The role can lose the capability
+     * between open and close (an admin edits it, a seed is redeployed), and
+     * a village whose vote carried is owed the reason rather than a silent
+     * nothing. It lands in `held`, which the decision page already renders,
+     * and the admins are told the way a part-failed mechanics apply tells
+     * them.
+     */
+    power_transfer: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+      const asked = parseTransferRef(b.subjectRef);
+      if (!asked) {
+        out.held = "the ballot does not name a power this build can read";
+        return out;
+      }
+      const what = CAPABILITY_CONSEQUENCE[asked.capability as Capability] ?? asked.capability;
+
+      if (outcome !== "passed") {
+        // Whoever opened it hears the outcome in the words of the thing they
+        // asked for. Nothing is set back, because nothing had moved: the
+        // power is where it was and the village can ask again.
+        out.proposerTold = b.openedBy;
+        await notify({
+          userId: b.openedBy,
+          type: "governance",
+          title:
+            outcome === "no_quorum"
+              ? `Too few of the village voted: ${b.title}`
+              : `The village did not take this one on: ${b.title}`,
+          body:
+            outcome === "no_quorum"
+              ? `Nothing has changed and nothing is lost. The ask can go to the village again whenever it is more gathered.`
+              : `${outcomeNote}\n\nThe power stays where it is, and the village can ask again.`,
+          link: ballotLink(b),
+          actorUserId: actorId,
+          dedupeKey: `bal:${b.id}:transfer-not-taken`,
+        });
+        return out;
+      }
+
+      const moved = await moveCapabilityToVillage(getPool(), {
+        capability: asked.capability,
+        holderRoleId: asked.roleId,
+        movedByBallotId: b.id,
+        movedByUserId: b.openedBy,
+        note: outcomeNote.slice(0, 500) || null,
+      });
+      if (!moved.ok) {
+        out.held = moved.error;
+        await notifyAdmins(
+          "governance",
+          `A carried power handover could not land: ${b.title}`,
+          `bal:${b.id}:transfer-held`,
+        );
+        return out;
+      }
+
+      out.applied = [asked.capability];
+      out.proposerTold = b.openedBy;
+      const role = rolesRepo.all().find((x: any) => x.id === asked.roleId) as any;
+      const who = role?.name ?? asked.roleId;
+      await notify({
+        userId: b.openedBy,
+        type: "governance",
+        title: `The village holds this now: ${b.title}`,
+        body: `${who} looks after it from today. What that means: ${what}.`,
+        link: ballotLink(b),
+        actorUserId: actorId,
+        dedupeKey: `bal:${b.id}:transfer-crossed`,
+      });
+      /*
+       * The village's own record of the crossing, on the PUBLIC pulse and not
+       * in the admin trail. A handover the village cannot read afterwards is
+       * a permission change with a ceremony painted on it.
+       */
+      await addActivity("governance", `${who} holds this now, by a vote of the whole village: ${what}.`, {
+        actorUserId: actorId,
+        entityType: "capability",
+        entityRef: asked.capability,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `capability:moved-by-ballot:${asked.capability}:${asked.roleId}:${b.id}`,
+        actorUserId: actorId,
+        entityType: "capability",
+        entityRef: asked.capability,
+        audience: "admin",
+      });
+      return out;
+    },
   };
+
+  /**
+   * What a power-transfer ballot is ABOUT, read off its frozen subject ref.
+   *
+   * `<capability>@<roleId>`. Two facts in one column because `ballots` has no
+   * room for a third, and putting them in the document instead would mean the
+   * executor parsing prose to decide a permission. The `@` cannot appear in
+   * either half: capability keys are dotted lowercase and role ids are slugs,
+   * and the open route refuses anything else rather than storing a ref it
+   * could not read back.
+   *
+   * Returns null rather than a guess. A ref this build cannot parse is a
+   * ballot whose executor does nothing and says so, which is the only honest
+   * answer: inventing a capability here would move a power nobody named.
+   */
+  function parseTransferRef(subjectRef: string): { capability: string; roleId: string } | null {
+    const at = subjectRef.indexOf("@");
+    if (at <= 0 || at === subjectRef.length - 1) return null;
+    const capability = subjectRef.slice(0, at);
+    const roleId = subjectRef.slice(at + 1);
+    if (!ALL_CAPABILITIES.includes(capability as Capability)) return null;
+    return { capability, roleId };
+  }
 
   /**
    * Whether closing this ballot changes anything by itself.
@@ -23450,6 +23581,63 @@ Send an empty drafts array when you are still listening. A role payload is {name
    */
   const standingObjectionsOf = async (b: { id: string; method: string }): Promise<number> =>
     b.method === "consent" ? await standingObjectionCount(getPool(), b.id) : 0;
+
+  /**
+   * WHAT A POWER-HANDOVER BALLOT IS ASKING, AND WHETHER IT LANDED.
+   *
+   * Every sentence the ceremony renders comes from here, and every field is
+   * either a fact or null. There is no fallback anywhere in this function on
+   * purpose: a guarded lookup that invents a value lies quietly forever, and
+   * on this surface the lie would be "the village holds this" told to a
+   * village that does not. A page that cannot name the power says it cannot,
+   * which is recoverable. A page that names the wrong one is not.
+   *
+   * `crossedHere` is the load-bearing one. The close response carries
+   * `applied` only in the session that closed the ballot, so a member opening
+   * the decision a year later would have nothing to read the crossing off.
+   * This reads `capability_holding.moved_by_ballot_id`, which is the row the
+   * crossing actually wrote, so the ceremony says the same thing on the day
+   * and on the anniversary.
+   */
+  async function transferFactsOf(b: { id: string; subjectType: string; subjectRef: string }) {
+    if (b.subjectType !== "power_transfer") return null;
+    const asked = parseTransferRef(b.subjectRef);
+    if (!asked) return null;
+    const cap = asked.capability as Capability;
+    const entry = POWERS.find((p) => p.capability === cap) ?? null;
+    const role = rolesRepo.all().find((x: any) => x.id === asked.roleId) as any;
+    const holdings = await capabilityHoldings(getPool());
+    const holding = holdings.find((h) => h.capability === asked.capability) ?? null;
+    return {
+      capability: asked.capability,
+      /** The registry's own noun for it, or null when nothing names it. */
+      title: entry?.title ?? null,
+      /** Where in the product this power is used, in the village's words. */
+      surface: entry?.surface ?? null,
+      /** What a holder could DO. Null rather than the key dressed as prose. */
+      consequence: CAPABILITY_CONSEQUENCE[cap] ?? null,
+      movable: TRANSFERABLE[cap] === true,
+      toRoleId: asked.roleId,
+      /** Null when the role has been retired since the ballot opened. */
+      toRoleName: role?.name ?? null,
+      /** Whether that role can actually use it, read now and not at open. */
+      roleCarriesIt: Array.isArray(role?.capabilities)
+        ? (role.capabilities as string[]).includes(asked.capability)
+        : false,
+      /** Who holds this power right now, whoever moved it and however. */
+      heldNow: holding
+        ? {
+            roleId: holding.holderRoleId,
+            roleName: holding.holderRoleName,
+            byBallot: !!holding.movedByBallotId,
+            movedAt: holding.movedAt,
+          }
+        : null,
+      /** Set only when THIS ballot is the one that moved it. */
+      crossedHere:
+        holding && holding.movedByBallotId === b.id ? { movedAt: holding.movedAt } : null,
+    };
+  }
 
   /** A ballot as the page reads it: tallies, bars, votes on the record. */
   async function serveBallot(b: any, viewerId?: string) {
@@ -23518,6 +23706,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
       // The count the EVALUATOR uses, stated rather than left to be derived
       // from the list beside it. Zero on every method but consent.
       standingObjections,
+      // Null on every ballot that is not a power handover. The ceremony reads
+      // this and nothing else, so it cannot render a sentence the server did
+      // not state (lane G-C).
+      transfer: await transferFactsOf(b),
       objections: await Promise.all(
         objections.map(async (o) => ({
           id: o.id,
@@ -24149,6 +24341,243 @@ Send an empty drafts array when you are still listening. A role payload is {name
       type: "ballot_opened",
       title: `An advisory vote is open: ${question}`,
       body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}. This one records what the village would decide, and it changes nothing on its own.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
+  });
+
+  /**
+   * ── THE VILLAGE ASKS TO HOLD THIS (lane G-C) ────────────────────────────
+   *
+   * R54: "these villages are meant to be taken over by the electorate to run
+   * the game and put the admins out of a full time job." Lane G-B made a
+   * power able to move. This is the village asking for one, as its own named
+   * act rather than a fifth entry in a list of proposals.
+   *
+   * ── RULING 1: ONLY THE VILLAGE MAY OPEN ONE ─────────────────────────────
+   *
+   * The route refuses an actor whose ONLY path to `proposal.open` is being an
+   * admin. The design test for everything in this round is "does this move a
+   * power toward the village, or entrench the scaffolding", and it fails on
+   * its own instrument the moment the scaffolding can hand itself a ceremony:
+   * an admin opening a handover, an admin closing it, and an admin writing
+   * the outcome sentence is the admin panel awarding itself a medal for
+   * having a panel.
+   *
+   * It is asked by re-running the gate with `isAdmin: false`, which is the
+   * exact question rather than a proxy for it. An admin who ALSO holds the
+   * key by role, badge or stage passes here, and passes as themselves, which
+   * is the property a proxy like `user.role !== "admin"` would have got
+   * wrong: it would have shut out the founder who is also a co-creator.
+   *
+   * An admin who wants a handover to happen opens an advisory vote and lets a
+   * member carry it. That path already exists one route above this one.
+   *
+   * ── RULING 2: THE GOVERNANCE KEYS ARE NOT REFUSED HERE ──────────────────
+   *
+   * `badge_grant` refuses `ballot.vote` and `member.vouch`; this type refuses
+   * nothing (`TYPE_CAPABILITY_REFUSALS`, server/lib/proposalDrafts.ts). A
+   * badge names PEOPLE and a transfer names a POWER, and the whole electorate
+   * votes on the second one. The reason is capture and never enlargement:
+   * under R54 a village widening its own roll is the destination.
+   *
+   * The check is asked anyway rather than assumed, because a type added to
+   * that map tomorrow must not need this route edited to be obeyed.
+   */
+  app.post("/api/governance/power-transfers", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ctx = await capabilityCtx(user);
+    // RULING 1. The question is "would this person hold proposal.open if they
+    // were not an admin", so it is asked that way.
+    const asMember = capabilityDecision("proposal.open", { ...ctx, isAdmin: false });
+    if (!asMember.allowed) {
+      return res.status(403).json({
+        error: hasCapability("proposal.open", ctx)
+          ? "A handover is the village's own act. Opening one takes somebody who holds proposal.open as a member of this village, and your only path to it today is your administrator account. If you want this to happen, open an advisory vote and let a member carry it."
+          : "Opening a vote for the whole village is for a proposal.open holder",
+        adminOnly: hasCapability("proposal.open", ctx),
+      });
+    }
+
+    const capability = String(req.body?.capability ?? "").trim();
+    const roleId = String(req.body?.roleId ?? "").trim();
+    const reason = String(req.body?.reason ?? "").trim().slice(0, 20000);
+
+    if (!ALL_CAPABILITIES.includes(capability as Capability)) {
+      return res.status(400).json({ error: "Name a power this platform knows about." });
+    }
+    const cap = capability as Capability;
+    const refused = typeRefusesCapability("power_transfer", capability);
+    if (refused) return res.status(409).json({ error: refused });
+    if (TRANSFERABLE[cap] !== true) {
+      return res.status(409).json({
+        error:
+          `"${capability}" is not a power that can move. It names something a member does for themselves, ` +
+          `or plumbing the deployment has to keep reachable, so there is nobody for it to move to.`,
+      });
+    }
+    const entry = POWERS.find((p) => p.capability === cap);
+    if (!entry) {
+      return res.status(409).json({
+        error: `Nothing in the product asks for "${capability}" yet, so there is no power here to hand anybody. Handing over a key that gates nothing would be a ceremony about a door that is not there.`,
+      });
+    }
+    /*
+     * ONE OPEN HANDOVER PER POWER, asked BEFORE anything about the role.
+     * `open_key` already gives one per (power, role) pair; this widens it to
+     * the power itself, because two ballots running at once to hand the same
+     * power to two different roles is a question with two answers, and
+     * whichever closed second would silently overwrite the first village
+     * decision.
+     *
+     * The order matters to the person reading the refusal. "The village is
+     * already deciding this" is a fact about the POWER and it settles the
+     * request whichever role was named, so telling somebody their chosen role
+     * is unsuitable first would send them off to fix the wrong thing.
+     */
+    const [[running]] = await getPool().query<any[]>(
+      "SELECT id, title FROM ballots WHERE subject_type = 'power_transfer' AND status = 'open' AND subject_ref LIKE ?",
+      [`${capability}@%`],
+    );
+    if (running) {
+      return res.status(409).json({
+        error: "The village is already deciding where this power lives. Let that one finish first.",
+        ballotId: String(running.id),
+      });
+    }
+
+    if (reason.length < 40) {
+      return res.status(400).json({
+        error: "Say why the village is ready for this one. The whole roll reads it before voting, and somebody quotes it years later.",
+      });
+    }
+
+    const role = rolesRepo.all().find((x: any) => x.id === roleId) as any;
+    if (!role) return res.status(404).json({ error: "There is no role by that name to hold it." });
+    if (role.isExample) {
+      return res.status(409).json({ error: "That is one of the platform's example roles, not one of this village's. Declare a role of your own to hold this." });
+    }
+    /*
+     * A HOLDER THAT CANNOT ACT IS NOT A HOLDER, checked here as well as in
+     * `moveCapabilityToVillage`. The library helper is the lock that matters,
+     * because it is the one thing both writers pass through. This is the one
+     * that matters to a person: a village should find out on the wizard's
+     * review step, not by carrying a vote and reading "nothing has moved yet".
+     */
+    const grants: string[] = Array.isArray(role.capabilities) ? role.capabilities.map(String) : [];
+    if (!grants.includes(capability)) {
+      return res.status(409).json({
+        error:
+          `${role.name ?? roleId} does not carry this power yet, so nobody in it could act the day it crossed. ` +
+          `Give the role the power first, watch somebody use it, then hand it over.`,
+      });
+    }
+
+    // `@` separates the two halves of the subject ref and may not appear in
+    // either. Refusing here rather than storing a ref the executor could not
+    // read back is the difference between a 409 and a carried vote that does
+    // nothing.
+    if (capability.includes("@") || roleId.includes("@")) {
+      return res.status(400).json({ error: "A power and a role are both named without an @ in them." });
+    }
+    const subjectRef = `${capability}@${roleId}`;
+    if (subjectRef.length > 64) {
+      return res.status(409).json({ error: "That role's name is too long for the record to hold beside the power. Shorten the role id first." });
+    }
+
+    const holdings = await capabilityHoldings(getPool());
+    const already = holdings.find((h) => h.capability === capability);
+    if (already?.holderRoleId === roleId) {
+      return res.status(409).json({
+        error: `${already.holderRoleName ?? roleId} already holds this one. There is nothing for the village to decide here.`,
+      });
+    }
+
+    const villageMethod = villageBallotMethod(stringVar("governance.default_method"));
+    const method: BallotMethod = villageMethod === "hypha" ? "custom" : villageMethod;
+    const dials = dialsForMethod(method, {
+      unityPct: Math.max(0, numberVar("governance.unity_pct")),
+      quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
+    });
+    const snapshot = weightModeNow();
+    if (snapshot.mode === "token") {
+      const problem = weightTokenProblem(snapshot.token ?? "");
+      if (problem) return res.status(409).json({ error: problem });
+    }
+    const electorate = await buildElectorate();
+
+    const holderNow = already
+      ? `${already.holderRoleName ?? already.holderRoleId} holds it, ${already.movedByBallotId ? "by a vote of the village" : "handed over from the admin panel"}.`
+      : "The admin panel is carrying it. Anybody with an administrator account can do this today, and nothing on the village's own record says when they did.";
+    const title = `${entry.title}: the village asks to hold this`;
+    /*
+     * The document, composed here so the three facts a member needs are in
+     * the FROZEN snapshot rather than in a payload a future client may render
+     * differently: what the power does, who has it today, and what changes on
+     * the day it crosses. What is voted on is what was read.
+     */
+    const doc = [
+      `# ${title}`,
+      "",
+      `## The power`,
+      "",
+      `${entry.title}. ${entry.surface}.`,
+      "",
+      `A holder can ${CAPABILITY_CONSEQUENCE[cap]}.`,
+      "",
+      `## Who has it today`,
+      "",
+      holderNow,
+      "",
+      `## What changes on the day it crosses`,
+      "",
+      `${role.name ?? roleId} looks after it. An administrator who is not seated there stops passing this gate by being an administrator: they can still act on it, and every time they do, the village is told and the act goes on the village's own record. Handing it back is the same kind of act, in the open.`,
+      "",
+      villageMethod === "hypha"
+        ? "This village takes its rule changes to Hypha. A power has no Hypha leg to travel on, so this one is decided here, on the village's own dials."
+        : "",
+      "",
+      `## Why now`,
+      "",
+      reason,
+      "",
+      `Asked by ${firstName(user.name)} on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+    ]
+      .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+      .join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: "power_transfer",
+      subjectRef,
+      title,
+      docMarkdown: doc,
+      method,
+      weightMode: snapshot.mode,
+      weightToken: snapshot.token,
+      unityPct: dials.unityPct,
+      quorumPct: dials.quorumPct,
+      durationDays: Math.max(
+        1,
+        numberVar(method === "consent" ? "governance.consent_window_days" : "governance.vote_days"),
+      ),
+      openedBy: user.id,
+      electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    await addActivity("governance", `The village is deciding whether to hold a power: ${entry.title}.`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is asked to take a power on: ${entry.title}`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}. If this carries, ${role.name ?? roleId} looks after it from that day.`,
       keySuffix: "open",
       except: [user.id],
       roll: electorate.map((e) => e.userId),

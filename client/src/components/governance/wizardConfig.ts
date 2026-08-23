@@ -34,6 +34,7 @@ import {
   Award,
   Coins,
   FileText,
+  Handshake,
   Scale,
   UserPlus,
   type LucideIcon,
@@ -52,6 +53,7 @@ export const WIZARD_TYPES = [
   "agreement",
   "badge_grant",
   "quest_payout",
+  "power_transfer",
 ] as const;
 export type WizardType = (typeof WIZARD_TYPES)[number];
 
@@ -85,7 +87,25 @@ export type FieldKind =
   | "changeSet";
 
 /** Where a `pick` field's options come from, fetched by the renderer. */
-export type PickSource = "seats" | "badges" | "members" | "quests" | "circles" | "tokens";
+export type PickSource =
+  | "seats"
+  | "badges"
+  | "members"
+  | "quests"
+  | "circles"
+  | "tokens"
+  /*
+   * The powers this village could take on, and the roles that could hold one.
+   *
+   * Both are SERVED rather than typed here, and that matters for the transfer
+   * ceremony specifically. A hand-kept list of powers in this file would go
+   * stale the day a key is added, and the wizard would walk a member toward a
+   * power the platform refuses to move. `/api/village/powers` already answers
+   * with the movable ones and the sentence each one means, so the picker
+   * cannot offer a door that is not there.
+   */
+  | "powers"
+  | "roles";
 
 export interface FieldSpec {
   key: string;
@@ -120,7 +140,7 @@ export interface TypeStepOverride {
 export interface WizardTypeConfig {
   id: WizardType;
   /** The heading its card sits under on the type step. */
-  group: "Rules" | "People" | "Recurring" | "One-time";
+  group: "Rules" | "People" | "Recurring" | "One-time" | "The village's own powers";
   icon: LucideIcon;
   title: string;
   description: string;
@@ -520,14 +540,115 @@ export const WIZARD_TYPE_CONFIGS: readonly WizardTypeConfig[] = [
       },
     },
   },
+  /*
+   * THE VILLAGE ASKS TO HOLD THIS.
+   *
+   * Every other type in this table asks the village to decide something. This
+   * one asks the village to decide who decides, which is the act the whole
+   * platform is pointed at: "these villages are meant to be taken over by the
+   * electorate to run the game and put the admins out of a full time job."
+   * Admin is scaffolding, and this is the ceremony that takes a piece of it
+   * down.
+   *
+   * IT IS DELIBERATELY NOT AN ADMIN'S BUTTON. The route refuses an actor
+   * whose only path to `proposal.open` is being an admin, because a design
+   * test that reads "does this move a power toward the village" fails on its
+   * own instrument the moment the scaffolding can hand itself a ceremony. An
+   * admin who wants this to happen opens an advisory vote and lets a member
+   * carry it.
+   *
+   * IT NAMES A POWER AND NEVER A PERSON. That is what separates it from a
+   * badge grant and it is the entire safety argument for letting it move the
+   * governance keys a badge may not (`TYPE_CAPABILITY_REFUSALS`,
+   * server/lib/proposalDrafts.ts).
+   */
+  {
+    id: "power_transfer",
+    group: "The village's own powers",
+    icon: Handshake,
+    title: "Take a power on",
+    description: "Ask the village to hold one of the powers the admin panel is carrying.",
+    consequence:
+      "The village asks to hold this. Publishing opens the vote to the whole roll, and if it carries, the power crosses over that day: the role you named looks after it, and an admin who is not seated there has to reach past the village in the open to act on it.",
+    publish: {
+      path: "/api/governance/power-transfers",
+      body: (a) => ({
+        capability: a.capability,
+        roleId: a.roleId,
+        reason: a.reason,
+      }),
+    },
+    steps: {
+      subject: {
+        label: "The power",
+        intro: "Which power the village is asking to hold, and who would look after it.",
+        fields: [
+          {
+            key: "capability",
+            kind: "pick",
+            source: "powers",
+            label: "The power",
+            required: true,
+            problem: required("A power"),
+            help: "These are the powers that can move. Some of what the admin panel does is plumbing the deployment has to keep reachable, and those are not on this list.",
+            tip: "A power that has crossed is one an admin no longer passes by being an admin. They can still act on it, and the village sees when they do.",
+          },
+          {
+            key: "roleId",
+            kind: "pick",
+            source: "roles",
+            label: "Who looks after it",
+            required: true,
+            problem: required("A role"),
+            help: "The role has to already carry this power, so that somebody can act the moment it crosses. Give the role the power first, watch someone use it, then hand it over.",
+            tip: "A power held by a role that cannot use it belongs to nobody: the admin stops passing the gate and the named holder never passed it either.",
+          },
+        ],
+      },
+      details: {
+        label: "Why now",
+        intro: "What the village has been doing that makes this the right moment.",
+        fields: [
+          {
+            key: "reason",
+            kind: "textarea",
+            rows: 6,
+            maxLength: 2000,
+            label: "Why the village is ready for this one",
+            placeholder:
+              "The stewards have been putting every gathering on the calendar for three seasons, and the last four times an admin touched it was to fix a typo.",
+            help: "This is the part the roll reads before it votes, and the part somebody quotes in five years when they ask how this village came to look after its own calendar.",
+            required: true,
+            problem: atLeast(40, "The case for it"),
+          },
+        ],
+      },
+      terms: { skip: true },
+    },
+  },
 ];
 
 /** By id, for the walker and the renderer. */
 export const typeConfig = (id: string): WizardTypeConfig | null =>
   WIZARD_TYPE_CONFIGS.find((t) => t.id === id) ?? null;
 
-/** The type groups in the order they render on the first step. */
-export const TYPE_GROUPS = ["Rules", "People", "Recurring", "One-time"] as const;
+/**
+ * The type groups in the order they render on the first step.
+ *
+ * "The village's own powers" is last on purpose and not first. A village
+ * opening this wizard is usually here to change a dial or put somebody in a
+ * seat, and the ordinary work belongs at the top. Nothing about the position
+ * says the group is further away: it is one heading among five, always
+ * visible, and it reads the same on a village's first day as on its tenth
+ * year.
+ */
+export const TYPE_GROUPS = [
+  "Rules",
+  "People",
+  "Recurring",
+  "One-time",
+  "The village's own powers",
+] as const;
 
 /**
  * What a decision ON this subject is called, as a noun.
@@ -543,6 +664,13 @@ export const SUBJECT_NOUN: Record<string, string> = {
   agreement: "Agreement",
   badge_grant: "Badge grant",
   quest_payout: "Quest payout",
+  /*
+   * A NOUN FOR THE THING, NOT FOR THE MACHINERY. "Capability transfer" is
+   * what the table is called; a handover is what happened. The chip sits
+   * above the title on the decision page and is the first thing a member
+   * reads about a vote they were asked to cast.
+   */
+  power_transfer: "Power handover",
   /*
    * NOT a wizard type, and here because `ballots.subject_type` carries it.
    * Without this entry an advisory vote fell through to "Decision", which is
