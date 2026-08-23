@@ -17,10 +17,49 @@ const headers = (): Record<string, string> => {
   return t ? { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
 };
 
-const TOKEN_LABEL: Record<string, string> = { amora: "Amora (equity)", voice: "Voice (governance)" };
+/**
+ * What each slot IS, in platform words. The token's own name comes from the
+ * chain when the Hypha Bridge module is on, and this is what a village that has
+ * not turned it on reads instead. The old version of this line carried the
+ * first tenant's token names in platform code, which is the debt the
+ * white-label ratchet exists to shrink.
+ */
+const TOKEN_ROLE: Record<string, string> = { amora: "Equity", voice: "Governance" };
+
+/**
+ * One village-level figure, with the null-never-zero rule carried all the way
+ * to the screen.
+ *
+ * Three states and each is a different sentence, because collapsing them is
+ * exactly the misstatement the rule exists to prevent. A number the chain gave
+ * just now is a number. A number the chain gave earlier is shown with the date
+ * it was true. Nothing at all is what a village sees when the chain has never
+ * answered, and it is deliberately not a zero: a zero total supply reads as a
+ * statement that the DAO issued nothing.
+ */
+function VillageFigure({ label, figure }: { label: string; figure: any }) {
+  return (
+    <div className="mt-2 first:mt-0">
+      <p className="text-xs text-gray-400">{label}</p>
+      {figure ? (
+        <>
+          <p className="text-lg font-semibold text-teal-deep">{figure.formatted}</p>
+          {figure.stale && (
+            <p className="text-xs text-amber-600">
+              as of {new Date(figure.fetchedAt).toLocaleString()}. Base didn't answer just now, so this is the last true figure
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="text-sm text-gray-400">not readable right now. Nothing is shown instead of a wrong number</p>
+      )}
+    </div>
+  );
+}
 
 export default function OnchainCard() {
   const [data, setData] = useState<any>(null);
+  const [village, setVillage] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,8 +68,22 @@ export default function OnchainCard() {
       .then((r) => (r.ok ? r.json() : null))
       .then(setData)
       .catch(() => {});
+    /*
+     * The village's own numbers, from the Hypha Bridge module. A 404 is the
+     * module answering that it is off, which is a state and not a fault: the
+     * section below simply does not appear, exactly the way a blank DHO address
+     * hides every Hypha link.
+     */
+    fetch("/api/hypha", { headers: headers() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setVillage)
+      .catch(() => {});
   };
   useEffect(load, []);
+
+  /** The chain's own name for a slot, when a contract has been confirmed. */
+  const chainToken = (slug: string) =>
+    (village?.tokens ?? []).find((t: any) => t.slug === slug) ?? null;
 
   if (!data?.economicsEnabled) return null;
 
@@ -101,9 +154,12 @@ export default function OnchainCard() {
         <div className="grid sm:grid-cols-2 gap-4">
           {["amora", "voice"].map((slug) => {
             const b = data?.onchain?.[slug];
+            const chain = chainToken(slug);
             return (
               <div key={slug} className="border border-gray-100 rounded-xl p-4">
-                <p className="text-xs text-gray-400 mb-1">{TOKEN_LABEL[slug]}</p>
+                <p className="text-xs text-gray-400 mb-1">
+                  {chain ? `${chain.name} (${chain.symbol})` : TOKEN_ROLE[slug]}
+                </p>
                 {b ? (
                   <>
                     <p className="text-2xl font-bold text-teal-deep">{b.formatted}</p>
@@ -122,6 +178,34 @@ export default function OnchainCard() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/*
+        THE VILLAGE, NOT ONLY THE MEMBER. Every chain number this platform held
+        was keyed to one person's wallet, so "see our data from Base" resolved to
+        your own balance and a link out. Total supply and what the treasury holds
+        are facts about the village, and they show whether or not the viewer has
+        ever bound a wallet.
+
+        Same rule as everything else here: a figure that failed to read shows
+        the last true value with when it was true, and a figure that has never
+        been read shows nothing. Never a zero the chain did not say.
+      */}
+      {(village?.tokens ?? []).length > 0 && (
+        <div className="mt-6 pt-5 border-t border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-900">The village on Base</h3>
+          <div className="grid sm:grid-cols-2 gap-4 mt-3">
+            {village.tokens.map((t: any) => (
+              <div key={t.slug} className="border border-gray-100 rounded-xl p-4">
+                <p className="text-xs text-gray-400 mb-1">
+                  {t.name} ({t.symbol})
+                </p>
+                <VillageFigure label="Total supply" figure={t.totalSupply} />
+                {village.treasuryConfigured && <VillageFigure label="Treasury holds" figure={t.treasuryBalance} />}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

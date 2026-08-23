@@ -613,7 +613,17 @@ export const VARIABLES: VariableDef[] = [
     category: "Hypha",
     label: "Hypha space id (on-chain)",
     description:
-      "The numeric id of your DAO's space on Hypha's Base contracts. Every on-chain proposal your DAO creates is stamped with it. Found in your Hypha space's URL or from any of its proposals on Basescan. Coming soon: nothing reads this yet. The governance webhook authenticates on its shared secret alone, so an outcome claiming to be yours is trusted on that secret and this id checks nothing today. Recording it now means the check has it the day it is built.",
+      "The numeric id of your DAO's space on Hypha's Base contracts. Every on-chain proposal your DAO creates is stamped with it. Found in your Hypha space's URL or from any of its proposals on Basescan. Fill this in and the governance webhook checks it: a delivery that names a different space is refused, even when its signature is good, because one hub watches Base for many villages off one listener and a routing mistake there arrives correctly signed. A delivery that names no space at all is still accepted and an operator is told, so an idle check is never read as a passing one. Blank checks nothing.",
+    type: "text",
+    default: "",
+    ring: "founder",
+  },
+  {
+    key: "hypha.treasury_address",
+    category: "Hypha",
+    label: "DAO treasury address on Base",
+    description:
+      "The 0x address holding your DAO's treasury on Base. The Hypha Bridge module reads what this address holds of each confirmed token and shows it as a fact about the village. Leave it blank and only total supply is shown. Reading it never moves anything: the platform displays what Base says and links you out to Hypha to act.",
     type: "text",
     default: "",
     ring: "founder",

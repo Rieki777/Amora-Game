@@ -30,6 +30,7 @@ import {
 import { recordEvent } from "./events";
 import { hasRealContent } from "./examples";
 import { secretValue } from "./secrets";
+import { stringVar } from "./variables";
 
 interface ModuleRow {
   lifecycle: ModuleLifecycle;
@@ -337,6 +338,7 @@ const READINESS_HINTS: Record<string, string> = {
   exchange: "List a token and post its price first",
   commerce: "Create one product first",
   crowdpool: "Link one hub campaign first",
+  hypha: "Set your DHO address, then confirm one token contract first",
 };
 
 let readinessAttached = false;
@@ -384,6 +386,33 @@ export function attachModuleReadiness(getPool: () => Pool): void {
         try {
           const cfg = moduleConfig<{ villageCampaigns?: unknown[] }>("crowdpool");
           return { ready: (cfg?.villageCampaigns?.length ?? 0) > 0, hint };
+        } catch {
+          return { ready: false, hint };
+        }
+      };
+      continue;
+    }
+    if (def.id === "hypha") {
+      /*
+       * The third custom reader, and the one that keeps an unconfigured fork
+       * honest. This module's content is a DHO address plus at least one token
+       * contract a human confirmed, and neither is a row the examples engine
+       * knows how to count.
+       *
+       * Both halves are required and the order matters to the founder reading
+       * the hint. Without the org URL every Hypha surface hides by design
+       * (`shared/hypha.ts`), so a binding with no DHO behind it has nowhere to
+       * link out to. Without a confirmed binding there is no name, no supply
+       * and no treasury figure to show, and a page of empty cards is exactly
+       * the broken-looking module this reader exists to prevent.
+       */
+      def.readiness = async () => {
+        try {
+          if (!stringVar("hypha.org_url").trim()) return { ready: false, hint };
+          const [[bound]] = await getPool().query<RowDataPacket[]>(
+            "SELECT COUNT(*) n FROM hypha_token_bindings",
+          );
+          return { ready: Number(bound.n) > 0, hint };
         } catch {
           return { ready: false, hint };
         }

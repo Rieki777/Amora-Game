@@ -300,6 +300,7 @@ export const MODULE_DOCS: Readonly<Record<string, string>> = {
   events: "events.md",
   resources: "how-resources-flow.md",
   crowdpool: "crowdpool.md",
+  hypha: "hypha.md",
 };
 
 /** Deterministic and close enough for a budget. Four characters per token. */

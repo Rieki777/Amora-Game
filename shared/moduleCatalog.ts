@@ -381,6 +381,23 @@ export const MODULE_CATALOG: Record<string, ModuleCatalogEntry> = {
     hue: 320,
     emblem: "Handshake",
   },
+  hypha: {
+    promise: "Your DAO's real numbers from Base, on your own pages.",
+    benefits: [
+      "Find your token contracts from your founder account, then confirm each one yourself",
+      "The name on screen is the one the contract answers to, read from the chain and dated",
+      "Total supply and treasury balance as facts about the village, not one member's holding",
+      "A failed chain read shows the last true figure with when it was true, and never a zero",
+      "Outcomes that match no proposal are listed for a steward instead of dropped",
+    ],
+    forWhom: "Villages whose equity and governance already live on a Hypha DAO on Base.",
+    setupSummary:
+      "Set your DHO address and founder Base account, look your tokens up, and confirm each contract. Reading the chain needs a Base endpoint somebody pays for.",
+    dataSummary:
+      "Contract addresses, what those contracts call themselves, village-level supply and treasury figures, and a log of outcomes that arrived.",
+    hue: 175,
+    emblem: "Landmark",
+  },
 };
 
 // ── The builders' shelf ──────────────────────────────────────────────────────

@@ -960,6 +960,58 @@ export const MODULES: ModuleDef[] = [
     ],
     apiPrefixes: ["/api/governance", "/api/admin/governance"],
   },
+  {
+    id: "hypha",
+    tier: "included",
+    // The module's own tables hold contract addresses, what those contracts
+    // call themselves, village-level supply and treasury figures, and a log of
+    // outcomes that arrived. Not one of them identifies a member. Per-member
+    // chain balances live in `onchain_balances`, which the economics section
+    // owns and this module does not touch.
+    dataClass: "village-content",
+    group: "know-and-decide",
+    // Required, and honestly so: without a DHO address and a confirmed contract
+    // there is nothing to read. The Go-live card waits for readiness, which is
+    // what stops a fork shipping an empty page that looks broken.
+    setup: "required",
+    name: "Hypha Bridge",
+    description:
+      "Your DAO on Hypha, read from Base and shown here: the contracts this village actually holds, total supply and treasury balance as the chain reports them, and governance outcomes that find their way back to the proposal they came from. Read only, always. Needs a Base endpoint somebody pays for, and it says which of the two listener paths this village is on.",
+    // FREE TO EVERY VILLAGE (R58c). No pricing record, no licence key, no
+    // entitlement gate, and that is the v1.0 commercial shape for every module:
+    // modules earn $ReGen from the builders' pool and cost a village nothing.
+    // A `pricing` block here would be refused at `included` anyway, and the
+    // absence is the statement.
+    //
+    // Nothing hard-required. The read-only deep links in `shared/hypha.ts` and
+    // the mechanics loop in `hypha-bridge.ts` are platform machinery that ships
+    // with or without this module, so OFF leaves today's Hypha behaviour
+    // exactly as it is. Governance is a RECOMMEND because the outcome log is
+    // most useful to a village running its own decisions beside the Hypha ones.
+    requires: [],
+    recommends: ["governance", "tools"],
+    capabilities: [],
+    // ONLY the variable this module introduces. `hypha.org_url`, `space_id`,
+    // `founder_base_address` and the four link overrides are DELIBERATELY
+    // absent: an off module's variables are hidden from Admin, and those seven
+    // configure surfaces that work with this module off. Listing them here
+    // would take a village's Hypha links away the moment this shipped.
+    variableKeys: ["hypha.treasury_address"],
+    // `/api/hypha` is mounted whole behind requireModule. `/api/admin/hypha`
+    // carries a route that PREDATES this module (the shipped find-token
+    // lookup), which every village reaches from the Integrate DAO panel today,
+    // so that prefix is gated per route instead of wholesale. Mounting it whole
+    // would 404 a working founder surface on the deploy that added this module.
+    apiPrefixes: ["/api/hypha", "/api/admin/hypha"],
+    hyphaLinks: ["governance", "proposals", "treasury", "members"],
+    // Share-like: deep-link display only, never a mint path. Ring 0 says a
+    // chain-governed token is read, displayed and linked out to, and never
+    // minted, moved or priced. `server/lib/ledger.ts` refuses those tokens
+    // outright and `weightTokenProblem` refuses them for voting weight, so this
+    // flag is a declaration beside two enforcements rather than instead of them.
+    hyphaOnly: true,
+    // readiness attached by the server at boot (needs the pool).
+  },
 ];
 
 export const MODULES_BY_ID: Record<string, ModuleDef> = Object.fromEntries(

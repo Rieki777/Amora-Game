@@ -85,6 +85,124 @@ async function rpcClient() {
   });
 }
 
+/**
+ * THE SEAM (R58d). The guarded client, exposed.
+ *
+ * Everything above this line is general: an SSRF-checked dialer, a decimals()
+ * cache, string-math formatting and the null-never-zero rule. None of it knows
+ * what Hypha is. The founder's ruling on other DAO stacks was "make the module
+ * open, each one will be its own module anyway", so a second stack writes a
+ * sibling module and builds on THESE functions rather than editing the Hypha
+ * one or growing a second, unguarded dialer of its own.
+ *
+ * Deliberately not an adapter interface with one implementation. There is no
+ * second stack yet, and a speculative abstraction shaped around a single case
+ * is a worse starting point for the second case than the plain functions are.
+ * What this does guarantee is that the second module never has to reach for
+ * `createPublicClient` itself, which is the part that would actually go wrong.
+ *
+ * Returns null when no RPC is configured or the configured one is refused, and
+ * every caller treats that as "the chain did not answer".
+ */
+export async function baseChainClient(): Promise<Awaited<ReturnType<typeof rpcClient>>> {
+  return rpcClient();
+}
+
+/** What a contract calls itself, plus the decimals every figure is scaled by. */
+export interface TokenIdentity {
+  name: string;
+  symbol: string;
+  decimals: number;
+  /** Base mainnet, carried so a testnet binding can never pass as a mainnet fact. */
+  chainId: number;
+  readAt: string;
+}
+
+/**
+ * name(), symbol() and decimals() READ FROM THE CHAIN.
+ *
+ * Base is already declared the source of truth for a village's token names and
+ * `tokenNameClash` enforces that rule, and until this function existed nothing
+ * in the platform had ever asked a contract what it was called. The names on
+ * screen came from a founder typing them into a variable, so the guard defended
+ * a claim it could not check.
+ *
+ * All three in ONE multicall-free sequence with no cache: a binding happens once
+ * and correctness matters more there than a round trip does. The decimals cache
+ * above is for the hot balance path, and reusing it here would let a stale entry
+ * decide what a NEW binding is scaled by.
+ *
+ * Returns null on any failure, including an implausible decimals(). A contract
+ * that will not say what it is is a contract nobody should bind.
+ */
+export async function readTokenIdentity(contractAddress: string): Promise<TokenIdentity | null> {
+  try {
+    const client = await rpcClient();
+    if (!client) return null;
+    const address = getAddress(contractAddress);
+    const [name, symbol, decimals] = await Promise.all([
+      client.readContract({ address, abi: erc20Abi, functionName: "name" }),
+      client.readContract({ address, abi: erc20Abi, functionName: "symbol" }),
+      client.readContract({ address, abi: erc20Abi, functionName: "decimals" }),
+    ]);
+    const d = Number(decimals);
+    if (!Number.isInteger(d) || d < 0 || d > 77) throw new Error(`implausible decimals() = ${d}`);
+    const chainName = String(name ?? "").trim();
+    const chainSymbol = String(symbol ?? "").trim();
+    if (!chainName || !chainSymbol) throw new Error("contract answered with a blank name or symbol");
+    return {
+      name: chainName.slice(0, 190),
+      symbol: chainSymbol.slice(0, 64),
+      decimals: d,
+      chainId: base.id,
+      readAt: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.error(`[base-reads] identity read failed for ${contractAddress}: ${(e as any)?.message ?? e}`);
+    return null;
+  }
+}
+
+/**
+ * A raw uint256 read, village-scale: total supply, or what one address holds.
+ *
+ * Separate from `readOnchainBalance` because that function is a per-MEMBER
+ * read-through cache keyed on a user id and gated on a verified wallet binding,
+ * and neither of those applies to a fact about the village. This one takes an
+ * address and returns a number or nothing; the caching and the null-never-zero
+ * fallback live one layer up, where the store is.
+ *
+ * `null` means the chain did not answer. It never means zero.
+ */
+export async function readVillageMetric(
+  input: { contractAddress: string; metric: "totalSupply" | "balanceOf"; holderAddress?: string },
+): Promise<{ raw: string; decimals: number } | null> {
+  try {
+    const client = await rpcClient();
+    if (!client) return null;
+    const address = getAddress(input.contractAddress);
+    let decimals = decimalsCache.get(address.toLowerCase());
+    if (decimals === undefined) {
+      decimals = Number(await client.readContract({ address, abi: erc20Abi, functionName: "decimals" }));
+      if (!Number.isInteger(decimals) || decimals < 0 || decimals > 77) throw new Error(`implausible decimals() = ${decimals}`);
+      decimalsCache.set(address.toLowerCase(), decimals);
+    }
+    let raw: bigint;
+    if (input.metric === "totalSupply") {
+      raw = (await client.readContract({ address, abi: erc20Abi, functionName: "totalSupply" })) as bigint;
+    } else {
+      if (!input.holderAddress) throw new Error("balanceOf needs an address to read");
+      raw = (await client.readContract({
+        address, abi: erc20Abi, functionName: "balanceOf", args: [getAddress(input.holderAddress)],
+      })) as bigint;
+    }
+    return { raw: raw.toString(), decimals };
+  } catch (e) {
+    console.error(`[base-reads] ${input.metric} read failed for ${input.contractAddress}: ${(e as any)?.message ?? e}`);
+    return null;
+  }
+}
+
 async function readCache(pool: Pool, userId: string, tokenSlug: string): Promise<{ raw: string; decimals: number; fetchedAt: string } | null> {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT raw_balance, decimals, fetched_at FROM onchain_balances WHERE user_id = ? AND token_slug = ?",
