@@ -642,6 +642,8 @@ export default function ProjectHistory() {
   });
   const [activeView, setActiveView] = useState<ViewId>("timeline");
   const [serverState, setServerState] = useState<JourneyState>({ checkboxes: {}, copy: {}, kanban: {}, decisions: {} });
+  /** What the last journey write actually did. Empty while everything lands. */
+  const [writeNote, setWriteNote] = useState("");
   const [loadingState, setLoadingState] = useState(true);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [editingNote, setEditingNote] = useState<string | null>(null);
@@ -719,7 +721,47 @@ export default function ProjectHistory() {
     // exactly once, when the gate opens.
   }, [authenticated]);
 
+  /**
+   * A journey write that reports what the server actually said.
+   *
+   * Every write on this page moved the screen first and rolled back inside a
+   * `catch`. `fetch` resolves on a 401 and on a 500, so that rollback only
+   * ever ran for a dead network: an expired journey password refused all six
+   * writes with a 401 and the founding team's tracker went on showing ticks,
+   * notes, cards and decisions that were never written down. Nothing on the
+   * page said so, and a reload was the only way to find out.
+   *
+   * Returns whether it landed, so each caller does its own rollback and the
+   * one at the top of the page says a single sentence about it.
+   *
+   * IT ONLY EVER SETS. Clearing on success looked right and was the same
+   * defect again: moving a card to "completed" and deciding a linked decision
+   * both fire two writes at once, so a checkbox refused with a 401 wrote its
+   * sentence and the kanban write that succeeded a moment later wiped it. The
+   * four handlers below clear the slot as they start, which is one clean slate
+   * per thing a person does, and a failure from either write survives.
+   */
+  const journeyWrite = async (path: string, body: unknown): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        headers: journeyHeaders(),
+        body: JSON.stringify(body),
+      });
+      if (res.ok) return true;
+      setWriteNote(
+        res.status === 401
+          ? "The tracker did not save that. Your journey password is no longer accepted, so reload the page and sign in again."
+          : `The tracker did not save that (${res.status}). What you see is back to what the server holds.`,
+      );
+    } catch {
+      setWriteNote("The tracker did not reach the server. What you see is back to what the server holds.");
+    }
+    return false;
+  };
+
   const cycleCheckbox = async (d: Deliverable) => {
+    setWriteNote("");
     const current = getEffectiveState(d.id, d, serverState.checkboxes);
     const next: 0 | 1 | 2 = current === 0 ? 1 : current === 1 ? 2 : 0;
     // Optimistic update
@@ -727,14 +769,7 @@ export default function ProjectHistory() {
       ...prev,
       checkboxes: { ...prev.checkboxes, [d.id]: next },
     }));
-    try {
-      await fetch(`${API_BASE}/api/journey/checkbox`, {
-        method: "POST",
-        headers: journeyHeaders(),
-        body: JSON.stringify({ id: d.id, state: next }),
-      });
-    } catch {
-      // Rollback on failure
+    if (!(await journeyWrite("/api/journey/checkbox", { id: d.id, state: next }))) {
       setServerState((prev) => ({
         ...prev,
         checkboxes: { ...prev.checkboxes, [d.id]: current },
@@ -757,25 +792,30 @@ export default function ProjectHistory() {
   };
 
   const saveNote = async (deliverableId: string) => {
+    setWriteNote("");
     const sectionId = `note-${deliverableId}`;
     const draft = noteDraft;
+    const before = serverState.copy[sectionId];
     setServerState((prev) => ({
       ...prev,
       copy: { ...prev.copy, [sectionId]: draft },
     }));
     setEditingNote(null);
-    try {
-      await fetch(`${API_BASE}/api/journey/copy`, {
-        method: "POST",
-        headers: journeyHeaders(),
-        body: JSON.stringify({ sectionId, content: draft }),
-      });
-    } catch {
-      // best effort
+    if (!(await journeyWrite("/api/journey/copy", { sectionId, content: draft }))) {
+      // The editor is put back with the text still in it, so a refused save
+      // never costs somebody the paragraph they just wrote.
+      setServerState((prev) => ({
+        ...prev,
+        copy: { ...prev.copy, [sectionId]: before ?? "" },
+      }));
+      setNoteDraft(draft);
+      setEditingNote(deliverableId);
     }
   };
 
   const updateKanban = async (id: string, column: KanbanColumn, assignee: string) => {
+    setWriteNote("");
+    const before = serverState.kanban[id];
     // Optimistic update
     setServerState((prev) => ({
       ...prev,
@@ -785,29 +825,36 @@ export default function ProjectHistory() {
     if (column === "completed") {
       const d = WEEKS.flatMap((w) => w.deliverables).find((x) => x.id === id);
       if (d) {
+        const wasChecked = serverState.checkboxes[id];
         setServerState((prev) => ({
           ...prev,
           checkboxes: { ...prev.checkboxes, [id]: 2 },
         }));
-        fetch(`${API_BASE}/api/journey/checkbox`, {
-          method: "POST",
-          headers: journeyHeaders(),
-          body: JSON.stringify({ id, state: 2 }),
-        }).catch(() => {});
+        void journeyWrite("/api/journey/checkbox", { id, state: 2 }).then((landed) => {
+          if (!landed) {
+            setServerState((prev) => {
+              const checkboxes = { ...prev.checkboxes };
+              if (wasChecked === undefined) delete checkboxes[id];
+              else checkboxes[id] = wasChecked;
+              return { ...prev, checkboxes };
+            });
+          }
+        });
       }
     }
-    try {
-      await fetch(`${API_BASE}/api/journey/kanban`, {
-        method: "POST",
-        headers: journeyHeaders(),
-        body: JSON.stringify({ id, column, assignee }),
+    if (!(await journeyWrite("/api/journey/kanban", { id, column, assignee }))) {
+      setServerState((prev) => {
+        const kanban = { ...prev.kanban };
+        if (before === undefined) delete kanban[id];
+        else kanban[id] = before;
+        return { ...prev, kanban };
       });
-    } catch {
-      // best effort
     }
   };
 
   const updateDecision = async (id: string, status: "open" | "decided", chosen: string, notes: string) => {
+    setWriteNote("");
+    const before = serverState.decisions[id];
     setServerState((prev) => ({
       ...prev,
       decisions: { ...prev.decisions, [id]: { status, chosen, notes } },
@@ -819,28 +866,37 @@ export default function ProjectHistory() {
       if (linkedD) {
         const current = getEffectiveState(linkedD.id, linkedD, serverState.checkboxes);
         if (current === 0) {
+          const linkedId = def.linkedItem;
+          const wasChecked = serverState.checkboxes[linkedId];
           setServerState((prev) => ({
             ...prev,
-            checkboxes: { ...prev.checkboxes, [def.linkedItem!]: 1 },
+            checkboxes: { ...prev.checkboxes, [linkedId]: 1 },
           }));
-          fetch(`${API_BASE}/api/journey/checkbox`, {
-            method: "POST",
-            headers: journeyHeaders(),
-            body: JSON.stringify({ id: def.linkedItem, state: 1 }),
-          }).catch(() => {});
+          void journeyWrite("/api/journey/checkbox", { id: linkedId, state: 1 }).then((landed) => {
+            if (!landed) {
+              setServerState((prev) => {
+                const checkboxes = { ...prev.checkboxes };
+                if (wasChecked === undefined) delete checkboxes[linkedId];
+                else checkboxes[linkedId] = wasChecked;
+                return { ...prev, checkboxes };
+              });
+            }
+          });
         }
       }
     }
-    try {
-      await fetch(`${API_BASE}/api/journey/decision`, {
-        method: "POST",
-        headers: journeyHeaders(),
-        body: JSON.stringify({ id, status, chosen, notes }),
-      });
-    } catch {
-      // best effort
+    if (await journeyWrite("/api/journey/decision", { id, status, chosen, notes })) {
+      setEditingDecision(null);
+      return;
     }
-    setEditingDecision(null);
+    // The editor stays open on a refusal, holding what was typed, because
+    // closing it is the page's way of saying the decision was recorded.
+    setServerState((prev) => {
+      const decisions = { ...prev.decisions };
+      if (before === undefined) delete decisions[id];
+      else decisions[id] = before;
+      return { ...prev, decisions };
+    });
   };
 
   // Known assignees for auto-suggest
@@ -1047,6 +1103,23 @@ export default function ProjectHistory() {
 
         {/* ── Main Content ──────────────────────────────────────────────── */}
         <main className="flex-1 overflow-auto p-6 md:p-8">
+          {/* Sits above every view, because a write can be started from any of
+              them and the sentence has to survive a view switch. */}
+          {writeNote && (
+            <div
+              role="alert"
+              className="max-w-4xl mx-auto mb-4 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+            >
+              <span className="flex-1">{writeNote}</span>
+              <button
+                onClick={() => setWriteNote("")}
+                className="shrink-0 text-red-400 hover:text-red-700"
+                aria-label="Dismiss this message"
+              >
+                ×
+              </button>
+            </div>
+          )}
           {loadingState ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-stone-400 text-sm">Loading...</div>

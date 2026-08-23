@@ -82,7 +82,28 @@ export default function GuideChat({
     setSubmitting(true);
     const ok = await submitProposal(kind, proposal);
     setSubmitting(false);
-    if (ok) onSubmitted();
+    if (ok) {
+      onSubmitted();
+      return;
+    }
+    /*
+     * A refused submission used to do nothing at all: the spinner stopped,
+     * the Send button came back, and the proposal somebody had spent the
+     * whole conversation shaping had not left the browser. The two sibling
+     * forms both say a sentence here, and this one is where the work is
+     * longest, so silence costs the most.
+     *
+     * It speaks in the transcript because that is where this component says
+     * everything else, and the draft is still on screen underneath it.
+     */
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content:
+          "That did not send, and your proposal is still here. Try the button again in a moment, or use the plain form instead.",
+      },
+    ]);
   };
 
   return (
